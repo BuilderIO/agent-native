@@ -7,7 +7,9 @@ import {
   buildAgentWebStaticFiles,
   normalizeAgentWebConfig,
   type AgentWebInputConfig,
+  type AgentWebOrganization,
   type AgentWebPage,
+  type AgentWebResource,
 } from "../agent-web/index.js";
 
 export interface AgentWebVitePluginOptions {
@@ -15,13 +17,12 @@ export interface AgentWebVitePluginOptions {
   siteUrl: string;
   description?: string;
   pages: AgentWebPage[] | (() => AgentWebPage[]);
+  developerResources?: AgentWebResource[];
+  whenToUse?: string[];
   agentWeb?: AgentWebInputConfig | boolean;
   outputDirs?: string[];
-  organization?: {
-    name: string;
-    url?: string;
-    sameAs?: string[];
-  };
+  organization?: AgentWebOrganization;
+  sitemapGroup?: (page: AgentWebPage) => string;
 }
 
 export function createAgentWebVitePlugin(
@@ -49,7 +50,10 @@ export function createAgentWebVitePlugin(
         description: options.description,
         pages,
         config,
+        developerResources: options.developerResources,
+        whenToUse: options.whenToUse,
         organization: options.organization,
+        sitemapGroup: options.sitemapGroup,
       });
 
       const outputDirs = options.outputDirs ?? [

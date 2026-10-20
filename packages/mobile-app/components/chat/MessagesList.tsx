@@ -1,20 +1,22 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { IconArrowDown } from "@tabler/icons-react-native";
 import { useCallback, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { KeyboardGestureArea } from "react-native-keyboard-controller";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
+import { shouldShowActivityRow } from "@/lib/agent-chat/presentation";
 import type { ChatMessage } from "@/lib/agent-chat/types";
 import type { AgentChatController } from "@/lib/agent-chat/use-agent-chat";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 import {
   ActivityRow,
   AssistantMessage,
   ErrorRow,
-  PulsingText,
   UserMessage,
 } from "./MessageBubbles";
+import { ShineText } from "./ShineText";
 
 type Row =
   | { kind: "message"; message: ChatMessage }
@@ -27,16 +29,30 @@ function buildRows(chat: AgentChatController): Row[] {
     kind: "message",
     message,
   }));
-  if (chat.isStreaming && chat.activity) {
+  if (
+    chat.isStreaming &&
+    chat.activity &&
+    shouldShowActivityRow(chat.activity, chat.messages)
+  ) {
     rows.push({ kind: "activity", label: chat.activity });
   } else if (chat.isStreaming) {
-    // No assistant output and no activity yet — mirror the web's pulsing
-    // "Thinking" placeholder until the first token or tool event lands.
     const last = chat.messages[chat.messages.length - 1];
     if (!last || last.role === "user") rows.push({ kind: "thinking" });
   }
   if (chat.error) {
     rows.push({ kind: "error", error: chat.error, errorCode: chat.errorCode });
+  } else if (chat.chatEligibility === "missing") {
+    rows.push({
+      kind: "error",
+      error: "No Builder AI or custom provider API key is connected.",
+      errorCode: "missing_api_key",
+    });
+  } else if (chat.chatEligibility === "unavailable") {
+    rows.push({
+      kind: "error",
+      error: "Chat setup could not be confirmed. Retry to check again.",
+      errorCode: "chat_setup_unavailable",
+    });
   }
   return rows;
 }
@@ -50,17 +66,23 @@ export function MessagesList({
   chat,
   bottomInset,
   onMessageActions,
+  onSignIn,
+  onOpenSettings,
+  onOpenConnections,
 }: {
   chat: AgentChatController;
-  /** Height of the floating composer + keyboard area to pad the scroll end. */
   bottomInset: number;
   onMessageActions?: (message: ChatMessage) => void;
+  onSignIn?: () => void;
+  /** Opens provider settings when chat has no eligible AI credentials. */
+  onOpenSettings?: () => void;
+  onOpenConnections?: (provider?: string) => void;
 }) {
+  const { foreground } = useMobileThemeColors();
   const listRef = useRef<LegendListRef>(null);
   const [awayFromEnd, setAwayFromEnd] = useState(false);
   const rows = buildRows(chat);
-  // Streaming turns animate in; opening an existing thread must not replay
-  // entry animations for the whole transcript.
+  const lastMessageId = chat.messages.at(-1)?.id;
   const animateFromIndex = useRef(chat.messages.length);
   if (!chat.isStreaming && !chat.historyLoading) {
     animateFromIndex.current = chat.messages.length;
@@ -72,7 +94,7 @@ export function MessagesList({
       if (item.kind === "thinking") {
         return (
           <View className="px-4 py-1.5">
-            <PulsingText>Thinking</PulsingText>
+            <ShineText>Thinking</ShineText>
           </View>
         );
       }
@@ -81,23 +103,39 @@ export function MessagesList({
           <ErrorRow
             error={item.error}
             errorCode={item.errorCode}
-            onRetry={chat.retry}
+            onRetry={
+              item.errorCode === "chat_setup_unavailable"
+                ? chat.refreshChatEligibility
+                : chat.retry
+            }
+            onSignIn={onSignIn}
+            onOpenSettings={onOpenSettings}
           />
         );
       }
       const animateIn = index >= animateFromIndex.current - 1;
       if (item.message.role === "user") {
-        return <UserMessage message={item.message} animateIn={animateIn} />;
+        return (
+          <UserMessage
+            message={item.message}
+            animateIn={animateIn}
+            onActions={onMessageActions}
+          />
+        );
       }
-      const isLast = index === rows.length - 1;
+      const isLastMessage = item.message.id === lastMessageId;
       return (
         <AssistantMessage
           message={item.message}
           animateIn={animateIn}
-          showFooter={!chat.isStreaming || !isLast}
-          isStreamingMessage={chat.isStreaming && isLast}
+          showFooter={!chat.isStreaming || !isLastMessage}
+          isStreamingMessage={chat.isStreaming && isLastMessage}
+          canChat={chat.canChat}
           onApprove={chat.approve}
           onDeny={chat.deny}
+          onOpenConnections={onOpenConnections}
+          onContinueAfterConnection={chat.continueAfterConnection}
+          onInvokeWidgetAction={chat.invokeWidgetAction}
           onActions={onMessageActions}
         />
       );
@@ -106,9 +144,16 @@ export function MessagesList({
       chat.approve,
       chat.deny,
       chat.retry,
+      chat.refreshChatEligibility,
       chat.isStreaming,
+      lastMessageId,
       rows.length,
       onMessageActions,
+      onSignIn,
+      onOpenSettings,
+      onOpenConnections,
+      chat.continueAfterConnection,
+      chat.invokeWidgetAction,
     ],
   );
 
@@ -129,8 +174,6 @@ export function MessagesList({
           maintainScrollAtEndThreshold={0.15}
           alignItemsAtEnd
           initialScrollIndex={rows.length > 0 ? rows.length - 1 : undefined}
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingTop: 12, paddingBottom: bottomInset }}
           onScroll={(event) => {
             const { contentOffset, contentSize, layoutMeasurement } =
@@ -141,6 +184,12 @@ export function MessagesList({
           }}
           scrollEventThrottle={32}
           showsVerticalScrollIndicator={false}
+          {...(Platform.OS === "web"
+            ? {}
+            : {
+                keyboardDismissMode: "interactive" as const,
+                keyboardShouldPersistTaps: "handled" as const,
+              })}
         />
       </KeyboardGestureArea>
 
@@ -157,23 +206,24 @@ export function MessagesList({
             accessibilityRole="button"
             accessibilityLabel="Scroll to latest message"
           >
-            <IconArrowDown color="#fafafa" size={18} strokeWidth={2} />
+            <IconArrowDown color={foreground} size={18} strokeWidth={2} />
           </Pressable>
         </Animated.View>
       )}
 
       {rows.length === 0 && !chat.historyLoading && (
         <View
-          className="absolute inset-0 items-center justify-center px-8"
-          pointerEvents="none"
+          className="absolute inset-0 items-center justify-center px-5"
+          pointerEvents="box-none"
         >
-          <Text className="text-white text-xl font-semibold text-center">
-            What can I help with?
-          </Text>
-          <Text className="text-status-gray text-sm text-center mt-2 leading-5">
-            Ask the agent anything — it can answer, take actions, and update the
-            app for you.
-          </Text>
+          <View className="items-center">
+            <Text className="text-white text-[22px] font-bold text-center">
+              Start a chat
+            </Text>
+            <Text className="mt-2 text-center text-[14px] text-text-muted">
+              Ask across your workspace.
+            </Text>
+          </View>
         </View>
       )}
     </View>

@@ -1,33 +1,14 @@
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 
-/**
- * Pluggable Agent Engine abstraction.
- *
- * AgentEngine is the thin LLM adapter that sits beneath runAgentLoop.
- * Every caller (HTTP handler, A2A, MCP, sub-agents, webhooks, jobs) uses
- * an AgentEngine instead of a raw @anthropic-ai/sdk client.
- *
- * The framework's tool dispatch loop, sub-agents, SSE event stream, and all
- * other harness features live above this layer and are unaffected by engine
- * selection.
- */
-
-/**
- * Thrown when an engine emits a terminal stop-error event. Carries optional
- * structured fields (errorCode / upgradeUrl) that propagate up to the SSE
- * "error" event so the chat UI can render a structured CTA — e.g. an
- * Upgrade button for Builder gateway 402 quota errors.
- *
- * Lives in the engine types module (not production-agent) so run-manager and
- * other consumers can `instanceof` it without an import cycle.
- */
 export class EngineError extends Error {
   readonly errorCode?: string;
   readonly upgradeUrl?: string;
-  /** HTTP status code from the provider (429, 529, 503, etc.), if known. */
   readonly statusCode?: number;
-  /** Whether the provider explicitly marked this error as retryable. */
   readonly providerRetryable?: boolean;
+  readonly requestId?: string;
+  readonly contextOverflow?: boolean;
+  readonly requestShape?: EngineRequestShape;
+  readonly retryAfterMs?: number;
   constructor(
     message: string,
     opts?: {
@@ -35,6 +16,10 @@ export class EngineError extends Error {
       upgradeUrl?: string;
       statusCode?: number;
       providerRetryable?: boolean;
+      requestId?: string;
+      contextOverflow?: boolean;
+      requestShape?: EngineRequestShape;
+      retryAfterMs?: number;
     },
   ) {
     super(message);
@@ -43,37 +28,24 @@ export class EngineError extends Error {
     this.upgradeUrl = opts?.upgradeUrl;
     this.statusCode = opts?.statusCode;
     this.providerRetryable = opts?.providerRetryable;
+    this.requestId = opts?.requestId;
+    this.contextOverflow = opts?.contextOverflow;
+    this.requestShape = opts?.requestShape;
+    this.retryAfterMs = opts?.retryAfterMs;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Tool / parameter types
-// ---------------------------------------------------------------------------
-
-/**
- * Engine-normalized tool definition. Structurally identical to Anthropic's
- * Tool type, with snake_case renamed to camelCase for consistency.
- */
 export interface EngineTool {
   name: string;
   description: string;
-  /** JSON Schema for the tool's input parameters */
   inputSchema: {
     type: "object";
     properties?: Record<string, unknown>;
     required?: string[];
     [key: string]: unknown;
   };
-  /**
-   * Provider-specific options for this tool.
-   * E.g. `{ anthropic: { cacheControl: { type: "ephemeral" } } }`
-   */
   providerOptions?: Record<string, unknown>;
 }
-
-// ---------------------------------------------------------------------------
-// Message / content part types
-// ---------------------------------------------------------------------------
 
 export interface EngineTextPart {
   type: "text";
@@ -82,14 +54,12 @@ export interface EngineTextPart {
 
 export interface EngineImagePart {
   type: "image";
-  /** Base64-encoded image data */
   data: string;
   mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 }
 
 export interface EngineFilePart {
   type: "file";
-  /** Base64-encoded file data */
   data: string;
   mediaType: string;
   filename?: string;
@@ -102,38 +72,31 @@ export interface EngineToolCallPart {
   input: unknown;
 }
 
-/**
- * A vision image attached to a tool result (screenshot, chart preview, …).
- * Exactly one of `url` (public https URL the provider fetches) or `data`
- * (base64 without a `data:` prefix, `mediaType` required) is set. These live
- * only on the in-memory turn — they are never persisted to the run ledger.
- */
 export interface EngineToolResultImagePart {
   url?: string;
   data?: string;
   mediaType?: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-  /** Short label tying the image to the text result (e.g. "dashboard tab"). */
   label?: string;
 }
 
 export interface EngineToolResultPart {
   type: "tool-result";
   toolCallId: string;
-  /** Same as the originating `tool-call.name` (required for Builder / Gemini). */
   toolName: string;
-  /** JSON string of the originating tool_use `input` object (Builder / Gemini). */
   toolInput: string;
   content: string;
   isError?: boolean;
-  /** Vision images shown to the model alongside `content` (engines that can). */
+  approvalPause?: boolean;
+  approvalAskId?: string;
+  outcome?: "unknown";
   images?: EngineToolResultImagePart[];
 }
 
 export interface EngineThinkingPart {
   type: "thinking";
   text: string;
-  /** Opaque signature for pass-through on next turn (Anthropic extended thinking) */
   signature?: string;
+  redactedData?: string;
 }
 
 export type EngineContentPart =
@@ -147,10 +110,6 @@ export type EngineContentPart =
 export type EngineMessage =
   | { role: "user"; content: EngineContentPart[] }
   | { role: "assistant"; content: EngineContentPart[] };
-
-// ---------------------------------------------------------------------------
-// Streaming event types
-// ---------------------------------------------------------------------------
 
 export type EngineEvent =
   | { type: "text-delta"; text: string }
@@ -167,6 +126,21 @@ export type EngineEvent =
       error: string;
     }
   | {
+      /**
+       * Token usage for one model call.
+       *
+       * `inputTokens` is the WHOLE prompt and INCLUDES `cacheReadTokens` and
+       * `cacheWriteTokens` — the cache fields say how that total splits, they
+       * do not add to it. Providers disagree here (OpenAI's `prompt_tokens`
+       * includes cached tokens, Anthropic's `input_tokens` excludes them), so
+       * every engine converts to this one convention before emitting. The AI
+       * SDK settled on the same shape: `inputTokens.total` with `noCache` /
+       * `cacheRead` / `cacheWrite` underneath it.
+       *
+       * Emitting the exclusive form instead is not a rounding difference: it
+       * makes `calculateCost` bill the cached tokens twice, once at the full
+       * input rate and again at the cache rate.
+       */
       type: "usage";
       inputTokens: number;
       outputTokens: number;
@@ -174,10 +148,9 @@ export type EngineEvent =
       cacheWriteTokens?: number;
       totalTokens?: number;
       reasoningTokens?: number;
+      builderCreditsUsed?: number;
     }
   | {
-      /** Final assistant content for the turn. Engines MUST emit this
-       *  exactly once, immediately before the terminal `stop` event. */
       type: "assistant-content";
       parts: EngineContentPart[];
     }
@@ -190,54 +163,39 @@ export type EngineEvent =
         | "stop_sequence"
         | "error";
       error?: string;
-      /**
-       * Optional machine-readable error code for structured UI handling.
-       * Used by the Builder gateway engine to signal quota/auth failures
-       * (e.g. "credits-limit-monthly", "gateway_not_enabled") so the UI
-       * can render an upgrade CTA instead of a plain error string.
-       */
       errorCode?: string;
-      /**
-       * Optional URL the UI should link to when rendering the error.
-       * Paired with errorCode — e.g. credits-limit-* stop events carry
-       * a link to the user's Builder billing page.
-       */
       upgradeUrl?: string;
-      /**
-       * HTTP status code from the provider (e.g. 429, 529, 503).
-       * Populated by engines that have structured error information so
-       * isRetryableError can check the code directly instead of keyword-
-       * matching the message string.
-       */
       statusCode?: number;
-      /**
-       * Whether the provider explicitly marked this error as retryable
-       * (e.g. AI SDK APICallError.isRetryable). When true, isRetryableError
-       * should retry even if status code / message patterns don't match.
-       */
       providerRetryable?: boolean;
+      requestId?: string;
+      contextOverflow?: boolean;
+      requestShape?: EngineRequestShape;
+      retryAfterMs?: number;
     };
 
-// ---------------------------------------------------------------------------
-// Capabilities
-// ---------------------------------------------------------------------------
+export interface EngineRequestShape {
+  model: string;
+  payloadBytes: number;
+  toolCount: number;
+  messageCount: number;
+}
 
 export interface EngineCapabilities {
-  /** Extended / adaptive thinking support */
   thinking: boolean;
-  /** Anthropic-style prompt caching (cache_control blocks) */
   promptCaching: boolean;
-  /** Vision / image input */
   vision: boolean;
-  /** Computer use tool support */
   computerUse: boolean;
-  /** Multiple tool calls in a single response */
   parallelToolCalls: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Stream options
-// ---------------------------------------------------------------------------
+export type ModelDispatchDecision<T> =
+  | { started: true; value: T }
+  | { started: false };
+
+/** Runs the synchronous request start while the caller's coordination lock is held. */
+export type BeforeModelDispatch = <T>(
+  dispatch: () => T,
+) => Promise<ModelDispatchDecision<T>>;
 
 export interface EngineStreamOptions {
   model: string;
@@ -248,20 +206,8 @@ export interface EngineStreamOptions {
   maxOutputTokens?: number;
   temperature?: number;
   reasoningEffort?: ReasoningEffort;
-  /**
-   * Provider-specific options passed opaquely.
-   * Engines forward options they understand and ignore unknown keys.
-   *
-   * Example (Anthropic):
-   * ```ts
-   * providerOptions: {
-   *   anthropic: {
-   *     thinking: { type: "enabled", budgetTokens: 8000 },
-   *     cacheControl: { type: "ephemeral" },
-   *   }
-   * }
-   * ```
-   */
+  beforeModelDispatch?: BeforeModelDispatch;
+  onModelDispatchStarted?: () => void;
   providerOptions?: {
     anthropic?: {
       thinking?: { type: "enabled"; budgetTokens: number };
@@ -274,37 +220,28 @@ export interface EngineStreamOptions {
   };
 }
 
-// ---------------------------------------------------------------------------
-// AgentEngine interface
-// ---------------------------------------------------------------------------
+export async function startModelDispatch<T>(
+  options: Pick<
+    EngineStreamOptions,
+    "beforeModelDispatch" | "onModelDispatchStarted"
+  >,
+  dispatch: () => T,
+): Promise<ModelDispatchDecision<T>> {
+  const result = options.beforeModelDispatch
+    ? await options.beforeModelDispatch(dispatch)
+    : { started: true as const, value: dispatch() };
+  if (result.started) options.onModelDispatchStarted?.();
+  return result;
+}
 
-/**
- * The pluggable LLM adapter interface.
- *
- * Each engine performs one LLM API round-trip per `stream()` call.
- * The framework's runAgentLoop drives the tool-calling loop by calling
- * stream() repeatedly with updated messages.
- *
- * Engines yield EngineEvent items as they receive them from the LLM.
- * They MUST yield a `stop` event as the last item, even on error.
- */
 export interface AgentEngine {
-  /** Unique identifier, e.g. "anthropic", "ai-sdk:anthropic", "ai-sdk:openai" */
   readonly name: string;
-  /** Human-readable label for UI display */
   readonly label: string;
-  /** Default model for this engine */
   readonly defaultModel: string;
-  /** Models this engine supports */
   readonly supportedModels: readonly string[];
-  /** Whether the configured endpoint accepts provider-defined model ids. */
+  readonly acceptsCustomModels?: boolean;
   readonly preserveCustomModels?: boolean;
-  /** Capability flags used to gate provider-specific features */
   readonly capabilities: EngineCapabilities;
 
-  /**
-   * Stream a single LLM API call. Yields EngineEvent items.
-   * The caller (runAgentLoop) handles retries, tool dispatch, and looping.
-   */
   stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent>;
 }

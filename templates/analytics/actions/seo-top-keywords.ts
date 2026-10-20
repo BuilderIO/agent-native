@@ -1,11 +1,9 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { getAllTopBlogKeywords } from "../server/lib/dataforseo";
 
 export default defineAction({
-  // Read-only provider query: safe to call from run-code `appAction` and
-  // reusable across continuation retries (no re-fetch on resume).
   readOnly: true,
   description:
     "Get top ranked blog keywords across all blog pages, sorted by ETV.",
@@ -16,6 +14,7 @@ export default defineAction({
       .describe("Max keywords to return (default 500)"),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async (args) => {
     const limit = Math.min(args.limit ?? 500, 1000);
     const keywords = await getAllTopBlogKeywords(limit);

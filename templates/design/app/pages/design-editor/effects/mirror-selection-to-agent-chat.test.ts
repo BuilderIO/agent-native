@@ -1,0 +1,126 @@
+import { assertNoInlineImageBytes } from "@agent-native/core/testing";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const setAgentChatContextItemMock = vi.hoisted(() => vi.fn());
+const removeAgentChatContextItemMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  setAgentChatContextItem: setAgentChatContextItemMock,
+  removeAgentChatContextItem: removeAgentChatContextItemMock,
+}));
+
+import type { ElementInfo } from "@/components/design/types";
+
+import { runMirrorSelectionToAgentChat } from "./mirror-selection-to-agent-chat";
+
+function makeRefs() {
+  return {
+    composerContextHasOurKeyRef: { current: true },
+    mirroredExcerptRef: { current: null as string | null },
+    mirroredSelectionIdRef: { current: null as string | null },
+    sentSelectionIdRef: { current: null as string | null },
+  };
+}
+
+const selectedElement: ElementInfo = {
+  tagName: "div",
+  classes: [],
+  sourceId: "node-1",
+  selector: "#node-1",
+} as unknown as ElementInfo;
+
+function baseArgs(refs: ReturnType<typeof makeRefs>, content: string) {
+  return {
+    activeFile: { id: "file-1", filename: "index.html" } as any,
+    activeProjectionContent: content,
+    composerContextHasOurKeyRef: refs.composerContextHasOurKeyRef,
+    design: { title: "My design" } as any,
+    id: "design-1",
+    isSignedIn: true,
+    mirroredExcerptRef: refs.mirroredExcerptRef,
+    mirroredSelectionIdRef: refs.mirroredSelectionIdRef,
+    selectedCodeLayerNode: {
+      layerName: "Card",
+      id: "layer-1",
+      dataAttributes: {},
+      selector: "#node-1",
+      source: { start: 0, end: content.length },
+    } as any,
+    selectedElement,
+    sentSelectionIdRef: refs.sentSelectionIdRef,
+  };
+}
+
+describe("runMirrorSelectionToAgentChat", () => {
+  beforeEach(() => {
+    setAgentChatContextItemMock.mockClear();
+    removeAgentChatContextItemMock.mockClear();
+  });
+
+  it("republishes fresh markup when the same still-unsent selection's markup changes", () => {
+    const refs = makeRefs();
+    const before = '<div style="color:red">A</div>';
+    const after = '<div style="color:blue">A</div>';
+
+    runMirrorSelectionToAgentChat(baseArgs(refs, before));
+    expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
+
+    runMirrorSelectionToAgentChat(baseArgs(refs, after));
+    expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(2);
+    expect(setAgentChatContextItemMock.mock.calls[1]![0].context).toContain(
+      "color:blue",
+    );
+  });
+
+  it("does not resurrect a sent selection just because unrelated content changed", () => {
+    const refs = makeRefs();
+    const html = '<div style="color:red">A</div>';
+
+    runMirrorSelectionToAgentChat(baseArgs(refs, html));
+    expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
+
+    refs.composerContextHasOurKeyRef.current = false;
+    runMirrorSelectionToAgentChat(baseArgs(refs, html));
+    expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
+
+    const polledHtml = '<div style="color:green">A</div>';
+    runMirrorSelectionToAgentChat(baseArgs(refs, polledHtml));
+    expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sanitizes published HTML and CSS excerpts while preserving UTF-8 and normal image URLs", () => {
+    const refs = makeRefs();
+    const inlineGif = "DATA:image/gif;base64,R0lGODlhAQABAIAA";
+    const inlineSvg =
+      "data:image/svg+xml;charset=utf-8,%3Csvg%20aria-label%3D%22caf%C3%A9%22%3E";
+    const imageUrl = "https://cdn.example.test/hero.png";
+    const html =
+      `<div data-agent-native-node-id="node-source-7" ` +
+      `style="background-image: url('${inlineSvg}')">` +
+      `<img src="${inlineGif}"><img src="${imageUrl}">` +
+      `<span>café &amp; résumé</span></div>`;
+    const args = {
+      ...baseArgs(refs, html),
+      selectedElement: {
+        ...selectedElement,
+        textContent: "café & résumé",
+        sourceId: "node-source-7",
+        selector: "#hero-image",
+      } as ElementInfo,
+    };
+
+    runMirrorSelectionToAgentChat(args);
+
+    expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
+    const published = setAgentChatContextItemMock.mock.calls[0]![0];
+    expect(published.title).toBe("café & résumé");
+    expect(published.context).toContain("targetNodeId: node-source-7");
+    expect(published.context).toContain("targetSelector: #node-1");
+    expect(published.context).toContain("café &amp; résumé");
+    expect(published.context).toContain("[inline image/gif data omitted]");
+    expect(published.context).toContain("[inline image/svg+xml data omitted]");
+    expect(published.context).toContain(imageUrl);
+    expect(published.context).not.toMatch(/data:image|base64,/i);
+    expect(() => assertNoInlineImageBytes(published)).not.toThrow();
+  });
+});

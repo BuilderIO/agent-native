@@ -86,11 +86,11 @@ export function ThemeToggle({ className }: { className?: string }) {
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           aria-label={t(`theme.${activeOption.value}`)}
           onClick={handleClick}
           className={cn(
-            "size-8 rounded-md text-sidebar-muted hover:text-sidebar-foreground",
+            "rounded-md text-sidebar-muted hover:text-sidebar-foreground",
             className,
           )}
         >

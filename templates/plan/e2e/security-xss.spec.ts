@@ -32,16 +32,6 @@ type XssProbe = {
   pageErrors: string[];
 };
 
-/**
- * Wire up the three independent script-execution detectors before any
- * navigation:
- *  1. page.on('dialog') — alert/confirm/prompt from any executed script.
- *  2. page.on('pageerror') — uncaught errors (also catches a render crash).
- *  3. a window flag set via an exposed binding — the payloads call
- *     window.__xssHit() where we can, and we also expose it as a global the
- *     injected html could reach. Dialogs are auto-dismissed so a fired alert
- *     never wedges the run.
- */
 async function installXssProbe(page: Page): Promise<XssProbe> {
   const probe: XssProbe = { dialogs: [], pageErrors: [] };
   page.on("dialog", (dialog) => {
@@ -51,8 +41,6 @@ async function installXssProbe(page: Page): Promise<XssProbe> {
   page.on("pageerror", (error) => {
     probe.pageErrors.push(String(error?.message ?? error));
   });
-  // A global flag any executed payload can flip. Set BEFORE document scripts so
-  // an inline <script> or javascript: handler that runs would be observable.
   await page.addInitScript(() => {
     (window as unknown as { __xssHit?: boolean }).__xssHit = false;
     (window as unknown as { __xss?: () => void }).__xss = () => {
@@ -117,9 +105,6 @@ function customHtmlPlan(html: string, title: string) {
   };
 }
 
-/* The obfuscated payloads under test. `mark` is a substring that, if it ever
- * appears verbatim in a navigable href/src in the live DOM, proves the
- * dangerous scheme survived storage. */
 const OBFUSCATED = {
   tabHref: `<a id="xss-tab" href="java\tscript:window.__xss?.();alert(document.domain)">tab</a>`,
   newlineHref: `<a id="xss-nl" href="java\nscript:window.__xss?.();alert(1)">nl</a>`,
@@ -132,22 +117,15 @@ const FORBIDDEN = {
   literalHref: `<a id="xss-lit" href="javascript:window.__xss&&window.__xss()">lit</a>`,
 };
 
-/* ------------------------------------------------------------------------- */
-/* 1. STORED XSS via wireframe html — the live dangerouslySetInnerHTML sink. */
-/* ------------------------------------------------------------------------- */
-
 test.describe("stored XSS via wireframe html (dangerouslySetInnerHTML, no iframe)", () => {
   test("obvious vectors (script tag, img onerror, literal javascript:) never execute as a viewer", async ({
     page,
   }) => {
     const probe = await installXssProbe(page);
-    // Each of these SHOULD be rejected by the schema. If the create succeeds we
-    // still open it and assert nothing executes.
     for (const [name, html] of Object.entries(FORBIDDEN)) {
       const title = `wf-forbidden-${name}-${Date.now()}`;
       const created = await createPlan(page, wireframePlan(html, title), title);
       if (!created.id) {
-        // Rejected at the action boundary — the correct outcome.
         expect(created.ok, `payload ${name} should be rejected`).toBe(false);
         continue;
       }
@@ -187,14 +165,10 @@ test.describe("stored XSS via wireframe html (dangerouslySetInnerHTML, no iframe
     });
     await page.waitForTimeout(800);
 
-    // The anchor must NOT carry an executable javascript: scheme. Browsers
-    // strip tabs/newlines from the scheme before navigating, so we collapse
-    // whitespace + lowercase the resolved href and assert it is not a js: url.
     const hrefInfo = await page.evaluate(() => {
       const a = document.querySelector<HTMLAnchorElement>("#xss-tab");
       return {
         present: Boolean(a),
-        // getAttribute = raw stored value; .href = browser-resolved navigable.
         rawAttr: a?.getAttribute("href") ?? null,
         resolved: a ? a.href : null,
       };
@@ -205,8 +179,6 @@ test.describe("stored XSS via wireframe html (dangerouslySetInnerHTML, no iframe
         .replace(/[\t\n\r]/g, "")
         .toLowerCase();
       const resolvedLower = (hrefInfo.resolved ?? "").toLowerCase();
-      // This assertion FAILS today and pins the stored-XSS: the raw href still
-      // collapses to `javascript:...` and the browser resolves it to a js: URL.
       expect(
         rawCollapsed.includes("javascript:") ||
           resolvedLower.startsWith("javascript:"),
@@ -214,7 +186,6 @@ test.describe("stored XSS via wireframe html (dangerouslySetInnerHTML, no iframe
       ).toBe(false);
     }
 
-    // Clicking the link must not fire an alert or flip the flag.
     const link = page.locator("#xss-tab");
     if (await link.count()) {
       await link
@@ -278,10 +249,6 @@ test.describe("stored XSS via wireframe html (dangerouslySetInnerHTML, no iframe
   });
 });
 
-/* ------------------------------------------------------------------------- */
-/* 2. custom-html block — sandboxed iframe must neutralize the same payloads. */
-/* ------------------------------------------------------------------------- */
-
 test.describe("custom-html block (sandboxed iframe) neutralizes payloads", () => {
   test("obfuscated + obvious payloads in custom-html never reach the top document", async ({
     page,
@@ -301,7 +268,6 @@ test.describe("custom-html block (sandboxed iframe) neutralizes payloads", () =>
         title,
       );
       if (!created.id) {
-        // Some are rejected by the schema (script tag / on*=); that's fine.
         expect(created.ok).toBe(false);
         continue;
       }
@@ -309,13 +275,8 @@ test.describe("custom-html block (sandboxed iframe) neutralizes payloads", () =>
       await expect(page.locator(".plans-workspace")).toBeVisible({
         timeout: 20_000,
       });
-      // Let the iframe mount + (fail to) execute.
       await page.waitForTimeout(900);
 
-      // The custom-html block renders in an <iframe sandbox="allow-same-origin">
-      // (no allow-scripts), and the value is run through sanitizeCustomHtml.
-      // Confirm the block is sandboxed without script permission — that is the
-      // structural guarantee, regardless of payload.
       const frame = page.locator("iframe[sandbox]").first();
       if (await frame.count()) {
         const sandbox = await frame.getAttribute("sandbox");
@@ -336,10 +297,6 @@ test.describe("custom-html block (sandboxed iframe) neutralizes payloads", () =>
     ).toEqual([]);
   });
 });
-
-/* ------------------------------------------------------------------------- */
-/* 3. DoS — deeply nested tabs (~400 levels) must degrade gracefully.        */
-/* ------------------------------------------------------------------------- */
 
 test.describe("DoS: deeply nested tabs", () => {
   function nestedTabs(depth: number): unknown {
@@ -372,8 +329,6 @@ test.describe("DoS: deeply nested tabs", () => {
     const created = await createPlan(page, content, title);
 
     if (!created.id) {
-      // Bounded at the action boundary (e.g. a max-depth refine) — the safest
-      // outcome. Acceptable graceful handling.
       expect(created.ok).toBe(false);
       return;
     }
@@ -381,11 +336,8 @@ test.describe("DoS: deeply nested tabs", () => {
     await page
       .goto(`/plans/${created.id}`, { waitUntil: "domcontentloaded" })
       .catch(() => {});
-    // Give the recursive render a chance to either paint or blow up.
     await page.waitForTimeout(4_000);
 
-    // The render crash can destroy the execution context mid-evaluate; retry a
-    // couple of times so we read real DOM state rather than an infra error.
     const readState = async () =>
       page.evaluate(() => {
         const workspace = document.querySelector(".plans-workspace");
@@ -416,12 +368,6 @@ test.describe("DoS: deeply nested tabs", () => {
       }
     }
 
-    // PRIMARY, deterministic signal: a "Maximum call stack size exceeded"
-    // RangeError from the recursive PlanBlockView/TabsBlock render is a hard
-    // crash, not graceful degradation. There is no tabs-depth cap in
-    // planContentSchema (cf. WIREFRAME_MAX_DEPTH=8 for wireframe trees), so the
-    // 400-deep plan is happily stored (create returns 200) and then overflows
-    // the stack on render.
     const stackOverflow = probe.pageErrors.find((message) =>
       /maximum call stack|stack size exceeded|too much recursion/i.test(
         message,
@@ -434,8 +380,6 @@ test.describe("DoS: deeply nested tabs", () => {
       }`,
     ).toBeUndefined();
 
-    // The app shell must survive AND show either rendered content or the
-    // graceful "Plan did not load" error — never a near-blank crashed page.
     expect(
       state.hasWorkspace,
       "the app shell did not mount (whole page crashed on the deep plan)",

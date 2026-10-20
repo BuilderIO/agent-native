@@ -1,3 +1,4 @@
+import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBold,
@@ -6,22 +7,43 @@ import {
   IconStrikethrough,
   IconLink,
   IconPalette,
+  IconPencilStar,
   IconCheck,
   IconX,
+  IconArrowUp,
+  IconLoader2,
+  IconMessageCircle,
+  IconCode,
+  IconH1,
+  IconH2,
+  IconH3,
 } from "@tabler/icons-react";
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { shortcutLabel } from "@/lib/utils";
+import { normalizeLinkHref, shortcutLabel } from "@/lib/utils";
+
+import type { InPlaceTextSession } from "./in-place-text-session";
 
 interface BlockBubbleMenuProps {
-  /** The element currently in contentEditable mode. Menu only shows while selection is inside it. */
   editingEl: HTMLElement | null;
+  slideId?: string;
+  deckId?: string;
+  slideContentHash?: string;
+  onCommitInlineEdit?: () => string | undefined | Promise<string | undefined>;
+  onComment?: (
+    quotedText: string,
+    range: Range,
+    editingEl: HTMLElement,
+  ) => void;
+  textSession?: InPlaceTextSession | null;
+  linkRequest?: { editingEl: HTMLElement; range: Range } | null;
 }
 
 interface Position {
@@ -29,7 +51,6 @@ interface Position {
   left: number;
 }
 
-/** Preset palette used by the color picker. */
 const COLORS = [
   "#FFFFFF",
   "#E5E7EB",
@@ -44,35 +65,101 @@ const COLORS = [
   "#EF4444",
 ];
 
-/**
- * Floating formatting toolbar for contentEditable text blocks. Shows on
- * non-empty selection inside the editing element and applies inline
- * formatting (bold, italic, underline, strike, link, color) directly to
- * the DOM. Designed to work with the in-place per-block editing in
- * SlideEditor — it never mutates anything outside the editing element.
- */
-export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
+const AI_TARGET_PREVIEW_LIMIT = 160;
+
+const AI_SEND_BUTTON_CLASS =
+  // guard:allow-raw-color — same accent as the link Apply button below.
+  "rounded p-1.5 text-[#609FF8] hover:bg-accent disabled:pointer-events-none disabled:opacity-40";
+
+export function buildReviseSelectionContext({
+  selectedText,
+  instruction,
+  slideId,
+  deckId,
+  slideContentHash,
+}: {
+  selectedText: string;
+  instruction: string;
+  slideId?: string;
+  deckId?: string;
+  slideContentHash?: string;
+}): string {
+  const target = [
+    deckId ? `Deck id: \`${deckId}\`` : null,
+    slideId ? `Slide id: \`${slideId}\`` : null,
+    slideContentHash
+      ? `Captured slide content hash: \`${slideContentHash}\``
+      : null,
+  ].filter((line) => line !== null);
+
+  return [
+    `Revise this exact text:`,
+    ``,
+    `"""`,
+    selectedText,
+    `"""`,
+    ``,
+    `How to revise it: ${instruction}`,
+    ...(target.length > 0 ? [``, ...target] : []),
+    ``,
+    `Use the provided deck and slide ids. If either id is missing, call \`view-screen\` once; otherwise do not read the full deck. If a captured slide content hash is present, pass it as \`baseContentHash\`; if it is absent, call \`get-deck\` with \`slideId\` before writing. Then call \`update-slide\` with one \`edits\` literal replacement using the quoted text as \`find\` and \`expectedMatches: 1\`. If the selection crosses inline markup or the literal replacement reports no match, call \`get-deck\` with \`slideId\` only and retry with markup-aware edits and its returned \`contentHash\`. Do not use \`fullContent\`, fetch the full deck, or rewrite the surrounding HTML, inline styles, or layout, and keep the replacement close to the original length so the slide still fits its canvas.`,
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+}
+
+export function BlockBubbleMenu({
+  editingEl,
+  slideId,
+  deckId,
+  slideContentHash,
+  onCommitInlineEdit,
+  onComment,
+  textSession = null,
+  linkRequest = null,
+}: BlockBubbleMenuProps) {
   const t = useT();
   const [pos, setPos] = useState<Position | null>(null);
   const [showColors, setShowColors] = useState(false);
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkValue, setLinkValue] = useState("");
+  const [showAiInput, setShowAiInput] = useState(false);
+  const [aiInstruction, setAiInstruction] = useState("");
+  const [aiTargetText, setAiTargetText] = useState("");
+  const [aiSending, setAiSending] = useState(false);
+  const [aiTargetContentHash, setAiTargetContentHash] = useState("");
   const savedRangeRef = useRef<Range | null>(null);
-  // True while a popup/input has the user's focus — keeps the menu pinned
-  // even when the contentEditable selection collapses behind the scenes.
   const interactingRef = useRef(false);
   useEffect(() => {
-    interactingRef.current = showColors || showLinkInput;
-  }, [showColors, showLinkInput]);
+    interactingRef.current = showColors || showLinkInput || showAiInput;
+  }, [showColors, showLinkInput, showAiInput]);
 
-  // Hide menu when the editing element changes
   useEffect(() => {
     setPos(null);
     setShowColors(false);
     setShowLinkInput(false);
+    setShowAiInput(false);
+    setAiInstruction("");
+    setAiTargetContentHash("");
   }, [editingEl]);
 
-  // Track selection and position the menu
+  useEffect(() => {
+    if (!editingEl || linkRequest?.editingEl !== editingEl) return;
+    const { range } = linkRequest;
+    if (!editingEl.contains(range.commonAncestorContainer) || range.collapsed)
+      return;
+    savedRangeRef.current = range.cloneRange();
+    const rect = range.getBoundingClientRect();
+    if (rect.width || rect.height) {
+      setPos({ top: rect.top - 8, left: rect.left + rect.width / 2 });
+    }
+    interactingRef.current = true;
+    setLinkValue("");
+    setShowColors(false);
+    setShowAiInput(false);
+    setShowLinkInput(true);
+  }, [editingEl, linkRequest]);
+
   useEffect(() => {
     if (!editingEl) return;
 
@@ -84,7 +171,6 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
         return;
       }
       const range = sel.getRangeAt(0);
-      // Only show if selection is inside the editing element
       if (!editingEl.contains(range.commonAncestorContainer)) {
         setPos(null);
         return;
@@ -115,47 +201,100 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
 
   if (!editingEl || !pos) return null;
 
-  /** Restore the saved selection before running a command (buttons steal focus). */
   const restoreSelection = () => {
     const range = savedRangeRef.current;
     if (!range) return false;
     const sel = window.getSelection();
     if (!sel) return false;
+    editingEl.focus({ preventScroll: true });
     sel.removeAllRanges();
     sel.addRange(range);
-    editingEl.focus();
     return true;
   };
 
-  const runCommand = (cmd: string, value?: string) => {
-    if (!restoreSelection()) return;
-    // Force <span style="..."> output so colors survive sanitizeSlideHtml,
-    // which strips <font> tags and would silently lose foreColor on save.
-    document.execCommand("styleWithCSS", false, "true");
-    // No state sync per-command — would re-run dangerouslySetInnerHTML and
-    // wipe contentEditable. Final DOM is captured by exitInlineEdit.
-    document.execCommand(cmd, false, value);
+  const runCommand = (
+    command: (commands: InPlaceTextSession["commands"]) => boolean,
+  ) => {
+    if (!textSession?.isActive || !restoreSelection()) return;
+    command(textSession.commands);
   };
 
   const applyColor = (color: string) => {
-    runCommand("foreColor", color);
+    runCommand((commands) => commands.color(color));
     setShowColors(false);
   };
 
   const applyLink = () => {
-    if (!linkValue.trim()) return;
-    const href = linkValue.startsWith("http")
-      ? linkValue
-      : `https://${linkValue}`;
-    runCommand("createLink", href);
+    const href = normalizeLinkHref(linkValue);
+    if (!href) return;
+    runCommand((commands) => commands.link(href));
     setShowLinkInput(false);
     setLinkValue("");
   };
 
   const removeLink = () => {
-    runCommand("unlink");
+    runCommand((commands) => commands.link(null));
     setShowLinkInput(false);
     setLinkValue("");
+  };
+
+  const commentOnSelection = () => {
+    const range = savedRangeRef.current?.cloneRange();
+    const selectedText = range?.toString() ?? "";
+    if (!range || !selectedText.trim() || !onComment) return;
+    if (restoreSelection()) onComment(selectedText, range, editingEl);
+  };
+
+  const openAiInput = () => {
+    if (showAiInput) {
+      setShowAiInput(false);
+      return;
+    }
+    const selected = savedRangeRef.current?.toString() ?? "";
+    if (!selected.trim()) return;
+    setAiTargetText(selected);
+    setAiTargetContentHash(slideContentHash ?? "");
+    setAiInstruction("");
+    interactingRef.current = true;
+    setShowAiInput(true);
+    setShowColors(false);
+    setShowLinkInput(false);
+  };
+
+  const submitAiRevision = async () => {
+    const instruction = aiInstruction;
+    if (!instruction.trim() || !aiTargetText.trim() || aiSending) return;
+
+    setAiSending(true);
+    try {
+      const committedContentHash = await onCommitInlineEdit?.();
+      const delivery = await sendToAgentChatAndConfirm({
+        message: instruction,
+        context: buildReviseSelectionContext({
+          selectedText: aiTargetText,
+          instruction,
+          slideId,
+          deckId,
+          slideContentHash:
+            (committedContentHash ?? aiTargetContentHash) || undefined,
+        }),
+        submit: true,
+        chatTarget: "local",
+      });
+
+      if (!delivery.delivered) {
+        toast.error(t("raw.sendToAgent"), {
+          description: delivery.reason ?? "The agent did not receive this.",
+        });
+        return;
+      }
+
+      toast.success(t("raw.sentToAgent"), { description: instruction });
+      setShowAiInput(false);
+      setAiInstruction("");
+    } finally {
+      setAiSending(false);
+    }
   };
 
   return createPortal(
@@ -164,29 +303,69 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
       className="fixed z-[60] -translate-x-1/2 -translate-y-full flex items-center gap-0.5 p-1 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60"
       style={{ top: pos.top, left: pos.left }}
       onMouseDown={(e) => {
-        // Prevent blur on the editing element when clicking menu buttons
         e.preventDefault();
       }}
     >
       <ToolbarButton
+        icon={IconPencilStar}
+        tooltip="Revise with AI"
+        onClick={openAiInput}
+        active={showAiInput}
+      />
+      {onComment && (
+        <ToolbarButton
+          icon={IconMessageCircle}
+          tooltip={t("comments.addComment")}
+          onClick={commentOnSelection}
+        />
+      )}
+      <div className="w-px h-4 bg-border mx-0.5" />
+      <ToolbarButton
         icon={IconBold}
         tooltip={`Bold (${shortcutLabel("cmd+b")})`}
-        onClick={() => runCommand("bold")}
+        onClick={() => runCommand((commands) => commands.bold())}
       />
       <ToolbarButton
         icon={IconItalic}
         tooltip={`Italic (${shortcutLabel("cmd+i")})`}
-        onClick={() => runCommand("italic")}
+        onClick={() => runCommand((commands) => commands.italic())}
       />
       <ToolbarButton
         icon={IconUnderline}
         tooltip={`Underline (${shortcutLabel("cmd+u")})`}
-        onClick={() => runCommand("underline")}
+        onClick={() => runCommand((commands) => commands.underline())}
       />
       <ToolbarButton
         icon={IconStrikethrough}
         tooltip="Strikethrough"
-        onClick={() => runCommand("strikeThrough")}
+        onClick={() => runCommand((commands) => commands.strike())}
+      />
+      <ToolbarButton
+        icon={IconCode}
+        tooltip={t("slideTextMenu.code")}
+        onClick={() => runCommand((commands) => commands.code())}
+      />
+      <div className="w-px h-4 bg-border mx-0.5" />
+      <ToolbarButton
+        icon={IconH1}
+        tooltip={t("slideTextMenu.heading1")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading1"))
+        }
+      />
+      <ToolbarButton
+        icon={IconH2}
+        tooltip={t("slideTextMenu.heading2")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading2"))
+        }
+      />
+      <ToolbarButton
+        icon={IconH3}
+        tooltip={t("slideTextMenu.heading3")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading3"))
+        }
       />
       <div className="w-px h-4 bg-border mx-0.5" />
       <div className="relative">
@@ -194,11 +373,10 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
           icon={IconPalette}
           tooltip="Color"
           onClick={() => {
-            // Imperative set BEFORE state change — useEffect runs after the
-            // input's autoFocus has already fired selectionchange, too late.
             if (!showColors) interactingRef.current = true;
             setShowColors((v) => !v);
             setShowLinkInput(false);
+            setShowAiInput(false);
           }}
           active={showColors}
         />
@@ -229,9 +407,61 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
           if (!showLinkInput) interactingRef.current = true;
           setShowLinkInput((v) => !v);
           setShowColors(false);
+          setShowAiInput(false);
         }}
         active={showLinkInput}
       />
+      {showAiInput && (
+        <div
+          data-ai-revise-input="true"
+          onMouseDown={(e) => e.stopPropagation()}
+          className="absolute top-full left-1/2 -translate-x-1/2 mt-1 w-80 p-2 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60"
+        >
+          <p className="mb-1.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+            {aiTargetText.length > AI_TARGET_PREVIEW_LIMIT
+              ? `${aiTargetText.slice(0, AI_TARGET_PREVIEW_LIMIT)}…`
+              : aiTargetText}
+          </p>
+          <div className="flex items-end gap-1">
+            <textarea
+              value={aiInstruction}
+              onChange={(e) => setAiInstruction(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void submitAiRevision();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setShowAiInput(false);
+                }
+              }}
+              placeholder={t("raw.tellAgentDo")}
+              rows={2}
+              disabled={aiSending}
+              className="flex-1 resize-none rounded border border-border bg-muted px-2 py-1.5 text-xs text-foreground outline-none focus:border-ring disabled:opacity-60"
+              autoFocus
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => void submitAiRevision()}
+                  disabled={!aiInstruction.trim() || aiSending}
+                  aria-label={t("raw.sendToAgent")}
+                  className={AI_SEND_BUTTON_CLASS}
+                >
+                  {aiSending ? (
+                    <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <IconArrowUp className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("raw.sendToAgent")}</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      )}
       {showLinkInput && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 flex items-center gap-1 p-1 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60">
           <input

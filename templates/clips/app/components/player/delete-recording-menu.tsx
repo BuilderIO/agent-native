@@ -1,7 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconDots, IconDownload, IconTrash } from "@tabler/icons-react";
-import { useCallback, useRef, useState } from "react";
+import { IconDotsVertical, IconDownload, IconTrash } from "@tabler/icons-react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import {
@@ -29,6 +29,7 @@ interface DeleteRecordingMenuProps {
 }
 
 interface RecordingOptionsMenuProps extends DeleteRecordingMenuProps {
+  children?: ReactNode;
   canDelete?: boolean;
   canDownload?: boolean;
   downloadPending?: boolean;
@@ -38,6 +39,7 @@ interface RecordingOptionsMenuProps extends DeleteRecordingMenuProps {
 }
 
 export function RecordingOptionsMenu({
+  children,
   recordingId,
   onDeleted,
   canDelete = true,
@@ -51,16 +53,15 @@ export function RecordingOptionsMenu({
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const deletedWhileOpenRef = useRef(false);
+  const pendingDeleteConfirmRef = useRef(false);
   const showDownload = canDownload && Boolean(onDownload);
   const showDelete = canDelete;
+  const showCustomItems = Boolean(children);
   const trashRecording = useActionMutation<any, { id: string }>(
     "trash-recording",
     {
       onSuccess: () => {
         toast.success(t("deleteRecordingMenu.movedToTrash"));
-        // Keep the route mounted until Radix has finished removing the
-        // dialog portal. Navigating in the mutation callback can leave its
-        // body lock behind, which makes the destination look unclickable.
         deletedWhileOpenRef.current = true;
         setOpen(false);
       },
@@ -79,7 +80,7 @@ export function RecordingOptionsMenu({
     onDownload?.();
   }, [onDownload]);
 
-  if (!showDownload && !showDelete) return null;
+  if (!showCustomItems && !showDownload && !showDelete) return null;
 
   return (
     <AlertDialog
@@ -92,14 +93,32 @@ export function RecordingOptionsMenu({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="shrink-0"
+            size="icon-sm"
+            className="order-last shrink-0"
             aria-label={t("deleteRecordingMenu.clipOptions")}
           >
-            <IconDots className="h-4 w-4" />
+            <IconDotsVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuContent
+          align="end"
+          className={
+            showCustomItems
+              ? "w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto"
+              : "w-44"
+          }
+          onCloseAutoFocus={(event) => {
+            if (pendingDeleteConfirmRef.current) {
+              event.preventDefault();
+              pendingDeleteConfirmRef.current = false;
+              setOpen(true);
+            }
+          }}
+        >
+          {children}
+          {showCustomItems && (showDownload || showDelete) ? (
+            <DropdownMenuSeparator />
+          ) : null}
           {showDownload ? (
             <DropdownMenuItem
               onSelect={handleDownload}
@@ -116,7 +135,8 @@ export function RecordingOptionsMenu({
             <DropdownMenuItem
               onSelect={(event) => {
                 event.preventDefault();
-                setOpen(true);
+                pendingDeleteConfirmRef.current = true;
+                setMenuOpen(false);
               }}
               className="text-destructive focus:text-destructive"
             >
@@ -132,7 +152,7 @@ export function RecordingOptionsMenu({
             if (!deletedWhileOpenRef.current) return;
             deletedWhileOpenRef.current = false;
             event.preventDefault();
-            setTimeout(() => onDeleted?.(), 0);
+            onDeleted?.();
           }}
         >
           <AlertDialogHeader>

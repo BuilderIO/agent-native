@@ -1,15 +1,4 @@
-/**
- * Accept an organization invite.
- *
- * Verifies the invitation is pending, inserts a row into `org_members` for
- * the current user, marks the invitation as accepted, and activates the new
- * org for the caller via the `active-org-id` user-setting.
- *
- * Usage:
- *   pnpm action accept-invite --token=<token>
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { orgInvitations, orgMembers } from "@agent-native/core/org";
 import { putUserSetting } from "@agent-native/core/settings";
@@ -53,7 +42,6 @@ export default defineAction({
       invite.role === "admin" ? "admin" : "member";
     const nowMs = Date.now();
 
-    // Skip insert if the user is already a member of this org.
     const existing = await db
       .select({ id: orgMembers.id })
       .from(orgMembers)

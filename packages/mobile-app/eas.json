@@ -7,7 +7,11 @@
     "development": {
       "credentialsSource": "remote",
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "AGENT_NATIVE_MOBILE_DISABLE_APP_EXTENSIONS": "1",
+        "AGENT_NATIVE_MOBILE_DISABLE_REMOTE_PUSH": "1"
+      }
     },
     "preview": {
       "credentialsSource": "remote",

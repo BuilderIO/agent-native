@@ -32,7 +32,9 @@ describe("review anchors", () => {
         { selector: "body > main > section", point },
         () => null,
         (selector) =>
-          selector === "body > main > section" ? { xPct: 55, yPct: 35 } : null,
+          selector === "body > main > section"
+            ? { status: "matched", point: { xPct: 55, yPct: 35 } }
+            : { status: "not-found" },
       ),
     ).toMatchObject({
       source: "selector",
@@ -108,5 +110,92 @@ describe("review anchors", () => {
         viewportHeight: 500,
       }),
     ).toBeNull();
+  });
+
+  it("parses stable board-world point and region coordinates", () => {
+    expect(
+      parseReviewAnchor({
+        point,
+        worldPoint: { x: 240, y: 360 },
+        worldRegion: { x: 100, y: 120, width: 280, height: 160 },
+      }),
+    ).toMatchObject({
+      worldPoint: { x: 240, y: 360 },
+      worldRegion: { x: 100, y: 120, width: 280, height: 160 },
+    });
+  });
+
+  it("parses a source-relative point only with its stable screen identity", () => {
+    expect(
+      parseReviewAnchor({
+        point,
+        screenId: "screen-1",
+        screenPoint: { xPct: 61, yPct: 39 },
+      }),
+    ).toEqual({
+      point,
+      screenId: "screen-1",
+      screenPoint: { xPct: 61, yPct: 39 },
+    });
+    expect(
+      parseReviewAnchor({
+        point,
+        screenId: "screen-1",
+        screenPoint: { xPct: "bad", yPct: 39 },
+      }),
+    ).toEqual({ point });
+  });
+
+  it("resolves the source-relative fallback for the matching screen", () => {
+    const anchor = {
+      point,
+      screenId: "screen-1",
+      screenPoint: { xPct: 61, yPct: 39 },
+    };
+    expect(
+      resolveReviewAnchor(
+        anchor,
+        () => null,
+        () => ({ status: "not-found" }),
+        "screen-1",
+      ),
+    ).toMatchObject({ source: "point", point: anchor.screenPoint });
+    expect(
+      resolveReviewAnchor(
+        anchor,
+        () => null,
+        () => ({ status: "not-found" }),
+        "screen-2",
+      ),
+    ).toMatchObject({ source: "point", point });
+  });
+
+  it("keeps selector failures distinct while falling back to the stored point", () => {
+    const anchor = { selector: "[", point };
+    const invalid = resolveReviewAnchor(
+      anchor,
+      () => null,
+      () => ({
+        status: "invalid-selector",
+      }),
+    );
+    const missing = resolveReviewAnchor(
+      anchor,
+      () => null,
+      () => ({
+        status: "not-found",
+      }),
+    );
+
+    expect(invalid).toMatchObject({
+      source: "point",
+      point,
+      selectorResolution: "invalid-selector",
+    });
+    expect(missing).toMatchObject({
+      source: "point",
+      point,
+      selectorResolution: "not-found",
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -48,16 +48,12 @@ export default defineAction({
         title: proposal.title,
         body: proposal.body,
         evidence: [],
-        proposalMode: "never",
       });
       const nextPayload: WriteKnowledgeInput = {
         ...payload,
         publishCanonical: publishCanonical ?? payload.publishCanonical,
-        proposalMode: "never",
       };
-      result = await writeKnowledgeRecord(nextPayload, {
-        bypassProposal: true,
-      });
+      result = await writeKnowledgeRecord(nextPayload);
       payloadJson = stableJson(nextPayload);
     }
 

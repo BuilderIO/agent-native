@@ -16,10 +16,13 @@ const source = readFileSync(
 describe("SlideEditor layout overflow warning", () => {
   afterEach(cleanup);
 
-  it("renders as plain amber text above the slide, not overlapping it", () => {
+  it("renders as a soft card above the slide, not overlapping it", () => {
     render(
       <SlideOverflowWarning
         verticalOverflow={59}
+        warningLabel="Layout overflows"
+        overflowDetails="Vertical overflow: 59px"
+        overflowDetailsLabel="Show overflow details"
         isAskingAgentToFix={false}
         dismissLabel="Dismiss layout warning"
         onFix={() => {}}
@@ -29,18 +32,36 @@ describe("SlideEditor layout overflow warning", () => {
 
     const status = screen.getByRole("status");
     expect(status.className).toContain("text-foreground");
-    expect(status.className).toContain("border-foreground/40");
-    // The old banner sat on the slide and covered its text; it now floats
-    // above the canvas with an outline instead of a filled surface.
-    expect(status.className).not.toContain("bg-amber-950/95");
+    expect(status.className).toContain("bg-card");
+    expect(status.className).toContain("shadow-sm");
+    expect(status.className).not.toContain("border");
     expect(status.className).toContain("-top-12");
-    expect(screen.getByText("Layout overflows by 59px")).toBeTruthy();
+    expect(screen.getByText("Layout overflows")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Show overflow details" }),
+    ).toBeTruthy();
   });
 
-  it("can be dismissed until the slide content changes", () => {
-    expect(source).toContain("!isOverflowWarningDismissed");
-    expect(source).toContain("setIsOverflowWarningDismissed(false)");
-    expect(source).toContain("setIsOverflowWarningDismissed(true)");
+  it("persists dismissal on the slide until an agent changes its layout", () => {
+    expect(source).toContain("layoutWarningDismissed");
+    expect(source).toContain('persistence: "immediate"');
+    expect(source).not.toContain("slides-layout-warning-dismissed:");
+    expect(source).toContain("hashSlideContent(slide.content)");
+  });
+
+  it("keeps the warning opt-in through the default-off Slides lab", () => {
+    expect(source).toContain("useLabState(");
+    expect(source).toContain("SLIDES_LAYOUT_OVERFLOW_WARNING.key");
+    expect(source).toContain("layoutOverflowWarningEnabled &&");
+  });
+
+  it("asks the agent to repair against complete current slide HTML", () => {
+    expect(source).toContain("to confirm the overflow, then call");
+    expect(source).toContain(
+      "to read the complete current HTML and contentHash",
+    );
+    expect(source).toContain("update-slide --fullContent");
+    expect(source).toContain("with that contentHash as");
   });
 
   it("keeps its controls from triggering canvas interactions", () => {
@@ -52,6 +73,9 @@ describe("SlideEditor layout overflow warning", () => {
       <div onPointerDown={onCanvasPointerDown} onClick={onCanvasClick}>
         <SlideOverflowWarning
           verticalOverflow={59}
+          warningLabel="Layout overflows"
+          overflowDetails="Vertical overflow: 59px"
+          overflowDetailsLabel="Show overflow details"
           isAskingAgentToFix={false}
           dismissLabel="Dismiss layout warning"
           onFix={() => {}}

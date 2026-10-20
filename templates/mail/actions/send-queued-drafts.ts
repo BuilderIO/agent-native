@@ -1,6 +1,8 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
 import {
   claimQueuedDraftForSending,
   listQueuedDrafts,
@@ -32,7 +34,10 @@ type SendOutcome =
   | { outcome: "skipped"; id: string; reason: string }
   | { outcome: "failed"; id: string; error: string };
 
-async function sendOne(id: string): Promise<SendOutcome> {
+async function sendOne(
+  id: string,
+  actionContext?: ActionRunContext,
+): Promise<SendOutcome> {
   const claim = await claimQueuedDraftForSending(id);
   if (!claim.claimed) {
     if (claim.reason === "sent") {
@@ -50,14 +55,17 @@ async function sendOne(id: string): Promise<SendOutcome> {
 
   const { ctx, draft, claimId, priorStatus } = claim;
   try {
-    const result = await (sendEmailAction as any).run({
-      to: draft.to,
-      cc: draft.cc || undefined,
-      bcc: draft.bcc || undefined,
-      subject: draft.subject,
-      body: draft.body,
-      account: draft.accountEmail || undefined,
-    });
+    const result = await sendEmailAction.run(
+      {
+        to: draft.to,
+        cc: draft.cc || undefined,
+        bcc: draft.bcc || undefined,
+        subject: draft.subject,
+        body: draft.body,
+        account: draft.accountEmail || undefined,
+      },
+      actionContext,
+    );
 
     if (typeof result === "string" && result.startsWith("Error")) {
       throw new Error(result);
@@ -67,8 +75,6 @@ async function sendOne(id: string): Promise<SendOutcome> {
     const updated = await markQueuedDraftSent(id, ctx, claimId, sentMessageId);
     return { outcome: "sent", id, sentMessageId, draft: updated };
   } catch (err) {
-    // Release the claim so the draft goes back to a sendable state instead
-    // of being stuck as "sending" forever after a failed send attempt.
     await releaseQueuedDraftClaim(id, ctx, claimId, priorStatus);
     return {
       outcome: "failed",
@@ -95,7 +101,9 @@ export default defineAction({
       .optional()
       .describe("Maximum drafts to send when all=true"),
   }),
-  run: async (args) => {
+  needsApproval: (_args, ctx?: ActionRunContext) =>
+    requiresEmailSendApproval(ctx),
+  run: async (args, ctx) => {
     let ids: string[] = [];
 
     if (args.all) {
@@ -127,7 +135,7 @@ export default defineAction({
     const failed: Array<{ id: string; error: string }> = [];
 
     for (const id of ids) {
-      const result = await sendOne(id);
+      const result = await sendOne(id, ctx);
       if (result.outcome === "sent") {
         sent.push(result);
       } else if (result.outcome === "failed") {
@@ -136,6 +144,18 @@ export default defineAction({
       // "skipped" (already sent / already sending / no longer active)
       // reports cleanly by simply not appearing in either list — re-running
       // an already-sent draft is a clean no-op, not an error.
+    }
+
+    if (failed.length > 0 && sent.length === 0) {
+      const failures = failed
+        .map(({ id, error }) => `${id}: ${error}`)
+        .join("; ");
+      fail(
+        `Failed to send queued draft${failed.length === 1 ? "" : "s"}: ${failures}`,
+        {
+          errorCode: "queued_draft_send_failed",
+        },
+      );
     }
 
     return { sent, failed };

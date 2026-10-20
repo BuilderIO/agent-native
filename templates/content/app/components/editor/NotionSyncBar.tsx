@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  invalidateDocumentQueries,
   useDisconnectNotion,
   useDocumentSyncStatus,
   useLinkDocumentToNotion,
@@ -51,7 +52,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
       lastSyncedRef.current &&
       lastSyncedRef.current !== syncStatus.lastSyncedAt
     ) {
-      queryClient.invalidateQueries({ queryKey: ["action"] });
+      invalidateDocumentQueries(queryClient, documentId);
     }
     lastSyncedRef.current = syncStatus.lastSyncedAt;
   }, [syncStatus?.lastSyncedAt, queryClient, documentId]);
@@ -220,10 +221,11 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             {!syncStatus?.pageId ? (
               <>
                 <Input
+                  size="sm"
                   value={pageIdOrUrl}
                   onChange={(e) => setPageIdOrUrl(e.target.value)}
                   placeholder={t("editor.toolbar.notionPageUrlOrId")}
-                  className="h-8 w-full sm:w-[260px]"
+                  className="w-full sm:w-[260px]"
                 />
                 <Button
                   size="sm"

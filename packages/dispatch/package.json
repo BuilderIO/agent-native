@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/dispatch",
-  "version": "0.20.3",
+  "version": "0.40.29",
   "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -14,7 +14,8 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "CHANGELOG.md"
   ],
   "type": "module",
   "sideEffects": [
@@ -28,6 +29,9 @@
     "./routes": "./dist/routes/index.js",
     "./routes/pages/*": "./dist/routes/pages/*.js",
     "./server": "./dist/server/index.js",
+    "./shared/app-roles": "./dist/shared/app-roles.js",
+    "./shared/feature-flags": "./dist/shared/feature-flags.js",
+    "./shared/workspace-sso": "./dist/shared/workspace-sso.js",
     "./server/lib/thread-link-preview": "./dist/server/lib/thread-link-preview.js",
     "./actions": "./dist/actions/index.js",
     "./db": "./dist/db/index.js",
@@ -82,6 +86,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "next-themes": "^0.4.6",
@@ -109,7 +114,7 @@
     "vitest": "^4.1.5"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.8.0",
+    "@agent-native/core": ">=0.209.1",
     "react": ">=19.2.7",
     "react-dom": ">=19.2.7",
     "react-router": ">=8"

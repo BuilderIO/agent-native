@@ -4,7 +4,7 @@ An open-source, agent-native alternative to Superhuman. An agent-powered,
 keyboard-first email client for Gmail — the agent can read, draft, send, and
 organize email for you, and the codebase is yours to own.
 
-**Live app: [mail.agent-native.com](https://mail.agent-native.com)**
+**Live app: [mail.agent-native.com](https://mail.agent-native.com?utm_source=github&utm_medium=referral&utm_content=mail-readme)**
 
 Connect one or more Gmail accounts and drive a fast, keyboard-first inbox
 yourself, or ask the agent to do anything you can. The agent always knows which
@@ -25,11 +25,11 @@ view you're in and which thread is open, so "archive this" just works.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-mail --standalone --template mail
+npx --yes @agent-native/core@latest create my-mail --standalone --template mail
 cd my-mail
 pnpm install
 pnpm dev
 ```
 
 Connecting Gmail in dev needs a Google OAuth client — see the docs for setup.
-Full docs: [agent-native.com/docs/template-mail](https://agent-native.com/docs/template-mail).
+Full docs: [agent-native.com/docs/template-mail](https://agent-native.com/docs/template-mail?utm_source=github&utm_medium=referral&utm_content=mail-readme).

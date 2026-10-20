@@ -125,7 +125,7 @@ pnpm action search-notion-pages --query "meeting notes"
 ### list-notion-database-sources
 
 List Notion data sources visible to the current user's OAuth connection before
-attaching one to a Content database:
+attaching one to a Content collection:
 
 ```bash
 pnpm action list-notion-database-sources --query "projects"
@@ -231,3 +231,6 @@ the two copies from drifting.
 - Because storage is canonical NFM, a no-op sync changes nothing: editing the
   same document in Notion and in the app will not create growing inconsistencies.
 - Always check `connect-notion-status` before attempting sync operations.
+- A Notion export is a one-time copy, not a sync. `import-content` takes the
+  export's `.md` files and images but not the zip itself yet; link and pull
+  pages that should stay in sync with Notion.

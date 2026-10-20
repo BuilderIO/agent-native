@@ -1,3 +1,5 @@
+import { getAppConfig } from "../app-config/index.js";
+
 function normalizeOrigin(raw: string | undefined): string {
   if (!raw) return "";
   try {
@@ -22,20 +24,11 @@ function isLoopbackOrigin(origin: string): boolean {
 }
 
 export function getPublicOAuthOrigin(): string {
+  const config = getAppConfig();
   for (const raw of [
-    process.env.WORKSPACE_OAUTH_ORIGIN,
-    process.env.VITE_WORKSPACE_OAUTH_ORIGIN,
-    process.env.APP_URL,
-    process.env.VITE_APP_URL,
-    process.env.BETTER_AUTH_URL,
-    process.env.VITE_BETTER_AUTH_URL,
-  ]) {
-    const origin = normalizeOrigin(raw);
-    if (origin && !isLoopbackOrigin(origin)) return origin;
-  }
-  for (const raw of [
-    process.env.WORKSPACE_GATEWAY_URL,
-    process.env.VITE_WORKSPACE_GATEWAY_URL,
+    config.workspace.oauthOrigin,
+    config.app.url,
+    config.workspace.gatewayUrl,
   ]) {
     const origin = normalizeOrigin(raw);
     if (origin && !isLoopbackOrigin(origin)) return origin;

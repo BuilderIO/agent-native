@@ -1,24 +1,4 @@
-/**
- * Auto-introspected SQL schema context block for the agent's system prompt.
- *
- * On every chat turn, the framework appends a compact, always-fresh summary
- * of the app's SQL database — every table, every column, every foreign key —
- * so the agent knows exactly what data model it's working with. The schema
- * is pulled live from `information_schema` (Postgres) or `PRAGMA table_info`
- * (SQLite), cached briefly to keep latency down but never hard-coded.
- *
- * The block also:
- *   - points at the enabled db-* tools for runtime access
- *   - lists Postgres column descriptions (`COMMENT ON COLUMN ...`) if present
- *   - explains the current user/org data scoping so the agent doesn't re-filter
- *     by hand (which would be redundant and easy to get wrong)
- */
-import {
-  getDbExec,
-  getDatabaseUrl,
-  isPostgres,
-  type DbExec,
-} from "../db/client.js";
+import { getDbExec, getDatabaseUrl, type DbExec } from "../db/client.js";
 import {
   normalizeDatabaseToolsMode,
   type DatabaseToolsOption,
@@ -45,21 +25,16 @@ interface TableSchema {
   comment: string | null;
 }
 
-// Short-lived in-memory cache — schema rarely changes between messages, but
-// we want new tables to show up within a few seconds during active dev.
 const CACHE_TTL_MS = 15_000;
 let _cache: {
   key: string;
   expires: number;
   tables: TableSchema[];
-  dialect: "postgres" | "sqlite";
 } | null = null;
 
 function cacheKey(): string {
-  return (isPostgres() ? "pg:" : "lite:") + (getDatabaseUrl() || "");
+  return `postgres:${getDatabaseUrl() || ""}`;
 }
-
-// ─── Postgres introspection ─────────────────────────────────────────────────
 
 async function introspectPostgres(db: DbExec): Promise<TableSchema[]> {
   const tablesRes = await db.execute({
@@ -132,63 +107,16 @@ async function introspectPostgres(db: DbExec): Promise<TableSchema[]> {
   return tables;
 }
 
-// ─── SQLite / libSQL / D1 introspection ────────────────────────────────────
-
-async function introspectSqlite(db: DbExec): Promise<TableSchema[]> {
-  const tablesRes = await db.execute(
-    `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
-  );
-
-  const tables: TableSchema[] = [];
-
-  for (const row of tablesRes.rows as any[]) {
-    const name = row.name as string;
-    if (!name) continue;
-    // Quote the identifier for PRAGMA calls; SQLite requires doubling embedded quotes.
-    const escaped = name.replace(/"/g, '""');
-
-    const colsRes = await db.execute(`PRAGMA table_info("${escaped}")`);
-    const fksRes = await db.execute(`PRAGMA foreign_key_list("${escaped}")`);
-
-    tables.push({
-      name,
-      comment: null, // SQLite has no column/table comments
-      columns: (colsRes.rows as any[]).map((c) => ({
-        name: c.name as string,
-        type: ((c.type as string) || "").toLowerCase() || "any",
-        notnull: Number(c.notnull) === 1,
-        pk: Number(c.pk) === 1,
-        comment: null,
-      })),
-      foreignKeys: (fksRes.rows as any[]).map((f) => ({
-        from: f.from as string,
-        table: f.table as string,
-        to: f.to as string,
-      })),
-    });
-  }
-
-  return tables;
-}
-
-// ─── Cached entry point ─────────────────────────────────────────────────────
-
-// Coalesces concurrent cache-miss introspections (same pattern as poll.ts's
-// _checkPromise): several chat turns starting inside one TTL window would
-// otherwise each run the full multi-query DB introspection in parallel.
 let _inflight: {
   key: string;
-  promise: Promise<{ tables: TableSchema[]; dialect: "postgres" | "sqlite" }>;
+  promise: Promise<TableSchema[]>;
 } | null = null;
 
-async function getSchema(): Promise<{
-  tables: TableSchema[];
-  dialect: "postgres" | "sqlite";
-}> {
+async function getSchema(): Promise<TableSchema[]> {
   const key = cacheKey();
   const now = Date.now();
   if (_cache && _cache.key === key && _cache.expires > now) {
-    return { tables: _cache.tables, dialect: _cache.dialect };
+    return _cache.tables;
   }
   if (_inflight && _inflight.key === key) {
     return _inflight.promise;
@@ -196,14 +124,10 @@ async function getSchema(): Promise<{
 
   const promise = (async () => {
     const db = getDbExec();
-    const dialect: "postgres" | "sqlite" = isPostgres() ? "postgres" : "sqlite";
-    const tables =
-      dialect === "postgres"
-        ? await introspectPostgres(db)
-        : await introspectSqlite(db);
+    const tables = await introspectPostgres(db);
 
-    _cache = { key, expires: Date.now() + CACHE_TTL_MS, tables, dialect };
-    return { tables, dialect };
+    _cache = { key, expires: Date.now() + CACHE_TTL_MS, tables };
+    return tables;
   })();
   _inflight = { key, promise };
   try {
@@ -213,15 +137,11 @@ async function getSchema(): Promise<{
   }
 }
 
-/** Manually drop the cache — useful from tests or after running a migration. */
 export function invalidateSchemaPromptCache(): void {
   _cache = null;
 }
 
-// ─── Formatting ─────────────────────────────────────────────────────────────
-
 function shortType(type: string): string {
-  // Trim verbose Postgres type names for compactness in the prompt.
   const t = type.toLowerCase();
   if (t === "character varying") return "varchar";
   if (t === "timestamp without time zone") return "timestamp";
@@ -243,7 +163,6 @@ function formatTable(table: TableSchema): string {
     const fk = fkByCol.get(c.name);
     if (fk) flags.push(`→${fk}`);
 
-    // Flag scoping columns so the agent understands per-user/per-org filtering.
     if (c.name === "owner_email") flags.push("user-scope");
     if (c.name === "org_id") flags.push("org-scope");
 
@@ -259,29 +178,16 @@ function formatTable(table: TableSchema): string {
   return [header, ...cols].join("\n");
 }
 
-// ─── Public API ─────────────────────────────────────────────────────────────
-
-/**
- * Build the `<sql-database>` block appended to the system prompt on every turn.
- *
- * `owner` and `orgId` come from the per-request context (AGENT_USER_EMAIL /
- * AGENT_ORG_ID) and are surfaced so the agent knows who it is acting on behalf
- * of — and understands that rows are already filtered for that identity.
- */
 export async function loadSchemaPromptBlock(opts: {
   owner?: string | null;
   orgId?: string | null;
-  /** Controls which raw db-* tools are available to the agent. */
   databaseTools?: DatabaseToolsOption;
   /** @deprecated Use databaseTools instead. */
   hasRawDbTools?: boolean;
 }): Promise<string> {
   let tables: TableSchema[];
-  let dialect: "postgres" | "sqlite";
   try {
-    const res = await getSchema();
-    tables = res.tables;
-    dialect = res.dialect;
+    tables = await getSchema();
   } catch {
     // DB not ready, or introspection blew up — don't take the chat down.
     return "";
@@ -289,8 +195,6 @@ export async function loadSchemaPromptBlock(opts: {
 
   if (tables.length === 0) return "";
 
-  // Partition framework-internal tables from template tables so the agent
-  // focuses on the data model it's most likely to touch.
   const CORE_TABLES = new Set([
     "application_state",
     "settings",
@@ -315,7 +219,7 @@ export async function loadSchemaPromptBlock(opts: {
   const lines: string[] = [];
   lines.push("<sql-database>");
   lines.push(
-    `The app's state lives in a SQL database (${dialect}). The schema below is auto-introspected fresh each turn — treat it as authoritative.`,
+    "The app's state lives in PostgreSQL. The schema below is auto-introspected fresh each turn - treat it as authoritative.",
   );
   lines.push("");
 
@@ -346,7 +250,6 @@ export async function loadSchemaPromptBlock(opts: {
   const hasRawDbTools = databaseToolsMode !== "off";
   const hasRawDbWriteTools = databaseToolsMode === "write";
 
-  // Tooling references.
   if (hasRawDbTools) {
     lines.push("## SQL tools");
     lines.push(
@@ -405,7 +308,6 @@ export async function loadSchemaPromptBlock(opts: {
     lines.push("");
   }
 
-  // Data scoping context.
   const ownerLine = opts.owner ? opts.owner : "(unresolved)";
   const orgLine = opts.orgId ? opts.orgId : "(none)";
   lines.push("## Data scoping (enforced at the SQL layer)");

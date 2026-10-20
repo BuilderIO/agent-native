@@ -6,11 +6,16 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { listBuiltinDashboards } from "../server/lib/builtin-dashboards";
 import {
   listDashboardSummaries,
   type DashboardArchiveFilter,
   type DashboardHiddenFilter,
 } from "../server/lib/dashboards-store";
+import {
+  BUILTIN_DEMO_DASHBOARD_ID,
+  builtinDashboardIdFor,
+} from "../shared/builtin-dashboard-ids";
 
 function parseArchivedFilter(raw: unknown): DashboardArchiveFilter {
   if (raw === "archived" || raw === "only") return "archived";
@@ -42,6 +47,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {
     compactCatalog: true,
@@ -69,12 +75,14 @@ export default defineAction({
       kind: "sql",
       archived,
       hidden,
+      includeCatalogMetadata: true,
     });
-    return rows.map((d) => ({
+    const saved = rows.map((d) => ({
       id: d.id,
       name: d.name,
       ...(d.parentId ? { parentId: d.parentId } : {}),
       ...(d.folderId ? { folderId: d.folderId } : {}),
+      ...(d.demoId ? { demo: true } : {}),
       ownerEmail: d.ownerEmail,
       orgId: d.orgId,
       visibility: d.visibility,
@@ -84,5 +92,26 @@ export default defineAction({
       updatedAt: d.updatedAt,
       createdAt: d.createdAt,
     }));
+    if (archived === "archived" || hidden === "hidden") return saved;
+    // An old copy that is still listed stands in for its built-in.
+    const covered = new Set(saved.map((d) => builtinDashboardIdFor(d.id)));
+    const builtins = (await listBuiltinDashboards(ctx))
+      .filter((builtin) => !covered.has(builtin.id))
+      .map((builtin) => ({
+        id: builtin.id,
+        name: builtin.title,
+        builtin: true as const,
+        ...(builtin.id === BUILTIN_DEMO_DASHBOARD_ID ? { demo: true } : {}),
+        ownerEmail: null,
+        orgId: ctx.orgId,
+        visibility: "org" as const,
+        folderId: null,
+        archivedAt: null,
+        hiddenAt: null,
+        hiddenBy: null,
+        updatedAt: null,
+        createdAt: null,
+      }));
+    return [...saved, ...builtins];
   },
 });

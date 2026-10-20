@@ -4,7 +4,12 @@ import {
   listFileUploadProviders,
   type FileUploadProvider,
 } from "@agent-native/core/file-upload";
-import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
+import {
+  BUILDER_ASSETS_WRITE_SCOPE,
+  canAuthorizeBuilderApiRequest,
+} from "@agent-native/core/server";
+
+import { clipsHostedFileUploadProvider } from "./s3-upload-provider.js";
 
 async function isConfiguredForRequest(
   provider: FileUploadProvider,
@@ -18,23 +23,21 @@ async function isConfiguredForRequest(
   }
 }
 
-/**
- * Resolve the provider that owns a persisted resumable session.
- *
- * Request-scoped S3 credentials live in the encrypted secrets store, so the
- * synchronous registry lookup used by older upload code cannot see them. The
- * provider id is persisted with the session to prevent a newly configured or
- * reordered provider from receiving another provider's opaque session handle.
- */
 export async function resolveResumableUploadProvider(
   providerId: string,
 ): Promise<FileUploadProvider | null> {
+  if (providerId === clipsHostedFileUploadProvider.id) {
+    return (await isConfiguredForRequest(clipsHostedFileUploadProvider))
+      ? clipsHostedFileUploadProvider
+      : null;
+  }
+
   const active = await getActiveFileUploadProviderForRequest();
   if (active?.id === providerId && active.resumable) return active;
 
   if (providerId === builderFileUploadProvider.id) {
     try {
-      if (await resolveHasBuilderPrivateKey()) {
+      if (await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE)) {
         return builderFileUploadProvider;
       }
     } catch {

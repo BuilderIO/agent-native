@@ -7,6 +7,7 @@ import { VideoBlock } from "./VideoBlock";
 export interface ContentVideoOptions {
   HTMLAttributes: Record<string, unknown>;
   documentId?: string;
+  canMutateMedia?: () => boolean;
   onVideoComment?: (quotedText: string, offsetTop: number) => void;
 }
 
@@ -60,6 +61,7 @@ export const VideoNode = Node.create<ContentVideoOptions>({
     return {
       HTMLAttributes: {},
       documentId: undefined,
+      canMutateMedia: undefined,
       onVideoComment: undefined,
     };
   },
@@ -114,10 +116,6 @@ export const VideoNode = Node.create<ContentVideoOptions>({
         parseHTML: () => null,
         renderHTML: () => ({}),
       },
-      // UI-only state. Keeping the source panel on the ProseMirror node makes
-      // it survive React node-view remounts while the empty video draft is
-      // being autosaved/reconciled. It is deliberately omitted from HTML and
-      // Markdown serialization.
       sourcePanelOpen: {
         default: false,
         parseHTML: () => false,

@@ -1,20 +1,24 @@
 import path from "path";
 
-import {
-  getSession,
-  readBody,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { isActionContractError } from "@agent-native/core";
+import { readBody, runWithRequestContext } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
 
 import exportPptxAction from "../../../../actions/export-pptx.js";
+import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
+import { asGoogleSlidesBuildStep } from "../../../lib/deck-export-tracking.js";
 
 const PPTX_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 export default defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
+  if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
@@ -22,6 +26,7 @@ export default defineEventHandler(async (event) => {
   const body = (await readBody(event)) as {
     deckId?: string;
     includeNotes?: boolean;
+    exportPurpose?: unknown;
   };
 
   if (!body?.deckId) {
@@ -31,16 +36,33 @@ export default defineEventHandler(async (event) => {
 
   const deckId = body.deckId;
   const includeNotes = body.includeNotes ?? true;
+  const actionContext = {
+    caller: "http" as const,
+    userEmail: session.email,
+    orgId: session.orgId,
+    slidesPptxDownload: true as const,
+  };
+  const runExport = async () =>
+    exportPptxAction.run(
+      {
+        deckId,
+        includeNotes,
+      },
+      actionContext,
+    );
 
   try {
     const result = await runWithRequestContext(
       { userEmail: session.email, orgId: session.orgId },
       () =>
-        exportPptxAction.run({
-          deckId,
-          includeNotes,
-        }),
+        body.exportPurpose === "google_slides"
+          ? asGoogleSlidesBuildStep(runExport)
+          : runExport(),
     );
+
+    if (!result.buffer) {
+      throw new Error("PPTX export did not produce downloadable bytes");
+    }
 
     const bytes = new Uint8Array(result.buffer);
     const responseBody = bytes.buffer.slice(
@@ -54,9 +76,18 @@ export default defineEventHandler(async (event) => {
         "Content-Disposition": `attachment; filename="${path.basename(
           result.filename,
         )}"`,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {
+    if (isActionContractError(error)) {
+      setResponseStatus(event, error.statusCode);
+      return {
+        error: error.message,
+        errorCode: error.errorCode,
+      };
+    }
     const message =
       error instanceof Error
         ? error.message

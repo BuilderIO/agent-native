@@ -48,7 +48,8 @@ import {
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
-import type { ContinuationReason } from "../agent/types.js";
+import type { AgentChatEvent, ContinuationReason } from "../agent/types.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import {
   createThread,
   getThread,
@@ -56,10 +57,11 @@ import {
   setThreadSourceIfMissing,
 } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
-import { isLocalDatabase } from "../db/client.js";
-import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
+import { getOrgA2ASecret } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { getAppProductionUrl } from "../server/app-url.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
 import { reconcileTerminalA2AParentIfDisabled } from "./a2a-continuation-processor.js";
@@ -90,6 +92,10 @@ import {
   stageTaskDeliveryPayload,
   type PendingTask,
 } from "./pending-tasks-store.js";
+import {
+  integrationRequestContext,
+  resolveIntegrationRequestScope,
+} from "./request-scope.js";
 import { integrationScopeSubjectKey } from "./scope-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type {
@@ -97,6 +103,7 @@ import type {
   IncomingMessage,
   OutgoingMessage,
   PlatformDeliveryReceipt,
+  PlatformRunProgress,
   PlatformRunProgressRef,
 } from "./types.js";
 import {
@@ -117,20 +124,14 @@ const CUTOFF_INTEGRATION_RESPONSE_MESSAGE =
 const INTEGRATION_CAMPAIGN_LEASE_MS = 16 * 60_000;
 const INTEGRATION_CAMPAIGN_MAX_CHUNKS = 4;
 const INTEGRATION_CAMPAIGN_A2A_CHECK_MS = 30_000;
-// Keep a lost handoff plus the one-minute sweep inside the two-minute messaging
-// target without shortening general background-run budgets.
+
+function stringifyInboundValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value) ?? "";
+}
+
 const INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS = 45_000;
 
-/**
- * True when the run stopped at a continuation boundary rather than finishing:
- * the run-manager's soft timeout emits `auto_continue` and aborts the loop, and
- * the loop itself emits one when it hits an internal step budget. The run's
- * status is still "completed", so without this check a cut-off research request
- * is reported to the user as a model that answered with nothing.
- *
- * Only the LAST terminal event decides: an in-invocation resume that recovered
- * from an earlier boundary goes on to emit `done`, and that run did finish.
- */
 function endedAtContinuationBoundary(run: ActiveRun): boolean {
   for (let i = run.events.length - 1; i >= 0; i--) {
     const event = run.events[i].event;
@@ -190,13 +191,17 @@ type ToolDoneEvent = {
   result: string;
   isError?: boolean;
   completedSideEffect?: boolean;
+  artifacts?: ArtifactReceipt[];
 };
 
 export type IntegrationResponseDeliveryTaskPayload = {
   kind: "response-delivery";
   incoming: IncomingMessage;
   message: OutgoingMessage;
+  principalType?: "user" | "service";
+  orgScope?: "personal";
   placeholderRef?: string;
+  strictTargetRef?: boolean;
   internalThreadId?: string;
   userMessageId?: string;
   assistantMessageId?: string;
@@ -235,10 +240,6 @@ export type ProcessIntegrationTaskResult =
  * couldn't survive serverless cold starts.
  */
 function buildEventDedupKey(incoming: IncomingMessage): string {
-  // Prefer the platform's own unique per-message id so two DISTINCT messages
-  // in the same conversation that land within the same second (Telegram/
-  // WhatsApp timestamps are second-resolution) don't collide. Platforms resend
-  // the same id on retry, so true duplicate deliveries are still deduped.
   const ctx = incoming.platformContext as Record<string, unknown> | undefined;
   const candidate =
     ctx?.messageId ??
@@ -268,46 +269,20 @@ function buildDeliveryHistoryMessageIds(incoming: IncomingMessage): {
 
 export interface WebhookHandlerOptions {
   adapter: PlatformAdapter;
-  /** Resolved system prompt string */
   systemPrompt: string;
-  /** Action entries for the agent */
   actions: Record<string, ActionEntry>;
-  /**
-   * Tool names to expose on the FIRST engine request. When provided, every
-   * other name in `actions` (framework additions such as
-   * `list-integration-memory` / `call-agent` merged in by
-   * `createIntegrationsPlugin`) is deferred behind the attached `tool-search`
-   * entry instead of being serialized on every inbound message — the run
-   * loop's mid-run tool expansion (`expandActiveTools` in `runAgentLoop`)
-   * still lets the model discover and call them after a search. Omit to keep
-   * the full `actions` set visible up front (current behavior).
-   */
   initialToolNames?: string[];
-  /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
-  /** Anthropic API key */
   apiKey: string;
-  /** Agent engine to use. Defaults to the same resolver as web chat. */
   engine?:
     | AgentEngine
     | string
     | { name: string; config: Record<string, unknown> };
-  /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
-  /** Thread owner for personal/shared resource loading */
   ownerEmail: string;
-  /** Explicit org for service principals that are not login users. */
   orgId?: string | null;
-  /** Durable execution identity kind, preserved across deferred processing. */
   principalType?: "user" | "service";
-  /**
-   * Pre-parsed incoming message. When provided, handleWebhook skips its own
-   * verification + parsing steps. Required when the caller has already read
-   * the request body (h3 doesn't reliably cache parsed bodies, so re-parsing
-   * the same event hangs on streaming providers).
-   */
   incoming?: IncomingMessage;
-  /** Optional hook to intercept inbound commands before agent execution */
   beforeProcess?: (
     incoming: IncomingMessage,
     adapter: PlatformAdapter,
@@ -323,13 +298,15 @@ export interface WebhookHandlerOptions {
 async function resolveIntegrationEngineOption(
   engineOption: WebhookHandlerOptions["engine"],
   appId?: string,
+  includeConfiguredSelection = true,
 ): Promise<WebhookHandlerOptions["engine"]> {
-  // A custom engine instance/config is an intentional per-plugin override and
-  // must remain authoritative. A string option is the normal integration
-  // plugin default; org/user Agent settings should override that default just
-  // as they do in web chat.
   if (engineOption && typeof engineOption === "object") return engineOption;
+  if (!includeConfiguredSelection) return engineOption ?? "builder";
   return (await getConfiguredEngineNameForRequest({ appId })) ?? engineOption;
+}
+
+function isMeaningfulIntegrationAgentEvent(event: AgentChatEvent): boolean {
+  return !["stream_keepalive", "activity", "model_stream"].includes(event.type);
 }
 
 function collectToolResultSummaries(
@@ -343,6 +320,7 @@ function collectToolResultSummaries(
       result: event.result,
       isError: event.isError,
       completedSideEffect: event.completedSideEffect,
+      artifacts: event.artifacts,
     }));
 }
 
@@ -357,10 +335,18 @@ function collectCompletedMutationToolResultSummaries(
         event.completedSideEffect === true &&
         event.isError !== true,
     )
-    .map((event) => ({ tool: event.tool, result: event.result }));
+    .map((event) => ({
+      tool: event.tool,
+      result: event.result,
+      artifacts: event.artifacts,
+    }));
 }
 
 export type ResolvedIntegrationApiKey = ResolvedOwnerApiKey;
+
+export function integrationResponseIdempotencyKey(taskId: string): string {
+  return `integration-response:${taskId}`;
+}
 
 export async function resolveIntegrationApiKey(
   engineOption: WebhookHandlerOptions["engine"],
@@ -374,23 +360,6 @@ export async function resolveIntegrationApiKey(
   });
 }
 
-/**
- * Process an incoming webhook from a messaging platform.
- *
- * Flow:
- * 1. Handle verification challenges (Slack url_verification, etc.)
- * 2. Verify webhook signature
- * 3. Parse incoming message (null = ignored event)
- * 4. Persist task to SQL
- * 5. Dispatch the queued task through the configured processor handoff
- *    (a fresh function execution with its own timeout budget)
- * 6. Return HTTP 200 immediately (within Slack's 3s SLA)
- *
- * The processor endpoint runs the actual agent loop. This split is essential
- * for serverless platforms (Netlify Lambda, Vercel, Cloudflare Workers) which
- * freeze the function as soon as the response is returned, killing any
- * lingering background promises.
- */
 export async function handleWebhook(
   event: H3Event,
   options: WebhookHandlerOptions,
@@ -400,17 +369,9 @@ export async function handleWebhook(
 
   let incoming: IncomingMessage | null = options.incoming ?? null;
 
-  // When the caller didn't pre-parse, run the full verify + parse pipeline.
-  // Otherwise skip it — h3's body stream has already been consumed and a
-  // second readBody call hangs on streaming providers.
   if (!incoming) {
-    // Step 1: Let the adapter cache the raw body and identify any challenge.
-    // The response is intentionally withheld until signature verification
-    // succeeds; Discord routinely probes endpoints with invalid PING
-    // signatures and Slack challenges are signed like normal events.
     const verification = await adapter.handleVerification(event);
 
-    // Step 2: Verify webhook signature
     const isValid = await adapter.verifyWebhook(event);
     if (!isValid) {
       return { status: 401, body: { error: "Invalid webhook signature" } };
@@ -419,20 +380,11 @@ export async function handleWebhook(
       return { status: 200, body: verification.response ?? "ok" };
     }
 
-    // Step 3: Parse the incoming message
     incoming = await adapter.parseIncomingMessage(event);
     if (!incoming) {
-      // Not a user message (bot message, edit, reaction, etc.) — acknowledge silently
       return { status: 200, body: "ok" };
     }
   }
-
-  // Dedup is enforced inside enqueueAndDispatch — the unique index on
-  // `(platform, external_event_key)` raises a constraint violation we treat
-  // as "already enqueued" and respond 200. We can't dedup BEFORE the
-  // beforeProcess hook because some templates use beforeProcess for
-  // command-style intercepts that are stateless and idempotent (e.g. a
-  // Slack `/help` command that doesn't enqueue a task).
 
   if (beforeProcess) {
     const result = await beforeProcess(incoming, adapter);
@@ -445,15 +397,9 @@ export async function handleWebhook(
     }
   }
 
-  // Step 4 + 5: Enqueue to SQL and dispatch to processor in a fresh request.
   try {
     await enqueueAndDispatch(event, incoming, options, handlerStartedAt);
   } catch (err) {
-    // Duplicate event delivery: the SQL UNIQUE constraint on
-    // (platform, external_event_key) rejected the second insert. This is
-    // the expected path when a platform retries an event that already
-    // landed (e.g. Slack 3-second timeout) — return 200 so the platform
-    // stops retrying. See H3 in the webhook security audit.
     if (isDuplicateEventError(err)) {
       return immediateWebhookResponse(adapter, incoming);
     }
@@ -461,9 +407,6 @@ export async function handleWebhook(
       `[integrations] Failed to enqueue/dispatch ${incoming.platform} message:`,
       err,
     );
-    // Return 500 so the platform retries. If the SQL insert failed for a
-    // non-dup reason, the message is genuinely lost — better to let Slack
-    // retry (it will re-fire the same event_callback) than silently drop it.
     return { status: 500, body: { error: "enqueue failed" } };
   }
 
@@ -485,19 +428,6 @@ function immediateWebhookResponse(
   return { status: 200, body: "ok" };
 }
 
-/**
- * Persist the task to SQL and dispatch a fresh HTTP request to the processor
- * endpoint. The dispatch is fire-and-forget — we deliberately do NOT await
- * the resulting fetch, so the current handler can return immediately.
- *
- * This pattern works on every supported host:
- *   - Netlify Lambda: function returns; the dispatched request hits a fresh
- *     Lambda with its own function budget.
- *   - Vercel Functions: same.
- *   - Cloudflare Workers: same (no waitUntil dependency).
- *   - Self-hosted Node: a separate request comes back through the same
- *     server, but each handler still runs to completion.
- */
 async function enqueueAndDispatch(
   event: H3Event,
   incoming: IncomingMessage,
@@ -506,22 +436,13 @@ async function enqueueAndDispatch(
 ): Promise<void> {
   const taskId = crypto.randomUUID();
 
-  // Resolve the org id once at enqueue-time so the processor doesn't have to
-  // re-derive it (and so we can drop it on the row for observability).
-  let orgId: string | null = options.orgId ?? null;
-  if (options.orgId === undefined) {
-    try {
-      orgId = (await resolveOrgIdForEmail(options.ownerEmail)) ?? null;
-    } catch {
-      orgId = null;
-    }
-  }
+  const requestScope = await resolveIntegrationRequestScope({
+    ownerEmail: options.ownerEmail,
+    orgId: options.orgId,
+    principalType: options.principalType,
+  });
+  const orgId = requestScope.orgId;
 
-  // Post a "thinking…" placeholder immediately if the adapter supports
-  // in-place edits. The processor flow will update this same message with
-  // the final answer, so users see one tidy thread reply instead of
-  // "[silence] → answer". Adapters without edit support skip this and the
-  // processor posts a fresh response.
   let placeholderRef: string | undefined;
   try {
     if (options.adapter.postProcessingPlaceholder) {
@@ -539,6 +460,7 @@ async function enqueueAndDispatch(
     incoming,
     placeholderRef,
     principalType: options.principalType ?? "user",
+    ...(requestScope.orgScope ? { orgScope: requestScope.orgScope } : {}),
   });
 
   await insertPendingTask({
@@ -548,9 +470,6 @@ async function enqueueAndDispatch(
     payload,
     ownerEmail: options.ownerEmail,
     orgId,
-    // SQL-level dedup key — duplicate webhook deliveries from the same
-    // platform produce the same key, so the unique index rejects the
-    // second insert (H3 in the webhook security audit).
     externalEventKey: buildEventDedupKey(incoming),
     dispatchScope: integrationDispatchScopeValue({
       platform: incoming.platform,
@@ -581,9 +500,6 @@ async function enqueueAndDispatch(
     portableSettleMs: settleWaitMs,
   });
 
-  // A definitive dispatch failure leaves a queued task nobody is running while
-  // the placeholder above already told the user work had started. Say so
-  // instead of leaving that indicator spinning until the sweep — if it runs.
   if (outcome === "failed") {
     console.error(
       `[integrations] dispatch failed for task ${taskId} (${incoming.platform}/${incoming.externalThreadId})`,
@@ -605,50 +521,10 @@ async function enqueueAndDispatch(
   }
 }
 
-/**
- * Resolve the base URL we should dispatch the processor request to.
- * Prefers explicit env vars (most reliable on serverless), falls back to the
- * inbound request's headers.
- */
 export function resolveBaseUrl(event: H3Event): string {
-  const fromEnv =
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL;
-  if (fromEnv) return withConfiguredAppBasePath(fromEnv);
-  if (process.env.NODE_ENV === "production" || !isLocalDatabase()) {
-    throw new Error(
-      "Integration self-dispatch requires APP_URL, URL, DEPLOY_URL, or BETTER_AUTH_URL in production/shared deployments.",
-    );
-  }
-
-  try {
-    const headers = (event as any).node?.req?.headers ?? (event as any).headers;
-    const get = (name: string): string | undefined => {
-      if (!headers) return undefined;
-      if (typeof headers.get === "function") {
-        return headers.get(name) ?? undefined;
-      }
-      const lower = String(name).toLowerCase();
-      const map = headers as Record<string, string | undefined>;
-      return map[name] ?? map[lower];
-    };
-    const proto = get("x-forwarded-proto") || "http";
-    const host = get("host") || `localhost:${process.env.PORT || 3000}`;
-    return withConfiguredAppBasePath(`${proto}://${host}`);
-  } catch {
-    return withConfiguredAppBasePath(
-      `http://localhost:${process.env.PORT || 3000}`,
-    );
-  }
+  return resolveSelfDispatchBaseUrl(event);
 }
 
-/**
- * Run the actual agent loop for a previously-enqueued task. Called by the
- * processor endpoint in `plugin.ts`. This is a fresh function execution, so
- * it gets its own timeout budget independent of the inbound webhook handler.
- */
 export async function processIntegrationTask(
   task: PendingTask,
   options: WebhookHandlerOptions,
@@ -661,7 +537,12 @@ export async function processIntegrationTask(
     incoming: IncomingMessage;
     placeholderRef?: string;
     principalType?: "user" | "service";
+    orgScope?: "personal";
   };
+  const principalType = parsed.principalType ?? options.principalType ?? "user";
+  const orgScope =
+    parsed.orgScope ??
+    (task.orgId === null && principalType === "user" ? "personal" : undefined);
 
   if (!campaignOptions?.continuationInvocation) {
     await recordInboundIntegrationAudit(task, parsed.incoming);
@@ -671,8 +552,9 @@ export async function processIntegrationTask(
     taskId: task.id,
     attempts: task.attempts,
     placeholderRef: parsed.placeholderRef,
-    orgId: task.orgId ?? undefined,
-    principalType: parsed.principalType ?? options.principalType ?? "user",
+    orgId: task.orgId,
+    orgScope,
+    principalType,
     durableCampaign: campaignOptions?.enabled === true,
   });
 }
@@ -706,7 +588,9 @@ async function recordInboundIntegrationAudit(
       sourcePlatform: incoming.platform,
       sourceId:
         incoming.replyRef ??
-        String(incoming.platformContext.messageTs ?? incoming.timestamp),
+        stringifyInboundValue(
+          incoming.platformContext.messageTs ?? incoming.timestamp,
+        ),
       sourceUrl: incoming.sourceUrl ?? null,
     });
   } catch {
@@ -714,10 +598,6 @@ async function recordInboundIntegrationAudit(
   }
 }
 
-/**
- * Resolve thread, run agent loop, post response, persist thread data.
- * Shared between the new processor endpoint and any direct callers.
- */
 async function processIncomingMessage(
   incoming: IncomingMessage,
   options: WebhookHandlerOptions,
@@ -725,7 +605,8 @@ async function processIncomingMessage(
     taskId?: string;
     attempts?: number;
     placeholderRef?: string;
-    orgId?: string;
+    orgId?: string | null;
+    orgScope?: "personal";
     principalType?: "user" | "service";
     durableCampaign?: boolean;
   } = {},
@@ -740,9 +621,30 @@ async function processIncomingMessage(
     ownerEmail,
     engine: engineOption,
   } = options;
+  const requestScope = await resolveIntegrationRequestScope({
+    ownerEmail,
+    orgId: opts.orgId === undefined ? options.orgId : opts.orgId,
+    orgScope: opts.orgScope,
+    principalType: opts.principalType,
+  });
+  const orgId = requestScope.orgId;
+  const requestContext = integrationRequestContext(requestScope);
   let effectiveSystemPrompt = systemPrompt + buildRuntimeContextPrompt();
+  const deliveryOptions = {
+    placeholderRef: opts.placeholderRef,
+    ...(opts.taskId
+      ? { idempotencyKey: integrationResponseIdempotencyKey(opts.taskId) }
+      : {}),
+  };
+  const deliveryOptionsForProgress = (progress?: PlatformRunProgress | null) =>
+    progress?.responseTargetRef
+      ? {
+          ...deliveryOptions,
+          placeholderRef: progress.responseTargetRef,
+          strictTargetRef: true,
+        }
+      : deliveryOptions;
 
-  // Resolve or create internal thread
   let mapping = await getThreadMapping(
     incoming.platform,
     incoming.externalThreadId,
@@ -785,9 +687,6 @@ async function processIncomingMessage(
     }
   }
 
-  // Native provider context is fetched only for a new mapped conversation and
-  // only after durable enqueue, so Slack's three-second acknowledgement path
-  // remains fast. Hydration is best-effort and must never block the run.
   if (!mapping && adapter.hydrateIncomingMessage) {
     try {
       incoming = await adapter.hydrateIncomingMessage(incoming);
@@ -805,7 +704,7 @@ async function processIncomingMessage(
   const budgetReservations = await reserveApplicableIntegrationBudgets({
     incoming,
     ownerEmail,
-    orgId: opts.orgId ?? null,
+    orgId,
     reservationId: opts.taskId ?? `integration:${incoming.externalThreadId}`,
   });
   if (!budgetReservations.allowed) {
@@ -816,6 +715,8 @@ async function processIncomingMessage(
       kind: "response-delivery",
       incoming,
       message: outgoing,
+      principalType: opts.principalType ?? "user",
+      ...(requestScope.orgScope ? { orgScope: requestScope.orgScope } : {}),
       ...(opts.placeholderRef ? { placeholderRef: opts.placeholderRef } : {}),
     };
     try {
@@ -825,9 +726,11 @@ async function processIncomingMessage(
           JSON.stringify(deliveryPayload),
         );
       }
-      const receipt = await adapter.sendResponse(outgoing, incoming, {
-        placeholderRef: opts.placeholderRef,
-      });
+      const receipt = await adapter.sendResponse(
+        outgoing,
+        incoming,
+        deliveryOptions,
+      );
       if (receipt?.status !== "delivered") {
         throw new Error(
           `${incoming.platform} response completed without delivery proof`,
@@ -861,10 +764,8 @@ async function processIncomingMessage(
   let thread: Awaited<ReturnType<typeof getThread>>;
   try {
     if (!mapping) {
-      const threadOrgId =
-        opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
       const createdThread = await runWithRequestContext(
-        { userEmail: ownerEmail, orgId: threadOrgId ?? undefined },
+        { userEmail: ownerEmail, ...requestContext },
         () =>
           createThread(ownerEmail, {
             title: `${adapter.label}: ${incoming.senderName || incoming.senderId || "User"}`,
@@ -892,23 +793,17 @@ async function processIncomingMessage(
     }
 
     threadId = mapping.internalThreadId;
-    await setThreadSourceIfMissing(threadId, {
+    await setThreadSourceIfMissing(threadId, ownerEmail, {
       platform: incoming.platform,
       appId: options.appId ?? null,
       url: incoming.sourceUrl ?? null,
     });
-    // Load existing thread history for context.
     thread = await getThread(threadId);
   } catch (error) {
     await releaseApplicableIntegrationBudgets(budgetReservations.reservations);
     throw error;
   }
 
-  // Channel conversations run as the integration service principal, so the
-  // thread is owned by `integration@<platform>` and not by the human who asked.
-  // The "Open thread" deep link we hand back would then 404 for them and the
-  // chat surface would silently render an empty new chat, so grant each
-  // verified participant an explicit share on the thread they are driving.
   if (
     incoming.senderVerified === true &&
     incoming.senderEmail &&
@@ -992,7 +887,16 @@ async function processIncomingMessage(
         kind: "response-delivery",
         incoming,
         message: exhaustedMessage,
-        ...(opts.placeholderRef ? { placeholderRef: opts.placeholderRef } : {}),
+        principalType: opts.principalType ?? "user",
+        ...(requestScope.orgScope ? { orgScope: requestScope.orgScope } : {}),
+        ...(exhaustedProgress?.responseTargetRef
+          ? {
+              placeholderRef: exhaustedProgress.responseTargetRef,
+              strictTargetRef: true,
+            }
+          : opts.placeholderRef
+            ? { placeholderRef: opts.placeholderRef }
+            : {}),
         internalThreadId: threadId,
         campaignTerminalStatus: "failed",
         ...buildDeliveryHistoryMessageIds(incoming),
@@ -1005,16 +909,22 @@ async function processIncomingMessage(
         let receipt: void | PlatformDeliveryReceipt;
         if (exhaustedProgress) {
           try {
-            receipt = await exhaustedProgress.complete(exhaustedMessage);
-          } catch {
-            receipt = await adapter.sendResponse(exhaustedMessage, incoming, {
-              placeholderRef: opts.placeholderRef,
+            receipt = await exhaustedProgress.complete(exhaustedMessage, {
+              idempotencyKey: integrationResponseIdempotencyKey(opts.taskId),
             });
+          } catch {
+            receipt = await adapter.sendResponse(
+              exhaustedMessage,
+              incoming,
+              deliveryOptionsForProgress(exhaustedProgress),
+            );
           }
         } else {
-          receipt = await adapter.sendResponse(exhaustedMessage, incoming, {
-            placeholderRef: opts.placeholderRef,
-          });
+          receipt = await adapter.sendResponse(
+            exhaustedMessage,
+            incoming,
+            deliveryOptions,
+          );
         }
         if (receipt?.status !== "delivered") {
           throw new Error(
@@ -1132,8 +1042,6 @@ async function processIncomingMessage(
     existingMessages.push(...threadDataToEngineMessages(thread.threadData));
   }
 
-  // Add the new user message. Include verified platform identity as lightweight
-  // context so app-specific agents can attribute requests without guessing.
   const identityLines = [
     `Platform: ${incoming.platform}`,
     incoming.senderName ? `Sender name: ${incoming.senderName}` : null,
@@ -1154,9 +1062,6 @@ async function processIncomingMessage(
       ? `<integration-context>\n${identityLines.join("\n")}\n</integration-context>\n\n${providerContext}${incoming.text}`
       : providerContext + incoming.text;
 
-  // Precise current time rides the engine-facing user message (not the cached
-  // system-prompt prefix, and not the persisted thread text) — the runtime
-  // context appended to the system prompt is day-granular only.
   const messages: EngineMessage[] = [...existingMessages];
   if (campaign && campaign.row.chunkCount > 1) {
     await appendDurableContinuationContext(
@@ -1173,24 +1078,12 @@ async function processIncomingMessage(
     });
   }
 
-  // Run agent loop via startRun, wrapped in a request context so that
-  // tools (especially call-agent) can resolve the caller's org for org-scoped
-  // A2A delegation. Without this, getRequestOrgId() returns undefined and
-  // call-agent can't look up the org's a2a_secret or org_domain.
-  let orgId: string | null | undefined;
   let artifactSecrets: string[];
   let runnableActions: Record<string, ActionEntry>;
   let tools: ReturnType<typeof actionsToEngineTools>;
   let availableTools: ReturnType<typeof actionsToEngineTools>;
   try {
-    orgId = opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
     artifactSecrets = await resolveIntegrationArtifactSecrets(orgId);
-    // Attach tool-search on a shallow copy so framework additions merged in
-    // by `createIntegrationsPlugin` (integration memory, `call-agent`) can be
-    // deferred behind it without mutating the plugin's long-lived registry.
-    // `runAgentLoop`'s `expandActiveTools` re-expands from `availableTools`
-    // after a tool-search call, so anything filtered out of the initial
-    // `tools` list stays reachable.
     runnableActions = attachToolSearch({ ...actions });
     availableTools = actionsToEngineTools(runnableActions);
     tools = filterInitialEngineTools(availableTools, initialToolNames);
@@ -1214,7 +1107,7 @@ async function processIncomingMessage(
     await Promise.resolve(
       progress.onEvent({
         type: "agent_call_progress",
-        agent: "Agent Native",
+        agent: "Agent-Native",
         state: "working",
         elapsedSeconds: 0,
         detail: "Continuing in the background",
@@ -1224,28 +1117,19 @@ async function processIncomingMessage(
   let usage: Awaited<ReturnType<typeof runAgentLoop>> | null = null;
   let budgetsSettled = false;
 
-  // Populated once `resolvedModel`/`engine` are known inside the run
-  // callback below (stored-model + platform-default resolution can't happen
-  // until then) and read back by run-manager's terminal tracking event via
-  // this same object reference — `startRun` reads `options.model` only in
-  // its `.finally()`, after this callback has settled, so the mutation is
-  // guaranteed to land before it's read.
   const runOptions: StartRunOptions = {
     useHostedSoftTimeoutDefault: true,
     backgroundFunction: isInBackgroundFunctionRuntime(),
+    executionLease: true,
     ...(campaign
       ? {
           turnId: campaign.row.turnId,
           noProgressTimeoutMs: INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS,
         }
       : {}),
-    // No userId here: `ownerEmail` is PII (email), which the terminal event
-    // must not carry.
     attemptCount: opts.attempts,
   };
 
-  // Wait for the run to complete inside this fresh function execution.
-  // We use a Promise so the processor endpoint can await the full lifecycle.
   return new Promise<ProcessIntegrationTaskResult>((resolve) => {
     startRun(
       runId,
@@ -1254,10 +1138,7 @@ async function processIncomingMessage(
         await runWithRequestContext(
           {
             userEmail: ownerEmail,
-            orgId: orgId ?? undefined,
-            // Lets downstream callers (call-agent script) apply tighter
-            // budgets on integration paths without affecting normal
-            // agent-chat. See `isIntegrationCallerRequest()`.
+            ...requestContext,
             isIntegrationCaller: true,
             integration: opts.taskId
               ? {
@@ -1275,7 +1156,7 @@ async function processIncomingMessage(
                       platform: incoming.platform,
                       id:
                         incoming.replyRef ||
-                        String(
+                        stringifyInboundValue(
                           incoming.platformContext.messageTs ??
                             incoming.timestamp,
                         ),
@@ -1288,82 +1169,110 @@ async function processIncomingMessage(
               : undefined,
           },
           async () => {
-            const effectiveEngineOption = await resolveIntegrationEngineOption(
-              engineOption,
-              options.appId,
-            );
-            const effectiveApiKey = await resolveIntegrationApiKey(
-              effectiveEngineOption,
-              ownerEmail,
-              apiKey,
-            );
-            const engine = await resolveEngine({
-              engineOption: effectiveEngineOption,
-              apiKey: effectiveApiKey.apiKey,
-              apiKeyEnvVar: effectiveApiKey.apiKeyEnvVar,
-              model,
-              appId: options.appId,
-            });
-            const modelCandidate =
-              (typeof incoming.platformContext.defaultModel === "string"
-                ? incoming.platformContext.defaultModel
-                : undefined) ??
-              (await getStoredModelForEngine(engine, {
+            const resolveTarget = async (
+              includeConfiguredSelection: boolean,
+            ) => {
+              const effectiveEngineOption =
+                await resolveIntegrationEngineOption(
+                  engineOption,
+                  options.appId,
+                  includeConfiguredSelection,
+                );
+              const effectiveApiKey = await resolveIntegrationApiKey(
+                effectiveEngineOption,
+                ownerEmail,
+                apiKey,
+              );
+              const engine = await resolveEngine({
+                engineOption: effectiveEngineOption,
+                apiKey: effectiveApiKey.apiKey,
+                apiKeyEnvVar: effectiveApiKey.apiKeyEnvVar,
+                apiKeyProvenance: effectiveApiKey.credentialProvenance,
+                model,
                 appId: options.appId,
-              })) ??
-              model ??
-              engine.defaultModel;
-            const resolvedModel = normalizeModelForEngine(
-              engine,
-              modelCandidate,
-            );
-            runOptions.model = resolvedModel;
-            runOptions.engineName = engine.name;
-
-            // Wrapper, not raw `runAgentLoop`: an integration turn has no
-            // browser to re-POST a continuation, so a transport-level cut
-            // (gateway 45s, socket hang up, upstream 5xx) has to be resumed
-            // inside this invocation or the user's Slack thread just stops.
-            // Same budget the run-manager resolved for this run below.
-            usage = await runAgentLoopDirectWithSoftTimeout(
-              {
+              });
+              const modelCandidate =
+                (typeof incoming.platformContext.defaultModel === "string"
+                  ? incoming.platformContext.defaultModel
+                  : undefined) ??
+                (await getStoredModelForEngine(engine, {
+                  appId: options.appId,
+                })) ??
+                model ??
+                engine.defaultModel;
+              return {
                 engine,
-                model: resolvedModel,
-                systemPrompt: effectiveSystemPrompt,
-                tools,
-                availableTools,
-                messages,
-                actions: runnableActions,
-                send: async (event) => {
-                  if (progress) {
-                    await Promise.resolve(progress.onEvent(event)).catch(
-                      () => {},
-                    );
-                  }
-                  await send(event);
-                },
-                signal,
-                threadId,
-                approvedToolCalls: incoming.approvedToolCalls,
-                // Messaging integrations are interactive chat surfaces. They
-                // need the same initial completion headroom as web chat so
-                // reasoning cannot consume the small per-engine default and
-                // leave a user-facing Slack reply empty.
-                maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
-                // Explicitly resolve the normal chat default so an empty-final
-                // retry can step its reasoning effort down rather than
-                // repeatedly letting the engine choose Medium.
-                reasoningEffort: normalizeReasoningEffortForRequest(
-                  resolvedModel,
+                apiKey: effectiveApiKey.apiKey,
+                model: normalizeModelForEngine(engine, modelCandidate),
+              };
+            };
+
+            let target = await resolveTarget(true);
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+              let emittedAgentEvent = false;
+              runOptions.model = target.model;
+              runOptions.engineName = target.engine.name;
+              try {
+                usage = await runAgentLoopDirectWithSoftTimeout(
+                  {
+                    engine: target.engine,
+                    model: target.model,
+                    systemPrompt: effectiveSystemPrompt,
+                    tools,
+                    availableTools,
+                    messages,
+                    actions: runnableActions,
+                    send: async (event) => {
+                      if (isMeaningfulIntegrationAgentEvent(event)) {
+                        emittedAgentEvent = true;
+                      }
+                      if (progress) {
+                        await Promise.resolve(progress.onEvent(event)).catch(
+                          () => {},
+                        );
+                      }
+                      send(event);
+                    },
+                    signal,
+                    threadId,
+                    approvedToolCalls: incoming.approvedToolCalls,
+                    maxOutputTokens: resolveMainChatMaxOutputTokens(
+                      target.model,
+                    ),
+                    reasoningEffort: normalizeReasoningEffortForRequest(
+                      target.model,
+                      undefined,
+                    ),
+                  },
                   undefined,
-                ),
-              },
-              undefined,
-              {
-                useHostedDefault: true,
-                backgroundFunction: isInBackgroundFunctionRuntime(),
-              },
-            );
+                  {
+                    useHostedDefault: true,
+                    backgroundFunction: isInBackgroundFunctionRuntime(),
+                  },
+                );
+                return usage;
+              } catch (error) {
+                if (
+                  attempt > 0 ||
+                  opts.principalType !== "service" ||
+                  emittedAgentEvent ||
+                  !isLlmCredentialError(error)
+                ) {
+                  throw error;
+                }
+                const fallback = await resolveTarget(false);
+                if (
+                  fallback.engine.name === target.engine.name &&
+                  fallback.apiKey === target.apiKey
+                ) {
+                  throw error;
+                }
+                console.warn(
+                  `[integrations] model credential rejected before agent output; retrying with fallback taskId=${opts.taskId ?? "none"} runId=${runId} engine=${fallback.engine.name} principalType=${opts.principalType ?? "user"}`,
+                );
+                target = fallback;
+              }
+            }
             return usage;
           },
         );
@@ -1410,11 +1319,6 @@ async function processIncomingMessage(
             completedRun.events.map((runEvent) => runEvent.event),
             { fallbackToPreToolText: !queuedA2AContinuation },
           );
-          // `ask-question` is a native web-chat interaction. When an
-          // integration run invokes it successfully, project the same
-          // validated question into Slack text and open a tightly-bound reply
-          // window for the originating user instead of leaving a web-only
-          // card with no way to answer in the channel.
           if (slackInputRequest) responseText = slackInputRequest.text;
           if (!queuedA2AContinuation && !responseText.trim()) {
             const recoverableA2AArtifactText =
@@ -1429,11 +1333,7 @@ async function processIncomingMessage(
             isQueuedA2AContinuationDeferral(responseText);
           suppressPlatformReply ||= durableCampaignContinuation;
 
-          // Compute trusted tool receipts before choosing the empty-answer
-          // fallback. A completed write must not be reported as though nothing
-          // happened merely because the model ran out of time before its prose
-          // summary. Read-only and unverified tool results do not qualify.
-          const baseUrl = process.env.APP_URL || process.env.URL || "";
+          const baseUrl = getAppProductionUrl(undefined, { fallback: "" });
           const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
           const toolResults = collectToolResultSummaries(completedRun);
           const verifiedMutationReceipt = buildA2AVerifiedMutationReceipt(
@@ -1441,23 +1341,23 @@ async function processIncomingMessage(
             { baseUrl: appBaseUrl || undefined },
           );
 
-          // If the run errored OR produced no text, post a graceful fallback so
-          // the user isn't left wondering whether the bot saw their message.
-          // Common case: an A2A delegation timed out and the agent loop bailed
-          // before generating any user-facing text.
           const runErrored = completedRun.status === "errored";
           const approval = completedRun.events
             .map((runEvent) => runEvent.event)
             .find((event) => event.type === "approval_required");
-          const runErrorText = completedRun.events
+          const runErrors = completedRun.events
             .map((runEvent) =>
-              runEvent.event.type === "error" ? runEvent.event.error : "",
+              runEvent.event.type === "error" ? runEvent.event : null,
             )
-            .filter(Boolean)
-            .join("\n");
+            .filter(
+              (event): event is Extract<AgentChatEvent, { type: "error" }> =>
+                event !== null,
+            );
           if (
             isLlmCredentialError(responseText) ||
-            isLlmCredentialError(runErrorText)
+            runErrors.some((event) =>
+              isLlmCredentialError(event.error, event.errorCode),
+            )
           ) {
             responseText = formatLlmCredentialErrorMessage();
           } else if (
@@ -1482,11 +1382,6 @@ async function processIncomingMessage(
             responseText = `Approval is required before I can run ${approval.tool}. Only the requester can approve or deny this action.`;
           }
 
-          // Compute the deep-link to the dispatch UI for this thread, then
-          // hand it to the adapter as a structured `threadDeepLinkUrl` so
-          // platforms with rich blocks (Slack) can render a button instead
-          // of inlining a `<url|text>` link that auto-unfurls into a giant
-          // preview card.
           const guardedResponse = guardA2AArtifactResponse(
             responseText,
             toolResults,
@@ -1507,8 +1402,6 @@ async function processIncomingMessage(
               ? `${appBaseUrl}/chat/${encodeURIComponent(threadId)}`
               : undefined;
 
-          // Format and send back to platform — update the "thinking…"
-          // placeholder in place if the adapter supplied one.
           let deliveredResponse:
             | {
                 platform: string;
@@ -1527,9 +1420,18 @@ async function processIncomingMessage(
               kind: "response-delivery",
               incoming,
               message: outgoing,
-              ...(opts.placeholderRef
-                ? { placeholderRef: opts.placeholderRef }
+              principalType: opts.principalType ?? "user",
+              ...(requestScope.orgScope
+                ? { orgScope: requestScope.orgScope }
                 : {}),
+              ...(progress?.responseTargetRef
+                ? {
+                    placeholderRef: progress.responseTargetRef,
+                    strictTargetRef: true,
+                  }
+                : opts.placeholderRef
+                  ? { placeholderRef: opts.placeholderRef }
+                  : {}),
               internalThreadId: threadId,
               ...buildDeliveryHistoryMessageIds(incoming),
               artifacts: extractA2AArtifactIdentities(toolResults, {
@@ -1552,28 +1454,42 @@ async function processIncomingMessage(
             }
             let deliveryReceipt: void | PlatformDeliveryReceipt;
             if (queuedA2AContinuation && progress?.ref) {
-              // Post substantive parent results as a normal thread reply while
-              // the one continuation that claimed this resumable stream keeps
-              // it open for its eventual terminal result.
-              deliveryReceipt = await adapter.sendResponse(outgoing, incoming, {
-                placeholderRef: opts.placeholderRef,
-              });
+              deliveryReceipt = await adapter.sendResponse(
+                outgoing,
+                incoming,
+                deliveryOptions,
+              );
             } else if (progress) {
               try {
-                deliveryReceipt = await progress.complete(outgoing);
+                deliveryReceipt = await progress.complete(outgoing, {
+                  ...(opts.taskId
+                    ? {
+                        idempotencyKey: integrationResponseIdempotencyKey(
+                          opts.taskId,
+                        ),
+                      }
+                    : {}),
+                });
               } catch {
+                try {
+                  await progress.fail?.(
+                    "I couldn't update the live response, but I posted the final result in this thread.",
+                  );
+                } catch {
+                  // The stable-target fallback below remains authoritative.
+                }
                 deliveryReceipt = await adapter.sendResponse(
                   outgoing,
                   incoming,
-                  {
-                    placeholderRef: opts.placeholderRef,
-                  },
+                  deliveryOptionsForProgress(progress),
                 );
               }
             } else {
-              deliveryReceipt = await adapter.sendResponse(outgoing, incoming, {
-                placeholderRef: opts.placeholderRef,
-              });
+              deliveryReceipt = await adapter.sendResponse(
+                outgoing,
+                incoming,
+                deliveryOptionsForProgress(progress),
+              );
             }
             if (deliveryReceipt?.status !== "delivered") {
               throw new Error(
@@ -1610,11 +1526,6 @@ async function processIncomingMessage(
               keepSlackInputWindow = true;
             }
           } else if (progress) {
-            // A continuation owns the eventual final response. If the adapter
-            // supplied a durable progress reference, leave the same native
-            // stream open for the continuation processor to update and close;
-            // ending it here discards the plan/task UI before the delegated
-            // work has actually finished.
             if (progress.ref) {
               await progress.onEvent({
                 type: "agent_call_progress",
@@ -1626,9 +1537,6 @@ async function processIncomingMessage(
                 detail: "Continuing in the background",
               });
             } else {
-              // Older adapters have no resumable native surface. Close their
-              // stream cleanly; the continuation will deliver one standard
-              // final reply when the downstream task is terminal.
               const deferred = adapter.formatAgentResponse(
                 "The delegated agent is still working. I’ll post its final result in this thread automatically.",
               );
@@ -1642,7 +1550,6 @@ async function processIncomingMessage(
             }
           }
 
-          // Persist thread data
           const historyMessageIds =
             stagedDeliveryPayload ??
             (campaign ? buildDeliveryHistoryMessageIds(incoming) : undefined);
@@ -1806,6 +1713,10 @@ async function processIncomingMessage(
                   kind: "response-delivery",
                   incoming,
                   message: outgoingForDelivery,
+                  principalType: opts.principalType ?? "user",
+                  ...(requestScope.orgScope
+                    ? { orgScope: requestScope.orgScope }
+                    : {}),
                   internalThreadId: threadId,
                 }),
                 ...(threadCheckpoint?.userMessageId
@@ -1834,16 +1745,10 @@ async function processIncomingMessage(
             return;
           }
           if (campaign) {
-            // A campaign-owned, no-delivery path must never fall through to
-            // the default completed outcome. Its lease/checkpoint recovery
-            // remains the sole owner of this logical turn.
             outcome = { status: "campaign-active" };
             return;
           }
-          // A queued continuation owns the final platform response. Later
-          // bookkeeping failures must not close its stream with a false failure.
           if (queuedA2AContinuation) return;
-          // Last-ditch: try to post a brief apology so the thread isn't silent.
           try {
             await progress?.fail?.(
               "Something went wrong on my end while replying. Please try again.",
@@ -1851,12 +1756,11 @@ async function processIncomingMessage(
             const fallback = adapter.formatAgentResponse(
               "Something went wrong on my end while replying. Please try again.",
             );
-            if (!progress?.fail) await adapter.sendResponse(fallback, incoming);
+            if (!progress?.fail) {
+              await adapter.sendResponse(fallback, incoming, deliveryOptions);
+            }
           } catch {}
         } finally {
-          // Any terminal path (including a failed run or an unrelated new
-          // mention) invalidates an older clarification window. The only
-          // exception is the just-delivered, verified `ask-question` flow.
           if (incoming.platform === "slack" && !keepSlackInputWindow) {
             await clearIntegrationAwaitingInput(
               "slack",
@@ -1871,18 +1775,6 @@ async function processIncomingMessage(
           resolve(outcome);
         }
       },
-      // Without the hosted soft timeout, a wedged model connection can outlive
-      // the worker and leave Slack's native stream in "working" forever when
-      // the host kills the process. Checkpoint at the safe boundary so
-      // onComplete can always close the provider progress surface first.
-      //
-      // Which boundary that is depends on where this task is actually running:
-      // when durable dispatch routes it to the emitted `-background` function
-      // it has ~15min, and clamping it to the 40s foreground budget anyway cut
-      // off every research-shaped request (multi-source sweeps, long tool
-      // chains) with no visible answer. `isInBackgroundFunctionRuntime()` is
-      // the runtime proof — never a config guess — so the wider ceiling is
-      // taken only where the ~60s synchronous wall genuinely does not apply.
       runOptions,
     );
   });
@@ -1934,7 +1826,8 @@ async function recordIntegrationUsage(options: {
     (usage.inputTokens <= 0 &&
       usage.outputTokens <= 0 &&
       usage.cacheReadTokens <= 0 &&
-      usage.cacheWriteTokens <= 0)
+      usage.cacheWriteTokens <= 0 &&
+      usage.builderCreditsUsed == null)
   ) {
     return;
   }
@@ -1946,6 +1839,8 @@ async function recordIntegrationUsage(options: {
       outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens,
       cacheWriteTokens: usage.cacheWriteTokens,
+      builderCreditsUsed: usage.builderCreditsUsed,
+      engineName: usage.engineName,
       model: usage.model,
       label: `integration:${options.incoming.platform}`,
       app: options.appId,
@@ -1958,7 +1853,7 @@ async function recordIntegrationUsage(options: {
       sourcePlatform: options.incoming.platform,
       sourceId:
         options.incoming.replyRef ??
-        String(
+        stringifyInboundValue(
           options.incoming.platformContext.messageTs ??
             options.incoming.timestamp,
         ),
@@ -2079,7 +1974,6 @@ async function settleApplicableIntegrationBudgets(
   let actualCostMicros = 0;
   if (usage) {
     const { calculateCost } = await import("../usage/store.js");
-    // token_usage uses centicents; one centicent is 100 currency micros.
     actualCostMicros =
       calculateCost(
         usage.inputTokens,
@@ -2150,7 +2044,7 @@ function extractSlackInputRequest(
   completedRun: ActiveRun,
 ): { text: string } | null {
   const events = completedRun.events.map((runEvent) => runEvent.event);
-  const didRequestInput = events.some(
+  const delivered = events.find(
     (event) =>
       event.type === "tool_done" &&
       event.tool === "ask-question" &&
@@ -2158,11 +2052,16 @@ function extractSlackInputRequest(
         "Asked the user a clarifying question and rendered it in the chat.",
       ),
   );
-  if (!didRequestInput) return null;
+  if (!delivered) return null;
 
+  const deliveredId = delivered.type === "tool_done" ? delivered.id : "";
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
-    if (event.type !== "tool_start" || event.tool !== "ask-question") {
+    if (
+      event.type !== "tool_start" ||
+      event.tool !== "ask-question" ||
+      event.id !== deliveredId
+    ) {
       continue;
     }
     const input = event.input as Record<string, unknown> | undefined;
@@ -2172,7 +2071,7 @@ function extractSlackInputRequest(
 
     let rawOptions: unknown;
     try {
-      rawOptions = JSON.parse(String(input?.options ?? "[]"));
+      rawOptions = JSON.parse(stringifyInboundValue(input?.options ?? "[]"));
     } catch {
       return null;
     }
@@ -2205,7 +2104,8 @@ function extractSlackInputRequest(
 
     const header =
       typeof input?.header === "string" ? input.header.trim().slice(0, 80) : "";
-    const allowFreeText = String(input?.allowFreeText ?? "true") !== "false";
+    const allowFreeText =
+      stringifyInboundValue(input?.allowFreeText ?? "true") !== "false";
     return {
       text: [
         header ? `*${header}*` : null,
@@ -2277,10 +2177,6 @@ function hasSubstantiveA2APartialAnswer(text: string): boolean {
   return false;
 }
 
-/**
- * Persist the user message and agent response to the thread data,
- * so the conversation history is available in the web UI too.
- */
 async function persistThreadData(
   threadId: string,
   userText: string,
@@ -2311,7 +2207,6 @@ async function persistThreadData(
     }
     if (!Array.isArray(repo.messages)) repo.messages = [];
 
-    // Add user message
     const userMsg = {
       id: messageIds?.userMessageId ?? `msg-${Date.now()}-user`,
       role: "user",
@@ -2319,7 +2214,6 @@ async function persistThreadData(
       createdAt: new Date().toISOString(),
     };
 
-    // Build assistant message from run events
     const builtAssistantMsg = buildAssistantMessage(
       completedRun.events ?? [],
       completedRun.runId,

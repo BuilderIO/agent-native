@@ -1,48 +1,55 @@
-import Database from "better-sqlite3";
+import { PGlite } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-let sqlite: Database.Database;
-let postgres = false;
-let dialect: "sqlite" | "postgres" | "d1" = "sqlite";
+let database: PGlite;
+
+type QueryClient = { query(sql: string, args?: unknown[]): Promise<any> };
+type Input = string | { sql: string; args?: unknown[] };
+
+function queryParts(input: Input): { sql: string; args: unknown[] } {
+  const sql = typeof input === "string" ? input : input.sql;
+  const args = typeof input === "string" ? [] : (input.args ?? []);
+  let index = 0;
+  return {
+    sql: sql.replace(/\?/g, () => `$${++index}`),
+    args,
+  };
+}
 
 const execute = vi.fn(
-  async (input: string | { sql: string; args?: unknown[] }) => {
-    const sql = typeof input === "string" ? input : input.sql;
-    const args = typeof input === "string" ? [] : (input.args ?? []);
-    const statement = sqlite.prepare(sql);
-    if (/^\s*(select|pragma)/i.test(sql)) {
-      return { rows: statement.all(...args), rowsAffected: 0 };
-    }
-    const result = statement.run(...args);
-    return { rows: [], rowsAffected: result.changes };
+  async (input: Input, connection: QueryClient = database) => {
+    const { sql, args } = queryParts(input);
+    const result = await connection.query(sql, args);
+    return {
+      rows: result.rows as Record<string, unknown>[],
+      rowsAffected: result.affectedRows ?? 0,
+    };
   },
 );
 
 const client = {
-  execute,
+  execute(input: Input) {
+    return execute(input);
+  },
   async transaction<T>(run: (tx: typeof client) => Promise<T>): Promise<T> {
-    sqlite.exec("BEGIN IMMEDIATE");
-    try {
-      const result = await run(client);
-      sqlite.exec("COMMIT");
-      return result;
-    } catch (error) {
-      sqlite.exec("ROLLBACK");
-      throw error;
-    }
+    return database.transaction(async (connection) =>
+      run({
+        execute(input) {
+          return execute(input, connection);
+        },
+        transaction: client.transaction,
+      }),
+    );
   },
 };
 
 const ddlMocks = vi.hoisted(() => ({
-  ensureIndexExists: vi.fn().mockResolvedValue(true),
-  ensureTableExists: vi.fn().mockResolvedValue(true),
+  ensureIndexExists: vi.fn(),
+  ensureTableExists: vi.fn(),
 }));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => client,
-  getDialect: () => dialect,
-  isPostgres: () => postgres,
-  retryOnDdlRace: (run: () => unknown) => run(),
 }));
 
 vi.mock("../db/ddl-guard.js", () => ddlMocks);
@@ -58,47 +65,55 @@ const {
   replaceAutomationSharingState,
 } = await import("./sharing-store.js");
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
-  postgres = false;
-  dialect = "sqlite";
-  execute.mockClear();
-  ddlMocks.ensureIndexExists.mockClear();
-  ddlMocks.ensureTableExists.mockClear();
+beforeEach(async () => {
+  database = await PGlite.create("memory://");
+  execute.mockReset();
+  execute.mockImplementation(async (input, connection = database) => {
+    const { sql, args } = queryParts(input);
+    const result = await connection.query(sql, args);
+    return {
+      rows: result.rows as Record<string, unknown>[],
+      rowsAffected: result.affectedRows ?? 0,
+    };
+  });
+  ddlMocks.ensureIndexExists.mockReset();
+  ddlMocks.ensureTableExists.mockReset();
+  ddlMocks.ensureIndexExists.mockImplementation(
+    async (_name: string, sql: string) => client.execute(sql),
+  );
+  ddlMocks.ensureTableExists.mockImplementation(
+    async (_name: string, sql: string) => client.execute(sql),
+  );
   __resetAutomationSharingStoreForTests();
 });
 
-afterEach(() => sqlite.close());
+afterEach(async () => database.close());
 
 describe("automation sharing store", () => {
   it("initializes the additive tables and indexes idempotently", async () => {
     await ensureAutomationSharingTables();
     await ensureAutomationSharingTables();
 
-    const tables = sqlite
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'automation_sharing_%' ORDER BY name",
-      )
-      .all() as Array<{ name: string }>;
-    expect(tables.map(({ name }) => name)).toEqual([
+    const tables = await database.query(
+      "SELECT tablename AS name FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'automation_sharing_%' ORDER BY tablename",
+    );
+    expect(tables.rows.map(({ name }) => name)).toEqual([
       "automation_sharing_grants",
       "automation_sharing_overlays",
     ]);
 
-    const indexes = sqlite
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_automation_sharing_%' ORDER BY name",
-      )
-      .all() as Array<{ name: string }>;
-    expect(indexes.map(({ name }) => name)).toEqual([
+    const indexes = await database.query(
+      "SELECT indexname AS name FROM pg_indexes WHERE schemaname = 'public' AND indexname LIKE 'idx_automation_sharing_%' ORDER BY indexname",
+    );
+    expect(indexes.rows.map(({ name }) => name)).toEqual([
       "idx_automation_sharing_grants_user",
       "idx_automation_sharing_overlays_organization",
     ]);
   });
 
   it("uses guarded table and index creation on Postgres", async () => {
-    postgres = true;
-    dialect = "postgres";
+    ddlMocks.ensureIndexExists.mockResolvedValue(true);
+    ddlMocks.ensureTableExists.mockResolvedValue(true);
     await ensureAutomationSharingTables();
 
     expect(ddlMocks.ensureTableExists).toHaveBeenCalledTimes(2);
@@ -138,13 +153,11 @@ describe("automation sharing store", () => {
       organizationId: "org-1",
       grants: [],
     });
-    expect(
-      sqlite
-        .prepare(
-          "SELECT COUNT(*) AS count FROM automation_sharing_grants WHERE resource_id = ?",
-        )
-        .get("job-1"),
-    ).toEqual({ count: 0 });
+    const count = await database.query(
+      "SELECT COUNT(*) AS count FROM automation_sharing_grants WHERE resource_id = $1",
+      ["job-1"],
+    );
+    expect(count.rows[0]).toEqual({ count: 0 });
   });
 
   it("prepares guarded replacement and cleanup statements for a larger atomic batch", () => {
@@ -197,10 +210,12 @@ describe("automation sharing store", () => {
 
   it("loads resource overlays in bounded batches", async () => {
     await ensureAutomationSharingTables();
-    const insert = sqlite.prepare(
-      "INSERT INTO automation_sharing_overlays (resource_id, visibility, organization_id, created_at, updated_at) VALUES (?, 'private', NULL, 1, 1)",
-    );
-    for (let index = 0; index < 201; index++) insert.run(`job-${index}`);
+    for (let index = 0; index < 201; index++) {
+      await database.query(
+        "INSERT INTO automation_sharing_overlays (resource_id, visibility, organization_id, created_at, updated_at) VALUES ($1, 'private', NULL, 1, 1)",
+        [`job-${index}`],
+      );
+    }
     execute.mockClear();
 
     const overlays = await loadAutomationSharingOverlays(
@@ -221,14 +236,20 @@ describe("automation sharing store", () => {
       kind: "specific",
       grants: [{ email: "old@example.com", role: "view" }],
     });
-    sqlite.exec(`
-      CREATE TRIGGER reject_new_grant
-      BEFORE INSERT ON automation_sharing_grants
-      WHEN NEW.user_email = 'reject@example.com'
-      BEGIN
-        SELECT RAISE(ABORT, 'rejected test grant');
-      END
-    `);
+    execute.mockImplementation(async (input, connection = database) => {
+      const { sql, args } = queryParts(input);
+      if (
+        /INSERT INTO automation_sharing_grants/i.test(sql) &&
+        args.includes("reject@example.com")
+      ) {
+        throw new Error("rejected test grant");
+      }
+      const result = await connection.query(sql, args);
+      return {
+        rows: result.rows as Record<string, unknown>[],
+        rowsAffected: result.affectedRows ?? 0,
+      };
+    });
 
     await expect(
       replaceAutomationSharingState("job-1", {

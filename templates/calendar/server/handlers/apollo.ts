@@ -12,20 +12,18 @@ import {
   deleteIntegrationKey,
 } from "../lib/integration-credentials.js";
 
-// GET /api/apollo/status — never returns the key, only connection state.
 export const apolloStatus = defineEventHandler(async (event: H3Event) => {
   return { connected: !!(await getIntegrationKey(event, "apollo")) };
 });
 
-// PUT /api/apollo/key — store the key in the encrypted per-user vault.
 export const apolloSaveKey = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
-  const { apiKey } = body;
+  const { apiKey, scope } = body;
   if (!apiKey || typeof apiKey !== "string") {
     setResponseStatus(event, 400);
     return { error: "apiKey is required" };
   }
-  const ok = await saveIntegrationKey(event, "apollo", apiKey);
+  const ok = await saveIntegrationKey(event, "apollo", apiKey, scope);
   if (!ok) {
     setResponseStatus(event, 401);
     return { error: "Sign in to connect Apollo" };
@@ -33,7 +31,6 @@ export const apolloSaveKey = defineEventHandler(async (event: H3Event) => {
   return { connected: true };
 });
 
-// DELETE /api/apollo/key
 export const apolloDeleteKey = defineEventHandler(async (event: H3Event) => {
   const ok = await deleteIntegrationKey(event, "apollo");
   if (!ok) {
@@ -43,11 +40,9 @@ export const apolloDeleteKey = defineEventHandler(async (event: H3Event) => {
   return { connected: false };
 });
 
-// In-memory cache for Apollo person lookups
 const personCache = new Map<string, { data: any; expiry: number }>();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL = 10 * 60 * 1000;
 
-// GET /api/apollo/person?email=...
 export const apolloPersonLookup = defineEventHandler(async (event: H3Event) => {
   const { email } = getQuery(event);
   if (!email || typeof email !== "string") {

@@ -1,4 +1,5 @@
-import { CodeSurface } from "@agent-native/core/blocks";
+import { docsUrl } from "@agent-native/core/shared";
+import { CodeSurface } from "@agent-native/toolkit/app/blocks";
 import {
   IconAlertTriangle,
   IconBug,
@@ -28,10 +29,11 @@ import {
   useStatusLabel,
 } from "./utils";
 
-const ERROR_CAPTURE_DOCS_URL =
-  "https://www.agent-native.com/docs/tracking#error-capture";
+const ERROR_CAPTURE_DOCS_URL = docsUrl("tracking", {
+  hash: "posthog-error-tracking",
+});
 
-const ERROR_CAPTURE_SNIPPET = `// Agent Native templates already call configureTracking().
+const ERROR_CAPTURE_SNIPPET = `// Agent-Native templates already call configureTracking().
 import { configureTracking, captureException } from "@agent-native/core/client/observability";
 
 configureTracking({
@@ -344,7 +346,6 @@ function IssueListSkeleton() {
   );
 }
 
-/** Issue titles are "Type: message"; the type is shown as a badge already. */
 function stripTypePrefix(title: string, type: string): string {
   const prefix = `${type}: `;
   return title.startsWith(prefix) ? title.slice(prefix.length) : title;

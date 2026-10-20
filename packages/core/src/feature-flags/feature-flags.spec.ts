@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const globalSettings = new Map<string, Record<string, unknown>>();
 const orgSettings = new Map<string, Record<string, unknown>>();
+const executeMock = vi.fn(async () => ({ rows: [] }));
 const getSettingMock = vi.fn(
   async (key: string) => globalSettings.get(key) ?? null,
 );
@@ -9,9 +10,25 @@ const getOrgSettingMock = vi.fn(
   async (orgId: string, key: string) =>
     orgSettings.get(`${orgId}:${key}`) ?? null,
 );
+const ORG_KEY_RE = /^o:([^:]+):(.+)$/;
+const getSettingsMock = vi.fn(async (keys: readonly string[]) => {
+  const result = new Map<string, Record<string, unknown> | null>();
+  for (const key of keys) {
+    const match = ORG_KEY_RE.exec(key);
+    result.set(
+      key,
+      match
+        ? (orgSettings.get(`${match[1]}:${match[2]}`) ?? null)
+        : (globalSettings.get(key) ?? null),
+    );
+  }
+  return result;
+});
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: (...args: any[]) => getSettingMock(...args),
+  getSettings: (...args: any[]) => getSettingsMock(...args),
   putSetting: vi.fn(),
   mutateSetting: async (
     key: string,
@@ -23,6 +40,9 @@ vi.mock("../settings/store.js", () => ({
     globalSettings.set(key, next);
     return next;
   },
+}));
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => ({ execute: executeMock }),
 }));
 vi.mock("../settings/org-settings.js", () => ({
   getOrgSetting: (...args: any[]) => getOrgSettingMock(...args),
@@ -49,6 +69,7 @@ beforeEach(() => {
   globalSettings.clear();
   orgSettings.clear();
   vi.clearAllMocks();
+  executeMock.mockResolvedValue({ rows: [] });
 });
 
 describe("feature flag registry", () => {
@@ -144,6 +165,100 @@ describe("feature flag evaluator", () => {
     ).resolves.toBe(false);
   });
 
+  it("uses the rollout index for anonymous discovery on the hot path", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    globalSettings.set("feature-flag-rollout-index:new-editor", {
+      version: 1,
+      global: false,
+      orgIds: ["builder-org"],
+    });
+
+    await expect(store.hasActiveFeatureFlagRollout("new-editor")).resolves.toBe(
+      true,
+    );
+    expect(executeMock).not.toHaveBeenCalled();
+    expect(getSettingMock).toHaveBeenCalledWith(
+      "feature-flag-rollout-index:new-editor",
+    );
+  });
+
+  it("repairs a missing rollout index once and caches the result", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          key: "o:builder-org:feature-flag:new-editor",
+          value: JSON.stringify({
+            mode: "rules",
+            orgIds: ["builder-org"],
+          }),
+        },
+      ],
+    });
+
+    await expect(store.hasActiveFeatureFlagRollout("new-editor")).resolves.toBe(
+      true,
+    );
+    expect(executeMock).toHaveBeenCalledWith({
+      sql: expect.stringContaining("SELECT key, value FROM"),
+      args: ["o:%:feature-flag:new-editor"],
+    });
+    expect(globalSettings.get("feature-flag-rollout-index:new-editor")).toEqual(
+      {
+        version: 1,
+        global: false,
+        orgIds: ["builder-org"],
+      },
+    );
+  });
+
+  it("does not advertise empty or explicitly off scoped rules", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        { value: JSON.stringify({ mode: "off" }) },
+        { value: JSON.stringify({ mode: "rules" }) },
+      ],
+    });
+
+    await expect(store.hasActiveFeatureFlagRollout("new-editor")).resolves.toBe(
+      false,
+    );
+  });
+
+  it("reads many flags' rules in one settings batch, org overrides winning over global", async () => {
+    registry.registerFeatureFlags([
+      { key: "new-editor" },
+      { key: "beta-export" },
+      { key: "unconfigured-flag" },
+    ]);
+    globalSettings.set("feature-flag:new-editor", { mode: "on" });
+    globalSettings.set("feature-flag:beta-export", { mode: "off" });
+    orgSettings.set("org-1:feature-flag:beta-export", { mode: "on" });
+
+    const rules = await store.getFeatureFlagRulesForKeys(
+      ["new-editor", "beta-export", "unconfigured-flag"],
+      { orgId: "org-1" },
+    );
+
+    expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    expect(rules.get("new-editor")?.mode).toBe("on");
+    expect(rules.get("beta-export")?.mode).toBe("on");
+    expect(rules.get("unconfigured-flag")?.mode).toBe("off");
+  });
+
+  it("skips the org key entirely when no org is in scope", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    globalSettings.set("feature-flag:new-editor", { mode: "on" });
+
+    const rules = await store.getFeatureFlagRulesForKeys(["new-editor"], {});
+
+    expect(getSettingsMock).toHaveBeenCalledWith(["feature-flag:new-editor"], {
+      transaction: undefined,
+    });
+    expect(rules.get("new-editor")?.mode).toBe("on");
+  });
+
   it("starts an atomic org mutation from the global fallback", async () => {
     registry.registerFeatureFlags([{ key: "new-editor" }]);
     globalSettings.set("feature-flag:new-editor", {
@@ -165,5 +280,12 @@ describe("feature flag evaluator", () => {
     expect(orgSettings.get("org-1:feature-flag:new-editor")).toMatchObject({
       emails: ["first@example.com", "second@example.com"],
     });
+    expect(globalSettings.get("feature-flag-rollout-index:new-editor")).toEqual(
+      {
+        version: 1,
+        global: false,
+        orgIds: ["org-1"],
+      },
+    );
   });
 });

@@ -81,7 +81,10 @@ async function assertCanManageMcpAppAccess(scope: AccessScope): Promise<void> {
   let role: unknown = null;
   try {
     const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [scope.id, scope.actor.toLowerCase()],
     });
     role = rows[0]?.role;

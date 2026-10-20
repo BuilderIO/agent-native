@@ -1,6 +1,87 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const koKR = {
+  campaign: {
+    recipes: "레시피",
+    waysToUse: "활용 방법",
+    recipeWhen: "언제",
+    recipeNextTime: "다음번:",
+    howOften: "빈도",
+    worksWith: "함께 사용하는 도구:",
+    nextJobs: "다음에 할 일",
+    filterRole: "역할",
+    filterAll: "전체",
+    filterEngineering: "엔지니어링",
+    filterProduct: "제품",
+    filterDesign: "디자인",
+    filterMarketing: "마케팅",
+    filterRevops: "RevOps",
+    filterSales: "영업",
+    filterFounders: "창업자",
+    filterFinance: "재무",
+    filterOften: "빈도",
+    filterAny: "모든 빈도",
+    filterDaily: "매일",
+    filterWeekly: "매주",
+    filterPerProject: "프로젝트 또는 출시마다",
+    filterOccasional: "가끔",
+    filterEmpty: "이 필터와 일치하는 사용 사례가 없습니다.",
+    filterClear: "필터 초기화",
+    browseArticles: "또는 {{articles}}에서 템플릿과 사용 방법을 찾아보세요.",
+    articlesLink: "글",
+    whatItReplaces: "대체하는 도구",
+    whatYouUse: "사용하는 도구",
+    usedFor: "용도",
+    whereItBreaks: "한계점",
+    updatedDate: "업데이트: {{date}}",
+    publishedDate: "게시: {{date}}",
+    allArticles: "모든 글",
+    useCases: "사용 사례",
+    useCasesDescription: "앱별 반복 업무 페이지",
+    useCasesTitle: "Agent-Native 앱과 AI 에이전트로 반복 업무 처리하기",
+    useCasesIntro:
+      "반복해서 하는 업무를 선택하거나 {{articles}}에서 템플릿과 사용 방법을 찾아보세요.",
+    nextEyebrow: "다음",
+    frequencyLabel: "빈도: {{text}}",
+    articles: "글",
+    articlesIntro:
+      "AI 에이전트와 함께하는 반복 업무에 대한 실용적인 답변입니다. 개별 업무를 단계별로 설명하는 페이지는 {{useCases}}에서 찾아보세요.",
+    useCasesLink: "사용 사례",
+    articleCount_other: "글 {{count}}개",
+    moreOnTopic: "{{topic}} 관련 글 더 보기",
+    oldWay: "기존 방식",
+    newWay: "새로운 방식",
+    alternative: "{{names}}의 오픈 소스 대안",
+    usedBefore: "이전에 사용: {{names}}",
+    faqs: "자주 묻는 질문",
+    faqTitle: "자주 묻는 질문에 대한 답변",
+    goDeeper: "더 알아보기",
+    copyPage: "페이지 복사",
+    copyLink: "링크 복사",
+    copied: "복사됨",
+    copyFailed: "복사하지 못했습니다. 다시 시도하세요.",
+    breadcrumb: "탐색 경로",
+    readTime_other: "읽는 시간 {{count}}분",
+    partOf: "관련 사용 사례:",
+    relatedResources: "관련 리소스",
+    moreArticles: "{{category}} 글 더 보기",
+    genericMore: "글 더 보기",
+    showMore: "더 많은 글 표시",
+    allTopics: "모든 주제",
+    topics: {
+      clips: "AI 에이전트가 활용할 수 있는 화면 녹화, 회의 및 받아쓰기",
+      design: "AI 에이전트와 만드는 대화형 프로토타입",
+      slides: "AI 에이전트와 만드는 브랜드에 맞는 프레젠테이션",
+      plans: "AI 코딩 에이전트를 위한 시각적 계획 및 요약",
+      analytics: "일상 언어 질문, 차트 및 대시보드",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
+    },
+    common: { retry: "다시 시도" },
+  },
   language: {
     label: "언어",
     system: "시스템",
@@ -21,9 +102,11 @@ const koKR = {
     copyLogoSvg: "로고 SVG 복사",
     copyWordmark: "워드마크 복사",
     brandAssets: "브랜드 자료",
+    tryNow: "지금 사용해보기",
   },
   footer: {
     download: "다운로드",
+    pricing: "요금",
     brand: "브랜드",
     privacy: "개인정보",
     terms: "약관",
@@ -56,11 +139,18 @@ const koKR = {
     draftLabel: "초안",
     draftDescription:
       "이 페이지는 작업 중입니다. 게시 전까지 콘텐츠가 불완전하거나 변경될 수 있습니다.",
+    translationLabel: "기계 번역",
+    translationDescription:
+      "이 페이지는 자동으로 번역되었으며 내용이 완전히 정확하지 않을 수 있습니다.",
+    translationViewOriginal: "영어 원문 보기",
   },
   search: {
     dialogLabel: "문서 검색",
     placeholder: "문서 검색...",
     empty: "입력해서 모든 문서를 검색하세요",
+    toggleChatSidebar: "채팅 사이드바 전환",
+    loadError: "검색을 불러오지 못했습니다. 다시 시도해 주세요.",
+    retry: "다시 시도",
     noResults: "“{{query}}”에 대한 결과가 없습니다",
     browseAllDocs: "모든 문서 보기",
     navigate: "이동",
@@ -75,6 +165,7 @@ const koKR = {
     suggestionDeploy: "프로덕션에 배포하려면?",
   },
   errors: {
+    loadingLatest: "최신 버전을 불러오는 중...",
     notFoundTitle: "페이지를 찾을 수 없음",
     notFoundBody: "찾는 페이지가 없거나 이동되었습니다.",
     goHome: "홈으로",
@@ -152,8 +243,8 @@ const koKR = {
           body: "작업을 한 번 정의하고 UI, agent, HTTP, MCP, A2A, CLI에서 사용합니다.",
         },
         sqlStateOrm: {
-          title: "SQL 상태와 ORM",
-          body: "지속되는 앱 데이터, application state, migration, 공급자 독립 schema.",
+          title: "PostgreSQL 상태와 ORM",
+          body: "지속되는 앱 데이터, application state, migration, PostgreSQL/PGlite schema.",
         },
         dbAdmin: {
           title: "데이터베이스 관리",
@@ -206,7 +297,7 @@ const koKR = {
       body1:
         "Agent-Native 는 agentic applications를 만들기 위한 오픈소스 framework 입니다. Chat에서 시작하고, shared actions를 정의한 뒤, 같은 state를 중심으로 UI, jobs, 협업을 추가하세요.",
       body2:
-        "자체 데이터베이스, 호스팅 제공자, 모델 스택, app 코드를 가져오세요.",
+        "로컬 PGlite 또는 호스팅 PostgreSQL과 호스팅 제공자, 모델 스택, app 코드를 사용하세요.",
       cta: "framework 가이드 읽기",
       primitives: {
         actions: {
@@ -217,17 +308,17 @@ const koKR = {
         sharedState: {
           title: "공유 상태",
           description:
-            "SQL-backed app state 가 사람, agents, sessions 를 동기화된 상태로 유지합니다.",
+            "PostgreSQL/PGlite로 뒷받침되는 app state가 사람, agents, sessions를 동기화된 상태로 유지합니다.",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "app-agent loop, tools, skills, memory, jobs, observability 가 함께 제공됩니다.",
         },
-        backendAgnostic: {
-          title: "백엔드 독립적",
+        postgresSpecific: {
+          title: "PostgreSQL 전용",
           description:
-            "Drizzle 이 지원하는 어떤 SQL 데이터베이스와 Nitro 호환 호스트든 연결할 수 있습니다.",
+            "프레임워크의 PostgreSQL 스키마 도우미를 로컬 PGlite 또는 Nitro 호환 호스트의 호스팅 Postgres와 함께 사용하세요.",
         },
       },
     },
@@ -306,7 +397,7 @@ const koKR = {
     },
     quickStart: {
       title: "명령으로 시작",
-      body: "명령 하나가 actions, durable threads, SQLite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
+      body: "명령 하나가 actions, durable threads, PGlite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
     },
     finalCta: {
       title: "agentic era 를 위해 구축된 소프트웨어",
@@ -411,6 +502,7 @@ const koKR = {
   },
   common: {
     copied: "복사됨",
+    copyFailed: "복사하지 못했습니다",
     copyCommand: "복사 명령",
     copyCode: "코드 복사",
     tryIt: "사용해 보기",
@@ -420,26 +512,194 @@ const koKR = {
     viewDocs: "문서 보기",
     source: "소스",
     readDocs: "문서 읽기",
+    signIn: "로그인",
+    tryTemplateFree: "{{name}} 무료로 사용해 보기",
+    designForFree: "무료로 디자인하기",
+    recordForFree: "무료로 녹화하기",
+    getStarted: "시작하기",
+    freeAndOpenSource: "100% 무료 • 오픈 소스",
+    viewAllApps: "모든 앱 보기",
+  },
+  homepage: {
+    hero: {
+      title: "에이전틱 애플리케이션 프레임워크",
+      bodyLine1: "직관적인 UI를 갖춘 자율형 에이전트를 구축하세요.",
+      bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",
+      tryAnApp: "앱 사용해 보기",
+    },
+    install: {
+      copyCommand: "설치 명령 복사",
+    },
+    actions: {
+      title: "하나의 Action이 모든 표면을 구동합니다",
+      bodyLine1: "defineAction()으로 기능을 한 번만 정의하세요.",
+      bodyLine2:
+        "에이전트, React UI, HTTP 클라이언트와 통합 기능이 모두 같은 코드를 호출합니다.",
+      diagramAlt:
+        "하나의 Action이 UI, MCP, 에이전트 채팅, A2A, HTTP API, CLI를 구동합니다",
+    },
+    builtIn: {
+      title: "에이전트에 필요한 모든 것",
+      body: "UI, 컨텍스트, 데이터, 권한, 인프라가 이미 연결되어 있습니다.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "사용자에게 탐색, 편집, 검토에 익숙한 화면을 제공합니다.",
+        },
+        agentChat: {
+          title: "내장된 에이전트 채팅",
+          body: "같은 UI에서 작업을 위임하고, 질문하고, 결과를 검토할 수 있습니다.",
+        },
+        sharedState: {
+          title: "공유 애플리케이션 상태",
+          body: "에이전트가 사용자가 무엇을 보고, 선택하고, 편집하는지 알고 있습니다.",
+        },
+        sharedSql: {
+          title: "공유 PostgreSQL 데이터",
+          body: "사용자와 에이전트가 동일한 신뢰 출처를 읽고 업데이트합니다.",
+        },
+        skillsMemory: {
+          title: "스킬과 메모리",
+          body: "에이전트에게 재사용 가능한 전문성과 지속적인 컨텍스트를 제공합니다.",
+        },
+        automations: {
+          title: "자동화",
+          body: "일정이나 이벤트에 따라 에이전트 작업을 자동으로 실행합니다.",
+        },
+        agentTeams: {
+          title: "에이전트 팀",
+          body: "같은 워크스페이스 또는 연결된 에이전트 간에 전문 에이전트에게 작업을 위임합니다.",
+        },
+        auth: {
+          title: "인증과 조직",
+          body: "로그인, 사용자 계정, 조직 멤버십이 기본으로 포함되어 있습니다.",
+        },
+        sharing: {
+          title: "공유와 권한",
+          body: "모든 리소스를 누가 보고, 댓글을 달고, 편집하고, 관리할 수 있는지 제어합니다.",
+        },
+      },
+    },
+    stack: {
+      title: "나만의 스택을 가져오세요",
+      body: "Agent-Native는 오픈 소스 TypeScript입니다. 모델, 데이터베이스, 호스팅을 선택하고 애플리케이션 코드를 자신의 저장소에 보관하세요.",
+      exploreApps: "Agent-Native로 만든 앱 살펴보기",
+    },
+    showcase: {
+      title: "Agent-Native로 만든 실제 앱",
+      body: "무료로 사용하거나 무한히 커스터마이즈할 수 있는 Agent-Native 오픈 소스 앱입니다.",
+      browseApps: "앱 살펴보기",
+      scrollLeft: "앱 왼쪽으로 스크롤",
+      scrollRight: "앱 오른쪽으로 스크롤",
+    },
+    bottomCta: {
+      title: "UI가 있는 첫 에이전트를 만들어 보세요",
+      body: "에이전트와 UI가 동일한 기능을 공유합니다. 원하는 LLM을 사용해 어디에나 배포하세요.",
+    },
+    footer: {
+      tagline: "에이전틱 애플리케이션 프레임워크.",
+      framework: "프레임워크",
+      ecosystem: "에코시스템",
+      community: "커뮤니티",
+      legal: "법적 고지",
+      docs: "문서",
+      download: "다운로드",
+      apps: "앱",
+      privacyPolicy: "개인정보 처리방침",
+      saasTerms: "SaaS 약관",
+      legalResources: "법률 리소스",
+    },
+  },
+  gettingStarted: {
+    tabs: {
+      label: "빌드 방식 선택",
+      local: "로컬에서 빌드",
+      localDescription: "CLI를 사용해 컴퓨터에서 빌드합니다.",
+      cloud: "클라우드에서 빌드",
+      cloudDescription: "Builder.io를 사용해 브라우저에서 빌드합니다.",
+    },
+    cloud: {
+      intro:
+        "아무것도 설치하지 않고 동일한 앱을 빌드할 수 있습니다. 원하는 것을 설명하면 Builder가 호스팅하는 워크스페이스에서 에이전트가 코드를 작성하고 실행합니다.",
+      stepOneTitle: "Builder 계정 만들기",
+      stepOneBody:
+        "Builder 계정으로 브라우저에서 빌드합니다. API 키를 직접 준비하지 않아도 무료로 시작할 수 있습니다.",
+      stepTwoTitle: "프롬프트해 보세요",
+      stepTwoBody:
+        "만들고 싶은 것을 자연어로 설명하면 에이전트가 대신 만들어 줍니다.",
+      stepThreeTitle: "배포",
+      stepThreeBody:
+        "준비가 되면 Builder에서 한 번의 클릭으로 에이전트와 UI를 배포하세요.",
+    },
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
     eyebrow: "작동하는 app에서 시작하고 agent가 발전시키게 하세요.",
     body: "모든 것을 맞춤 설정할 수 있습니다.",
+    firstPartyTitle: "Agent-Native가 만든 앱",
     community:
       "빈 앱에서 시작하고 싶다면 프레임워크 가이드로 처음부터 시작하세요.",
     createYourOwn: "처음부터 시작",
-    communityTitle: "커뮤니티 템플릿",
+    communityTitle: "커뮤니티 앱",
     communityDescription:
-      "작성자가 직접 관리하는 독립 앱입니다. 공개 GitHub 저장소에서 설치하거나 호스팅 버전이 있으면 먼저 사용해 보세요.",
-    submitCommunityTemplate: "템플릿 제출",
+      "작성자가 관리하는 앱을 찾아보세요. 호스팅 버전이 있으면 사용해 보고, 소스 코드를 확인해 직접 맞춤 설정할 수 있습니다.",
+    submitCommunityTemplate: "앱 제출",
     communityEmpty:
-      "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent Native 앱을 공개 저장소에 게시하고 카탈로그에 제출하세요.",
+      "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent-Native 앱을 게시하고 카탈로그에 제출하세요.",
     publishGuide: "게시 가이드 읽기",
     communityTrust:
-      "커뮤니티 템플릿은 타사 코드입니다. 실행하기 전에 저장소, 라이선스, 종속성 및 설치 스크립트를 검토하세요.",
+      "커뮤니티 앱은 타사 코드입니다. 실행하기 전에 소스 코드, 라이선스, 종속성 및 설치 스크립트를 검토하세요.",
     copyCommunityInstallCommand: "설치 명령 복사",
     viewRepository: "저장소 보기",
     tryCommunityDemo: "데모 사용해 보기",
+    customizeDescription: "이 앱을 시작점으로 사용하세요.",
+    customizeOnline: "온라인",
+    customizeOnlineBadge: "대기자 명단 등록",
+    customizeLocally: "로컬",
+    communityNew: "새 앱",
+    communityComingSoon: "곧 공개",
+    communityGithubStars: "GitHub 별 {{count}}개",
+    tryCommunityApp: "앱 사용해 보기",
+    viewCommunitySource: "소스 코드 보기",
+    communityEyebrow: "커뮤니티 앱",
+    communityScreenshots: "스크린샷",
+    previousScreenshot: "이전 스크린샷",
+    nextScreenshot: "다음 스크린샷",
+    communityNoScreenshots: "검토 후 여기에 스크린샷이 표시됩니다.",
+    communityScreenshotAlt: "{{name}} 스크린샷 {{index}}",
+    communityNoHostedVersion:
+      "호스팅 버전이 곧 제공됩니다. 소스 링크에서 개발 상황을 확인하세요.",
+    communitySubmissionTitle: "커뮤니티 앱 공유",
+    communitySubmissionDescription:
+      "앱을 찾을 수 있는 곳과 기능을 알려 주세요. 목록에 게시하기 전에 내용을 검토합니다.",
+    communitySubmissionName: "앱 이름",
+    communitySubmissionNamePlaceholder: "고객 지원 허브",
+    communitySubmissionUrl: "앱 URL",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "설명",
+    communitySubmissionDescriptionPlaceholder:
+      "앱은 무엇을 하며 누구를 위한 것인가요?",
+    communitySubmissionRepository: "GitHub 저장소 (선택 사항)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "스크린샷 (선택 사항)",
+    communitySubmissionScreenshotsPlaceholder: "여기에 최대 5개의 이미지 드롭",
+    communitySubmissionScreenshotDropHint: "PNG, JPG 또는 WebP. 각 1.5MB 이하.",
+    communitySubmissionScreenshotSlot: "스크린샷 {{index}}",
+    communitySubmissionScreenshotsAdd: "스크린샷 추가",
+    communitySubmissionScreenshotsCount: "{{count}} / 5개 선택됨",
+    communitySubmissionScreenshotRemove: "스크린샷 {{index}} 제거",
+    communitySubmissionSubmit: "앱 제출",
+    communitySubmissionReady: "감사합니다. 게시하기 전에 앱을 검토하겠습니다.",
+    communitySubmissionNameError: "앱 이름을 입력하세요.",
+    communitySubmissionDescriptionError: "간단한 설명을 추가하세요.",
+    communitySubmissionUrlError:
+      "example.com과 같은 유효한 앱 링크를 입력하세요.",
+    communitySubmissionRepositoryError: "GitHub 저장소 링크를 입력하세요.",
+    communitySubmissionScreenshotsError:
+      "PNG, JPG 또는 WebP 이미지를 사용하세요. 각 1.5MB 이하, 최대 5개입니다.",
+    communitySubmissionSubmitError:
+      "지금 제출할 수 없습니다. 강조 표시된 필드를 확인하고 다시 시도하세요.",
+    communitySubmissionSubmitting: "제출 중…",
   },
   buildFromScratch: {
     title: "처음부터 만들기",
@@ -447,8 +707,10 @@ const koKR = {
       "프레임워크 가이드로 시작하거나 Builder.io의 클라우드 코딩 에이전트로 온라인에서 빌드하세요.",
     readDocs: "문서 읽기",
     buildOnline: "온라인에서 빌드",
-    popoverTitle: "Builder.io로 온라인에서 빌드",
+    popoverTitle: "브라우저에서 빌드",
     popoverBody:
+      "Builder.io를 사용해 클라우드에서 agent-native 앱을 빠르게 생성하세요.",
+    waitlistBody:
       "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
     emailLabel: "이메일",
     emailPlaceholder: "you@company.com",
@@ -458,6 +720,12 @@ const koKR = {
       "대기자 명단에 등록되었습니다. 온라인 빌드 액세스가 열리면 이메일로 알려드릴게요.",
     invalidEmail: "유효한 이메일 주소를 입력하세요.",
     submitError: "대기자 명단에 참여하지 못했습니다. 다시 시도하세요.",
+    waitlistUnavailable:
+      "이 환경에서는 아직 대기자 명단에 등록할 수 없습니다. 대신 호스팅된 문서 사이트에서 시도해 보세요.",
+    launchBuilder: "Builder 실행",
+    newAppPrompt: "새 Agent-Native 앱을 만들어 주세요.",
+    customizeTemplatePrompt:
+      "내 작업 방식에 맞게 Agent-Native {{template}} 템플릿을 맞춤 설정해 주세요.",
   },
   templateCard: {
     pasteIntoTerminal: "터미널에 붙여넣으세요.",
@@ -476,7 +744,7 @@ const koKR = {
     clips: {
       replaces: "Loom, Granola, Wisprflow를 대체하거나 보강",
       description:
-        "브라우저 디버그 캡처, 캘린더에 동기화된 회의 메모, Fn 보류 음성 받아쓰기가 포함된 화면 녹화 — 모두 기록, 요약 및 검색 가능하며 에이전트는 이를 편집할 수 있습니다.",
+        "화면, 회의, 음성 메모를 기록해 에이전트가 상황을 이해하고 필요한 조치를 취하게 합니다.",
     },
     plan: {
       replaces: "Codex, Claude Code 및 코딩 에이전트를 위한 시각적 계획 모드",
@@ -484,52 +752,46 @@ const koKR = {
         "시각적 계획을 app-backed skill로 설치합니다. 코딩 에이전트는 다이어그램, 와이어프레임, 프로토타입, 주석, 댓글, 공유 가능한 리뷰 링크가 포함된 구조화된 계획을 열 수 있습니다.",
     },
     design: {
-      replaces: "디자인 프로토타이핑 도구를 대체하거나 보강",
+      replaces: "Agent-Native Design 스튜디오",
       description:
-        "Agent-native HTML 프로토타이핑 스튜디오. 대화형 Alpine/Tailwind 디자인을 생성하고, 변형을 비교하고, 라이브 조정 컨트롤을 다듬고, 결과를 내보냅니다.",
+        "프롬프트를 디자인 시스템에 맞는 대화형 디자인으로 바꾸고, 에이전트가 피드백으로 각 화면을 다듬습니다.",
     },
     content: {
       replaces:
         "MDX, Notion, Google Docs에 대해 Obsidian을 대체하거나 확장합니다.",
       description:
-        "Obsidian와 같은 로컬 Markdown/MDX 파일을 편집하고, 풍부한 대화형 사용자 정의 블록을 생성하고, AI 에이전트를 사용하여 초안을 작성하고 다시 작성하고 게시합니다.",
+        "문서를 다루면서 에이전트가 당신의 문체로 초안을 작성하고, 대화형 콘텐츠를 만들고, 사이트에 게시합니다.",
     },
     slides: {
       replaces: "Google Slides, Pitch을 대체하거나 확장합니다.",
       description:
-        "프롬프트에서 전체 프레젠테이션을 생성합니다. 시각적으로 또는 대화식으로 편집하세요. AI 이미지 생성, 8가지 레이아웃 및 프레젠테이션 모드가 내장되어 있습니다.",
+        "프롬프트나 기존 슬라이드에서 브랜드에 맞는 편집 가능한 프레젠테이션을 만들고, 에이전트가 제작, 편집, 개선합니다.",
     },
     analytics: {
       replaces: "Amplitude 및 FullStory에 대한 오픈 소스 대안",
       description:
-        "모든 데이터 소스를 연결하고, 차트에 대한 메시지를 표시하고, 재사용 가능한 대시보드를 구축하세요. 에이전트는 SQL을 작성하고 시각화를 생성하며 앱을 발전시킵니다.",
+        "데이터를 연결해 에이전트가 쉬운 말로 질문에 답하고 결과를 차트와 대시보드로 만듭니다.",
     },
     mail: {
       replaces: "Superhuman, Gmail을 대체하거나 확장합니다.",
       description:
-        "키보드 단축키, AI 분류, 다중 계정 지원 및 이메일 자동화를 갖춘 Superhuman 스타일 이메일 클라이언트입니다. 받은 편지함 워크플로를 소유하세요.",
+        "키보드 중심의 받은편지함에서 에이전트가 메일 우선순위를 정하고, 답장을 작성하고, 대화를 요약하며, 후속 조치를 합니다.",
     },
     forms: {
       replaces: "Typeform, Google Forms을 대체하거나 확장합니다.",
       description:
         "에이전트 기반 양식 작성기. 프롬프트에서 양식을 생성하고, 필드를 시각적으로 또는 대화식으로 편집하고, 제출물을 Slack, Discord, Google Sheets 또는 웹훅으로 보냅니다.",
     },
-    brain: {
-      replaces:
-        "팀 위키, Glean 스타일 회상 및 제도적 기억 도구를 대체하거나 강화합니다.",
-      description:
-        "검토 게이트, 평가 및 공유 연결 준비 기능이 내장되어 승인된 Slack, Clips, Granola, GitHub 및 성적표 소스의 인용 메모리에 대한 전체 페이지 회사 채팅입니다.",
-    },
     assets: {
       replaces:
         "DAMs, 브랜드 자산 라이브러리 및 AI 미디어 생성기를 대체하거나 강화합니다.",
       description:
-        "다른 앱이 A2A을 통해 호출하거나 선택기로 삽입할 수 있는 업로드, 브랜드 라이브러리, 검색 가능한 참조 및 브랜드 이미지/동영상 생성을 위한 디지털 자산 관리자입니다.",
+        "브랜드 가이드라인, 이미지, 동영상의 공유 라이브러리를 에이전트에게 제공해 앱에서 브랜드에 맞는 미디어를 만들고 선택하게 합니다.",
     },
     calendar: {
       replaces: "Google Calendar, Calendly을 대체하거나 확장합니다.",
       description:
-        "Google 동기화, 가용성 관리 및 공개 예약 페이지가 포함된 전체 달력입니다. 상담원은 빈 슬롯을 찾아 이벤트를 생성하고 일정을 관리합니다.",
+        "여러 Google Calendar를 모아 에이전트가 빈 시간을 찾고, 일정을 잡거나 변경하며, 예약을 관리합니다.",
     },
     dispatch: {
       replaces: "에이전트 기반 앱의 임무 제어",
@@ -543,6 +805,10 @@ const koKR = {
     },
   },
   templateLanding: {
+    faq: {
+      eyebrow: "자주 묻는 질문",
+      title: "자주 묻는 질문에 답해드립니다",
+    },
     analytics: {
       s001: "Analytics 템플릿 스크린샷",
       s002: "데이터 커넥터",
@@ -550,7 +816,8 @@ const koKR = {
       s004: "쿼리 탐색기",
       s005: "자연어",
       s006: "모든 템플릿",
-      s007: "Amplitude 및 FullStory에 대한 오픈 소스 대안",
+      s007Primary: "Amplitude 및 FullStory에 대한",
+      s007Secondary: "오픈 소스 대안",
       s008: "모든 데이터 소스를 연결하고, 차트에 대한 메시지를 표시하고, 재사용 가능한 대시보드를 구축하세요. AI 에이전트는 SQL을 작성합니다.",
       s009: "사용해 보기",
       s010: "당신이 할 수 있는 일",
@@ -608,14 +875,114 @@ const koKR = {
       s062: "템플릿에서 시작하고, 데이터를 연결하고, 대시보드 구축을 시작하세요.",
       s063: "문서 읽기",
       s064: "모든 템플릿 보기",
+      heroEyebrow: "Analytics",
+      heroTitle: "질문하세요. 차트, 쿼리, 컨텍스트를 가져옵니다.",
+      heroDescription:
+        "창고, 제품, 수익 데이터를 하나로 통합하세요. 에이전트는 지표 정의를 확인하고 SQL을 작성하며 답변을 재사용 가능한 대시보드로 전환합니다.",
+      heroCta: "데이터 살펴보기",
+      useCasesHeading: "측정항목에서 세션까지 신호를 따르세요.",
+      useCasesBody:
+        "각 결과 옆에 추론을 유지한 다음 차트를 대시보드나 세션 조사로 가져갑니다.",
+      useCase1Title: "활성화 변경 설명",
+      useCase1Body:
+        "대화에서 집단과 채널을 비교하세요. 에이전트는 문서화된 측정항목 정의를 사용하고 쿼리를 작성하며 변경 이면의 증거를 보여줍니다.",
+      useCase2Title: "생활 수익 리뷰 작성",
+      useCase2Body:
+        "상담원에게 청구, CRM 또는 창고 지표를 대시보드에 결합하도록 요청하세요. 다음 검토를 위해 필터와 패널이 유지됩니다.",
+      useCase3Title: "실제 세션에 대한 측정항목 추적",
+      useCase3Body:
+        "급증 또는 오류에서 그 뒤의 세션으로 이동합니다. 콘솔과 네트워크 활동을 검사한 다음 에이전트와 임시 진단 컨텍스트를 공유합니다.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "조회, 시각화, 탐색에 필요한 모든 것",
+      feature1Title: "연결된 데이터 전반에 걸쳐 질문",
+      feature1Body:
+        "창고, 제품, 수익원 전반에 걸쳐 질문하세요. 상담원은 답변을 차트로 변환하고 후속 분석을 지원합니다.",
+      feature2Title: "상담원이 편집할 수 있는 대시보드",
+      feature2Body:
+        "상담원에게 패널, 필터, 분류를 추가하거나 모양을 변경하도록 합니다. 변경 사항은 팀이 공유할 수 있는 재사용 가능한 대시보드에 유지됩니다.",
+      feature3Title: "표시되는 SQL 및 측정항목 컨텍스트",
+      feature3Body:
+        "결과 뒤의 쿼리와 이를 작성하는 데 사용된 측정항목 정의를 검사하세요. 더 많은 제어가 필요할 때 SQL을 개선하세요.",
+      feature4Title: "데이터 소스를 위한 단일 작업 공간",
+      feature4Body:
+        "BigQuery, GA4, 제품 분석, HubSpot 및 Stripe을 연결한 다음 동일한 앱에서 허용되는 데이터를 탐색하세요.",
+      feature5Title: "상담원이 따르는 정의",
+      feature5Body:
+        "지표 규칙, 조인, 예 및 알려진 문제를 문서화합니다. Analytics는 쿼리를 작성할 때 에이전트에 해당 컨텍스트를 제공합니다.",
+      feature6Title: "진단을 통한 세션 재생",
+      feature6Body:
+        "오류에서 콘솔 및 네트워크 이벤트가 표시된 기록으로 이동합니다. 상담원 지원 조사를 위한 임시 진단 링크를 공유합니다.",
+      finalCtaHeading: "데이터에 대한 질문으로 시작하세요",
+      finalCtaBody:
+        "소스를 연결하고 AI 에이전트에게 첫 번째 차트를 요청하세요.",
+      finalCtaButton: "데이터 살펴보기",
+      faq: {
+        question1: "Agent-Native Analytics는 무엇인가요?",
+        answer1:
+          "Agent-Native Analytics는 무료 오픈소스 AI 분석 도구입니다. 연결된 데이터에 관해 AI 에이전트에게 질문하고, 쿼리를 살펴보고, 재사용 가능한 대시보드를 만들 수 있습니다. 세션 리플레이, 오류 추적, 가동 시간 모니터링도 포함되어 있습니다.",
+        question2: "Analytics를 사용하려면 SQL을 알아야 하나요?",
+        answer2:
+          "일반적인 언어로 질문하고 AI 에이전트가 쿼리를 작성하도록 할 수 있습니다. BigQuery의 경우 Explorer에서 테이블, 지표, 필터를 선택해 차트를 만들 수도 있습니다. 확인용으로 SQL은 항상 제공되며, 데이터를 잘 아는 사람이 소스 연결이나 지표 정의를 도와야 할 수도 있습니다.",
+        question3: "어떤 데이터 소스를 연결할 수 있나요?",
+        answer3:
+          "지원되는 소스로는 BigQuery, Google Analytics 4, Amplitude, Mixpanel, PostHog, HubSpot, Stripe가 있습니다. 각 소스에는 적절한 자격 증명이나 Analytics에 부여된 공유 워크스페이스 연결이 필요합니다. 얻을 수 있는 답변은 연결하는 데이터와 권한에 따라 달라집니다.",
+        question4: "우리만의 지표 정의를 사용할 수 있나요?",
+        answer4:
+          "네. 데이터 사전을 사용해 정의, 테이블 및 열 이름, 쿼리 예시, 내부 계정 제외 같은 예외 사항을 문서화하세요. AI 에이전트는 쿼리를 작성할 때 이 정의를 활용할 수 있습니다. 비즈니스 지표를 확인할 때는 SQL과 결과를 검토하세요.",
+        question5: "대시보드를 공유하고 보고서를 예약할 수 있나요?",
+        answer5:
+          "네. 뷰어, 편집자, 관리자 권한으로 팀원이나 조직과 대시보드를 공유할 수 있습니다. 현재 대시보드 결과가 담긴 이메일 보고서를 예약하거나, 추적하고 싶은 조건에 대한 알림을 설정할 수도 있습니다.",
+      },
     },
     calendar: {
       s001: "Calendar 템플릿 스크린샷",
+      heroEyebrow: "Calendar",
+      heroTitle:
+        "상담원과 함께 시간을 찾고, 회의를 예약하고, 하루를 조정하세요.",
+      heroDescription:
+        "캘린더는 Google 캘린더와 참석 여부 규칙을 함께 제공하므로 상담원이 공유된 공석을 찾고, 예약을 준비하고, 이벤트 업데이트를 도울 수 있습니다.",
+      heroCta: "일정 관리 시작하기",
+      useCasesHeading: "상담원이 일정 세부정보를 처리하도록 하세요.",
+      useCasesBody:
+        "캘린더 전체에서 실제 참석 가능 여부를 확인한 다음 회의를 만들거나 이동하기 전에 명확한 제안을 검토하세요.",
+      useCase1Title: "예약 링크를 준비된 회의로 전환",
+      useCase1Body:
+        "근무 시간, 공지사항, 완충 시간을 존중하는 시간만 제공하세요. 필요한 세부 정보를 수집한 다음 방명록 작성 시 비디오 링크를 추가하세요.",
+      useCase2Title: "누구나 만들 수 있는 슬롯 찾기",
+      useCase2Body:
+        "상담원에게 참석자의 한가함/바쁨 시간과 달력 오버레이를 비교해 달라고 요청하세요. 공유된 오프닝과 확인한 캘린더를 반환합니다.",
+      useCase3Title: "스레드를 잃지 않고 일정을 변경하세요",
+      useCase3Body:
+        "나중에 시간을 요청하면 상담원이 참석자를 확인하고, 회의 세부정보를 보존하고, 검토를 위해 업데이트된 초대를 준비하도록 하세요.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "일정 관리, 예약, 변경에 필요한 모든 것",
+      feature1Title: "자연어 스케줄링",
+      feature1Body:
+        "상담원에게 참석 가능 여부를 확인하고, 시간을 제안하고, 참석자 및 회의 세부정보가 포함된 일정을 만들거나 이동하도록 요청하세요.",
+      feature2Title: "계정 간 가용성",
+      feature2Body:
+        "연결된 Google 캘린더를 함께 보고 읽기 전용 피드를 일정 컨텍스트로 포함합니다.",
+      feature3Title: "섭취가 가능한 예약 페이지",
+      feature3Body:
+        "다양한 회의 유형에 대한 링크를 만들고, 기간과 예약 질문을 설정하고, 손님이 사용 가능한 시간대를 선택할 수 있도록 하세요.",
+      feature4Title: "모든 슬롯을 형성하는 규칙",
+      feature4Body:
+        "권장 시간과 공개 시간이 귀하의 일정에 맞도록 근무 시간, 완충 시간, 공지 사항, 시간대, 예약 기간을 설정하세요.",
+      feature5Title: "실제 다중 호스트 검사",
+      feature5Body:
+        "시간을 제안하기 전에 필수 공동 호스트를 추가하고 한가함/바쁨 시간을 확인하세요. 캘린더는 구성 시 공유 근무 시간 오버레이도 준수합니다.",
+      feature6Title: "상담원이 관리하는 회의 후속 조치",
+      feature6Body:
+        "상담사가 이벤트 변경 사항과 업데이트된 초대를 준비할 때 Google Meet 또는 Zoom 세부정보를 첨부된 상태로 유지하세요.",
+      finalCtaHeading: "다음 미팅을 캘린더에 등록하세요",
+      finalCtaBody: "AI 에이전트로 시간을 찾거나 예약 링크를 보내세요.",
+      finalCtaButton: "일정 관리 시작하기",
       s002: "Calendar 조회수",
       s003: "에이전트 작업",
       s004: "예약 링크 유형",
       s005: "모든 템플릿",
-      s006: "오픈 소스 Google Calendar 및 Calendly 대안",
+      s006Primary: "오픈 소스",
+      s006Secondary: "Google Calendar 및 Calendly 대안",
       s007: "다중 계정 Google Calendar 동기화, 구성 가능한 가용성 및 사용자 정의 가능한 Calendly 스타일 예약 링크 — 귀하를 대신하여 예약하는 AI 에이전트.",
       s008: "사용해 보기",
       s009: "로그인하면 기본 Google ID만 사용되지만 Calendar 동기화를 연결하면 캘린더 액세스가 필요합니다. 일부 Workspace 관리자는 호스팅된 데모에 대한 승인이 필요할 수 있습니다. 자신의 Google OAuth 클라이언트를 사용하려면 로컬에서 실행하세요.",
@@ -668,16 +1035,145 @@ const koKR = {
       s056: "모든 템플릿 보기",
       s057: "호스팅 데모 참고",
       s058: "양방향 동기화",
+      faq: {
+        question1: "Agent-Native Calendar란 무엇인가요?",
+        answer1:
+          "Agent-Native Calendar는 Google Calendar와 연결되는 무료 오픈 소스 AI 일정 관리 도구입니다. AI 에이전트로 일정을 관리하고 미팅 시간을 찾거나, 예약 링크를 공유해 다른 사람이 나와 일정을 잡게 할 수 있습니다.",
+        question2: "어떤 캘린더를 연결할 수 있나요?",
+        answer2:
+          "여러 Google 계정을 연결해 일정을 함께 볼 수 있습니다. 새로 만들거나 수정한 일정은 선택한 계정의 기본 캘린더에 기록됩니다. 읽기 전용 ICS나 webcal 피드도 표시할 수 있지만, 이는 Outlook이나 Apple 캘린더와의 양방향 연동이 아닙니다. 공유된 Google 캘린더는 보기 전용이며 예약 가능 시간을 차단하지 않습니다.",
+        question3: "AI 에이전트가 내 캘린더로 무엇을 할 수 있나요?",
+        answer3:
+          "AI 에이전트는 일정을 확인하고, 가능한 미팅 시간을 찾고, 일정을 만들거나 변경할 수 있습니다. 시간을 찾아 달라고 요청하면 가용성 규칙과 기존 일정을 확인하고, 접근 가능한 경우 지정한 참석자의 여유/바쁨 정보도 함께 확인합니다. 미팅이 예약되기 전에 제안된 시간을 직접 선택합니다.",
+        question4: "나와 미팅을 예약하려면 계정이 필요한가요?",
+        answer4:
+          "아니요. 공개 예약 링크가 있으면 누구나 로그인 없이 가능한 시간을 선택하고 예약 질문에 답할 수 있습니다. 예약 후에는 미팅을 변경하거나 취소할 수 있는 개인 링크를 받습니다.",
+        question5: "예약 링크로 여러 호스트의 가용성을 확인할 수 있나요?",
+        answer5:
+          "네. 필수 공동 호스트를 추가하면 Calendar가 시간을 제안하기 전에 공동 호스트의 여유/바쁨 정보를 확인합니다. 각 공동 호스트가 설정한 근무 시간까지 반영하려면, 서로의 캘린더를 오버레이로 추가해야 합니다. 이러한 상호 공유가 없으면 Calendar는 여유/바쁨 정보만 확인합니다.",
+      },
+    },
+    assets: {
+      faq: {
+        question1: "Agent-Native Assets는 무엇인가요?",
+        answer1:
+          "Agent-Native Assets는 AI 이미지·동영상 생성 기능을 갖춘 무료 오픈소스 브랜드 자산 라이브러리입니다. 기존 미디어를 정리하고 브랜드 레퍼런스를 제공한 뒤, AI 에이전트와 함께 여러 프로젝트에서 자산을 생성, 편집, 재사용할 수 있습니다.",
+        question2: "Assets는 브랜드 가이드라인을 어떻게 활용하나요?",
+        answer2:
+          "로고, 참고 이미지, 색상, 스타일 노트를 브랜드 키트에 추가하세요. 재사용 가능한 템플릿은 특정 콘텐츠 유형에 대한 지침을 제공합니다. AI 에이전트는 이 맥락을 활용해 생성을 이끌며, 저장하기 전에 결과를 검토하고 다듬을 수 있습니다.",
+        question3: "기존 이미지와 동영상을 업로드하고 정리할 수 있나요?",
+        answer3:
+          "네. 기존 미디어를 업로드하거나 URL에서 자산을 가져온 뒤, 생성된 작업과 함께 라이브러리와 폴더로 정리하세요. 라이브러리를 둘러보고 검색하거나, 자산을 레퍼런스로 재사용하거나, 다른 프로젝트용으로 내보낼 수 있습니다.",
+        question4: "제 AI 에이전트가 다른 앱에서 Assets를 사용할 수 있나요?",
+        answer4:
+          "네. 지원되는 에이전트를 Assets의 MCP 통합을 통해 연결하면 채팅에서 미디어를 검색, 생성, 선택할 수 있습니다. Agent-Native 앱도 자산을 요청하거나 선택기를 삽입할 수 있습니다. 실제로 제공되는 경험은 호스트 앱과 Assets의 연결 방식에 따라 달라집니다.",
+        question5: "Assets가 생성된 이미지에 실제 로고를 사용할 수 있나요?",
+        answer5:
+          "네. 브랜드 키트에 기준 로고를 설정하고 생성 시 로고 합성을 활성화하세요. Assets는 생성 후 원본 로고를 이미지에 배치하므로 이미지 모델이 로고를 다시 그리지 않습니다. 사용하기 전에 배치 상태와 주변 이미지를 확인하세요.",
+      },
+      s001: "Assets 앱 스크린샷",
+      imageCredits: "이미지 크레딧",
+      heroEyebrow: "Assets",
+      heroTitle: "대화에서 브랜드 이미지 생성",
+      heroDescription:
+        "필요한 것이 무엇인지 설명하고, 에이전트에게 브랜드 키트나 참조 자료를 제공하고, 대화 중에 생성된 변형을 바로 비교해 보세요.",
+      heroCta: "이미지 생성하기",
+      useCasesHeading: "Assets로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "캠페인 이미지를 만들거나, 기존 비주얼을 새 프로젝트에 맞게 조정하거나, 팀과 AI 에이전트가 함께 쓰는 브랜드 라이브러리를 마련해 보세요.",
+      useCase1Title: "캠페인 비주얼 만들기",
+      useCase1Body:
+        "브랜드 레퍼런스를 활용해 블로그 이미지, 소셜 그래픽, 출시 비주얼을 AI 에이전트에게 요청하세요. 여러 옵션을 비교하고 선택한 것을 다듬으세요.",
+      useCase2Title: "이미지를 새 프로젝트에 맞게 조정하기",
+      useCase2Body:
+        "기존 이미지를 AI 에이전트에게 전달하고, 배경을 바꾸거나 제목을 넣을 공간을 만드는 등 필요한 변경 사항을 설명하세요.",
+      useCase3Title: "업무 전반에서 브랜드 자산 공유하기",
+      useCase3Body:
+        "로고, 제품 이미지, 브랜드 레퍼런스를 한곳에 모아두면 팀원과 연결된 AI 에이전트가 프레젠테이션, 웹사이트, 다른 프로젝트에 쓸 미디어를 찾을 수 있습니다.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "생성하고, 다듬고, 재사용하는 데 필요한 모든 것",
+      feature1Title: "브랜드 자산 라이브러리",
+      feature1Body:
+        "업로드하거나 생성한 미디어를 라이브러리와 폴더로 정리하세요. AI 에이전트가 사용할 로고, 참고 이미지, 스타일 노트를 추가할 수 있습니다.",
+      feature2Title: "AI 이미지·동영상 생성",
+      feature2Body:
+        "필요한 미디어를 설명하고 브랜드 레퍼런스를 선택하세요. 이미지 옵션이나 짧은 동영상을 생성한 뒤, 저장하기 전에 결과를 검토하세요.",
+      feature3Title: "이미지 편집",
+      feature3Body:
+        "AI 에이전트에게 이미지 편집이나 스타일 변경을 요청하세요. 기존 자산을 참고로 활용하고, 피드백을 통해 다듬어 나가세요.",
+      feature4Title: "재사용 가능한 템플릿",
+      feature4Body:
+        "블로그 커버 이미지나 소셜 그래픽처럼 반복되는 작업을 위한 생성 지침을 저장하세요. 템플릿을 브랜드 키트와 연결하면 그 레퍼런스를 재사용할 수 있습니다.",
+      feature5Title: "원본 로고 배치",
+      feature5Body:
+        "브랜드 키트의 로고를 설정하고 생성된 이미지에 추가하세요. 로고 합성은 새로 생성하는 대신 원본 파일을 그대로 배치합니다.",
+      feature6Title: "에이전트 액세스",
+      feature6Body:
+        "AI 에이전트를 연결해 라이브러리를 검색하고, 미디어를 생성하고, 채팅에서 자산을 선택하세요. 지원되는 앱은 자산 선택기를 삽입할 수도 있습니다.",
+      finalCtaHeading: "다음 브랜드 자산을 만들어 보세요",
+      finalCtaBody:
+        "레퍼런스를 선택하고 필요한 것을 AI 에이전트에게 알려주세요.",
+      finalCtaButton: "이미지 생성하기",
     },
     clips: {
       s001: "Clips 템플릿 스크린샷",
+      heroEyebrow: "Clips",
+      heroTitle: "AI 에이전트가 보고 들을 수 있는 화면 녹화",
+      heroDescription:
+        "Clips는 버그, 피드백, 사용법을 AI 에이전트와 공유할 수 있는 무료 오픈소스 화면 녹화 도구입니다.",
+      heroCta: "클립 녹화하기",
+      useCasesHeading: "Clips로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "직접 녹화한 클립이나 다른 사람이 공유해 준 클립으로 시작해 보세요. AI 에이전트에게 맥락을 전달하고 필요한 것을 말해 주세요.",
+      useCase1Title: "녹화된 피드백에 따라 작업하기",
+      useCase1Body:
+        "녹화된 피드백을 AI 에이전트에게 전달해 계획으로 정리하거나 요청된 변경 사항을 구현하도록 도와달라고 하세요.",
+      useCase2Title: "보고된 버그 조사하기",
+      useCase2Body:
+        "버그 녹화 영상을 AI 에이전트와 공유해 무엇이 잘못되었는지 조사하고 다음 단계를 정리하도록 하세요.",
+      useCase3Title: "녹화된 작업 지시로 결과물 만들기",
+      useCase3Body:
+        "녹화된 작업 지시를 활용해 AI 에이전트가 발표 자료, 디자인, 콘텐츠, 앱 변경 사항을 만들도록 안내하세요.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "녹화, 전사, 공유에 필요한 모든 것",
+      feature1Title: "에이전트가 읽을 수 있는 녹화",
+      feature1Body:
+        "하나의 에이전트가 읽을 수 있는 링크를 통해 클립의 전사와 타임스탬프가 찍힌 이미지를 AI 에이전트와 공유하세요.",
+      feature2Title: "자동 전사",
+      feature2Body:
+        "녹화, 회의, 구술 내용의 전사를 받아보세요. 전사의 어느 줄이든 클릭하면 해당 시점으로 이동해 재생됩니다.",
+      feature3Title: "브라우저 디버그 로그",
+      feature3Body:
+        "Clips Chrome 확장 프로그램으로 녹화와 함께 콘솔 오류와 실패한 요청을 캡처하세요.",
+      feature4Title: "내장 AI 에이전트",
+      feature4Body:
+        "내장 AI 에이전트에게 클립 하나 또는 전체 라이브러리에 대해 질문하고, 채팅에서 전사를 편집하게 하세요.",
+      feature5Title: "검색 가능한 녹화 라이브러리",
+      feature5Body:
+        "전사 내용을 검색해 클립을 찾아보세요. 폴더, 태그, 팀 스페이스로 녹화를 정리할 수 있습니다.",
+      feature6Title: "누르고 말하는 구술 입력",
+      feature6Body:
+        "데스크톱 앱에서 Fn 키를 눌러 다른 앱에 구술 입력을 하세요. 전사 내용과 정리된 텍스트는 기록에서 다시 확인할 수 있습니다.",
+      teammatesLine: "팀원들도 플레이어에서 같은 녹화 영상을 볼 수 있습니다.",
+      teammatesLinkLabel: "에이전트 공유 가이드 읽기",
+      seeInActionHeading: "Clips 활용 모습 보기",
+      seeInActionBody:
+        "브라우저 작업 흐름을 녹화하는 모습부터 AI 에이전트에게 작업 수행 방법을 보여주는 모습까지, Clips 사용 예시를 확인해 보세요.",
+      watchClipLabel: "클립 보기",
+      finalCtaHeading: "다음 클립을 업무에 활용해 보세요",
+      finalCtaBody:
+        "설명을 녹화하거나 공유된 클립을 AI 에이전트에게 전달해 보세요.",
+      finalCtaButton: "클립 녹화하기",
       s002: "화면 녹화",
       s003: "브라우저 디버그 로그",
       s004: "받아쓰기",
       s005: "볼 수 있고 들을 수 있음",
       s006: "모든 템플릿",
-      s007: "Loom에 대한 오픈 소스 대안",
-      s008: "Clips 링크를 에이전트에 붙여 넣으면 해당 모델이 원시 비디오 또는 오디오를 수집할 수 없는 경우에도 스크립트를 듣고, 요약을 읽고, 타임스탬프가 표시된 프레임을 볼 수 있습니다.",
+      s007Primary: "AI가 보고 들을 수 있는",
+      s007Secondary: "화면 녹화.",
+      s008: "브라우저 디버그 로그를 캡처하고 스크립트를 생성하며 내장 받아쓰기를 사용하세요. 100% 무료, 오픈 소스, 사용자 지정 가능.",
+      s063: "맞춤형 추천 받기",
+      s064: "이 프롬프트를 Claude, ChatGPT 또는 Cursor에 붙여 넣어 Clips가 워크플로에 어떤 영향을 줄 수 있는지 확인하세요.",
       s009: "사용해 보기",
       s010: "당신이 할 수 있는 일",
       s011: "구독 스택 없이 하나의 앱, 하나의 라이브러리로 기록하고, 복사하고, 디버깅할 수 있습니다.",
@@ -721,20 +1217,92 @@ const koKR = {
       s049: "데이터 소유권",
       s050: "공급업체의 스토리지",
       s051: "공급업체의 클라우드",
-      s052: "당신은 코드를 소유하고 있습니다",
+      s052: "데이터뿐만 아니라 앱 코드 자체도 직접 소유합니다.",
       s053: "가격",
       s054: "사용자당 월 $15-30",
       s055: "무료 + 유료 등급",
       s056: "사용자당 월 $18-25",
       s057: "사용자당 월 $12-15",
       s058: "무료 및 오픈 소스",
-      s059: "몇 분 안에 시작하세요",
-      s060: "템플릿에서 시작하고 스토리지를 연결한 후 팀이 실제로 소유한 클립 녹화를 시작하세요.",
-      s061: "문서 읽기",
+      s059: "지금 시작하기",
+      s060: "캡처할 항목을 선택한 다음 Clips에서 녹화를 시작하세요.",
       s062: "모든 템플릿 보기",
+      faq: {
+        question1: "Agent-Native Clips란 무엇인가요?",
+        answer1:
+          "Agent-Native Clips는 버그, 피드백, 사용법을 AI 에이전트와 공유할 수 있는 무료 오픈소스 화면 녹화 도구입니다. AI 에이전트에게 녹화의 전사와 타임스탬프가 찍힌 이미지를 제공하며, 사람들도 같은 클립을 시청할 수 있습니다.",
+        question2: "Claude, ChatGPT, Cursor와 녹화 내용을 공유할 수 있나요?",
+        answer2:
+          "Clips는 전사 내용과 타임스탬프가 찍힌 이미지를 담은, 에이전트가 읽을 수 있는 링크를 제공합니다. 두 가지를 모두 활용하려면 에이전트가 링크된 콘텐츠를 열고 이미지를 읽을 수 있어야 합니다. 일부 채팅 모드는 전사 내용은 읽을 수 있지만 이미지는 별도로 업로드해야 합니다.",
+        question3: "화면을 녹화하려면 Chrome 확장 프로그램이 필요한가요?",
+        answer3:
+          "아니요. Clips 웹 앱에서 바로 녹화할 수 있습니다. 시연 중인 탭의 콘솔 메시지와 네트워크 진단 정보도 함께 얻고 싶을 때는 Chrome 확장 프로그램을 사용하세요.",
+        question4: "AI 에이전트가 제 화면 녹화 영상을 볼 수 있나요?",
+        answer4:
+          "Clips에서는 호환되는 AI 에이전트가 전사 내용과 타임스탬프가 찍힌 이미지를 통해 녹화 내용을 이해할 수 있습니다. 영상을 재생하는 대신 텍스트와 이미지를 활용하므로, 어떤 일이 있었는지 질문하거나 녹화 내용을 바탕으로 AI 에이전트에게 작업을 맡길 수 있습니다.",
+        question5: "공유된 녹화 영상은 누가 볼 수 있나요?",
+        answer5:
+          "조직에서 설정을 변경하지 않는 한 녹화 영상은 기본적으로 공개 링크를 사용하며, 링크를 가진 사람은 누구나 접근할 수 있습니다. 비공개 및 조직 내 접근 옵션도 제공되며, 비공개 클립은 녹화 내용을 공개하지 않고도 임시 링크를 통해 에이전트와 공유할 수 있습니다.",
+      },
+      quickStart: {
+        recordingMode: "녹화 모드",
+        modeScreenCamera: "화면 + 카메라",
+        modeScreenOnly: "화면만",
+        modeCameraOnly: "카메라만",
+        captureSource: "캡처 소스",
+        surfaceWindow: "창",
+        surfaceBrowser: "브라우저 탭",
+        surfaceScreen: "화면",
+        audioSource: "오디오 소스",
+        defaultMicrophone: "기본 마이크",
+        startRecording: "녹화 시작",
+        uploadVideo: "동영상 업로드",
+        importLoom: "Loom에서 가져오기",
+      },
     },
     content: {
       s001: "Content 템플릿 스크린샷",
+      heroEyebrow: "Content",
+      heroTitle: "AI 에이전트와 함께 작업을 만들고 정리하세요",
+      heroDescription:
+        "Content는 문서, 작업 목록, 데이터베이스를 위한 무료 오픈소스 워크스페이스로, 사용자와 AI 에이전트가 함께 읽고 업데이트할 수 있습니다.",
+      heroCta: "작업 정리하기",
+      useCasesHeading: "Content로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "초안 작업을 하거나, 해야 할 일을 추적하거나, 새 요청에 필요한 세부 정보를 모아 보세요.",
+      useCase1Title: "콘텐츠 작성 및 검토하기",
+      useCase1Body:
+        "AI 에이전트에게 페이지 초안 작성, 구절 수정, 글에 대한 댓글 남기기를 요청해 보세요. 어떤 도움을 받을지는 직접 선택할 수 있습니다.",
+      useCase2Title: "에이전트와 함께 작업 추적하기",
+      useCase2Body:
+        "작업, 상태, 다음 단계를 공유 테이블에 정리해 보세요. 프로젝트를 진행하는 동안 연결된 AI 에이전트에게 업데이트를 요청할 수 있습니다.",
+      useCase3Title: "프로젝트 요청 수집하기",
+      useCase3Body:
+        "디자인 요청이나 다른 팀 업무를 위한 테이블을 만들어 보세요. 각 필드에 지침을 추가하면 AI 에이전트가 누락된 세부 정보를 물어볼 수 있습니다.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "작성하고, 정리하고, 협업하는 데 필요한 모든 것",
+      feature1Title: "AI 작성 및 검토",
+      feature1Body:
+        "초안을 받고, 선택한 텍스트에 대한 수정을 요청하거나, 댓글을 요청해 보세요. AI 에이전트가 문서에서 직접 작업합니다.",
+      feature2Title: "문서와 중첩된 페이지",
+      feature2Body:
+        "제목, 표, 이미지, 코드 블록으로 페이지를 작성하세요. 관련 문서를 프로젝트 아래로 그룹화하고, 제목과 내용으로 검색해 찾을 수 있습니다.",
+      feature3Title: "데이터베이스와 뷰",
+      feature3Body:
+        "작업을 테이블, 보드, 캘린더로 정리하세요. 담당자, 날짜, 상태를 위한 필드를 추가할 수 있으며, 각 행 뒤에는 전체 문서가 있습니다.",
+      feature4Title: "페이지 및 필드 지침",
+      feature4Body:
+        "페이지나 데이터베이스 필드에 무엇이 들어가야 하는지 설명하세요. 원하는 정보와 형식에 대한 안내를 AI 에이전트에게 제공할 수 있습니다.",
+      feature5Title: "연결된 AI 에이전트",
+      feature5Body:
+        "Claude Code, Codex, Cursor 같은 도구의 에이전트를 연결해, 내장된 에이전트와 함께 문서와 데이터베이스를 읽고 업데이트하게 하세요.",
+      feature6Title: "팀 협업",
+      feature6Body:
+        "페이지를 함께 편집하고, 구절에 댓글을 달고, 스레드에서 답장하세요. 특정 사람이나 조직과 공유하고 접근 권한 수준을 선택할 수 있습니다.",
+      finalCtaHeading: "다음 프로젝트를 Content로 가져오세요",
+      finalCtaBody:
+        "이미 팀에서 사용 중인 문서, 작업 목록, 테이블로 시작해 보세요.",
+      finalCtaButton: "작업 정리하기",
       s002: "모든 템플릿",
       s003: "MDX을 위한 오픈 소스 Obsidian",
       s004: "Obsidian와 같은 로컬 Markdown/MDX 파일을 편집하고, 풍부한 대화형 사용자 정의 블록을 생성하고, 문서를 아는 AI 에이전트로 작성하세요.",
@@ -796,16 +1364,76 @@ const koKR = {
       s060: "MDX 문서를 가져와 대화형 블록을 생성하고 AI로 글쓰기를 시작하세요.",
       s061: "문서 읽기",
       s062: "모든 템플릿 보기",
+      faq: {
+        question1: "Agent-Native Content란 무엇인가요?",
+        answer1:
+          "Agent-Native Content는 문서, 작업, 데이터베이스를 위한 무료 오픈소스 워크스페이스입니다. AI 문서 편집기와 구조화된 테이블, 공유 페이지를 결합해 사람과 연결된 AI 에이전트가 함께 읽고 업데이트할 수 있게 해줍니다.",
+        question2: "Content에서 제 AI 에이전트를 사용할 수 있나요?",
+        answer2:
+          "네. Content는 Claude Code, Codex, Cursor 같은 지원 도구를 위한 MCP 연결을 제공합니다. 연결하고 접근 권한을 승인하면, 에이전트가 사용 가능한 문서와 데이터베이스로 작업할 수 있습니다. Content에 내장된 에이전트도 사용할 수 있습니다.",
+        question3: "다시 쓰지 않고 AI에게 제 글을 검토해 달라고 할 수 있나요?",
+        answer3:
+          "네. AI 에이전트에게 문서나 특정 구절에 댓글을 남겨 달라고 요청하세요. 피드백을 읽고 직접 수정하거나, 에이전트에게 텍스트 수정을 맡길 수도 있습니다. 댓글만 요청한다면 글쓰기를 넘길 필요가 없습니다.",
+        question4: "Content로 작업을 추적하고 팀 요청을 수집할 수 있나요?",
+        answer4:
+          "네. 담당자, 상태, 완료일, 다음 단계 같은 필드로 데이터베이스를 만들어 보세요. 각 필드에 무엇을 입력해야 하는지 설명을 추가하면, 항목을 만들거나 업데이트할 때 AI 에이전트가 그 설명을 참고해 누락된 정보를 물어볼 수 있습니다.",
+        question5:
+          "누가 제 작업을 수정할 수 있는지 관리하고, 이전 버전으로 복원할 수 있나요?",
+        answer5:
+          "네. 새 문서는 기본적으로 비공개입니다. 뷰어, 편집자, 관리자 권한으로 공유하고, 페이지 버전 기록을 사용해 이전 스냅샷으로 복원할 수 있습니다. 스냅샷을 복원하면 페이지의 현재 콘텐츠가 대체됩니다.",
+      },
     },
     design: {
       s001: "Design 템플릿 스크린샷",
+      heroEyebrow: "Design",
+      heroTitle: "AI 에이전트로 인터랙티브 프로토타입 디자인하기",
+      heroDescription:
+        "Design은 무료 오픈소스 AI 디자인 및 프로토타이핑 도구로, 브랜드에 맞는 페이지와 제품 인터페이스를 만들고 디자인은 직접 편집할 수 있습니다.",
+      heroCta: "무료로 디자인하기",
+      useCasesHeading: "Design으로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "만들기 전에 새로운 페이지, 제품 흐름, 인터페이스를 살펴보세요. 브리핑과 중요한 세부 사항을 AI 에이전트에게 전달하세요.",
+      useCase1Title: "랜딩페이지 아이디어 살펴보기",
+      useCase1Body:
+        "캠페인이나 제품 브리핑을 랜딩페이지 프로토타입으로 바꿔 보세요. 메시지, 레이아웃, 행동 유도 문구를 팀과 함께 검토하세요.",
+      useCase2Title: "제품 흐름 다듬기",
+      useCase2Body:
+        "온보딩, 가입, 결제 흐름의 프로토타입을 만드세요. 구현을 확정하기 전에 단계를 살펴보고 경험을 다듬으세요.",
+      useCase3Title: "대시보드와 내부 도구 디자인하기",
+      useCase3Body:
+        "워크플로 요구 사항을 대시보드나 관리자 인터페이스로 바꿔 보세요. 사용자가 정보를 어떻게 찾고 일상 업무를 어떻게 완료할지 살펴보세요.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading:
+        "디자인하고, 프로토타입을 만들고, 공유하는 데 필요한 모든 것",
+      feature1Title: "인터랙티브 프로토타입",
+      feature1Body:
+        "필요한 페이지나 흐름을 설명하세요. AI 에이전트가 미리보기에서 바로 사용해 볼 수 있는 상호작용이 담긴 HTML 프로토타입을 만들어 줍니다.",
+      feature2Title: "AI 및 비주얼 편집",
+      feature2Body:
+        "비주얼 컨트롤로 텍스트, 간격, 스타일을 조정하거나, AI 에이전트에게 레이아웃과 상호작용 변경을 요청하세요.",
+      feature3Title: "나란히 비교하는 디자인 변형",
+      feature3Body:
+        "AI 에이전트에게 다양한 디자인 방향을 요청하세요. 캔버스에서 비교하고, 방향을 정한 뒤 계속 다듬어 가세요.",
+      feature4Title: "재사용 가능한 브랜드 스타일",
+      feature4Body:
+        "색상, 타이포그래피, 스타일이 담긴 디자인 시스템을 연결하세요. 프로젝트 전반에서 새 디자인과 수정 작업을 이끄는 데 활용하세요.",
+      feature5Title: "디자인 리뷰 코멘트",
+      feature5Body:
+        "특정 요소에 피드백을 고정해 맥락을 명확하게 유지하세요. AI 에이전트에게 코멘트를 보내 변경 사항을 함께 처리하세요.",
+      feature6Title: "HTML 내보내기 및 코드 인계",
+      feature6Body:
+        "디자인 파일의 HTML이나 ZIP을 내보내세요. 개발자나 코딩 에이전트에게 프로토타입과 맥락을 전달해 구현을 이어가도록 하세요.",
+      finalCtaHeading: "다음 디자인을 시작하세요",
+      finalCtaBody:
+        "브리핑을 가져오세요. 가능성을 살펴보세요. 세부 사항을 다듬으세요.",
+      finalCtaButton: "무료로 디자인하기",
       s002: "설명하다",
       s003: "생성",
       s004: "구체화",
       s005: "모든 템플릿",
-      s006: "오픈 소스 AI HTML 프로토타이핑 스튜디오",
-      s007: "프롬프트에서 대화형 Alpine/Tailwind 프로토타입을 생성하고, 변형을 비교하고, 조정 컨트롤을 사용하여 개선하고, 소유한 실제 파일을 내보냅니다.",
-      s008: "사용해 보기",
+      s006: "오픈 소스 디자인 작업 공간",
+      s007: "대화형 디자인과 프로토타입을 만드세요. 익숙한 도구로 다듬거나 대화형 편집으로 마무리하세요. 어디로든 내보낼 수 있습니다.",
+      s008: "무언가 디자인하기",
       s009: "작동 원리",
       s010: "필요한 모든 것",
       s011: "소스를 작성하고 다듬는 에이전트가 있는 프로토타입 스튜디오입니다.",
@@ -858,9 +1486,67 @@ const koKR = {
       s058: "템플릿에서 시작하고 소스를 편집하는 에이전트를 사용하여 대화형 프로토타입 생성을 시작합니다.",
       s059: "문서 읽기",
       s060: "모든 템플릿 보기",
+      s061: "100% 무료, 오픈 소스, 사용자 지정 가능.",
+      faq: {
+        question1: "Agent-Native Design이란 무엇인가요?",
+        answer1:
+          "Agent-Native Design은 무료 오픈소스 AI 디자인 및 프로토타이핑 도구입니다. AI 에이전트로 인터랙티브 HTML 프로토타입을 만들고, 브랜드를 적용하고, 비주얼 컨트롤이나 채팅으로 디자인을 다듬으세요. 결과물을 공유해 피드백을 받거나 개발을 위해 내보낼 수 있습니다.",
+        question2: "AI가 생성한 후에 디자인을 편집할 수 있나요?",
+        answer2:
+          "네. 비주얼 컨트롤로 텍스트, 간격, 스타일을 조정하거나, AI 에이전트에게 디자인 변경을 요청하세요. 여러 방향을 비교해 보고 선택한 방향을 계속 다듬어 갈 수 있습니다.",
+        question3: "제 디자인 시스템을 사용할 수 있나요?",
+        answer3:
+          "네. 디자인 시스템을 연결해 색상, 타이포그래피, 스타일, 브랜드 지침을 안내할 수 있습니다. 여러 디자인에서 재사용하고, AI 에이전트가 수정할 때 참고할 컨텍스트로도 사용할 수 있습니다.",
+        question4: "Figma의 디자인으로 작업할 수 있나요?",
+        answer4:
+          "네. Design은 Figma 가져오기 워크플로와 Figma 전용 SVG 내보내기를 지원합니다. 디자인을 옮긴 후에는 글꼴, 레이아웃, 편집 가능한 요소를 확인하세요. 호환성은 원본과 내보내기 형식에 따라 달라집니다.",
+        question5: "무엇을 내보낼 수 있고, 완성된 앱인가요?",
+        answer5:
+          "디자인 파일의 HTML이나 ZIP을 내보내거나, 코딩 에이전트에게 인계할 준비를 하세요. 프로토타입은 개발의 출발점을 제공합니다. 애플리케이션 로직, 통합, 테스트, 배포는 여전히 구현과 검토가 필요합니다. HTML 내보내기는 외부 런타임 리소스를 사용할 수 있습니다.",
+      },
     },
     dispatch: {
       s001: "Dispatch 템플릿 스크린샷",
+      heroEyebrow: "Dispatch",
+      heroTitle: "AI 에이전트를 한곳에서 조율하세요",
+      heroDescription:
+        "Dispatch는 연결된 Agent-Native 앱에 작업을 위임하고, 반복 작업을 예약하고, 공유 연결을 관리하는 무료 오픈소스 AI 에이전트 오케스트레이션 앱입니다.",
+      heroCta: "작업 위임하기",
+      useCasesHeading: "Dispatch로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "연결된 앱에 도움을 요청하거나, 정기 업데이트를 설정하거나, 주의가 필요한 에이전트 실행을 조사하세요.",
+      useCase1Title: "하나의 대화에서 작업 위임하기",
+      useCase1Body:
+        "지표 요약이나 답장 초안을 요청하세요. Dispatch가 연결된 Analytics 또는 Mail 에이전트에 요청을 전달하고 결과를 반환합니다.",
+      useCase2Title: "반복되는 팀 업데이트 설정하기",
+      useCase2Body:
+        "연결된 앱에서 일일 지표 요약이나 주간 다이제스트를 예약하세요. 결과가 도착할 구성된 채널이나 받은편지함을 선택하세요.",
+      useCase3Title: "에이전트 활동 조사하기",
+      useCase3Body:
+        "작업의 마지막 실행 결과와 오류를 확인하세요. 워크플로에 주의가 필요할 때 무슨 일이 있었는지 조사하기 위해 사용 가능한 스레드 및 모니터링 정보를 활용하세요.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "위임, 예약, 모니터링에 필요한 모든 것",
+      feature1Title: "앱 간 위임",
+      feature1Body:
+        "작업을 처리할 연결된 앱으로 요청을 전송합니다. 각 앱은 자체 에이전트, 작업, 데이터를 사용하여 응답합니다.",
+      feature2Title: "메시징 연결",
+      feature2Body:
+        "Slack이나 Telegram 같은 채널을 연결해 요청을 보내고 답장을 받으세요. ID를 연결하면 Dispatch가 어떤 워크스페이스 사용자가 요청하는지 알 수 있습니다.",
+      feature3Title: "예약된 작업",
+      feature3Body:
+        "반복 작업에 일정을 지정하세요. 작업 활성화 여부, 마지막 실행 시각, 다음 실행 시각, 기록된 오류를 확인할 수 있습니다.",
+      feature4Title: "저장된 전송 대상",
+      feature4Body:
+        "Slack 채널, Telegram 채팅 또는 이메일 주소를 전송 대상으로 저장하세요. 예약된 결과에 재사용하고 전송 상태를 확인할 수 있습니다.",
+      feature5Title: "공유 통합",
+      feature5Body:
+        "제공업체 연결을 한 번 구성하고 이를 필요로 하는 앱에 접근 권한을 부여하세요. Dispatch에서 공유 연결과 앱 접근 권한을 관리하세요.",
+      feature6Title: "워크스페이스 변경 승인",
+      feature6Body:
+        "다른 관리자가 Dispatch의 공유 리소스 및 설정 변경 사항을 검토하도록 요구하세요. 팀 워크스페이스에서 대기 중인 요청을 검토하고 승인하거나 거부하세요.",
+      finalCtaHeading: "연결된 작업 하나로 시작하세요",
+      finalCtaBody: "필요한 앱을 선택하고 Dispatch에 작업 조율을 요청하세요.",
+      finalCtaButton: "작업 위임하기",
       s002: "+ Telegram 지원",
       s003: "에이전트 간",
       s004: "메모리",
@@ -914,14 +1600,72 @@ const koKR = {
       s052: "템플릿에서 시작하고 Slack 또는 Telegram을 연결하고 에이전트를 모든 대화에 참여시키세요.",
       s053: "문서 읽기",
       s054: "모든 템플릿 보기",
+      faq: {
+        question1: "Agent-Native Dispatch란 무엇인가요?",
+        answer1:
+          "Agent-Native Dispatch는 Agent-Native 워크스페이스를 위한 무료 오픈소스 AI 에이전트 오케스트레이션 앱입니다. 연결된 앱 전반의 요청을 조율하고, 지원되는 채널에서 메시지를 수신하며, 반복 작업을 예약하고, 공유 통합을 관리합니다.",
+        question2: "Dispatch는 어떤 앱과 함께 작동할 수 있나요?",
+        answer2:
+          "Dispatch는 워크스페이스에 연결되어 사용 가능한 앱(예: Analytics 또는 Mail)에 작업을 위임합니다. 각 앱은 자체 작업과 데이터를 처리합니다. Dispatch에 사용을 요청하기 전에 관련 연결과 권한을 구성하세요.",
+        question3: "Slack이나 Telegram에서 Dispatch를 사용할 수 있나요?",
+        answer3:
+          "네. 필요에 따라 메시징 채널을 구성하고 ID를 워크스페이스 계정에 연결하세요. Dispatch는 해당 채널을 통해 요청을 받고 결과를 반환할 수 있습니다. 채널을 연결한다고 해서 모든 발신자에게 모든 앱에 대한 접근 권한이 자동으로 부여되는 것은 아닙니다.",
+        question4: "에이전트가 일정에 따라 작업을 실행할 수 있나요?",
+        answer4:
+          "네. 반복 작업을 설정하고 필요한 경우 결과를 위한 전송 대상을 설정하세요. Dispatch는 작업의 마지막 실행, 다음 실행, 오류 상태를 표시하여 작업이 성공적으로 실행되었는지 확인할 수 있게 해줍니다.",
+        question5: "Dispatch의 승인이 에이전트가 하는 모든 작업을 포괄하나요?",
+        answer5:
+          "아니요. 팀 워크스페이스에서 Dispatch는 공유 리소스 및 설정에 대한 자체 변경 사항의 검토를 요구할 수 있습니다. 이메일 전송 같은 연결된 앱 내부의 작업은 해당 앱 자체의 제어를 따릅니다. Dispatch 승인 대기열은 모든 에이전트 작업에 대한 보편적인 관문이 아닙니다.",
+      },
     },
     forms: {
       s001: "Forms 템플릿 스크린샷",
+      heroEyebrow: "Forms",
+      heroTitle: "AI 에이전트로 양식 만들기",
+      heroDescription:
+        "Forms는 설문, 신청 양식, 요청 양식을 만들 수 있는 무료 오픈 소스 AI 양식 빌더입니다. 질문은 직접 편집할 수 있고, 응답 분석은 AI 에이전트가 도와줍니다.",
+      heroCta: "양식 만들기",
+      useCasesHeading: "Forms로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "고객 피드백을 수집하거나, 이벤트에 참가자를 등록하거나, 팀이 요청을 처리하는 데 필요한 세부 정보를 모을 수 있습니다.",
+      useCase1Title: "고객 피드백 수집",
+      useCase1Body:
+        "평점, 객관식 질문, 서술형 답변으로 고객 경험을 물어보세요. 받은 피드백은 AI 에이전트가 요약해 줄 수 있습니다.",
+      useCase2Title: "신청 및 등록 수집",
+      useCase2Body:
+        "웨비나, 이벤트, 제품 대기 명단을 위한 양식을 만드세요. 연락처와 선호 사항을 수집한 뒤 제출 내용을 검토하거나 내보낼 수 있습니다.",
+      useCase3Title: "프로젝트 요청 수집",
+      useCase3Body:
+        "디자인 요청, 프로젝트 개요, 내부 지원을 위한 양식을 제공하세요. 마감일, 요구 사항 등 팀에 필요한 세부 정보를 물어볼 수 있습니다.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "만들고, 공유하고, 검토하는 데 필요한 모든 것",
+      feature1Title: "AI 양식 생성",
+      feature1Body:
+        "수집하고 싶은 내용을 설명하면 AI 에이전트가 양식을 만듭니다. 질문 추가나 기존 필드 수정도 요청할 수 있습니다.",
+      feature2Title: "시각적 필드 편집",
+      feature2Body:
+        "라벨, 옵션, 필수 필드, 질문 순서를 직접 편집하세요. 텍스트, 이메일, 객관식, 날짜, 평점, 척도 등 필드 유형을 선택할 수 있습니다.",
+      feature3Title: "조건부 질문",
+      feature3Body:
+        "이전 답변이 특정 조건과 일치할 때 후속 질문을 표시하세요. 예를 들어 누군가 '기타'를 선택하면 자세한 내용을 물어볼 수 있습니다.",
+      feature4Title: "공개 양식 링크",
+      feature4Body:
+        "양식을 게시하고 링크를 공유하세요. 완료 메시지나 리디렉션을 설정하고, 응답 수집을 멈출 때 양식을 닫을 수 있습니다.",
+      feature5Title: "응답 분석 및 내보내기",
+      feature5Body:
+        "표에서 제출 내용을 검토하거나 AI 에이전트에게 요약과 추세를 요청하세요. 응답 표는 CSV로 다운로드할 수 있습니다.",
+      feature6Title: "제출 통합",
+      feature6Body:
+        "Slack, Discord, Google Sheets, 웹훅으로의 전달을 설정하세요. 새 응답은 해당 양식에 설정한 대상으로 전달됩니다.",
+      finalCtaHeading: "다음 양식을 만들어보세요",
+      finalCtaBody: "수집하고 싶은 내용을 AI 에이전트에게 알려주세요.",
+      finalCtaButton: "양식 만들기",
       s002: "설명하다",
       s003: "생성",
       s004: "경로",
       s005: "모든 템플릿",
-      s006: "Typeform 및 Google Forms에 대한 오픈 소스 AI 대안",
+      s006Primary: "Typeform 및 Google Forms에 대한",
+      s006Secondary: "오픈 소스 AI 대안",
       s007: "프롬프트에서 전체 양식을 생성하고, 필드를 대화식으로 구체화하고, 제출물을 Slack, Discord, Google Sheets 또는 웹훅으로 라우팅하세요. 데이터와 워크플로를 소유하세요. 응답당 비용이 없습니다.",
       s008: "사용해 보기",
       s009: "작동 원리",
@@ -975,15 +1719,92 @@ const koKR = {
       s057: "템플릿에서 시작하고 완전히 소유한 제출물 수집을 시작하세요.",
       s058: "문서 읽기",
       s059: "모든 템플릿 보기",
+      faq: {
+        question1: "Agent-Native Forms란 무엇인가요?",
+        answer1:
+          "Agent-Native Forms는 무료 오픈 소스 AI 양식 빌더입니다. AI 에이전트로 양식과 설문을 만들고, 필드를 시각적으로 편집하고, 공개 링크를 게시하고, 같은 앱에서 응답을 검토하거나 분석할 수 있습니다.",
+        question2: "AI가 만든 양식을 나중에 편집할 수 있나요?",
+        answer2:
+          "네. 시각적 편집기에서 질문, 라벨, 옵션, 필수 필드, 필드 순서를 변경하거나 AI 에이전트에게 변경을 요청할 수 있습니다. 두 방식 모두 같은 양식을 업데이트합니다. 이전 응답을 기반으로 조건부 질문을 추가할 수도 있습니다.",
+        question3: "제 양식에 응답하려면 계정이 필요한가요?",
+        answer3:
+          "아니요. 게시된 양식의 공개 링크가 있으면 누구나 계정 없이 응답을 제출할 수 있습니다. 초안 상태의 양식은 공개되지 않으며, 마감된 양식은 새 응답을 받지 않습니다.",
+        question4: "익명으로 피드백을 수집할 수 있나요?",
+        answer4:
+          "네. 익명 모드를 사용하면 제출자 신원과 출처 메타데이터가 생략됩니다. 응답을 완전히 익명으로 유지하려면 이름, 이메일 주소 등 신원을 알 수 있는 정보를 묻는 질문도 빼는 것이 좋습니다.",
+        question5: "응답을 Google Sheets나 Slack으로 보낼 수 있나요?",
+        answer5:
+          "네, 양식에 대상을 설정하면 가능합니다. Slack과 Discord는 웹훅 URL을 사용합니다. Google Sheets는 제출 내용을 받을 수 있도록 배포된 Google Apps Script 엔드포인트가 필요하며, 스프레드시트 링크만으로는 작동하지 않습니다. 웹훅을 사용하거나 응답을 CSV로 내보낼 수도 있습니다. 모든 응답을 CSV나 JSON으로 에이전트가 내보내려면 연결된 파일 저장소가 필요합니다.",
+      },
     },
     mail: {
+      faq: {
+        question1: "Agent-Native Mail은 무엇인가요?",
+        answer1:
+          "Agent-Native Mail은 AI 이메일 어시스턴트를 갖춘 무료 오픈소스 Gmail 이메일 클라이언트입니다. 메시지를 읽고 검색하고, 대화를 요약하고, 답장을 작성하고, 받은편지함이나 AI 에이전트를 통해 이메일을 정리할 수 있습니다.",
+        question2: "Mail이 기존 Gmail 계정과 연동되나요?",
+        answer2:
+          "네. 기존 Gmail 계정을 연결하면 Mail을 통해 이메일을 읽고 보낼 수 있습니다. 여러 Gmail 계정을 연결해 한 번에 검색할 수도 있습니다. Mail은 새 이메일 주소를 제공하지 않으며, 현재는 Outlook이나 다른 이메일 제공업체가 아닌 Gmail을 지원합니다.",
+        question3: "AI 에이전트가 제 승인 없이 이메일을 보내나요?",
+        answer3:
+          "채팅에서 AI 에이전트에게 이메일 발송을 요청하면 사용자의 승인이 필요합니다. 자동화로 트리거된 발송도 Mail 설정에서 자동 발송을 명시적으로 활성화하지 않는 한 승인이 필요합니다. 발송하기 전에 초안을 검토하고 수정할 수 있습니다.",
+        question4: "AI가 제 받은편지함을 자동으로 정리할 수 있나요?",
+        answer4:
+          "네. 자연어로 규칙을 만들어 수신 메시지에 라벨을 지정하거나, 보관하거나, 별표를 표시하거나, 읽음으로 표시할 수 있습니다. Mail은 발신자나 제목 같은 조건에 대해 기본 Gmail 필터도 지원합니다. Gmail 필터는 Gmail에서 실행되므로 Mail을 닫아도 계속 작동합니다.",
+        question5: "팀원이 저를 대신해 검토용 이메일을 준비할 수 있나요?",
+        answer5:
+          "네. 팀원이 초안을 요청하면 사용자의 검토 대기열에 표시됩니다. 이를 열어 메시지를 수정하고 준비되면 발송하면 됩니다. 요청한 사람이 사용자를 대신해 발송할 수는 없으며, 초안 소유자나 조직 관리자가 발송을 관리합니다.",
+      },
       s001: "Mail 템플릿 스크린샷",
+      heroEyebrow: "Mail",
+      heroTitle: "Jev로 받은편지함을 원하는 대로 관리하세요",
+      heroDescription:
+        "Jev에게 자연어로 중요한 항목을 알려 주세요. 사람이 작성한 GitHub 댓글은 남기고, 매니저의 메일은 우선 표시하며, 봇 알림은 정리하고, 피드백을 통해 학습합니다.",
+      heroCta: "받은편지함 관리하기",
+      mobileArchiveToast: "봇 알림 1,167개 보관 · PR 댓글 4개 유지",
+      useCasesHeading: "Jev가 더 똑똑하게 관리하는 받은편지함",
+      useCasesBody:
+        "자연어로 규칙을 설정하세요. Jev가 중요한 사람과 대화를 우선 처리하고, 알맞은 라벨을 붙이며, 반복되는 메일은 도착 즉시 보관합니다.",
+      useCase1Title: "사람의 답장은 남기고 봇 알림은 정리하세요",
+      useCase1Body:
+        "Jev에게 중요한 것이 무엇인지 알려주세요. 사람이 작성한 GitHub 풀 리퀘스트 댓글은 Product에 남기고, 봇 알림은 보관하며, 매니저의 메일은 Important로 옮깁니다. 프롬프트로 규칙을 조정하고 피드백으로 스팸 필터도 개선하세요.",
+      useCase2Title: "모든 메일에 딱 맞는 라벨을",
+      useCase2Body:
+        "Jev는 키워드만이 아니라 대화의 의미를 바탕으로 라벨을 붙여 고객 메모, 영수증, 조사 메일을 알맞은 곳에 정리합니다.",
+      useCase3Title: "일상적인 작업을 자동화하세요",
+      useCase3Body:
+        "백그라운드에서 새 메일에 라벨을 지정하거나 보관하도록 규칙을 설정한 다음 원할 때마다 실행 기록을 검토하세요.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "이메일을 읽고, 쓰고, 정리하는 데 필요한 모든 것",
+      feature1Title: "우선순위 정렬",
+      feature1Body:
+        "긴급성과 상황에 따라 들어오는 스레드의 순위를 지정하여 마감일과 응답을 기다리는 사람이 상위에 오도록 합니다.",
+      feature2Title: "상황별 AI 라벨",
+      feature2Body:
+        "대화 내용에 따라 메시지를 분류한 다음 유사한 메일이 도착하면 그룹화하여 보관하세요.",
+      feature3Title: "상담원 중심 받은 편지함",
+      feature3Body:
+        "상담원에게 현재 보고 있는 받은편지함에서 검색, 요약, 라벨 지정, 보관, 별표 표시 또는 답변 준비를 요청하세요.",
+      feature4Title: "백그라운드 자동화",
+      feature4Body:
+        "들어오는 메시지에 일반 언어 규칙을 적용하고 Mail이 수행한 작업을 검사합니다.",
+      feature5Title: "보내기 전에 검토하세요",
+      feature5Body:
+        "상담원에게 답변 초안을 작성하거나 수정하도록 한 다음 받은편지함에서 나가기 전에 검토하고 편집하세요.",
+      feature6Title: "피드백을 통해 배우는 스팸 필터",
+      feature6Body:
+        "잘못 필터링된 메일은 필요한 메일로 표시하고, 원치 않는 메일은 신고하세요. Jev가 수정 사항을 학습해 비슷한 메일에도 적용합니다.",
+      finalCtaHeading: "다음 이메일부터 시작해 보세요",
+      finalCtaBody:
+        "대화를 열고 AI 에이전트에게 요약이나 답장 초안을 요청해 보세요.",
+      finalCtaButton: "받은편지함 관리하기",
       s002: "키보드 우선",
       s003: "받은편지함 분류",
       s004: "조회수",
       s005: "맞춤형",
       s006: "모든 템플릿",
-      s007: "Superhuman 및 Gmail에 대한 오픈 소스 대안",
+      s007Primary: "Superhuman 및 Gmail에 대한",
+      s007Secondary: "오픈 소스 대안",
       s008: "사용해 보기",
       s009: "호스팅된 데모는 Gmail 액세스를 위해 Agent-Native의 공유 Google 앱을 사용하므로 Google은 계속하기 전에 확인을 요청할 수 있습니다. 자신의 Google OAuth 클라이언트를 사용하려면 로컬에서 실행하세요.",
       s010: "당신이 할 수 있는 일",
@@ -1039,99 +1860,125 @@ const koKR = {
       s060: "호스팅 데모 참고",
     },
     plan: {
-      s001: "계획 템플릿 스크린샷",
-      s002: "블록 유형",
-      s003: "에이전트 통합",
-      s004: "공유 가능한 링크",
-      s005: "프로토타입 러너",
-      s006: "스킬을 추가하세요",
-      s007: "One command installs the plan skill into Claude Code, Codex, Pi, Cursor, OpenCode, GitHub Copilot / VS Code, and similar agent projects. 배포할 별도의 앱이 없습니다.",
-      s008: "에이전트가 계획을 엽니다.",
-      s009: "에이전트에게 기능 계획을 요청하세요. It calls /visual-plan and the plan opens in your browser or VS Code — structured blocks, not a wall of markdown.",
-      s010: "검토 및 의견",
-      s011: "Pin은 모든 블록에 주석을 달았습니다. Ask questions, flag concerns, or approve sections — the agent can see all feedback.",
-      s012: "에이전트 반복",
-      s013: "The agent reads your comments and updates the plan in-place. 차이점은 변경된 내용과 이유를 정확하게 보여줍니다.",
-      s014: "모든 템플릿",
-      s015: "Codex, Claude Code 및 코딩 에이전트에 대한 시각적 계획",
-      s016: "Install in one command. 에이전트는 터미널에 마크다운 벽을 버리는 대신 와이어프레임, 다이어그램, 주석이 달린 코드 및 공유 가능한 검토 링크가 포함된 구조화된 계획을 엽니다.",
-      s017: "사용해 보기",
-      s018: "상담원이 할 수 있는 일",
-      s019: "모든 블록 유형은 원시 HTML이 아닌 구조화된 데이터인 일급 시민이므로 작업이 진행됨에 따라 에이전트가 계획을 읽고 업데이트할 수 있습니다.",
-      s020: "와이어프레임",
-      s021: "일반적인 데스크톱 자리 표시자가 아닌 실제 제품을 기반으로 한 스케치 UI 모형입니다.",
-      s022: "다이어그램",
-      s023: "인라인으로 렌더링된 아키텍처 순서도, 데이터 모델 및 시퀀스 다이어그램.",
-      s024: "주석이 달린 코드",
-      s025: "원시 코드 덤프가 아닌 줄별 메모, 차이점 및 변경 근거가 포함된 실제 소스 파일입니다.",
-      s026: "공유 가능한 링크",
-      s027: "모든 계획에는 공개 URL이 있습니다. 비동기식 검토, 댓글 및 승인을 위해 팀원과 공유하세요.",
-      s028: "데스크탑 파일 동기화",
-      s029: "앱을 복제하거나 CLI을 실행하지 않고 Agent Native Desktop에서 로컬 MDX 파일로 호스팅된 계획을 미러링합니다.",
-      s030: "이므로 리뷰는 코드 옆에 유지됩니다.",
-      s031: "작동 원리",
-      s032: "계획은 공유 앱에 있습니다. 귀하와 상담원 모두 기능 수명 주기 동안 계획을 읽고 업데이트할 수 있습니다.",
-      s033: "풍부한 블록 라이브러리",
-      s034: "계획은 자유 형식의 HTML이 아닌 구조화된 블록으로 구성됩니다. 에이전트는 각 블록의 스키마를 알고 있으며 블록에 대해 정확하게 생성, 업데이트 및 추론할 수 있습니다.",
-      s035: "주석이 달린 코드",
-      s036: "삽입하기 전에 소유자 확인",
-      s037: "자동화를 위한 이벤트 내보내기",
-      s038: "추가하다",
-      s039: "비교 방법",
-      s040: "터미널의 Markdown",
-      s041: "시각적 렌더링",
-      s042: "No",
-      s043: "기본",
-      s044: "풍부한 블록, 와이어프레임, 다이어그램",
-      s045: "상담원이 읽고 업데이트할 수 있음",
-      s046: "예, 원본 텍스트입니다.",
-      s047: "제한적",
-      s048: "예, 구조화된 스키마",
-      s049: "공유 가능한 링크",
-      s050: "예",
-      s051: "예, 댓글과 함께",
-      s052: "라이브 Alpine.js 샌드박스",
-      s053: "Codex / Claude Code / Pi와 함께 작동합니다.",
-      s054: "예, 단일 명령 설치",
-      s055: "오픈 소스",
-      s056: "예, MIT 라이선스가 있습니다",
-      s057: "몇 초 만에 시작하세요",
-      s058: "One command adds visual planning to Claude Code, Codex, Pi, Cursor, OpenCode, GitHub Copilot / VS Code, and similar agent projects. 별도의 배포가 필요하지 않습니다.",
-      s059: "문서 읽기",
-      s060: "모든 템플릿 보기",
-      s061: "VS Code 핸드오프",
-      s062: "다음을 사용해 VS Code 사이드 패널에서 계획 링크를 여세요:",
-      s063: "Agent Native Plans 확장",
-      s064: "와이어프레임 — 컴포넌트 슬롯이 있는 스케치 UI 모형",
-      s065: "주석 코드 — 줄별 메모가 있는 소스 파일",
-      s066: "다이어그램 — 흐름, 시퀀스 또는 아키텍처",
-      s067: "프로토타입 — iframe 안의 라이브 Alpine.js 샌드박스",
-      s068: "결정 — 근거가 포함된 확정된 선택",
-      s069: "API 엔드포인트 — 메서드, 경로, 요청/응답 타입",
-      s070: "데이터 모델 — 필드 주석이 있는 스키마",
-      s071: "파일 트리 — 경로별 메모가 있는 프로젝트 구조",
-      s072: "// 예시 계획 블록",
-      s073: "ChatGPT Canvas 및 Notion",
-      s074: "해당 없음",
+      faq: {
+        question1: "Agent-Native Plans는 무엇인가요?",
+        answer1:
+          "Agent-Native Plans는 AI 코딩 에이전트를 위한 무료 오픈소스 시각적 계획 도구입니다. 다이어그램, 와이어프레임, 주석이 달린 코드, 댓글로 구현 계획을 검토하거나 완료된 변경 사항의 시각적 요약을 만들 수 있습니다.",
+        question2: "Plans를 코딩 에이전트와 함께 사용하려면 어떻게 하나요?",
+        answer2:
+          "`npx @agent-native/core@latest skills add visual-plan` 명령으로 계획 스킬과 커넥터를 설치한 다음, 사용 중인 클라이언트에 맞는 인증 단계를 완료하세요. 설치 가이드는 Claude Code와 Codex를 포함한 클라이언트를 다룹니다. 에이전트에게 시각적 구현 계획을 요청하려면 `/visual-plan`을 사용하세요.",
+        question3: "에이전트가 제 댓글을 바탕으로 계획을 수정할 수 있나요?",
+        answer3:
+          "네. 텍스트에 댓글을 남기거나 시각 자료에 고정한 다음, 에이전트에게 피드백을 읽고 반영해 달라고 요청하세요. 에이전트는 계획을 업데이트하고 검토 스레드에 답글을 달 수 있습니다. 다만 이는 검토 과정을 지원하는 기능일 뿐, 에이전트가 코드를 변경하는 것을 자동으로 막지는 않습니다.",
+        question4: "이미 작성된 코드를 검토하는 데 Plans를 사용할 수 있나요?",
+        answer4:
+          "네. pull request, commit, branch, diff와 함께 `/visual-recap`을 사용하면 변경 사항에 대한 시각적 설명을 받을 수 있습니다. 이 요약을 참고해 실제 코드와 테스트를 검토하세요.",
+        question5: "계획은 어디에 저장되고, 다른 사람과 공유할 수 있나요?",
+        answer5:
+          "기본 설치는 에이전트를 호스팅된 Plans 앱에 연결합니다. 새로 만든 호스팅 계획은 공유하기 전까지 비공개로 유지됩니다. 팀원은 공유된 계획을 브라우저에서 검토할 수 있으며, 댓글을 남기려면 계정이 필요합니다. 설정 가이드를 통해 로컬 워크플로도 사용할 수 있습니다.",
+      },
+      s001: "Plans 템플릿 스크린샷",
+      heroEyebrow: "Plans",
+      heroTitle: "AI 코딩 에이전트가 만들려는 것 미리 보기",
+      heroDescription:
+        "Plans는 다이어그램, 와이어프레임, 주석이 달린 코드로 코딩 에이전트의 접근 방식을 검토하고 피드백을 주고 코드 변경 사항을 이해할 수 있는 무료 오픈소스 시각적 계획 도구입니다.",
+      heroCta: "시각적으로 계획하기",
+      useCasesHeading: "Plans로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "구현 방식을 검토하거나, 인터페이스를 함께 살펴보거나, AI 코딩 에이전트와 함께 완료된 변경 사항을 이해해 보세요.",
+      useCase1Title: "구현 전에 아키텍처 검토하기",
+      useCase1Body:
+        "코딩 에이전트에게 제안된 기능이나 리팩터링을 다이어그램으로 그려 달라고 요청하세요. 코드를 변경하기 전에 데이터 흐름, 의존성, 실패 지점을 확인할 수 있습니다.",
+      useCase2Title: "인터페이스 변경 사항 함께 검토하기",
+      useCase2Body:
+        "코딩 에이전트와 함께 제안된 화면과 사용자 흐름을 검토하세요. 빠진 상태나 인터랙션을 지적하고 계획을 수정하도록 요청할 수 있습니다.",
+      useCase3Title: "완료된 코드 변경 사항 이해하기",
+      useCase3Body:
+        "코딩 에이전트에게 pull request, commit, branch에 대한 시각적 요약을 요청하세요. 동작 변경 사항과 영향을 받은 파일을 검토할 수 있습니다.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "시각화하고, 검토하고, 논의하는 데 필요한 모든 것",
+      feature1Title: "아키텍처 다이어그램",
+      feature1Body:
+        "계획 안에서 요청 흐름, 시스템 관계, 데이터 모델을 보여주세요. 접근 방식이 바뀌면 AI 코딩 에이전트에게 다이어그램을 업데이트해 달라고 요청하세요.",
+      feature2Title: "와이어프레임과 프로토타입",
+      feature2Body:
+        "구현 계획과 함께 화면 레이아웃과 인터랙티브 프로토타입 옵션을 검토하세요. 에이전트에게 빌드를 요청하기 전에 제안된 인터페이스에 피드백을 남길 수 있습니다.",
+      feature3Title: "주석이 달린 코드 설명",
+      feature3Body:
+        "줄 단위 메모와 변경 설명이 담긴 소스 파일을 읽어보세요. 파일 트리로 제안된 작업이 코드베이스 어디에 들어가는지 확인할 수 있습니다.",
+      feature4Title: "댓글과 주석",
+      feature4Body:
+        "텍스트에 댓글을 달거나 시각 자료의 특정 위치에 피드백을 고정하세요. 질문을 에이전트나 팀원에게 바로 전달할 수 있습니다.",
+      feature5Title: "시각적 코드 요약",
+      feature5Body:
+        "`/visual-recap`을 사용해 기존 pull request, commit, branch, diff를 다이어그램과 변경 설명이 담긴 요약 자료로 바꿔보세요.",
+      feature6Title: "공유와 내보내기",
+      feature6Body:
+        "팀원이 브라우저에서 검토할 수 있도록 계획을 공유하세요. 별도 사본이 필요하면 HTML, Markdown, JSON, MDX로 내보낼 수 있습니다.",
+      finalCtaHeading: "다음 코딩 작업을 시각적으로 검토하세요",
+      finalCtaBody:
+        "에이전트에게 계획을 요청하고, 세부 사항을 함께 검토해 보세요.",
+      finalCtaButton: "시각적으로 계획하기",
     },
     slides: {
       s001: "Slides 템플릿 스크린샷",
+      heroEyebrow: "Slides",
+      heroTitle: "AI 에이전트로 프레젠테이션 만들기",
+      heroDescription:
+        "Slides는 무료 오픈소스 AI 프레젠테이션 제작 도구로, 아이디어와 참고 자료로 브랜드에 맞는 덱을 만들고 슬라이드는 직접 편집할 수 있습니다.",
+      heroCta: "덱 만들기",
+      useCasesHeading: "Slides로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "피치를 준비하거나, 계획을 발표하거나, 업무 업데이트를 공유해 보세요. 자료와 대상 청중을 AI 에이전트에게 전달하세요.",
+      useCase1Title: "영업 및 피치 덱 만들기",
+      useCase1Body:
+        "제품 소개 자료를 잠재 고객이나 투자자를 위한 덱으로 바꿔 보세요. 발표 대상에 맞게 스토리를 조정하세요.",
+      useCase2Title: "계획과 전략 발표하기",
+      useCase2Body:
+        "전략 브리핑이나 출시 계획을 AI 에이전트에게 전달해, 방향과 다음 단계를 설명하는 슬라이드로 정리하도록 하세요.",
+      useCase3Title: "업무 업데이트 공유하기",
+      useCase3Body:
+        "프로젝트 메모나 성과 보고서를 진행 상황을 보여주고 결과를 설명하며 주의가 필요한 부분을 강조하는 프레젠테이션으로 바꿔 보세요.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "만들고, 편집하고, 발표하는 데 필요한 모든 것",
+      feature1Title: "AI 프레젠테이션 생성",
+      feature1Body:
+        "프롬프트, 문서 또는 참고 덱으로 시작하세요. 주제와 대상 청중을 AI 에이전트에게 전달하면 이를 중심으로 프레젠테이션을 만들어 줍니다.",
+      feature2Title: "AI 및 비주얼 편집",
+      feature2Body:
+        "텍스트를 선택해 AI 에이전트가 수정하도록 하거나, 슬라이드에서 텍스트, 레이아웃, 스타일을 직접 편집하세요.",
+      feature3Title: "재사용 가능한 브랜드 스타일",
+      feature3Body:
+        "색상, 글꼴, 로고를 디자인 시스템에 저장하세요. 여러 덱에 적용해 프레젠테이션이 항상 브랜드와 일관되도록 유지하세요.",
+      feature4Title: "이미지와 로고",
+      feature4Body:
+        "AI 에이전트에게 이미지를 생성하거나, 사진을 찾거나, 회사 로고를 검색해 슬라이드에 사용하도록 요청하세요.",
+      feature5Title: "팀 협업",
+      feature5Body:
+        "팀원들과 함께 덱을 작업하고, 특정 슬라이드에 댓글을 남기고, 필요할 때 이전 버전으로 복원하세요.",
+      feature6Title: "발표와 내보내기",
+      feature6Body:
+        "발표자 노트와 함께 전체 화면으로 발표하거나, 보기 링크를 공유하거나, 덱을 PowerPoint 파일로 내보내세요.",
+      finalCtaHeading: "다음 프레젠테이션을 시작하세요",
+      finalCtaBody: "아이디어, 브리핑, 또는 기존 덱을 가져와 보세요.",
+      finalCtaButton: "덱 만들기",
       s002: "설명하다",
       s003: "생성",
       s004: "구체화",
       s005: "모든 템플릿",
-      s006: "PowerPoint 및 Canva를 대체하는 오픈 소스 AI",
-      s007: "프롬프트에서 전체 데크를 생성한 다음 대화식으로 다듬거나 시각적으로 편집하세요.",
+      s006Primary: "AI 에이전트가 만드는 슬라이드.",
+      s006Secondary: "브랜드에 맞고 편집 가능",
+      s007: "AI 에이전트로 브랜드에 맞는 프레젠테이션을 생성하고, 슬라이드는 직접 편집한 뒤 어디로든 내보내세요.",
       s008: "사용해 보기",
       s009: "작동 원리",
       s010: "필요한 모든 것",
       s011: "AI이 내장된 완전한 프레젠테이션 스튜디오입니다.",
-      s012: "8개의 슬라이드 레이아웃",
-      s013: "제목, 섹션, 내용, 2열, 이미지, 설명, 풀 블리드, 공백.",
+      s012: "미리 제작된 슬라이드 레이아웃",
+      s013: "기본 제공되는 슬라이드 템플릿을 사용하세요. 직접 슬라이드 템플릿을 만들어 나중에 다시 사용할 수도 있습니다.",
       s014: "비주얼 + 코드 편집",
       s015: "스타일을 편집하려면 클릭하고, 텍스트를 보려면 두 번 클릭하세요. 모든 권한을 얻으려면 원시 HTML로 전환하세요.",
-      s016: "AI 이미지 생성",
-      s017: "Gemini로 이미지를 생성하세요. 브랜드 일관성을 위한 스타일 참조. 선택할 수 있는 3가지 변형.",
+      s016: "매딠없는 이미지 생성",
+      s017: "스타일과 브랜드 가이드라인을 참조하세요. Gemini AI가 생성한 옵션 중에서 골라보세요.",
       s018: "로고 및 이미지 검색",
       s019: "Logo.dev 또는 Brandfetch를 통해 회사 로고를 검색하세요. Google 스톡 사진용 이미지.",
       s020: "드래그 앤 드롭 재정렬",
@@ -1169,10 +2016,166 @@ const koKR = {
       s052: "무료 / 좌석별",
       s053: "구독",
       s054: "무료 및 오픈 소스",
-      s055: "몇 분 안에 시작하세요",
-      s056: "템플릿에서 시작하고 AI을 사용하여 프레젠테이션 만들기를 시작하세요.",
+      s055: "지금 슬라이드 덱 만들기",
+      s056: "디자인 취향과 프롬프트를 선택해 시작하세요. 언제나 무료입니다.",
       s057: "문서 읽기",
       s058: "모든 템플릿 보기",
+      faq: {
+        question1: "Agent-Native Slides란 무엇인가요?",
+        answer1:
+          "Agent-Native Slides는 무료 오픈소스 AI 프레젠테이션 제작 도구입니다. AI 에이전트로 아이디어와 참고 자료를 바탕으로 브랜드에 맞는 덱을 만든 다음, 슬라이드를 직접 편집하거나 발표하거나 PowerPoint로 내보낼 수 있습니다.",
+        question2: "AI가 생성한 후에도 슬라이드를 편집할 수 있나요?",
+        answer2:
+          "네. 비주얼 편집기에서 텍스트, 레이아웃, 스타일을 직접 편집하거나, AI 에이전트에게 선택한 슬라이드를 수정하도록 요청할 수 있습니다. 첫 초안 이후에도 프레젠테이션을 계속 다듬을 수 있습니다.",
+        question3: "기존 덱이나 문서로 프레젠테이션을 만들 수 있나요?",
+        answer3:
+          "네. 덱이나 문서를 새 프레젠테이션의 참고 자료로 첨부하세요. 기존 덱 자체를 작업하려면 명시적으로 가져와야 합니다. 가져온 슬라이드에 레이아웃 변경이나 이미지 누락이 없는지 확인하세요.",
+        question4: "내 브랜드 색상, 글꼴, 로고를 사용할 수 있나요?",
+        answer4:
+          "네. 브랜드의 색상, 타이포그래피, 로고가 담긴 디자인 시스템을 적용하고 여러 덱에서 재사용하세요. AI 에이전트의 디자인 선택을 안내할 참고용 프레젠테이션을 제공할 수도 있습니다.",
+        question5:
+          "내 프레젠테이션을 PowerPoint나 Google 프레젠테이션에서 사용할 수 있나요?",
+        answer5:
+          "PPTX 파일을 내보내 PowerPoint에서 열어 보세요. Google 프레젠테이션에서 사용하려면 그곳에 해당 파일을 가져오세요. 편집기마다 다르게 표시될 수 있으니 내보낸 후 글꼴과 레이아웃을 확인하세요.",
+      },
+      howItWorksDescribe:
+        "주제, 대상, 어조를 설명하세요. 참고용 슬라이드 덱을 첨부하세요. UI 또는 자체 AI 워크플로에서 시작하세요.",
+      signInIntegration:
+        "로그인하면 웹훅, MCP 또는 A2A 통합을 통해 Slides에 액세스할 수 있습니다.",
+      signIn: "로그인",
+      tryNow: {
+        step: "{{total}}단계 중 {{current}}단계",
+        q1: "어떤 종류의 슬라이드 덱이 필요하세요?",
+        q1Pitch: "투자자 피치 덱",
+        q1Sales: "고객 영업 프레젠테이션",
+        q1Talk: "강연 또는 수업용 자료",
+        q1Other: "기타",
+        q1OtherPlaceholder: "어떤 종류의 덱인지 설명해 주세요",
+        q2Pitch: "어떤 회사이고 얼마를 유치하나요?",
+        q2Sales: "무엇을 누구에게 판매하나요?",
+        q2Talk: "강연 주제와 청중은 누구인가요?",
+        q2Other: "덱에 어떤 내용을 담아야 하나요?",
+        q2Detail: "메모를 입력하거나 웹사이트 URL만 알려주세요",
+        q2Placeholder: "메모 또는 https://example.com",
+        q3: "참고할 스타일을 알려주세요",
+        q3Detail: "맞추고 싶은 웹사이트를 붙여넣거나 분위기를 선택하세요",
+        q3Placeholder: "https://example.com",
+        q3VibeToggle: "웹사이트가 없나요? 분위기를 선택하세요",
+        q3VibeMinimal: "미니멀하고 에디토리얼한",
+        q3VibeBold: "과감하고 고대비의",
+        q3VibeWarm: "따뜻하고 인간적인",
+        q3VibeTechnical: "기술적이고 데이터 중심의",
+        answerAction: "프롬프트에 추가",
+        composerLabel: "내 프롬프트",
+        composerPlaceholder: "원하는 덱을 설명하거나 위의 질문에 답해 주세요.",
+        promptTip: "프롬프트 팁",
+        promptPlaceholder:
+          "구체적으로 작성하세요. 누구를 위한 것인지 말하고, 노트를 붙여넣거나, 참고할 웹사이트 디자인을 알려주세요...",
+        submit: "덱 생성하기",
+        readyHint: "프롬프트가 준비되었습니다. 에이전트에게 보내세요.",
+        promptDeck: "{{deck}}을(를) 만들어 주세요.",
+        promptSubject: "다음 내용을 다뤄야 합니다: {{subject}}",
+        promptStyleSite: "{{style}}의 룩 앤 필을 맞춰 주세요.",
+        promptStyleVibe: "스타일: {{style}}.",
+        promptClose:
+          "발표자 노트를 포함해 전체 덱을 작성한 다음 개요를 설명해 주세요.",
+        deckPitch: "투자자 피치 덱",
+        deckSales: "고객 영업 프레젠테이션",
+        deckTalk: "강연용 보조 덱",
+        designReference: "디자인 참고 자료",
+        websiteUrl: "웹사이트 URL",
+        websiteUrlPlaceholder: "https://example.com",
+        crawlWebsite: "웹사이트 살펴보기",
+        crawlError:
+          "이 사이트를 살펴볼 수 없습니다. 자동 접근을 차단하고 있을 수 있습니다. 다른 URL을 사용하거나 디자인 참고 자료를 업로드해 주세요.",
+        or: "또는",
+        uploadDesignReference: "디자인 참고 자료 업로드",
+        importDesignSystem: "디자인 시스템 가져오기",
+        loginDesignSystems: "로그인하여 디자인 시스템을 관리하세요.",
+        promptCreatePrefix: "다음 유형의",
+        deckTypeLabel: "덱 유형",
+        deckCapitalRaise: "자금 조달",
+        deckOfferingMemorandum: "오퍼링 메모랜덤",
+        deckB2bSales: "B2B 영업 피치",
+        deckTeamMeeting: "팀 회의 안건",
+        deckLiveTalk: "라이브 강연 보조",
+        promptDeckFor: "덱을 만들어 주세요. 주제:",
+        promptTextShouldBe: "텍스트는",
+        textAmountLabel: "텍스트 분량",
+        textMinimal: "최소한으로",
+        textBrief: "간결하게",
+        textThorough: "상세하게",
+        findingTitle: "제목",
+        findingDescription: "설명",
+        findingColors: "색상",
+        findingFonts: "글꼴",
+        findingPrimaryColor: "기본 색상",
+        findingAccentColor: "강조 색상",
+        findingHeadingFont: "제목 글꼴",
+        findingBodyFont: "본문 글꼴",
+        styleGuidePrefix: "다음 사이트를 위한 스타일 가이드:",
+      },
+    },
+    chat: {
+      faq: {
+        question1: "Agent-Native Chat란 무엇인가요?",
+        answer1:
+          "Agent-Native Chat은 개발자를 위한 무료 오픈소스 AI 채팅 앱 기반입니다. 저장된 스레드, 에이전트 채팅 인터페이스, 인증, 공유 actions, 실시간 동기화를 제공합니다. 애플리케이션에 맞는 도메인별 데이터와 동작은 직접 추가합니다.",
+        question2: "Chat은 완성된 AI 어시스턴트인가요?",
+        answer2:
+          "Chat은 동작하는 대화형 인터페이스와 그 기반이 되는 프레임워크를 제공합니다. 예시 action이 포함되어 있지만, 비즈니스 워크플로와 provider 연동은 직접 구현하고 설정해야 합니다.",
+        question3: "채팅 인터페이스 외에 화면을 추가할 수 있나요?",
+        answer3:
+          "네. 워크플로에 필요한 목록, 대기열, 편집기 등 다른 화면을 위한 라우트와 컴포넌트를 추가하세요. 에이전트가 사용하는 것과 동일한 actions 및 애플리케이션 데이터에 연결하면 됩니다.",
+        question4: "Chat에 제 비즈니스 도구와의 연동이 포함되어 있나요?",
+        answer4:
+          "이 최소 템플릿에는 도메인별 provider 연동이 포함되어 있지 않습니다. 앱에 필요한 연결과 접근 규칙을 직접 추가하세요. 워크플로에 이미 맞는 Agent-Native 앱이 있다면, 그 템플릿이 더 적합한 출발점일 수 있습니다.",
+        question5: "제 버전으로 커스터마이즈해서 배포할 수 있나요?",
+        answer5:
+          "네. CLI로 복사본을 만들고 actions, 데이터, 인터페이스를 추가한 뒤 애플리케이션을 배포하세요. 환경에 맞게 인증과 provider 접근을 설정하고, 사용자와 공유하기 전에 추가한 워크플로를 테스트하세요.",
+      },
+      s001: "Chat 앱 스크린샷",
+      heroEyebrow: "Chat",
+      heroTitle: "나만의 AI 채팅 앱 만들기",
+      heroDescription:
+        "내구성 있는 스레드, 인증, 공유 작업, 자체 도구와 화면으로 확장할 수 있는 에이전트를 갖춘 무료 오픈 소스 채팅 시작 프로그램입니다.",
+      heroCta: "채팅 앱 만들기",
+      heroSecondaryCta: "Chat 열기",
+      useCasesHeading: "대화를 작업 도우미로 전환",
+      useCasesBody:
+        "에이전트가 질문에 답하고 작업을 진행할 수 있도록 하는 작업, 데이터, 화면을 추가하세요.",
+      useCase1Title: "팀의 상황에 맞게 질문에 답하세요.",
+      useCase1Body:
+        "작업을 통해 앱에 필요한 소스를 연결한 다음 에이전트가 메모, 파일 및 프로젝트 세부 정보를 하나의 응답으로 가져오도록 합니다.",
+      useCase2Title: "상담원이 행동할 수 있는 도구를 제공하세요",
+      useCase2Body:
+        "채팅에서 워크플로의 프로토타입을 만들고, 정의한 작업을 호출하고, 에이전트가 각 단계를 처리하는 방법을 구체화하세요.",
+      useCase3Title: "결과를 유용하게 만들기",
+      useCase3Body:
+        "공개 에이전트는 대기열, 테이블 또는 편집기에서 작업하므로 사람들은 동일한 공유 데이터를 검사하고 계속할 수 있습니다.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "에이전트와 그 인터페이스를 위한 출발점",
+      feature1Title: "지속 가능한 대화",
+      feature1Body:
+        "포함된 기록 사이드바에서 스레드를 생성하고, 다시 열고, 이름을 바꾸고, 고정하고, 보관할 수 있습니다.",
+      feature2Title: "전체 페이지 상담원 채팅",
+      feature2Body:
+        "채팅 화면과 런타임으로 시작하여 고유한 지침, 도구 및 워크플로를 준비하세요.",
+      feature3Title: "자신만의 서비스를 연결하세요",
+      feature3Body:
+        "Granola, Linear, Drive 또는 Notion과 같은 도구에 대한 공급자 작업 및 연결 흐름을 추가합니다. 스타터는 해당 통합을 앱에 그대로 둡니다.",
+      feature4Title: "공유 작업",
+      feature4Body:
+        "에이전트 도구와 인터페이스 작업을 동일한 작업 표면에 유지합니다.",
+      feature5Title: "라이브 작업공간 상태",
+      feature5Body:
+        "사용자와 상담원에 대해 현재 탐색 및 선택한 작업을 동기화된 상태로 유지합니다.",
+      feature6Title: "맞춤형 화면",
+      feature6Body:
+        "대화에 대기열, 편집기 또는 기타 도메인 인터페이스가 필요한 경우 집중 보기를 추가하세요.",
+      finalCtaHeading: "첫 에이전트 워크플로 만들기",
+      finalCtaBody: "복사본을 만들고 사용자에게 필요한 첫 action을 추가하세요.",
+      finalCtaButton: "채팅 앱 만들기",
     },
   },
   skillsPage: {
@@ -1223,34 +2226,45 @@ const koKR = {
     },
   },
   downloadPage: {
-    title: "Agent Native 다운로드",
-    body: "모든 agent-native 앱을 하나의 데스크톱 셸에서 사용하세요. 프로덕션 앱이 내장되어 있고 로컬 개발용 dev 모드 토글이 있습니다.",
-    openDesktop: "Agent Native 열기",
+    title: "Agent-Native 다운로드",
+    body: "회의, 디자인, 프레젠테이션, 데이터, 일정 관리, 이메일 등을 위한 에이전틱 앱을 하나의 데스크톱 앱에서 사용해 보세요.",
+    openDesktop: "Agent-Native 열기",
     downloadInstaller: "설치 프로그램 다운로드",
-    viewInstallers: "설치 프로그램 보기",
-    viewInstallersOnGithub: "GitHub에서 설치 프로그램 보기",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "최신 데스크톱 릴리스를 불러올 수 없습니다. releases 페이지에 모든 설치 프로그램이 있습니다.",
+    downloadStarted: "다운로드가 시작되었습니다",
+    downloadAgain: "작동하지 않았나요? 다시 다운로드해 보세요",
+    loadError: "최신 데스크톱 설치 프로그램을 불러올 수 없습니다.",
+    mountError:
+      "데스크톱 다운로드 페이지가 이 워크스페이스에서 경로를 찾지 못했습니다. 워크스페이스 관리자에게 앱 마운트 구성을 확인해 달라고 요청하세요.",
     checkingRelease: "최신 데스크톱 릴리스를 확인하는 중...",
-    runFromSource: "또는 소스에서 실행",
+    retry: "다시 시도",
+    unavailable: "이 플랫폼에서는 설치 프로그램을 사용할 수 없습니다",
+    allPlatforms: "모든 플랫폼",
+    stable: "안정",
+    nightly: "Nightly",
+    runFromSource: "직접 만들기",
     runFromSourceBody:
-      "아직 해당 플랫폼용 설치 프로그램이 없거나 CLI를 선호하시나요? npm으로 새 앱을 스캐폴드하고 로컬에서 실행하세요. macOS, Windows, Linux에서 작동합니다.",
-    viewAllReleases: "GitHub에서 모든 releases 보기",
+      "명령줄에서 Agent-Native 앱을 생성하고 macOS, Windows, Linux에서 로컬로 실행하세요.",
     platforms: {
       mac: {
         primary: "Apple Silicon용 다운로드",
         alternative: "Intel Mac용",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Windows용 다운로드",
         alternative: "ARM64",
+        gridPrimary: "x64 설치 프로그램",
+        gridAlternative: "Arm64 설치 프로그램",
         note: "Windows 10 이상.",
       },
       linux: {
         primary: "Linux 아카이브 다운로드",
         appImage: "AppImage 다운로드",
         deb: ".deb 다운로드",
+        gridPrimary: "x86_64",
+        gridAppImage: "범용",
+        gridDeb: "Debian / Ubuntu",
         note: "아카이브는 FUSE 없이 동작합니다. 일부 배포판에서는 AppImage에 FUSE 2가 필요할 수 있습니다.",
       },
     },
@@ -1288,6 +2302,35 @@ const koKR = {
   },
   legal: {
     lastUpdated: "마지막 업데이트: {{date}}",
+    resources: {
+      eyebrow: "법률 리소스",
+      title: "Agent-Native 법률 리소스",
+      intro:
+        "Agent-Native 호스팅 애플리케이션과 서비스에 적용되는 독립적인 법률 정책입니다.",
+      agentNative: {
+        title: "Agent-Native 정책",
+        body: "이 페이지들은 공통 정책 체계를 Agent-Native 오픈 소스 프로젝트와 호스팅 예제에 맞게 조정합니다.",
+        terms: "Agent-Native 서비스 약관",
+        privacy: "Agent-Native 개인정보 처리방침",
+      },
+      builder: {
+        title: "호스팅 서비스 추가 정책",
+        body: "허용되는 사용, AI 기능, 플랫폼 규칙, 중지 및 삭제, 저작권, 법 집행기관 요청에 대한 로컬 사본입니다. 영어 버전이 우선합니다.",
+      },
+      links: {
+        terms: "SaaS 서비스 계약",
+        privacy: "개인정보 처리방침",
+        acceptableUse: "허용 가능한 사용 정책",
+        aiTerms: "AI 약관",
+        platformRules: "플랫폼 규칙",
+        takedown: "중지, 삭제 및 데이터 처리 정책",
+        lawEnforcement: "법 집행기관 요청 정책",
+      },
+      notIncluded: {
+        title: "포함되지 않는 상업적 조건",
+        body: "Agent-Native에는 유료 요금제나 엔터프라이즈 계약이 없습니다. 엔터프라이즈 SLA, 지원 약관, DPA, 보안 부록, 전문 서비스 약관 및 요금과 같은 상업 자료는 포함되지 않습니다.",
+      },
+    },
     privacy: {
       eyebrow: "개인 정보 보호 정책",
       title: "Agent-Native 호스팅된 애플리케이션",
@@ -1310,6 +2353,7 @@ const koKR = {
       sections: {
         scope: "범위",
         information: "우리가 수집하는 정보",
+        cookies: "쿠키 및 분석",
         clipsExtension: "Agent-Native Clips Chrome 확장 프로그램",
         use: "우리가 정보를 사용하는 방법",
         sharing: "공유 및 제3자",
@@ -1324,6 +2368,8 @@ const koKR = {
         scope2Prefix:
           "이 정책은 Builder.io의 광범위한 정책을 보완하기 위한 것입니다.",
         scope2Suffix: "Agent-Native 호스팅된 애플리케이션 동작에 대해.",
+        cookies:
+          "Agent-Native 문서 사이트와 호스팅 애플리케이션은 인증 및 보안, 언어 또는 테마와 같은 기본 설정 저장, 구성된 분석 기술을 위해 필요한 쿠키를 사용할 수 있습니다. 배포 환경에서 구성된 경우 문서 사이트는 Google Analytics 또는 Google Tag Manager를 로드할 수 있으며, 호스팅 서비스는 안정성과 기능 사용량을 측정하기 위해 퍼스트 파티 분석을 사용할 수 있습니다. 호스팅 애플리케이션 콘텐츠를 제3자 광고에 사용하지 않습니다. 브라우저 설정에서 쿠키를 관리할 수 있지만 필요한 쿠키를 비활성화하면 로그인이나 다른 기능을 사용하지 못할 수 있습니다.",
         clips1:
           "Agent-Native Clips Chrome extension는 브라우저 기반 녹화를 시작하는 데 도움이 되며, 활성화되면 브라우저 진단을 클립에 첨부할 수 있습니다. 선택한 캡처 소스, 포함하도록 선택한 카메라 및 마이크 미디어, 활성 탭 제목 및 URL, 확장 프로그램을 호스팅된 Clips에 연결하는 데 필요한 인증 상태를 수집할 수 있습니다.",
         clips2:
@@ -1380,6 +2426,55 @@ const koKR = {
         builderPrivacyFull: "Builder.io 개인정보 보호정책",
       },
     },
+    about: {
+      eyebrow: "Agent-Native 소개",
+      title: "에이전트와 사람을 위한 오픈 소스 앱",
+      intro:
+        "Agent-Native는 AI 에이전트와 사용자 인터페이스가 같은 액션, 데이터, 애플리케이션 상태를 공유하는 앱을 만들기 위한 오픈 소스 프레임워크입니다.",
+      sections: {
+        project: {
+          title: "공유 운영 모델",
+          body: "Agent-Native는 에이전트와 인터페이스를 동등한 파트너로 다룹니다. 하나의 액션이 UI 컨트롤, 에이전트 도구, HTTP 엔드포인트, MCP 또는 A2A 기능, CLI 명령과 감사 가능한 워크플로를 지원합니다. 공유 SQL 상태가 사람의 화면과 에이전트의 화면을 일치시킵니다.",
+        },
+        openSource: {
+          title: "기본값은 오픈 소스",
+          body: "소스 코드는 MIT 라이선스로 BuilderIO/agent-native 저장소에서 제공됩니다. 개발자는 구현을 검토하고 로컬에서 실행하며 데이터베이스와 모델 공급자를 선택하고 제품에 맞게 조정할 수 있습니다. 호스팅 서비스는 fork 및 자체 배포와 별도로 운영됩니다.",
+        },
+        hosted: {
+          title: "호스팅과 자체 호스팅",
+          body: "Builder.io는 agent-native.com에서 Agent-Native 호스팅 앱과 문서를 운영합니다. 직접 앱을 배포하고 운영하려는 팀도 이 프레임워크를 사용할 수 있습니다. 액션 계약, 접근 경계, 에이전트 지침과 공개 프로토콜은 코드와 문서에서 확인할 수 있습니다.",
+        },
+        community: {
+          title: "공개적으로 만드는 프로젝트",
+          body: "프로젝트는 GitHub issue, pull request, 문서와 Agent-Native 커뮤니티를 통해 공개적으로 개발됩니다. 문서에서 아키텍처를 배우고, 코드에서 구현을 검증하고, 사용 사례를 논의하거나 변경 사항에 기여할 수 있습니다.",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "문의",
+      title: "Agent-Native에 대해 Builder.io에 문의",
+      intro:
+        "Agent-Native에 대한 질문, 문제 신고, 개선 제안 또는 보안 우려는 아래 지원, 소스, 커뮤니티 채널을 이용해 주세요.",
+      emailLabel: "support@builder.io로 이메일 보내기",
+      sections: {
+        support: {
+          title: "제품 및 호스팅 서비스 지원",
+          body: "호스팅 앱, 계정 접근, 문서 문제 또는 해결할 수 없는 동작에 대한 질문은 support@builder.io로 보내 주세요. 공개 URL, 재현 가능한 최소 설명과 관련 요청 또는 실행 ID를 포함하세요. 비밀번호, API 키, Bearer 토큰 또는 비공개 고객 데이터를 보내지 마세요.",
+        },
+        source: {
+          title: "오픈 소스 프로젝트와 커뮤니티",
+          body: "소스 코드 버그, 기능 제안, pull request와 구현 논의에는 GitHub 저장소를 사용하세요. 다른 개발자와 대화가 도움이 되는 질문에는 Discord를 이용할 수 있습니다. 먼저 issue와 문서를 검색해 유지관리자가 필요한 맥락을 확인할 수 있게 하세요.",
+        },
+        security: {
+          title: "보안 신고",
+          body: "패치되지 않은 취약점을 공개 issue나 채팅에 올리지 마세요. 이용 가능한 보안 채널로 Builder.io에 연락하고 재현과 평가에 필요한 정보만 제공하세요. 일반 지원 요청에 자격 증명, 비공개 데이터 또는 악용 자료를 포함하지 마세요.",
+        },
+        legal: {
+          title: "법률 및 개인정보 보호",
+          body: "개인정보 보호 질문은 지원팀에 연락하기 전에 Agent-Native 개인정보 처리방침과 Builder.io 법률 자료를 확인하세요. Builder.io, Inc. 주소는 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States입니다. 호스팅 서비스 약관과 자체 호스팅 책임은 서비스 약관에 설명되어 있습니다.",
+        },
+      },
+    },
     terms: {
       eyebrow: "서비스 약관",
       title: "Agent-Native 호스팅된 애플리케이션",
@@ -1418,6 +2513,8 @@ const koKR = {
         scope2Middle: "그리고 Agent-Native",
         scope2Suffix:
           "회사 또는 조직을 대신하여 호스팅된 Agent-Native 앱을 사용하는 경우 귀하는 해당 조직에 대해 이러한 약관을 수락할 권한이 있음을 나타냅니다.",
+        scope3:
+          "Agent-Native에는 유료 플랜이나 유료 호스팅 구독이 없습니다. 주문서, 요금, 엔터프라이즈 지원, 서비스 수준 및 데이터 처리 부속서와 같은 Builder.io의 상업적 조건은 별도로 서면 합의하지 않는 한 이 제공 범위에 포함되지 않습니다.",
         hostedService:
           "Builder.io은 호스팅된 Agent-Native 애플리케이션, 템플릿, 데모, 공유 작업 공간, 브라우저 확장 프로그램 및 관련 에이전트 워크플로를 제공할 수 있습니다. 호스팅 서비스는 제품이 발전함에 따라 업데이트, 제한, 일시 중단 또는 중단될 수 있습니다.",
         accounts1:
@@ -1479,17 +2576,19 @@ const koKR = {
     usingYourAgent: "Agent 사용",
     agentResources: "에이전트 리소스",
     integrations: "통합",
-    buildApps: "앱 빌드",
     advancedRuntime: "고급: 런타임 확장",
     templatesSection: "앱",
     gettingStarted: "시작하기",
+    createWithAgent: "에이전트로 만들기",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native란?",
     agentSurfaces: "Agent 표면",
+    agentNativeConfig: "Agent-Native Config",
     keyConcepts: "핵심 개념",
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "개요",
+    toolkitFoundations: "기반",
     toolkitUiPrimitives: "UI 프리미티브",
     customDesignSystem: "사용자 지정 디자인 시스템",
     toolkitEditorsCanvases: "에디터와 캔버스",
@@ -1502,6 +2601,10 @@ const koKR = {
     toolkitCommandNavigation: "명령 및 탐색",
     toolkitResources: "리소스",
     toolkitAgentUx: "에이전트 경험",
+    toolkitDashboard: "대시보드",
+    toolkitChatHistory: "채팅 기록",
+    toolkitAgentPage: "에이전트 페이지",
+    toolkitNotifications: "알림",
     toolkitHistory: "기록",
     toolkitCommentsReview: "댓글 및 리뷰",
     toolkitObservability: "관측성",
@@ -1510,6 +2613,7 @@ const koKR = {
     capabilityPackages: "Capability 패키지",
     capabilityPackagesOverview: "개요",
     packageLifecycle: "패키지 수명 주기",
+    versioningAndStability: "버전 관리 및 안정성",
     templatesOverview: "템플릿",
     pureAgentApps: "자동화 우선 앱",
     faq: "FAQ",
@@ -1519,26 +2623,67 @@ const koKR = {
     serverPlugins: "플러그인",
     serverRoutes: "라우트",
     client: "클라이언트",
+    clientOverview: "개요",
+    clientDataSync: "데이터 및 동기화",
+    clientAgentChat: "Agent 채팅",
+    clientAdvanced: "고급",
+    clientSyncInternals: "동기화 내부",
+    clientEntryPoints: "엔트리 포인트",
     routing: "라우팅",
     actions: "작업",
-    humanApproval: "사람 승인",
+    actionsOverview: "개요",
+    actionsDefining: "Actions 정의하기",
+    actionsAccessControl: "액세스 및 권한 부여",
+    actionsRunContext: "실행 컨텍스트",
+    actionsOtherSurfaces: "다른 표면들",
+    actionsAdvanced: "고급 및 레거시",
+    actionsAgentTools: "프로덕션 에이전트 액세스",
     publicAgentWeb: "공개 Agent Web",
     database: "데이터베이스",
+    databaseProviders: "데이터베이스 프로바이더",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
+    databasePostgres: "Plain Postgres",
     internationalization: "국제화",
     localFileMode: "로컬 파일 모드",
     fileUploads: "파일 업로드",
     deployment: "배포",
+    deploymentOverview: "개요",
+    deploymentProviders: "호스팅 제공업체",
+    deploymentProduction: "프로덕션 및 고급",
+    deployAnApp: "앱 배포",
+    workspaceDeployment: "워크스페이스 배포",
+    deploymentNodeDocker: "Node.js",
+    deploymentDocker: "Docker",
+    deploymentVercel: "Vercel",
+    deploymentNetlify: "Netlify",
+    deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
+    deploymentDenoDeploy: "Deno Deploy",
+    deploymentAzureStaticWebApps: "Azure Static Web Apps",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
+    deploymentOtherPlatforms: "기타 플랫폼",
+    ssrCaching: "SSR 캐싱",
+    deploymentEnvironmentVariables: "배포: 환경 변수",
+    updatingUiInProduction: "프로덕션에서 UI 업데이트",
     environmentVariables: "환경 변수",
     progress: "진행 상황",
     authentication: "인증",
     multiTenancy: "멀티테넌시",
     organizationsTeamsPermissions: "조직, 팀 및 권한",
+    administeredDeployments: "관리형 배포",
     securityDataScoping: "보안 및 데이터 범위",
     sharingPrivacy: "공유 및 개인정보",
     trackingAnalytics: "추적 및 분석",
     auditLog: "감사 로그",
     doctorCodeChecks: "Doctor (코드 검사)",
     observability: "관측성",
+    recorder: "레코더",
     observationalMemory: "관측 메모리",
     ciEvalGate: "CI 평가 게이트",
     usingYourAgentOverview: "개요",
@@ -1548,12 +2693,11 @@ const koKR = {
     dropInAgent: "Drop-in Agent 추가",
     componentApi: "컴포넌트 API",
     nativeChatUi: "네이티브 채팅 UI",
+    agentkit: "AgentKit",
     generativeUi: "생성형 UI",
     realTimeCollaboration: "실시간 협업",
     agentResourcesOverview: "에이전트 리소스 개요",
     skills: "스킬",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "사용자 지정 Agents 및 팀",
     workspaceGovernance: "Workspace 거버넌스",
     recurringJobs: "반복 작업",
@@ -1566,6 +2710,7 @@ const koKR = {
     messagingRecipes: "메시징 레시피",
     messagingInternals: "메시징 내부 구조",
     dispatch: "Dispatch",
+    portal: "Portal",
     a2aProtocol: "A2A 프로토콜",
     mcpClients: "MCP 클라이언트 (도구 추가)",
     httpApi: "HTTP API (작업 호출)",
@@ -1573,6 +2718,7 @@ const koKR = {
     externalAgents: "외부 Agents (호스트 연결)",
     externalAgentsCatalog: "외부 Agents 카탈로그",
     mcpApps: "MCP Apps (인라인 UI)",
+    webMcp: "WebMCP (브라우저 도구)",
     crossAppSso: "크로스 앱 SSO",
     notifications: "알림",
     automationConnectors: "워크플로 커넥터",
@@ -1581,7 +2727,6 @@ const koKR = {
     syncingTemplateChanges: "템플릿 변경 사항 동기화",
     writingAgentInstructions: "Agent 지침 작성",
     embeddingSdk: "임베딩 SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native 코드 UI",
     harnessAgents: "Harness 에이전트",
     adapters: "어댑터",
@@ -1592,18 +2737,20 @@ const koKR = {
     blueprintInstaller: "Blueprint 설치 도구",
     chat: "채팅",
     chatOverview: "개요",
-    chatFirstEdits: "첫 기능 만들기",
+    chatFeatures: "기능",
+    chatAgent: "Agent와 대화",
+    chatIntegrations: "앱 간 사용",
     chatDevelopers: "개발자 가이드",
     calendar: "캘린더",
     calendarOverview: "개요",
     calendarAgent: "Agent와 대화",
-    calendarScheduling: "일정 및 가용성",
-    calendarBookingLinks: "예약 링크",
+    calendarFeatures: "기능",
+    calendarIntegrations: "앱 간 사용",
     calendarDevelopers: "개발자 가이드",
     content: "콘텐츠",
     contentOverview: "개요",
     contentEditing: "작성 및 정리",
-    contentDatabases: "데이터베이스 및 양식",
+    contentDatabases: "컬렉션 및 양식",
     contentSync: "로컬 파일 및 동기화",
     contentDevelopers: "개발자 가이드",
     plans: "Plans",
@@ -1612,13 +2759,14 @@ const koKR = {
     planAutomations: "이벤트 및 자동화",
     planLocalAndDesktop: "로컬 파일 및 데스크톱",
     planDevelopers: "개발자 가이드",
+    turnIntoApp: "앱으로 전환",
     prVisualRecap: "PR 시각적 요약",
     planPluginMarketplace: "Plan 플러그인 및 마켓플레이스",
     slides: "슬라이드",
     slidesOverview: "개요",
+    slidesFeatures: "기능",
     slidesAgent: "Agent와 대화",
-    slidesEditing: "덱 생성 및 편집",
-    slidesDesignAndMedia: "디자인 시스템 및 미디어",
+    slidesIntegrations: "앱 간 사용",
     slidesDevelopers: "개발자 가이드",
     analytics: "분석",
     analyticsOverview: "개요",
@@ -1634,40 +2782,37 @@ const koKR = {
     mailDevelopers: "개발자 가이드",
     clips: "클립",
     clipsOverview: "개요",
-    clipsCaptureEverywhere: "어디서나 캡처",
-    clipsAiAndEditing: "AI 및 편집",
-    clipsSharingAndTeams: "공유 및 팀",
+    clipsFeatures: "기능",
+    clipsAgent: "Agent와 대화",
+    clipsIntegrations: "앱 간 사용",
     clipsDevelopers: "개발자 가이드",
-    brain: "Brain",
-    brainOverview: "개요",
-    brainSources: "소스 연결",
-    brainKnowledge: "질문 및 인용",
-    brainAgent: "Agent와 대화",
-    brainDevelopers: "개발자 가이드",
+    clipsEmbed: "Clips 임베드",
     assets: "자산",
     assetsOverview: "개요",
     assetsGeneration: "생성 및 정제",
     assetsPresets: "프리셋",
     assetsIntegrations: "앱 간 사용",
     assetsDevelopers: "개발자 가이드",
-    design: "디자인",
+    design: "Design",
     designOverview: "개요",
-    designQualityAndComponents: "품질 및 컴포넌트",
-    designBrandAndFigma: "브랜드 및 Figma",
-    designCollaborationAndFullApps: "리뷰 및 핸드오프",
+    designFeatures: "기능",
+    designAgent: "Agent와 대화",
+    designIntegrations: "앱 간 사용",
     designDevelopers: "개발자 가이드",
     dispatchOverview: "개요",
-    dispatchMessagingRouting: "메시징 및 라우팅",
-    dispatchOperations: "운영자 콘솔",
-    dispatchVaultIntegrations: "시크릿 및 통합",
+    dispatchFeatures: "기능",
+    dispatchAgent: "Agent와 대화",
+    dispatchIntegrations: "앱 간 사용",
     dispatchDevelopers: "개발자 가이드",
+    dispatchReference: "액션 및 데이터 참조",
     forms: "양식",
     formsOverview: "개요",
-    formsBuildingPublishing: "빌드 및 게시",
-    formsResponses: "응답 및 인사이트",
+    formsFeatures: "기능",
+    formsAgent: "Agent와 대화",
+    formsIntegrations: "앱 간 사용",
     docsComponents: "Docs Components",
     formsDevelopers: "개발자 가이드",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default koKR;

@@ -6,6 +6,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import {
+  isCreativeContextLabAvailable,
   registerNativeResourceCaptureAdapter,
   readCreativeContextMedia,
   setupCreativeContext,
@@ -19,7 +20,6 @@ import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer } from "../lib/assets.js";
-import { seedDefaultGenerationPresets } from "../lib/generation-presets.js";
 import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
 import { nativeAssetCreativeContextAdapter } from "../lib/native-creative-context.js";
 
@@ -55,7 +55,6 @@ async function ensureImportLibrary() {
     updatedAt: now,
   };
   await db.insert(schema.assetLibraries).values(row);
-  await seedDefaultGenerationPresets({ db, libraryId: row.id, now });
   return row;
 }
 
@@ -185,13 +184,14 @@ registerOnboardingStep({
   title: "Connect your creative library",
   description:
     "Connect prior work and reference sources so agents can reuse approved creative context.",
+  isAvailable: (context) => isCreativeContextLabAvailable(context?.userEmail),
   methods: [
     {
       id: "library",
       kind: "link",
       primary: true,
       label: "Open Library",
-      payload: { url: "/agent#library", external: false },
+      payload: { url: "/settings/library", external: false },
     },
   ],
   isComplete: async () => {

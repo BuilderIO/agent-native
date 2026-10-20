@@ -1,46 +1,37 @@
-import Database from "better-sqlite3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * `cleanupOldRuns` prunes completed runs after ~1 day but keeps errored/aborted
- * runs for ~7, so any window wider than the shorter retention read from
- * `agent_runs` alone reports N days of failures against 1 day of successes.
- * That asymmetry produced a "~25% completion rate" headline for a subsystem
- * actually completing 85-95% of interactive turns, and one investigator watched
- * a 21-day row count drop from 85 to 71 mid-session as completed rows aged out.
- *
- * The fix is not wider retention (that trades a known distortion for unbounded
- * growth) but rolling the doomed rows' outcomes into `agent_run_outcome_daily`
- * before deleting them, exercised here against a real SQLite engine so the
- * GROUP BY / upsert semantics are genuine.
- */
+import { createTestPglite } from "../a2a/test-pglite.js";
+import { AGENT_RUN_MIGRATIONS } from "./run-migrations.js";
 
-const sqlite = new Database(":memory:");
+const pglite = await createTestPglite();
+
+afterAll(async () => {
+  await pglite.close();
+});
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [] as unknown[], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql) || /\breturning\b/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
 
-const { insertRun, cleanupOldRuns, getRunOutcomeCounters } =
+const { ensureRunTables, insertRun, cleanupOldRuns, getRunOutcomeCounters } =
   await import("./run-store.js");
 
 const DAY_MS = 86_400_000;
@@ -56,7 +47,7 @@ async function terminalRun(
   seq += 1;
   const id = `run-outcome-${seq}`;
   await insertRun(id, `thread-outcome-${seq}`, `turn-${seq}`);
-  sqlite
+  await pglite
     .prepare(
       `UPDATE agent_runs SET status = ?, completed_at = ?, terminal_reason = ? WHERE id = ?`,
     )
@@ -64,20 +55,87 @@ async function terminalRun(
   return id;
 }
 
-function liveRunCount(): number {
+async function liveRunCount(): Promise<number> {
   return (
-    sqlite.prepare(`SELECT COUNT(*) AS n FROM agent_runs`).get() as {
+    (await (
+      await pglite.prepare(`SELECT COUNT(*) AS n FROM agent_runs`)
+    ).get()) as {
       n: number;
     }
   ).n;
 }
 
-beforeEach(() => {
-  // Tables only exist after the first ensureRunTables() — tolerate the very
-  // first pass, which runs before any store call has created them.
-  for (const table of ["agent_runs", "agent_run_outcome_daily"]) {
+async function addExecutionArtifacts(
+  threadId: string,
+  turnId: string,
+  runId: string,
+  updatedAt: number,
+): Promise<void> {
+  await pglite
+    .prepare(
+      `INSERT INTO agent_execution_leases (
+         thread_id, turn_id, generation, owner_run_id, lease_expires_at, updated_at
+       ) VALUES (?, ?, 1, ?, to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0),
+         to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0))`,
+    )
+    .run(threadId, turnId, runId, updatedAt + 15_000, updatedAt);
+  await pglite
+    .prepare(
+      `INSERT INTO agent_execution_steps (
+         thread_id, turn_id, step_id, operation_id, tool_name, input_json,
+         replay_policy, status, run_id, generation, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, 1,
+         to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0),
+         to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0))`,
+    )
+    .run(
+      threadId,
+      turnId,
+      `step-${runId}`,
+      `operation-${runId}`,
+      "test_tool",
+      "{}",
+      "never",
+      runId,
+      updatedAt,
+      updatedAt,
+    );
+}
+
+async function executionArtifactCounts(
+  threadId: string,
+  turnId: string,
+): Promise<{ steps: number; leases: number }> {
+  const steps = (await (
+    await pglite.prepare(
+      `SELECT COUNT(*) AS n FROM agent_execution_steps WHERE thread_id = ? AND turn_id = ?`,
+    )
+  ).get(threadId, turnId)) as { n: number };
+  const leases = (await (
+    await pglite.prepare(
+      `SELECT COUNT(*) AS n FROM agent_execution_leases WHERE thread_id = ? AND turn_id = ?`,
+    )
+  ).get(threadId, turnId)) as { n: number };
+  return { steps: Number(steps.n), leases: Number(leases.n) };
+}
+
+beforeEach(async () => {
+  await ensureRunTables();
+  const executionTablesMigration = AGENT_RUN_MIGRATIONS.find(
+    (migration) => migration.name === "agent-turn-execution-leases-and-steps",
+  );
+  if (typeof executionTablesMigration?.sql !== "string") {
+    throw new Error("Execution tables migration SQL is unavailable");
+  }
+  await pglite.exec(executionTablesMigration.sql);
+  for (const table of [
+    "agent_execution_steps",
+    "agent_execution_leases",
+    "agent_runs",
+    "agent_run_outcome_daily",
+  ]) {
     try {
-      sqlite.exec(`DELETE FROM ${table}`);
+      await pglite.exec(`DELETE FROM ${table}`);
     } catch {}
   }
 });
@@ -88,13 +146,11 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
     const day = new Date(prunedAt).toISOString().slice(0, 10);
     await terminalRun("completed", "done", prunedAt);
     await terminalRun("completed", "done", prunedAt);
-    // Errored inside its (longer) retention — still a live row, so it must NOT
-    // be counted yet or it would be double counted when it is finally pruned.
     await terminalRun("errored", "error:provider_network_error", prunedAt);
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 
-    expect(liveRunCount()).toBe(1);
+    expect(await liveRunCount()).toBe(1);
     expect(await getRunOutcomeCounters()).toEqual([
       { day, status: "completed", terminalReason: "done", count: 2 },
     ]);
@@ -109,14 +165,14 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 
-    // Reading agent_runs alone now sees 0 successes and 1 failure — a 0%
-    // completion rate for a window that was actually 3-for-4.
     const counters = await getRunOutcomeCounters();
     const counted = (status: string) =>
       counters
         .filter((c) => c.status === status)
         .reduce((sum, c) => sum + c.count, 0);
-    expect(counted("completed") + counted("errored") + liveRunCount()).toBe(4);
+    expect(
+      counted("completed") + counted("errored") + (await liveRunCount()),
+    ).toBe(4);
     expect(counted("completed")).toBe(3);
   });
 
@@ -158,7 +214,7 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 
-    expect(liveRunCount()).toBe(0);
+    expect(await liveRunCount()).toBe(0);
     const counters = await getRunOutcomeCounters();
     expect(counters).toContainEqual({
       day,
@@ -175,10 +231,6 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
   });
 
   it("retains truncated runs on the failure window instead of pruning them as successes", async () => {
-    // The evidence self-deletion bug: a run cut off at a budget boundary was
-    // filed as `completed`, so it was deleted at 24h while the errors it should
-    // be compared against survived 7 days. Every run id a user pasted into a
-    // report was already gone by the time anyone looked.
     const prunedAt = Date.now() - (COMPLETED_RETENTION_MS + 60_000);
     await terminalRun("truncated", "run_timeout", prunedAt);
     await terminalRun("truncated", "no_progress", prunedAt);
@@ -186,7 +238,7 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 
-    expect(liveRunCount()).toBe(2);
+    expect(await liveRunCount()).toBe(2);
     expect(await getRunOutcomeCounters()).toEqual([
       {
         day: new Date(prunedAt).toISOString().slice(0, 10),
@@ -204,7 +256,7 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 
-    expect(liveRunCount()).toBe(0);
+    expect(await liveRunCount()).toBe(0);
     expect(await getRunOutcomeCounters()).toContainEqual({
       day,
       status: "truncated",
@@ -225,5 +277,98 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
     expect(counters).toEqual([
       { day: sinceDay, status: "completed", terminalReason: "done", count: 1 },
     ]);
+  });
+});
+
+describe("cleanupOldRuns — execution journal retention", () => {
+  it("prunes execution rows after the recovery window and the last turn run expire", async () => {
+    const expiredAt = Date.now() - ERRORED_RETENTION_MS - 60_000;
+    const threadId = `thread-execution-prune-${++seq}`;
+    const turnId = `turn-execution-prune-${seq}`;
+    const runId = `run-execution-prune-${seq}`;
+    await insertRun(runId, threadId, turnId);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs SET status = 'completed', completed_at = ?, terminal_reason = 'done' WHERE id = ?`,
+      )
+      .run(expiredAt, runId);
+    await addExecutionArtifacts(threadId, turnId, runId, expiredAt);
+
+    await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
+
+    expect(await liveRunCount()).toBe(0);
+    expect(await executionArtifactCounts(threadId, turnId)).toEqual({
+      steps: 0,
+      leases: 0,
+    });
+  });
+
+  it("preserves old execution rows while any run for the turn remains", async () => {
+    const expiredAt = Date.now() - ERRORED_RETENTION_MS - 60_000;
+    const threadId = `thread-execution-retain-${++seq}`;
+    const turnId = `turn-execution-retain-${seq}`;
+    const oldRunId = `run-execution-retain-old-${seq}`;
+    const recentRunId = `run-execution-retain-recent-${seq}`;
+    await insertRun(oldRunId, threadId, turnId);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs SET status = 'completed', completed_at = ?, terminal_reason = 'done' WHERE id = ?`,
+      )
+      .run(expiredAt, oldRunId);
+    await insertRun(recentRunId, threadId, turnId);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs SET status = 'completed', completed_at = ?, terminal_reason = 'done' WHERE id = ?`,
+      )
+      .run(Date.now() - 60_000, recentRunId);
+    await addExecutionArtifacts(threadId, turnId, oldRunId, expiredAt);
+
+    await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
+
+    expect(await liveRunCount()).toBe(1);
+    expect(await executionArtifactCounts(threadId, turnId)).toEqual({
+      steps: 1,
+      leases: 1,
+    });
+  });
+
+  it("waits for the longest recovery window even after the last run row is pruned", async () => {
+    const expiredAt = Date.now() - ERRORED_RETENTION_MS - 60_000;
+    const threadId = `thread-execution-window-${++seq}`;
+    const turnId = `turn-execution-window-${seq}`;
+    const runId = `run-execution-window-${seq}`;
+    await insertRun(runId, threadId, turnId);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs SET status = 'completed', completed_at = ?, terminal_reason = 'done' WHERE id = ?`,
+      )
+      .run(expiredAt, runId);
+    await addExecutionArtifacts(threadId, turnId, runId, Date.now());
+
+    await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
+
+    expect(await liveRunCount()).toBe(0);
+    expect(await executionArtifactCounts(threadId, turnId)).toEqual({
+      steps: 1,
+      leases: 1,
+    });
+
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_steps SET updated_at = to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0) WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(expiredAt, threadId, turnId);
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases SET updated_at = to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0) WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(expiredAt, threadId, turnId);
+
+    await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
+
+    expect(await executionArtifactCounts(threadId, turnId)).toEqual({
+      steps: 0,
+      leases: 0,
+    });
   });
 });

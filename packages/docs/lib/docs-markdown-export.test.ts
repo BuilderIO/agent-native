@@ -195,10 +195,6 @@ describe("docsBodyToMarkdownMirror", () => {
 
     const mirror = docsBodyToMarkdownMirror(markdown);
 
-    // Every occurrence must be backtick-wrapped so a Markdown renderer shows
-    // it as text and an MDX consumer never treats it as a real component.
-    // A negative lookbehind for the opening backtick catches any occurrence
-    // that slipped through unescaped.
     const unescaped = mirror.match(/(?<!`)<AgentSidebar \/>/g) ?? [];
     expect(unescaped).toEqual([]);
     expect(mirror.match(/Wrapping `<AgentSidebar \/>`/g)?.length).toBe(4);
@@ -260,11 +256,6 @@ describe("docsBodyToMarkdownMirror", () => {
   });
 
   it("protects JSX-looking text even when a backslash-escaped attribute quote makes the block invalid MDX", () => {
-    // `\"` inside a double-quoted JSX attribute isn't valid JSX either — real
-    // MDX parsing rejects the whole block and falls back to the raw source
-    // (see the `invalid-block` branch of docsBodyToMarkdownMirror). The raw
-    // fallback must still get JSX-protected, since it still contains
-    // JSX-looking text that would otherwise ship unescaped into the mirror.
     const markdown = [
       "<Accordion>",
       "",

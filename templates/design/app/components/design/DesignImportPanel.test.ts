@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "../../pages/design-editor/read-design-editor-source";
+
 describe("DesignImportPanel", () => {
   const source = readFileSync(
     "app/components/design/DesignImportPanel.tsx",
     "utf8",
   );
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
   const importConstants = readFileSync("app/lib/design-import.ts", "utf8");
 
   it("keeps Local app in the main import source list", () => {
@@ -27,10 +29,27 @@ describe("DesignImportPanel", () => {
     expect(source).not.toContain("Paste Figma content here");
     expect(source).toContain('id="fig-file-import"');
     expect(source).toContain('accept=".fig,application/octet-stream"');
+    expect(source).toContain("maxBytes: MAX_BROWSER_FIG_BYTES");
+    expect(source).not.toContain("maxBytes: MAX_FIG_UPLOAD_BYTES");
+    expect(source).toContain("importFigInBrowser");
+    expect(source).toContain("remoteMutationStarted");
     expect(source).toContain("uploadDesignFile({");
-    expect(source).toContain("validateFigUploadFile(file)");
+    expect(source).toContain("validateFigUploadFile");
     expect(source).toContain('role="progressbar"');
-    expect(source).toContain("figUploadProgress === 100");
+    expect(source).toContain('phase === "rendering" || progress === 100');
+    expect(source).toContain("figImportWarningTitle");
+    expect(source).toContain("figImportSelection");
+    expect(source).toContain(
+      "shouldWarnForFigImport(file.size, prepared.summary)",
+    );
+  });
+
+  it("frees the .fig worker and reports saved frames", () => {
+    expect(source).toContain("pendingFigImportRef.current?.dispose()");
+    expect(source).toContain("prepared.dispose()");
+    expect(source).not.toContain("prepared.decoded");
+    expect(source).toContain('t("designEditor.import.figImportSaving"');
+    expect(source).toContain("const FigImportPageRow = memo(");
   });
 
   it("imports a Figma frame URL through the shared action surface", () => {
@@ -77,10 +96,14 @@ describe("DesignImportPanel", () => {
 
   it("supports canvas-level Figma paste through the editor paste handler", () => {
     expect(editorSource).toContain("const handleEditorPaste");
-    expect(editorSource).toContain(
+    const pasteCommand = readFileSync(
+      "app/pages/design-editor/commands/editor-paste.ts",
+      "utf8",
+    );
+    expect(pasteCommand).toContain(
       "getFigmaClipboardContent(event.clipboardData)",
     );
-    expect(editorSource).toContain(
+    expect(pasteCommand).toContain(
       "void importFigmaClipboardIntoDesign(figmaContent)",
     );
     expect(editorSource).toContain(
@@ -91,7 +114,7 @@ describe("DesignImportPanel", () => {
   it("shows visual-edit setup without the broken agent button", () => {
     expect(source).toContain("VISUAL_EDIT_INSTALL_COMMAND");
     expect(source).toContain("VISUAL_EDIT_CONNECT_COMMAND");
-    expect(source).toContain('href="/docs/template-design"');
+    expect(source).toContain('href={docsUrl("template-design")}');
     expect(source).not.toContain("sendToDesignAgentChat");
     expect(source).not.toContain("useVisualEditNow");
   });
@@ -109,5 +132,24 @@ describe("DesignImportPanel", () => {
     expect(source).toContain(
       "Replace <port> with the running app's local port.",
     );
+  });
+});
+
+describe("DesignImportPanel quota attribution", () => {
+  const source = readFileSync(
+    "app/components/design/DesignImportPanel.tsx",
+    "utf8",
+  );
+
+  it("renders the Design cooldown message", () => {
+    expect(source).toContain('figmaRateLimitError.quotaSource === "design"');
+    expect(source).toContain("designEditor.import.quotaCooldownTitle");
+    expect(source).toContain("designEditor.import.quotaCooldownBody");
+  });
+
+  it("reads the failure through the shared typed reader", () => {
+    expect(source).toContain("readFigmaImportFailure(");
+    expect(source).not.toContain("rateLimitDetails.figmaPlanTier");
+    expect(source).not.toMatch(/rate limit\|429\|quota/);
   });
 });

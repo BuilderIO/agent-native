@@ -3,8 +3,296 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-06-23
+## 2026-10-19
+
+### Improved
+
+- The Sources list loads with fewer database queries, including when showing capture counts and latest syncs.
+
+## 2026-10-16
+
+### Fixed
+
+- Brain reports when Gong credentials cannot be checked, so teams can tell a vault issue from a missing key.
+
+## 2026-10-15
 
 ### Added
 
-- See what's new right inside Agent-Native Brain — a changelog now lives in the command menu (Cmd+K) and in Settings.
+- Brain can answer Gong call questions with shared organization credentials, so teammates without individual Gong seats can get live call data.
+
+### Improved
+
+- Saving a source's settings refreshes the Sources list faster, and the source shows "Updating…" until its new settings appear.
+
+## 2026-10-13
+
+### Changed
+
+- Only organization owners and admins can create Zoom sources or change which meetings they import. Brain records who changed a Zoom meeting list and which approved meetings each sync read from Zoom.
+- The Sources page offers Zoom only to organization owners and admins. Other members see an existing Zoom source's settings as read-only and can still rename it.
+
+### Removed
+
+- Zoom sources no longer import AI Companion summaries. Brain imports only transcripts from cloud recordings, so the Zoom app no longer needs the meeting summary permissions.
+
+## 2026-10-10
+
+### Changed
+
+- Zoom sources now import only recurring meeting series listed by meeting ID. A source with no approved series imports nothing, and meeting titles no longer select meetings.
+
+## 2026-10-07
+
+### Added
+
+- Zoom sources can import AI Companion meeting summaries, so meetings that were never recorded still reach Brain.
+
+## 2026-10-06
+
+### Added
+
+- Zoom is now a source type on the Sources page. Admins can add or edit a Zoom source and list the meeting IDs or titles to import, plus how many days back to look, without using chat or JSON.
+
+### Improved
+
+- Source syncs recover from brief Jev outages on their own. Each Jev check now waits longer and retries twice, and a source that still fails is retried in about 10 minutes instead of an hour. Sync errors on the Sources page now explain what happened and what to do, instead of showing codes like `jev-timeout` or `[object ErrorEvent]`.
+- When Jev times out, Brain retries the sync within about 10 minutes instead of waiting for the next hourly run. A Slack source with no channels now says "No Slack channels are selected" instead of listing internal setting names.
+- Zoom sources now import transcripts from one account-wide recording list, so the Zoom app no longer needs permission to list users. It needs only the account recording-list and view-recording scopes. Sources that name specific Zoom users still read just those users' recordings.
+- Zoom sources can be limited to specific meetings by meeting ID or meeting title, so Brain imports only the meetings you choose instead of every cloud recording in the Zoom account.
+
+### Fixed
+
+- Zoom transcripts now import. Zoom's account-wide recording list leaves out download links, so Brain now looks up each matching meeting to get its transcript. Each Zoom sync also lists which meetings matched or were skipped, and which files Zoom returned, to make problems easier to spot.
+- Zoom transcript imports work with the standard admin recording scope again instead of failing with a master-account scope error. Brain chat can now change a source's settings, such as a Zoom meeting filter; before, its updates were silently saved as empty.
+
+## 2026-10-05
+
+### Improved
+
+- Messages from private Slack channels the Brain app is invited to are now searchable by everyone in the org once they pass sensitivity screening. Syncs no longer look up channel members, so a member without a visible email no longer stops a channel from syncing. Personal sources stay visible only to their owner and the people they are shared with.
+
+## 2026-10-02
+
+### Improved
+
+- With Jev as the privacy classifier, routine messages that mention words like "investigating", "interview", or "reorg" are no longer dropped automatically. Jev now decides whether they are sensitive. Credentials are still always blocked.
+
+## 2026-10-01
+
+### Improved
+
+- Brain answers from synced Slack and Zoom messages with their channel and date, including questions asked from Dispatch, Slack, or MCP.
+
+## 2026-09-30
+
+### Added
+
+- Brain syncs Zoom cloud-recording transcripts hourly alongside Slack.
+
+### Improved
+
+- Brain chat semantic-searches synced Slack and Zoom content and sees each item's source and date.
+- Knowledge writes publish directly with no manual approval step.
+- Slack messages and meeting transcripts are stored in full unless Jev flags them as sensitive.
+
+### Fixed
+
+- Slack, Granola, GitHub, and Zoom sources sync hourly again instead of silently stalling when a workspace has many sources that do not auto-sync.
+
+## 2026-09-25
+
+### Improved
+
+- Brain settings now live in tabs on Brain › General (Identity, Behavior, Publishing, Safety, and Privacy), and each change saves as you make it.
+
+## 2026-09-22
+
+### Added
+
+- Captures are now screened by Jev, which returns a calibrated probability per sensitivity category, and Settings lets you pick between Jev, a custom model, and deterministic-only screening.
+
+## 2026-08-22
+
+### Fixed
+
+- Tuning or adding a source no longer leaves the Sources page unresponsive.
+
+## 2026-08-11
+
+### Improved
+
+- Full-page chat composers stay at a focused 750px width.
+
+### Fixed
+
+- Chrome no longer offers to install Brain as a desktop app.
+
+## 2026-08-10
+
+### Improved
+
+- Full-page chat now uses the available width up to 1000px for more comfortable prompts and responses.
+
+## 2026-08-06
+
+### Fixed
+
+- Brain provider setup links open Dispatch correctly in standalone and workspace deployments.
+
+## 2026-08-03
+
+### Fixed
+
+- Brain now avoids unsupported company facts when verified sources are unavailable
+
+## 2026-07-31
+
+### Improved
+
+- Clicking the Agent-Native logo now toggles the app sidebar.
+
+## 2026-07-30
+
+### Added
+
+- Blessed FAQs, docs, and other resources can publish updates to Brain for automatic distillation and cited, policy-aware answers.
+
+### Fixed
+
+- The left sidebar no longer shows a blank organization placeholder in its footer.
+
+## 2026-07-29
+
+### Improved
+
+- Chat history now closes smoothly and stays ready when you return to Ask.
+- Chat history stays visible when you return to Ask Brain.
+- Extensions are no longer shown as a default command-menu destination.
+- Sidebar footers now keep Feedback, Search, and Collapse together without a separate language shortcut.
+
+### Fixed
+
+- Brain automatically retries failed source syncs, drains search indexing backlogs faster, and guides you to connect provider APIs when setup is missing.
+
+## 2026-07-25
+
+### Improved
+
+- App branding now uses the product name without the Agent-Native prefix.
+- Settings navigation now keeps Manage agent as a dedicated linked destination at the bottom.
+
+## 2026-07-24
+
+### Improved
+
+- Secondary controls and dashboard surfaces now use quieter borderless styling.
+- Sidebar utility controls now follow a consistent footer order.
+
+## 2026-07-23
+
+### Improved
+
+- Ask Brain is better centered, with quieter chat history and a left-aligned New chat action.
+
+## 2026-07-22
+
+### Added
+
+- New Clips and webhook sources now show their secure connection details once, with copy controls and token rotation.
+
+### Improved
+
+- The sidebar footer now keeps Feedback and the collapse control on one compact row.
+- Manage agent navigation now uses the connected-nodes icon.
+
+### Fixed
+
+- Chat runs now keep working through long source syncs and always end with a visible answer.
+- Chat stays current in background tabs and keeps its latest tool visibly active without covering the first message.
+- Full-page chat keeps the active conversation when moving to and from the sidebar.
+- Long chat titles now stay inside the sidebar, and recent chats expand from a compact five-item list.
+
+## 2026-07-19
+
+### Added
+
+- Brain now searches approved public, private, and meeting knowledge semantically while keeping sensitive material out of retrieval.
+
+### Improved
+
+- Slack backfills now start with a safe four-week window and resume across bounded channel pages
+
+### Fixed
+
+- Ask starts immediately when Builder's managed AI connection is ready
+- Slack and Granola backfills now process captures concurrently while preventing overlapping source syncs.
+- Slack backfills can now join configured public channels before reading their history.
+- Slack backfills now continue across the configured number of history pages.
+- Sources with review disabled now publish eligible distilled knowledge directly instead of sending it to the approval queue.
+- The Manage agent page now opens correctly from Brain navigation.
+
+## 2026-07-17
+
+### Fixed
+
+- The agent chat sidebar stays closed until you open it or start a chat handoff.
+
+## 2026-07-13
+
+### Added
+
+- A full Agent page now brings context, files, connections, jobs, and external access together
+
+## 2026-07-12
+
+### Fixed
+
+- Long AI responses now stay visibly in progress and automatically follow new output until you scroll away.
+
+## 2026-07-10
+
+### Improved
+
+- Brain settings now separate assistant behavior, publishing review, and safety policies into focused sections.
+- Slack backfills now favor workspace connections while clearly marking raw bot tokens as a local fallback.
+
+### Fixed
+
+- Organization settings now opens directly from the workspace menu.
+
+## 2026-07-08
+
+### Improved
+
+- Settings are cleaner and searchable, with a consistent navigation that jumps straight to any setting.
+
+## 2026-06-29
+
+### Fixed
+
+- Search, settings, and source layouts now adapt cleanly when the agent sidebar narrows the app.
+
+## 2026-06-28
+
+### Improved
+
+- The left sidebar now collapses into an animated icon rail with quieter footer controls.
+
+## 2026-06-27
+
+### Fixed
+
+- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
+
+## 2026-06-24
+
+### Added
+
+- Added a language picker and localized app chrome for supported languages.
+
+### Improved
+
+- Settings now link directly to Agent settings for model, API key, automation, and voice preferences.
+
+For the full list of updates, see the [changelog folder](./changelog/).

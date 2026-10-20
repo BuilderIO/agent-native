@@ -4,7 +4,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  getBrowserTabId: () => "test-tab",
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
@@ -79,5 +81,85 @@ describe("ChartTooltip", () => {
     });
 
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  it("keeps the portaled tooltip below the wide chat drawer", async () => {
+    const sidebar = document.createElement("div");
+    sidebar.className = "agent-sidebar-panel";
+    sidebar.style.position = "fixed";
+    sidebar.style.zIndex = "80";
+    document.body.appendChild(sidebar);
+
+    try {
+      await act(async () => {
+        root.render(
+          <ChartTooltip
+            active
+            label="May 10"
+            payload={[{ name: "signups", value: 12, color: "#10b981" }]}
+          />,
+        );
+      });
+
+      const tooltip =
+        document.body.querySelector<HTMLElement>('[role="tooltip"]');
+      expect(tooltip).not.toBeNull();
+      expect(Number(tooltip?.style.zIndex)).toBeLessThan(
+        Number(sidebar.style.zIndex),
+      );
+    } finally {
+      sidebar.remove();
+    }
+  });
+
+  it("shows a bold stacked total above the rows without changing row formatting", async () => {
+    await act(async () => {
+      root.render(
+        <ChartTooltip
+          active
+          stacked
+          label="May 10"
+          payload={[
+            { name: "signups", value: 12, color: "#10b981" },
+            { name: "revenue", value: 8, color: "#f59e0b" },
+          ]}
+          valueFormatter={(value) => `v:${value}`}
+        />,
+      );
+    });
+
+    const tooltip =
+      document.body.querySelector<HTMLElement>('[role="tooltip"]');
+    expect(tooltip).not.toBeNull();
+    expect(tooltip?.firstElementChild?.textContent).toBe("v:20");
+    expect(tooltip?.textContent).toContain("May 10");
+    expect(tooltip?.textContent).toContain("signups");
+    expect(tooltip?.textContent).toContain("revenue");
+    expect(
+      [...(tooltip?.querySelectorAll("span.font-medium") ?? [])].map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(["v:12", "v:8"]);
+    expect(tooltip?.firstElementChild?.className).toContain("font-semibold");
+  });
+
+  it("wraps a long category label instead of cutting it off", async () => {
+    const label =
+      "very-long-subdomain.enterprise-intranet.examplecorp.internal";
+    await act(async () => {
+      root.render(
+        <ChartTooltip
+          active
+          label={label}
+          payload={[{ name: "count", value: 12, color: "#10b981" }]}
+        />,
+      );
+    });
+
+    const labelRow = [
+      ...document.body.querySelectorAll<HTMLElement>('[role="tooltip"] div'),
+    ].find((node) => node.textContent === label);
+    expect(labelRow?.className).toContain("break-words");
+    expect(labelRow?.className).not.toContain("truncate");
   });
 });

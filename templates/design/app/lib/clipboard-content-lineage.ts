@@ -1,3 +1,7 @@
+import { sourceContentHash } from "@shared/source-workspace";
+
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
+
 export type ClipboardContentMutationOrigin =
   | "user"
   | "clipboard-paste"
@@ -14,34 +18,40 @@ export interface ClipboardContentLineage extends ClipboardContentMutationPublica
   content: string;
 }
 
-/**
- * Allocate the next local mutation only when it starts from the currently
- * authoritative document. This prevents a delayed query/Yjs replay from
- * becoming the base of a later paste after undo has already advanced history.
- */
 export function publishClipboardContentMutation(args: {
   current: ClipboardContentLineage | undefined;
   baseContentHash: string;
+  fileId: string;
+  fileType?: string | null;
   nextContent: string;
-  nextContentHash: string;
   origin: ClipboardContentMutationOrigin;
+  baseSource?: "lineage" | "document";
 }): ClipboardContentLineage | null {
-  if (args.current && args.current.contentHash !== args.baseContentHash) {
+  let canonicalNextContent: string;
+  try {
+    canonicalNextContent = prepareCanonicalSourceContent(args.nextContent, {
+      fileId: args.fileId,
+      fileType: args.fileType,
+    }).content;
+  } catch {
+    // coercion-ok: canonicalization failure is a refused publication; callers abort writes.
+    return null;
+  }
+  if (
+    args.current &&
+    args.current.contentHash !== args.baseContentHash &&
+    args.baseSource !== "document"
+  ) {
     return null;
   }
   return {
-    content: args.nextContent,
-    contentHash: args.nextContentHash,
+    content: canonicalNextContent,
+    contentHash: sourceContentHash(canonicalNextContent),
     mutationId: (args.current?.mutationId ?? 0) + 1,
     origin: args.origin,
   };
 }
 
-/**
- * Passive save/query/collaboration echoes never create or advance authority.
- * They can only confirm the exact current hash, or acknowledge an explicitly
- * published mutation carrying the same/newer id and matching content hash.
- */
 export function acknowledgeClipboardContentMutation(args: {
   current: ClipboardContentLineage | undefined;
   nextContent: string;

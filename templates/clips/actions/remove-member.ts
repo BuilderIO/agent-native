@@ -1,13 +1,4 @@
-/**
- * Remove a member from the active organization.
- *
- * Admin-only. Refuses to remove the organization owner.
- *
- * Usage:
- *   pnpm action remove-member --email=alice@example.com
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { orgMembers } from "@agent-native/core/org";
 import { and, eq, sql } from "drizzle-orm";
@@ -26,6 +17,8 @@ export default defineAction({
       .describe("Organization id (defaults to the caller's active org)"),
     email: z.string().email().describe("Member email"),
   }),
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => {
     const db = getDb();
     const { organizationId } = await requireOrganizationAccess(

@@ -42,7 +42,7 @@ actions/               # Shared app operations (defineAction; UI uses action hoo
   run.ts               # Script dispatcher
   *.ts                 # Individual actions (pnpm action <name>)
 
-data/                  # Local development database fallback
+data/pglite/           # Local PGlite data directory
 
 react-router.config.ts # React Router framework config
 .agents/skills/        # Agent skills — detailed guidance for each rule
@@ -174,14 +174,13 @@ agentChat.submit("Generate something");
 
 ## Database & Environment Variables
 
-Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
+Local development uses PGlite at `data/pglite`. For production and shared environments, set `DATABASE_URL` to a persistent hosted PostgreSQL database.
 
 Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
 
-| Variable              | Required                        | Description                                                                |
-| --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |
-| `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                              |
+| Variable       | Required                     | Description                                                                   |
+| -------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `DATABASE_URL` | Production yes, local dev no | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
 
 ### Cross-app Thread Debug sources
 
@@ -191,7 +190,7 @@ production Dispatch runtime, and use database credentials that are restricted
 to read-only access.
 
 For one source, set an app-prefixed URL such as
-`CLIPS_DATABASE_URL` and, when required, `CLIPS_DATABASE_AUTH_TOKEN`. For
+`CLIPS_DATABASE_URL`. For
 multiple or explicitly named sources, set `AGENT_NATIVE_THREAD_DEBUG_DATABASES`
 to JSON that refers to separate environment variable names:
 
@@ -200,8 +199,7 @@ to JSON that refers to separate environment variable names:
   {
     "id": "clips",
     "label": "Clips",
-    "databaseUrlEnv": "DISPATCH_THREAD_DEBUG_CLIPS_DATABASE_URL",
-    "databaseAuthTokenEnv": "DISPATCH_THREAD_DEBUG_CLIPS_DATABASE_AUTH_TOKEN"
+    "databaseUrlEnv": "DISPATCH_THREAD_DEBUG_CLIPS_DATABASE_URL"
   }
 ]
 ```
@@ -211,6 +209,13 @@ database URLs or tokens in this file, `netlify.toml`, source code, fixtures, or
 logs. Do not grant deploy previews access to production app databases by
 default. Thread Debug reports configured-but-missing or unreadable sources
 separately from sources that returned zero failures.
+
+Thread Debug scopes every source to the owners in the viewer's active Dispatch
+organization, because each app keeps its own organization roster. To let one
+organization's owners and admins inspect threads from every user and
+organization, set `AGENT_NATIVE_OBSERVABILITY_SUPER_ORG_ID` to that
+organization's Dispatch org id. It is the same single cross-organization review
+grant Human Review uses.
 
 ## Extensions (Framework Feature)
 

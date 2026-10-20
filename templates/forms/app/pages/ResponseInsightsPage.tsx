@@ -174,7 +174,7 @@ export function ResponseInsightsPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-background">
-      <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-border pl-12 pr-3 sm:px-4 md:pl-4">
+      <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-border pl-14 pr-3 sm:px-4 md:pl-4">
         <div className="flex min-w-0 items-center gap-2">
           <Button
             variant="ghost"

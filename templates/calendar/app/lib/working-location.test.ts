@@ -1,14 +1,17 @@
 import type { CalendarEvent } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
+import { dateKeyToDate } from "./calendar-timezone";
 import {
   buildWorkingLocationProperties,
   buildWorkingLocationUpdate,
   createWorkingLocationDisplayLabels,
+  findOwnedWorkingLocationForDay,
   getWorkingLocationChipLabel,
   getWorkingLocationDetail,
   getWorkingLocationEditableLabel,
   getWorkingLocationTitle,
+  isWorkingLocationDraftReadyToCreate,
 } from "./working-location";
 
 const translatedLabels = createWorkingLocationDisplayLabels((key, values) => {
@@ -123,6 +126,21 @@ describe("working location display helpers", () => {
     );
   });
 
+  it("does not let a generated summary hide an unlabeled office", () => {
+    const office = event({
+      title: "Working location",
+      eventType: "workingLocation",
+      workingLocationProperties: {
+        type: "officeLocation",
+        officeLocation: {},
+      },
+    });
+
+    expect(getWorkingLocationChipLabel(office, translatedLabels)).toBe(
+      "Oficina",
+    );
+  });
+
   it("uses native labels as editable values without summary fallbacks", () => {
     expect(
       getWorkingLocationEditableLabel({
@@ -213,5 +231,118 @@ describe("working location display helpers", () => {
       type: "customLocation",
       customLocation: { label: "Neighborhood cafe" },
     });
+  });
+});
+
+describe("working location create readiness", () => {
+  it("allows unlabeled office drafts and requires a name for Other", () => {
+    expect(
+      isWorkingLocationDraftReadyToCreate(
+        event({
+          eventType: "workingLocation",
+          workingLocationProperties: {
+            type: "officeLocation",
+            officeLocation: {},
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isWorkingLocationDraftReadyToCreate(
+        event({
+          eventType: "workingLocation",
+          workingLocationProperties: {
+            type: "customLocation",
+            customLocation: {},
+          },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isWorkingLocationDraftReadyToCreate(
+        event({
+          eventType: "workingLocation",
+          workingLocationProperties: {
+            type: "customLocation",
+            customLocation: { label: "Cafe" },
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("findOwnedWorkingLocationForDay", () => {
+  it("returns the owned Google location on that day, not overlays or adjacent days", () => {
+    const home = event({
+      id: "home-thu",
+      start: "2026-08-13",
+      end: "2026-08-14",
+      eventType: "workingLocation",
+      workingLocationProperties: { type: "homeOffice", homeOffice: {} },
+      accountEmail: "owner@example.com",
+    });
+    const overlay = event({
+      id: "overlay-thu",
+      start: "2026-08-13",
+      end: "2026-08-14",
+      eventType: "workingLocation",
+      overlayEmail: "teammate@example.com",
+      workingLocationProperties: { type: "homeOffice", homeOffice: {} },
+    });
+    const friday = event({
+      id: "home-fri",
+      start: "2026-08-14",
+      end: "2026-08-15",
+      eventType: "workingLocation",
+      workingLocationProperties: { type: "homeOffice", homeOffice: {} },
+      accountEmail: "owner@example.com",
+    });
+
+    expect(
+      findOwnedWorkingLocationForDay(
+        [overlay, friday, home],
+        dateKeyToDate("2026-08-13"),
+        "America/Chicago",
+        "owner@example.com",
+      )?.id,
+    ).toBe("home-thu");
+    expect(
+      findOwnedWorkingLocationForDay(
+        [overlay, friday, home],
+        dateKeyToDate("2026-08-15"),
+        "America/Chicago",
+        "owner@example.com",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("prefers a Google event over a local draft on the same day", () => {
+    const draft = event({
+      id: "calendar-draft-event:slot-working-location-1",
+      source: "local",
+      start: "2026-08-13",
+      end: "2026-08-14",
+      eventType: "workingLocation",
+      workingLocationProperties: { type: "homeOffice", homeOffice: {} },
+      accountEmail: "owner@example.com",
+    });
+    const google = event({
+      id: "google-home",
+      start: "2026-08-13",
+      end: "2026-08-14",
+      eventType: "workingLocation",
+      workingLocationProperties: { type: "homeOffice", homeOffice: {} },
+      accountEmail: "owner@example.com",
+    });
+
+    expect(
+      findOwnedWorkingLocationForDay(
+        [draft, google],
+        dateKeyToDate("2026-08-13"),
+        "America/Chicago",
+        "owner@example.com",
+      )?.id,
+    ).toBe("google-home");
   });
 });

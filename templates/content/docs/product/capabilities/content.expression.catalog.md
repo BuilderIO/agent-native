@@ -32,7 +32,7 @@ A useful computation should be reusable without becoming an invisible shared glo
 
 ## Example workflow
 
-Omar promotes `businessDays(start, end)`, adopts version 1 in two databases, and sees both consumers before publishing a signature-changing version 2.
+Omar promotes `businessDays(start, end)`, adopts version 1 in two collections, and sees both consumers before publishing a signature-changing version 2.
 
 ## Product contract
 

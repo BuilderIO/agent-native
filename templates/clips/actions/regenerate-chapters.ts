@@ -1,26 +1,25 @@
-/**
- * Delegate: generate chapters for the recording from its transcript.
- *
- * The agent reads the transcript, identifies topic transitions, and calls the
- * Editor-team-owned `set-chapters` action with a chaptersJson array.
- *
- * Usage:
- *   pnpm action regenerate-chapters --recordingId=<id>
- */
-
-import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
+import {
+  CHAPTERS_BUSY,
+  CHAPTERS_CHANGED,
+  CHAPTERS_UNREADABLE,
+} from "../shared/stored-chapters.js";
+import {
+  queueAiRequest,
+  withAiRequestStatusInstructions,
+} from "./lib/ai-request-status.js";
+import { chaptersVersionOf } from "./lib/chapters-version.js";
 import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 export default defineAction({
   description:
-    "Ask the agent to generate chapters for this recording based on its transcript (and the full video when Include full video is enabled). The agent identifies topic transitions and calls set-chapters.",
+    "Ask the agent to generate chapters for this recording based on its transcript (and the full video when Include full video is enabled). The agent identifies topic transitions and calls set-chapters, guarded by the chapters and media version as they were when asked.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     openInChat: z
@@ -48,37 +47,58 @@ export default defineAction({
       .limit(1);
 
     const includeFullVideoInAi = await readIncludeFullVideoInAi();
+    // The new chapters replace these, and only these: an edit made while the
+    // agent works makes set-chapters refuse rather than overwrite it.
+    const expectedVersion = chaptersVersionOf(rec.chaptersJson);
+    const expectedMediaUpdatedAt = rec.mediaUpdatedAt;
     const baseMessage =
       `Generate chapters for recording ${args.recordingId} (duration ${rec.durationMs}ms). ` +
       `Read the transcript segments in this request's context, identify topic transitions, ` +
       `and call \`set-chapters --recordingId=${args.recordingId} --chapters='[{ "startMs": 0, "title": "Intro" }, ...]'\`. ` +
-      `Aim for 3–8 chapters. Each chapter title should be 3–6 words and capture the essence of that section.`;
+      `Aim for 3–8 chapters. Each chapter title should be 3–6 words and capture the essence of that section. ` +
+      `Also pass --expectedVersion=${expectedVersion} and --expectedMediaUpdatedAt=${expectedMediaUpdatedAt}. ` +
+      `If set-chapters fails with errorCode ${CHAPTERS_CHANGED}, someone edited the chapters meanwhile: do not retry; mark this request failed, saying the new chapters were not saved because the chapters changed. On ${CHAPTERS_UNREADABLE}, the stored chapters can't be read and would be lost: do not retry; mark this request failed, saying so. On ${CHAPTERS_BUSY}, call it again with the same arguments. ` +
+      `Never call set-chapters for this request without expectedVersion and expectedMediaUpdatedAt.`;
 
+    const requestedAt = new Date().toISOString();
     const request = {
       kind: "regenerate-chapters" as const,
       recordingId: args.recordingId,
-      requestedAt: new Date().toISOString(),
+      requestedAt,
       durationMs: rec.durationMs,
       transcriptStatus: transcript?.status ?? "pending",
       segmentsJson: transcript?.segmentsJson ?? "[]",
       transcriptText: transcript?.fullText ?? "",
+      expectedVersion,
+      expectedMediaUpdatedAt,
       includeFullVideoInAi,
       openInChat: args.openInChat === true,
-      message: withFullVideoAiInstructions(
-        baseMessage,
-        args.recordingId,
-        includeFullVideoInAi,
-      ),
+      message: withAiRequestStatusInstructions({
+        message: withFullVideoAiInstructions(
+          baseMessage,
+          args.recordingId,
+          includeFullVideoInAi,
+        ),
+        recordingId: args.recordingId,
+        kind: "regenerate-chapters",
+        requestedAt,
+      }),
     };
 
-    await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    await queueAiRequest({
+      recordingId: args.recordingId,
+      kind: "regenerate-chapters",
+      requestedAt,
+      request,
+    });
 
     console.log(
       `Delegation queued: regenerate-chapters for ${args.recordingId}`,
     );
     return {
       queued: true,
+      kind: "regenerate-chapters",
+      requestedAt,
       recordingId: args.recordingId,
       includeFullVideoInAi,
     };

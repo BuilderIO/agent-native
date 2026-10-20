@@ -1,4 +1,59 @@
-export const dispatchMigrations: Array<{ version: number; sql: string }> = [
+import { type DbExec, type MigrationEntry } from "@agent-native/core/db";
+
+const dispatchTimestampColumns: Record<string, string[]> = {
+  dispatch_destinations: ["created_at", "updated_at"],
+  dispatch_identity_links: ["created_at", "updated_at"],
+  dispatch_link_tokens: [
+    "expires_at",
+    "claimed_at",
+    "created_at",
+    "updated_at",
+  ],
+  dispatch_approval_requests: ["reviewed_at", "created_at", "updated_at"],
+  dispatch_audit_events: ["created_at"],
+  dispatch_dreams: ["started_at", "completed_at", "created_at", "updated_at"],
+  dispatch_dream_proposals: [
+    "applied_at",
+    "rejected_at",
+    "created_at",
+    "updated_at",
+  ],
+  vault_secrets: ["created_at", "updated_at"],
+  vault_grants: ["synced_at", "created_at", "updated_at"],
+  vault_requests: ["reviewed_at", "created_at", "updated_at"],
+  vault_audit_log: ["created_at"],
+  workspace_resources: ["created_at", "updated_at"],
+  workspace_resource_grants: ["synced_at", "created_at", "updated_at"],
+  identity_sso_authorization_code: ["created_at", "expires_at", "consumed_at"],
+  identity_sso_bootstrap: ["created_at", "expires_at", "consumed_at"],
+};
+
+async function widenLegacyDispatchTimestamps(exec: DbExec): Promise<void> {
+  const tables = Object.keys(dispatchTimestampColumns);
+  const { rows } = await exec.execute({
+    sql: `SELECT table_name, column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND data_type = 'integer'
+        AND table_name IN (${tables.map(() => "?").join(", ")})`,
+    args: tables,
+  });
+  const int4Columns = new Set(
+    rows.map((row) => `${String(row.table_name)}.${String(row.column_name)}`),
+  );
+
+  for (const [table, columns] of Object.entries(dispatchTimestampColumns)) {
+    const legacyColumns = columns.filter((column) =>
+      int4Columns.has(`${table}.${column}`),
+    );
+    if (legacyColumns.length === 0) continue;
+    await exec.execute(
+      `ALTER TABLE ${table} ${legacyColumns
+        .map((column) => `ALTER COLUMN ${column} TYPE BIGINT`)
+        .join(", ")}`,
+    );
+  }
+}
+
+export const dispatchMigrations: MigrationEntry[] = [
   {
     version: 1,
     sql: `
@@ -12,8 +67,8 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         thread_ref TEXT,
         notes TEXT,
         created_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS dispatch_identity_links (
@@ -24,8 +79,8 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         external_user_id TEXT NOT NULL,
         external_user_name TEXT,
         linked_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS dispatch_link_tokens (
@@ -35,12 +90,12 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         org_id TEXT,
         platform TEXT NOT NULL,
         created_by TEXT NOT NULL,
-        expires_at INTEGER NOT NULL,
-        claimed_at INTEGER,
+        expires_at BIGINT NOT NULL,
+        claimed_at BIGINT,
         claimed_by_external_user_id TEXT,
         claimed_by_external_user_name TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS dispatch_approval_requests (
@@ -57,9 +112,9 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         after_value TEXT,
         requested_by TEXT NOT NULL,
         reviewed_by TEXT,
-        reviewed_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        reviewed_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS dispatch_audit_events (
@@ -72,7 +127,7 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         target_id TEXT,
         summary TEXT NOT NULL,
         metadata TEXT,
-        created_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL
       );
     `,
   },
@@ -89,8 +144,8 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         provider TEXT,
         description TEXT,
         created_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS vault_grants (
@@ -101,9 +156,9 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         app_id TEXT NOT NULL,
         granted_by TEXT NOT NULL,
         status TEXT NOT NULL,
-        synced_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        synced_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS vault_requests (
@@ -116,9 +171,9 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         requested_by TEXT NOT NULL,
         status TEXT NOT NULL,
         reviewed_by TEXT,
-        reviewed_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        reviewed_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS vault_audit_log (
@@ -131,7 +186,7 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         actor TEXT NOT NULL,
         summary TEXT NOT NULL,
         metadata TEXT,
-        created_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS workspace_resources (
@@ -145,8 +200,8 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         content TEXT NOT NULL,
         scope TEXT NOT NULL,
         created_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS workspace_resource_grants (
@@ -156,9 +211,9 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         resource_id TEXT NOT NULL,
         app_id TEXT NOT NULL,
         status TEXT NOT NULL,
-        synced_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        synced_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
     `,
   },
@@ -179,10 +234,10 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         inspected_thread_count INTEGER NOT NULL,
         created_by TEXT NOT NULL,
         error TEXT,
-        started_at INTEGER NOT NULL,
-        completed_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        started_at BIGINT NOT NULL,
+        completed_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS dispatch_dream_proposals (
@@ -201,11 +256,11 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
         risk TEXT NOT NULL,
         status TEXT NOT NULL,
         applied_by TEXT,
-        applied_at INTEGER,
+        applied_at BIGINT,
         rejected_by TEXT,
-        rejected_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        rejected_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE INDEX IF NOT EXISTS dispatch_dreams_owner_updated_idx
@@ -219,6 +274,96 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
     version: 4,
     sql: `
       ALTER TABLE dispatch_dreams ADD COLUMN IF NOT EXISTS source_health TEXT;
+    `,
+  },
+  {
+    version: 5,
+    name: "identity-sso-authorization-code-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS identity_sso_authorization_code (
+        code_hash TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        client_id TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        authority TEXT NOT NULL,
+        code_challenge TEXT NOT NULL,
+        email TEXT NOT NULL,
+        name TEXT,
+        org_domain TEXT,
+        jti TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        consumed_at BIGINT,
+        org_id TEXT,
+        org_name TEXT,
+        org_role TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS identity_sso_authorization_code_expires_idx
+        ON identity_sso_authorization_code (expires_at);
+    `,
+  },
+  {
+    version: 6,
+    name: "dispatch-millisecond-timestamps-bigint-and-identity-sso-organization-claims",
+    sql: `
+      ALTER TABLE identity_sso_authorization_code ADD COLUMN IF NOT EXISTS org_id TEXT;
+      ALTER TABLE identity_sso_authorization_code ADD COLUMN IF NOT EXISTS org_name TEXT;
+      ALTER TABLE identity_sso_authorization_code ADD COLUMN IF NOT EXISTS org_role TEXT;
+    `,
+    run: widenLegacyDispatchTimestamps,
+  },
+  {
+    version: 7,
+    name: "identity-sso-bootstrap-handle-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS identity_sso_bootstrap (
+        handle_hash TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        client_id TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        authority TEXT NOT NULL,
+        code_challenge TEXT NOT NULL,
+        email TEXT NOT NULL,
+        name TEXT,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        consumed_at BIGINT
+      );
+
+      CREATE INDEX IF NOT EXISTS identity_sso_bootstrap_expires_idx
+        ON identity_sso_bootstrap (expires_at);
+    `,
+  },
+  {
+    version: 8,
+    name: "identity-sso-pkce-bootstrap-activation",
+    sql: `
+      ALTER TABLE identity_sso_authorization_code
+        ADD COLUMN IF NOT EXISTS bootstrap_handle_hash TEXT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS activation_hash TEXT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS activation_expires_at BIGINT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS activated_at BIGINT;
+    `,
+    run: widenLegacyDispatchTimestamps,
+  },
+  {
+    version: 9,
+    name: "identity-sso-bootstrap-browser-binding-and-rollout-context",
+    sql: `
+      ALTER TABLE identity_sso_authorization_code
+        ADD COLUMN IF NOT EXISTS bootstrap_auth_provider TEXT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS org_id TEXT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS auth_provider TEXT;
+      ALTER TABLE identity_sso_bootstrap
+        ADD COLUMN IF NOT EXISTS browser_binding_hash TEXT;
     `,
   },
 ];

@@ -2,6 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { uploadFile } from "@agent-native/core/file-upload";
+import {
+  getRequestContext,
+  runWithRequestContext,
+} from "@agent-native/core/server/request-context";
 
 import { getStoredUpload, putStoredUpload } from "./upload-store.js";
 
@@ -56,6 +60,7 @@ export function uploadsDirectory(): string {
 
 export async function storeMediaUpload(input: {
   ownerEmail: string;
+  orgId?: string;
   data: Uint8Array;
   filename: string;
   originalName: string;
@@ -74,13 +79,21 @@ export async function storeMediaUpload(input: {
   };
 
   try {
-    const uploaded = await uploadFile({
-      data: input.data,
-      filename: input.originalName,
-      mimeType,
-      ownerEmail: input.ownerEmail,
-      recordAsset: false,
-    });
+    const uploaded = await runWithRequestContext(
+      {
+        ...getRequestContext(),
+        userEmail: input.ownerEmail,
+        orgId: input.orgId ?? getRequestContext()?.orgId,
+      },
+      () =>
+        uploadFile({
+          data: input.data,
+          filename: input.originalName,
+          mimeType,
+          ownerEmail: input.ownerEmail,
+          recordAsset: false,
+        }),
+    );
     if (uploaded?.url) {
       await putStoredUpload(input.ownerEmail, {
         ...payload,
@@ -99,7 +112,7 @@ export async function storeMediaUpload(input: {
 
   if (process.env.NODE_ENV === "production") {
     throw new MediaStorageSetupError(
-      "File storage is not configured. Connect Builder.io (free tier available) or another upload provider before attaching files in hosted environments.",
+      "File storage is not configured. Use Builder.io (free tier available) or another upload provider before attaching files in hosted environments.",
     );
   }
 

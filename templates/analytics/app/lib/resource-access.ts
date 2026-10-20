@@ -1,4 +1,9 @@
-export type ResourceRole = "owner" | "admin" | "editor" | "viewer";
+export type ResourceRole =
+  | "owner"
+  | "admin"
+  | "editor"
+  | "commenter"
+  | "viewer";
 
 export interface ResourceAccess {
   role?: ResourceRole | null;

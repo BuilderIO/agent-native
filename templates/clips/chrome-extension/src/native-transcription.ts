@@ -43,6 +43,7 @@ export interface NativeTranscriptionCapture {
 
 const STOP_SETTLE_MS = 1_500;
 const RESTART_DELAY_MS = 250;
+const MAX_RESTART_ATTEMPTS = 8;
 
 function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
   if (typeof window === "undefined") return null;
@@ -81,7 +82,9 @@ export function createNativeTranscriptionCapture(options?: {
   let paused = false;
   let disposed = false;
   let failureReason = unsupportedReason;
+  let restartStartFailure: string | null = null;
   let restartTimer: ReturnType<typeof setTimeout> | null = null;
+  let restartFailures = 0;
   let stopPromise: Promise<NativeTranscriptResult> | null = null;
   let resolveStop: ((result: NativeTranscriptResult) => void) | null = null;
   let stopTimer: ReturnType<typeof setTimeout> | null = null;
@@ -91,10 +94,11 @@ export function createNativeTranscriptionCapture(options?: {
     return {
       text,
       failureReason:
-        text.length > 0
+        failureReason ||
+        restartStartFailure ||
+        (text.length > 0
           ? null
-          : failureReason ||
-            "Chrome Web Speech recognition returned no transcript.",
+          : "Chrome Web Speech recognition returned no transcript."),
     };
   };
 
@@ -111,20 +115,28 @@ export function createNativeTranscriptionCapture(options?: {
     resolve(result());
   };
 
-  const scheduleRestart = (): void => {
+  const scheduleRestart = (delayMs: number = RESTART_DELAY_MS): void => {
     if (restartTimer !== null) return;
     restartTimer = setTimeout(() => {
       restartTimer = null;
       if (disposed || stopped || paused || !recognition) return;
       try {
         recognition.start();
+        restartFailures = 0;
+        restartStartFailure = null;
       } catch (error) {
-        failureReason =
+        restartStartFailure =
           error instanceof Error
             ? `Chrome Web Speech recognition could not restart: ${error.message}`
             : "Chrome Web Speech recognition could not restart.";
+        restartFailures += 1;
+        if (restartFailures < MAX_RESTART_ATTEMPTS) {
+          scheduleRestart(RESTART_DELAY_MS * restartFailures);
+        } else {
+          failureReason = failureReason || restartStartFailure;
+        }
       }
-    }, RESTART_DELAY_MS);
+    }, delayMs);
   };
 
   const start = (): void => {
@@ -230,10 +242,13 @@ export function createNativeTranscriptionCapture(options?: {
   const resume = (): void => {
     if (!recognition || stopped || disposed) return;
     paused = false;
+    restartFailures = 0;
     try {
       recognition.start();
     } catch {
-      failureReason = "Chrome Web Speech recognition could not resume.";
+      failureReason =
+        failureReason || "Chrome Web Speech recognition could not resume.";
+      scheduleRestart();
     }
   };
 

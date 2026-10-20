@@ -1,11 +1,10 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   readAppState,
   listAppState,
 } from "@agent-native/core/application-state";
 import { z } from "zod";
 
-/** Reject IDs that could escape via path traversal. */
 function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }

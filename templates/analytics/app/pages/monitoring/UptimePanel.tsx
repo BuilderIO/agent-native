@@ -92,8 +92,6 @@ export function UptimePanel() {
     { staleTime: 10_000 },
   );
 
-  // Aggregate stats for the whole list (status/uptime windows + 90-day timeline)
-  // power the list's per-row uptime bars and the "current status" overview.
   const { data: statsList } = useActionQuery<MonitorStats[]>(
     "get-monitor-stats",
     { timelineDays: 90 },
@@ -119,12 +117,12 @@ export function UptimePanel() {
     return map;
   }, [statsList]);
 
-  // Refresh list + detail when a background sweep or agent edit records a
-  // "monitors" change (useDbSync bumps the version this hook reads).
   useEffect(() => {
-    queryClient.invalidateQueries({ queryKey: ["action", "list-monitors"] });
-    queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "list-monitors"],
+    });
+    void queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
+    void queryClient.invalidateQueries({
       queryKey: ["action", "get-monitor-stats"],
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -135,7 +133,6 @@ export function UptimePanel() {
     [monitors, selectedId],
   );
 
-  // Mirror the current selection / form mode into application_state.
   useEffect(() => {
     if (statusPageParam !== null) {
       const spMode =
@@ -215,7 +212,6 @@ export function UptimePanel() {
     });
 
   const handleSaved = (saved: MonitorSummary) => {
-    // Replace the form entry with the monitor's detail so Back skips the form.
     showDetail(saved.id, { replace: true });
   };
 
@@ -302,19 +298,19 @@ export function UptimePanel() {
   };
 
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["action", "list-monitors"] });
-    queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "list-monitors"],
+    });
+    void queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
+    void queryClient.invalidateQueries({
       queryKey: ["action", "get-monitor-stats"],
     });
   };
 
-  // Status pages — config sub-view (list / create / edit)
   if (statusPageParam !== null) {
     return <StatusPagesView />;
   }
 
-  // Create / edit — full-page form
   if (isCreate || isEditing) {
     return (
       <>
@@ -334,7 +330,6 @@ export function UptimePanel() {
     );
   }
 
-  // Detail view
   if (selectedId) {
     return (
       <>

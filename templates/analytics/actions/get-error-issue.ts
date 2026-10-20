@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -15,7 +15,7 @@ function resolveScope() {
 
 export default defineAction({
   description:
-    "Get one captured error issue with its recent occurrence frequency, parsed/raw stack traces, source code snippets when available, breadcrumbs, tags/extra, and links to the session replays where the error happened. Use this to triage a specific issue and jump to the replay.",
+    "Get one captured error issue with its recent occurrence frequency, parsed/raw stack traces, source code snippets when available, breadcrumbs, tags/extra, and links to the session replays where the error happened. Use this to triage a specific issue and jump to the replay. Occurrences from QA/E2E test identities are included and marked testIdentity.",
   schema: z.object({
     id: z.string().describe("Error issue id (erriss_...)."),
     eventsLimit: z.coerce
@@ -28,7 +28,9 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  grounding: true,
   run: async (args) => {
     return getErrorIssue(resolveScope(), args.id, {
       eventsLimit: args.eventsLimit,

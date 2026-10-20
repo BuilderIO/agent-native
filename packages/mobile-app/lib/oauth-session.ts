@@ -4,13 +4,21 @@ import { clipsSessionOwnerKey } from "./clips-session";
 import { OAUTH_STATE_KEY } from "./oauth-storage";
 import { saveSessionToken } from "./session-token-store";
 
-// Custom-scheme callback URLs (agentnative://oauth-complete?…) don't parse
-// reliably via `new URL` in React Native, so read the query string directly.
 export function redirectParam(url: string, name: string): string | null {
   const queryStart = url.indexOf("?");
   if (queryStart < 0) return null;
   const value = new URLSearchParams(url.slice(queryStart + 1)).get(name);
   return value && value.length > 0 ? value : null;
+}
+
+export async function rememberOAuthState(url: string): Promise<void> {
+  const state = redirectParam(url, "state");
+  if (!state) return;
+  const existingState = await AsyncStorage.getItem(OAUTH_STATE_KEY);
+  if (existingState && existingState !== state) {
+    throw new Error("Another Google sign-in is already in progress.");
+  }
+  await AsyncStorage.setItem(OAUTH_STATE_KEY, state);
 }
 
 // Validate a callback `state` against the one stored before the browser opened,
@@ -23,9 +31,6 @@ export async function consumeOAuthStateMatches(
 ): Promise<boolean> {
   const expected = await AsyncStorage.getItem(OAUTH_STATE_KEY);
   const matches = Boolean(expected) && state === expected;
-  // Only consume on a match. A stale or forged callback must not clear the
-  // pending state, or the legitimate redirect that follows would fail to
-  // validate and leave the user signed out.
   if (matches) await AsyncStorage.removeItem(OAUTH_STATE_KEY);
   return matches;
 }
@@ -40,10 +45,12 @@ export async function resolveAndStoreOwnerKey(
 ): Promise<void> {
   if (!ownerKeyName || !baseUrl) return;
   try {
-    const res = await fetch(
-      `${baseUrl}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
-      { headers: { Accept: "application/json" } },
-    );
+    const res = await fetch(`${baseUrl}/_agent-native/auth/session`, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
     const data = (await res.json()) as { email?: unknown; orgId?: unknown };
     if (typeof data.email === "string" && data.email.trim()) {
       await AsyncStorage.setItem(
@@ -60,19 +67,11 @@ export async function resolveAndStoreOwnerKey(
 }
 
 export interface OAuthCompletionContext {
-  /** Session-token storage key (Clips uses its own; others the default). */
   tokenKey: string | null;
-  /** Owner-key storage key, set only for Clips. */
   ownerKeyName: string | null;
-  /** App origin, used to resolve the owner's email/orgId. */
   baseUrl: string | null;
 }
 
-// The single validated completion for an OAuth callback URL, shared by the iOS
-// inline auth-session path and the Android deep-link handler. Validates the
-// callback state, saves the session token under the given key, and resolves the
-// Clips owner key. Returns the token on success, or null if the callback is
-// invalid (no token or state mismatch).
 export async function completeOAuthCallback(
   callbackUrl: string,
   ctx: OAuthCompletionContext,

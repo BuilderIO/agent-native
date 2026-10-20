@@ -1,24 +1,48 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  appBasePath,
+  WorkspaceAppMountResolutionError,
+} from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAppWindow,
   IconBrandApple,
-  IconBrandGithub,
   IconBrandWindows,
+  IconCheck,
+  IconCopy,
   IconDownload,
   IconTerminal2,
+  type TablerIcon,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { isBetaDocsDeployment } from "../components/deployment-links";
 import { trackEvent } from "../components/TemplateCard";
+import { Button } from "../components/website-redesign/ds/button";
+import {
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
+import { withDefaultSocialImage } from "../seo";
 
-const LATEST_JSON_URL = `${appBasePath()}/api/desktop-latest.json`;
-const RELEASES =
-  "https://github.com/BuilderIO/agent-native/releases?q=Agent-Native";
+export const meta = () =>
+  withDefaultSocialImage([
+    { title: "Download — Agent-Native" },
+    {
+      name: "description",
+      content:
+        "Download Agent-Native for macOS, Windows, or Linux. Try open source agentic apps for meetings, design, presentations, analytics, email, and more.",
+    },
+  ]);
+
+const LATEST_JSON_PATH = "/api/desktop-latest.json";
 const OPEN_DESKTOP_URL = "agentnative://open";
-const MANIFEST_STORAGE_KEY = "agent-native-desktop-download-manifest-v1";
+const MANIFEST_STORAGE_KEY = "agent-native-desktop-download-manifest-v2";
+const CREATE_COMMAND = `npx @agent-native/core@latest create my-platform
+cd my-platform
+pnpm install && pnpm dev`;
 
 type Platform = "mac" | "windows" | "linux";
+type DesktopReleaseChannel = "production" | "nightly";
 type DesktopAssetKind =
   | "mac-arm64"
   | "mac-x64"
@@ -33,12 +57,14 @@ type DesktopAssetKind =
 
 interface DownloadOption {
   labelKey: string;
+  gridLabelKey: string;
+  ext: string;
   assetKinds: readonly DesktopAssetKind[];
 }
 
 interface PlatformInfo {
   name: string;
-  icon: typeof IconBrandApple;
+  icon: TablerIcon;
   primary: DownloadOption;
   alternatives?: readonly DownloadOption[];
   note?: string;
@@ -50,11 +76,15 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     icon: IconBrandApple,
     primary: {
       labelKey: "downloadPage.platforms.mac.primary",
+      gridLabelKey: "downloadPage.platforms.mac.gridPrimary",
+      ext: "dmg",
       assetKinds: ["mac-arm64"],
     },
     alternatives: [
       {
         labelKey: "downloadPage.platforms.mac.alternative",
+        gridLabelKey: "downloadPage.platforms.mac.gridAlternative",
+        ext: "dmg",
         assetKinds: ["mac-x64"],
       },
     ],
@@ -64,11 +94,15 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     icon: IconBrandWindows,
     primary: {
       labelKey: "downloadPage.platforms.windows.primary",
+      gridLabelKey: "downloadPage.platforms.windows.gridPrimary",
+      ext: "exe",
       assetKinds: ["windows-x64"],
     },
     alternatives: [
       {
         labelKey: "downloadPage.platforms.windows.alternative",
+        gridLabelKey: "downloadPage.platforms.windows.gridAlternative",
+        ext: "exe",
         assetKinds: ["windows-arm64"],
       },
     ],
@@ -79,15 +113,21 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     icon: IconTerminal2,
     primary: {
       labelKey: "downloadPage.platforms.linux.primary",
+      gridLabelKey: "downloadPage.platforms.linux.gridPrimary",
+      ext: "tar.gz",
       assetKinds: ["linux-tar-x64", "linux-tar-arm64"],
     },
     alternatives: [
       {
         labelKey: "downloadPage.platforms.linux.appImage",
+        gridLabelKey: "downloadPage.platforms.linux.gridAppImage",
+        ext: "AppImage",
         assetKinds: ["linux-appimage-x64", "linux-appimage-arm64"],
       },
       {
         labelKey: "downloadPage.platforms.linux.deb",
+        gridLabelKey: "downloadPage.platforms.linux.gridDeb",
+        ext: "deb",
         assetKinds: ["linux-deb-x64", "linux-deb-arm64"],
       },
     ],
@@ -105,6 +145,11 @@ interface Manifest {
     size: number;
     kind: string;
   }[];
+}
+
+interface ConfirmedDownload {
+  asset: Manifest["assets"][number];
+  label: string;
 }
 
 function isManifestAsset(value: unknown): value is Manifest["assets"][number] {
@@ -130,10 +175,14 @@ function isManifest(value: unknown): value is Manifest {
   );
 }
 
-function readCachedManifest(): Manifest | null {
+function manifestStorageKey(channel: DesktopReleaseChannel): string {
+  return `${MANIFEST_STORAGE_KEY}-${channel}`;
+}
+
+function readCachedManifest(channel: DesktopReleaseChannel): Manifest | null {
   if (typeof window === "undefined") return null;
   try {
-    const cached = window.localStorage.getItem(MANIFEST_STORAGE_KEY);
+    const cached = window.localStorage.getItem(manifestStorageKey(channel));
     if (!cached) return null;
     const parsed: unknown = JSON.parse(cached);
     return isManifest(parsed) ? parsed : null;
@@ -142,10 +191,16 @@ function readCachedManifest(): Manifest | null {
   }
 }
 
-function writeCachedManifest(manifest: Manifest): void {
+function writeCachedManifest(
+  channel: DesktopReleaseChannel,
+  manifest: Manifest,
+): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(MANIFEST_STORAGE_KEY, JSON.stringify(manifest));
+    window.localStorage.setItem(
+      manifestStorageKey(channel),
+      JSON.stringify(manifest),
+    );
   } catch {
     // Storage can be unavailable in private browsing or locked-down contexts.
   }
@@ -168,11 +223,99 @@ function pickAsset(manifest: Manifest | null, option: DownloadOption) {
   return null;
 }
 
+function ChannelToggle({
+  channel,
+  onChange,
+}: {
+  channel: DesktopReleaseChannel;
+  onChange: (next: DesktopReleaseChannel) => void;
+}) {
+  const t = useT();
+  const options: { value: DesktopReleaseChannel; label: string }[] = [
+    { value: "production", label: t("downloadPage.stable") },
+    { value: "nightly", label: t("downloadPage.nightly") },
+  ];
+
+  return (
+    <div className="inline-flex items-center gap-0.5 rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border-dim)] p-[3px]">
+      {options.map(({ value, label }) => {
+        const active = channel === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(value)}
+            className={[
+              "cursor-pointer whitespace-nowrap rounded-[calc(var(--b-radius)-2px)] border-none px-[var(--spacing-4)] py-[var(--spacing-2)]",
+              "font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-semibold tracking-[0.02em] transition-colors duration-150",
+              active
+                ? "bg-[var(--b-text-primary)] text-[var(--b-bg-page)]"
+                : "bg-transparent text-[var(--b-text-secondary)] hover:text-[var(--b-text-primary)]",
+            ].join(" ")}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function CreateCommandBlock() {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleCopy() {
+    void navigator.clipboard.writeText(CREATE_COMMAND);
+    trackEvent("copy install command", { command: CREATE_COMMAND });
+    setCopied(true);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="group relative">
+      <button
+        type="button"
+        onClick={handleCopy}
+        aria-label={t(copied ? "common.copied" : "common.copyCommand")}
+        className="absolute top-3 right-3 inline-flex h-8 w-8 items-center justify-center rounded-[var(--b-radius)] text-[var(--b-text-secondary)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:text-[var(--b-text-primary)] focus-visible:opacity-100"
+      >
+        {copied ? (
+          <IconCheck size={16} aria-hidden="true" />
+        ) : (
+          <IconCopy size={16} aria-hidden="true" />
+        )}
+      </button>
+      <pre className="m-0 overflow-x-auto rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-inset)] py-4 pr-12 pl-4 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-paragraph-2)] leading-[1.9] text-[var(--b-text-secondary)]">
+        {CREATE_COMMAND.split("\n").map((line) => (
+          <div key={line}>
+            <span aria-hidden="true" className="text-[var(--b-text-muted)]">
+              ${" "}
+            </span>
+            {line}
+          </div>
+        ))}
+      </pre>
+    </div>
+  );
+}
+
 export default function DownloadPage() {
   const t = useT();
   const [platform, setPlatform] = useState<Platform>("mac");
+  const [channel, setChannel] = useState<DesktopReleaseChannel>(() =>
+    isBetaDocsDeployment() ? "nightly" : "production",
+  );
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
+  const [mountResolutionError, setMountResolutionError] = useState(false);
+  const [manifestRequest, setManifestRequest] = useState(0);
+  const [confirmedDownload, setConfirmedDownload] =
+    useState<ConfirmedDownload | null>(null);
   const [isDesktopApp, setIsDesktopApp] = useState(false);
 
   useEffect(() => {
@@ -182,12 +325,29 @@ export default function DownloadPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const cachedManifest = readCachedManifest();
-    if (cachedManifest) {
-      setManifest(cachedManifest);
+    const cachedManifest = readCachedManifest(channel);
+    setManifest(cachedManifest);
+    setManifestError(false);
+    setMountResolutionError(false);
+    let manifestUrl: string;
+    try {
+      const latestJsonUrl = `${appBasePath()}${LATEST_JSON_PATH}`;
+      manifestUrl =
+        channel === "nightly"
+          ? `${latestJsonUrl}?channel=nightly`
+          : latestJsonUrl;
+    } catch (error) {
+      if (!(error instanceof WorkspaceAppMountResolutionError)) throw error;
+      if (!cachedManifest) {
+        setManifestError(true);
+        setMountResolutionError(true);
+      }
+      return () => {
+        cancelled = true;
+      };
     }
 
-    fetch(LATEST_JSON_URL)
+    fetch(manifestUrl)
       .then((response) =>
         response.ok ? response.json() : Promise.reject(new Error("failed")),
       )
@@ -196,7 +356,7 @@ export default function DownloadPage() {
         if (!cancelled) {
           setManifest(json);
           setManifestError(false);
-          writeCachedManifest(json);
+          writeCachedManifest(channel, json);
         }
       })
       .catch(() => {
@@ -205,8 +365,9 @@ export default function DownloadPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [channel, manifestRequest]);
 
+  const isNightly = channel === "nightly";
   const info = PLATFORMS[platform];
   const downloads = useMemo(() => {
     const options = [info.primary, ...(info.alternatives ?? [])];
@@ -220,152 +381,311 @@ export default function DownloadPage() {
   const primaryAsset = primaryDownload?.asset ?? null;
   const alternativeDownloads = downloads.filter(
     (download) =>
-      download.option !== primaryDownload?.option &&
-      (download.asset || !manifest || manifestError),
+      download.option !== primaryDownload?.option && Boolean(download.asset),
   );
-  const releaseStatus = manifest
-    ? t("downloadPage.latestRelease", { version: manifest.version })
+  const bestAlternative = alternativeDownloads[0] ?? null;
+  const releaseStatus = mountResolutionError
+    ? null
     : manifestError
       ? t("downloadPage.loadError")
-      : t("downloadPage.checkingRelease");
-  const primaryHref = primaryAsset?.url ?? RELEASES;
+      : !manifest
+        ? t("downloadPage.checkingRelease")
+        : null;
   const primaryLabel = primaryAsset
     ? t(primaryDownload?.option.labelKey ?? info.primary.labelKey)
-    : manifestError || !manifest
-      ? t("downloadPage.viewInstallersOnGithub")
-      : t(primaryDownload?.option.labelKey ?? info.primary.labelKey);
+    : mountResolutionError
+      ? t("downloadPage.unavailable")
+      : manifestError
+        ? t("downloadPage.retry")
+        : !manifest
+          ? t("downloadPage.checkingRelease")
+          : t("downloadPage.unavailable");
   const desktopDownloadLabel = primaryAsset
     ? t("downloadPage.downloadInstaller")
-    : t("downloadPage.viewInstallers");
+    : primaryLabel;
+  const hasPrimaryDownloadStarted =
+    confirmedDownload?.asset.url === primaryAsset?.url;
+  const downloadButtonLabel = hasPrimaryDownloadStarted
+    ? t("downloadPage.downloadStarted")
+    : isDesktopApp
+      ? desktopDownloadLabel
+      : primaryLabel;
+  const isManifestLoading = !manifest && !manifestError;
 
-  function handleDownload(label: string) {
-    trackEvent("desktop download", { platform, label });
+  const allPlatformDownloads = useMemo(() => {
+    return (Object.keys(PLATFORMS) as Platform[]).map((key) => {
+      const platformInfo = PLATFORMS[key];
+      const options = [
+        platformInfo.primary,
+        ...(platformInfo.alternatives ?? []),
+      ];
+      return {
+        key,
+        info: platformInfo,
+        rows: options.map((option) => ({
+          option,
+          asset: pickAsset(manifest, option),
+        })),
+      };
+    });
+  }, [manifest]);
+
+  function handleChannelChange(nextChannel: DesktopReleaseChannel) {
+    if (nextChannel === channel) return;
+    setManifest(null);
+    setManifestError(false);
+    setConfirmedDownload(null);
+    setChannel(nextChannel);
+  }
+
+  function handleRetry() {
+    setManifest(null);
+    setManifestError(false);
+    setConfirmedDownload(null);
+    setManifestRequest((request) => request + 1);
+  }
+
+  function handleDownload(asset: Manifest["assets"][number], label: string) {
+    setConfirmedDownload({ asset, label });
+    trackEvent("desktop download", { channel, platform, label });
+  }
+
+  function handleGridDownload(forPlatform: Platform, label: string) {
+    trackEvent("desktop download", { channel, platform: forPlatform, label });
   }
 
   function handleOpenDesktop() {
     trackEvent("desktop open", { platform });
   }
 
+  const primaryButtonContent = isManifestLoading ? (
+    <span
+      aria-hidden="true"
+      className="h-4 w-32 animate-pulse rounded-full bg-current/20 motion-reduce:animate-none"
+    />
+  ) : hasPrimaryDownloadStarted ? (
+    <>
+      <IconCheck size={18} aria-hidden="true" />
+      <span className="truncate">{downloadButtonLabel}</span>
+    </>
+  ) : (
+    <>
+      <IconDownload size={18} aria-hidden="true" />
+      <span className="truncate">{downloadButtonLabel}</span>
+    </>
+  );
+
   return (
-    <main className="mx-auto max-w-[960px] px-6 py-20">
-      <div className="mb-14 text-center">
-        <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-          {t("downloadPage.title")}
-        </h1>
-        <p className="mx-auto max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-          {t("downloadPage.body")}
-        </p>
-      </div>
-
-      {/* Platform selector */}
-      <div className="mb-2 flex justify-center gap-2">
-        {(Object.keys(PLATFORMS) as Platform[]).map((p) => {
-          const plt = PLATFORMS[p];
-          const Icon = plt.icon;
-          const active = platform === p;
-          return (
-            <button
-              key={p}
-              onClick={() => setPlatform(p)}
-              aria-label={plt.name}
-              className={`group flex items-center justify-center rounded-lg p-4 ${
-                active
-                  ? "text-[var(--fg)]"
-                  : "text-[var(--fg-secondary)] opacity-40 hover:opacity-65"
-              }`}
-            >
-              <Icon size={24} />
-              <span className="sr-only">{plt.name}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Download section */}
-      <div className="mx-auto mt-8 max-w-2xl text-center">
-        <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-          {isDesktopApp && (
-            <a
-              href={OPEN_DESKTOP_URL}
-              onClick={handleOpenDesktop}
-              className="inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
-            >
-              <IconAppWindow size={18} />
-              {t("downloadPage.openDesktop")}
-            </a>
-          )}
-
-          <a
-            href={primaryHref}
-            onClick={() =>
-              handleDownload(
-                primaryDownload?.option.labelKey
-                  ? t(primaryDownload.option.labelKey)
-                  : t(info.primary.labelKey),
-              )
-            }
-            className={
-              isDesktopApp
-                ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
-                : "inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
-            }
-          >
-            <IconDownload size={18} />
-            {isDesktopApp ? desktopDownloadLabel : primaryLabel}
-          </a>
-        </div>
-
-        {alternativeDownloads.length > 0 && (
-          <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2">
-            {alternativeDownloads.map(({ option, asset }) => (
-              <a
-                key={option.labelKey}
-                href={asset?.url ?? RELEASES}
-                onClick={() => handleDownload(t(option.labelKey))}
-                className="text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:underline"
-              >
-                {t(option.labelKey)}
-              </a>
-            ))}
-          </div>
-        )}
-
-        <p className="mt-4 text-xs text-[var(--fg-secondary)]">
-          {releaseStatus}
-          {info.note && <span className="block mt-1">{t(info.note)}</span>}
-        </p>
-      </div>
-
-      {/* Run from source */}
-      <div className="mt-16 mx-auto max-w-2xl">
-        <div className="rounded-lg border border-[var(--docs-border)] px-6 py-5">
-          <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-            <IconTerminal2 size={16} />
-            {t("downloadPage.runFromSource")}
-          </h4>
-          <p className="mb-3 text-xs text-[var(--fg-secondary)]">
-            {t("downloadPage.runFromSourceBody")}
+    <div className="builder-brand-tokens">
+      <PageSection>
+        <GridInner className="relative flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-10)] pt-[var(--spacing-40)] pb-[var(--spacing-24)] text-center">
+          <h1 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-1)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)] mobile:leading-[1.2]">
+            {t("downloadPage.title")}
+            {isNightly && <> {t("downloadPage.nightly")}</>}
+          </h1>
+          <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("downloadPage.body")}
           </p>
-          <pre className="overflow-x-auto rounded-md bg-[var(--docs-code-bg,rgba(0,0,0,0.04))] px-4 py-3 text-xs">
-            <code>{`npx @agent-native/core@latest create my-platform
-cd my-platform
-pnpm install && pnpm dev`}</code>
-          </pre>
-        </div>
-      </div>
 
-      {/* All releases link */}
-      <div className="mt-12 text-center">
-        <a
-          href="https://github.com/BuilderIO/agent-native/releases"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-        >
-          <IconBrandGithub size={16} />
-          {t("downloadPage.viewAllReleases")}
-        </a>
-      </div>
-    </main>
+          <div className="mt-[var(--spacing-4)] flex flex-col items-center gap-[var(--spacing-3)]">
+            <div className="flex flex-wrap items-center justify-center gap-[var(--spacing-3)]">
+              {isDesktopApp && (
+                <Button
+                  variant="cta"
+                  icon={null}
+                  href={OPEN_DESKTOP_URL}
+                  onClick={handleOpenDesktop}
+                >
+                  <IconAppWindow size={18} aria-hidden="true" />
+                  {t("downloadPage.openDesktop")}
+                </Button>
+              )}
+
+              {primaryAsset ? (
+                <Button
+                  variant={isDesktopApp ? "secondary" : "cta"}
+                  icon={null}
+                  href={primaryAsset.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() =>
+                    handleDownload(
+                      primaryAsset,
+                      primaryDownload?.option.labelKey
+                        ? t(primaryDownload.option.labelKey)
+                        : t(info.primary.labelKey),
+                    )
+                  }
+                  className="w-full max-w-[18rem]"
+                >
+                  {primaryButtonContent}
+                </Button>
+              ) : mountResolutionError ? (
+                <p
+                  role="alert"
+                  className="max-w-[18rem] text-[length:var(--b-t-label-2)] text-[var(--b-text-secondary)]"
+                >
+                  {t("downloadPage.mountError")}
+                </p>
+              ) : (
+                <Button
+                  variant={isDesktopApp ? "secondary" : "cta"}
+                  icon={null}
+                  onClick={manifestError ? handleRetry : undefined}
+                  disabled={!manifestError}
+                  aria-label={primaryLabel}
+                  aria-busy={isManifestLoading}
+                  className="w-full max-w-[18rem]"
+                >
+                  {primaryButtonContent}
+                </Button>
+              )}
+            </div>
+
+            {confirmedDownload && (
+              <p
+                aria-live="polite"
+                className="mt-1 text-xs text-[var(--b-text-secondary)]"
+              >
+                <span className="sr-only">
+                  {t("downloadPage.downloadStarted")}
+                </span>
+                <a
+                  href={confirmedDownload.asset.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() =>
+                    handleDownload(
+                      confirmedDownload.asset,
+                      confirmedDownload.label,
+                    )
+                  }
+                  className="text-[var(--b-text-secondary)] underline underline-offset-2 hover:text-[var(--b-text-primary)]"
+                >
+                  {t("downloadPage.downloadAgain")}
+                </a>
+              </p>
+            )}
+
+            <div className="flex min-h-4 items-center gap-[var(--spacing-3)] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] text-[var(--b-text-secondary)]">
+              {releaseStatus && <span>{releaseStatus}</span>}
+              {releaseStatus && bestAlternative && (
+                <span
+                  aria-hidden="true"
+                  className="h-[11px] w-px bg-[var(--b-border-default)]"
+                />
+              )}
+              {bestAlternative && (
+                <a
+                  href={bestAlternative.asset!.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() =>
+                    handleDownload(
+                      bestAlternative.asset!,
+                      t(bestAlternative.option.labelKey),
+                    )
+                  }
+                  className="font-[family-name:var(--b-font-sans)] text-[var(--b-text-secondary)] no-underline hover:text-[var(--b-text-primary)]"
+                >
+                  {t(bestAlternative.option.labelKey)}
+                </a>
+              )}
+            </div>
+            {info.note && (
+              <p className="text-[length:var(--b-t-label-2)] text-[var(--b-text-secondary)]">
+                {t(info.note)}
+              </p>
+            )}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* All platforms — home page three-column grid */}
+      <PageSection>
+        <GridInner className="flex flex-wrap items-center gap-[var(--spacing-4)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-5)]">
+          <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-semibold tracking-[0.02em] text-[var(--b-text-secondary)] uppercase">
+            {t("downloadPage.allPlatforms")}
+          </span>
+          <div className="flex-1" />
+          <ChannelToggle channel={channel} onChange={handleChannelChange} />
+        </GridInner>
+
+        <GridInner className="border-t border-solid border-[var(--b-border-default)]">
+          <div className="grid grid-cols-3 [&>*:not(:last-child)]:border-r [&>*:not(:last-child)]:border-solid [&>*:not(:last-child)]:border-[var(--b-border-subtle)] mobile:grid-cols-1 mobile:[&>*:not(:last-child)]:border-r-0 mobile:[&>*:not(:last-child)]:border-b mobile:[&>*:not(:last-child)]:border-solid mobile:[&>*:not(:last-child)]:border-[var(--b-border-subtle)]">
+            {allPlatformDownloads.map(({ key, info: platformInfo, rows }) => {
+              const Icon = platformInfo.icon;
+              return (
+                <div
+                  key={key}
+                  className="flex flex-col gap-[var(--spacing-5)] p-[var(--spacing-8)]"
+                >
+                  <Icon
+                    size={24}
+                    stroke={1.5}
+                    className="text-[var(--b-text-primary)]"
+                  />
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-6)] font-medium text-[var(--b-text-primary)]">
+                    {platformInfo.name}
+                  </h3>
+                  <div className="-mx-[var(--spacing-3)] flex flex-col items-stretch gap-0.5">
+                    {rows.map(({ option, asset }) => (
+                      <a
+                        key={option.labelKey}
+                        href={asset?.url}
+                        target={asset ? "_blank" : undefined}
+                        rel={asset ? "noreferrer" : undefined}
+                        aria-disabled={!asset}
+                        onClick={
+                          asset
+                            ? () =>
+                                handleGridDownload(key, t(option.gridLabelKey))
+                            : undefined
+                        }
+                        className={[
+                          "flex items-center gap-[var(--spacing-2)] rounded-[var(--b-radius)] px-[var(--spacing-3)] py-[var(--spacing-2)] no-underline transition-colors duration-150",
+                          asset
+                            ? "text-[var(--b-text-secondary)] hover:text-[var(--b-text-primary)]"
+                            : "pointer-events-none text-[var(--b-text-muted)] opacity-50",
+                        ].join(" ")}
+                      >
+                        <span className="font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)]">
+                          {t(option.gridLabelKey)}
+                        </span>
+                        <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] text-[var(--b-text-muted)]">
+                          {option.ext}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                  {platformInfo.note && (
+                    <p className="m-0 mt-auto text-[length:var(--b-t-label-2)] text-[var(--b-text-secondary)]">
+                      {t(platformInfo.note)}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* Build your own */}
+      <PageSection>
+        <GridInner className="grid grid-cols-3 gap-[var(--spacing-10)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-20)] mobile:grid-cols-1 mobile:gap-[var(--spacing-6)]">
+          <div className="flex flex-col gap-[var(--spacing-3)]">
+            <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+              {t("downloadPage.runFromSource")}
+            </h2>
+            <p className="m-0 max-w-[300px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.5] text-[var(--b-text-secondary)]">
+              {t("downloadPage.runFromSourceBody")}
+            </p>
+          </div>
+          <div className="col-span-2 mobile:col-span-1">
+            <CreateCommandBlock />
+          </div>
+        </GridInner>
+      </PageSection>
+    </div>
   );
 }

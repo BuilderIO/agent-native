@@ -3,14 +3,9 @@ import { createCoreRoutesPlugin } from "@agent-native/core/server";
 import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";
 
 export default createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
   anonymousOwner: resolvePlanAnonymousOwner,
-  mcpConnectServerName: "plan",
-  envKeys: [
-    { key: "DATABASE_URL", label: "Database URL", required: false },
-    {
-      key: "DATABASE_AUTH_TOKEN",
-      label: "Database Auth Token",
-      required: false,
-    },
-  ],
+  anonymousApplicationState: true,
+  mcp: { serverName: "plan" },
+  envKeys: [{ key: "DATABASE_URL", label: "Database URL", required: false }],
 });

@@ -125,11 +125,11 @@ export function renderRoadmap(catalog: ProductCatalog) {
   );
 
   const lines = [
-    "# Agent Native Content public roadmap",
+    "# Agent-Native Content public roadmap",
     "",
     generatedNotice(),
     "",
-    "Agent Native Content brings documents, data, connected sources, collaboration, and agent work into one durable place. People and agents work on the same real objects through the same permissions and operations. The result is a workspace that can begin as a Page, grow into a system, and remain understandable, portable, and recoverable as more people and automations become involved.",
+    "Agent-Native Content brings documents, data, connected sources, collaboration, and agent work into one durable place. People and agents work on the same real objects through the same permissions and operations. The result is a workspace that can begin as a Page, grow into a system, and remain understandable, portable, and recoverable as more people and automations become involved.",
     "",
     "## How to read this roadmap",
     "",
@@ -222,7 +222,7 @@ export function renderEncyclopedia(catalog: ProductCatalog) {
   }
 
   const lines = [
-    "# Agent Native Content capability encyclopedia",
+    "# Agent-Native Content capability encyclopedia",
     "",
     generatedNotice(),
     "",
@@ -645,9 +645,9 @@ function validateCatalog(
         `catalog: expected 32 Features, found ${catalog.features.length}`,
       );
     }
-    if (catalog.capabilities.length !== 124) {
+    if (catalog.capabilities.length !== 125) {
       errors.push(
-        `catalog: expected 124 Capabilities, found ${catalog.capabilities.length}`,
+        `catalog: expected 125 Capabilities, found ${catalog.capabilities.length}`,
       );
     }
     const incrementCount = catalog.features.reduce(

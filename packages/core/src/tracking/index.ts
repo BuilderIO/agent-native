@@ -9,11 +9,25 @@ export {
   type TrackingSource,
 } from "./registry.js";
 export { registerBuiltinProviders } from "./providers.js";
+export { readAnalyticsAnonymousId } from "../server/attribution.js";
+export {
+  AGENT_NATIVE_ACTION_EVENTS,
+  AGENT_NATIVE_LIFECYCLE_EVENTS,
+  trackActionEvent,
+  trackLifecycleEvent,
+  type AgentNativeActionEventName,
+  type AgentNativeLifecycleEventName,
+} from "./lifecycle.js";
 export {
   captureException,
   type TrackingExceptionContext,
   type TrackingExceptionLevel,
 } from "./error-capture.js";
+export {
+  classifyTrackingFailure,
+  type TrackingFailureCategory,
+} from "./failure-category.js";
+export { countOutcome } from "./failure-counters.js";
 export {
   errorToPostHogExceptionProperties,
   parseStackFrames,

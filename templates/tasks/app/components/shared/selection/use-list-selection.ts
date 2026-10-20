@@ -17,7 +17,10 @@ function useSelectionAppStateSync(
   selectionMode: boolean,
   selectedIds: Set<string>,
 ) {
-  const selectedIdsArray = Array.from(selectedIds);
+  const selectedIdsArray = useMemo(
+    () => Array.from(selectedIds),
+    [selectedIds],
+  );
 
   useEffect(() => {
     if (appStateKey === null) return;
@@ -31,7 +34,7 @@ function useSelectionAppStateSync(
     void setClientAppState(scopedKey, value, {
       requestSource: TAB_ID,
     });
-  }, [appStateKey, selectionMode, selectedIdsArray.join("\0")]);
+  }, [appStateKey, selectionMode, selectedIdsArray]);
 }
 
 export type ListSelectionState<T extends { id: string }> = {

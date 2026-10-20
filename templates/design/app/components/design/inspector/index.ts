@@ -13,14 +13,18 @@ export {
 } from "./BreakpointOverrideIndicator";
 export {
   AutoLayoutMatrix,
+  MarginProperties,
   type AutoLayoutDirection,
   type AutoLayoutFlow,
   type AutoLayoutGridTrackSizing,
   type AutoLayoutGridValue,
+  type AutoLayoutMargin,
+  type AutoLayoutMarginTextValues,
   type AutoLayoutMatrixLabels,
   type AutoLayoutMatrixProps,
   type AutoLayoutMatrixValue,
   type AutoLayoutPadding,
+  type AutoLayoutSidesMixed,
   type AutoLayoutSizing,
   type AutoLayoutSizingAxis,
   type AutoLayoutWrap,
@@ -64,12 +68,18 @@ export {
   type PointerGestureState,
 } from "./DesignColorPicker";
 export {
+  parseVarReference,
+  tokenVarCss,
+  type DesignColorToken,
+  type DesignColorTokens,
+} from "./color-picker-tokens";
+export {
   allFrameSizePresets,
   FRAME_SIZE_PRESET_CATEGORIES,
   type FrameSizePreset,
   type FrameSizePresetCategory,
   type FrameSizePresetCategoryKey,
-} from "./frame-size-presets";
+} from "@shared/frame-size-presets";
 export {
   GradientEditor,
   defaultGradient,

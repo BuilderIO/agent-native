@@ -2,6 +2,7 @@ import {
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   dataInsightsWidgetResultSchema,
   defineAction,
+  fail,
 } from "@agent-native/core";
 import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -29,6 +30,8 @@ export default defineAction({
     form: z.string().optional().describe("Form ID (legacy alias for formId)"),
   }),
   outputSchema: dataInsightsWidgetResultSchema,
+  outputErrorStrategy: "strict",
+  mcpOutputSchema: true,
   chatUI: {
     renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
     title: "Form preview",
@@ -38,10 +41,14 @@ export default defineAction({
   readOnly: true,
   run: async (args) => {
     const formId = args.formId ?? args.form;
-    if (!formId) throw new Error("formId is required");
+    if (!formId) fail("formId is required", { errorCode: "form_id_required" });
 
     const access = await resolveAccess("form", formId);
-    if (!access) throw new Error(`Form ${formId} not found`);
+    if (!access)
+      fail(`Form ${formId} not found`, {
+        errorCode: "form_not_found",
+        statusCode: 404,
+      });
 
     const form = access.resource as typeof schema.forms.$inferSelect;
     const fields = JSON.parse(form.fields) as FormField[];

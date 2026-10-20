@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -101,13 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
 `source` ist entweder das `ctx` einer Action, direkt durchgereicht, oder ein Meta-Objekt `{ userId, anonymousId, sessionId }` für Aufrufer ohne `ctx`.
 
-Die Browser-Session muss der Aufrufer nicht selbst mitgeben: Sie stammt aus dem umgebenden Request-Kontext (`RequestContext.browserSessionId`, gesetzt aus dem Header `X-Agent-Native-Session-Id`, den Action-Client, Chat und das Browser-`track()` senden). Dieselbe Sitzung wird dadurch korreliert, egal ob die Oberfläche oder der Agent das Ereignis ausgelöst hat. Jeder Anbieter bildet sie auf sein eigenes Session-Feld ab: `$session_id` bei PostHog, wodurch das Ereignis mit dem Session Replay verknüpft wird; eine `session_id`-Eigenschaft bei Mixpanel und Amplitude; ein `sessionId` auf oberster Ebene bei Webhooks und Agent Native Analytics. Für Aufrufer ohne Browser (Cron, CLI, MCP, A2A) fehlt sie, und ein `sessionId` im Meta-Objekt überschreibt sie.
+Die Browser-Session muss der Aufrufer nicht selbst mitgeben: Sie stammt aus dem umgebenden Request-Kontext (`RequestContext.browserSessionId`, gesetzt aus dem Header `X-Agent-Native-Session-Id`, den Action-Client, Chat und das Browser-`track()` senden). Dieselbe Sitzung wird dadurch korreliert, egal ob die Oberfläche oder der Agent das Ereignis ausgelöst hat. Jeder Anbieter bildet sie auf sein eigenes Session-Feld ab: `$session_id` bei PostHog, wodurch das Ereignis mit dem Session Replay verknüpft wird; eine `session_id`-Eigenschaft bei Mixpanel und Amplitude; ein `sessionId` auf oberster Ebene bei Webhooks und Agent-Native Analytics. Für Aufrufer ohne Browser (Cron, CLI, MCP, A2A) fehlt sie, und ein `sessionId` im Meta-Objekt überschreibt sie.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -116,7 +116,7 @@ Identifizieren Sie einen Benutzer anhand von Merkmalen. Weiterleitung an Anbiete
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 Benötigen Sie ein benutzerdefiniertes Backend, die Anbieterregistrierung API oder die Batch-/Singleton-Interna? Siehe [Advanced: custom providers & internals](#advanced) am Ende.
@@ -194,7 +194,7 @@ Hauptunterschiede zum [server `track()`](#track):
 - **Fire-and-forget.** Es blockiert niemals den UI, löst niemals Netzwerkfehler aus und verschluckt sie.
 - **Authentifiziert, nur Erstanbieter.** Die Route erfordert eine Sitzung und einen Same-Origin/CSRF-Marker (vom Helfer automatisch festgelegt), sodass sie nicht als offenes Analyse-Relay verwendet werden kann. `name` ist auf 200 Zeichen und `properties` auf ~16 KB begrenzt; Übergroße oder fehlerhafte Nutzlasten werden abgelehnt.
 
-Dies unterscheidet sich von der internen Browser-Telemetrie des Frameworks (`trackEvent()` / automatische Seitenaufrufe – siehe [Browser defaults](#browser-defaults) unten), die die eigene Produktanalyse von Agent Native unterstützt. Verwenden Sie `track()` für die eigenen Analyseereignisse Ihrer App, die Ihre konfigurierten Anbieter erreichen sollen.
+Dies unterscheidet sich von der internen Browser-Telemetrie des Frameworks (`trackEvent()` / automatische Seitenaufrufe – siehe [Browser defaults](#browser-defaults) unten), die die eigene Produktanalyse von Agent-Native unterstützt. Verwenden Sie `track()` für die eigenen Analyseereignisse Ihrer App, die Ihre konfigurierten Anbieter erreichen sollen.
 
 ## Session Replay {#session-replay}
 
@@ -257,6 +257,12 @@ not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
 diagnostics shaping, and access policy inside the Analytics template.
 
 Nur für die lokale Entwicklung kann Analytics auf begrenzte SQL-Inline-Chunks zurückgreifen, wenn kein privater Blob-Speicher verfügbar ist. Produktions-Deployments sollten privaten oder verschlüsselten Blob-Speicher konfigurieren, anstatt sich für Replay-Payloads auf Postgres zu verlassen.
+
+## Testidentitäten {#test-identities}
+
+QA- und E2E-Konten funktionieren überall weiter, werden aber nie mitgezählt. `track()`, `identify()`, Browser-Tracking und Session Replay verwerfen Ereignisse einer Testidentität, bevor ein Anbieter sie sieht. Server-Exceptions einer Testidentität bleiben erhalten, werden mit `test_identity: true` markiert und nur an Anbieter geliefert, die `acceptsTestIdentityExceptions` setzen (Agent-Native Analytics). So bleiben sie abfragbar, ohne jemanden zu alarmieren. Auch E-Mails ohne Anmeldebezug an eine Testidentität werden unterdrückt: `sendEmail()` gibt `{ status: "suppressed", reason: "test-identity" }` zurück und protokolliert den Versuch, während Anmelde-, Bestätigungs-, Passwort-Reset- und Einladungs-E-Mails weiterhin versendet werden. Das gilt für jede Empfängerzeile: Testidentitäten in `cc` und `bcc` werden ebenfalls entfernt und protokolliert. Ist `to` eine Testidentität, rückt ein echter `cc`-Empfänger an ihre Stelle; ein `bcc`-Empfänger nie, da die übrigen `bcc`-Empfänger ihn sonst sähen. Bleibt kein Empfänger in `to` oder `cc` übrig, wird der gesamte Versand unterdrückt und jede verworfene Adresse protokolliert.
+
+`isTestIdentity(email)` aus `@agent-native/core/server` ist die einzige Regel. Sie erkennt die reservierten Domains `.test`, `.invalid`, `.localhost` und `.example` sowie die QA-Markierung `+autoz`. Weitere Identitäten legst du pro Deployment mit `AGENT_NATIVE_TEST_IDENTITY_EMAILS` fest, einer kommagetrennten Liste exakter Adressen (`qa@corp.com`) oder `@domain`-Einträge (`@example.com`). `testIdentitySql(column)` ist dieselbe Regel als PostgreSQL/BigQuery-Ausdruck für Metrikabfragen. Browser erhalten diese Liste nie: Die Session-Antwort enthält ein serverseitig ermitteltes `testIdentity`-Flag, das Browser-Tracking, Session Replay und Exception-Erfassung zusätzlich zu den eingebauten Regeln beachten; die Ingest-Seite von Agent-Native Analytics wendet zusätzlich die Deployment-Liste an.
 
 ## Erweitert: benutzerdefinierte Anbieter und Interna {#advanced}
 
@@ -351,12 +357,12 @@ Template Roots rufen `configureTracking()` einmal beim Start auf. Mit `trackEven
 - `llm_connection_source` – `app_secrets`, `settings` oder `env`
 - `llm_connection_configured` – ob eine LLM-Verbindung verfügbar ist
 
-Das Framework verfolgt auch `builder connect clicked` von Connect Builder-CTAs und die serverseitigen Builder-Connect-Routen verfolgen gestartete/erfolgreiche/fehlgeschlagene Lebenszyklusereignisse. `configureTracking()` wird vom Framework automatisch aufgerufen; Sie müssen es nicht in Ihrem eigenen Vorlagencode aufrufen.
+Das Framework verfolgt auch `builder_connect_clicked` wenn jemand eine CTA zur Verwendung von Builder.io auswählt und die serverseitigen Builder-Connect-Routen verfolgen gestartete/erfolgreiche/fehlgeschlagene Lebenszyklusereignisse. Die Kontoerstellung mit einem Klick setzt `connect_url_kind: "provision"`; das Anmelde-Popup erfasst zusätzlich den alten Namen `builder connect clicked`, der Ein-Klick-Erstellungen nicht enthält. `configureTracking()` wird vom Framework automatisch aufgerufen; Sie müssen es nicht in Ihrem eigenen Vorlagencode aufrufen.
 
 </details>
 
 ## Was kommt als nächstes?
 
-- [**Actions**](/docs/actions) – woher die meisten Tracking-Aufrufe kommen
-- [**Server Plugins**](/docs/server#server-plugins) – `registerBuiltinProviders()` wird beim Start im Core-Routes-Plugin ausgeführt
+- [**Actions**](/docs/actions-overview) – woher die meisten Tracking-Aufrufe kommen
+- [**Server Plugins**](/docs/server-plugins) – `registerBuiltinProviders()` wird beim Start im Core-Routes-Plugin ausgeführt
 - [**Sicherheit – Geheimnisverwaltung**](/docs/security#secrets) – API-Schlüssel für Tracking-Anbieter verwalten

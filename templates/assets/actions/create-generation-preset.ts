@@ -1,11 +1,6 @@
-import { defineAction } from "@agent-native/core";
-import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import { nowIso, stringifyJson } from "../server/lib/json.js";
 import {
   ASPECT_RATIOS,
   GENERATION_PRESET_REFERENCE_POLICIES,
@@ -14,16 +9,11 @@ import {
   IMAGE_SIZES,
 } from "../shared/api.js";
 import { generationPresetSettingsSchema } from "./_generation-preset-settings.js";
-import { serializeGenerationPreset } from "./_helpers.js";
-import {
-  assertPresetReferenceAssetsValid,
-  assertPresetReferenceModelCompatible,
-  assertPresetSkeletonAssetsValid,
-} from "./_preset-skeleton-validation.js";
+import createTemplate from "./create-template.js";
 
 export default defineAction({
   description:
-    "Create a reusable deliverable preset for an asset library. Use presets for social images, blog heroes, diagrams, and other repeatable output formats.",
+    "Deprecated — use create-template. Create a reusable deliverable preset for an asset library.",
   schema: z.object({
     libraryId: z.string(),
     collectionId: z.string().nullable().optional(),
@@ -47,60 +37,5 @@ export default defineAction({
     settings: generationPresetSettingsSchema.optional(),
     sortOrder: z.coerce.number().optional(),
   }),
-  run: async (args) => {
-    const db = getDb();
-    await assertAccess("asset-library", args.libraryId, "editor");
-    if (args.collectionId) {
-      const [collection] = await db
-        .select()
-        .from(schema.assetCollections)
-        .where(eq(schema.assetCollections.id, args.collectionId))
-        .limit(1);
-      if (!collection || collection.libraryId !== args.libraryId) {
-        throw new Error("Collection does not belong to this asset library.");
-      }
-    }
-    const settings = {
-      ...(args.settings ?? {}),
-      ...(args.includeLogo !== undefined
-        ? { includeLogo: args.includeLogo }
-        : {}),
-    };
-    await assertPresetSkeletonAssetsValid({
-      db,
-      libraryId: args.libraryId,
-      settings,
-    });
-    await assertPresetReferenceAssetsValid({
-      db,
-      libraryId: args.libraryId,
-      settings,
-    });
-    assertPresetReferenceModelCompatible({
-      model: args.model,
-      settings,
-    });
-    const now = nowIso();
-    const row = {
-      id: nanoid(),
-      libraryId: args.libraryId,
-      collectionId: args.collectionId ?? null,
-      title: args.title,
-      description: args.description ?? null,
-      category: args.category,
-      mediaType: "image",
-      promptTemplate: args.promptTemplate ?? null,
-      aspectRatio: args.aspectRatio,
-      imageSize: args.imageSize,
-      model: args.model,
-      textPolicy: args.textPolicy,
-      referencePolicy: args.referencePolicy,
-      settings: stringifyJson(settings),
-      sortOrder: args.sortOrder ?? 100,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.insert(schema.assetGenerationPresets).values(row);
-    return serializeGenerationPreset(row);
-  },
+  run: async (args) => createTemplate.run(args),
 });

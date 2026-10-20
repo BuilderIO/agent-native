@@ -1,25 +1,21 @@
-/**
- * Token usage tracking and cost monitoring.
- *
- * Every LLM call made by the framework records a row here so users can
- * see where their spend is going — chat vs automations vs background jobs
- * vs whatever else a template labels its prompts as.
- *
- * Cost is stored as "centicents" (1/100th of a cent) for integer precision.
- */
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getAppConfig } from "../app-config/index.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { getRequestOrgId } from "../server/request-context.js";
 
-/**
- * Per-million-token pricing in cents. Cache read is typically ~10% of
- * input; cache write (5m TTL) is ~125%. Pricing is best-effort — keep
- * this table in sync with Anthropic's published prices.
- */
+export {
+  isSelfScopedUsageRead,
+  usageOrgScope,
+  type UsageOrgScope,
+  type UsageOrgScopeOptions,
+} from "./org-scope.js";
+
 interface ModelPricing {
   input: number;
   output: number;
@@ -30,13 +26,17 @@ interface ModelPricing {
 export const BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER = 1.25;
 export const BUILDER_AGENT_CREDITS_PER_USD = 20;
 
-export type UsageBillingUnit = "usd" | "builder-credits";
+export type UsageBillingUnit = "usd" | "builder-credits" | "mixed" | "unknown";
 
 export interface UsageBillingMode {
   unit: UsageBillingUnit;
   label: string;
   shortLabel: string;
-  source: "estimated-provider-cost" | "builder-agent-credits";
+  source:
+    | "estimated-provider-cost"
+    | "builder-agent-credits"
+    | "mixed-provider-usage"
+    | "unknown";
   hardCostMarginMultiplier?: number;
   creditsPerUsd?: number;
 }
@@ -55,6 +55,20 @@ export const BUILDER_CREDIT_USAGE_BILLING: UsageBillingMode = {
   source: "builder-agent-credits",
   hardCostMarginMultiplier: BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER,
   creditsPerUsd: BUILDER_AGENT_CREDITS_PER_USD,
+};
+
+export const MIXED_USAGE_BILLING: UsageBillingMode = {
+  unit: "mixed",
+  label: "Builder credits and provider cost",
+  shortLabel: "Mixed",
+  source: "mixed-provider-usage",
+};
+
+export const UNKNOWN_USAGE_BILLING: UsageBillingMode = {
+  unit: "unknown",
+  label: "Unknown billing unit",
+  shortLabel: "Unknown",
+  source: "unknown",
 };
 
 export function usageBillingForEngine(
@@ -76,19 +90,14 @@ export function builderCreditsFromCostCents(cents: number): number {
 }
 
 const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
-  // ── Anthropic ──────────────────────────────────────────────────────────────
-  // claude-fable-5: $10/$50 per MTok (Mythos-class, launched 2026-06-09)
   {
     match: /fable-5/i,
     pricing: { input: 1000, output: 5000, cacheRead: 100, cacheWrite: 1250 },
   },
-  // claude-opus-4-8: $5/$25 standard mode (fast mode same as fable-5 $10/$50)
-  // Use standard-mode pricing as default; fast-mode is a separate model id.
   {
     match: /opus-4-8/i,
     pricing: { input: 500, output: 2500, cacheRead: 50, cacheWrite: 625 },
   },
-  // claude-opus-4-7 and older opus: ~$15/$75 per MTok
   {
     match: /opus/i,
     pricing: { input: 1500, output: 7500, cacheRead: 150, cacheWrite: 1875 },
@@ -97,39 +106,30 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     match: /haiku/i,
     pricing: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
   },
-  // ── OpenAI / Codex ──────────────────────────────────────────────────────────
-  // Published rates as of 2026-07; OpenAI bills cached input at a discount
-  // and has no separate cache-write token charge, so cacheWrite is 0. Sol and
-  // Terra have higher large-context rates after 272K tokens; this table tracks
-  // the standard rate because usage rows do not preserve request context size.
   {
     match: /gpt-5[.-]6-sol/i,
-    pricing: { input: 500, output: 3000, cacheRead: 50, cacheWrite: 0 },
+    pricing: { input: 400, output: 2000, cacheRead: 40, cacheWrite: 500 },
   },
   {
     match: /gpt-5[.-]6-terra/i,
-    pricing: { input: 250, output: 1500, cacheRead: 25, cacheWrite: 0 },
+    pricing: { input: 200, output: 1200, cacheRead: 20, cacheWrite: 250 },
   },
   {
     match: /gpt-5[.-]6-luna/i,
-    pricing: { input: 100, output: 600, cacheRead: 10, cacheWrite: 0 },
+    pricing: { input: 20, output: 120, cacheRead: 2, cacheWrite: 25 },
   },
   {
     match: /gpt-5/i,
     pricing: { input: 125, output: 1000, cacheRead: 12.5, cacheWrite: 0 },
   },
-  // ── Google Gemini ───────────────────────────────────────────────────────────
-  // Gemini 3 Pro / 3.1 Pro: ~$1.25/$10 per MTok (approximate; verify on billing)
   {
     match: /gemini-3[.-]1-pro/i,
     pricing: { input: 125, output: 1000, cacheRead: 31, cacheWrite: 0 },
   },
-  // Gemini 3.5 Flash / 3 Flash: ~$0.15/$0.60 per MTok
   {
     match: /gemini-3[.-][0-9]+-flash/i,
     pricing: { input: 15, output: 60, cacheRead: 4, cacheWrite: 0 },
   },
-  // Gemini 2.5 Pro/Flash (catch-all for older 2.5)
   {
     match: /gemini-2\.5-pro/i,
     pricing: { input: 125, output: 1000, cacheRead: 31, cacheWrite: 0 },
@@ -138,29 +138,22 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     match: /gemini-2\.5-flash/i,
     pricing: { input: 15, output: 60, cacheRead: 4, cacheWrite: 0 },
   },
-  // ── Groq ────────────────────────────────────────────────────────────────────
-  // Groq Llama 3.3 70B: $0.59/$0.79 per MTok
   {
     match: /llama-3\.3-70b/i,
     pricing: { input: 59, output: 79, cacheRead: 0, cacheWrite: 0 },
   },
-  // Groq Llama 3.1 8B instant: $0.05/$0.08 per MTok
   {
     match: /llama-3\.1-8b|llama3-8b/i,
     pricing: { input: 5, output: 8, cacheRead: 0, cacheWrite: 0 },
   },
-  // ── Mistral ─────────────────────────────────────────────────────────────────
-  // Mistral Large: ~$2/$6 per MTok
   {
     match: /mistral-large/i,
     pricing: { input: 200, output: 600, cacheRead: 0, cacheWrite: 0 },
   },
-  // Mistral Small/Medium: ~$0.2/$0.6 per MTok
   {
     match: /mistral-small|mistral-medium/i,
     pricing: { input: 20, output: 60, cacheRead: 0, cacheWrite: 0 },
   },
-  // default → sonnet pricing ($3/$15 per MTok)
   {
     match: /.*/,
     pricing: { input: 300, output: 1500, cacheRead: 30, cacheWrite: 375 },
@@ -181,23 +174,12 @@ export interface UsageRecord {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   model: string;
-  /** Category for this call — e.g. "chat", "automation", "job", "custom-agent". */
   label?: string;
-  /** Optional template/app name (e.g. "mail"). Falls back to AGENT_APP / APP_NAME env. */
   app?: string;
-  /**
-   * Stable id of the thing this usage belongs to (e.g. a recap plan id). When
-   * set, any prior row(s) with the same (label, refId) are deleted before
-   * insert, so re-recording the same run overwrites instead of double-counting.
-   */
   refId?: string;
-  /**
-   * Precomputed cost in centicents (1/100¢). When provided, it is stored
-   * verbatim instead of being derived from tokens — e.g. to mirror a
-   * provider-reported dollar cost so two surfaces agree exactly.
-   */
   costCentsX100?: number;
-  /** Whether cost is provider-reported, estimated, or unavailable. */
+  builderCreditsUsed?: number;
+  engineName?: string;
   costSource?: UsageCostSource;
   orgId?: string;
   runId?: string;
@@ -210,68 +192,65 @@ export interface UsageRecord {
 
 export type UsageCostSource = "reported" | "estimated" | "unavailable";
 
-let _initPromise: Promise<void> | undefined;
+export function resolveUsageAppKey(app?: string | null): string {
+  if (app !== null && app !== undefined) return app.trim();
+  const config = getAppConfig();
+  return (config.app.id ?? config.app.name ?? "").trim();
+}
 
-async function ensureUsageTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS token_usage (
-          id ${intType()} PRIMARY KEY,
-          owner_email TEXT NOT NULL,
-          input_tokens ${intType()} NOT NULL DEFAULT 0,
-          output_tokens ${intType()} NOT NULL DEFAULT 0,
-          cache_read_tokens ${intType()} NOT NULL DEFAULT 0,
-          cache_write_tokens ${intType()} NOT NULL DEFAULT 0,
-          cost_cents_x100 ${intType()} NOT NULL DEFAULT 0,
-          cost_source TEXT NOT NULL DEFAULT 'estimated',
-          model TEXT NOT NULL DEFAULT '',
-          label TEXT NOT NULL DEFAULT 'chat',
-          app TEXT NOT NULL DEFAULT '',
-          ref_id TEXT NOT NULL DEFAULT '',
-          org_id TEXT,
-          run_id TEXT,
-          thread_id TEXT,
-          task_id TEXT,
-          integration_scope_id TEXT,
-          source_platform TEXT,
-          source_id TEXT,
-          created_at ${intType()} NOT NULL
-        )
-      `;
+export const usageStore = defineStore({
+  id: "usage",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS token_usage (
+            id BIGINT PRIMARY KEY,
+            owner_email TEXT NOT NULL,
+            input_tokens BIGINT NOT NULL DEFAULT 0,
+            output_tokens BIGINT NOT NULL DEFAULT 0,
+            cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+            cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+            cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+            builder_credits_used NUMERIC,
+            engine_name TEXT,
+            cost_source TEXT NOT NULL DEFAULT 'estimated',
+            model TEXT NOT NULL DEFAULT '',
+            label TEXT NOT NULL DEFAULT 'chat',
+            app TEXT NOT NULL DEFAULT '',
+            ref_id TEXT NOT NULL DEFAULT '',
+            org_id TEXT,
+            run_id TEXT,
+            thread_id TEXT,
+            task_id TEXT,
+            -- guard:allow-identity-column integration scope IDs identify an integration record, not a user principal.
+            integration_scope_id TEXT,
+            source_platform TEXT,
+            source_id TEXT,
+            created_at BIGINT NOT NULL
+          )
+        `;
 
-      // Additive columns for older deployments that pre-date the label/cache fields.
-      const additions: Array<[string, string]> = [
-        ["cache_read_tokens", `${intType()} NOT NULL DEFAULT 0`],
-        ["cache_write_tokens", `${intType()} NOT NULL DEFAULT 0`],
-        ["cost_source", `TEXT NOT NULL DEFAULT 'estimated'`],
-        ["label", `TEXT NOT NULL DEFAULT 'chat'`],
-        ["app", `TEXT NOT NULL DEFAULT ''`],
-        ["ref_id", `TEXT NOT NULL DEFAULT ''`],
-        ["org_id", "TEXT"],
-        ["run_id", "TEXT"],
-        ["thread_id", "TEXT"],
-        ["task_id", "TEXT"],
-        ["integration_scope_id", "TEXT"],
-        ["source_platform", "TEXT"],
-        ["source_id", "TEXT"],
-      ];
+        const additions: Array<[string, string]> = [
+          ["cache_read_tokens", `BIGINT NOT NULL DEFAULT 0`],
+          ["cache_write_tokens", `BIGINT NOT NULL DEFAULT 0`],
+          ["builder_credits_used", "NUMERIC"],
+          ["engine_name", "TEXT"],
+          ["cost_source", `TEXT NOT NULL DEFAULT 'estimated'`],
+          ["label", `TEXT NOT NULL DEFAULT 'chat'`],
+          ["app", `TEXT NOT NULL DEFAULT ''`],
+          ["ref_id", `TEXT NOT NULL DEFAULT ''`],
+          ["org_id", "TEXT"],
+          ["run_id", "TEXT"],
+          ["thread_id", "TEXT"],
+          ["task_id", "TEXT"],
+          ["integration_scope_id", "TEXT"],
+          ["source_platform", "TEXT"],
+          ["source_id", "TEXT"],
+        ];
 
-      if (isPostgres()) {
-        // Hot path: the `token_usage` table and its index are virtually always
-        // already present in production. Issuing `CREATE TABLE`/`ALTER TABLE`/
-        // `CREATE INDEX` still takes a lock that, in a fresh background-worker
-        // process behind a concurrent connection on the shared Neon DB, can
-        // block ~indefinitely. The ensure* wrappers probe `information_schema`/
-        // `pg_indexes` first (plain reads, no lock) and run DDL ONLY for what is
-        // actually missing, bounded by a transaction-scoped `lock_timeout`. If a
-        // swallowed lock-timeout leaves the schema still missing they RE-PROBE
-        // and THROW rather than letting init memoize success against absent
-        // schema.
         await ensureTableExists("token_usage", createSql);
-        // Add columns on older deployments — guarded so the hot path (columns
-        // already present) skips the ACCESS EXCLUSIVE ALTER.
         for (const [col, def] of additions) {
           await ensureColumnExists(
             "token_usage",
@@ -279,56 +258,52 @@ async function ensureUsageTable(): Promise<void> {
             `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS ${col} ${def}`,
           );
         }
-        // Older deployments created `created_at` as 32-bit `INTEGER`; on Postgres
-        // the `Date.now()` written per run by recordUsage() overflows int4. Widen
-        // it in place (no-op once done / on fresh BIGINT databases).
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
         await widenIntColumnsToBigInt("token_usage", ["created_at"]);
-        // Probe pg_indexes first (no lock) and skip the SHARE-locking CREATE
-        // INDEX when the index is already present.
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
         await ensureIndexExists(
           "idx_token_usage_owner_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
         );
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // Add columns on older deployments that pre-date the label/cache
-      // fields. Each ALTER is wrapped so a dialect without IF NOT EXISTS
-      // (SQLite) still makes progress if only some columns are missing.
-      for (const [col, def] of additions) {
-        try {
-          await client.execute(
-            `ALTER TABLE token_usage ADD COLUMN ${col} ${def}`,
-          );
-        } catch {
-          // Column already exists — ignore
-        }
-      }
-      // Older deployments created `created_at` as 32-bit `INTEGER`; on Postgres
-      // the `Date.now()` written per run by recordUsage() overflows int4. Widen
-      // it in place (no-op once done / on fresh BIGINT databases).
-      await widenIntColumnsToBigInt("token_usage", ["created_at"]);
-      try {
-        await client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
+        // `owner_email` is written as the caller supplied it, so the metrics
+        // queries scope with `LOWER(owner_email) IN (…)`. A plain btree cannot
+        // serve a function-wrapped predicate: without this expression index the
+        // usage panel scans the whole table, which is the highest-row-count one
+        // in the system (a row per LLM call, every app and org).
+        // NOT built CONCURRENTLY. This runs at release over the pooled Neon
+        // endpoint, and a transaction-pooled connection cannot carry
+        // `CREATE INDEX CONCURRENTLY` to completion — it returns without
+        // creating the index, which then fails the verifying probe and blocks
+        // the whole release. The SHARE lock is the cost of a build that lands.
+        await ensureIndexExists(
+          "idx_token_usage_lower_owner_created",
+          `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
         );
-      } catch {}
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+        await ensureIndexExists(
+          "idx_token_usage_org_app_created",
+          `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_token_usage_run_id",
+          `CREATE INDEX IF NOT EXISTS idx_token_usage_run_id ON token_usage (run_id) WHERE run_id IS NOT NULL`,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureUsageTable(): Promise<void> {
+  return usageStore.ready();
 }
 
-/**
- * Calculate cost in centicents (1/100th of a cent).
- * Accepts cache tokens so callers that use prompt caching are priced
- * correctly. Non-cache-aware callers can pass 0 for the cache fields.
- */
 export function calculateCost(
   inputTokens: number,
   outputTokens: number,
@@ -337,20 +312,18 @@ export function calculateCost(
   cacheWriteTokens = 0,
 ): number {
   const p = pricingFor(model);
+  const uncachedInputTokens = Math.max(
+    0,
+    inputTokens - cacheReadTokens - cacheWriteTokens,
+  );
   const rawCenticents =
-    (inputTokens / 1_000_000) * p.input * 100 +
+    (uncachedInputTokens / 1_000_000) * p.input * 100 +
     (outputTokens / 1_000_000) * p.output * 100 +
     (cacheReadTokens / 1_000_000) * p.cacheRead * 100 +
     (cacheWriteTokens / 1_000_000) * p.cacheWrite * 100;
   return rawCenticents > 0 ? Math.max(1, Math.round(rawCenticents)) : 0;
 }
 
-/**
- * Record token usage from an LLM call.
- *
- * Accepts an object with the full set of fields. A positional overload
- * remains for backward compatibility with the older 4-arg signature.
- */
 export async function recordUsage(record: UsageRecord): Promise<void>;
 export async function recordUsage(
   ownerEmail: string,
@@ -385,6 +358,8 @@ export async function recordUsage(
     app,
     refId,
     costCentsX100,
+    builderCreditsUsed,
+    engineName,
     costSource,
     orgId,
     runId,
@@ -395,28 +370,39 @@ export async function recordUsage(
     sourceId,
   } = record;
 
-  // Skip no-op writes (e.g. a stream aborted before any tokens flowed)
-  if (!inTok && !outTok && !cacheReadTokens && !cacheWriteTokens) return;
+  if (
+    !inTok &&
+    !outTok &&
+    !cacheReadTokens &&
+    !cacheWriteTokens &&
+    builderCreditsUsed == null
+  ) {
+    return;
+  }
+
+  if (
+    builderCreditsUsed != null &&
+    (!Number.isFinite(builderCreditsUsed) || builderCreditsUsed < 0)
+  ) {
+    throw new Error("Builder gateway credits must be a non-negative number.");
+  }
 
   await ensureUsageTable();
   const client = getDbExec();
-  const resolvedApp =
-    app ?? process.env.AGENT_APP ?? process.env.APP_NAME ?? "";
+  const resolvedApp = resolveUsageAppKey(app);
   const resolvedLabel = label ?? "chat";
   const resolvedRef = refId ?? "";
+  const resolvedOrgId = orgId ?? getRequestOrgId() ?? null;
 
-  // Replace any prior usage for this (label, refId) so re-recording the same
-  // run — e.g. a recap regenerated on a PR re-push — overwrites instead of
-  // double-counting. No-op when refId is unset (the common per-call path).
   if (resolvedRef) {
     await client.execute({
-      sql: `DELETE FROM token_usage WHERE label = ? AND ref_id = ?`,
-      args: [resolvedLabel, resolvedRef],
+      sql: `DELETE FROM token_usage
+        WHERE label = ? AND ref_id = ?
+          AND (org_id IS NULL OR org_id = ?)`,
+      args: [resolvedLabel, resolvedRef, resolvedOrgId],
     });
   }
 
-  // Prefer an explicit precomputed cost (e.g. a provider-reported dollar cost);
-  // otherwise derive it from tokens via the pricing table.
   const resolvedCostSource =
     costSource ?? (costCentsX100 == null ? "estimated" : "reported");
   const costX100 =
@@ -433,8 +419,8 @@ export async function recordUsage(
   const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
   await client.execute({
     sql: `INSERT INTO token_usage
-      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, cost_source, model, label, app, ref_id, org_id, run_id, thread_id, task_id, integration_scope_id, source_platform, source_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, builder_credits_used, engine_name, cost_source, model, label, app, ref_id, org_id, run_id, thread_id, task_id, integration_scope_id, source_platform, source_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       ownerEmail,
@@ -443,12 +429,14 @@ export async function recordUsage(
       cacheReadTokens,
       cacheWriteTokens,
       costX100,
+      builderCreditsUsed ?? null,
+      engineName ?? null,
       resolvedCostSource,
       modelName,
       resolvedLabel,
       resolvedApp,
       resolvedRef,
-      orgId ?? null,
+      resolvedOrgId,
       runId ?? null,
       threadId ?? null,
       taskId ?? null,
@@ -458,9 +446,19 @@ export async function recordUsage(
       Date.now(),
     ],
   });
+
+  void import("./alerts-store.js")
+    .then(({ enqueueUsageAlertEvaluation }) => {
+      return enqueueUsageAlertEvaluation({
+        ...record,
+        orgId: resolvedOrgId,
+      });
+    })
+    .catch((error) => {
+      console.error("[usage-alerts] could not enqueue evaluation:", error);
+    });
 }
 
-/** Total cost (in cents) charged against a user, across all time. */
 export async function getUserUsageCents(ownerEmail: string): Promise<number> {
   await ensureUsageTable();
   const client = getDbExec();
@@ -472,11 +470,8 @@ export async function getUserUsageCents(ownerEmail: string): Promise<number> {
   return total / 100;
 }
 
-// ─── Admin / UI queries ─────────────────────────────────────────────────
-
 export interface UsageSummaryOptions {
   ownerEmail: string;
-  /** Inclusive lower bound (ms since epoch). Defaults to 30 days ago. */
   sinceMs?: number;
 }
 
@@ -492,7 +487,6 @@ export interface UsageBucket {
 }
 
 export interface DailyBucket {
-  /** YYYY-MM-DD (UTC) */
   date: string;
   cents: number;
   cost: UsageCostAggregate;
@@ -520,7 +514,6 @@ export interface UsageRecentEntry {
 
 export interface UsageSummary {
   billing?: UsageBillingMode;
-  /** Legacy known-cost subtotal. Use totalCost to preserve unavailable spend. */
   totalCents: number;
   totalCost: UsageCostAggregate;
   totalCalls: number;
@@ -538,10 +531,6 @@ export interface UsageSummary {
 
 const DAY_MS = 86_400_000;
 
-/**
- * Produce an aggregated spend view for the Usage admin panel.
- * Scoped to the passed owner email; the UI always passes the session user.
- */
 export async function getUsageSummary(
   options: UsageSummaryOptions,
 ): Promise<UsageSummary> {
@@ -602,9 +591,6 @@ export async function getUsageSummary(
     client.execute(bucketSql("app")),
   ]);
 
-  // By-day aggregation — done in JS so we don't depend on dialect-specific
-  // date functions (SQLite `strftime`, Postgres `to_char`). Cheap enough
-  // for a 30-day window; if this grows, swap for a dialect-aware query.
   const dayRows = await client.execute({
     sql: `SELECT created_at, cost_cents_x100, cost_source FROM token_usage
       WHERE owner_email = ? AND created_at >= ?`,

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PlanContentValidationError } from "../shared/plan-content.js";
+
 const agentTouchDocumentMock = vi.hoisted(() => vi.fn());
 const applyPlanMdxSourcePatchesMock = vi.hoisted(() => vi.fn());
 const assertPlanEditorMock = vi.hoisted(() => vi.fn());
@@ -99,7 +101,7 @@ const populatedContent = () => ({
   prototype: { screens: [{ id: "screen_1", html: "<main>Screen</main>" }] },
 });
 
-const bundleWith = (content: ReturnType<typeof populatedContent>) => ({
+const bundleWith = (content: ReturnType<typeof populatedContent> | null) => ({
   plan: {
     id: "plan_test",
     title: "Plan",
@@ -185,6 +187,36 @@ describe("patch-visual-plan-source guardrails", () => {
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
   });
 
+  it("returns 422 for invalid authored source before snapshotting or writing", async () => {
+    parsePlanMdxFolderMock.mockRejectedValueOnce(
+      new PlanContentValidationError(
+        "Plan source edit contains invalid authored block data.",
+      ),
+    );
+
+    await expect(
+      runAction({
+        planId: "plan_test",
+        expectedUpdatedAt: "revision-1",
+        patches: [
+          {
+            op: "replace-markdown-block",
+            blockId: "block_1",
+            markdown: "Updated source",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_plan_content",
+      statusCode: 422,
+      message: "Plan source edit contains invalid authored block data.",
+    });
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(dbUpdateMock).not.toHaveBeenCalled();
+    expect(writeEventMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       surface: "blocks",
@@ -234,6 +266,92 @@ describe("patch-visual-plan-source guardrails", () => {
       expect(writeEventMock).not.toHaveBeenCalled();
     },
   );
+
+  it("preserves existing empty legacy fields when patching another block", async () => {
+    const previous = {
+      ...populatedContent(),
+      blocks: [
+        ...populatedContent().blocks,
+        {
+          id: "legacy-questions",
+          type: "question-form",
+          data: { questions: [] },
+        },
+      ],
+    };
+    loadPlanBundleMock.mockResolvedValueOnce(bundleWith(previous));
+    parsePlanMdxFolderMock.mockResolvedValueOnce({
+      ...previous,
+      blocks: [
+        {
+          id: "block_1",
+          type: "rich-text",
+          data: { markdown: "Updated body" },
+        },
+        previous.blocks[1],
+      ],
+    });
+
+    await expect(
+      runAction({
+        planId: "plan_test",
+        patches: [
+          {
+            op: "replace-markdown-block",
+            blockId: "block_1",
+            markdown: "Updated body",
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_test" });
+    expect(dbUpdateMock).toHaveBeenCalled();
+  });
+
+  it("validates new source content when the plan has no structured content", async () => {
+    loadPlanBundleMock.mockResolvedValueOnce(bundleWith(null));
+    parsePlanMdxFolderMock.mockResolvedValueOnce(populatedContent());
+
+    await expect(
+      runAction({
+        planId: "plan_test",
+        expectedUpdatedAt: "revision-1",
+        patches: [
+          {
+            op: "replace-file",
+            file: "plan.mdx",
+            content: "# New structured plan",
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_test" });
+    expect(dbUpdateMock).toHaveBeenCalled();
+  });
+
+  it("validates source field presence against the loaded plan before defaults", async () => {
+    const previous = populatedContent();
+    loadPlanBundleMock.mockResolvedValueOnce(bundleWith(previous));
+
+    await expect(
+      runAction({
+        planId: "plan_test",
+        patches: [
+          {
+            op: "replace-markdown-block",
+            blockId: "block_1",
+            markdown: "Updated body",
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_test" });
+
+    expect(parsePlanMdxFolderMock).toHaveBeenCalledWith(
+      { "plan.mdx": "# Updated plan" },
+      {
+        allowStoredLegacyDefaults: true,
+        validateAuthoringChangesAgainst: previous,
+      },
+    );
+  });
 
   it("allows an explicitly destructive replacement and logs only bounded metadata", async () => {
     const emptyContent = {

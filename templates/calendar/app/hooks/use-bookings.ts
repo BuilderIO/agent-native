@@ -1,5 +1,8 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
-import type { Booking } from "@shared/api";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import type { Booking, BookingHost } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { appApiPath } from "@/lib/api-path";
@@ -17,16 +20,28 @@ export function useBookings() {
   return useActionQuery<Booking[]>("list-bookings");
 }
 
+export type BookingAvailabilityPreview = {
+  slug: string;
+  durations: number[];
+  hosts: BookingHost[];
+};
+
 export function useAvailableSlots(
   date: string,
   duration: number,
   slug?: string,
+  draft?: BookingAvailabilityPreview,
+  username?: string,
 ) {
+  const draftParam = draft ? JSON.stringify(draft) : undefined;
+
   return useQuery<{ start: string; end: string }[]>({
-    queryKey: ["available-slots", date, duration, slug],
+    queryKey: ["available-slots", date, duration, slug, draftParam, username],
     queryFn: async () => {
       const params = new URLSearchParams({ date, duration: String(duration) });
       if (slug) params.set("slug", slug);
+      if (draftParam) params.set("draft", draftParam);
+      if (username) params.set("username", username);
       const res = await fetch(
         appApiPath(`/api/bookings/available-slots?${params}`),
       );
@@ -45,10 +60,11 @@ export function useAvailableDays(
   to: string,
   duration: number,
   slug?: string,
+  username?: string,
   enabled = true,
 ) {
   return useQuery<string[]>({
-    queryKey: ["available-days", from, to, duration, slug],
+    queryKey: ["available-days", from, to, duration, slug, username],
     queryFn: async () => {
       const params = new URLSearchParams({
         from,
@@ -56,6 +72,7 @@ export function useAvailableDays(
         duration: String(duration),
       });
       if (slug) params.set("slug", slug);
+      if (username) params.set("username", username);
       const res = await fetch(
         appApiPath(`/api/bookings/available-slots?${params}`),
       );
@@ -75,6 +92,7 @@ export function useCreateBooking() {
     mutationFn: async (data: {
       name: string;
       email: string;
+      additionalGuestEmails?: string[];
       notes?: string;
       captchaToken?: string;
       fieldResponses?: Record<string, string | boolean>;
@@ -95,23 +113,13 @@ export function useCreateBooking() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-bookings"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-bookings"],
+      });
     },
   });
 }
 
 export function useDeleteBooking() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(appApiPath(`/api/bookings/${id}`), {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("Failed to cancel booking");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-bookings"] });
-    },
-  });
+  return useActionMutation("cancel-booking");
 }

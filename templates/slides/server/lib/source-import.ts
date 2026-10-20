@@ -17,6 +17,16 @@ export interface SourceImportMetadata {
   slideIds: string[];
   slides: SourceImportSlideSnapshot[];
   imagesSkipped?: number;
+  tablesDegraded?: number;
+}
+
+export interface SourceImportCoverage {
+  complete: boolean;
+  ordered: boolean;
+  expectedSlideIds: string[];
+  actualSlideIds: string[];
+  missingSlideIds: string[];
+  unexpectedSlideIds: string[];
 }
 
 export function buildSourceImportMetadata(args: {
@@ -24,18 +34,22 @@ export function buildSourceImportMetadata(args: {
   importedAt?: string;
   slides: SourceImportSlideSnapshot[];
   imagesSkipped?: number;
+  tablesDegraded?: number;
 }): SourceImportMetadata {
   const importedAt = args.importedAt ?? new Date().toISOString();
   const imagesSkipped = args.imagesSkipped ?? 0;
+  const tablesDegraded = args.tablesDegraded ?? 0;
   return {
     mode: "source-preserving",
     format: args.format,
-    fidelity: imagesSkipped > 0 ? "partial" : "source-faithful",
+    fidelity:
+      imagesSkipped > 0 || tablesDegraded > 0 ? "partial" : "source-faithful",
     importedAt,
     slideCount: args.slides.length,
     slideIds: args.slides.map((slide) => slide.id),
     slides: args.slides,
     ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+    ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
   };
 }
 
@@ -56,6 +70,8 @@ export function mergeSourceImportMetadata(
   const slides = [...slidesById.values()];
   const imagesSkipped =
     (existing.imagesSkipped ?? 0) + (incoming.imagesSkipped ?? 0);
+  const tablesDegraded =
+    (existing.tablesDegraded ?? 0) + (incoming.tablesDegraded ?? 0);
 
   return {
     ...incoming,
@@ -67,6 +83,7 @@ export function mergeSourceImportMetadata(
     slideIds: slides.map((slide) => slide.id),
     slides,
     ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+    ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
   };
 }
 
@@ -83,6 +100,41 @@ export function sourceImportForDeck(
     return null;
   }
   return record as SourceImportMetadata;
+}
+
+export function sourceImportCoverage(
+  metadata: SourceImportMetadata | null,
+  actualSlideIds: readonly string[],
+): SourceImportCoverage | null {
+  if (!metadata) return null;
+
+  const expectedSlideIds =
+    Array.isArray(metadata.slideIds) && metadata.slideIds.length > 0
+      ? [...metadata.slideIds]
+      : metadata.slides.map((slide) => slide.id);
+  const actual = [...actualSlideIds];
+  const expectedSet = new Set(expectedSlideIds);
+  const missingSlideIds = expectedSlideIds.filter(
+    (slideId) => !actual.includes(slideId),
+  );
+  const unexpectedSlideIds = actual.filter(
+    (slideId) => !expectedSet.has(slideId),
+  );
+  const ordered =
+    expectedSlideIds.length === actual.length &&
+    expectedSlideIds.every((slideId, index) => actual[index] === slideId);
+
+  return {
+    complete:
+      ordered &&
+      missingSlideIds.length === 0 &&
+      unexpectedSlideIds.length === 0,
+    ordered,
+    expectedSlideIds,
+    actualSlideIds: actual,
+    missingSlideIds,
+    unexpectedSlideIds,
+  };
 }
 
 function extractImageUrls(content: string): string[] {
@@ -111,12 +163,6 @@ function sourceWords(value: string): Set<string> {
   );
 }
 
-/**
- * Protects an imported deck from the common "make it prettier" failure mode:
- * the agent replaces a source slide with a generic card and silently drops the
- * original artwork or most of its factual copy. Explicit rewrite requests can
- * opt out with preserveSource=false.
- */
 export function assertSourceSlidePreserved(args: {
   metadata: SourceImportMetadata | null;
   slideId: string;

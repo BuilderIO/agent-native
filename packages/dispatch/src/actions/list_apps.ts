@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { listGrantedDispatchMcpApps } from "../server/lib/mcp-gateway.js";
@@ -24,10 +24,6 @@ export default defineAction({
       workspace: true,
       gateway: "dispatch",
       apps: appSummaries,
-      // MCP model-visible results are deliberately text-only unless a tool is
-      // app-only or opens an MCP App. Supplying a compact, valid JSON message
-      // keeps large app catalogs machine-readable instead of letting the
-      // generic text limiter cut the full result into invalid JSON.
       message: JSON.stringify({
         apps: appSummaries.map(({ id, name }) => ({ id, name })),
       }),

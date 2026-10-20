@@ -24,12 +24,6 @@ interface LocalhostFileListState {
   error?: string;
 }
 
-/**
- * Multi-root explorer: one collapsible section per workspace provider.
- * "Design files" (inline) is fetched via `list-source-files` so useDbSync
- * keeps it live; localhost providers poll via provider.listFiles() with a
- * manual + files-changed-driven refresh.
- */
 export function ExplorerView({
   designId,
   explorerFocusToken,
@@ -48,7 +42,7 @@ export function ExplorerView({
     )?.files;
     if (!files) return [];
     return files.map((file) => ({
-      path: String(file.path ?? ""),
+      path: typeof file.path === "string" ? file.path : "",
       displayName:
         typeof file.path === "string"
           ? prettyScreenName(baseName(file.path))
@@ -144,7 +138,7 @@ export function ExplorerView({
 
   useEffect(() => {
     return api.onFilesChanged(() => {
-      refetchSourceFilesRef.current();
+      void refetchSourceFilesRef.current();
       for (const providerKey of localhostProviderKeys
         .split(",")
         .filter(Boolean)) {
@@ -165,8 +159,6 @@ export function ExplorerView({
   const inlineProvider = providers.find(
     (provider) => provider.key === inlineProviderKey,
   );
-  // Focus goes to the first rendered tree (inline root when present, else the
-  // first localhost root) — matches VS Code's single explorer focus target.
   const focusOwnerKey = inlineProvider
     ? inlineProviderKey
     : localhostProviders[0]?.key;

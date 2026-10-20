@@ -3,6 +3,7 @@ import { type LocaleCode } from "@agent-native/core/client/i18n";
 interface KeyboardShortcutLabels {
   title: string;
   essential: string;
+  eyedropper: string;
   shape: string;
   selection: string;
   cursor: string;
@@ -44,6 +45,7 @@ interface KeyboardKeyLabels {
 export const keyboardShortcutLabels = {
   "zh-TW": {
     title: "鍵盤快速鍵",
+    eyedropper: "取色器",
     essential: "基本",
     shape: "形狀",
     selection: "選取",
@@ -58,10 +60,11 @@ export const keyboardShortcutLabels = {
     nudgeAmountSmall: "小距離",
     nudgeAmountBig: "大距離",
     nudgeAmountDescription:
-      "方向鍵以小距離移動，Shift+方向鍵以大距離移動。在自動版面配置框架內，方向鍵改為調整圖層順序。",
+      "方向鍵以小距離移動，Shift 方向鍵以大距離移動。在自動版面配置框架內，方向鍵改為調整圖層順序。",
   },
   "zh-CN": {
     title: "键盘快捷键",
+    eyedropper: "取色器",
     essential: "基本",
     shape: "形状",
     selection: "选择",
@@ -76,10 +79,11 @@ export const keyboardShortcutLabels = {
     nudgeAmountSmall: "小距离",
     nudgeAmountBig: "大距离",
     nudgeAmountDescription:
-      "方向键以小距离移动，Shift+方向键以大距离移动。在自动布局框架内，方向键改为调整图层顺序。",
+      "方向键以小距离移动，Shift 方向键以大距离移动。在自动布局框架内，方向键改为调整图层顺序。",
   },
   "es-ES": {
     title: "Atajos de teclado",
+    eyedropper: "Cuentagotas",
     essential: "Esenciales",
     shape: "Formas",
     selection: "Selección",
@@ -95,10 +99,11 @@ export const keyboardShortcutLabels = {
     nudgeAmountSmall: "Desplazamiento pequeño",
     nudgeAmountBig: "Desplazamiento grande",
     nudgeAmountDescription:
-      "Las flechas mueven la cantidad pequeña y Mayús+flecha la grande. Dentro de un marco de autodiseño, las flechas reordenan la capa.",
+      "Las flechas mueven la cantidad pequeña y Mayús flecha la grande. Dentro de un marco de autodiseño, las flechas reordenan la capa.",
   },
   "fr-FR": {
     title: "Raccourcis clavier",
+    eyedropper: "Pipette",
     essential: "Essentiels",
     shape: "Formes",
     selection: "Sélection",
@@ -115,10 +120,11 @@ export const keyboardShortcutLabels = {
     nudgeAmountSmall: "Petit déplacement",
     nudgeAmountBig: "Grand déplacement",
     nudgeAmountDescription:
-      "Les flèches déplacent de la petite valeur et Maj+flèche de la grande. Dans un cadre en disposition automatique, les flèches réorganisent le calque.",
+      "Les flèches déplacent de la petite valeur et Maj flèche de la grande. Dans un cadre en disposition automatique, les flèches réorganisent le calque.",
   },
   "de-DE": {
     title: "Tastenkürzel",
+    eyedropper: "Pipette",
     essential: "Grundlagen",
     shape: "Formen",
     selection: "Auswahl",
@@ -135,10 +141,11 @@ export const keyboardShortcutLabels = {
     nudgeAmountSmall: "Kleiner Schritt",
     nudgeAmountBig: "Großer Schritt",
     nudgeAmountDescription:
-      "Pfeiltasten verschieben um den kleinen Wert, Umschalt+Pfeil um den großen. In einem Auto-Layout-Rahmen ordnen die Pfeiltasten die Ebene neu an.",
+      "Pfeiltasten verschieben um den kleinen Wert, Umschalt Pfeil um den großen. In einem Auto-Layout-Rahmen ordnen die Pfeiltasten die Ebene neu an.",
   },
   "ja-JP": {
     title: "キーボードショートカット",
+    eyedropper: "スポイトツール",
     essential: "基本",
     shape: "シェイプ",
     selection: "選択",
@@ -153,10 +160,11 @@ export const keyboardShortcutLabels = {
     nudgeAmountSmall: "小さい移動量",
     nudgeAmountBig: "大きい移動量",
     nudgeAmountDescription:
-      "矢印キーは小さい移動量、Shift+矢印キーは大きい移動量で移動します。オートレイアウトフレーム内では、矢印キーはレイヤーの順序を変更します。",
+      "矢印キーは小さい移動量、Shift 矢印キーは大きい移動量で移動します。オートレイアウトフレーム内では、矢印キーはレイヤーの順序を変更します。",
   },
   "ko-KR": {
     title: "키보드 단축키",
+    eyedropper: "스포이드",
     essential: "필수",
     shape: "도형",
     selection: "선택",
@@ -171,10 +179,11 @@ export const keyboardShortcutLabels = {
     nudgeAmountSmall: "작은 이동",
     nudgeAmountBig: "큰 이동",
     nudgeAmountDescription:
-      "화살표 키는 작은 간격으로, Shift+화살표 키는 큰 간격으로 이동합니다. 오토 레이아웃 프레임 안에서는 화살표 키가 레이어 순서를 변경합니다.",
+      "화살표 키는 작은 간격으로, Shift 화살표 키는 큰 간격으로 이동합니다. 오토 레이아웃 프레임 안에서는 화살표 키가 레이어 순서를 변경합니다.",
   },
   "pt-BR": {
     title: "Atalhos de teclado",
+    eyedropper: "Conta-gotas",
     essential: "Essenciais",
     shape: "Formas",
     selection: "Seleção",
@@ -191,10 +200,11 @@ export const keyboardShortcutLabels = {
     nudgeAmountSmall: "Deslocamento pequeno",
     nudgeAmountBig: "Deslocamento grande",
     nudgeAmountDescription:
-      "As setas movem pela distância pequena e Shift+seta pela grande. Dentro de um frame com layout automático, as setas reordenam a camada.",
+      "As setas movem pela distância pequena e Shift seta pela grande. Dentro de um frame com layout automático, as setas reordenam a camada.",
   },
   "hi-IN": {
     title: "कीबोर्ड शॉर्टकट",
+    eyedropper: "आई-ड्रॉपर",
     essential: "आवश्यक",
     shape: "आकृति",
     selection: "चयन",
@@ -209,10 +219,11 @@ export const keyboardShortcutLabels = {
     nudgeAmountSmall: "छोटी नज",
     nudgeAmountBig: "बड़ी नज",
     nudgeAmountDescription:
-      "ऐरो कुंजियाँ छोटी दूरी से और Shift+ऐरो बड़ी दूरी से ले जाती हैं। ऑटो लेआउट फ़्रेम के अंदर ऐरो कुंजियाँ लेयर का क्रम बदलती हैं।",
+      "ऐरो कुंजियाँ छोटी दूरी से और Shift ऐरो बड़ी दूरी से ले जाती हैं। ऑटो लेआउट फ़्रेम के अंदर ऐरो कुंजियाँ लेयर का क्रम बदलती हैं।",
   },
   "ar-SA": {
     title: "اختصارات لوحة المفاتيح",
+    eyedropper: "أداة القطارة",
     essential: "أساسي",
     shape: "الأشكال",
     selection: "التحديد",
@@ -227,7 +238,7 @@ export const keyboardShortcutLabels = {
     nudgeAmountSmall: "إزاحة صغيرة",
     nudgeAmountBig: "إزاحة كبيرة",
     nudgeAmountDescription:
-      "تحرّك مفاتيح الأسهم بالمقدار الصغير، وShift+سهم بالمقدار الكبير. داخل إطار التخطيط التلقائي، تعيد مفاتيح الأسهم ترتيب الطبقة.",
+      "تحرّك مفاتيح الأسهم بالمقدار الصغير، وShift سهم بالمقدار الكبير. داخل إطار التخطيط التلقائي، تعيد مفاتيح الأسهم ترتيب الطبقة.",
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, KeyboardShortcutLabels>;
 
@@ -460,6 +471,7 @@ interface KeyboardMessagesSource {
     sections: {
       layout: string;
       autoLayout: string;
+      layoutGrid: string;
       fill: string;
       stroke: string;
       codeConfidence: string;
@@ -481,7 +493,8 @@ interface KeyboardMessagesSource {
       | "rect"
       | "ellipse"
       | "line"
-      | "arrow",
+      | "arrow"
+      | "imageVideo",
       string
     >;
     undo: string;
@@ -506,6 +519,7 @@ interface KeyboardMessagesSource {
     duplicate: string;
     delete: string;
     rename: string;
+    subtract: string;
     flipHorizontal: string;
     flipVertical: string;
     bringForward: string;
@@ -575,6 +589,7 @@ export function attachLocalizedKeyboardShortcuts<
           penTool: d.tools.pen,
           handTool: d.tools.hand,
           scaleTool: d.tools.scale,
+          eyedropper: labels.eyedropper,
           commentTool: d.pinComment,
           drawTool: d.modes.draw,
           showLayers: layers.title,
@@ -592,6 +607,8 @@ export function attachLocalizedKeyboardShortcuts<
           ellipse: d.tools.ellipse,
           line: d.tools.line,
           arrow: d.tools.arrow,
+          imageVideo: d.tools.imageVideo,
+          booleanSubtract: layers.subtract,
           selectAll: labels.selection,
           selectParent: `${labels.selection}: ${layers.title}`,
           enterSelection: labels.selection,
@@ -599,8 +616,9 @@ export function attachLocalizedKeyboardShortcuts<
           previousSibling: `← ${labels.selection}`,
           nextScreen: `${layers.screens} →`,
           previousScreen: `← ${layers.screens}`,
+          toggleLayoutGrids: `${edit.sections.layoutGrid}: ${d.view}`,
           nudge: d.tools.move,
-          nudgeLarge: `${d.tools.move} 10`,
+          nudgeLarge: labels.nudgeAmountBig,
           copy: layers.copy,
           copyPng: `${layers.copy} PNG`,
           cut: layers.delete,

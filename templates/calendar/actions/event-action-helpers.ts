@@ -1,14 +1,21 @@
+import { fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import type { WeekdayName } from "../server/lib/event-weekday.js";
 import {
   addDaysToDateOnly,
   zonedDateTimeToUtcIso,
 } from "../server/lib/find-time.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
+import type { CalendarEvent } from "../shared/api.js";
+import {
+  createGoogleAccountEventId,
+  parseGoogleAccountEventId,
+} from "../shared/google-calendar-sources.js";
 
 export const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -76,6 +83,7 @@ export const attendeeObjectInput = z.object({
   email: z.string(),
   displayName: z.string().optional(),
   optional: cliBoolean.optional(),
+  additionalGuests: z.coerce.number().int().nonnegative().optional(),
   comment: z.string().optional(),
   responseStatus: z
     .enum(["accepted", "declined", "tentative", "needsAction"])
@@ -93,6 +101,7 @@ export type NormalizedAttendee = {
   email: string;
   displayName?: string;
   optional?: boolean;
+  additionalGuests?: number;
   comment?: string;
   responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   organizer?: boolean;
@@ -117,6 +126,9 @@ export function normalizeAttendees(
       email: a.email,
       ...(a.displayName ? { displayName: a.displayName } : {}),
       ...(a.optional === true ? { optional: true } : {}),
+      ...(a.additionalGuests !== undefined
+        ? { additionalGuests: a.additionalGuests }
+        : {}),
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.organizer === true ? { organizer: true } : {}),
@@ -124,12 +136,6 @@ export function normalizeAttendees(
     }));
 }
 
-/**
- * Google Calendar's UI always lists the organizer in Guests when inviting
- * others. The insert API does not — unless we include the organizer/self
- * email in `attendees`. Call this when creating/publishing an event that
- * already has guests so AN matches GCal.
- */
 export function ensureOrganizerInAttendees(
   attendees: NormalizedAttendee[] | undefined,
   organizerEmail: string,
@@ -172,7 +178,189 @@ export function requireActionUserEmail(): string {
 }
 
 export function normalizeGoogleEventId(id: string): string {
+  const accountEvent = parseGoogleAccountEventId(id);
+  if (accountEvent) return accountEvent.googleEventId;
   return id.startsWith("google-") ? id.slice("google-".length) : id;
+}
+
+export function googleEventResultId(
+  inputId: string,
+  googleEventId: string,
+  accountEmail: string,
+): string {
+  return parseGoogleAccountEventId(inputId)
+    ? createGoogleAccountEventId({ accountEmail, googleEventId })
+    : `google-${googleEventId}`;
+}
+
+export function resolveGoogleEventAccountEmail(
+  id: string,
+  accountEmail: string | undefined,
+): string | undefined {
+  const accountEvent = parseGoogleAccountEventId(id);
+  if (!accountEvent) return accountEmail;
+  if (
+    accountEmail &&
+    accountEmail.trim().toLowerCase() !== accountEvent.accountEmail
+  ) {
+    throw new Error("Google event account does not match the selected account");
+  }
+  return accountEvent.accountEmail;
+}
+
+export function resolveBulkGoogleEventAccountEmail(
+  ids: string[],
+  accountEmail: string | undefined,
+): string | undefined {
+  const scopedCount = ids.filter((id) => parseGoogleAccountEventId(id)).length;
+  if (scopedCount > 0 && scopedCount !== ids.length) {
+    throw new Error(
+      "Bulk event ids cannot mix account-scoped and legacy Google ids",
+    );
+  }
+  const accounts = new Set(
+    ids
+      .map((id) => resolveGoogleEventAccountEmail(id, accountEmail))
+      .filter((email): email is string => !!email)
+      .map((email) => email.trim().toLowerCase()),
+  );
+  if (accounts.size > 1) {
+    throw new Error("Bulk event ids must belong to one Google account");
+  }
+  return accounts.values().next().value ?? accountEmail;
+}
+
+export function normalizeWritableGoogleEventId(id: string): string {
+  if (id.startsWith("overlay-") && id.slice("overlay-".length).includes("@")) {
+    throw new Error("Overlay Google calendar events are read-only");
+  }
+  if (id.startsWith("google-google-calendar:")) {
+    throw new Error("Shared Google calendar events are read-only");
+  }
+  return normalizeGoogleEventId(id);
+}
+
+export const MAX_MATCHED_EVENTS = 200;
+export const BULK_EVENT_CONCURRENCY = 4;
+
+export type BulkEventRange = {
+  from: string;
+  to: string;
+  timezone: string;
+};
+
+export type BookedGoogleEvent = {
+  googleEventId: string;
+  calendarAccountId: string | null;
+};
+
+export type BulkEventOutcome =
+  | "updated"
+  | "deleted"
+  | "already_absent"
+  | "matched"
+  | "skipped"
+  | "failed";
+
+export interface BulkEventResult {
+  id: string;
+  title?: string;
+  start?: string;
+  end?: string;
+  weekday?: WeekdayName;
+  accountEmail?: string;
+  outcome: BulkEventOutcome;
+  reason?: string;
+}
+
+export function isBookedOnAccount(
+  booked: readonly BookedGoogleEvent[],
+  googleEventId: string,
+  accountEmail: string | undefined,
+): boolean {
+  return booked.some(
+    (row) =>
+      row.googleEventId === googleEventId &&
+      (!row.calendarAccountId ||
+        !accountEmail ||
+        row.calendarAccountId.trim().toLowerCase() ===
+          accountEmail.trim().toLowerCase()),
+  );
+}
+
+export const BOOKED_EVENT_REASON =
+  'Is the Google event for an active booking; cancel the booking with "cancel-booking" instead';
+
+export function undeletableEventReason(
+  event: CalendarEvent,
+  booked: readonly BookedGoogleEvent[],
+): string | undefined {
+  if (
+    event.googleEventId &&
+    isBookedOnAccount(booked, event.googleEventId, event.accountEmail)
+  ) {
+    return BOOKED_EVENT_REASON;
+  }
+  if (event.source === "ical") {
+    return "Comes from a subscribed ICS feed, which is read-only";
+  }
+  if (event.source === "local") {
+    return 'Is a booking; cancel the booking with "cancel-booking" instead';
+  }
+  if (event.overlayEmail) {
+    return "Comes from an overlaid Google calendar, which is read-only";
+  }
+  if (event.calendarReadOnly) {
+    return "Comes from a read-only Google calendar source";
+  }
+  if (!event.googleEventId) return "Has no Google event id to delete";
+  return undefined;
+}
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function startsWithinRange(
+  start: string,
+  range: BulkEventRange,
+): boolean {
+  const startMs = DATE_ONLY_RE.test(start)
+    ? new Date(zonedDateTimeToUtcIso(start, "00:00", range.timezone)).getTime()
+    : new Date(start).getTime();
+  return (
+    startMs >= new Date(range.from).getTime() &&
+    startMs < new Date(range.to).getTime()
+  );
+}
+
+export function requireExplicitBound(
+  value: string,
+  label: "from" | "to",
+): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`${label} cannot be blank.`);
+  const datePart = trimmed.slice(0, 10);
+  if (DATE_ONLY_RE.test(datePart) && !isValidDateOnly(datePart)) {
+    throw new Error(`${label} is not a real calendar date: ${datePart}`);
+  }
+  return trimmed;
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const index = next++;
+        results[index] = await run(items[index], index);
+      }
+    }),
+  );
+  return results;
 }
 
 export async function resolveOwnedAccountEmail(
@@ -311,8 +499,17 @@ export function buildStatusEventFields(args: {
   }
 
   const type = args.workingLocationType ?? "customLocation";
-  const label =
-    args.workingLocationLabel || args.location || args.title || "Working";
+  const label = (
+    args.workingLocationLabel ||
+    args.location ||
+    args.title ||
+    ""
+  ).trim();
+  if (type === "customLocation" && !label) {
+    throw new Error(
+      "Other working locations require a name. Pass workingLocationLabel.",
+    );
+  }
   return {
     eventType: args.eventType,
     transparency: "transparent" as const,
@@ -321,14 +518,14 @@ export function buildStatusEventFields(args: {
       type === "homeOffice"
         ? { type, homeOffice: {} }
         : type === "officeLocation"
-          ? { type, officeLocation: { label } }
+          ? { type, officeLocation: label ? { label } : {} }
           : { type, customLocation: { label } },
   };
 }
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-function isValidDateOnly(value: string): boolean {
+export function isValidDateOnly(value: string): boolean {
   if (!DATE_ONLY_PATTERN.test(value)) return false;
   const [year, month, day] = value.split("-").map(Number);
   const parsed = new Date(Date.UTC(year, month - 1, day));
@@ -359,6 +556,16 @@ function normalizedIso(value: string, label: "start" | "end"): string {
   return date.toISOString();
 }
 
+function normalizeWorkingLocationAllDayDate(value: string): string {
+  const date = allDayDatePart(value);
+  if (!isValidDateOnly(date)) {
+    throw new Error(
+      "All-day working location events require valid YYYY-MM-DD dates.",
+    );
+  }
+  return date;
+}
+
 export function normalizeCreateEventInput(args: {
   title?: string;
   eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
@@ -376,7 +583,27 @@ export function normalizeCreateEventInput(args: {
   const title =
     args.title?.trim() ||
     (args.eventType === "outOfOffice" ? "Out of office" : "");
-  if (!title) throw new Error("Event title is required.");
+  if (!title && args.eventType !== "workingLocation") {
+    fail("Event title is required.");
+  }
+
+  if (args.eventType === "workingLocation" && args.allDay === true) {
+    const start = normalizeWorkingLocationAllDayDate(args.start);
+    const end = normalizeWorkingLocationAllDayDate(args.end);
+    if (end <= start) {
+      throw new Error(
+        "All-day working location end date must be after its start date.",
+      );
+    }
+    return {
+      title,
+      start,
+      end,
+      startTimeZone: undefined,
+      endTimeZone: undefined,
+      allDay: true,
+    };
+  }
 
   if (args.eventType === "outOfOffice" && args.fullDay === true) {
     const timezone = requireIanaTimezone(
@@ -435,15 +662,21 @@ export function normalizeCreateEventInput(args: {
 }
 
 function allDayDatePart(value: string): string {
-  const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
-  if (dateOnlyPattern.test(value)) return value;
+  if (DATE_ONLY_PATTERN.test(value)) {
+    if (isValidDateOnly(value)) return value;
+    throw new Error("All-day status events must use valid YYYY-MM-DD dates.");
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     throw new Error(
       "All-day status events must use valid date or datetime start and end values.",
     );
   }
-  return date.toISOString().slice(0, 10);
+  const datePart = date.toISOString().slice(0, 10);
+  if (!isValidDateOnly(datePart)) {
+    throw new Error("All-day status events must use valid YYYY-MM-DD dates.");
+  }
+  return datePart;
 }
 
 function allDaySpanDays(start: string, end: string): number {
@@ -462,6 +695,26 @@ function allDaySpanDays(start: string, end: string): number {
   return Math.round((endMs - startMs) / 86_400_000);
 }
 
+export function validateEventTimeOrder(args: {
+  allDay?: boolean;
+  start: string;
+  end: string;
+}) {
+  if (args.allDay === true) return;
+  const startMs = Date.parse(args.start);
+  const endMs = Date.parse(args.end);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+    throw new Error(
+      `Event start and end must be valid timestamps: ${args.start} to ${args.end}`,
+    );
+  }
+  if (endMs <= startMs) {
+    throw new Error(
+      `Event end must be after its start: ${args.start} to ${args.end}`,
+    );
+  }
+}
+
 export function validateStatusEventTiming(args: {
   eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
   allDay?: boolean;
@@ -477,8 +730,10 @@ export function validateStatusEventTiming(args: {
 
   if (args.eventType === "workingLocation" && args.allDay === true) {
     const days = allDaySpanDays(args.start, args.end);
-    if (days !== 1) {
-      throw new Error("All-day working location events must be a single day.");
+    if (days < 1) {
+      throw new Error(
+        "All-day working location end date must be after its start date.",
+      );
     }
   }
 }

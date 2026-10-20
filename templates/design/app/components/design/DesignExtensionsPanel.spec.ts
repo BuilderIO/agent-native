@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { readDesignEditorSource } from "../../pages/design-editor/read-design-editor-source";
 import { installExtensionRequest } from "./DesignExtensionsPanel";
 
 describe("installExtensionRequest — duplicate-install race", () => {
@@ -45,9 +46,6 @@ describe("installExtensionRequest — duplicate-install race", () => {
       json: async () => ({}),
     }) as unknown as typeof fetch;
 
-    // invalidateQueries is called once per queryKey (two calls total), each
-    // returning its own pending promise — collect every resolver so the test
-    // can release all of them together instead of only the last one.
     const pendingResolvers: Array<() => void> = [];
     const invalidateQueries = vi.fn(
       () =>
@@ -68,8 +66,6 @@ describe("installExtensionRequest — duplicate-install race", () => {
       requestSettled = true;
     });
 
-    // Flush the microtasks tied to the fetch/json resolution, but leave the
-    // invalidateQueries promise pending.
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
@@ -81,10 +77,6 @@ describe("installExtensionRequest — duplicate-install race", () => {
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["design-editor-extension-slot-available"],
     });
-    // Regression guard: before the fix, the function resolved here — before
-    // the lists had refetched — which is exactly the race that let a second
-    // install fire while the just-installed extension still showed as
-    // "Available".
     expect(requestSettled).toBe(false);
 
     resolveInvalidate();
@@ -156,15 +148,34 @@ describe("DesignExtensionsPanel source — extension discovery capability", () =
   });
 });
 
+describe("Design extension creation — LLM readiness gate", () => {
+  const source = readFileSync(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "DesignExtensionsPanel.tsx",
+    ),
+    "utf8",
+  );
+
+  it("keeps prompt entry and submission behind the readiness state", () => {
+    expect(source).toContain('providerStatus.state === "configured"');
+    expect(source).toContain('providerStatus === "configured"');
+    expect(source).toContain(
+      'disabled={!providerReady && providerStatus !== "unknown"}',
+    );
+    expect(source).toMatch(
+      /if \(!providerReady\) return;[\s\S]*?sendToDesignAgentChat\(/,
+    );
+    expect(source).toMatch(/if \(!providerReady \|\| !canSubmit\) return;/);
+    expect(source).toContain("<form onSubmit={handleSubmit}");
+    expect(source).toContain("<BuilderSetupCard");
+    expect(source).not.toContain('t("agentChat.setup.checkingProvider")');
+  });
+});
+
 describe("AssetLibraryPanel source — screen-local drop coordinates", () => {
   it("receives the DesignEditor screen-point resolver", () => {
-    const source = readFileSync(
-      path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        "../../pages/DesignEditor.tsx",
-      ),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     expect(source).toMatch(
       /<AssetLibraryPanel[\s\S]*?resolveScreenPoint=\{resolveAssetScreenPoint\}/,
     );

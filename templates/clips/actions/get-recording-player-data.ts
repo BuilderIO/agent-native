@@ -1,49 +1,90 @@
-/**
- * Fetch all data the player page needs in one call:
- *   - recording fields
- *   - visibility + access role
- *   - transcript
- *   - comments (flat list — UI groups into threads)
- *   - reactions
- *   - chapters (parsed from recording.chaptersJson)
- *   - CTAs
- *   - counted-view total
- *
- * This is the read endpoint the player/:id and share/:id routes use.
- * Access is gated by assertAccess at viewer level — for public-visibility
- * recordings, any signed-in user can view; for password-protected ones, the
- * route enforces the password before invoking this action.
- *
- * Usage:
- *   pnpm action get-recording-player-data --recordingId=<id>
- */
-
 import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, signShortLivedToken } from "@agent-native/core/server";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { getAgentClipReadiness } from "@shared/agent-context";
+import { transcriptContextAt } from "@shared/comment-transcript-context";
+import {
+  embedFramesUnavailableReason,
+  recordingEmbedProvider,
+} from "@shared/embed-provider";
+import { isImageRecording, resolveRecordingKind } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+const IMAGE_TOKEN_STEP_SECONDS = 5 * 60;
+
+/** Seconds to the end of the next whole step: between one and two steps. */
+function steppedTokenTtlSeconds(nowMs = Date.now()): number {
+  const now = Math.floor(nowMs / 1000);
+  const stepEnd =
+    (Math.floor(now / IMAGE_TOKEN_STEP_SECONDS) + 2) * IMAGE_TOKEN_STEP_SECONDS;
+  return stepEnd - now;
+}
+
+/**
+ * The movable marks stored on a screenshot, if any.
+ *
+ * They live alongside the video editor's own entries in `editsJson`, so this
+ * refuses unreadable edits rather than making them look like "no marks".
+ */
+function screenshotAnnotationsOf(editsJson: string | null): unknown[] {
+  const edits = readEditsRecord(editsJson);
+  const marker = edits?.[BURN_IN_PROGRESS_KEY];
+  const markerEditsJson =
+    marker && typeof marker === "object" && !Array.isArray(marker)
+      ? (marker as { editsJson?: unknown }).editsJson
+      : undefined;
+  const effectiveEdits =
+    typeof markerEditsJson === "string"
+      ? readEditsRecord(markerEditsJson)
+      : edits;
+  if (!effectiveEdits) {
+    throw new Error("CLIPS_SCREENSHOT_EDITS_UNREADABLE");
+  }
+  const annotations = effectiveEdits.annotations;
+  if (annotations === undefined) return [];
+  if (!Array.isArray(annotations)) {
+    throw new Error("CLIPS_SCREENSHOT_EDITS_UNREADABLE");
+  }
+  return annotations;
+}
+
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
+import {
+  BURN_IN_PROGRESS_KEY,
+  isHeldForRedaction,
+  readEditsRecord,
+} from "../server/lib/pending-redactions.js";
+import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
-  isRecordingExpired,
+  isRecordingExpiredForViewer,
 } from "../server/lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
 import {
   countRecordingViews,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import {
+  editorScreenshotEditsJson,
+  viewerScreenshotEditsJson,
+} from "../server/lib/screenshot-edits.js";
+import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
+import { listTranscriptVersions } from "../server/lib/transcript-versions.js";
+import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
+import { parseAppActivitySummary } from "../shared/app-activity.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   CLIPS_BUILDER_CREDITS_STATE_KEY,
   normalizeBuilderCreditsStatus,
 } from "../shared/builder-credits.js";
+import { displayCommentMentions } from "../shared/comment-mentions.js";
+import { parseStoredChapters } from "../shared/stored-chapters.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -95,9 +136,10 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript payload; browser player calls receive the full transcript.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, tags, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. Agent calls also get media (whether frames exist; a YouTube clip has none) and, on each comment, transcriptContext: the transcript spoken around its videoTimestampMs. Browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
+    transcriptOffset: z.coerce.number().int().min(0).optional(),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -119,7 +161,12 @@ export default defineAction({
     const db = getDb();
     const rec: any = access.resource;
 
-    if (isRecordingExpired(rec.expiresAt)) {
+    if (
+      isRecordingExpiredForViewer({
+        expiresAt: rec.expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
       throw new ForbiddenError("Recording has expired");
     }
 
@@ -153,14 +200,15 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
-    // This action is on a 1-3s poll from the player, so every read here shares
-    // one Promise.all instead of adding serial round-trips.
+    const canCommentRecording = true;
     const [
       cleanupStateRaw,
       builderCreditsRaw,
       verificationPending,
+      seekableRepairPending,
       viewCount,
       agentViewCount,
+      transcriptVersions,
     ] = await Promise.all([
       readAppState(`transcript-cleanup-${args.recordingId}`).catch(() => null),
       canEditRecording
@@ -171,8 +219,19 @@ export default defineAction({
         recordingId: args.recordingId,
         recordingStatus: rec.status,
       }),
+      isSeekableRepairPending({
+        ownerEmail: rec.ownerEmail,
+        recordingId: args.recordingId,
+        recordingStatus: rec.status,
+        videoUrl: rec.videoUrl,
+      }),
       countRecordingViews(args.recordingId).catch(() => 0),
       countRecordingAgentViews(args.recordingId).catch(() => 0),
+      // Replaced transcripts follow the edit permission: a viewer sees neither
+      // them nor that they exist.
+      canEditRecording
+        ? listTranscriptVersions(db, args.recordingId)
+        : Promise.resolve(null),
     ]);
     const cleanupState =
       cleanupStateRaw && typeof cleanupStateRaw === "object"
@@ -190,6 +249,7 @@ export default defineAction({
         asc(schema.recordingComments.videoTimestampMs),
         asc(schema.recordingComments.createdAt),
       );
+    const hydratedComments = await hydrateCommentAuthorNames(comments);
 
     const reactions = await db
       .select()
@@ -202,6 +262,13 @@ export default defineAction({
       .from(schema.recordingCtas)
       .where(eq(schema.recordingCtas.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingCtas.createdAt));
+
+    const tagRows = await db
+      .selectDistinct({ tag: schema.recordingTags.tag })
+      .from(schema.recordingTags)
+      .where(eq(schema.recordingTags.recordingId, args.recordingId))
+      .orderBy(asc(schema.recordingTags.tag));
+    const tags = tagRows.map((row) => row.tag);
 
     const [browserDiagnosticsRow] = await db
       .select()
@@ -223,10 +290,6 @@ export default defineAction({
       .where(eq(schema.recordingBugReports.recordingId, args.recordingId))
       .limit(1);
 
-    // Reverse-lookup: if a meeting captured this recording, surface it so the
-    // player can show a "From meeting: <title>" badge linking back to the
-    // meeting detail page. We don't need an FK on recordings — the meetings
-    // table already points at recording_id.
     let meeting: { id: string; title: string } | null = null;
     try {
       const [linkedMeeting] = await db
@@ -241,24 +304,13 @@ export default defineAction({
         meeting = { id: linkedMeeting.id, title: linkedMeeting.title };
       }
     } catch (err) {
-      // Best-effort — a missing meetings table on a fresh install shouldn't
-      // break the player.
       console.warn(
         "[get-recording-player-data] meeting lookup failed:",
         (err as Error)?.message ?? err,
       );
     }
 
-    let chapters: { startMs: number; title: string }[] = [];
-    try {
-      const parsed = JSON.parse(rec.chaptersJson ?? "[]");
-      if (Array.isArray(parsed)) {
-        chapters = parsed.filter(
-          (c: any) =>
-            typeof c?.startMs === "number" && typeof c?.title === "string",
-        );
-      }
-    } catch {}
+    const chapters = parseStoredChapters(rec.chaptersJson);
 
     const transcriptSegments = normalizeTranscriptSegments({
       segments: parseTranscriptSegments(transcript?.segmentsJson),
@@ -270,41 +322,54 @@ export default defineAction({
       !transcript.fullText?.trim() &&
       transcriptSegments.length === 0;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
-    const agentTranscript =
-      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a"
-        ? boundTranscriptForAgent({
-            fullText: transcript?.fullText,
-            segments: transcriptSegments,
-          })
-        : null;
+    const isAgentCall =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
+    const embedProvider = recordingEmbedProvider(rec);
+    const readiness = getAgentClipReadiness(rec.status);
+    const agentTranscript = isAgentCall
+      ? boundTranscriptForAgent({
+          fullText: transcript?.fullText,
+          segments: transcriptSegments,
+          fullTextOffset: args.transcriptOffset,
+        })
+      : null;
 
-    // Normalize the dev-fallback videoUrl:
-    //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
-    //      rows keep playing after the route move.
-    //   2. Keep Loom imports behind the same-origin `/api/video/:id` access
-    //      gate. Legacy Loom rows render an iframe inside that route; reuploaded
-    //      Loom rows proxy their stored provider URL from the server.
-    //   3. For password-protected recordings, mint a short-lived HMAC token
-    //      bound to this recording id and pass it via `?t=<token>` instead of
-    //      the plaintext password. Sticking the password in the URL leaks it
-    //      into browser history, CDN logs, the Referer header on outbound
-    //      requests, and — most importantly here — into MCP-host tool results
-    //      (any MCP client receiving this action's structured output would
-    //      otherwise see the plaintext password). The downstream
-    //      `/api/video/:id` route accepts either `?t=<token>` (preferred) or
-    //      `?password=<pw>` (legacy fallback) so old share pages keep
-    //      working during rollout. (audit 11 F-07)
-    //      Owners are skipped — the blob route bypasses the password gate
-    //      for them, so they don't need the token. Remote provider URLs are
-    //      still proxied through same-origin media serving so CORS, range
-    //      requests, and signed URL quirks match public share playback.
     const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
       addPasswordToken: access.role !== "owner",
       proxyRemoteMedia: true,
     });
 
+    // The picture goes through the thumbnail route, which asks everyone but
+    // the owner for the share password, the same as the video route does.
+    // The token expires on a fixed step rather than a fixed time from now:
+    // it is part of the <img> URL, and a token minted fresh on every refetch
+    // would make the browser download the whole picture again each time.
+    const imageAccessToken =
+      isImageRecording(rec) && rec.password && access.role !== "owner"
+        ? signShortLivedToken({
+            resourceId: rec.id,
+            ttlSeconds: steppedTokenTtlSeconds(),
+          })
+        : null;
+
     return {
       role: access.role,
+      canComment: canCommentRecording,
+      ...(isAgentCall
+        ? {
+            media: {
+              embedProvider,
+              framesAvailable: !embedProvider && readiness.state === "ready",
+              ...(embedProvider
+                ? {
+                    note: `${embedFramesUnavailableReason(embedProvider)} Each comment carries transcriptContext, the transcript spoken around its videoTimestampMs.`,
+                  }
+                : readiness.instruction
+                  ? { note: readiness.instruction }
+                  : {}),
+            },
+          }
+        : {}),
       viewCount,
       agentViewCount,
       recording: {
@@ -312,9 +377,37 @@ export default defineAction({
         organizationId: rec.organizationId,
         title: rec.title,
         description: rec.description,
-        thumbnailUrl: rec.thumbnailUrl,
-        animatedThumbnailUrl: rec.animatedThumbnailUrl,
-        filmstripUrl: rec.filmstripUrl ?? null,
+        kind: resolveRecordingKind(rec.kind),
+        // A screenshot is served through the thumbnail route, which is the
+        // full stored image and already enforces the share password, expiry
+        // and visibility — the same gate the video URL goes through.
+        imageUrl: isImageRecording(rec)
+          ? resolvePlayerThumbnailUrl(rec, { accessToken: imageAccessToken })
+          : null,
+        // Editing material, for people who can edit. A viewer is served the
+        // flattened picture and nothing else — the base is the same image
+        // without the movable marks, so there is no reason to hand it out.
+        // Proxied like every other media URL: the stored object lives in a
+        // private bucket the browser cannot reach directly.
+        baseImageUrl:
+          isImageRecording(rec) && canEditRecording
+            ? (resolvePlayerThumbnailUrl(rec, {
+                base: true,
+                accessToken: imageAccessToken,
+              }) ??
+              resolvePlayerThumbnailUrl(rec, { accessToken: imageAccessToken }))
+            : null,
+        annotations:
+          isImageRecording(rec) && canEditRecording
+            ? screenshotAnnotationsOf(rec.editsJson)
+            : [],
+        thumbnailUrl: resolvePlayerThumbnailUrl(rec),
+        animatedThumbnailUrl: rec.animatedThumbnailUrl
+          ? resolvePlayerThumbnailUrl(rec, { animated: true })
+          : null,
+        filmstripUrl: isHeldForRedaction(rec.editsJson, access.role)
+          ? null
+          : (rec.filmstripUrl ?? null),
         filmstripFrameCount: rec.filmstripFrameCount ?? 0,
         filmstripColumns: rec.filmstripColumns ?? 0,
         filmstripRows: rec.filmstripRows ?? 0,
@@ -323,23 +416,37 @@ export default defineAction({
         sourceAppName: rec.sourceAppName,
         sourceWindowTitle: rec.sourceWindowTitle,
         durationMs: rec.durationMs,
-        editsJson: rec.editsJson,
+        // Same reasoning as the public endpoint: a viewer of a screenshot has
+        // no use for the mark list, and `redactions` would tell them where
+        // content was hidden and how much of it there was.
+        editsJson: !isImageRecording(rec)
+          ? rec.editsJson
+          : canEditRecording
+            ? editorScreenshotEditsJson(rec.editsJson)
+            : viewerScreenshotEditsJson(rec.editsJson),
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,
+        // The version of the stored bytes. A redaction burn or a screenshot
+        // edit replaces the file behind a URL that stays the same, so without
+        // this the browser keeps showing the copy it already has.
+        mediaUpdatedAt: rec.mediaUpdatedAt ?? null,
         width: rec.width,
         height: rec.height,
         hasAudio: Boolean(rec.hasAudio),
         hasCamera: Boolean(rec.hasCamera),
         status: rec.status,
         verificationPending,
+        seekableRepairPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
-        // Don't leak the password to clients (especially to MCP hosts that
-        // surface action results to third-party agents); just indicate
-        // whether one was set. The videoUrl above already carries a
-        // short-lived `?t=<token>` for non-owner viewers, so the player
-        // can stream without ever seeing the plaintext password.
+        failureCode: rec.failureCode,
+        ...(canEditRecording
+          ? {
+              uploadAttemptId: rec.uploadAttemptId ?? null,
+              uploadGenerationId: rec.uploadGenerationId ?? null,
+            }
+          : {}),
         hasPassword: !!rec.password,
         expiresAt: rec.expiresAt,
         enableComments: Boolean(rec.enableComments),
@@ -349,9 +456,11 @@ export default defineAction({
         animatedThumbnailEnabled: Boolean(rec.animatedThumbnailEnabled),
         visibility: rec.visibility,
         ownerEmail: rec.ownerEmail,
+        folderId: rec.folderId,
         spaceIds: parseSpaceIds(rec.spaceIds),
         createdAt: rec.createdAt,
         updatedAt: rec.updatedAt,
+        trashedAt: rec.trashedAt,
       },
       transcript: transcript
         ? {
@@ -359,10 +468,14 @@ export default defineAction({
               ? "failed"
               : transcriptPresentation.status,
             language: transcript.language,
+            source: transcript.source ?? null,
+            importId: transcript.importId ?? null,
             fullText: agentTranscript?.fullText ?? transcript.fullText,
             ...(agentTranscript
               ? {
                   fullTextLength: agentTranscript.fullTextLength,
+                  fullTextOffset: agentTranscript.fullTextOffset,
+                  nextFullTextOffset: agentTranscript.nextFullTextOffset,
                   segmentCount: agentTranscript.segmentCount,
                   previewTruncated: agentTranscript.previewTruncated,
                   note: agentTranscript.note,
@@ -372,6 +485,7 @@ export default defineAction({
               ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
               : transcriptPresentation.failureReason,
             segments: agentTranscript?.segments ?? transcriptSegments,
+            ...(transcriptVersions ? { versions: transcriptVersions } : {}),
             cleanup: cleanupState
               ? {
                   status:
@@ -395,7 +509,7 @@ export default defineAction({
           }
         : null,
       builderCredits,
-      comments: comments.map((c) => ({
+      comments: hydratedComments.map((c) => ({
         id: c.id,
         recordingId: c.recordingId,
         threadId: c.threadId,
@@ -403,7 +517,16 @@ export default defineAction({
         authorEmail: c.authorEmail,
         authorName: c.authorName,
         content: c.content,
+        mentions: displayCommentMentions(c.mentionsJson),
         videoTimestampMs: c.videoTimestampMs,
+        ...(isAgentCall
+          ? {
+              transcriptContext: transcriptContextAt(
+                transcriptSegments,
+                c.videoTimestampMs,
+              ),
+            }
+          : {}),
         emojiReactionsJson: c.emojiReactionsJson,
         resolved: Boolean(c.resolved),
         createdAt: c.createdAt,
@@ -418,6 +541,7 @@ export default defineAction({
         createdAt: r.createdAt,
       })),
       chapters,
+      tags,
       ctas: ctas.map((c) => ({
         id: c.id,
         label: c.label,
@@ -427,7 +551,12 @@ export default defineAction({
       })),
       browserDiagnostics: browserDiagnostics
         ? canInspectSensitiveContext
-          ? browserDiagnostics
+          ? {
+              ...browserDiagnostics,
+              appActivity: parseAppActivitySummary(
+                browserDiagnosticsRow?.appActivitySummaryJson,
+              ),
+            }
           : { summary: browserDiagnostics.summary }
         : null,
       bugReport:

@@ -4,13 +4,14 @@ import { describe, expect, it } from "vitest";
 import {
   buildGmailEmailSearchQuery,
   filterInboxScopedThreadMessages,
+  filterLabelMessages,
   gmailLabelSearchClause,
 } from "./gmail-query.js";
 
 describe("buildGmailEmailSearchQuery", () => {
   it("scopes inbox searches to inbox results", () => {
     expect(buildGmailEmailSearchQuery({ view: "inbox", q: "receipt" })).toBe(
-      "in:inbox -in:sent receipt",
+      "in:inbox receipt",
     );
   });
 
@@ -48,7 +49,7 @@ describe("buildGmailEmailSearchQuery", () => {
         q: "ada@example.com",
       }),
     ).toBe(
-      "in:inbox -in:sent label:customer-success {from:ada@example.com to:ada@example.com cc:ada@example.com bcc:ada@example.com deliveredto:ada@example.com ada@example.com}",
+      "in:inbox label:customer-success {from:ada@example.com to:ada@example.com cc:ada@example.com bcc:ada@example.com deliveredto:ada@example.com ada@example.com}",
     );
   });
 
@@ -65,7 +66,7 @@ describe("buildGmailEmailSearchQuery", () => {
         label: "customer success",
         q: "renewal",
       }),
-    ).toBe("in:inbox -in:sent label:customer-success renewal");
+    ).toBe("in:inbox label:customer-success renewal");
   });
 
   it("scopes unread user label tabs to unread inbox results", () => {
@@ -75,7 +76,7 @@ describe("buildGmailEmailSearchQuery", () => {
         label: "customer success",
         q: "renewal",
       }),
-    ).toBe("is:unread in:inbox -in:sent label:customer-success renewal");
+    ).toBe("is:unread in:inbox label:customer-success renewal");
   });
 
   it("keeps all-mail label searches unscoped", () => {
@@ -91,10 +92,10 @@ describe("buildGmailEmailSearchQuery", () => {
   it("translates app category labels to Gmail search operators", () => {
     expect(
       buildGmailEmailSearchQuery({ view: "inbox", label: "updates" }),
-    ).toBe("in:inbox -in:sent category:updates");
+    ).toBe("in:inbox category:updates");
     expect(
       buildGmailEmailSearchQuery({ view: "inbox", label: "personal" }),
-    ).toBe("in:inbox -in:sent category:primary");
+    ).toBe("in:inbox category:primary");
   });
 
   it("keeps note-to-self scoped to inbox without dropping sent-to-self mail", () => {
@@ -105,8 +106,30 @@ describe("buildGmailEmailSearchQuery", () => {
 });
 
 describe("gmailLabelSearchClause", () => {
-  it("quotes Gmail labels that need quoting", () => {
-    expect(gmailLabelSearchClause("Team/Foo Bar")).toBe('label:"Team/Foo-Bar"');
+  it("preserves nested Gmail label paths", () => {
+    expect(gmailLabelSearchClause("Team/Foo Bar")).toBe("label:Team/Foo-Bar");
+  });
+});
+
+describe("filterLabelMessages", () => {
+  it("keeps archived labeled mail while excluding unrelated and trashed mail", () => {
+    const archived = message({
+      id: "archived",
+      isArchived: true,
+      labelIds: ["github"],
+    });
+    const unrelated = message({ id: "unrelated", labelIds: ["inbox"] });
+    const trashed = message({
+      id: "trashed",
+      isTrashed: true,
+      labelIds: ["github"],
+    });
+
+    expect(
+      filterLabelMessages([archived, unrelated, trashed], "github").map(
+        (email) => email.id,
+      ),
+    ).toEqual(["archived"]);
   });
 });
 

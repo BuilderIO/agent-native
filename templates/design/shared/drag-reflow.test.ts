@@ -13,10 +13,6 @@ import {
   resolveTargetHysteresis,
 } from "./drag-reflow";
 
-// ---------------------------------------------------------------------------
-// Hysteresis
-// ---------------------------------------------------------------------------
-
 function candidate(
   over: Partial<DragTargetCandidate> & Pick<DragTargetCandidate, "key">,
 ): DragTargetCandidate {
@@ -259,10 +255,6 @@ describe("resolveTargetHysteresis", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Size guard
-// ---------------------------------------------------------------------------
-
 describe("isContainerTooSmallForDrag", () => {
   it("allows a container that fits the dragged element", () => {
     expect(
@@ -302,7 +294,6 @@ describe("isContainerTooSmallForDrag", () => {
   });
 
   it("does not reject on an axis the container hugs (it would grow to fit)", () => {
-    // Container is too narrow, but it hugs its width → allowed.
     expect(
       isContainerTooSmallForDrag(
         { width: 30, height: 40 },
@@ -310,7 +301,6 @@ describe("isContainerTooSmallForDrag", () => {
         { hugAxis: "width" },
       ),
     ).toBe(false);
-    // …still rejected if it is also too short on the non-hug axis.
     expect(
       isContainerTooSmallForDrag(
         { width: 30, height: 10 },
@@ -330,10 +320,6 @@ describe("isContainerTooSmallForDrag", () => {
     ).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Packed-container detection
-// ---------------------------------------------------------------------------
 
 function packed(over: Partial<PackedContainerInfo> = {}): PackedContainerInfo {
   return {
@@ -423,15 +409,10 @@ describe("mainAxisForDirection", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Reflow offsets
-// ---------------------------------------------------------------------------
-
 describe("computeReorderOffsets", () => {
   const slotMain = 60;
 
   it("shifts intermediate siblings toward the start when moving later", () => {
-    // 5 items, drag item 1 to before item 4.
     const offsets = computeReorderOffsets({
       count: 5,
       originIndex: 1,
@@ -442,7 +423,6 @@ describe("computeReorderOffsets", () => {
   });
 
   it("shifts intermediate siblings toward the end when moving earlier", () => {
-    // 5 items, drag item 3 to before item 1.
     const offsets = computeReorderOffsets({
       count: 5,
       originIndex: 3,
@@ -461,7 +441,6 @@ describe("computeReorderOffsets", () => {
         slotMain,
       }),
     ).toEqual([0, 0, 0, 0, 0]);
-    // targetSlot === originIndex + 1 is also a no-op (before the very next sibling).
     expect(
       computeReorderOffsets({
         count: 5,
@@ -473,7 +452,6 @@ describe("computeReorderOffsets", () => {
   });
 
   it("moves a single sibling when swapping adjacent neighbors", () => {
-    // drag item 0 to before item 2 → only item 1 shifts start-ward.
     expect(
       computeReorderOffsets({
         count: 3,
@@ -485,7 +463,6 @@ describe("computeReorderOffsets", () => {
   });
 
   it("moves to the very end", () => {
-    // drag item 0 to end (before slot count) → items 1 and 2 shift start-ward.
     expect(
       computeReorderOffsets({
         count: 3,

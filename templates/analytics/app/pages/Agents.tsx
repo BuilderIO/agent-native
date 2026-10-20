@@ -1,12 +1,12 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { DbAdminPage } from "@agent-native/core/client/db-admin";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 import { useOrgRole } from "@agent-native/core/client/org";
+import { DbAdminPage } from "@agent-native/toolkit/app/db-admin";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -79,8 +79,6 @@ interface DbAdminConnection {
   appId: string | null;
   appUrl: string | null;
   databaseUrlLast4: string | null;
-  hasDatabaseAuthToken: boolean;
-  databaseAuthTokenLast4: string | null;
 }
 
 interface SaveDbAdminConnectionInput {
@@ -88,7 +86,6 @@ interface SaveDbAdminConnectionInput {
   appId?: string;
   appUrl?: string;
   databaseUrl: string;
-  databaseAuthToken?: string;
 }
 
 interface DashboardUsageStats {
@@ -134,7 +131,8 @@ function toCount(value: unknown): number {
 
 function DashboardUsageAdminPanel() {
   const t = useT();
-  const { formatDate } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
   const numberFormat = useMemo(() => new Intl.NumberFormat(), []);
   const [sortBy, setSortBy] = useState<"views" | "edits">("views");
   const {
@@ -428,7 +426,11 @@ function UsageStatCard({
 
 export default function AgentsPage() {
   const t = useT();
-  const { canManageOrg, isLoading: orgRoleLoading } = useOrgRole();
+  const {
+    canManageOrg,
+    isLoading: orgRoleLoading,
+    error: orgRoleError,
+  } = useOrgRole();
   const [searchParams, setSearchParams] = useSearchParams();
   const view = parseView(searchParams.get("view"));
   const selectedConnectionId = searchParams.get("db");
@@ -457,6 +459,26 @@ export default function AgentsPage() {
     return (
       <div className="mx-auto flex h-full w-full max-w-7xl items-center justify-center px-4 py-5 lg:px-6">
         <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (orgRoleError && isAdminView) {
+    return (
+      <div className="mx-auto flex h-full w-full max-w-7xl items-center justify-center px-4 py-5 lg:px-6">
+        <div className="max-w-sm rounded-lg border bg-background p-6 text-center">
+          <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+            <IconAlertTriangle className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <h1 className="text-sm font-semibold">
+            {t("agents.roleUnavailableTitle")}
+          </h1>
+          <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
+            {t("agents.roleUnavailableDescription", {
+              message: orgRoleError.message,
+            })}
+          </p>
+        </div>
       </div>
     );
   }
@@ -602,7 +624,6 @@ function AnalyticsDbAdminPanel({
     appId: "",
     appUrl: "",
     databaseUrl: "",
-    databaseAuthToken: "",
   });
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -663,7 +684,6 @@ function AnalyticsDbAdminPanel({
         appId: "",
         appUrl: "",
         databaseUrl: "",
-        databaseAuthToken: "",
       });
       onSelectConnection(saved.id);
     } catch (err) {
@@ -698,7 +718,7 @@ function AnalyticsDbAdminPanel({
               value={selectedConnection?.id ?? ""}
               onValueChange={onSelectConnection}
             >
-              <SelectTrigger className="h-9 w-[260px] max-w-full">
+              <SelectTrigger className="w-[260px] max-w-full">
                 <SelectValue placeholder={t("agents.selectConnection")} />
               </SelectTrigger>
               <SelectContent>
@@ -849,23 +869,6 @@ function AnalyticsDbAdminPanel({
                 type="password"
                 autoComplete="off"
                 required
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="db-connection-auth-token">
-                {t("agents.connectionAuthToken")}
-              </Label>
-              <Input
-                id="db-connection-auth-token"
-                value={form.databaseAuthToken}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    databaseAuthToken: event.target.value,
-                  }))
-                }
-                type="password"
-                autoComplete="off"
               />
             </div>
             {formError ? (

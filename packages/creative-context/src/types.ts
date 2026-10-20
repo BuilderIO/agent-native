@@ -407,6 +407,7 @@ export interface ContextSearchResult {
   score: number;
   canonicalUrl: string | null;
   mimeType: string | null;
+  nativeArtifact: { app: string; format: string } | null;
 }
 
 export interface ContextDetail {
@@ -550,7 +551,6 @@ export interface CreativeContextMembershipPreview {
   preview?: Record<string, unknown>;
 }
 
-/** Public submission summary deliberately omits staging and native capability data. */
 export interface CreativeContextSubmissionSummary {
   id: string;
   contextId: string;

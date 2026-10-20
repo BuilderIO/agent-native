@@ -1,8 +1,4 @@
-/**
- * Get a single meeting (with its participants and action items) — access checked.
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -17,15 +13,13 @@ interface Bullet {
   text: string;
 }
 interface ActionItem {
-  assigneeEmail?: string;
+  id?: string;
+  assigneeEmail?: string | null;
   text: string;
-  dueDate?: string;
+  dueDate?: string | null;
+  completedAt?: string | null;
 }
 
-/**
- * Defensive JSON parse — returns the fallback (and logs a warning) on bad
- * data so legacy / malformed rows don't crash the response.
- */
 function safeParseArray<T>(
   raw: string | null | undefined,
   rowId: string,
@@ -46,7 +40,7 @@ function safeParseArray<T>(
 
 export default defineAction({
   description:
-    "Get a meeting by id with its participants, action items, and a reference to its recording (if any). Returns null if the user lacks access.",
+    'Get a meeting by id with its participants, action items, and a reference to its recording (if any). When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
   schema: z.object({
     id: z.string().describe("Meeting id"),
   }),
@@ -57,12 +51,13 @@ export default defineAction({
       const materialized = await materializeCalendarMeetingFromVirtualId(
         args.id,
       );
-      if (!materialized?.meeting?.id) return { meeting: null };
+      if (!materialized?.meeting?.id)
+        return { meeting: null, reason: "unavailable" as const };
       meetingId = materialized.meeting.id;
     }
 
     const access = await resolveAccess("meeting", meetingId);
-    if (!access) return { meeting: null };
+    if (!access) return { meeting: null, reason: "unavailable" as const };
 
     const db = getDb();
     const [row] = await db
@@ -75,9 +70,8 @@ export default defineAction({
         ),
       )
       .limit(1);
-    if (!row) return { meeting: null };
+    if (!row) return { meeting: null, reason: "unavailable" as const };
 
-    // Server-side JSON parse — clients see structured arrays, not raw TEXT.
     const bullets = safeParseArray<Bullet>(
       row.bulletsJson,
       row.id,
@@ -100,10 +94,13 @@ export default defineAction({
       .from(schema.meetingParticipants)
       .where(eq(schema.meetingParticipants.meetingId, meetingId));
 
-    const actionItems = await db
+    const actionItemRows = await db
       .select()
       .from(schema.meetingActionItems)
       .where(eq(schema.meetingActionItems.meetingId, meetingId));
+    const actionItems = actionItemRows.length
+      ? actionItemRows
+      : actionItemsParsed;
 
     let recording = null;
     let transcript = null;

@@ -1,9 +1,10 @@
 import { signA2AToken } from "@agent-native/core/a2a";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import {
   ORG_APPS_PATH,
   buildOrgAppsResponse,
+  createOrgDirectorySuccessCache,
   decodeJwtUnverified,
   extractBearerToken,
   toA2aUrl,
@@ -69,43 +70,96 @@ describe("decodeJwtUnverified", () => {
 });
 
 describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
-  it("ACCEPTS a token signed with the deployment global A2A_SECRET", async () => {
+  it("REJECTS a token signed only with the deployment global A2A_SECRET", async () => {
     const tok = await signGlobal("alice@acme.com", "acme.com");
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: GLOBAL_SECRET,
       resolveOrgSecretByDomain: async () => null,
     });
-    expect(v).toEqual({ email: "alice@acme.com", orgDomain: "acme.com" });
+    expect(v).toBeNull();
   });
 
-  it("ACCEPTS a token signed with the org's per-domain a2a_secret", async () => {
+  it("accepts the global secret only through the sole-org compatibility resolver without a user identity", async () => {
+    const tok = await signGlobal("alice@acme.com", "acme.com");
+    const v = await verifyA2ABearerToken({
+      token: tok,
+      resolveOrgSecretByDomain: async () => null,
+      resolveSoleOrgGlobalSecretByDomain: async (domain) =>
+        domain === "acme.com" ? GLOBAL_SECRET : null,
+    });
+    expect(v).toEqual({ orgDomain: "acme.com" });
+  });
+
+  it("ACCEPTS a sole-org global token when an org secret is also configured", async () => {
+    const tok = await signGlobal("alice@acme.com", "acme.com");
+    const v = await verifyA2ABearerToken({
+      token: tok,
+      resolveOrgSecretByDomain: async () => ORG_SECRET,
+      resolveSoleOrgGlobalSecretByDomain: async (domain) =>
+        domain === "acme.com" ? GLOBAL_SECRET : null,
+    });
+    expect(v).toEqual({ orgDomain: "acme.com" });
+  });
+
+  it("ignores a caller-controlled subject on an org-secret token", async () => {
     const tok = await signA2AToken("bob@acme.com", "acme.com", ORG_SECRET, {
       expiresIn: "5m",
     });
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: undefined,
       resolveOrgSecretByDomain: async (d) =>
         d === "acme.com" ? ORG_SECRET : null,
     });
-    expect(v).toEqual({ email: "bob@acme.com", orgDomain: "acme.com" });
+    expect(v).toEqual({ orgDomain: "acme.com" });
+  });
+
+  it("rejects a token minted for another audience", async () => {
+    const tok = await signA2AToken("bob@acme.com", "acme.com", ORG_SECRET, {
+      audience: "https://other.example.test/_agent-native/org/apps",
+    });
+    const v = await verifyA2ABearerToken({
+      token: tok,
+      expectedAudience: "https://dispatch.example.test/_agent-native/org/apps",
+      resolveOrgSecretByDomain: async () => ORG_SECRET,
+    });
+    expect(v).toBeNull();
+  });
+
+  it("matches an expected audience in a token audience array", async () => {
+    const tok = await signA2AToken("bob@acme.com", "acme.com", ORG_SECRET, {
+      audience: [
+        "https://other.example.test/_agent-native/org/apps",
+        "https://dispatch.example.test/_agent-native/org/apps",
+      ],
+    });
+    const v = await verifyA2ABearerToken({
+      token: tok,
+      expectedAudience: "https://dispatch.example.test/_agent-native/org/apps",
+      resolveOrgSecretByDomain: async () => ORG_SECRET,
+    });
+    expect(v).toEqual({ orgDomain: "acme.com" });
+  });
+
+  it("rejects an unbound token when the receiver requires an audience", async () => {
+    const tok = await signA2AToken("bob@acme.com", "acme.com", ORG_SECRET);
+    const v = await verifyA2ABearerToken({
+      token: tok,
+      expectedAudience: "https://dispatch.example.test/_agent-native/org/apps",
+      resolveOrgSecretByDomain: async () => ORG_SECRET,
+    });
+    expect(v).toBeNull();
   });
 
   it("REJECTS a token signed with a different secret (bad signature)", async () => {
     const tok = await signGlobal("eve@acme.com", "acme.com");
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: "the-wrong-secret",
       resolveOrgSecretByDomain: async () => "also-wrong",
     });
     expect(v).toBeNull();
   });
 
   it("REJECTS a cross-org token (domain resolves to a different org secret)", async () => {
-    // Signed with ORG A's secret, but the verifier only knows ORG B's secret
-    // for that domain and there is no matching global secret. Nothing the
-    // verifier holds can validate it -> rejected (no cross-org disclosure).
     const tok = await signA2AToken(
       "mallory@orga.com",
       "orga.com",
@@ -114,7 +168,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     );
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: undefined,
       resolveOrgSecretByDomain: async () => "org-b-secret",
     });
     expect(v).toBeNull();
@@ -124,8 +177,7 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     const tok = await signGlobal("late@acme.com", "acme.com", "1s");
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: GLOBAL_SECRET,
-      resolveOrgSecretByDomain: async () => null,
+      resolveOrgSecretByDomain: async () => GLOBAL_SECRET,
       nowSeconds: Math.floor(Date.now() / 1000) + 3600,
     });
     expect(v).toBeNull();
@@ -135,7 +187,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     const tok = await signGlobal("nobody@x.com", undefined);
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: GLOBAL_SECRET,
       resolveOrgSecretByDomain: async () => null,
     });
     expect(v).toBeNull();
@@ -145,7 +196,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     const tok = await signGlobal("a@acme.com", "acme.com");
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: undefined,
       resolveOrgSecretByDomain: async () => null,
     });
     expect(v).toBeNull();
@@ -154,7 +204,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
   it("REJECTS a garbage token", async () => {
     const v = await verifyA2ABearerToken({
       token: "garbage",
-      globalSecret: GLOBAL_SECRET,
       resolveOrgSecretByDomain: async () => null,
     });
     expect(v).toBeNull();
@@ -173,6 +222,26 @@ describe("toA2aUrl", () => {
 });
 
 describe("buildOrgAppsResponse", () => {
+  it("keeps Dispatch for whole-fleet callers that do not request self-filtering", () => {
+    const res = buildOrgAppsResponse({
+      org: "acme.com",
+      apps: [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          url: "https://dispatch.agent-native.com",
+        },
+        {
+          id: "analytics",
+          name: "Analytics",
+          url: "https://analytics.agent-native.com",
+        },
+      ],
+    });
+
+    expect(res.apps.map((app) => app.id)).toEqual(["analytics", "dispatch"]);
+  });
+
   it("shapes the response, drops self + non-http, dedupes, and sorts", () => {
     const res = buildOrgAppsResponse({
       org: "acme.com",
@@ -186,7 +255,7 @@ describe("buildOrgAppsResponse", () => {
         {
           id: "mail",
           name: "Mail",
-          description: "Agent-native email",
+          description: "Agent-Native email",
           url: "https://mail.agent-native.com/",
         },
         {
@@ -201,7 +270,6 @@ describe("buildOrgAppsResponse", () => {
     });
 
     expect(res.org).toBe("acme.com");
-    // dispatch (self), the dup, the ftp, and the empty-id are all excluded.
     expect(res.apps.map((a) => a.id)).toEqual(["calendar", "mail"]);
     const mail = res.apps.find((a) => a.id === "mail")!;
     expect(mail).toEqual({
@@ -209,22 +277,18 @@ describe("buildOrgAppsResponse", () => {
       name: "Mail",
       url: "https://mail.agent-native.com",
       a2aUrl: "https://mail.agent-native.com/_agent-native/a2a",
-      capabilities: "Agent-native email",
+      capabilities: "Agent-Native email",
     });
     const cal = res.apps.find((a) => a.id === "calendar")!;
     expect(cal.capabilities).toBeUndefined();
   });
 
   it("only references allow-listed first-party apps when fed the real registry", async () => {
-    // Source of truth = Dispatch's existing connected-apps registry
-    // (discoverAgents -> getBuiltinAgents -> BUILTIN_AGENTS), which already
-    // excludes hidden templates. Assert no hidden first-party slug leaks.
     const { getBuiltinAgents } =
       await import("@agent-native/core/server/agent-discovery");
-    const builtins = getBuiltinAgents("dispatch");
+    const builtins = getBuiltinAgents();
     const res = buildOrgAppsResponse({
       org: "acme.com",
-      selfId: "dispatch",
       apps: builtins.map((a) => ({
         id: a.id,
         name: a.name,
@@ -239,20 +303,82 @@ describe("buildOrgAppsResponse", () => {
       "scheduling",
       "issues",
       "recruiting",
-      "macros",
       "code",
       "migration",
       "starter",
     ];
     const ids = new Set(res.apps.map((a) => a.id));
+    expect(ids.has("dispatch")).toBe(true);
     for (const slug of HIDDEN_SLUGS) {
       expect(ids.has(slug)).toBe(false);
     }
-    // dispatch (self) is excluded; every entry has a valid a2aUrl.
-    expect(ids.has("dispatch")).toBe(false);
+    expect(ids.has("dispatch")).toBe(true);
     for (const a of res.apps) {
       expect(a.a2aUrl.endsWith("/_agent-native/a2a")).toBe(true);
       expect(/^https?:\/\//.test(a.url)).toBe(true);
     }
+  });
+});
+
+describe("createOrgDirectorySuccessCache", () => {
+  it("coalesces concurrent same-tenant refreshes and isolates cache keys", async () => {
+    let resolveLoad!: (value: string[]) => void;
+    const load = vi.fn(
+      () =>
+        new Promise<string[]>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+    const cache = createOrgDirectorySuccessCache<string[]>();
+
+    const first = cache.get("org-a|include-self", load);
+    const second = cache.get("org-a|include-self", load);
+    expect(load).toHaveBeenCalledTimes(1);
+    resolveLoad(["analytics", "dispatch"]);
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      ["analytics", "dispatch"],
+      ["analytics", "dispatch"],
+    ]);
+
+    await cache.get("org-b|include-self", async () => ["mail"]);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches complete success only until expiry", async () => {
+    let now = 1_000;
+    const cache = createOrgDirectorySuccessCache<string[]>({
+      ttlMs: 60,
+      now: () => now,
+    });
+    const load = vi
+      .fn<() => Promise<string[]>>()
+      .mockResolvedValueOnce(["content"])
+      .mockResolvedValueOnce(["design"]);
+
+    await expect(cache.get("org-a", load)).resolves.toEqual(["content"]);
+    now += 59;
+    await expect(cache.get("org-a", load)).resolves.toEqual(["content"]);
+    now += 2;
+    await expect(cache.get("org-a", load)).resolves.toEqual(["design"]);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache failures or resurrect an expired value", async () => {
+    let now = 1_000;
+    const cache = createOrgDirectorySuccessCache<string[]>({
+      ttlMs: 60,
+      now: () => now,
+    });
+    await cache.get("org-a", async () => ["withdrawn-app"]);
+    now += 61;
+
+    await expect(
+      cache.get("org-a", async () => {
+        throw new Error("directory unavailable");
+      }),
+    ).rejects.toThrow("directory unavailable");
+    await expect(
+      cache.get("org-a", async () => ["current-app"]),
+    ).resolves.toEqual(["current-app"]);
   });
 });

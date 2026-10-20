@@ -1,6 +1,7 @@
 import {
-  resolveBuilderAuthHeader,
+  resolveBuilderGatewayAuth,
   getBuilderProxyOrigin,
+  recordBuilderGatewayAuthFailure,
 } from "../server/credential-provider.js";
 
 export interface BuilderTranscribeOptions {
@@ -43,10 +44,10 @@ function describeError(err: unknown): string {
 export async function transcribeWithBuilder(
   opts: BuilderTranscribeOptions,
 ): Promise<BuilderTranscribeResult> {
-  const authHeader = await resolveBuilderAuthHeader();
-  if (!authHeader) {
+  const auth = await resolveBuilderGatewayAuth();
+  if (!auth) {
     throw new Error(
-      "Builder private key not configured. Connect your Builder.io account (free tier available) in Settings.",
+      "Builder private key is not configured. Use Builder.io (free tier available) in Settings to set it up.",
     );
   }
 
@@ -63,8 +64,6 @@ export async function transcribeWithBuilder(
 
   const url = `${getBuilderProxyOrigin()}/agent-native/transcribe-audio?${params.toString()}`;
 
-  // Copy to a plain ArrayBuffer so TS6 accepts it as BodyInit (Uint8Array
-  // with ArrayBufferLike doesn't satisfy the strict BlobPart/BodyInit types).
   const body = opts.audioBytes.buffer.slice(
     opts.audioBytes.byteOffset,
     opts.audioBytes.byteOffset + opts.audioBytes.byteLength,
@@ -81,8 +80,10 @@ export async function transcribeWithBuilder(
     res = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: authHeader,
+        Authorization: auth.authorization,
         "Content-Type": "application/octet-stream",
+        ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+        ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
       },
       body,
       signal: controller.signal,
@@ -109,6 +110,17 @@ export async function transcribeWithBuilder(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    // The chat path records this so a rejected credential is not retried for
+    // BUILDER_AUTH_FAILURE_TTL_MS; transcription never did, so one bad
+    // credential re-sent the same doomed request on every attempt -- prod
+    // logged 24 identical `Missing Authentication header` 401s in a day off a
+    // single unusable credential, with nothing to stop the next one.
+    if (res.status === 401 || res.status === 403) {
+      await recordBuilderGatewayAuthFailure({
+        status: res.status,
+        message: text,
+      });
+    }
     throw new Error(
       `Builder transcription failed (${res.status} ${res.statusText}): ${text}`,
     );

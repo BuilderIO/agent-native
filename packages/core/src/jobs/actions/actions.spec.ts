@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   resourceDelete: vi.fn(),
   resourceGetByPath: vi.fn(),
   resourcePut: vi.fn(),
+  resourcePutIfCurrent: vi.fn(),
 }));
 
 vi.mock("../../automations/access.js", () => ({
@@ -23,6 +24,7 @@ vi.mock("../../resources/store.js", () => ({
   resourceDelete: mocks.resourceDelete,
   resourceGetByPath: mocks.resourceGetByPath,
   resourcePut: mocks.resourcePut,
+  resourcePutIfCurrent: mocks.resourcePutIfCurrent,
 }));
 vi.mock("../run-history.js", () => ({
   deleteAutomationRuns: mocks.deleteAutomationRuns,
@@ -85,6 +87,14 @@ describe("recurring job actions", () => {
     mocks.resolveAutomationAccess.mockResolvedValue(access("owner"));
     mocks.resourceGetByPath.mockResolvedValue(resource);
     mocks.resourcePut.mockResolvedValue(undefined);
+    mocks.resourcePutIfCurrent.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => ({
+        ...resource,
+        owner: input.owner,
+        path: input.path,
+        content: input.content,
+      }),
+    );
     mocks.resourceDelete.mockResolvedValue(true);
     mocks.listAutomationRuns.mockResolvedValue([{ id: "run-1" }]);
     mocks.queueAutomationRunNow.mockResolvedValue({
@@ -123,10 +133,12 @@ describe("recurring job actions", () => {
       { operation: "update", resourceId: "job-1", enabled: false },
       ctx,
     );
-    expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "owner@example.com",
-      "jobs/daily.md",
-      expect.stringContaining("enabled: false"),
+    expect(mocks.resourcePutIfCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "owner@example.com",
+        path: "jobs/daily.md",
+        content: expect.stringContaining("enabled: false"),
+      }),
     );
 
     mocks.resolveAutomationAccess.mockResolvedValueOnce(access("collaborate"));

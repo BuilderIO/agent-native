@@ -19,8 +19,6 @@ export function useFileSearch(query: string, enabled: boolean) {
 
     setIsLoading(true);
     const id = ++requestIdRef.current;
-    // Abort any in-flight request so a superseded/unmounted query stops fetching
-    // (mirrors use-mention-search). The requestId guard still protects state.
     abortRef.current?.abort();
     const abort = new AbortController();
     abortRef.current = abort;
@@ -36,7 +34,6 @@ export function useFileSearch(query: string, enabled: boolean) {
           );
           if (!res.ok) throw new Error();
           const data = await res.json();
-          // Only update if this is still the latest request
           if (id === requestIdRef.current) {
             setFiles(data.files || []);
           }

@@ -70,4 +70,42 @@ describe("SwiftDesktopHelperClient preemption", () => {
     expect(spawnHelper).toHaveBeenCalledTimes(2);
     helper.close();
   });
+
+  it("terminates a helper that does not answer before the request deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = fakeChild(false);
+      const helper = new SwiftDesktopHelperClient(
+        "/fixed/helper/path",
+        vi.fn(() => child),
+      );
+      const pending = helper.snapshot();
+      const rejected = expect(pending).rejects.toThrow(
+        "timed out after 30 seconds",
+      );
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await rejected;
+      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+      helper.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects pending requests when the helper emits malformed output", async () => {
+    const child = fakeChild(false);
+    const helper = new SwiftDesktopHelperClient(
+      "/fixed/helper/path",
+      vi.fn(() => child),
+    );
+    const pending = helper.snapshot();
+
+    (child.stdout as PassThrough).write("{not-json}\n");
+
+    await expect(pending).rejects.toThrow("malformed JSON");
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    helper.close();
+  });
 });

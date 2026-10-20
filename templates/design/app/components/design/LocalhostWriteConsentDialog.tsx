@@ -14,18 +14,15 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 
 export interface LocalhostWriteConsentPayload {
-  /** The path being granted write access. */
   rootPath: string;
-  /** File(s) about to be written (for display only). */
   files: string[];
-  /** Pending callback to invoke after user grants consent. */
   onGranted: (grant: {
     grantId: string;
     rootPath: string;
     grantedUntil: string;
   }) => void;
-  /** Called when the user cancels. */
   onCancel: () => void;
+  onError?: (error: unknown) => void;
 }
 
 interface LocalhostWriteConsentDialogProps {
@@ -36,12 +33,6 @@ interface LocalhostWriteConsentDialogProps {
   payload: LocalhostWriteConsentPayload | null;
 }
 
-/**
- * Modal dialog requesting explicit user consent before the agent writes local
- * files. Shows the rootPath that will be granted write access and the specific
- * file(s) about to be modified. The grant expires after 8 hours and is scoped
- * to that folder only.
- */
 export function LocalhostWriteConsentDialog({
   open,
   onOpenChange,
@@ -65,8 +56,8 @@ export function LocalhostWriteConsentDialog({
       });
       onOpenChange(false);
       payload.onGranted(result);
-    } catch {
-      // Silently close; the caller's onCancel path already guards the write.
+    } catch (error) {
+      payload.onError?.(error);
       onOpenChange(false);
       payload.onCancel();
     } finally {

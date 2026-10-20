@@ -1,32 +1,60 @@
 import crypto from "node:crypto";
 
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+  parseQueueMessageInput,
+  type AgentSubmissionPayload,
+  type AgentRunOptions,
+} from "@agent-native/agentkit/protocol";
+
+import {
+  currentExecutionFence,
+  withFencedExecutionWrite,
+} from "../agent/execution-fence.js";
+import { normalizeSubmissionDeadlineMetadata } from "../agent/submission-deadline.js";
+import {
+  extractThreadMeta,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   normalizeThreadTitle,
+  type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import {
+  failedRunIdsWithError,
+  isRenderedRunNotStartedNotice,
+  projectRootAssistantMessages,
+  threadMessageRecord,
+} from "../agent/thread-message-projection.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
+import {
+  assertNoInlineImageBytes,
+  stripInlineBytes,
+} from "../shared/inline-bytes.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
 import { emitChatThreadChange } from "./emitter.js";
 import {
+  CHAT_THREAD_SCHEMA_MIGRATIONS,
+  CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
+} from "./schema-migrations.js";
+import {
   chatThreads,
   chatThreadShares,
   CHAT_THREAD_SHARES_CREATE_SQL,
-  CHAT_THREAD_SHARES_CREATE_SQL_PG,
   CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
 } from "./schema.js";
-
-let _initPromise: Promise<void> | undefined;
 
 /**
  * Per-thread async mutex. Read-modify-write on the `thread_data` JSON blob
@@ -67,25 +95,27 @@ export function withThreadDataLock<T>(
   return next as Promise<T>;
 }
 
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const createSql = `
+export const chatThreadsStore = defineStore({
+  id: "chat_threads",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
         CREATE TABLE IF NOT EXISTS chat_threads (
           id TEXT PRIMARY KEY,
           owner_email TEXT NOT NULL,
           title TEXT NOT NULL DEFAULT '',
           preview TEXT NOT NULL DEFAULT '',
           thread_data TEXT NOT NULL DEFAULT '{}',
-          message_count ${intType()} NOT NULL DEFAULT 0,
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL,
+          message_count BIGINT NOT NULL DEFAULT 0,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
           scope_type TEXT,
           scope_id TEXT,
           scope_label TEXT,
-          pinned_at ${intType()},
-          archived_at ${intType()},
+          pinned_at BIGINT,
+          archived_at BIGINT,
           share_token_hash TEXT,
           source_platform TEXT,
           source_app_id TEXT,
@@ -95,7 +125,6 @@ async function ensureTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
         // Hot path: the `chat_threads` table and its indexes are virtually
         // always already present in production. Issuing `CREATE TABLE`/
         // `CREATE INDEX` still takes a lock that, in a fresh background-worker
@@ -115,8 +144,8 @@ async function ensureTable(): Promise<void> {
           ["scope_type", "TEXT"],
           ["scope_id", "TEXT"],
           ["scope_label", "TEXT"],
-          ["pinned_at", intType()],
-          ["archived_at", intType()],
+          ["pinned_at", "BIGINT"],
+          ["archived_at", "BIGINT"],
           ["share_token_hash", "TEXT"],
           ["source_platform", "TEXT"],
           ["source_app_id", "TEXT"],
@@ -132,8 +161,13 @@ async function ensureTable(): Promise<void> {
         }
         await ensureTableExists(
           "chat_thread_shares",
-          CHAT_THREAD_SHARES_CREATE_SQL_PG,
+          CHAT_THREAD_SHARES_CREATE_SQL,
         );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
         // Widen millisecond-timestamp columns that older deployments created as
         // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
         // overflows int4. No-op once widened / on fresh BIGINT databases.
@@ -143,6 +177,11 @@ async function ensureTable(): Promise<void> {
           "pinned_at",
           "archived_at",
         ]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
         // Indexes for the hot read paths. Both the sidebar list and the
         // scoped/per-resource list filter on owner_email (and optionally
         // scope) and sort by updated_at. Probe pg_indexes first (no lock)
@@ -150,6 +189,26 @@ async function ensureTable(): Promise<void> {
         await ensureIndexExists(
           "chat_threads_owner_updated_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
+        );
+        // `owner_email` is stored as the user typed it, so access scoping
+        // compares `LOWER(owner_email)`. A plain btree on the raw column cannot
+        // serve that predicate — without the expression index the list falls
+        // back to scanning every row in the (shared, multi-tenant) table.
+        //
+        // NOT built CONCURRENTLY, despite the SHARE lock. This ensure path runs
+        // at release over the pooled Neon endpoint, and a transaction-pooled
+        // connection cannot carry `CREATE INDEX CONCURRENTLY` to completion:
+        // the statement returned without creating anything and the verifying
+        // probe failed the whole release, so no docs production deploy could
+        // publish. Release already runs locking DDL; a plain build here is the
+        // form that actually lands.
+        await ensureIndexExists(
+          "chat_threads_owner_lower_updated_idx",
+          `CREATE INDEX IF NOT EXISTS chat_threads_owner_lower_updated_idx ON chat_threads (LOWER(owner_email), updated_at)`,
+        );
+        await ensureIndexExists(
+          "chat_thread_shares_principal_lower_idx",
+          `CREATE INDEX IF NOT EXISTS chat_thread_shares_principal_lower_idx ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))`,
         );
         await ensureIndexExists(
           "chat_threads_scope_updated_idx",
@@ -169,76 +228,18 @@ async function ensureTable(): Promise<void> {
           "chat_thread_shares_resource_idx",
           CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
         );
-        return;
-      }
+      },
+    },
+    ...fromMigrationEntries(
+      CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
+      CHAT_THREAD_SCHEMA_MIGRATIONS,
+      { data: [3] },
+    ),
+  ],
+});
 
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // Additive migration for existing tables. Both SQLite and Postgres
-      // accept `ALTER TABLE ADD COLUMN` and will raise when the column
-      // already exists; the try/catch makes the call idempotent across
-      // both dialects without requiring an information_schema probe.
-      for (const [col, type] of [
-        ["scope_type", "TEXT"],
-        ["scope_id", "TEXT"],
-        ["scope_label", "TEXT"],
-        ["pinned_at", intType()],
-        ["archived_at", intType()],
-        ["share_token_hash", "TEXT"],
-        ["source_platform", "TEXT"],
-        ["source_app_id", "TEXT"],
-        ["source_url", "TEXT"],
-        ["org_id", "TEXT"],
-        ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
-      ] as const) {
-        try {
-          await client.execute(
-            `ALTER TABLE chat_threads ADD COLUMN ${col} ${type}`,
-          );
-        } catch {
-          // Column already exists.
-        }
-      }
-      try {
-        await client.execute(CHAT_THREAD_SHARES_CREATE_SQL);
-      } catch {
-        // Table already exists.
-      }
-      // Widen millisecond-timestamp columns that older deployments created as
-      // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
-      // overflows int4. No-op once widened / on fresh BIGINT databases.
-      await widenIntColumnsToBigInt("chat_threads", [
-        "created_at",
-        "updated_at",
-        "pinned_at",
-        "archived_at",
-      ]);
-      // Indexes for the hot read paths. Both the sidebar list and the
-      // scoped/per-resource list filter on owner_email (and optionally
-      // scope) and sort by updated_at. Keep these dialect-agnostic (no
-      // DESC, partial, or PG-only syntax) so they apply identically on
-      // SQLite and the configured Postgres. `IF NOT EXISTS` makes them
-      // idempotent across restarts.
-      for (const ddl of [
-        `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
-        `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
-        `CREATE INDEX IF NOT EXISTS chat_threads_source_updated_idx ON chat_threads (owner_email, source_app_id, updated_at)`,
-        `CREATE INDEX IF NOT EXISTS chat_threads_share_token_idx ON chat_threads (share_token_hash)`,
-        CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
-      ]) {
-        try {
-          await client.execute(ddl);
-        } catch {
-          // Index already exists or the dialect rejected a duplicate.
-        }
-      }
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+function ensureTable(): Promise<void> {
+  return chatThreadsStore.ready();
 }
 
 /**
@@ -259,8 +260,9 @@ export async function repairLegacyChatThreadMessageCounts(
   let scanned = 0;
   let updated = 0;
   while (true) {
+    // guard:allow-unscoped — operator-invoked legacy repair scans all threads by explicit maintenance contract
     const { rows } = await client.execute({
-      sql: `SELECT id, thread_data, message_count FROM chat_threads
+      sql: `SELECT id, owner_email, thread_data, message_count FROM chat_threads
             WHERE message_count = 0
               AND thread_data LIKE '%"messages"%'
               AND id > ?
@@ -275,8 +277,8 @@ export async function repairLegacyChatThreadMessageCounts(
       const count = deriveMessageCount(row.thread_data, 0);
       if (count <= 0) continue;
       const result = await client.execute({
-        sql: `UPDATE chat_threads SET message_count = ? WHERE id = ? AND message_count = 0`,
-        args: [count, afterId],
+        sql: `UPDATE chat_threads SET message_count = ? WHERE id = ? AND message_count = 0 AND LOWER(owner_email) = LOWER(?)`,
+        args: [count, afterId, row.owner_email],
       });
       if (result.rowsAffected > 0) updated++;
     }
@@ -301,6 +303,24 @@ export interface ChatThreadScope {
   type: string;
   id: string;
   label?: string;
+}
+
+export function isAppOwnedChatScope(scope?: ChatThreadScope | null): boolean {
+  return scope?.type === "workspace-app" || scope?.type === "desktop-app";
+}
+
+/**
+ * A scoped rail may claim a legacy unscoped thread on its first write, but
+ * once a thread has a scope, a non-null incoming scope must match it. App-
+ * owned threads additionally require a scope on every subsequent write.
+ */
+export function threadScopeMismatch(
+  existing?: ChatThreadScope | null,
+  incoming?: ChatThreadScope | null,
+): boolean {
+  if (!existing) return false;
+  if (!incoming) return isAppOwnedChatScope(existing);
+  return existing.type !== incoming.type || existing.id !== incoming.id;
 }
 
 export interface ChatThreadSource {
@@ -346,6 +366,7 @@ export interface ForkThreadSourceSnapshot {
   title?: string;
   preview?: string;
   messageCount?: number;
+  fromMessageId?: string;
   scope?: ChatThreadScope | null;
 }
 
@@ -395,6 +416,7 @@ function normalizeForkSourceSnapshot(
   title: string;
   preview: string;
   messageCount: number;
+  fromMessageId?: string;
   scope?: ChatThreadScope | null;
 } | null {
   if (!source || typeof source.threadData !== "string") return null;
@@ -407,28 +429,382 @@ function normalizeForkSourceSnapshot(
   } catch {
     return null;
   }
+  parsed = stripInlineBytes(parsed, "placeholder");
+  assertPersistableThreadData(
+    JSON.stringify(parsed),
+    "fork source thread_data",
+  );
 
-  const repoMessageCount = Array.isArray(parsed.messages)
-    ? parsed.messages.length
-    : 0;
-  if (repoMessageCount <= 0) return null;
+  const messageCount = countThreadMessages(parsed, 0);
+  if (messageCount <= 0) return null;
 
   return {
     threadData: JSON.stringify(parsed),
     title: typeof source.title === "string" ? source.title : "",
     preview: typeof source.preview === "string" ? source.preview : "",
-    messageCount: repoMessageCount,
+    messageCount,
+    ...(typeof source.fromMessageId === "string"
+      ? { fromMessageId: source.fromMessageId }
+      : {}),
     ...(Object.prototype.hasOwnProperty.call(source, "scope")
       ? { scope: source.scope ?? null }
       : {}),
   };
 }
 
+function countThreadMessages(value: unknown, fallback: number): number {
+  const repo = normalizeThreadRepository(value);
+  if (!repo || typeof repo !== "object") return fallback;
+  const repoMessageCount = Array.isArray(repo.messages)
+    ? repo.messages.length
+    : undefined;
+  const agentKitMessageCount = Array.isArray(repo.agentKit?.messages)
+    ? repo.agentKit.messages.length
+    : undefined;
+  if (repoMessageCount === undefined && agentKitMessageCount === undefined) {
+    return fallback;
+  }
+
+  const failedRunIds = failedRunIdsWithError(repo.agentKit?.runs);
+  const rootMessages = (
+    Array.isArray(repo.messages) ? repo.messages : []
+  ).filter(
+    (entry: unknown) => !isRenderedRunNotStartedNotice(entry, failedRunIds),
+  );
+  const agentKitMessages = Array.isArray(repo.agentKit?.messages)
+    ? repo.agentKit.messages
+    : [];
+  const assistantProjection = projectRootAssistantMessages({
+    rootMessages,
+    snapshotMessages: agentKitMessages,
+    events: repo.agentKit?.events,
+    runs: repo.agentKit?.runs,
+    toolCalls: repo.agentKit?.toolCalls,
+  });
+  const mirroredRootIds = assistantProjection.representedRootMessageIds;
+  const supersededSnapshotMessageIds =
+    assistantProjection.supersededSnapshotMessageIds;
+  const agentKitUserMessageId = (entry: unknown): string | undefined => {
+    const message = threadMessageRecord(entry);
+    if (message?.role !== "user") return undefined;
+    const metadata = message.metadata;
+    const custom =
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>).custom
+        : undefined;
+    const agentKitMessageId =
+      custom && typeof custom === "object" && !Array.isArray(custom)
+        ? (custom as Record<string, unknown>).agentKitMessageId
+        : undefined;
+    return typeof agentKitMessageId === "string"
+      ? agentKitMessageId
+      : undefined;
+  };
+  const snapshotUserMessageCounts = new Map<string, number>();
+  for (const entry of agentKitMessages) {
+    const message = threadMessageRecord(entry);
+    if (message?.role !== "user" || typeof message.id !== "string") continue;
+    snapshotUserMessageCounts.set(
+      message.id,
+      (snapshotUserMessageCounts.get(message.id) ?? 0) + 1,
+    );
+  }
+  const rootUserMirrorIdsByAgentKitId = new Map<string, string[]>();
+  for (const entry of rootMessages) {
+    const message = threadMessageRecord(entry);
+    const agentKitId = agentKitUserMessageId(entry);
+    if (typeof message?.id !== "string" || !agentKitId) continue;
+    const rootIds = rootUserMirrorIdsByAgentKitId.get(agentKitId);
+    if (rootIds) rootIds.push(message.id);
+    else rootUserMirrorIdsByAgentKitId.set(agentKitId, [message.id]);
+  }
+  const mirroredRootUserIds = new Set<string>();
+  for (const [agentKitId, rootIds] of rootUserMirrorIdsByAgentKitId) {
+    if (
+      rootIds.length === 1 &&
+      snapshotUserMessageCounts.get(agentKitId) === 1
+    ) {
+      mirroredRootUserIds.add(rootIds[0]!);
+    }
+  }
+  const messageIds = new Set<string>();
+  let unkeyedMessages = 0;
+  const countMessage = (entry: unknown) => {
+    const message = threadMessageRecord(entry);
+    if (typeof message?.id === "string") messageIds.add(message.id);
+    else unkeyedMessages += 1;
+  };
+  for (const entry of rootMessages) {
+    const message = threadMessageRecord(entry);
+    if (
+      typeof message?.id === "string" &&
+      (mirroredRootIds.has(message.id) || mirroredRootUserIds.has(message.id))
+    ) {
+      continue;
+    }
+    countMessage(entry);
+  }
+  for (const entry of agentKitMessages) {
+    const message = threadMessageRecord(entry);
+    if (
+      typeof message?.id === "string" &&
+      supersededSnapshotMessageIds.has(message.id)
+    ) {
+      continue;
+    }
+    countMessage(entry);
+  }
+  return messageIds.size + unkeyedMessages;
+}
+
+function forkThreadData(
+  threadData: string,
+  forkId: string,
+  fromMessageId?: string,
+): string {
+  const parsed = normalizeThreadRepository(JSON.parse(threadData));
+  const repository =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  const agentKit = repository?.agentKit;
+  if (!agentKit || typeof agentKit !== "object" || Array.isArray(agentKit)) {
+    return threadData;
+  }
+  const agentKitRecord = agentKit as Record<string, unknown>;
+  const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
+  const repositoryMessages = Array.isArray(repository.messages)
+    ? repository.messages
+    : [];
+  const protocolMessages = Array.isArray(agentKitRecord.messages)
+    ? agentKitRecord.messages
+    : [];
+  const messageId = (value: unknown) => {
+    const outer = asRecord(value);
+    const message = asRecord(outer?.message) ?? outer;
+    return typeof message?.id === "string" ? message.id : undefined;
+  };
+  const messageIds = new Set<string>();
+  if (fromMessageId) {
+    for (const messages of [repositoryMessages, protocolMessages]) {
+      const throughIndex = messages.findIndex(
+        (message) => messageId(message) === fromMessageId,
+      );
+      if (throughIndex >= 0) {
+        for (const message of messages.slice(0, throughIndex + 1)) {
+          const id = messageId(message);
+          if (id) messageIds.add(id);
+        }
+      }
+    }
+    if (!messageIds.has(fromMessageId)) {
+      throw new Error(`Unknown message for fork: ${fromMessageId}`);
+    }
+  } else {
+    for (const message of [...repositoryMessages, ...protocolMessages]) {
+      const id = messageId(message);
+      if (id) messageIds.add(id);
+    }
+  }
+  const events = Array.isArray(agentKitRecord.events)
+    ? agentKitRecord.events
+    : [];
+  const runs = Array.isArray(agentKitRecord.runs) ? agentKitRecord.runs : [];
+  const eventBoundaries = new Map<string, number>();
+  for (const rawEvent of events) {
+    const event = asRecord(rawEvent);
+    const message = asRecord(event?.message);
+    const messageId =
+      typeof event?.messageId === "string"
+        ? event.messageId
+        : typeof message?.id === "string"
+          ? message.id
+          : undefined;
+    if (
+      event?.type === "message.completed" &&
+      typeof event?.runId === "string" &&
+      typeof event.sequence === "number" &&
+      messageId &&
+      messageIds.has(messageId)
+    ) {
+      eventBoundaries.set(
+        event.runId,
+        Math.max(eventBoundaries.get(event.runId) ?? 0, event.sequence),
+      );
+    }
+  }
+  for (const rawRun of runs) {
+    const run = asRecord(rawRun);
+    if (
+      typeof run?.id === "string" &&
+      typeof run.activeMessageId === "string" &&
+      messageIds.has(run.activeMessageId) &&
+      typeof run.lastSequence === "number"
+    ) {
+      eventBoundaries.set(
+        run.id,
+        Math.max(eventBoundaries.get(run.id) ?? 0, run.lastSequence),
+      );
+    }
+  }
+  const retainedRunIds = new Set(eventBoundaries.keys());
+  const nonterminalRunIds = new Set(
+    runs.flatMap((rawRun) => {
+      const run = asRecord(rawRun);
+      return typeof run?.id === "string" &&
+        (run.status === "queued" ||
+          run.status === "running" ||
+          run.status === "awaiting_approval" ||
+          run.status === "awaiting_input")
+        ? [run.id]
+        : [];
+    }),
+  );
+  const activeMessageIds = new Set(
+    runs.flatMap((rawRun) => {
+      const run = asRecord(rawRun);
+      return typeof run?.id === "string" &&
+        nonterminalRunIds.has(run.id) &&
+        typeof run.activeMessageId === "string"
+        ? [run.activeMessageId]
+        : [];
+    }),
+  );
+  const retainedMessageId = (value: unknown) => {
+    const id = messageId(value);
+    return Boolean(id && messageIds.has(id));
+  };
+  const remapThreadId = (value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? { ...value, threadId: forkId }
+      : value;
+  return JSON.stringify({
+    ...repository,
+    ...(Array.isArray(repository.messages)
+      ? { messages: repositoryMessages.filter(retainedMessageId) }
+      : {}),
+    agentKit: {
+      ...agentKitRecord,
+      ...(Array.isArray(agentKitRecord.messages)
+        ? {
+            messages: agentKitRecord.messages
+              .filter(retainedMessageId)
+              .map((message) => {
+                const record = asRecord(message)!;
+                return typeof record.id === "string" &&
+                  activeMessageIds.has(record.id) &&
+                  record.status === "streaming"
+                  ? { ...record, status: "complete" }
+                  : record;
+              }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.events)
+        ? {
+            events: events.flatMap((rawEvent) => {
+              const event = asRecord(rawEvent);
+              const runId = event?.runId;
+              const boundary =
+                typeof runId === "string"
+                  ? eventBoundaries.get(runId)
+                  : undefined;
+              if (
+                typeof runId !== "string" ||
+                boundary === undefined ||
+                typeof event?.sequence !== "number" ||
+                event.sequence > boundary
+              ) {
+                return [];
+              }
+              if (
+                nonterminalRunIds.has(runId) &&
+                (event.type === "activity.started" ||
+                  event.type === "activity.updated")
+              ) {
+                const activity = asRecord(event.activity);
+                if (activity?.status === "running") {
+                  return [
+                    {
+                      ...event,
+                      type: "activity.completed",
+                      activity: { ...activity, status: "cancelled" },
+                      threadId: forkId,
+                    },
+                  ];
+                }
+              }
+              return [remapThreadId(rawEvent)];
+            }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.runs)
+        ? {
+            runs: runs.flatMap((rawRun) => {
+              const run = asRecord(rawRun);
+              if (typeof run?.id !== "string" || !retainedRunIds.has(run.id)) {
+                return [];
+              }
+              const copied: Record<string, unknown> = {
+                ...run,
+                threadId: forkId,
+              };
+              if (nonterminalRunIds.has(run.id)) {
+                copied.status = "cancelled";
+                delete copied.activeMessageId;
+              }
+              return [copied];
+            }),
+          }
+        : {}),
+      ...(fromMessageId && Array.isArray(agentKitRecord.toolCalls)
+        ? {
+            toolCalls: agentKitRecord.toolCalls.filter((rawToolCall) => {
+              const toolCall = asRecord(rawToolCall);
+              if (typeof toolCall?.messageId === "string") {
+                return messageIds.has(toolCall.messageId);
+              }
+              return (
+                typeof toolCall?.runId === "string" &&
+                retainedRunIds.has(toolCall.runId)
+              );
+            }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.widgets)
+        ? {
+            widgets: agentKitRecord.widgets.filter((widget) => {
+              const record = asRecord(widget);
+              return (
+                typeof record?.messageId === "string" &&
+                messageIds.has(record.messageId)
+              );
+            }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.annotations)
+        ? {
+            annotations: agentKitRecord.annotations.filter((annotation) => {
+              const record = asRecord(annotation);
+              return (
+                typeof record?.messageId === "string" &&
+                messageIds.has(record.messageId)
+              );
+            }),
+          }
+        : {}),
+      ...(fromMessageId ? { suggestions: [] } : {}),
+      activeRunIds: [],
+    },
+  });
+}
+
 function deriveMessageCount(threadData: unknown, fallback: number): number {
   if (typeof threadData !== "string" || !threadData.trim()) return fallback;
   try {
-    const repo = normalizeThreadRepository(JSON.parse(threadData));
-    if (Array.isArray(repo.messages)) return repo.messages.length;
+    return countThreadMessages(JSON.parse(threadData), fallback);
   } catch {
     // Keep the stored count if the JSON blob is malformed.
   }
@@ -485,42 +861,62 @@ export async function createThread(
     title?: string;
     scope?: ChatThreadScope | null;
     source?: ChatThreadSource | null;
+    /** Explicit owner organization for durable/background callers. */
+    orgId?: string | null;
+    initialData?: {
+      threadData: string;
+      preview: string;
+      messageCount: number;
+    };
   },
 ): Promise<ChatThread> {
   await ensureTable();
-  const client = getDbExec();
   const id = opts?.id ?? generateId();
   const now = Date.now();
   const title = opts?.title ?? "";
   const scope = opts?.scope ?? null;
   const source = opts?.source ?? null;
-  const orgId = getRequestOrgId() ?? null;
+  const orgId = opts?.orgId ?? getRequestOrgId() ?? null;
+  const initialData = opts?.initialData;
+  const preview = initialData?.preview ?? "";
+  const threadData = initialData?.threadData ?? "{}";
+  const messageCount = initialData?.messageCount ?? 0;
+  if (!Number.isInteger(messageCount) || messageCount < 0) {
+    throw new TypeError("Initial chat thread message count is invalid.");
+  }
+  assertPersistableThreadData(threadData, "thread_data");
 
-  await client.execute({
-    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, source_platform, source_app_id, source_url, org_id, visibility) VALUES (?, ?, ?, '', '{}', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,
-    args: [
-      id,
-      ownerEmail,
-      title,
-      now,
-      now,
-      scope?.type ?? null,
-      scope?.id ?? null,
-      scope?.label ?? null,
-      source?.platform ?? null,
-      source?.appId ?? null,
-      source?.url ?? null,
-      orgId,
-    ],
-  });
+  await withFencedExecutionWrite((tx) =>
+    tx.execute({
+      // A parent run may atomically create a child thread before that child has a lease.
+      sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, source_platform, source_app_id, source_url, org_id, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,
+      args: [
+        id,
+        ownerEmail,
+        title,
+        preview,
+        threadData,
+        messageCount,
+        now,
+        now,
+        scope?.type ?? null,
+        scope?.id ?? null,
+        scope?.label ?? null,
+        source?.platform ?? null,
+        source?.appId ?? null,
+        source?.url ?? null,
+        orgId,
+      ],
+    }),
+  );
 
   return {
     id,
     ownerEmail,
     title,
-    preview: "",
-    threadData: "{}",
-    messageCount: 0,
+    preview,
+    threadData,
+    messageCount,
     createdAt: now,
     updatedAt: now,
     scope,
@@ -556,8 +952,32 @@ export function registerChatThreadsShareable(): void {
   });
 }
 
-export async function ensureChatThreadTables(): Promise<void> {
-  await ensureTable();
+export function ensureChatThreadTables(): Promise<void> {
+  return chatThreadsStore.ready();
+}
+
+/**
+ * Yes/no access check that never reads the conversation body. Callers that
+ * only need the answer (run polling, run ownership) must use this, not
+ * `resolveThreadAccess`: that one returns the whole thread, and `thread_data`
+ * is the full message history, so a boolean check would pull megabytes per call.
+ */
+export async function hasThreadAccess(
+  userEmail: string | null | undefined,
+  threadId: string | null | undefined,
+  minRole: ShareRole | "owner" = "viewer",
+  ctx: Omit<AccessContext, "userEmail"> = {},
+): Promise<boolean> {
+  if (!userEmail || !threadId) return false;
+  // `skipResourceBody` keeps the access load a projected row. Without it the
+  // load is an unprojected `select()` that pulls `thread_data`.
+  const access = await resolveAccess(
+    "chat_thread",
+    threadId,
+    { userEmail, orgId: ctx.orgId },
+    { skipResourceBody: true },
+  );
+  return !!access && roleSatisfies(access.role, minRole);
 }
 
 export async function resolveThreadAccess(
@@ -567,24 +987,38 @@ export async function resolveThreadAccess(
   ctx: Omit<AccessContext, "userEmail"> = {},
 ): Promise<ChatThread | null> {
   if (!userEmail || !threadId) return null;
-  // `skipResourceBody` matters more here than anywhere else: without it the
-  // access load is an unprojected `select()` that pulls `thread_data` — the
-  // whole conversation JSON — and then this function discards the row and reads
-  // it again through `getThread`. Two full-blob reads of the same row per call,
-  // on the agent-chat hot path.
-  const access = await resolveAccess(
-    "chat_thread",
-    threadId,
-    { userEmail, orgId: ctx.orgId },
-    { skipResourceBody: true },
-  );
-  if (!access || !roleSatisfies(access.role, minRole)) return null;
+  if (!(await hasThreadAccess(userEmail, threadId, minRole, ctx))) return null;
   return await getThread(threadId);
+}
+
+export async function resolveThreadsAccess(
+  userEmail: string | null | undefined,
+  threadIds: readonly string[],
+  ctx: Pick<AccessContext, "orgId"> = {},
+): Promise<Map<string, ChatThread>> {
+  const ids = [...new Set(threadIds.filter(Boolean))];
+  const threads = new Map<string, ChatThread>();
+  if (!userEmail || ids.length === 0) return threads;
+
+  await ensureTable();
+  const access = chatThreadAccessSql(userEmail, ctx.orgId);
+  const client = getDbExec();
+  const placeholders = ids.map(() => "?").join(", ");
+  const { rows } = await client.execute({
+    sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE id IN (${placeholders}) AND ${access.sql}`,
+    args: [...ids, ...access.args],
+  });
+  for (const row of rows) {
+    const thread = rowToThread(row);
+    threads.set(thread.id, thread);
+  }
+  return threads;
 }
 
 export async function getThread(id: string): Promise<ChatThread | null> {
   await ensureTable();
   const client = getDbExec();
+  // guard:allow-unscoped — internal lookup; request handlers validate owner/share access before returning or mutating data
   const { rows } = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE id = ?`,
     args: [id],
@@ -600,6 +1034,7 @@ export async function getThread(id: string): Promise<ChatThread | null> {
  */
 export async function setThreadSourceIfMissing(
   id: string,
+  ownerEmail: string,
   source: ChatThreadSource | null | undefined,
 ): Promise<boolean> {
   if (!source || (!source.platform && !source.appId && !source.url)) {
@@ -608,12 +1043,13 @@ export async function setThreadSourceIfMissing(
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET source_platform = COALESCE(source_platform, ?), source_app_id = COALESCE(source_app_id, ?), source_url = COALESCE(source_url, ?) WHERE id = ?`,
+    sql: `UPDATE chat_threads SET source_platform = COALESCE(source_platform, ?), source_app_id = COALESCE(source_app_id, ?), source_url = COALESCE(source_url, ?) WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
     args: [
       source.platform ?? null,
       source.appId ?? null,
       source.url ?? null,
       id,
+      ownerEmail,
     ],
   });
   return result.rowsAffected > 0;
@@ -651,7 +1087,10 @@ export async function forkThread(
           snapshot.messageCount,
         );
         if (Object.prototype.hasOwnProperty.call(snapshot, "scope")) {
-          await setThreadScope(sourceId, snapshot.scope ?? null);
+          if (snapshot.scope === undefined) {
+            throw new Error("Normalized fork source scope must be explicit");
+          }
+          await setThreadScope(sourceId, ownerEmail, snapshot.scope);
         }
         source = await getThread(sourceId);
       }
@@ -659,19 +1098,18 @@ export async function forkThread(
   } else if (
     snapshot &&
     source.ownerEmail === ownerEmail &&
-    snapshot.messageCount > source.messageCount
+    (snapshot.fromMessageId || snapshot.messageCount > source.messageCount)
   ) {
-    // The source row exists but the in-memory snapshot is fresher — the agent
-    // run flushed an older state to SQL, but the tab has additional unflushed
-    // messages. Overlay the snapshot before cloning so the fork captures the
-    // latest user-visible content. Guard with messageCount > stored to avoid
-    // clobbering a fresher persisted row with a stale snapshot from another
-    // tab.
+    // Message-scoped forks intentionally carry a truncated snapshot even when
+    // the persisted source has later messages; full forks only overlay fresher
+    // client snapshots.
     source = {
       ...source,
       threadData: snapshot.threadData,
       title: snapshot.title || source.title,
-      preview: snapshot.preview || source.preview,
+      preview: snapshot.fromMessageId
+        ? snapshot.preview
+        : snapshot.preview || source.preview,
       messageCount: snapshot.messageCount,
     };
   }
@@ -682,6 +1120,15 @@ export async function forkThread(
     return null;
   }
   const id = opts?.id ?? generateId();
+  const threadData = JSON.stringify(
+    stripInlineBytes(
+      JSON.parse(
+        forkThreadData(source.threadData, id, snapshot?.fromMessageId),
+      ),
+      "placeholder",
+    ),
+  );
+  assertPersistableThreadData(threadData, "forked thread_data");
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();
@@ -693,7 +1140,7 @@ export async function forkThread(
       ownerEmail,
       title,
       source.preview,
-      source.threadData,
+      threadData,
       source.messageCount,
       now,
       now,
@@ -711,7 +1158,7 @@ export async function forkThread(
     ownerEmail,
     title,
     preview: source.preview,
-    threadData: source.threadData,
+    threadData,
     messageCount: source.messageCount,
     createdAt: now,
     updatedAt: now,
@@ -791,8 +1238,11 @@ export async function listThreads(
   const offset = opts.offset ?? 0;
   const client = getDbExec();
   // `message_count > 0` is the authoritative "has messages" signal maintained
-  // on every write. The local-only view adds a narrowly scoped legacy marker
-  // check below because older integration rows predate persisted source fields.
+  // on every write. `source_platform` is the authoritative external-source
+  // signal: schema migration 3 backfilled the integration rows that predate the
+  // column, so nothing here may filter on `thread_data`. Matching that blob
+  // detoasts the whole message history for every scanned row — before LIMIT
+  // applies — which is what made this list cost seconds instead of milliseconds.
   const access = chatThreadAccessSql(
     ownerEmail,
     opts.orgId ?? getRequestOrgId(),
@@ -804,9 +1254,6 @@ export async function listThreads(
   }
   if (opts.includeExternal === false) {
     filters.push(`source_platform IS NULL`);
-    filters.push(
-      `thread_data NOT LIKE '%"integrationDeliveryAttempted":true%'`,
-    );
     if (opts.sourceAppId) {
       filters.push(`(source_app_id IS NULL OR source_app_id = ?)`);
       args.push(opts.sourceAppId);
@@ -868,9 +1315,6 @@ export async function searchThreads(
   }
   if (options.includeExternal === false) {
     filters.push(`source_platform IS NULL`);
-    filters.push(
-      `thread_data NOT LIKE '%"integrationDeliveryAttempted":true%'`,
-    );
     if (options.sourceAppId) {
       filters.push(`(source_app_id IS NULL OR source_app_id = ?)`);
       args.push(options.sourceAppId);
@@ -911,18 +1355,20 @@ export function resolveRunThreadScope(
  */
 export async function adoptThreadScopeIfUnscoped(
   id: string,
+  ownerEmail: string,
   scope: ChatThreadScope,
 ): Promise<ChatThreadScope | null> {
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND scope_type IS NULL`,
+    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?) AND scope_type IS NULL`,
     args: [
       scope.type,
       scope.id,
       scope.label ?? null,
       Math.max(Date.now(), 1),
       id,
+      ownerEmail,
     ],
   });
   if (result.rowsAffected > 0) {
@@ -939,18 +1385,20 @@ export async function adoptThreadScopeIfUnscoped(
  */
 export async function setThreadScope(
   id: string,
+  ownerEmail: string,
   scope: ChatThreadScope | null,
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
   await client.execute({
-    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ?`,
+    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
     args: [
       scope?.type ?? null,
       scope?.id ?? null,
       scope?.label ?? null,
       Math.max(Date.now(), 1),
       id,
+      ownerEmail,
     ],
   });
   emitChatThreadChange(id);
@@ -1037,8 +1485,38 @@ export async function setThreadArchived(
 export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
+  preserveCurrentMetadata?: boolean;
+  preserveCurrentTitleAndPreview?: boolean;
+  trustedRunSequenceResetIds?: ReadonlySet<string>;
+  onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
+  beforeUpdate?: (tx: DbExec) => Promise<boolean>;
+  afterUpdate?: (tx: DbExec) => Promise<void>;
+  transformThreadData?: (
+    currentThreadData: string,
+  ) => string | { threadData: string; preview?: string };
   maxAttempts?: number;
   ignoreConflicts?: boolean;
+}
+
+export class InlineAttachmentDataNotPersistableError extends Error {
+  readonly code = "inline_attachment_data_not_persistable";
+
+  constructor(
+    message = "Inline attachment data cannot be stored in chat history.",
+  ) {
+    super(message);
+    this.name = "InlineAttachmentDataNotPersistableError";
+  }
+}
+
+function assertPersistableThreadData(threadData: string, label: string): void {
+  try {
+    assertNoInlineImageBytes(threadData, label);
+  } catch (error) {
+    throw new InlineAttachmentDataNotPersistableError(
+      error instanceof Error ? error.message : undefined,
+    );
+  }
 }
 
 function parseThreadData(value: string): any {
@@ -1056,7 +1534,7 @@ export async function updateThreadData(
   preview: string,
   messageCount: number,
   options: UpdateThreadDataOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   // getThread() ensures the table exists. Keep that bootstrap inside the
   // retry boundary below so a cold serverless process can recover from a
   // transient initialization/read failure too.
@@ -1071,50 +1549,122 @@ export async function updateThreadData(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const current = await getThread(id);
-      if (!current) return;
+      if (!current) return false;
 
-      let nextThreadData = threadData;
+      const safeCurrentThreadData = stripInlineBytes(
+        parseThreadData(current.threadData),
+        "placeholder",
+      );
+      const transformed = options.transformThreadData?.(
+        JSON.stringify(safeCurrentThreadData),
+      );
+      const incomingThreadData =
+        typeof transformed === "string"
+          ? transformed
+          : (transformed?.threadData ?? threadData);
+      let nextThreadData = incomingThreadData;
       let nextMessageCount = messageCount;
-      try {
-        const merged = mergeThreadDataForClientSave(
-          parseThreadData(current.threadData),
-          parseThreadData(threadData),
-          {
-            preserveExistingQueuedMessages:
-              options.preserveExistingQueuedMessages ?? true,
-            preserveExistingTopLevelKeys:
-              options.preserveExistingTopLevelKeys ?? true,
-          },
-        );
-        nextThreadData = JSON.stringify(merged);
-        if (Array.isArray(merged.messages)) {
-          nextMessageCount = merged.messages.length;
-        }
-      } catch {
-        // Keep the caller's serialized value if either JSON blob is malformed.
-      }
+      const annotationConflicts: ThreadAnnotationSnapshotConflict[] = [];
+      const merged = mergeThreadDataForClientSave(
+        safeCurrentThreadData,
+        parseThreadData(incomingThreadData),
+        {
+          preserveExistingQueuedMessages:
+            options.preserveExistingQueuedMessages ?? true,
+          preserveExistingTopLevelKeys:
+            options.preserveExistingTopLevelKeys ?? true,
+          trustedRunSequenceResetIds: options.trustedRunSequenceResetIds,
+          onAnnotationConflict: (conflict) =>
+            annotationConflicts.push(conflict),
+        },
+      );
+      // Client snapshots can predate their upload URL, so inline bytes become a
+      // visible placeholder rather than failing the save; legacy rows are
+      // scrubbed on their next write.
+      nextThreadData = JSON.stringify(stripInlineBytes(merged, "placeholder"));
+      assertPersistableThreadData(nextThreadData, "thread_data");
+      nextMessageCount = countThreadMessages(merged, messageCount);
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
-      const result = await client.execute({
-        sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
-        args: [
-          nextThreadData,
-          title,
-          preview,
-          nextMessageCount,
-          nextUpdatedAt,
-          id,
-          current.updatedAt,
-        ],
-      });
+      // Completion persistence can race the separate generated-title save.
+      // Keep a title already committed by that save when this caller only has
+      // its stale empty snapshot.
+      const preserveCurrentMetadata = options.preserveCurrentMetadata;
+      const preserveCurrentTitleAndPreview =
+        options.preserveCurrentTitleAndPreview;
+      const snapshotMetaForBlankFields =
+        !options.preserveCurrentMetadata &&
+        options.preserveCurrentTitleAndPreview &&
+        (!current.title.trim() || !current.preview.trim())
+          ? extractThreadMeta(merged)
+          : undefined;
+      const nextTitle = preserveCurrentMetadata
+        ? current.title
+        : preserveCurrentTitleAndPreview
+          ? current.title.trim()
+            ? current.title
+            : snapshotMetaForBlankFields?.title || current.title
+          : title || current.title || extractThreadMeta(merged).title;
+      const nextPreview = preserveCurrentMetadata
+        ? current.preview
+        : preserveCurrentTitleAndPreview
+          ? current.preview.trim()
+            ? current.preview
+            : snapshotMetaForBlankFields?.preview || current.preview
+          : typeof transformed === "object" && transformed.preview !== undefined
+            ? transformed.preview
+            : preview;
+      let beforeUpdateRejected = false;
+      const write = async (tx: DbExec) => {
+        if (options.beforeUpdate && !(await options.beforeUpdate(tx))) {
+          beforeUpdateRejected = true;
+          return { rows: [], rowsAffected: 0 };
+        }
+        const result = await tx.execute({
+          sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
+          args: [
+            nextThreadData,
+            nextTitle,
+            nextPreview,
+            options.preserveCurrentMetadata ? null : nextMessageCount,
+            nextUpdatedAt,
+            id,
+            current.updatedAt,
+            current.ownerEmail,
+          ],
+        });
+        if (result.rowsAffected > 0) await options.afterUpdate?.(tx);
+        return result;
+      };
+      const fence = currentExecutionFence();
+      const result = fence
+        ? await withFencedExecutionWrite(write, { threadId: id })
+        : options.beforeUpdate || options.afterUpdate
+          ? client.transaction
+            ? await client.transaction(write)
+            : (() => {
+                throw new Error(
+                  "Atomic thread-data callbacks require transaction support",
+                );
+              })()
+          : await withFencedExecutionWrite(write, { threadId: id });
+
+      if (beforeUpdateRejected) return false;
 
       if (result.rowsAffected > 0) {
+        for (const conflict of annotationConflicts) {
+          options.onAnnotationConflict?.(conflict);
+        }
         emitChatThreadChange(id);
-        return;
+        return true;
       }
 
       lastConflict = true;
     } catch (error) {
+      if (error instanceof QueuedSubmissionAdmissionError) throw error;
+      if (error instanceof InlineAttachmentDataNotPersistableError) {
+        throw error;
+      }
       // Completion saves happen after a long model/tool turn, when a
       // transient connection or serverless DB failure is especially costly.
       // Retry the whole read/merge/write attempt like a CAS conflict, while
@@ -1135,11 +1685,16 @@ export async function updateThreadData(
   if (lastError) throw lastError;
 
   if (lastConflict) {
-    if (options.ignoreConflicts) return;
-    throw new Error(
+    if (options.ignoreConflicts) return false;
+    const error = new Error(
       `Failed to update chat thread ${id} after concurrent write conflicts.`,
-    );
+    ) as Error & { statusCode?: number; statusMessage?: string };
+    error.statusCode = 409;
+    error.statusMessage = error.message;
+    throw error;
   }
+
+  return false;
 }
 
 export interface ThreadEngineMeta {
@@ -1192,49 +1747,1388 @@ export async function setThreadEngineMeta(
 export interface QueuedMessage {
   id: string;
   text: string;
-  images?: string[];
-  references?: unknown[];
+  threadId?: string;
+  createdAt?: string;
+  attachments?: unknown[];
+  requestAttachments?: unknown[];
+  metadata?: Record<string, unknown>;
+  options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
+  promotionClaim?: { id: string; expiresAt: number };
 }
 
-/**
- * Persist the user's queued (not-yet-sent) messages onto the thread.
- * Stored in thread_data JSON so it survives reloads without a schema
- * change. Safe to call often — the frontend debounces writes.
- *
- * Returns false when the thread is missing or `ownerEmail` doesn't match.
- * Callers that already need an ownership check should pass `ownerEmail`
- * here instead of doing their own getThread first — this path fires on
- * debounced composer writes, so a redundant pre-read of the full
- * thread_data blob is a real per-keystroke cost.
- */
-export async function setThreadQueuedMessages(
+export type QueuedSubmissionState =
+  | "queued"
+  | "submitted"
+  | "removed"
+  | "expired"
+  | "blocked";
+
+export interface QueuedSubmissionActor {
+  email: string;
+  authUserId?: string;
+  identityAuthenticatedAtMs?: number;
+  name?: string;
+  orgId?: string | null;
+  orgScope?: "personal" | null;
+  anonymous?: boolean;
+}
+
+export interface QueuedSubmissionReceipt {
+  threadId: string;
+  messageId: string;
+  state: QueuedSubmissionState;
+  actor: QueuedSubmissionActor;
+  message?: QueuedMessage;
+  payloadHash: string;
+  submittedRunId?: string;
+  interruptRunId?: string;
+  retryAfter?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export class QueuedSubmissionAdmissionError extends Error {
+  constructor(
+    readonly code:
+      | "queued_message_already_submitted"
+      | "queued_message_id_conflict"
+      | "queued_message_id_terminal",
+    messageId: string,
+    readonly submittedRunId?: string,
+  ) {
+    super(`Queued message ${messageId} cannot be admitted: ${code}`);
+    this.name = "QueuedSubmissionAdmissionError";
+  }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  }
+  if (!value || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .filter((key) => record[key] !== undefined)
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(",")}}`;
+}
+
+export function hashQueuedSubmissionPayload(
   threadId: string,
-  queuedMessages: QueuedMessage[],
-  options: { ownerEmail?: string } = {},
-): Promise<boolean> {
-  return withThreadDataLock(threadId, async () => {
-    const thread = await getThread(threadId);
-    if (!thread) return false;
-    if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
-      return false;
+  message: QueuedMessage | AgentSubmissionPayload,
+): string {
+  const normalizeMetadata = (
+    metadata: Record<string, unknown> | undefined,
+  ): Record<string, unknown> | undefined => {
+    if (!metadata) return undefined;
+    const custom = metadata.custom;
+    if (!custom || typeof custom !== "object" || Array.isArray(custom)) {
+      return metadata;
     }
-    let data: Record<string, unknown> = {};
-    try {
-      data = JSON.parse(thread.threadData);
-    } catch {}
-    // Keep an explicit empty tombstone. Other mounted chat surfaces only
-    // reconcile queue state when this field is present; deleting it lets a
-    // stale local queue survive the clear and submit the same prompt again.
-    data.queuedMessages = queuedMessages;
-    await updateThreadData(
-      threadId,
-      JSON.stringify(data),
-      thread.title,
-      thread.preview,
-      thread.messageCount,
-      { preserveExistingQueuedMessages: false },
+    const stableCustom = { ...(custom as Record<string, unknown>) };
+    delete stableCustom[AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY];
+    delete stableCustom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY];
+    return { ...metadata, custom: stableCustom };
+  };
+  const {
+    createdAt: _createdAt,
+    promotionClaim: _claim,
+    ...payload
+  } = message as QueuedMessage;
+  const options = payload.options as AgentRunOptions | undefined;
+  const stablePayload = {
+    ...payload,
+    threadId,
+    ...(payload.metadata
+      ? { metadata: normalizeMetadata(payload.metadata) }
+      : {}),
+    ...(options?.metadata
+      ? {
+          options: {
+            ...options,
+            metadata: normalizeMetadata(options.metadata),
+          },
+        }
+      : {}),
+  };
+  return crypto
+    .createHash("sha256")
+    .update(stableJson(stablePayload))
+    .digest("hex");
+}
+
+export function queuedSubmissionBehaviorMatches(
+  threadId: string,
+  message: QueuedMessage,
+  identity: AgentSubmissionPayload,
+): boolean {
+  const {
+    attachments: _attachments,
+    requestAttachments: _requestAttachments,
+    ...messageBehavior
+  } = message;
+  const {
+    attachments: _identityAttachments,
+    requestAttachments: _identityRequestAttachments,
+    ...identityBehavior
+  } = identity;
+  return (
+    hashQueuedSubmissionPayload(threadId, messageBehavior) ===
+    hashQueuedSubmissionPayload(threadId, identityBehavior)
+  );
+}
+
+function normalizeQueuedSubmissionActor(
+  actor: QueuedSubmissionActor,
+): QueuedSubmissionActor {
+  const email = actor.email.trim();
+  if (!email) throw new TypeError("Queued message actor email is required.");
+  return {
+    email,
+    ...(actor.authUserId ? { authUserId: actor.authUserId } : {}),
+    ...(actor.identityAuthenticatedAtMs !== undefined
+      ? { identityAuthenticatedAtMs: actor.identityAuthenticatedAtMs }
+      : {}),
+    ...(actor.name ? { name: actor.name } : {}),
+    ...(actor.orgId !== undefined ? { orgId: actor.orgId } : {}),
+    ...(actor.orgScope ? { orgScope: actor.orgScope } : {}),
+    anonymous: actor.anonymous === true,
+  };
+}
+
+function queuedSubmissionActorMatches(
+  left: QueuedSubmissionActor,
+  right: QueuedSubmissionActor,
+): boolean {
+  return (
+    left.email.trim().toLowerCase() === right.email.trim().toLowerCase() &&
+    (left.authUserId ?? null) === (right.authUserId ?? null) &&
+    (left.orgId ?? null) === (right.orgId ?? null) &&
+    (left.orgScope ?? null) === (right.orgScope ?? null) &&
+    (left.anonymous === true) === (right.anonymous === true)
+  );
+}
+
+function queuedSubmissionReceiptFromRow(
+  row: Record<string, unknown>,
+): QueuedSubmissionReceipt {
+  const threadId = String(row.thread_id ?? "");
+  const messageId = String(row.message_id ?? "");
+  const state = String(row.state ?? "");
+  if (
+    !threadId ||
+    !messageId ||
+    !["queued", "submitted", "removed", "expired", "blocked"].includes(state)
+  ) {
+    throw new TypeError("Stored queued submission receipt is malformed.");
+  }
+  let message: QueuedMessage | undefined;
+  if (typeof row.payload_json === "string") {
+    const parsed = JSON.parse(row.payload_json) as unknown;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as Record<string, unknown>).id === "string" &&
+      typeof (parsed as Record<string, unknown>).text === "string"
+    ) {
+      message = parsed as QueuedMessage;
+    }
+  }
+  const orgId = row.actor_org_id;
+  const orgScope = row.actor_org_scope;
+  return {
+    threadId,
+    messageId,
+    state: state as QueuedSubmissionState,
+    actor: {
+      email: String(row.actor_email ?? ""),
+      ...(typeof row.actor_auth_user_id === "string"
+        ? { authUserId: row.actor_auth_user_id }
+        : {}),
+      ...(row.actor_identity_authenticated_at_ms != null
+        ? {
+            identityAuthenticatedAtMs: Number(
+              row.actor_identity_authenticated_at_ms,
+            ),
+          }
+        : {}),
+      ...(typeof row.actor_name === "string" ? { name: row.actor_name } : {}),
+      ...(typeof orgId === "string" ? { orgId } : {}),
+      ...(orgScope === "personal" ? { orgScope: "personal" as const } : {}),
+      anonymous: row.actor_anonymous === true,
+    },
+    ...(message ? { message } : {}),
+    payloadHash: String(row.payload_hash ?? ""),
+    ...(typeof row.submitted_run_id === "string"
+      ? { submittedRunId: row.submitted_run_id }
+      : {}),
+    ...(typeof row.interrupt_run_id === "string"
+      ? { interruptRunId: row.interrupt_run_id }
+      : {}),
+    ...(row.retry_after != null ? { retryAfter: Number(row.retry_after) } : {}),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+const QUEUED_SUBMISSION_COLUMNS = `thread_id, message_id, state, actor_email, actor_auth_user_id, actor_identity_authenticated_at_ms, actor_name, actor_org_id, actor_org_scope, actor_anonymous, payload_hash, payload_json, submitted_run_id, interrupt_run_id, retry_after, created_at, updated_at`;
+
+async function readQueuedSubmissionReceipt(
+  db: DbExec,
+  threadId: string,
+  messageId: string,
+  options: { forUpdate?: boolean } = {},
+): Promise<QueuedSubmissionReceipt | null> {
+  const { rows } = await db.execute({
+    sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox WHERE thread_id = ? AND message_id = ?${options.forUpdate ? " FOR UPDATE" : ""}`,
+    args: [threadId, messageId],
+  });
+  return rows[0]
+    ? queuedSubmissionReceiptFromRow(rows[0] as Record<string, unknown>)
+    : null;
+}
+
+function queuedSubmissionReceiptSnapshotMatches(
+  current: QueuedSubmissionReceipt | null,
+  expected: QueuedSubmissionReceipt,
+): boolean {
+  return Boolean(
+    current?.state === "queued" &&
+    expected.state === "queued" &&
+    current.payloadHash === expected.payloadHash &&
+    stableJson(current.actor) === stableJson(expected.actor) &&
+    current.message &&
+    expected.message &&
+    stableJson(current.message) === stableJson(expected.message),
+  );
+}
+
+function assertQueuedSubmissionReceiptSnapshotMatches(
+  current: QueuedSubmissionReceipt | null,
+  expected: QueuedSubmissionReceipt,
+): void {
+  if (!current || current.state !== "queued") {
+    throw new QueuedSubmissionAdmissionError(
+      current?.state === "submitted"
+        ? "queued_message_already_submitted"
+        : "queued_message_id_terminal",
+      expected.messageId,
+      current?.submittedRunId,
     );
-    return true;
+  }
+  if (!queuedSubmissionReceiptSnapshotMatches(current, expected)) {
+    throw new QueuedSubmissionAdmissionError(
+      "queued_message_id_conflict",
+      expected.messageId,
+    );
+  }
+}
+
+/** Returns the durable admission receipt used to dedupe direct starts and queue retries. */
+export async function getQueuedSubmissionReceipt(
+  threadId: string,
+  messageId: string,
+): Promise<QueuedSubmissionReceipt | null> {
+  await ensureTable();
+  return readQueuedSubmissionReceipt(getDbExec(), threadId, messageId);
+}
+
+/** Finds accepted queue rows in priority order for the signed server sweep. */
+export async function listQueuedSubmissionReceipts(
+  options: {
+    limit?: number;
+    now?: number;
+  } = {},
+): Promise<QueuedSubmissionReceipt[]> {
+  await ensureTable();
+  const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 25)));
+  const now = options.now ?? Date.now();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox
+          WHERE state = 'queued' AND (retry_after IS NULL OR retry_after <= ?)
+          ORDER BY interrupt_active_run DESC, move_to_top_at DESC NULLS LAST, queue_order ASC
+          LIMIT ?`,
+    args: [now, limit],
+  });
+  return rows.map((row) =>
+    queuedSubmissionReceiptFromRow(row as Record<string, unknown>),
+  );
+}
+
+/** Records a run admission in the same transaction that persists its user message. */
+export async function markQueuedSubmissionSubmitted(
+  tx: DbExec,
+  input: {
+    threadId: string;
+    messageId: string;
+    runId?: string;
+    actor: QueuedSubmissionActor;
+    message?: QueuedMessage;
+    hashInput?: AgentSubmissionPayload;
+  },
+): Promise<void> {
+  const { threadId, messageId, runId } = input;
+  const actor = normalizeQueuedSubmissionActor(input.actor);
+  const existing = await readQueuedSubmissionReceipt(tx, threadId, messageId);
+  const payloadHash = input.hashInput
+    ? hashQueuedSubmissionPayload(threadId, input.hashInput)
+    : input.message
+      ? hashQueuedSubmissionPayload(threadId, input.message)
+      : undefined;
+  if (existing) {
+    if (!queuedSubmissionActorMatches(existing.actor, actor)) {
+      throw new QueuedSubmissionAdmissionError(
+        "queued_message_id_conflict",
+        messageId,
+      );
+    }
+    if (
+      payloadHash &&
+      existing.state !== "queued" &&
+      existing.payloadHash !== payloadHash
+    ) {
+      throw new QueuedSubmissionAdmissionError(
+        "queued_message_id_conflict",
+        messageId,
+      );
+    }
+    if (
+      payloadHash &&
+      existing.state === "queued" &&
+      input.hashInput &&
+      existing.payloadHash !== payloadHash
+    ) {
+      throw new QueuedSubmissionAdmissionError(
+        "queued_message_id_conflict",
+        messageId,
+      );
+    }
+    if (existing.state === "submitted") {
+      if (
+        runId &&
+        existing.submittedRunId &&
+        existing.submittedRunId !== runId
+      ) {
+        throw new QueuedSubmissionAdmissionError(
+          "queued_message_already_submitted",
+          messageId,
+          existing.submittedRunId,
+        );
+      }
+      return;
+    }
+    if (existing.state !== "queued") {
+      throw new QueuedSubmissionAdmissionError(
+        "queued_message_id_terminal",
+        messageId,
+      );
+    }
+    const update = await tx.execute({
+      sql: `UPDATE agent_chat_submission_inbox SET state = 'submitted', submitted_run_id = COALESCE(?, submitted_run_id), interrupt_run_id = NULL, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+      args: [runId ?? null, Date.now(), threadId, messageId],
+    });
+    if (update.rowsAffected > 0) return;
+
+    const raced = await readQueuedSubmissionReceipt(tx, threadId, messageId);
+    if (raced?.state === "submitted") {
+      if (runId && raced.submittedRunId && raced.submittedRunId !== runId) {
+        throw new QueuedSubmissionAdmissionError(
+          "queued_message_already_submitted",
+          messageId,
+          raced.submittedRunId,
+        );
+      }
+      return;
+    }
+    throw new QueuedSubmissionAdmissionError(
+      "queued_message_id_terminal",
+      messageId,
+    );
+  }
+  const now = Date.now();
+  const message = input.message
+    ? { ...input.message, threadId: input.message.threadId ?? threadId }
+    : undefined;
+  const storedMessage = message
+    ? stripInlineBytes(message, "placeholder")
+    : undefined;
+  await tx.execute({
+    sql: `INSERT INTO agent_chat_submission_inbox
+      (thread_id, message_id, state, actor_email, actor_auth_user_id, actor_identity_authenticated_at_ms, actor_name, actor_org_id, actor_org_scope, actor_anonymous, payload_hash, payload_json, interrupt_active_run, submitted_run_id, created_at, updated_at)
+      VALUES (?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      threadId,
+      messageId,
+      actor.email,
+      actor.authUserId ?? null,
+      actor.identityAuthenticatedAtMs ?? null,
+      actor.name ?? null,
+      actor.orgId ?? null,
+      actor.orgScope ?? null,
+      actor.anonymous === true,
+      payloadHash ??
+        (message
+          ? hashQueuedSubmissionPayload(threadId, message)
+          : crypto
+              .createHash("sha256")
+              .update(`submitted:${messageId}`)
+              .digest("hex")),
+      JSON.stringify(storedMessage ?? { id: messageId, threadId }),
+      message?.interruptActiveRun === true,
+      runId ?? null,
+      now,
+      now,
+    ],
+  });
+}
+
+/** Delays a retryable drain failure without releasing the accepted submission. */
+export async function retryQueuedSubmissionReceipt(
+  threadId: string,
+  messageId: string,
+  retryAfter: number,
+  options: { claimId?: string } = {},
+): Promise<boolean> {
+  await ensureTable();
+  const result = await mutateThreadQueuedMessages(threadId, {
+    type: "retryReceipt",
+    messageId,
+    retryAfter,
+    ...(options.claimId ? { claimId: options.claimId } : {}),
+  });
+  return result?.receiptUpdated === true;
+}
+
+/** Retains but stops automatically promoting a row that can no longer be authorized. */
+export async function blockQueuedSubmissionReceipt(
+  threadId: string,
+  messageId: string,
+  options: { claimId?: string } = {},
+): Promise<boolean> {
+  await ensureTable();
+  const result = await mutateThreadQueuedMessages(threadId, {
+    type: "blockReceipt",
+    messageId,
+    ...(options.claimId ? { claimId: options.claimId } : {}),
+  });
+  return result?.receiptUpdated === true;
+}
+
+async function mutateQueuedSubmissionInterruptRun(
+  input: {
+    threadId: string;
+    messageId: string;
+    runId: string;
+    claimId: string;
+  },
+  operation: "record" | "clear",
+): Promise<boolean> {
+  const result = await mutateThreadQueuedMessages(input.threadId, {
+    type: operation === "record" ? "recordInterruptRun" : "clearInterruptRun",
+    messageId: input.messageId,
+    runId: input.runId,
+    claimId: input.claimId,
+  });
+  return result?.receiptUpdated === true;
+}
+
+/** Persist the active run before interrupting it so a later inbox claim can finish the abort. */
+export async function recordQueuedSubmissionInterruptRun(input: {
+  threadId: string;
+  messageId: string;
+  runId: string;
+  claimId: string;
+}): Promise<boolean> {
+  return mutateQueuedSubmissionInterruptRun(input, "record");
+}
+
+/** Renews a live interruption claim before its recorded run is aborted. */
+export async function renewQueuedSubmissionInterruptClaim(input: {
+  threadId: string;
+  messageId: string;
+  runId: string;
+  claimId: string;
+}): Promise<boolean> {
+  const result = await mutateThreadQueuedMessages(input.threadId, {
+    type: "renewClaim",
+    messageId: input.messageId,
+    runId: input.runId,
+    claimId: input.claimId,
+  });
+  return (
+    result?.claimLost !== true &&
+    result?.claimedMessage?.promotionClaim?.id === input.claimId
+  );
+}
+
+/** Clear a recorded interruption only after its turn abort is durable. */
+export async function clearQueuedSubmissionInterruptRun(input: {
+  threadId: string;
+  messageId: string;
+  runId: string;
+  claimId: string;
+}): Promise<boolean> {
+  return mutateQueuedSubmissionInterruptRun(input, "clear");
+}
+
+export type ThreadQueuedMessageMutation =
+  | {
+      type: "append";
+      message: QueuedMessage;
+      hashInput?: AgentSubmissionPayload;
+    }
+  | { type: "remove"; messageId: string }
+  | { type: "moveToTop"; messageId: string }
+  | { type: "claim"; messageId: string; claimId: string }
+  | {
+      type: "claimFromInbox";
+      receipt: QueuedSubmissionReceipt;
+      claimId: string;
+    }
+  | {
+      type: "retryReceipt";
+      messageId: string;
+      retryAfter: number;
+      claimId?: string;
+    }
+  | { type: "blockReceipt"; messageId: string; claimId?: string }
+  | {
+      type: "recordInterruptRun" | "clearInterruptRun";
+      messageId: string;
+      runId: string;
+      claimId: string;
+    }
+  | {
+      type: "renewClaim";
+      messageId: string;
+      runId: string;
+      claimId: string;
+    }
+  | { type: "release"; messageId: string; claimId: string };
+
+export interface ThreadQueuedMessageMutationResult {
+  queuedMessages: QueuedMessage[];
+  message?: QueuedMessage;
+  claimedMessage?: QueuedMessage;
+  alreadySubmitted?: boolean;
+  submittedRunId?: string;
+  claimBusy?: boolean;
+  submissionExpired?: boolean;
+  promotionBusy?: boolean;
+  receiptUnavailable?: boolean;
+  receiptConflict?: boolean;
+  receiptUpdated?: boolean;
+  claimLost?: boolean;
+  released?: boolean;
+}
+
+const QUEUED_MESSAGE_CLAIM_TTL_MS = 60_000;
+
+function receiptMutationOwnsPromotionClaim(
+  message: QueuedMessage | undefined,
+  claimId: string | undefined,
+  now: number,
+): boolean {
+  const claim = message?.promotionClaim as unknown;
+  if (claim === undefined || claim === null) return claimId === undefined;
+  if (!claim || typeof claim !== "object" || Array.isArray(claim)) return false;
+  const value = claim as { id?: unknown; expiresAt?: unknown };
+  if (
+    typeof value.id !== "string" ||
+    typeof value.expiresAt !== "number" ||
+    !Number.isFinite(value.expiresAt)
+  ) {
+    return false;
+  }
+  const active = value.expiresAt > now;
+  return claimId === undefined ? !active : value.id === claimId && active;
+}
+
+function submittedQueuedMessageRunId(
+  repository: Record<string, unknown>,
+  messageId: string,
+): string | undefined {
+  const collections = [
+    repository.messages,
+    (repository.agentKit as Record<string, unknown> | undefined)?.messages,
+  ];
+  for (const collection of collections) {
+    if (!Array.isArray(collection)) continue;
+    for (const entry of collection) {
+      const message = threadMessageRecord(entry);
+      if (message?.role !== "user") continue;
+      const metadata = message.metadata;
+      const custom =
+        metadata && typeof metadata === "object" && !Array.isArray(metadata)
+          ? (metadata as Record<string, unknown>).custom
+          : undefined;
+      if (!custom || typeof custom !== "object" || Array.isArray(custom)) {
+        continue;
+      }
+      const customRecord = custom as Record<string, unknown>;
+      if (
+        customRecord.agentKitMessageId !== messageId &&
+        customRecord.agentNativeQueuedMessageId !== messageId
+      ) {
+        continue;
+      }
+      return typeof customRecord.submittedRunId === "string"
+        ? customRecord.submittedRunId
+        : undefined;
+    }
+  }
+  return undefined;
+}
+
+function queuedSubmissionExpired(message: QueuedMessage, now: number): boolean {
+  const custom = message.metadata?.custom;
+  if (
+    !custom ||
+    typeof custom !== "object" ||
+    Array.isArray(custom) ||
+    !Object.prototype.hasOwnProperty.call(
+      custom,
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+    )
+  ) {
+    return false;
+  }
+  const expiresAt = (custom as Record<string, unknown>)[
+    AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY
+  ];
+  return (
+    typeof expiresAt !== "number" ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= now
+  );
+}
+
+function queuedMessageMatchesReceipt(
+  message: QueuedMessage,
+  receiptMessage: QueuedMessage,
+): boolean {
+  const { promotionClaim: _messageClaim, ...messagePayload } = message;
+  const { promotionClaim: _receiptClaim, ...receiptPayload } = receiptMessage;
+  return stableJson(messagePayload) === stableJson(receiptPayload);
+}
+
+/** Applies a queue operation to the latest durable thread state on every CAS retry. */
+export async function mutateThreadQueuedMessages(
+  threadId: string,
+  mutation: ThreadQueuedMessageMutation,
+  options: { actor?: QueuedSubmissionActor } = {},
+): Promise<ThreadQueuedMessageMutationResult | null> {
+  if (mutation.type === "claimFromInbox") {
+    const message = mutation.receipt.message;
+    if (
+      mutation.receipt.state !== "queued" ||
+      mutation.receipt.threadId !== threadId ||
+      !message ||
+      message.id !== mutation.receipt.messageId ||
+      (message.threadId !== undefined && message.threadId !== threadId) ||
+      typeof message.text !== "string" ||
+      !message.text.trim()
+    ) {
+      throw new TypeError("Queued submission receipt is not claimable.");
+    }
+    try {
+      assertNoInlineImageBytes(message, "queuedSubmissionReceipt.message");
+    } catch (error) {
+      throw new InlineAttachmentDataNotPersistableError(
+        error instanceof Error ? error.message : undefined,
+      );
+    }
+    parseQueueMessageInput(
+      { ...message, threadId: message.threadId ?? threadId },
+      "queuedSubmissionReceipt.message",
+    );
+  }
+
+  if (mutation.type === "append") {
+    const metadata = normalizeSubmissionDeadlineMetadata(
+      mutation.message.metadata,
+      Date.now(),
+    );
+    mutation = {
+      type: "append",
+      message: {
+        ...mutation.message,
+        threadId: mutation.message.threadId ?? threadId,
+        ...(metadata ? { metadata } : {}),
+      },
+      ...(mutation.hashInput ? { hashInput: mutation.hashInput } : {}),
+    };
+    try {
+      assertNoInlineImageBytes(mutation.message, "queuedMessage");
+    } catch (error) {
+      throw new InlineAttachmentDataNotPersistableError(
+        error instanceof Error ? error.message : undefined,
+      );
+    }
+    parseQueueMessageInput(
+      {
+        ...mutation.message,
+        threadId: mutation.message.threadId ?? threadId,
+      },
+      "queuedMessage",
+    );
+  }
+
+  return withThreadDataLock(threadId, async () => {
+    let result: ThreadQueuedMessageMutationResult | undefined;
+    let receiptUnavailable = false;
+    let receiptConflict = false;
+    let hadExistingQueuedMessage = false;
+    let removedReceiptState: "removed" | "expired" = "removed";
+    let movedToTop = false;
+    let receiptClaimMessage: QueuedMessage | undefined;
+    try {
+      await updateThreadData(threadId, "{}", "", "", 0, {
+        preserveExistingQueuedMessages: false,
+        preserveCurrentMetadata: true,
+        transformThreadData: (threadData) => {
+          let data: unknown;
+          try {
+            data = JSON.parse(threadData || "{}");
+          } catch {
+            throw new TypeError("Agent chat thread data is not valid JSON.");
+          }
+          if (!data || typeof data !== "object" || Array.isArray(data)) {
+            throw new TypeError("Agent chat thread data must be an object.");
+          }
+
+          const repository = data as Record<string, unknown>;
+          const stored = repository.queuedMessages;
+          if (stored !== undefined && !Array.isArray(stored)) {
+            throw new TypeError("Agent chat queued messages must be an array.");
+          }
+          const current = (stored ?? []) as QueuedMessage[];
+          if (
+            !current.every(
+              (message) =>
+                message &&
+                typeof message.id === "string" &&
+                typeof message.text === "string",
+            )
+          ) {
+            throw new TypeError("Agent chat queued messages are malformed.");
+          }
+          let queuedMessages = current;
+          let response: Omit<
+            ThreadQueuedMessageMutationResult,
+            "queuedMessages"
+          > = {};
+
+          switch (mutation.type) {
+            case "append": {
+              hadExistingQueuedMessage = false;
+              if (queuedSubmissionExpired(mutation.message, Date.now())) {
+                response = { submissionExpired: true };
+                break;
+              }
+              const consumedRunId = submittedQueuedMessageRunId(
+                repository,
+                mutation.message.id,
+              );
+              if (consumedRunId) {
+                queuedMessages = current.filter(
+                  (candidate) => candidate.id !== mutation.message.id,
+                );
+                response = {
+                  alreadySubmitted: true,
+                  submittedRunId: consumedRunId,
+                  message: mutation.message,
+                };
+                break;
+              }
+              const existing = current.find(
+                (message) => message.id === mutation.message.id,
+              );
+              hadExistingQueuedMessage = existing !== undefined;
+              if (
+                existing &&
+                hashQueuedSubmissionPayload(threadId, existing) !==
+                  hashQueuedSubmissionPayload(threadId, mutation.message)
+              ) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_conflict",
+                  mutation.message.id,
+                );
+              }
+              if (!existing) queuedMessages = [...current, mutation.message];
+              response = { message: existing ?? mutation.message };
+              break;
+            }
+            case "remove": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              const message = current[index];
+              const expired =
+                message !== undefined &&
+                queuedSubmissionExpired(message, Date.now());
+              if (
+                message?.promotionClaim &&
+                message.promotionClaim.expiresAt > Date.now() &&
+                !expired
+              ) {
+                response = { promotionBusy: true };
+                break;
+              }
+              removedReceiptState = expired ? "expired" : "removed";
+              queuedMessages = current.filter(
+                (candidate) => candidate.id !== mutation.messageId,
+              );
+              break;
+            }
+            case "moveToTop": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              if (index > 0) {
+                const selected = current[index]!;
+                if (
+                  selected.promotionClaim &&
+                  selected.promotionClaim.expiresAt > Date.now()
+                ) {
+                  response = { promotionBusy: true };
+                } else {
+                  movedToTop = true;
+                  queuedMessages = [
+                    selected,
+                    ...current.filter(
+                      (message) => message.id !== mutation.messageId,
+                    ),
+                  ];
+                }
+              }
+              break;
+            }
+            case "claim": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              if (index < 0) {
+                throw new Error(
+                  `Unknown queued message: ${mutation.messageId}`,
+                );
+              }
+              const message = current[index]!;
+              const now = Date.now();
+              if (queuedSubmissionExpired(message, now)) {
+                queuedMessages = current.filter(
+                  (candidate) => candidate.id !== mutation.messageId,
+                );
+                response = { submissionExpired: true };
+                break;
+              }
+              if (
+                message.promotionClaim &&
+                message.promotionClaim.id !== mutation.claimId &&
+                message.promotionClaim.expiresAt > now
+              ) {
+                response = { claimBusy: true };
+                break;
+              }
+              const claimedMessage = {
+                ...message,
+                promotionClaim: {
+                  id: mutation.claimId,
+                  expiresAt: now + QUEUED_MESSAGE_CLAIM_TTL_MS,
+                },
+              };
+              queuedMessages = [...current];
+              queuedMessages[index] = claimedMessage;
+              response = { claimedMessage };
+              break;
+            }
+            case "claimFromInbox": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.receipt.messageId,
+              );
+              const existing = index >= 0 ? current[index]! : undefined;
+              const receiptMessage = mutation.receipt.message!;
+              const now = Date.now();
+              if (queuedSubmissionExpired(receiptMessage, now)) {
+                queuedMessages = current.filter(
+                  (candidate) => candidate.id !== mutation.receipt.messageId,
+                );
+                response = { submissionExpired: true };
+                break;
+              }
+              if (
+                existing?.promotionClaim &&
+                existing.promotionClaim.id !== mutation.claimId &&
+                existing.promotionClaim.expiresAt > now
+              ) {
+                response = { claimBusy: true };
+                break;
+              }
+              if (
+                existing &&
+                !queuedMessageMatchesReceipt(existing, receiptMessage)
+              ) {
+                response = { receiptConflict: true };
+                break;
+              }
+              const claimedMessage = {
+                ...receiptMessage,
+                promotionClaim: {
+                  id: mutation.claimId,
+                  expiresAt: now + QUEUED_MESSAGE_CLAIM_TTL_MS,
+                },
+              };
+              if (index < 0) {
+                queuedMessages = [...current, claimedMessage];
+              } else {
+                queuedMessages = [...current];
+                queuedMessages[index] = claimedMessage;
+              }
+              response = { claimedMessage };
+              break;
+            }
+            case "retryReceipt":
+            case "blockReceipt": {
+              receiptClaimMessage = current.find(
+                (message) => message.id === mutation.messageId,
+              );
+              if (
+                !receiptMutationOwnsPromotionClaim(
+                  receiptClaimMessage,
+                  mutation.claimId,
+                  Date.now(),
+                )
+              ) {
+                response = { claimBusy: true };
+              }
+              break;
+            }
+            case "recordInterruptRun":
+            case "clearInterruptRun": {
+              receiptClaimMessage = current.find(
+                (message) => message.id === mutation.messageId,
+              );
+              if (
+                !receiptMutationOwnsPromotionClaim(
+                  receiptClaimMessage,
+                  mutation.claimId,
+                  Date.now(),
+                )
+              ) {
+                response = { claimBusy: true };
+              }
+              break;
+            }
+            case "renewClaim": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              const message = index >= 0 ? current[index] : undefined;
+              const now = Date.now();
+              if (
+                !message ||
+                queuedSubmissionExpired(message, now) ||
+                !receiptMutationOwnsPromotionClaim(
+                  message,
+                  mutation.claimId,
+                  now,
+                )
+              ) {
+                response = { claimLost: true };
+                break;
+              }
+              const claimedMessage = {
+                ...message,
+                promotionClaim: {
+                  id: mutation.claimId,
+                  expiresAt: now + QUEUED_MESSAGE_CLAIM_TTL_MS,
+                },
+              };
+              queuedMessages = [...current];
+              queuedMessages[index] = claimedMessage;
+              response = { claimedMessage };
+              break;
+            }
+            case "release": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              const message = current[index];
+              if (message?.promotionClaim?.id === mutation.claimId) {
+                const { promotionClaim: _claim, ...releasedMessage } = message;
+                queuedMessages = [...current];
+                queuedMessages[index] = releasedMessage;
+                response = { released: true };
+              } else {
+                response = { released: false };
+              }
+              break;
+            }
+          }
+
+          result = { ...response, queuedMessages };
+          return JSON.stringify({ ...repository, queuedMessages });
+        },
+        beforeUpdate:
+          mutation.type === "claimFromInbox"
+            ? async (tx) => {
+                const currentReceipt = await readQueuedSubmissionReceipt(
+                  tx,
+                  threadId,
+                  mutation.receipt.messageId,
+                );
+                if (
+                  !queuedSubmissionReceiptSnapshotMatches(
+                    currentReceipt,
+                    mutation.receipt,
+                  )
+                ) {
+                  receiptUnavailable = true;
+                  return false;
+                }
+                return true;
+              }
+            : mutation.type === "renewClaim"
+              ? async (tx) => {
+                  const receipt = await readQueuedSubmissionReceipt(
+                    tx,
+                    threadId,
+                    mutation.messageId,
+                  );
+                  if (
+                    result?.claimLost === true ||
+                    receipt?.state !== "queued" ||
+                    receipt.interruptRunId !== mutation.runId
+                  ) {
+                    if (result) {
+                      result.claimLost = true;
+                      result.claimedMessage = undefined;
+                    }
+                    return false;
+                  }
+                  return true;
+                }
+              : mutation.type === "recordInterruptRun" ||
+                  mutation.type === "clearInterruptRun"
+                ? async (tx) => {
+                    const ownsClaim = receiptMutationOwnsPromotionClaim(
+                      receiptClaimMessage,
+                      mutation.claimId,
+                      Date.now(),
+                    );
+                    if (!ownsClaim) {
+                      if (result) result.claimBusy = true;
+                      return false;
+                    }
+                    const receipt = await readQueuedSubmissionReceipt(
+                      tx,
+                      threadId,
+                      mutation.messageId,
+                    );
+                    return (
+                      receipt?.state === "queued" &&
+                      (!receipt.interruptRunId ||
+                        receipt.interruptRunId === mutation.runId)
+                    );
+                  }
+                : mutation.type === "retryReceipt" ||
+                    mutation.type === "blockReceipt"
+                  ? async () => {
+                      const ownsClaim = receiptMutationOwnsPromotionClaim(
+                        receiptClaimMessage,
+                        mutation.claimId,
+                        Date.now(),
+                      );
+                      if (!ownsClaim && result) result.claimBusy = true;
+                      return ownsClaim;
+                    }
+                  : undefined,
+        afterUpdate: async (tx) => {
+          if (!result) return;
+          if (
+            mutation.type === "recordInterruptRun" ||
+            mutation.type === "clearInterruptRun"
+          ) {
+            const receipt = await readQueuedSubmissionReceipt(
+              tx,
+              threadId,
+              mutation.messageId,
+              { forUpdate: true },
+            );
+            if (!receipt || receipt.state !== "queued") {
+              result.receiptUpdated = false;
+              return;
+            }
+            if (mutation.type === "recordInterruptRun") {
+              if (
+                receipt.interruptRunId &&
+                receipt.interruptRunId !== mutation.runId
+              ) {
+                result.receiptUpdated = false;
+                return;
+              }
+              const updated = await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox
+                      SET interrupt_run_id = ?, updated_at = ?
+                      WHERE thread_id = ? AND message_id = ? AND state = 'queued'
+                        AND (interrupt_run_id IS NULL OR interrupt_run_id = ?)`,
+                args: [
+                  mutation.runId,
+                  Date.now(),
+                  threadId,
+                  mutation.messageId,
+                  mutation.runId,
+                ],
+              });
+              result.receiptUpdated = updated.rowsAffected === 1;
+              return;
+            }
+            if (!receipt.interruptRunId) {
+              result.receiptUpdated = true;
+              return;
+            }
+            if (receipt.interruptRunId !== mutation.runId) {
+              result.receiptUpdated = false;
+              return;
+            }
+            const updated = await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox
+                    SET interrupt_run_id = NULL, updated_at = ?
+                    WHERE thread_id = ? AND message_id = ? AND state = 'queued'
+                      AND interrupt_run_id = ?`,
+              args: [Date.now(), threadId, mutation.messageId, mutation.runId],
+            });
+            result.receiptUpdated = updated.rowsAffected === 1;
+          } else if (
+            mutation.type === "retryReceipt" ||
+            mutation.type === "blockReceipt"
+          ) {
+            if (
+              !receiptMutationOwnsPromotionClaim(
+                receiptClaimMessage,
+                mutation.claimId,
+                Date.now(),
+              )
+            ) {
+              result.claimBusy = true;
+              return;
+            }
+            const updated =
+              mutation.type === "retryReceipt"
+                ? await tx.execute({
+                    sql: `UPDATE agent_chat_submission_inbox SET retry_after = ?, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                    args: [
+                      mutation.retryAfter,
+                      Date.now(),
+                      threadId,
+                      mutation.messageId,
+                    ],
+                  })
+                : await tx.execute({
+                    sql: `UPDATE agent_chat_submission_inbox SET state = 'blocked', interrupt_run_id = NULL, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                    args: [Date.now(), threadId, mutation.messageId],
+                  });
+            result.receiptUpdated = updated.rowsAffected === 1;
+          } else if (mutation.type === "append") {
+            const { message } = mutation;
+            if (result.alreadySubmitted) {
+              const existing = await readQueuedSubmissionReceipt(
+                tx,
+                threadId,
+                message.id,
+              );
+              const actor = options.actor
+                ? normalizeQueuedSubmissionActor(options.actor)
+                : undefined;
+              const hashInput = mutation.hashInput ?? message;
+              const hash = hashQueuedSubmissionPayload(threadId, hashInput);
+              if (
+                existing &&
+                (existing.payloadHash !== hash ||
+                  (actor &&
+                    !queuedSubmissionActorMatches(existing.actor, actor)))
+              ) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_conflict",
+                  message.id,
+                );
+              }
+              if (existing?.state === "queued") {
+                await markQueuedSubmissionSubmitted(tx, {
+                  threadId,
+                  messageId: message.id,
+                  runId: result.submittedRunId,
+                  actor: existing.actor,
+                });
+              }
+              return;
+            }
+            if (result.submissionExpired || !options.actor) return;
+            const actor = normalizeQueuedSubmissionActor(options.actor);
+            const payloadMessage = result.message ?? message;
+            const hashInput = mutation.hashInput ?? payloadMessage;
+            const hash = hashQueuedSubmissionPayload(threadId, hashInput);
+            const existing = await readQueuedSubmissionReceipt(
+              tx,
+              threadId,
+              message.id,
+            );
+            if (hadExistingQueuedMessage && !existing) {
+              throw new QueuedSubmissionAdmissionError(
+                "queued_message_id_conflict",
+                message.id,
+              );
+            }
+            if (existing) {
+              if (
+                existing.payloadHash !== hash ||
+                !queuedSubmissionActorMatches(existing.actor, actor)
+              ) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_conflict",
+                  message.id,
+                );
+              }
+              if (existing.state === "submitted") {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_already_submitted",
+                  message.id,
+                  existing.submittedRunId,
+                );
+              }
+              if (existing.state !== "queued") {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_terminal",
+                  message.id,
+                );
+              }
+              return;
+            }
+            const now = Date.now();
+            await tx.execute({
+              sql: `INSERT INTO agent_chat_submission_inbox
+                (thread_id, message_id, state, actor_email, actor_auth_user_id, actor_identity_authenticated_at_ms, actor_name, actor_org_id, actor_org_scope, actor_anonymous, payload_hash, payload_json, interrupt_active_run, created_at, updated_at)
+                VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              args: [
+                threadId,
+                message.id,
+                actor.email,
+                actor.authUserId ?? null,
+                actor.identityAuthenticatedAtMs ?? null,
+                actor.name ?? null,
+                actor.orgId ?? null,
+                actor.orgScope ?? null,
+                actor.anonymous === true,
+                hash,
+                JSON.stringify(stripInlineBytes(payloadMessage, "placeholder")),
+                payloadMessage.interruptActiveRun === true,
+                now,
+                now,
+              ],
+            });
+            return;
+          }
+          if (mutation.type === "remove" && !result.promotionBusy) {
+            await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox SET state = ?, interrupt_run_id = NULL, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+              args: [
+                removedReceiptState,
+                Date.now(),
+                threadId,
+                mutation.messageId,
+              ],
+            });
+          } else if (mutation.type === "claim" && result.submissionExpired) {
+            await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox SET state = 'expired', interrupt_run_id = NULL, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+              args: [Date.now(), threadId, mutation.messageId],
+            });
+          } else if (mutation.type === "claimFromInbox") {
+            const currentReceipt = await readQueuedSubmissionReceipt(
+              tx,
+              threadId,
+              mutation.receipt.messageId,
+              { forUpdate: true },
+            );
+            assertQueuedSubmissionReceiptSnapshotMatches(
+              currentReceipt,
+              mutation.receipt,
+            );
+            if (result.receiptConflict) {
+              const blocked = await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox SET state = 'blocked', interrupt_run_id = NULL, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                args: [Date.now(), threadId, mutation.receipt.messageId],
+              });
+              if (blocked.rowsAffected !== 1) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_terminal",
+                  mutation.receipt.messageId,
+                );
+              }
+              receiptConflict = true;
+            } else if (result.submissionExpired) {
+              const expired = await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox SET state = 'expired', interrupt_run_id = NULL, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                args: [Date.now(), threadId, mutation.receipt.messageId],
+              });
+              if (expired.rowsAffected !== 1) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_terminal",
+                  mutation.receipt.messageId,
+                );
+              }
+            }
+          } else if (mutation.type === "moveToTop" && movedToTop) {
+            await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox SET move_to_top_at = ?, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+              args: [Date.now(), Date.now(), threadId, mutation.messageId],
+            });
+          }
+        },
+      });
+      if (receiptUnavailable) {
+        result = { queuedMessages: [], receiptUnavailable: true };
+      } else if (receiptConflict) {
+        result = { queuedMessages: [], receiptConflict: true };
+      }
+    } catch (error) {
+      if (
+        error instanceof QueuedSubmissionAdmissionError &&
+        error.code === "queued_message_already_submitted" &&
+        mutation.type === "append"
+      ) {
+        const thread = await getThread(threadId);
+        let queuedMessages: QueuedMessage[] = [];
+        try {
+          const repository = JSON.parse(thread?.threadData ?? "{}") as Record<
+            string,
+            unknown
+          >;
+          queuedMessages = Array.isArray(repository.queuedMessages)
+            ? (repository.queuedMessages as QueuedMessage[])
+            : [];
+        } catch {
+          queuedMessages = [];
+        }
+        return {
+          queuedMessages,
+          message:
+            (await getQueuedSubmissionReceipt(threadId, mutation.message.id))
+              ?.message ?? mutation.message,
+          alreadySubmitted: true,
+          ...(error.submittedRunId
+            ? { submittedRunId: error.submittedRunId }
+            : {}),
+        };
+      }
+      throw error;
+    }
+    return result ?? null;
   });
 }
 
@@ -1353,7 +3247,7 @@ export async function createThreadShareLink(
     // Mirror the hash into the indexed column so getThreadByShareToken
     // resolves via an equality lookup instead of a LIKE scan over every
     // thread's blob. thread_data stays the source of truth for validation.
-    await setThreadShareTokenHashColumn(threadId, tokenHash);
+    await setThreadShareTokenHashColumn(threadId, thread.ownerEmail, tokenHash);
 
     return {
       enabled: true,
@@ -1367,12 +3261,13 @@ export async function createThreadShareLink(
 
 async function setThreadShareTokenHashColumn(
   threadId: string,
+  ownerEmail: string,
   tokenHash: string | null,
 ): Promise<void> {
   const client = getDbExec();
   await client.execute({
-    sql: `UPDATE chat_threads SET share_token_hash = ? WHERE id = ?`,
-    args: [tokenHash, threadId],
+    sql: `UPDATE chat_threads SET share_token_hash = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [tokenHash, threadId, ownerEmail],
   });
 }
 
@@ -1403,7 +3298,7 @@ export async function revokeThreadShareLink(
       thread.preview,
       thread.messageCount,
     );
-    await setThreadShareTokenHashColumn(threadId, null);
+    await setThreadShareTokenHashColumn(threadId, thread.ownerEmail, null);
 
     return {
       enabled: false,
@@ -1434,6 +3329,7 @@ export async function getThreadByShareToken(
   };
 
   // Fast path: indexed equality lookup on the mirrored hash column.
+  // guard:allow-unscoped — public bearer-token lookup; stored hash and revocation state are validated before returning the thread
   const indexed = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE share_token_hash = ? LIMIT 10`,
     args: [tokenHash],
@@ -1446,6 +3342,7 @@ export async function getThreadByShareToken(
   // Legacy fallback: shares created before the share_token_hash column
   // existed only carry the hash inside the thread_data blob. Backfill the
   // column on hit so the next lookup takes the indexed path.
+  // guard:allow-unscoped — public bearer-token lookup; each candidate is validated against stored hash and revocation state
   const legacy = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE share_token_hash IS NULL AND thread_data LIKE ? LIMIT 10`,
     args: [`%${tokenHash}%`],
@@ -1453,7 +3350,11 @@ export async function getThreadByShareToken(
   for (const row of legacy.rows) {
     const thread = validate(row);
     if (thread) {
-      await setThreadShareTokenHashColumn(thread.id, tokenHash).catch(() => {});
+      await setThreadShareTokenHashColumn(
+        thread.id,
+        thread.ownerEmail,
+        tokenHash,
+      ).catch(() => {});
       return thread;
     }
   }
@@ -1505,20 +3406,32 @@ export async function grantThreadUserShare(
   });
 }
 
-export async function deleteThread(id: string): Promise<boolean> {
+export async function deleteThread(
+  id: string,
+  ownerEmail: string,
+): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
-  const result = await client.execute({
-    sql: `DELETE FROM chat_threads WHERE id = ?`,
-    args: [id],
+  if (!client.transaction) {
+    throw new Error("Atomic chat thread deletion requires transaction support");
+  }
+  const result = await client.transaction(async (tx) => {
+    const deleted = await tx.execute({
+      sql: `DELETE FROM chat_threads WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+      args: [id, ownerEmail],
+    });
+    if (deleted.rowsAffected === 0) return deleted;
+    await tx.execute({
+      sql: `DELETE FROM agent_chat_submission_inbox WHERE thread_id = ?`,
+      args: [id],
+    });
+    await tx.execute({
+      sql: `DELETE FROM chat_thread_shares WHERE resource_id = ?`,
+      args: [id],
+    });
+    return deleted;
   });
   if (result.rowsAffected > 0) {
-    await client
-      .execute({
-        sql: `DELETE FROM chat_thread_shares WHERE resource_id = ?`,
-        args: [id],
-      })
-      .catch(() => {});
     emitChatThreadChange(id);
     return true;
   }

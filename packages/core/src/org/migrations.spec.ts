@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 
+import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
 
 describe("ORG_MIGRATIONS", () => {
@@ -8,10 +9,7 @@ describe("ORG_MIGRATIONS", () => {
     // `WHERE LOWER(m.email) = ?`. This migration must create a supporting
     // index so the lookup is an index seek rather than a full-table scan.
     const indexMigration = ORG_MIGRATIONS.find((m) => {
-      const sql =
-        typeof m.sql === "string"
-          ? m.sql
-          : (m.sql.postgres ?? m.sql.sqlite ?? "");
+      const sql = typeof m.sql === "string" ? m.sql : (m.sql.postgres ?? "");
       return /CREATE INDEX.*org_members.*LOWER\(email\)/i.test(sql);
     });
     expect(indexMigration).toBeDefined();
@@ -20,10 +18,7 @@ describe("ORG_MIGRATIONS", () => {
 
   it("includes a LOWER(allowed_domain) expression index on organizations", () => {
     const indexMigration = ORG_MIGRATIONS.find((m) => {
-      const sql =
-        typeof m.sql === "string"
-          ? m.sql
-          : (m.sql.postgres ?? m.sql.sqlite ?? "");
+      const sql = typeof m.sql === "string" ? m.sql : (m.sql.postgres ?? "");
       return /CREATE INDEX.*organizations.*LOWER\(allowed_domain\)/i.test(sql);
     });
     expect(indexMigration).toBeDefined();
@@ -38,11 +33,6 @@ describe("ORG_MIGRATIONS", () => {
   });
 
   it("dedupes org_members by (org_id, LOWER(email)) before the unique index is created", () => {
-    // acceptPendingInvitationsForEmail races (and legacy raw-case inserts
-    // elsewhere in the org module) can leave case-variant duplicate rows
-    // for the same person in the same org. The dedupe DELETE must run
-    // strictly before the unique expression index below, or that CREATE
-    // would fail on any database that already has duplicates.
     const dedupeIndex = ORG_MIGRATIONS.findIndex(
       (m) => m.name === "org-members-dedupe-lower-email",
     );
@@ -60,10 +50,6 @@ describe("ORG_MIGRATIONS", () => {
   });
 
   it("includes a unique (org_id, LOWER(email)) index on org_members", () => {
-    // Backs the ON CONFLICT (org_id, LOWER(email)) DO NOTHING insert in
-    // accept-pending.ts — without a real unique constraint standing behind
-    // it, ON CONFLICT has nothing to target and concurrent acceptances can
-    // still create duplicate membership rows.
     const indexMigration = ORG_MIGRATIONS.find(
       (m) => m.name === "org-members-unique-lower-email-idx",
     );
@@ -81,6 +67,84 @@ describe("ORG_MIGRATIONS", () => {
     expect(migration).toBeDefined();
     expect(migration?.sql).toMatch(
       /ALTER TABLE organizations ADD COLUMN IF NOT EXISTS required_auth_provider TEXT/i,
+    );
+  });
+
+  it("creates the workspace app access tables and org visibility index", () => {
+    const apps = ORG_MIGRATIONS.find((m) => m.version === 1015);
+    const shares = ORG_MIGRATIONS.find((m) => m.version === 1016);
+    const indexes = ORG_MIGRATIONS.find((m) => m.version === 1017);
+
+    expect(apps?.sql).toMatch(/CREATE TABLE IF NOT EXISTS workspace_apps/i);
+    expect(apps?.sql).toMatch(/visibility TEXT NOT NULL DEFAULT 'org'/i);
+    expect(shares?.sql).toMatch(
+      /CREATE TABLE IF NOT EXISTS workspace_app_shares/i,
+    );
+    expect(shares?.sql).toMatch(/principal_type TEXT NOT NULL/i);
+    expect(shares?.sql).toMatch(/principal_id TEXT NOT NULL/i);
+    expect(shares?.sql).toMatch(/created_at TEXT NOT NULL/i);
+    expect(indexes?.sql).toMatch(/workspace_apps_org_visibility_idx/i);
+  });
+
+  it("backfills only ownerless, unshared legacy private apps", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1018);
+    const sql = typeof migration?.sql === "string" ? migration.sql : "";
+
+    expect(migration?.name).toBe(
+      "workspace-apps-restore-ownerless-legacy-visibility",
+    );
+    expect(sql).toMatch(/visibility = 'private'/i);
+    expect(sql).toMatch(/TRIM\(owner_email\) = ''/i);
+    expect(sql).toMatch(/NOT EXISTS/i);
+    expect(sql).toMatch(/workspace_app_shares/i);
+    expect(sql).toMatch(/visibility = 'org'/i);
+  });
+
+  it("adds the nullable cross-app organization identity mapping", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1019);
+
+    expect(migration?.name).toBe("organization-identity-federation");
+    expect(migration?.sql).toMatch(
+      /ADD COLUMN IF NOT EXISTS identity_authority TEXT/i,
+    );
+    expect(migration?.sql).toMatch(
+      /ADD COLUMN IF NOT EXISTS identity_id TEXT/i,
+    );
+    expect(migration?.sql).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS organizations_identity_uidx/i,
+    );
+  });
+
+  it("adds a restrictive pending-removal marker to memberships", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1020);
+    expect(migration?.sql).toMatch(
+      /ALTER TABLE org_members[\s\S]*federation_removal_pending_at/i,
+    );
+  });
+
+  it("adds the one-time federation roster bootstrap marker", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1021);
+    expect(migration?.sql).toMatch(
+      /ALTER TABLE organizations[\s\S]*federation_roster_initialized_at/i,
+    );
+  });
+
+  it("provisions the audit table before SCIM can write its first event", () => {
+    const migration = ORG_MIGRATIONS.find(
+      (entry) => entry.name === "agent-audit-log-base-table",
+    );
+    expect(migration?.sql).toBe(AGENT_AUDIT_LOG_CREATE_SQL);
+    expect(migration?.sql).toMatch(
+      /CREATE TABLE IF NOT EXISTS agent_audit_log/i,
+    );
+  });
+
+  it("adds versioned workspace visual identity storage", () => {
+    const migration = ORG_MIGRATIONS.find((entry) => entry.version === 1033);
+    expect(migration?.name).toBe("organization-visual-identity");
+    expect(migration?.sql).toMatch(/ADD COLUMN IF NOT EXISTS icon_json TEXT/i);
+    expect(migration?.sql).toMatch(
+      /ADD COLUMN IF NOT EXISTS icon_revision BIGINT NOT NULL DEFAULT 0/i,
     );
   });
 });

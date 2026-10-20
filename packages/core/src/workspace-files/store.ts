@@ -1,15 +1,10 @@
-/**
- * Compatibility wrapper for the old `workspace-files` API.
- *
- * Storage now goes through the core Resources table so agent files live in the
- * same workspace the user manages in the Resources panel. Paths under
- * `scratch/` are hidden agent scratch; every other path is a normal visible
- * resource in the current personal or organization scope.
- */
-
+import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
+import { canManageOrg } from "../org/permissions.js";
 import {
   SHARED_OWNER,
-  resourceDeleteByPath,
+  isLegacyOrganizationWorkspaceFile,
+  sharedResourceOwner,
+  resourceDeleteIfCurrent,
   resourceGetByPath,
   resourceList,
   resourcePut,
@@ -17,27 +12,14 @@ import {
   type ResourceMeta,
   type ResourceVisibility,
 } from "../resources/store.js";
+import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  MAX_FILE_BYTES,
+  MAX_SCOPE_BYTES,
+  SAVE_TO_FILE_MAX_BYTES,
+} from "./constants.js";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Max content size per file (bytes) for direct workspaceWrite calls. */
-export const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB
-
-/**
- * Legacy export retained for API compatibility. The Resources store is the
- * canonical quota surface now, so the compatibility wrapper does not maintain a
- * separate per-scope total.
- */
-export const MAX_SCOPE_BYTES = 200 * 1024 * 1024; // 200 MB
-
-/** Max content size when saving via saveToFile from provider-api / fetch tool. */
-export const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
-
-// ---------------------------------------------------------------------------
-// Scope helpers
-// ---------------------------------------------------------------------------
+export { MAX_FILE_BYTES, MAX_SCOPE_BYTES, SAVE_TO_FILE_MAX_BYTES };
 
 export interface WorkspaceFilesScope {
   scope: "user" | "org";
@@ -45,13 +27,37 @@ export interface WorkspaceFilesScope {
 }
 
 function ownerForScope(scope: WorkspaceFilesScope): string {
-  return scope.scope === "org" ? SHARED_OWNER : scope.scopeId;
+  return scope.scope === "org"
+    ? sharedResourceOwner(scope.scopeId)
+    : scope.scopeId;
+}
+
+function optionsForScope(scope: WorkspaceFilesScope) {
+  return scope.scope === "org" ? { orgId: scope.scopeId } : undefined;
+}
+
+async function resolveResourceForScope(
+  scope: WorkspaceFilesScope,
+  path: string,
+): Promise<{ resource: Resource; owner: string } | null> {
+  const owner = ownerForScope(scope);
+  const options = optionsForScope(scope);
+  const resource = await resourceGetByPath(owner, path, options);
+  if (resource) return { resource, owner };
+  if (scope.scope !== "org") return null;
+
+  const legacy = await resourceGetByPath(SHARED_OWNER, path, options);
+  return legacy && isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)
+    ? { resource: legacy, owner: SHARED_OWNER }
+    : null;
+}
+
+export function isScratchWorkspacePath(path: string): boolean {
+  return path === "scratch" || path.startsWith("scratch/");
 }
 
 function visibilityForPath(path: string): ResourceVisibility {
-  return path === "scratch" || path.startsWith("scratch/")
-    ? "agent_scratch"
-    : "workspace";
+  return isScratchWorkspacePath(path) ? "agent_scratch" : "workspace";
 }
 
 function workspaceFileMetadata(scope: WorkspaceFilesScope) {
@@ -62,10 +68,20 @@ function workspaceFileMetadata(scope: WorkspaceFilesScope) {
   };
 }
 
-/**
- * Validate a workspace file path.
- * - Non-empty, no leading slash, no ".." components, no null bytes.
- */
+async function assertCanMutateWorkspaceFile(
+  scope: WorkspaceFilesScope,
+  path: string,
+): Promise<void> {
+  if (scope.scope !== "org" || isScratchWorkspacePath(path)) return;
+  const email = getRequestUserEmail()?.trim();
+  const role = email ? await getOrgRoleForEmail(scope.scopeId, email) : null;
+  if (!email || !canManageOrg(role)) {
+    throw new Error(
+      "Only organization owners and admins can edit organization files",
+    );
+  }
+}
+
 export function validatePath(path: string): string | null {
   if (!path || typeof path !== "string") return "path is required";
   if (path.startsWith("/")) return 'path must not start with "/"';
@@ -78,10 +94,6 @@ export function validatePath(path: string): string | null {
   }
   return null;
 }
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface WorkspaceFile {
   id: string;
@@ -104,15 +116,32 @@ export interface WorkspaceFileMeta {
   updatedAt: string;
 }
 
-// ---------------------------------------------------------------------------
-// Store operations
-// ---------------------------------------------------------------------------
+export function fileNameFromPath(path: string): string {
+  return path.split("/").at(-1) || path;
+}
 
-/**
- * Write (create or overwrite) a workspace file.
- * Enforces per-file limits for the compatibility API; persistence is handled by
- * Resources. Use `scratch/...` for temporary hidden agent files.
- */
+export interface WorkspaceFileCard {
+  resourceId: string;
+  path: string;
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  updatedAt: string;
+}
+
+export function toWorkspaceFileCard(
+  meta: WorkspaceFileMeta,
+): WorkspaceFileCard {
+  return {
+    resourceId: meta.id,
+    path: meta.path,
+    name: fileNameFromPath(meta.path),
+    contentType: meta.contentType,
+    sizeBytes: meta.sizeBytes,
+    updatedAt: meta.updatedAt,
+  };
+}
+
 export async function writeWorkspaceFile(
   scope: WorkspaceFilesScope,
   path: string,
@@ -122,6 +151,18 @@ export async function writeWorkspaceFile(
 ): Promise<WorkspaceFileMeta> {
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
+  await assertCanMutateWorkspaceFile(scope, path);
+
+  const legacy =
+    scope.scope === "org"
+      ? await resourceGetByPath(SHARED_OWNER, path, optionsForScope(scope))
+      : null;
+  const legacyOrganizationResource =
+    scope.scope === "org" &&
+    legacy &&
+    isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)
+      ? legacy
+      : null;
 
   const maxFileBytes = Math.min(
     opts?.maxFileBytes ?? MAX_FILE_BYTES,
@@ -140,18 +181,32 @@ export async function writeWorkspaceFile(
     content,
     contentType,
     {
-      createdBy: "agent",
-      visibility: visibilityForPath(path),
+      createdBy: legacyOrganizationResource?.createdBy ?? "agent",
+      visibility: legacyOrganizationResource
+        ? legacyOrganizationResource.visibility
+        : visibilityForPath(path),
+      ...(legacyOrganizationResource
+        ? {
+            threadId: legacyOrganizationResource.threadId,
+            runId: legacyOrganizationResource.runId,
+            expiresAt: legacyOrganizationResource.expiresAt,
+          }
+        : {}),
       metadata: workspaceFileMetadata(scope),
     },
   );
 
+  if (
+    scope.scope === "org" &&
+    legacyOrganizationResource &&
+    typeof legacyOrganizationResource.metadata === "string"
+  ) {
+    await resourceDeleteIfCurrent(legacyOrganizationResource);
+  }
+
   return resourceToMeta(resource);
 }
 
-/**
- * Append text to an existing workspace file, or create it if it doesn't exist.
- */
 export async function appendWorkspaceFile(
   scope: WorkspaceFilesScope,
   path: string,
@@ -161,15 +216,11 @@ export async function appendWorkspaceFile(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  const existing = await resourceGetByPath(ownerForScope(scope), path);
-  const newContent = existing ? existing.content + text : text;
+  const existing = await resolveResourceForScope(scope, path);
+  const newContent = existing ? existing.resource.content + text : text;
   return writeWorkspaceFile(scope, path, newContent, contentType);
 }
 
-/**
- * Read a workspace file's content (with optional offset and maxChars for paging).
- * Returns null if the file doesn't exist.
- */
 export async function readWorkspaceFile(
   scope: WorkspaceFilesScope,
   path: string,
@@ -178,10 +229,10 @@ export async function readWorkspaceFile(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  const resource = await resourceGetByPath(ownerForScope(scope), path);
-  if (!resource) return null;
+  const resolved = await resolveResourceForScope(scope, path);
+  if (!resolved) return null;
 
-  let content = resource.content;
+  let content = resolved.resource.content;
   if (opts?.offset || opts?.maxChars) {
     const off = opts.offset ?? 0;
     content = content.slice(
@@ -190,12 +241,9 @@ export async function readWorkspaceFile(
     );
   }
 
-  return resourceToFile(resource, scope, content);
+  return resourceToFile(resolved.resource, scope, content);
 }
 
-/**
- * Get file metadata without loading content.
- */
 export async function getWorkspaceFileMeta(
   scope: WorkspaceFilesScope,
   path: string,
@@ -203,14 +251,10 @@ export async function getWorkspaceFileMeta(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  const resource = await resourceGetByPath(ownerForScope(scope), path);
-  return resource ? resourceToMeta(resource) : null;
+  const resolved = await resolveResourceForScope(scope, path);
+  return resolved ? resourceToMeta(resolved.resource) : null;
 }
 
-/**
- * List workspace files, optionally filtered by path prefix.
- * Returns metadata only (no content).
- */
 export async function listWorkspaceFiles(
   scope: WorkspaceFilesScope,
   prefix?: string,
@@ -219,37 +263,66 @@ export async function listWorkspaceFiles(
   const normalizedPrefix = normalizePrefix(prefix);
   const resources = await resourceList(owner, normalizedPrefix, {
     includeAgentScratch: true,
+    ...optionsForScope(scope),
   });
+  const allResources =
+    scope.scope === "org"
+      ? [
+          ...resources,
+          ...(
+            await resourceList(SHARED_OWNER, normalizedPrefix, {
+              includeAgentScratch: true,
+              ...optionsForScope(scope),
+            })
+          ).filter(
+            (resource) =>
+              isLegacyOrganizationWorkspaceFile(resource, scope.scopeId) &&
+              !resources.some((current) => current.path === resource.path),
+          ),
+        ]
+      : resources;
   const filtered = normalizedPrefix
-    ? resources.filter(
+    ? allResources.filter(
         (resource) =>
           resource.path === normalizedPrefix ||
           resource.path.startsWith(`${normalizedPrefix}/`),
       )
-    : resources;
+    : allResources;
 
   return filtered
     .map(resourceToMeta)
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
-/**
- * Delete a workspace file. Returns true if deleted, false if not found.
- */
 export async function deleteWorkspaceFile(
   scope: WorkspaceFilesScope,
   path: string,
 ): Promise<boolean> {
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
+  await assertCanMutateWorkspaceFile(scope, path);
 
-  return resourceDeleteByPath(ownerForScope(scope), path);
+  const resolved = await resolveResourceForScope(scope, path);
+  if (!resolved) return false;
+
+  const deleted = await resourceDeleteIfCurrent(resolved.resource);
+  if (deleted && scope.scope === "org" && resolved.owner !== SHARED_OWNER) {
+    const legacy = await resourceGetByPath(
+      SHARED_OWNER,
+      path,
+      optionsForScope(scope),
+    );
+    if (
+      legacy &&
+      isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId) &&
+      typeof legacy.metadata === "string"
+    ) {
+      await resourceDeleteIfCurrent(legacy);
+    }
+  }
+  return deleted;
 }
 
-/**
- * Search file contents for a substring or regex pattern.
- * Returns matching lines with path context.
- */
 export async function grepWorkspaceFiles(
   scope: WorkspaceFilesScope,
   pattern: string,
@@ -291,10 +364,6 @@ export async function grepWorkspaceFiles(
 
   return results;
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 function normalizePrefix(prefix?: string): string | undefined {
   if (!prefix) return undefined;

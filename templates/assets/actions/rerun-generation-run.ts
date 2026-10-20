@@ -1,18 +1,28 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseJson } from "../server/lib/json.js";
+import { assertCanDraftAuthoredBy } from "../server/lib/library-access.js";
 import { normalizePresetReferences } from "../server/lib/preset-references.js";
+import {
+  ASSETS_VARIATION_GRID_RENDERER,
+  projectAssetVariationResult,
+} from "../shared/action-ui.js";
 import { requireGenerationSessionInLibrary } from "./_helpers.js";
+import { resolveTemplateAccess } from "./_template-access.js";
 import generateImage from "./generate-image.js";
 
 export default defineAction({
   description:
     "Rerun a prior asset generation using its original prompt and settings, but recompile against the latest library custom instructions, style brief, collection data, and deterministic references.",
+  chatUI: {
+    renderer: ASSETS_VARIATION_GRID_RENDERER,
+    when: (args, result) => projectAssetVariationResult(args, result) !== null,
+    projectResult: projectAssetVariationResult,
+  },
   schema: z.object({
     runId: z.string().describe("Generation run to rerun"),
     slotId: z
@@ -43,10 +53,18 @@ export default defineAction({
       .where(eq(schema.assetGenerationRuns.id, runId))
       .limit(1);
     if (!run) throw new Error("Generation run not found.");
-    await assertAccess("asset-library", run.libraryId, "editor");
+    const draftAccess = await assertCanDraftAuthoredBy(
+      run.libraryId,
+      run.ownerEmail,
+      "A generation run",
+    );
     const resolvedSessionId = sessionId ?? run.sessionId ?? undefined;
     if (resolvedSessionId) {
-      await requireGenerationSessionInLibrary(resolvedSessionId, run.libraryId);
+      await requireGenerationSessionInLibrary(
+        resolvedSessionId,
+        run.libraryId,
+        draftAccess,
+      );
     }
 
     const metadata = parseJson<{
@@ -76,19 +94,10 @@ export default defineAction({
     let presetReferenceFills:
       | Array<{ referenceId: string; assetIds: string[] }>
       | undefined;
-    // Reruns treat the CURRENT preset as authoritative by design: saved
-    // boardAssignments replay only onto entries that still exist and are
-    // still variable. Entries the designer has since removed, renamed, or
-    // converted to fixed re-resolve from today's preset instead of
-    // resurrecting the original run's images — a rerun must never bypass
-    // the designer's current board definition.
     const boardAssignments = metadata.settingsUsed?.boardAssignments;
     if (run.presetId && boardAssignments) {
-      const [preset] = await db
-        .select()
-        .from(schema.assetGenerationPresets)
-        .where(eq(schema.assetGenerationPresets.id, run.presetId))
-        .limit(1);
+      const preset = (await resolveTemplateAccess(run.presetId, "viewer"))
+        .resource;
       const presetSettings = parseJson<{ presetReferences?: unknown }>(
         preset?.settings,
         {},

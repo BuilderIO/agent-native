@@ -6,14 +6,16 @@ description: "أنشئ مسار React يستدعي الإجراء ويعرض ن�
 # إضافة صفحة
 
 هذا هو الجزء الثالث من سلسلة الخطوات الأولى. في [إضافة إجراء](/docs/getting-started-actions)
-أنشأت `analyze-text`. ستستدعي هنا الإجراء نفسه من مسار. لا تحتاج إلى قاعدة بيانات
-بعد: يتضمن Chat بالفعل بيئة SQL عندما تحتاج إلى حفظ بيانات المجال.
+أنشأت `analyze-text`. ستستدعي هنا الإجراء نفسه من مسار. لا يحتاج هذا المثال إلى
+جدول قاعدة بيانات جديد. يخزّن Chat بالفعل سجل المحادثات في SQL؛ أضف جداولك
+الخاصة عندما تحتاج إلى حفظ بيانات المجال.
 
 ## إنشاء المسار {#add-a-page}
 
-تلتقط ملفات المسارات في `app/routes/` تلقائياً. أنشئ
-`app/routes/text-analyses.tsx`؛ وسيصبح متاحاً على
-`http://localhost:8080/text-analyses`.
+يقرأ خادم التطوير ملفات المسارات عند بدء تشغيله. أنشئ
+`app/routes/text-analyses.tsx`، وأعد تشغيل `pnpm dev` إذا كان قيد التشغيل بالفعل.
+افتح عنوان URL المحلي الذي يعرضه `pnpm dev` وأضف إليه `/text-analyses`؛ قد يتغير
+المنفذ إذا كان 8080 مستخدماً بالفعل.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -59,7 +61,7 @@ export default function TextAnalysesRoute() {
 يستدعي `useActionQuery` الإجراء نفسه للقراءة فقط الذي يستخدمه الوكيل. لا تحتاج
 الصفحة إلى مسار API مخصص أو طبقة بيانات ثانية أو SQL في هذه المرحلة.
 
-افتح `http://localhost:8080/text-analyses`، أو اطلب من الوكيل:
+افتح عنوان URL المحلي المعروض وأضف إليه `/text-analyses`، أو اطلب من الوكيل:
 
 > Navigate to `/text-analyses`.
 

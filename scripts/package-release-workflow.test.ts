@@ -1,0 +1,540 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { describe, it } from "node:test";
+
+import { parse } from "yaml";
+
+import {
+  DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
+  NPM_PUBLISH_PACKAGE_NAMES,
+  isAlreadyStaged,
+} from "./changeset-publish-sequential.ts";
+import { packagesCoveredBy } from "./check-changeset.mjs";
+
+type Workflow = Record<string, unknown>;
+
+const changesetsRequire = createRequire(
+  createRequire(import.meta.url).resolve("@changesets/cli"),
+);
+const semver = changesetsRequire("semver") as {
+  inc: (version: string, release: "patch") => string | null;
+  satisfies: (version: string, range: string) => boolean;
+};
+
+const workflow = parse(
+  readFileSync(".github/workflows/auto-publish.yml", "utf8"),
+) as Workflow;
+const publisherSource = readFileSync(
+  "scripts/changeset-publish-sequential.ts",
+  "utf8",
+);
+const ciLintJob = (
+  parse(readFileSync(".github/workflows/ci.yml", "utf8")) as {
+    jobs: Record<string, { name: string; steps: Workflow[] }>;
+  }
+).jobs.lint;
+const trigger = workflow.on as Workflow;
+const dispatch = trigger.workflow_dispatch as Workflow;
+const inputs = dispatch.inputs as Workflow;
+const jobs = workflow.jobs as Workflow;
+
+describe("npm package release workflow", () => {
+  it("offers an explicit stable bump with patch as the default", () => {
+    assert.deepEqual(inputs.releaseType, {
+      description: "Stable release bump for all public npm packages",
+      required: true,
+      type: "choice",
+      options: ["patch", "minor", "major"],
+      default: "patch",
+    });
+  });
+
+  it("publishes nightly snapshots, never beta snapshots or tags", () => {
+    const nightly = jobs["publish-nightly"] as Workflow;
+    const source = JSON.stringify(nightly);
+    const publishStep = (nightly.steps as Workflow[]).find(
+      (step) => step.name === "Publish nightly packages sequentially",
+    );
+    assert(publishStep);
+
+    assert.match(String(nightly.if), /github\.event_name == 'schedule'/);
+    assert.doesNotMatch(String(nightly.if), /github\.event_name == 'push'/);
+    assert.deepEqual(nightly.needs, ["detect-nightly-changes"]);
+    assert.match(
+      String(nightly.if),
+      /needs\.detect-nightly-changes\.outputs\.changed == 'true'/,
+    );
+    assert.doesNotMatch(
+      String(nightly.if),
+      /contains\(github\.event\.head_commit\.message/,
+    );
+    assert.match(source, /--snapshot nightly/);
+    assert.equal(
+      (publishStep.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG,
+      "nightly",
+    );
+    assert.doesNotMatch(source, /--snapshot beta/);
+    assert.doesNotMatch(source, /AGENT_NATIVE_NPM_DIST_TAG: beta/);
+  });
+
+  it("publishes nightly snapshots on a three-hour schedule, not per merge", () => {
+    assert.deepEqual(trigger.schedule, [{ cron: "17 */3 * * *" }]);
+
+    const detect = jobs["detect-nightly-changes"] as Workflow;
+    assert.match(String(detect.if), /github\.event_name == 'schedule'/);
+    const detectStep = (detect.steps as Workflow[]).find(
+      (step) => step.id === "detect",
+    );
+    assert(detectStep);
+    const detectSource = String(detectStep.run);
+    assert.match(detectSource, /event=schedule&branch=main&status=success/);
+    assert.match(detectSource, /git diff --quiet "\$last_sha" HEAD/);
+
+    const nightlyPaths = String((detectStep.env as Workflow).NIGHTLY_PATHS)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const push = trigger.push as { paths: string[] };
+    assert.deepEqual(nightlyPaths, push.paths);
+  });
+
+  it("skips the stable verifier on ordinary pushes", () => {
+    const verifier = jobs["verify-stable-merge"] as Workflow;
+    assert.match(
+      String(verifier.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String(verifier.if),
+      /contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+    );
+  });
+
+  it("rejects a marked ordinary push from the stable lane", () => {
+    const verifier = jobs["verify-stable-merge"] as Workflow;
+    const release = jobs.release as Workflow;
+
+    assert.doesNotMatch(String(release.if), /head_commit\.message/);
+    assert.match(
+      String(release.if),
+      /needs\.verify-stable-merge\.outputs\.verified == 'true'/,
+    );
+    assert.match(JSON.stringify(verifier), /stable_marker/);
+    assert.match(JSON.stringify(verifier), /ACTOR/);
+    assert.match(JSON.stringify(verifier), /commits\/\$SHA\/pulls/);
+  });
+
+  it("keeps stable releases behind a manual dispatch or marked merge", () => {
+    const verifier = jobs["verify-stable-merge"] as Workflow;
+    const verifierSource = JSON.stringify(verifier);
+    const release = jobs.release as Workflow;
+    const condition = String(release.if);
+    const notify = jobs["notify-downstream"] as Workflow;
+
+    assert.match(
+      condition,
+      /needs\.verify-stable-merge\.outputs\.verified == 'true'/,
+    );
+    assert.match(verifierSource, /commits\/\$SHA\/pulls/);
+    assert.match(verifierSource, /changeset-release\/main/);
+    assert.match(verifierSource, /builder-io-integration\[bot\]/);
+    assert.match(verifierSource, /merge_commit_sha == \$sha/);
+    assert.deepEqual(notify.needs, ["release", "verify-stable-merge"]);
+    assert.match(
+      String(notify.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String(notify.if),
+      /needs\.verify-stable-merge\.outputs\.verified == 'true'/,
+    );
+  });
+
+  it("uses calculated semver bases for nightly snapshots", () => {
+    const config = JSON.parse(
+      readFileSync(".changeset/config.json", "utf8"),
+    ) as { snapshot?: { useCalculatedVersion?: boolean } };
+
+    assert.equal(config.snapshot?.useCalculatedVersion, true);
+  });
+
+  it("supports the next fixed-group Core patch without the incompatible gap release", () => {
+    const corePackage = JSON.parse(
+      readFileSync("packages/core/package.json", "utf8"),
+    ) as { version: string; exports?: Record<string, unknown> };
+    const toolkitPackage = JSON.parse(
+      readFileSync("packages/toolkit/package.json", "utf8"),
+    ) as {
+      peerDependencies?: Record<string, string>;
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+    };
+    const changesetConfig = JSON.parse(
+      readFileSync(".changeset/config.json", "utf8"),
+    ) as { fixed?: string[][] };
+
+    assert.ok(corePackage.exports?.["./shared"]);
+    assert.ok(
+      changesetConfig.fixed?.some(
+        (group) =>
+          group.includes("@agent-native/core") &&
+          group.includes("@agent-native/toolkit"),
+      ),
+    );
+    const corePeerRange =
+      toolkitPackage.peerDependencies?.["@agent-native/core"];
+    assert.ok(corePeerRange);
+
+    const acceptsNextCorePatch = (coreVersion: string) => {
+      const nextCorePatch = semver.inc(coreVersion, "patch");
+      return (
+        nextCorePatch !== null && semver.satisfies(nextCorePatch, corePeerRange)
+      );
+    };
+
+    for (const coreVersion of [corePackage.version, "0.205.0"]) {
+      assert.ok(
+        acceptsNextCorePatch(coreVersion),
+        `Toolkit must accept the next fixed-group Core patch after ${coreVersion}`,
+      );
+    }
+
+    for (const coreVersion of ["0.204.0", "0.205.0"]) {
+      assert.equal(
+        semver.satisfies(coreVersion, corePeerRange),
+        false,
+        `Toolkit must not accept published Core ${coreVersion} without the sanitizer export`,
+      );
+    }
+
+    for (const coreVersion of ["0.204.1", "0.205.1"]) {
+      assert.ok(
+        semver.satisfies(coreVersion, corePeerRange),
+        `Toolkit must accept Core ${coreVersion} with the sanitizer export`,
+      );
+    }
+
+    assert.equal(
+      toolkitPackage.peerDependenciesMeta?.["@agent-native/core"]?.optional,
+      true,
+    );
+  });
+
+  it("keeps the release changeset package list aligned with the publisher", () => {
+    const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
+    assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
+    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 11);
+  });
+
+  it("allows npm propagation to settle before failing a publish", () => {
+    assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 30 * 60_000);
+    assert.match(
+      publisherSource,
+      /packagesNeedingTags\.map\(\(pkg\) => waitForPackageAvailability\(pkg\)\)/,
+    );
+  });
+
+  it("waits for npm staged versions to become fetchable before tagging", () => {
+    const stagedConflict =
+      'npm error code E409\nnpm error 409 Conflict - PUT https://registry.npmjs.org/@agent-native%2fdispatch - Cannot publish over previously staged version "0.38.7".';
+
+    assert.equal(isAlreadyStaged(stagedConflict), true);
+    assert.equal(
+      isAlreadyStaged("npm error code E409\nnpm error 409 Conflict"),
+      false,
+    );
+    assert.match(
+      publisherSource,
+      /if \(isAlreadyStaged\(output\)\)[\s\S]*?return true;/,
+    );
+  });
+
+  it("validates Changesets YAML frontmatter", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "agent-native-changeset-"));
+    const changeset = path.join(dir, "invalid.md");
+
+    try {
+      writeFileSync(changeset, "Not a changeset\n");
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected YAML frontmatter between --- lines/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": nonsense\n---\nInvalid bump\n',
+      );
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected package entries with none, patch, minor, or major bumps/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": patch\n---not-a-closing-delimiter\n',
+      );
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected YAML frontmatter between --- lines/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": patch\n"@agent-native/core": minor\n---\n',
+      );
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /invalid YAML frontmatter/,
+      );
+
+      writeFileSync(changeset, "---\n- patch\n---\n");
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected a YAML package-to-bump map/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": "patch" # release\n"@agent-native/dispatch": none\n"@agent-native/pinpoint": minor\n"@agent-native/toolkit": major\n---\nValid bumps\n',
+      );
+      assert.deepEqual(packagesCoveredBy(changeset), [
+        "@agent-native/core",
+        "@agent-native/dispatch",
+        "@agent-native/pinpoint",
+        "@agent-native/toolkit",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("installs the YAML parser before checking changesets in CI", () => {
+    assert.equal(ciLintJob.name, "Lint & format");
+    const steps = ciLintJob.steps;
+    const install = steps.findIndex(
+      (step) => step.uses === "./.github/actions/setup-pnpm",
+    );
+    const check = steps.findIndex(
+      (step) => step.run === "node scripts/check-changeset.mjs",
+    );
+    const bumpPolicy = steps.findIndex(
+      (step) => step.run === "node scripts/guard-no-major-changeset.mjs",
+    );
+    assert.ok(install >= 0 && install < check && check < bumpPolicy);
+    for (const index of [check, bumpPolicy]) {
+      const condition = String(steps[index].if);
+      assert.match(
+        condition,
+        /needs\.change-scope\.outputs\.changeset == 'true'/,
+      );
+      assert.match(condition, /head\.ref != 'changeset-release\/main'/);
+    }
+    assert.equal(
+      (steps[check].env as Workflow).GITHUB_BASE_REF,
+      "${{ github.base_ref }}",
+    );
+  });
+
+  it("consumes concurrent public changesets after stable publication", () => {
+    const release = jobs.release as Workflow;
+    const releaseSteps = release.steps as Workflow[];
+    const build = releaseSteps.find(
+      (step) => step.name === "Build publishable packages",
+    );
+    assert(build);
+    const buildFilters = [
+      ...String(build.run).matchAll(/--filter\s+([^\s]+)/g),
+    ].map((match) => match[1].replace(/^['"]|['"]$/g, ""));
+    assert.deepEqual(
+      buildFilters,
+      NPM_PUBLISH_PACKAGE_NAMES.map((name) => `${name}...`),
+    );
+
+    const hold = releaseSteps.find(
+      (step) => step.name === "Hold pending changesets for stable publication",
+    );
+    assert(hold);
+    const policy = releaseSteps.find(
+      (step) => step.name === "Enforce package bump policy",
+    );
+    assert(policy);
+    assert.equal(policy.run, "node scripts/guard-no-major-changeset.mjs");
+    assert.match(String(hold.if), /github\.event_name == 'push'/);
+    assert.match(JSON.stringify(hold), /RUNNER_TEMP/);
+    assert.match(String(hold.run), /changeset status --output/);
+    assert.match(JSON.stringify(hold), /README\.md/);
+    for (const packageName of NPM_PUBLISH_PACKAGE_NAMES) {
+      assert.match(
+        String(hold.run),
+        new RegExp(packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      );
+    }
+
+    const changesets = releaseSteps.find(
+      (step) => step.name === "Create stable Release PR or publish to npm",
+    );
+    assert(changesets);
+    const options = changesets.with as Workflow;
+    assert.equal(options.version, "pnpm changeset:release-version");
+    assert.equal(options["version-script"], undefined);
+    const packageScripts = JSON.parse(readFileSync("package.json", "utf8"))
+      .scripts as Record<string, string>;
+    assert.equal(
+      packageScripts["changeset:release-version"],
+      "pnpm changeset:version && pnpm changelog:compact",
+    );
+
+    const consume = releaseSteps.find(
+      (step) => step.name === "Consume concurrent public-package changesets",
+    );
+    assert(consume);
+    assert.match(String(consume.if), /github\.event_name == 'push'/);
+    assert.match(String(consume.if), /steps\.changesets\.outcome == 'success'/);
+    assert.match(String(consume.run), /git push origin HEAD:main/);
+    assert.match(String(consume.run), /main:refs\/remotes\/origin\/main/);
+    assert.match(String(consume.run), /git rebase --autostash origin\/main/);
+    assert.match(String(consume.run), /git diff --name-only --diff-filter=U/);
+    assert.match(
+      String(consume.run),
+      /Autostash restoration conflicted after rebase/,
+    );
+    assert.match(String(consume.run), /git cat-file -e/);
+    assert.match(String(consume.run), /\[skip ci\]/);
+
+    const restore = releaseSteps.find(
+      (step) => step.name === "Restore pending changesets",
+    );
+    assert(restore);
+    assert.match(String(restore.if), /always\(\)/);
+    assert.match(String(restore.run), /consume-stable-changesets\.outcome/);
+
+    const validateIndex = releaseSteps.findIndex(
+      (step) => step.name === "Validate changesets",
+    );
+    const holdIndex = releaseSteps.indexOf(hold);
+    const policyIndex = releaseSteps.indexOf(policy);
+    const changesetsIndex = releaseSteps.indexOf(changesets);
+    const consumeIndex = releaseSteps.indexOf(consume);
+    const restoreIndex = releaseSteps.indexOf(restore);
+    assert(holdIndex < validateIndex);
+    assert(policyIndex < holdIndex);
+    assert(holdIndex < changesetsIndex);
+    assert(changesetsIndex < consumeIndex);
+    assert(consumeIndex < restoreIndex);
+    assert(changesetsIndex < restoreIndex);
+  });
+
+  describe("dev snapshot publishing", () => {
+    const devSnapshot = jobs["publish-dev-snapshot"] as Workflow;
+
+    it("exposes an optional devTag dispatch input, empty by default", () => {
+      assert.deepEqual(inputs.devTag, {
+        description:
+          "Dev snapshot: publish a testable version from this branch under npm dist-tag dev-<value> (leave empty for a normal stable dispatch)",
+        required: false,
+        type: "string",
+        default: "",
+      });
+    });
+
+    it("only runs on a manual dispatch with a non-empty devTag", () => {
+      assert(devSnapshot);
+      assert.match(
+        String(devSnapshot.if),
+        /github\.event_name == 'workflow_dispatch'/,
+      );
+      assert.match(String(devSnapshot.if), /inputs\.devTag != ''/);
+      assert.doesNotMatch(String(devSnapshot.if), /needs\.verify-stable-merge/);
+      assert.equal(devSnapshot.needs, undefined);
+    });
+
+    it("is not gated to main and does not depend on verify-stable-merge", () => {
+      assert.equal(workflow.on, trigger);
+      assert.doesNotMatch(JSON.stringify(devSnapshot), /branches/);
+    });
+
+    it("validates the tag and synthesizes a changeset before versioning", () => {
+      const steps = devSnapshot.steps as Workflow[];
+      const prepare = steps.find(
+        (step) => step.name === "Validate dev tag and prepare a changeset",
+      );
+      assert(prepare);
+      assert.match(String(prepare.run), /prepare-dev-snapshot\.ts/);
+
+      const version = steps.find(
+        (step) => step.name === "Create dev snapshot versions",
+      );
+      assert(version);
+      assert.match(
+        String(version.run),
+        /changeset version --snapshot "\$DEV_TAG"/,
+      );
+
+      const prepareIndex = steps.indexOf(prepare);
+      const versionIndex = steps.indexOf(version);
+      assert(prepareIndex < versionIndex);
+    });
+
+    it("publishes under a dev-prefixed dist-tag via the sequential publisher", () => {
+      const steps = devSnapshot.steps as Workflow[];
+      const publish = steps.find(
+        (step) => step.name === "Publish dev snapshot packages sequentially",
+      );
+      assert(publish);
+      assert.equal(publish.id, "publish");
+      assert.equal(
+        (publish.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG,
+        "dev-${{ inputs.devTag }}",
+      );
+      assert.equal(publish.run, "node scripts/changeset-publish-sequential.ts");
+      assert.doesNotMatch(
+        String((publish.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG),
+        /^(latest|nightly)$/,
+      );
+    });
+
+    it("reuses the npm-publish environment for OIDC trusted publishing", () => {
+      assert.equal(devSnapshot.environment, "npm-publish");
+      assert.deepEqual(devSnapshot.permissions, {
+        contents: "read",
+        "id-token": "write",
+      });
+    });
+
+    it("summarizes using the publish step's actual output, not a directory scan", () => {
+      const steps = devSnapshot.steps as Workflow[];
+      const summary = steps.find(
+        (step) => step.name === "Summarize dev snapshot publish",
+      );
+      assert(summary);
+      assert.equal(
+        (summary.env as Workflow).PUBLISHED_PACKAGES,
+        "${{ steps.publish.outputs.published-packages }}",
+      );
+      assert.doesNotMatch(
+        String(summary.run),
+        /readdir|ls packages|find packages/,
+      );
+    });
+
+    it("has its own concurrency lane keyed by branch and tag", () => {
+      const group = String((workflow.concurrency as Workflow).group);
+      assert.match(group, /inputs\.devTag/);
+      assert.match(group, /format\('dev-\{0\}', inputs\.devTag\)/);
+      assert.match(group, /stable-preparation/);
+      assert.match(group, /stable-publication/);
+    });
+
+    it("gates the stable release job off when devTag is set", () => {
+      const release = jobs.release as Workflow;
+      assert.match(String(release.if), /!inputs\.devTag/);
+    });
+
+    it("excludes dev snapshot dispatches from downstream notification", () => {
+      const notify = jobs["notify-downstream"] as Workflow;
+      assert.match(String(notify.if), /!inputs\.devTag/);
+    });
+  });
+});

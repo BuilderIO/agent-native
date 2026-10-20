@@ -1,21 +1,18 @@
-import { getDbExec, isPostgres, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import {
+  OAUTH_TOKEN_MIGRATIONS,
+  OAUTH_TOKEN_MIGRATIONS_TABLE,
+} from "./migrations.js";
 
-let _initPromise: Promise<void> | undefined;
-
-/**
- * Encrypt the token bundle (AES-256-GCM) before it goes to the `tokens`
- * column. OAuth access/refresh tokens are long-lived, high-value credentials;
- * encrypting at rest means a leaked DB backup / pg_dump / read replica no
- * longer exposes them in plaintext. {@link parseStoredTokens} decrypts
- * transparently on read.
- */
 function serializeTokens(tokens: Record<string, unknown>): string {
   return encryptSecretValue(JSON.stringify(tokens));
 }
@@ -47,96 +44,79 @@ function parseStoredTokens(
 }
 
 function oauthTokensTable(): string {
-  return isPostgres() ? "public.oauth_tokens" : "oauth_tokens";
+  return "public.oauth_tokens";
 }
 
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const table = oauthTokensTable();
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS ${table} (
-          provider TEXT NOT NULL,
-          account_id TEXT NOT NULL,
-          owner TEXT,
-          tokens TEXT NOT NULL,
-          updated_at ${intType()} NOT NULL,
-          PRIMARY KEY (provider, account_id)
-        )
-      `;
-
-      if (isPostgres()) {
-        // Hot path: the `oauth_tokens` table and its additive columns are
-        // virtually always already present in production. Issuing `CREATE
-        // TABLE`/`ALTER TABLE` still takes an ACCESS EXCLUSIVE lock that, in a
-        // fresh background-worker process behind a concurrent connection on the
-        // shared Neon DB, can block ~indefinitely. The ensure* wrappers probe
-        // `information_schema` first (plain reads, no lock) and run DDL ONLY for
-        // what is actually missing, bounded by a transaction-scoped
-        // `lock_timeout`. If a swallowed lock-timeout leaves the schema still
-        // missing they RE-PROBE and THROW rather than letting init memoize
-        // success against absent schema. `oauthTokensTable()` is
-        // `public.oauth_tokens` on Postgres; the wrappers take the unqualified
-        // table name.
+export const oauthTokensStore = defineStore({
+  id: "oauth_tokens",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const table = oauthTokensTable();
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS ${table} (
+            provider TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            owner TEXT,
+            tokens TEXT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            revision BIGINT NOT NULL,
+            PRIMARY KEY (provider, account_id)
+          )
+        `;
         await ensureTableExists("oauth_tokens", createSql);
-        // Migration: add owner column to existing tables — guarded so the hot
-        // path (column already present) skips the ACCESS EXCLUSIVE ALTER.
         await ensureColumnExists(
           "oauth_tokens",
           "owner",
           `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS owner TEXT`,
         );
-        // Migration: add display_name column
         await ensureColumnExists(
           "oauth_tokens",
           "display_name",
           `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS display_name TEXT`,
         );
-        // Backfill: set owner = account_id for existing rows without an owner
-        await client.execute(
-          `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
+        await ensureColumnExists(
+          "oauth_tokens",
+          "revision",
+          `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS revision BIGINT`,
         );
-        // Older deployments have a 32-bit `updated_at`; on Postgres the
-        // `Date.now()` written on every token save overflows int4. Widen in place
-        // (no-op once done / on fresh DBs). Unqualified name — the helper scopes
-        // to the `public` schema.
-        await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"]);
-        return;
-      }
+      },
+    },
+    {
+      name: "backfill-owner",
+      kind: "data",
+      run: async (exec) => {
+        await exec.execute(
+          `UPDATE ${oauthTokensTable()} SET owner = account_id WHERE owner IS NULL`,
+        );
+      },
+    },
+    {
+      name: "backfill-revision",
+      kind: "data",
+      run: async (exec) => {
+        await exec.execute(
+          `UPDATE ${oauthTokensTable()} SET revision = updated_at WHERE revision IS NULL`,
+        );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async (exec) => {
+        await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"], exec);
+      },
+    },
+    ...fromMigrationEntries(
+      OAUTH_TOKEN_MIGRATIONS_TABLE,
+      OAUTH_TOKEN_MIGRATIONS,
+      { data: [4, 6] },
+    ),
+  ],
+});
 
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // Migration: add owner column to existing tables
-      try {
-        await client.execute(`ALTER TABLE ${table} ADD COLUMN owner TEXT`);
-      } catch {
-        // Column already exists
-      }
-      // Migration: add display_name column
-      try {
-        await client.execute(
-          `ALTER TABLE ${table} ADD COLUMN display_name TEXT`,
-        );
-      } catch {
-        // Column already exists
-      }
-      // Backfill: set owner = account_id for existing rows without an owner
-      await client.execute(
-        `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
-      );
-      // Older deployments have a 32-bit `updated_at`; on Postgres the
-      // `Date.now()` written on every token save overflows int4. Widen in place
-      // (no-op once done / on fresh DBs). Unqualified name — the helper scopes
-      // to the `public` schema.
-      await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"]);
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return oauthTokensStore.ready();
 }
 
 export async function getOAuthTokens(
@@ -157,15 +137,120 @@ export async function getOAuthTokens(
   return parseStoredTokens(rows[0].tokens as string);
 }
 
+export interface OAuthTokenSnapshot {
+  tokens: Record<string, unknown>;
+  owner: string | null;
+  revision: number;
+  legacyRevision: number;
+  storageVersion: string;
+}
+
+export async function getOAuthTokenSnapshot(
+  provider: string,
+  accountId: string,
+  owner: string,
+): Promise<OAuthTokenSnapshot | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const { rows } = await client.execute({
+    sql: `SELECT owner, tokens, revision, updated_at FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ?`,
+    args: [provider, accountId, owner],
+  });
+  if (rows.length === 0) return null;
+  return {
+    tokens: parseStoredTokens(rows[0].tokens as string),
+    owner: (rows[0].owner as string) ?? null,
+    revision: Number(rows[0].revision ?? 0),
+    legacyRevision: Number(rows[0].updated_at),
+    storageVersion: rows[0].tokens as string,
+  };
+}
+
+export async function getOAuthTokenSnapshotForUserOwner(
+  provider: string,
+  accountId: string,
+  owner: string,
+): Promise<OAuthTokenSnapshot | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const { rows } = await client.execute({
+    sql: `SELECT owner, tokens, revision, updated_at FROM ${table} WHERE provider = ? AND account_id = ? AND LOWER(owner) = LOWER(?) AND LOWER(owner) LIKE 'user:%'`,
+    args: [provider, accountId, owner],
+  });
+  if (rows.length === 0) return null;
+  return {
+    tokens: parseStoredTokens(rows[0].tokens as string),
+    owner: (rows[0].owner as string) ?? null,
+    revision: Number(rows[0].revision ?? 0),
+    legacyRevision: Number(rows[0].updated_at),
+    storageVersion: rows[0].tokens as string,
+  };
+}
+
 /**
- * Thrown when an OAuth save would re-bind an `(provider, account_id)` row
- * to a different owner than already holds it. Callers should catch this and
- * surface a clean "this account is already linked to another user" message
- * to the requester rather than letting it propagate as a 500.
- *
- * Carries `statusCode = 409` so route handlers using h3's `createError` can
- * pass it straight through.
+ * Replace an existing credential bundle only when the caller still owns the
+ * revision it read. This prevents a slow refresh/revoke flow from overwriting
+ * a newer authorization completed in another process.
  */
+export async function replaceOAuthTokensIfRevision(
+  provider: string,
+  accountId: string,
+  owner: string,
+  expectedRevision: number,
+  expectedLegacyRevision: number,
+  expectedStorageVersion: string,
+  tokens: Record<string, unknown>,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const nextRevision = Math.max(Date.now(), expectedRevision + 1);
+  const result = await client.execute({
+    sql: `UPDATE ${table} SET tokens = ?, revision = ?, updated_at = ? WHERE provider = ? AND account_id = ? AND owner = ? AND COALESCE(revision, 0) = ? AND updated_at = ? AND tokens = ?`,
+    args: [
+      serializeTokens(tokens),
+      nextRevision,
+      Math.floor(Date.now() / 1_000),
+      provider,
+      accountId,
+      owner,
+      expectedRevision,
+      expectedLegacyRevision,
+      expectedStorageVersion,
+    ],
+  });
+  const replaced = result.rowsAffected === 1;
+  return replaced;
+}
+
+export async function deleteOAuthTokensIfRevision(
+  provider: string,
+  accountId: string,
+  owner: string,
+  expectedRevision: number,
+  expectedLegacyRevision: number,
+  expectedStorageVersion: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const result = await client.execute({
+    sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ? AND COALESCE(revision, 0) = ? AND updated_at = ? AND tokens = ?`,
+    args: [
+      provider,
+      accountId,
+      owner,
+      expectedRevision,
+      expectedLegacyRevision,
+      expectedStorageVersion,
+    ],
+  });
+  const deleted = result.rowsAffected === 1;
+  return deleted;
+}
+
 export class OAuthAccountOwnedByOtherUserError extends Error {
   readonly statusCode = 409;
   readonly provider: string;
@@ -189,21 +274,18 @@ export class OAuthAccountOwnedByOtherUserError extends Error {
   }
 }
 
-/**
- * Save OAuth tokens. The `owner` parameter specifies which user owns this
- * account — defaults to `accountId` (the account itself is the owner).
- * For multi-account support, pass the logged-in user's email as owner.
- *
- * If the account already exists and is owned by a different user, throws
- * `OAuthAccountOwnedByOtherUserError` (statusCode 409) to prevent silently
- * stealing another user's linked account.
- *
- * Read + write happen as a single linearised batch (Postgres) or paired
- * statements (SQLite). On both backends the per-row PK serialises concurrent
- * writes for the same `(provider, account_id)` so the owner check cannot be
- * raced by an attacker calling saveOAuthTokens twice in flight — the second
- * caller sees the first caller's owner row and raises 409.
- */
+function ownersRepresentSameUser(
+  existingOwner: string,
+  attemptedOwner: string,
+) {
+  return (
+    existingOwner === attemptedOwner ||
+    (existingOwner.startsWith("user:") &&
+      attemptedOwner.startsWith("user:") &&
+      existingOwner.toLowerCase() === attemptedOwner.toLowerCase())
+  );
+}
+
 export async function saveOAuthTokens(
   provider: string,
   accountId: string,
@@ -214,10 +296,6 @@ export async function saveOAuthTokens(
   const client = getDbExec();
   const table = oauthTokensTable();
 
-  // Read the current row before deciding what to write. We use this to
-  // (a) preserve owner / display_name when this is a token refresh (no
-  // owner argument), and (b) reject the write when the caller is trying
-  // to overwrite a row owned by someone else.
   let resolvedOwner = owner ?? accountId;
   let existingDisplayName: string | null = null;
   let existingOwner: string | null = null;
@@ -233,13 +311,12 @@ export async function saveOAuthTokens(
   }
 
   if (!owner) {
-    // Token-refresh path: keep the existing owner/displayName unchanged.
     if (existingOwner) resolvedOwner = existingOwner;
-  } else if (existingOwner && owner && existingOwner !== owner) {
-    // Refuse to silently re-bind an account from one user to another.
-    // This is the case the docstring promised but the previous
-    // implementation didn't enforce — `ON CONFLICT DO UPDATE SET
-    // owner=EXCLUDED.owner` would have overwritten the prior owner.
+  } else if (
+    existingOwner &&
+    owner &&
+    !ownersRepresentSameUser(existingOwner, owner)
+  ) {
     throw new OAuthAccountOwnedByOtherUserError({
       provider,
       accountId,
@@ -255,20 +332,48 @@ export async function saveOAuthTokens(
     ...(existingTokens ?? {}),
     ...cleanedIncomingTokens,
   };
+  const existingScope = existingTokens?.scope;
+  const incomingScope = cleanedIncomingTokens.scope;
+  if (typeof existingScope === "string" && typeof incomingScope === "string") {
+    tokensToStore.scope = Array.from(
+      new Set(
+        `${existingScope} ${incomingScope}`
+          .split(/[\s,]+/)
+          .filter((scope) => scope.length > 0),
+      ),
+    ).join(" ");
+  }
 
-  await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+  const result = await client.execute({
+    sql: `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at, revision=GREATEST(COALESCE(${table}.revision, 0) + 1, EXCLUDED.revision) WHERE ${table}.owner = EXCLUDED.owner OR (LOWER(${table}.owner) = LOWER(EXCLUDED.owner) AND LOWER(${table}.owner) LIKE 'user:%' AND LOWER(EXCLUDED.owner) LIKE 'user:%')`,
     args: [
       provider,
       accountId,
       resolvedOwner,
       existingDisplayName,
       serializeTokens(tokensToStore),
+      Math.floor(Date.now() / 1_000),
       Date.now(),
     ],
   });
+  if (result.rowsAffected === 1) {
+    return;
+  }
+
+  const { rows: conflict } = await client.execute({
+    sql: `SELECT owner FROM ${table} WHERE provider = ? AND account_id = ?`,
+    args: [provider, accountId],
+  });
+  const conflictOwner = (conflict[0]?.owner as string | undefined) ?? "";
+  if (conflictOwner && !ownersRepresentSameUser(conflictOwner, resolvedOwner)) {
+    throw new OAuthAccountOwnedByOtherUserError({
+      provider,
+      accountId,
+      existingOwner: conflictOwner,
+      attemptedOwner: resolvedOwner,
+    });
+  }
+  throw new Error(`OAuth account ${provider}:${accountId} was not saved.`);
 }
 
 export async function deleteOAuthTokens(
@@ -316,10 +421,6 @@ export async function listOAuthAccounts(provider: string): Promise<
   }));
 }
 
-/**
- * List all OAuth accounts owned by a specific user.
- * In multi-account mode, a user may have connected multiple Google accounts.
- */
 export async function listOAuthAccountsByOwner(
   provider: string,
   owner: string,
@@ -344,9 +445,6 @@ export async function listOAuthAccountsByOwner(
   }));
 }
 
-/**
- * Set the display name for an OAuth account (e.g. Google profile name).
- */
 export async function setOAuthDisplayName(
   provider: string,
   accountId: string,
@@ -369,16 +467,58 @@ export async function setOAuthDisplayName(
  * "set" for user B as soon as ANY user in the deployment connected the
  * provider, and user B would never see the prompt to connect.
  */
+const OWNER_LOOKUP_BATCH = 500;
+
+/**
+ * The stored `(account_id, owner)` pairs among `accountIds` for `provider`,
+ * read in bounded batches so a whole organization costs a few queries rather
+ * than one per member. Presence only; no token is read or decrypted.
+ */
+export async function listOAuthTokenOwners(
+  provider: string,
+  accountIds: readonly string[],
+): Promise<Array<{ accountId: string; owner: string | null }>> {
+  const unique = [...new Set(accountIds)];
+  if (unique.length === 0) return [];
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const found: Array<{ accountId: string; owner: string | null }> = [];
+  for (let start = 0; start < unique.length; start += OWNER_LOOKUP_BATCH) {
+    const batch = unique.slice(start, start + OWNER_LOOKUP_BATCH);
+    const { rows } = await client.execute({
+      sql: `SELECT account_id, owner FROM ${table} WHERE provider = ? AND account_id IN (${batch.map(() => "?").join(", ")})`,
+      args: [provider, ...batch],
+    });
+    for (const row of rows) {
+      found.push({
+        accountId: String(row.account_id),
+        owner: row.owner == null ? null : String(row.owner),
+      });
+    }
+  }
+  return found;
+}
+
 export async function hasOAuthTokens(
   provider: string,
   owner: string,
+  accountId?: string | null,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const table = oauthTokensTable();
-  const { rows } = await client.execute({
-    sql: `SELECT 1 FROM ${table} WHERE provider = ? AND owner = ? LIMIT 1`,
-    args: [provider, owner],
-  });
+  const normalizedAccountId = accountId?.trim();
+  const { rows } = await client.execute(
+    normalizedAccountId
+      ? {
+          sql: `SELECT 1 FROM ${table} WHERE provider = ? AND owner = ? AND account_id = ? LIMIT 1`,
+          args: [provider, owner, normalizedAccountId],
+        }
+      : {
+          sql: `SELECT 1 FROM ${table} WHERE provider = ? AND owner = ? LIMIT 1`,
+          args: [provider, owner],
+        },
+  );
   return rows.length > 0;
 }

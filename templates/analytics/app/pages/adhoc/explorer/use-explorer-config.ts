@@ -8,7 +8,7 @@ import type { ExplorerConfig } from "./types";
 import { createDefaultConfig } from "./types";
 
 const AUTOSAVE_ID = "_autosave";
-const AUTOSAVE_DELAY = 800; // ms debounce
+const AUTOSAVE_DELAY = 800;
 
 interface SavedConfigEntry {
   id: string;
@@ -27,7 +27,6 @@ async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
     { method: "GET" },
   );
   if (!data || typeof data !== "object") return null;
-  // Strip server-added id field
   const { id: _id, ...rest } = data as Record<string, unknown>;
   return rest as unknown as ExplorerConfig;
 }
@@ -50,9 +49,8 @@ export function useExplorerConfig() {
   const [initialized, setInitialized] = useState(false);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // On mount, try to restore from autosave
   useEffect(() => {
-    fetchConfig(AUTOSAVE_ID)
+    void fetchConfig(AUTOSAVE_ID)
       .catch(() => null)
       .then((saved) => {
         if (saved) {
@@ -62,13 +60,11 @@ export function useExplorerConfig() {
       });
   }, []);
 
-  // Auto-save on every config change (debounced)
   useEffect(() => {
     if (!initialized) return;
     clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => {
       persistConfig(AUTOSAVE_ID, config);
-      // If we have a named config loaded, save it too
       if (currentId && currentId !== AUTOSAVE_ID) {
         persistConfig(currentId, config);
       }
@@ -110,7 +106,7 @@ export function useExplorerConfig() {
         });
         setCurrentId(id);
         setConfig(toSave);
-        savedConfigsQuery.refetch();
+        void savedConfigsQuery.refetch();
       } finally {
         setIsSaving(false);
       }
@@ -125,7 +121,7 @@ export function useExplorerConfig() {
         setConfig(createDefaultConfig(defaultConfigName));
         setCurrentId(null);
       }
-      savedConfigsQuery.refetch();
+      void savedConfigsQuery.refetch();
     },
     [currentId, defaultConfigName, savedConfigsQuery],
   );

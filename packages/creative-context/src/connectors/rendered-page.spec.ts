@@ -8,7 +8,15 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch,
 }));
 
-const { renderWithPlaywright } = await import("./rendered-page.js");
+const { chromiumPackUrl, renderWithPlaywright } =
+  await import("./rendered-page.js");
+
+describe("chromium pack selection", () => {
+  it("selects the serverless pack for each supported architecture", () => {
+    expect(chromiumPackUrl("x64")).toContain("pack.x64.tar");
+    expect(chromiumPackUrl("arm64")).toContain("pack.arm64.tar");
+  });
+});
 
 describe("renderWithPlaywright lifecycle", () => {
   afterEach(() => {
@@ -20,6 +28,7 @@ describe("renderWithPlaywright lifecycle", () => {
     vi.useFakeTimers();
     const events: string[] = [];
     let evaluateCalls = 0;
+    let browserCaptureExpression: string | undefined;
     const page = {
       async route() {},
       async goto() {},
@@ -39,8 +48,11 @@ describe("renderWithPlaywright lifecycle", () => {
       async screenshot() {
         return new Uint8Array([1]);
       },
-      async evaluate() {
+      async evaluate(pageFunction: string | (() => unknown)) {
         evaluateCalls += 1;
+        if (typeof pageFunction === "string") {
+          browserCaptureExpression = pageFunction;
+        }
         if (evaluateCalls === 1) return new Promise(() => {});
         if (evaluateCalls === 2) return undefined;
         throw new Error("computed styles unavailable");
@@ -92,6 +104,10 @@ describe("renderWithPlaywright lifecycle", () => {
       ]),
     );
     expect(result.diagnostics).toEqual(expect.arrayContaining(result.warnings));
+    expect(browserCaptureExpression).toContain(
+      "const __name = (value) => value",
+    );
+    expect(browserCaptureExpression).toContain("captureRenderedWebsiteContext");
   });
 
   it("hydrates through the SSRF-safe network proxy without forwarding cookies", async () => {

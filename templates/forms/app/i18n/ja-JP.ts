@@ -24,11 +24,6 @@ const messages = {
   },
   settings: {
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
@@ -44,6 +39,8 @@ const messages = {
     suggestionSurvey: "顧客フィードバック調査を作成",
     suggestionSubmissions: "日別の送信を表示",
     suggestionExport: "回答を CSV にエクスポート",
+    topSignal: "主な傾向",
+    draftFollowUp: "追加質問を下書き",
   },
   sidebar: {
     collapseSidebar: "サイドバーを折りたたむ",
@@ -98,6 +95,9 @@ const messages = {
     conditionContains: "含む",
     conditionValue: "回答",
     conditionValuePlaceholder: "回答を入力...",
+    allowMultiple: "複数ファイルを許可",
+    accept: "許可するファイル形式",
+    acceptPlaceholder: "例: image/*, .pdf",
     fieldTypes: {
       text: "短いテキスト",
       email: "電子メール",
@@ -110,6 +110,7 @@ const messages = {
       date: "日付",
       rating: "評価",
       scale: "規模",
+      file: "ファイルアップロード",
     },
   },
   builder: {
@@ -180,6 +181,7 @@ const messages = {
       dateLabel: "日付",
       ratingLabel: "評価",
       scaleLabel: "スケール",
+      fileLabel: "ファイルアップロード",
       option1: "選択肢 1",
       option2: "選択肢 2",
       option3: "選択肢 3",
@@ -202,6 +204,12 @@ const messages = {
       successMessage: "成功メッセージ",
       defaultSuccessMessage: "ありがとうございます！回答が記録されました。",
       redirectUrl: "リダイレクト URL（任意）",
+      completionMode: "送信後",
+      completionMessage: "更新するまでメッセージを表示",
+      completionRedirect: "URL にリダイレクト",
+      completionMessageThenRefresh: "メッセージを表示してから更新",
+      completionRefresh: "新しいフォームで更新",
+      completionRefreshSeconds: "更新までの秒数",
       anonymousResponses: "匿名の回答",
       anonymousResponsesDescription:
         "IP アドレス、回答者の身元、送信元メタデータを保存しません。",
@@ -314,12 +322,9 @@ const messages = {
     sharePubliclyDescription:
       "コンテンツを公開共有するには、クラウドデータベースを接続してください。",
     providerDescriptions: {
-      turso: "エッジの SQLite",
       neon: "サーバーレス Postgres",
       supabase: "Firebase のオープンソース代替",
-      d1: "エッジの SQLite",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "設定手順",
     authToken: "認証トークン",
     connectedReloading: "接続しました。再読み込みしています...",
@@ -340,6 +345,10 @@ const messages = {
     responseSubmitted: "回答を送信しました",
     noFields: "このフォームにはまだフィールドがありません。",
     failedSubmit: "フォームを送信できませんでした",
+    uncheckablePattern:
+      "このフォームの「{label}」のルールは検証できません。フォームの所有者に修正を依頼してください。",
+    patternTooLong:
+      "「{label}」の値が長すぎて、このフォームのルールを検証できません。",
   },
   responseInsights: {
     unavailable: "インサイトを利用できません",
@@ -388,6 +397,13 @@ const messages = {
     page: "Page",
     source: "ソース",
     sortBy: "Sort by {{label}}",
+    communityReview: "確認",
+    communityPublish: "サイトに公開",
+    communityPublishing: "公開中...",
+    communityPublished: "公開済み",
+    communityView: "サイトで表示",
+    communityNeedsCheck: "再試行する前に Builder を確認",
+    communityPromotionFailed: "この送信を公開できませんでした。",
   },
 };
 

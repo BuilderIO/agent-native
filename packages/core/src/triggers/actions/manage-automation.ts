@@ -6,10 +6,11 @@ import {
   deleteAutomation,
   updateAutomation,
 } from "../../automations/service.js";
+import { REASONING_EFFORTS } from "../../shared/reasoning-effort.js";
 import { refreshEventSubscriptions } from "../dispatcher.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
-const triggerTypeSchema = z.enum(["schedule", "event", "manual"]);
+const triggerTypeSchema = z.enum(["schedule", "event", "manual", "webhook"]);
 const mcpToolsSchema = z.array(z.string().min(1));
 const sharingSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("personal") }),
@@ -40,6 +41,10 @@ const automationFieldsSchema = {
   condition: z.string().nullable().optional(),
   body: z.string().min(1).optional(),
   model: z.string().nullable().optional(),
+  reasoningEffort: z.enum(REASONING_EFFORTS).nullable().optional(),
+  executionHostId: z.string().min(1).nullable().optional(),
+  executionEngine: z.string().min(1).nullable().optional(),
+  executionCwd: z.string().min(1).nullable().optional(),
   mcpTools: mcpToolsSchema.optional(),
   sharing: sharingSchema.optional(),
   acknowledgeExternalCollaborators: z.boolean().optional(),
@@ -47,28 +52,24 @@ const automationFieldsSchema = {
 
 const schema = z.discriminatedUnion("operation", [
   z.object({
+    ...automationFieldsSchema,
     operation: z.literal("create"),
     name: z.string().min(1),
     scope: scopeSchema.default("personal"),
     triggerType: triggerTypeSchema,
     body: z.string().min(1),
-    enabled: z.boolean().optional(),
-    event: z.string().min(1).optional(),
-    schedule: z.string().min(1).optional(),
-    timezone: z.string().min(1).optional(),
-    condition: z.string().nullable().optional(),
-    model: z.string().nullable().optional(),
-    mcpTools: mcpToolsSchema.optional(),
-    sharing: sharingSchema.optional(),
-    acknowledgeExternalCollaborators: z.boolean().optional(),
   }),
-  z.object({
-    operation: z.literal("update"),
-    resourceId: z.string().min(1).optional(),
-    name: z.string().min(1).optional(),
-    scope: scopeSchema.optional(),
-    ...automationFieldsSchema,
-  }),
+  z
+    .object({
+      operation: z.literal("update"),
+      resourceId: z.string().min(1).optional(),
+      name: z.string().min(1).optional(),
+      scope: scopeSchema.optional(),
+      ...automationFieldsSchema,
+    })
+    .refine((input) => input.resourceId || (input.name && input.scope), {
+      message: "resourceId or name and scope is required.",
+    }),
   z
     .object({
       operation: z.literal("delete"),
@@ -83,28 +84,17 @@ const schema = z.discriminatedUnion("operation", [
 
 export default defineAction({
   description:
-    "Create, update, or delete an automation from the Agent Automations page. Existing resources are addressed by stable resourceId; name and scope remain compatibility inputs.",
+    "Create, update, or delete an automation from the Agent Automations page. Existing automations are addressed by stable resourceId; name and scope remain compatibility inputs.",
   agentTool: false,
   schema,
   run: async (input, ctx) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
-    const actor = { userEmail, orgId: ctx?.orgId };
-
-    if (input.operation === "delete") {
-      await deleteAutomation(
-        actor,
-        input.resourceId
-          ? { resourceId: input.resourceId }
-          : { scope: input.scope!, name: input.name! },
-      );
-      await refreshEventSubscriptions();
-      return {
-        deleted: true,
-        resourceId: input.resourceId ?? null,
-        name: input.name ?? null,
-      };
-    }
+    const actor = {
+      userEmail,
+      orgId: ctx?.orgId,
+      appId: ctx?.appId,
+    };
 
     if (input.operation === "create") {
       const definition = await defineAutomation(actor, {
@@ -118,6 +108,10 @@ export default defineAction({
         timezone: input.timezone,
         condition: input.condition ?? undefined,
         model: input.model ?? undefined,
+        reasoningEffort: input.reasoningEffort ?? undefined,
+        executionHostId: input.executionHostId ?? undefined,
+        executionEngine: input.executionEngine ?? undefined,
+        executionCwd: input.executionCwd ?? undefined,
         mcpTools: input.mcpTools,
         sharing: input.sharing,
         acknowledgeExternalCollaborators:
@@ -139,7 +133,27 @@ export default defineAction({
         nextRun: definition.meta.nextRun ?? null,
         createdBy: definition.meta.createdBy ?? null,
         model: definition.meta.model ?? null,
+        reasoningEffort: definition.meta.reasoningEffort ?? null,
+        executionHostId: definition.meta.executionHostId ?? null,
+        executionEngine: definition.meta.executionEngine ?? null,
+        executionCwd: definition.meta.executionCwd ?? null,
         mcpTools: definition.meta.mcpTools ?? [],
+        webhookPath: definition.webhookPath ?? null,
+      };
+    }
+
+    if (input.operation === "delete") {
+      await deleteAutomation(
+        actor,
+        input.resourceId
+          ? { resourceId: input.resourceId }
+          : { scope: input.scope!, name: input.name! },
+      );
+      await refreshEventSubscriptions();
+      return {
+        deleted: true,
+        resourceId: input.resourceId ?? null,
+        name: input.name ?? null,
       };
     }
 
@@ -150,12 +164,6 @@ export default defineAction({
       throw Object.assign(new Error("At least one update field is required."), {
         statusCode: 400,
       });
-    }
-    if (!input.resourceId && (!input.name || !input.scope)) {
-      throw Object.assign(
-        new Error("resourceId or name and scope is required."),
-        { statusCode: 400 },
-      );
     }
     const definition = await updateAutomation(actor, {
       resourceId: input.resourceId,
@@ -169,6 +177,10 @@ export default defineAction({
       condition: input.condition,
       body: input.body,
       model: input.model,
+      reasoningEffort: input.reasoningEffort,
+      executionHostId: input.executionHostId,
+      executionEngine: input.executionEngine,
+      executionCwd: input.executionCwd,
       mcpTools: input.mcpTools,
       sharing: input.sharing,
       acknowledgeExternalCollaborators: input.acknowledgeExternalCollaborators,
@@ -189,7 +201,15 @@ export default defineAction({
       nextRun: definition.meta.nextRun ?? null,
       createdBy: definition.meta.createdBy ?? null,
       model: definition.meta.model ?? null,
+      reasoningEffort: definition.meta.reasoningEffort ?? null,
+      executionHostId: definition.meta.executionHostId ?? null,
+      executionEngine: definition.meta.executionEngine ?? null,
+      executionCwd: definition.meta.executionCwd ?? null,
       mcpTools: definition.meta.mcpTools ?? [],
+      changed: definition.changed,
+      previouslyEnabled: definition.previouslyEnabled,
+      requestedEnabled: definition.requestedEnabled ?? null,
+      webhookPath: definition.webhookPath ?? null,
     };
   },
 });

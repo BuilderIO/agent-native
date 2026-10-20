@@ -1,12 +1,73 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDispatchNavigationState } from "./use-navigation-state.js";
+import {
+  buildDispatchNavigationState,
+  dispatchApplicationStatePath,
+  dispatchNavigationQueryKey,
+} from "./use-navigation-state.js";
+
+describe("dispatchNavigationQueryKey", () => {
+  it("keeps command cache entries isolated by browser tab", () => {
+    expect(dispatchNavigationQueryKey("tab-a")).toEqual([
+      "navigate-command",
+      "tab-a",
+    ]);
+    expect(dispatchNavigationQueryKey("tab-b")).not.toEqual(
+      dispatchNavigationQueryKey("tab-a"),
+    );
+  });
+});
+
+describe("dispatchApplicationStatePath", () => {
+  it("uses the same tab-scoped key for navigation reads and commands", () => {
+    expect(dispatchApplicationStatePath("navigation", "tab-a")).toBe(
+      "/_agent-native/application-state/navigation:tab-a",
+    );
+    expect(dispatchApplicationStatePath("navigate", "tab-a")).toBe(
+      "/_agent-native/application-state/navigate:tab-a",
+    );
+    expect(dispatchApplicationStatePath("navigate", "tab-b")).not.toBe(
+      dispatchApplicationStatePath("navigate", "tab-a"),
+    );
+  });
+});
 
 describe("buildDispatchNavigationState", () => {
+  it("keeps Admin integrations as the integrations view", () => {
+    expect(buildDispatchNavigationState("/admin/integrations")).toEqual({
+      view: "integrations",
+      path: "/admin/integrations",
+    });
+    expect(
+      buildDispatchNavigationState("/admin/integrations/provider-settings"),
+    ).toEqual({
+      view: "integrations",
+      path: "/admin/integrations/provider-settings",
+    });
+    expect(buildDispatchNavigationState("/integrations")).toEqual({
+      view: "overview",
+      path: "/integrations",
+    });
+  });
+
   it("recognizes the full-page chat route", () => {
     expect(buildDispatchNavigationState("/chat")).toEqual({
       view: "chat",
       path: "/chat",
+    });
+  });
+
+  it("keeps the active simple agent on the chat navigation state", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/chat/thread-1",
+        "?agent=agents/research-partner.md",
+      ),
+    ).toEqual({
+      view: "chat",
+      path: "/chat/thread-1",
+      threadId: "thread-1",
+      agentPath: "agents/research-partner.md",
     });
   });
 
@@ -25,6 +86,39 @@ describe("buildDispatchNavigationState", () => {
       path: "/extensions/ext-1/github-stars-over-time",
       extensionId: "ext-1",
       extensionSlug: "github-stars-over-time",
+    });
+  });
+
+  it("keeps the embedded app identity on workspace app routes", () => {
+    expect(buildDispatchNavigationState("/apps/mail")).toEqual({
+      view: "workspace-app",
+      path: "/apps/mail",
+      workspaceAppId: "mail",
+      workspaceAppPath: "/",
+    });
+    expect(buildDispatchNavigationState("/apps/mail/inbox")).toEqual({
+      view: "workspace-app",
+      path: "/apps/mail/inbox",
+      workspaceAppId: "mail",
+      workspaceAppPath: "/inbox",
+    });
+  });
+
+  it("still treats the apps index as the list", () => {
+    expect(buildDispatchNavigationState("/apps")).toEqual({
+      view: "apps",
+      path: "/apps",
+    });
+    expect(buildDispatchNavigationState("/apps/")).toEqual({
+      view: "apps",
+      path: "/apps/",
+    });
+  });
+
+  it("reports an undecodable app route as a workspace app with no id", () => {
+    expect(buildDispatchNavigationState("/apps/%E0%A4%A")).toEqual({
+      view: "workspace-app",
+      path: "/apps/%E0%A4%A",
     });
   });
 
@@ -50,6 +144,19 @@ describe("buildDispatchNavigationState", () => {
     });
   });
 
+  it("keeps the selected automation in application state", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/automations",
+        "?automationId=personal%3Amorning-digest",
+      ),
+    ).toEqual({
+      view: "automations",
+      path: "/automations",
+      automationId: "personal:morning-digest",
+    });
+  });
+
   it("recognizes Admin routes without losing the underlying view", () => {
     expect(buildDispatchNavigationState("/admin/metrics")).toEqual({
       view: "metrics",
@@ -58,6 +165,31 @@ describe("buildDispatchNavigationState", () => {
     expect(buildDispatchNavigationState("/admin")).toEqual({
       view: "admin",
       path: "/admin",
+    });
+  });
+
+  it("preserves the selected app on the metrics navigation state", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/admin/metrics",
+        "?app=orders&scope=workspace",
+      ),
+    ).toEqual({
+      view: "metrics",
+      path: "/admin/metrics",
+      usageScope: "app",
+      usageAppId: "orders",
+    });
+  });
+
+  it("keeps simple agents and connected-agent admin routes distinct", () => {
+    expect(buildDispatchNavigationState("/agents")).toEqual({
+      view: "agents",
+      path: "/agents",
+    });
+    expect(buildDispatchNavigationState("/admin/agents")).toEqual({
+      view: "connected-agents",
+      path: "/admin/agents",
     });
   });
 

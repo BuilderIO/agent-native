@@ -5,24 +5,34 @@ import {
   isElectron,
   getAppUrl,
   GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  hasWorkspaceProviderOAuthCredentials,
   resolveGoogleSignInCredentials,
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveOAuthRedirectUri,
   encodeOAuthState,
+  wrapNetlifyPreviewGoogleOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
+  ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   resolveSecret,
   createOAuthSession,
   oauthCallbackResponse,
   oauthDesktopExchangePage,
   oauthErrorPage,
+  registerDesktopExchange,
+  prepareDesktopOAuthBrowserBinding,
+  matchesDesktopOAuthBrowserBinding,
   setDesktopExchange,
   setDesktopExchangeError,
   safeReturnPath,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import {
   defineEventHandler,
+  getHeader,
+  getMethod,
   getQuery,
   setResponseStatus,
   type H3Event,
@@ -50,10 +60,13 @@ type CalendarOAuthStateOptions = {
   owner?: string;
   orgId?: string;
   desktop?: boolean;
+  mobile?: boolean;
   addAccount?: boolean;
   app?: string;
   returnUrl?: string;
   flowId?: string;
+  desktopVerifierHash?: string;
+  desktopBrowserBindingHash?: string;
 };
 
 function encodeCalendarOAuthState(options: CalendarOAuthStateOptions): string {
@@ -100,6 +113,7 @@ async function exchangeIdentityCode(
   email: string;
   id?: string;
   name?: string;
+  picture?: string;
 }> {
   const credentials = resolveGoogleSignInCredentials();
   if (!credentials) {
@@ -142,13 +156,11 @@ async function exchangeIdentityCode(
     email,
     id: typeof user.id === "string" ? user.id : undefined,
     name: typeof user.name === "string" ? user.name : undefined,
+    picture: typeof user.picture === "string" ? user.picture : undefined,
   };
 }
 
 function oauthRedirectResponse(url: string) {
-  // h3 v2 sendRedirect returns an object the framework shim can stringify as
-  // "[object Object]" in production auth-url popups. Native Response stays a
-  // real 302 across the stack.
   return new Response(null, {
     status: 302,
     headers: { Location: url },
@@ -162,23 +174,16 @@ function googleOAuthErrorPayload(
   message: string;
   code?: string;
   accountId?: string;
-  existingOwner?: string;
-  attemptedOwner?: string;
 } {
   if (
     error instanceof OAuthAccountOwnedByOtherUserError ||
     error?.name === "OAuthAccountOwnedByOtherUserError"
   ) {
     const account = error.accountId || "This Google account";
-    const existingOwner = error.existingOwner || undefined;
-    const attemptedOwner = error.attemptedOwner || undefined;
-    const message = `${account} is connected to another login. Sign out, then sign in with ${account}.`;
     return {
-      message,
+      message: `${account} is already connected to another login. Sign out, then sign in with the login that originally connected it.`,
       code: "account_owner_mismatch",
       accountId: error.accountId,
-      existingOwner,
-      attemptedOwner,
     };
   }
 
@@ -232,7 +237,15 @@ function missingCredentialsResponse(
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const method = getMethod(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -245,7 +258,12 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const orgId = session?.orgId;
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
+    const mobile = q.mobile === "1" || q.mobile === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    if (method === "POST" && (!desktop || !flowId)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid desktop exchange challenge." };
+    }
     const calendarConnect = isCalendarConnectRequest(q, owner);
     const credentials = calendarConnect
       ? await resolveCalendarOAuthCredentials(event)
@@ -269,24 +287,51 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       };
     }
 
+    let desktopVerifierHash: string | undefined;
+    let desktopBrowserBindingHash: string | undefined;
+    if (flowId) {
+      if (method !== "POST" || q.redirect !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+      const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+      if (!verifier || q.verifier !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+      try {
+        desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
+        desktopVerifierHash = await registerDesktopExchange(
+          flowId,
+          verifier,
+          desktopBrowserBindingHash,
+        );
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+    }
+
     const requestedReturn =
       typeof q.return === "string" ? safeReturnPath(q.return) : "/";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
-    // Use the named-arg overload — the positional form previously passed
-    // `flowId` in the `returnUrl` slot, breaking desktop completion.
     const state = encodeCalendarOAuthState({
       redirectUri,
       owner,
       orgId,
       desktop,
+      mobile,
       addAccount: calendarConnect,
       app: OAUTH_STATE_APP_ID,
       returnUrl,
       flowId,
+      desktopVerifierHash,
+      desktopBrowserBindingHash,
     });
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
     const url = calendarConnect
-      ? await getAuthUrl(undefined, redirectUri, state, owner, orgId)
+      ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId)
       : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
           client_id: credentials.clientId,
           redirect_uri: redirectUri,
@@ -294,7 +339,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
           scope: GOOGLE_IDENTITY_SCOPES.join(" "),
           access_type: "online",
           prompt: "select_account",
-          state,
+          state: oauthState,
         })}`;
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
@@ -309,6 +354,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
 export const handleGoogleCallback = defineEventHandler(
   async (event: H3Event) => {
     let desktop = false;
+    let mobile = false;
     let flowId: string | undefined;
     try {
       const query = getQuery(event);
@@ -316,8 +362,26 @@ export const handleGoogleCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
+      mobile = state.mobile ?? false;
       flowId = state.flowId;
+      if (
+        flowId &&
+        (!state.desktopVerifierHash ||
+          !state.desktopBrowserBindingHash ||
+          !matchesDesktopOAuthBrowserBinding(
+            event,
+            state.desktopBrowserBindingHash,
+          ))
+      ) {
+        throw new Error("Desktop OAuth browser binding is invalid.");
+      }
 
       const googleError = query.error as string | undefined;
       if (googleError) {
@@ -344,7 +408,6 @@ export const handleGoogleCallback = defineEventHandler(
       const { redirectUri, owner: stateOwner, addAccount, returnUrl } = state;
       const stateOrgId = getCalendarOAuthStateOrgId(state);
 
-      // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
         event,
         stateOwner,
@@ -352,34 +415,52 @@ export const handleGoogleCallback = defineEventHandler(
 
       if (!addAccount) {
         const identity = await exchangeIdentityCode(code, redirectUri);
+        if (!identity.id) {
+          throw new Error("Could not get Google account id");
+        }
+        const isNewUser = await ensureGoogleAuthIdentity({
+          email: identity.email,
+          accountId: identity.id,
+          name: identity.name,
+          image: identity.picture,
+        });
         const { sessionToken } = await createOAuthSession(
           event,
           identity.email,
           {
             hasProductionSession,
             desktop,
+            ...(mobile ? { mobile: true } : {}),
             trackSignup: {
               authProvider: "google",
-              authUserId: identity.id,
               name: identity.name,
+              isNewUser,
             },
           },
         );
 
         if (flowId && sessionToken) {
-          setDesktopExchange(flowId, sessionToken, identity.email);
+          if (!state.desktopVerifierHash) {
+            throw new Error("Missing desktop exchange challenge.");
+          }
+          await setDesktopExchange(
+            flowId,
+            sessionToken,
+            identity.email,
+            state.desktopVerifierHash,
+          );
         }
 
         return oauthCallbackResponse(event, identity.email, {
           sessionToken,
           desktop,
+          mobile,
           returnUrl,
           flowId,
           appName: "Calendar",
         });
       }
 
-      // 2. Exchange code with Google (template-specific Calendar connect)
       const email = await exchangeCode(
         code,
         undefined,
@@ -396,24 +477,45 @@ export const handleGoogleCallback = defineEventHandler(
       // sight of the tokens that were saved under the original owner.
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
+      track(
+        "account_connected",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          connector_name: "google_calendar",
+          is_additional_account: isAddAccount,
+        },
+        { userId: owner ?? email },
+      );
       const sessionOwner = isAddAccount ? (owner ?? email) : email;
       const shouldCreateSession =
-        !isAddAccount || (desktop && flowId && sessionOwner);
+        !isAddAccount ||
+        (desktop && flowId && sessionOwner) ||
+        (mobile && sessionOwner);
       const { sessionToken } = shouldCreateSession
         ? await createOAuthSession(event, sessionOwner, {
             hasProductionSession,
             desktop,
+            ...(mobile ? { mobile: true } : {}),
           })
         : { sessionToken: undefined };
 
       if (flowId && sessionToken) {
-        setDesktopExchange(flowId, sessionToken, sessionOwner);
+        if (!state.desktopVerifierHash) {
+          throw new Error("Missing desktop exchange challenge.");
+        }
+        await setDesktopExchange(
+          flowId,
+          sessionToken,
+          sessionOwner,
+          state.desktopVerifierHash,
+        );
       }
 
-      // 4. Return platform-appropriate response
       return oauthCallbackResponse(event, email, {
         sessionToken,
         desktop,
+        mobile,
         addAccount: isAddAccount,
         flowId,
         appName: "Calendar",
@@ -432,9 +534,15 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       return { error: "Must be logged in to add an account" };
     }
     const q = getQuery(event);
+    const method = getMethod(event);
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
+    const mobile = q.mobile === "1" || q.mobile === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    if (method === "POST" && (!desktop || !flowId)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid desktop exchange challenge." };
+    }
     if (!(await resolveCalendarOAuthCredentials(event))) {
       return missingCredentialsResponse(
         event,
@@ -443,7 +551,14 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       );
     }
     try {
-      const redirectUri = resolveOAuthRedirectUri(event);
+      const redirectUri = resolveOAuthRedirectUri(
+        event,
+        "/_agent-native/google/callback",
+        {
+          allowRootCallback: true,
+          useNetlifyPreviewGoogleOAuthRelay: true,
+        },
+      );
       if (!redirectUri) {
         setResponseStatus(event, 400);
         return {
@@ -451,19 +566,47 @@ export const getGoogleAddAccountUrl = defineEventHandler(
           message: "redirect_uri must stay on this app's _agent-native routes.",
         };
       }
+      let desktopVerifierHash: string | undefined;
+      let desktopBrowserBindingHash: string | undefined;
+      if (flowId) {
+        if (method !== "POST" || q.redirect !== undefined) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+        const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+        if (!verifier || q.verifier !== undefined) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+        try {
+          desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
+          desktopVerifierHash = await registerDesktopExchange(
+            flowId,
+            verifier,
+            desktopBrowserBindingHash,
+          );
+        } catch {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+      }
       const state = encodeCalendarOAuthState({
         redirectUri,
         owner: session.email,
         orgId: session.orgId,
         desktop,
+        mobile,
         addAccount: true,
         app: OAUTH_STATE_APP_ID,
         flowId,
+        desktopVerifierHash,
+        desktopBrowserBindingHash,
       });
+      const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
       const url = await getAuthUrl(
         undefined,
         redirectUri,
-        state,
+        oauthState,
         session.email,
         session.orgId,
       );
@@ -481,6 +624,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
 export const handleGoogleAddAccountCallback = defineEventHandler(
   async (event: H3Event) => {
     let desktop = false;
+    let mobile = false;
     let flowId: string | undefined;
     try {
       const session = await getSession(event);
@@ -489,8 +633,26 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
+      mobile = state.mobile ?? false;
       flowId = state.flowId;
+      if (
+        flowId &&
+        (!state.desktopVerifierHash ||
+          !state.desktopBrowserBindingHash ||
+          !matchesDesktopOAuthBrowserBinding(
+            event,
+            state.desktopBrowserBindingHash,
+          ))
+      ) {
+        throw new Error("Desktop OAuth browser binding is invalid.");
+      }
 
       const googleError = query.error as string | undefined;
       if (googleError) {
@@ -529,21 +691,41 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         ownerEmail,
         session?.orgId ?? stateOrgId,
       );
+      track(
+        "account_connected",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          connector_name: "google_calendar",
+          is_additional_account: true,
+        },
+        { userId: ownerEmail },
+      );
       const { sessionToken } =
-        desktop && flowId
+        (desktop && flowId) || mobile
           ? await createOAuthSession(event, ownerEmail, {
               hasProductionSession: !!session?.email,
               desktop,
+              ...(mobile ? { mobile: true } : {}),
             })
           : { sessionToken: undefined };
 
       if (flowId && sessionToken) {
-        setDesktopExchange(flowId, sessionToken, ownerEmail);
+        if (!state.desktopVerifierHash) {
+          throw new Error("Missing desktop exchange challenge.");
+        }
+        await setDesktopExchange(
+          flowId,
+          sessionToken,
+          ownerEmail,
+          state.desktopVerifierHash,
+        );
       }
 
       return oauthCallbackResponse(event, addedEmail, {
         sessionToken,
         desktop,
+        mobile,
         addAccount: true,
         flowId,
         appName: "Calendar",
@@ -561,7 +743,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
-    return await getAuthStatus(session?.email, session?.orgId);
+    const status = await getAuthStatus(session?.email, session?.orgId);
+    const configured = await runWithRequestContext(
+      { userEmail: session?.email, orgId: session?.orgId },
+      () => hasWorkspaceProviderOAuthCredentials("google_calendar"),
+    );
+    return { ...status, configured };
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };
@@ -582,7 +769,9 @@ export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
       return { error: "email is required" };
     }
     const owned = await getAuthStatus(session.email, session.orgId);
-    const isOwned = owned.accounts.some((a) => a.email === targetEmail);
+    const isOwned = owned.accounts.some(
+      (a) => a.email === targetEmail && !a.shared,
+    );
     if (!isOwned) {
       setResponseStatus(event, 403);
       return { error: "Cannot disconnect an account you don't own" };

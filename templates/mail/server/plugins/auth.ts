@@ -1,4 +1,4 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 // Mail requires a Google connection to read/send emails, so the onboarding
 // page only offers "Sign in with Google" — no email/password account
@@ -11,9 +11,10 @@ import { createAuthPlugin } from "@agent-native/core/server";
 // works on first sign-in — no separate "Connect Google" page needed.
 // The template-specific routes under `/_agent-native/google/*` remain
 // available for "add another account" flows.
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   googleOnly: true,
   mountGoogleOAuthRoutes: false,
+  workspaceAppPublicPaths: ["/"],
   googleScopes: [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
@@ -27,24 +28,14 @@ export default createAuthPlugin({
   ],
   marketing: {
     appName: "Mail",
+    learnMoreUrl:
+      "https://agent-native.com/apps/mail?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",
       "Multi-account Gmail in a single unified inbox",
       "Autonomous triage, archiving, and follow-ups",
     ],
-    runLocalCommand:
-      "npx @agent-native/core@latest create my-mail-app --template mail",
-  },
-  googleSignInNotice: {
-    host: "mail.agent-native.com",
-    title: "Google may show a warning",
-    body: [
-      "You'll see this screen because this demo uses Agent-Native's Google app, not a Google-reviewed public app.",
-      "It's safe to continue: click Advanced, then “Go to … (unsafe)” to finish signing in.",
-    ],
-    continueLabel: "Continue to Google",
-    cancelLabel: "Run locally",
   },
   // Gmail Pub/Sub push notifications POST here from Google's servers — no
   // user session. The handler itself verifies the OIDC token when
@@ -55,6 +46,7 @@ export default createAuthPlugin({
   // bearer credential because a local MCP caller cannot attach the browser's
   // session cookie to the subsequent raw-byte PUT.
   publicPaths: [
+    "/api/_agent-native-background/mail-ai-filter-backfill-worker",
     "/api/gmail/push",
     "/api/gmail/watch/renew",
     "/api/tracking",

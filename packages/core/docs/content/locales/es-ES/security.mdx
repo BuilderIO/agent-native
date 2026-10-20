@@ -78,6 +78,8 @@ La arquitectura del marco evita vulnerabilidades comunes cuando se utilizan los 
 | Exposición secreta       | `.env` gitignorado; credenciales y bóveda cifradas en reposo (AES-256-GCM)    |
 | SSRF                     | `ssrfSafeFetch` bloquea destinos internos/metadatos + reenlace de redirección |
 
+El marco crea el contexto de solicitud desde la sesión y aplica la propiedad con `accessFilter()` y `assertAccess()` en las lecturas y escrituras de la aplicación. El SQL del agente recibe vistas temporales filtradas para la identidad y organización activas. RLS aún no está habilitado, por lo que las consultas directas de la aplicación deben seguir usando estos asistentes.
+
 ## Validación de entrada {#input-validation}
 
 Utilice `defineAction` con un Zod `schema:` para cada acción. El marco valida la entrada automáticamente antes de que se ejecute el código:
@@ -238,13 +240,13 @@ El marco crea vistas temporales SQL que filtran las consultas automáticamente:
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 Las declaraciones INSERT se inyectan automáticamente `owner_email` cuando la columna aún no está presente.
 
-Las herramientas `db-query` / `db-exec` rechazan referencias a tablas calificadas por esquema (`public.<table>`, `main.<table>`): un nombre calificado se resuelve en la tabla base y omitiría la vista temporal anterior. Los agentes utilizan nombres de tablas simples; el alcance se aplica automáticamente.
+Las herramientas `db-query`, `db-exec` y `db-patch` comprueban los límites de los tokens SQL y verifican, dentro de la transacción, que cada nombre de relación se resuelve en una de las vistas temporales anteriores. Rechazan los nombres calificados por esquema o base de datos (`public.<table>`), las relaciones que las vistas no cubren, los nombres que coinciden con funciones u operadores fuera de `pg_catalog` (incluidas las extensiones) y ciertas funciones integradas que ejecutan texto SQL o acceden al estado del servidor, de la sesión o de las secuencias. La continuación de cadenas de escape de PostgreSQL no es compatible y se rechaza. `db-query` se ejecuta en modo de solo lectura. Los agentes utilizan nombres de tablas simples. El alcance se aplica automáticamente. Estas comprobaciones limitan el alcance de las lecturas y escrituras directas de SQL y rechazan las llamadas explícitas a rutinas y las conversiones de tipos no aprobadas. Los valores predeterminados del esquema, las restricciones, los disparadores, los casts y la entrada y salida de tipos que se hayan revisado siguen siendo comportamientos de la base de datos considerados de confianza. Las apps pueden reutilizar estas comprobaciones mediante `@agent-native/core/agent-sql`. Su función `readAgentSqlQuery()` identifica las tablas de origen y sus rangos exactos de texto en las consultas `SELECT`/`WITH` compatibles, y `rewriteAgentSqlQuerySources()` reemplaza esos rangos. El código que las utiliza debe limitar los orígenes permitidos y garantizar la ejecución de solo lectura.
 
 ### Alcance por organización (`org_id`)
 
@@ -354,9 +356,11 @@ Sin `A2A_SECRET` en producción, cada punto final A2A y el punto final de activa
 
 ## Entrante Webhooks {#webhooks}
 
-Los controladores de webhooks entrantes (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) rechazan solicitudes falsificadas de forma predeterminada en producción: cuando falta la var de entorno secreta de firma correspondiente, el controlador devuelve 401 en lugar de aceptar y enviar.
+Los controladores de webhooks entrantes (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom) rechazan solicitudes falsificadas de forma predeterminada en producción: cuando falta la var de entorno secreta de firma correspondiente, el controlador devuelve 401 en lugar de aceptar y enviar.
 
 Esta era anteriormente una postura de "advertir y aceptar": establezca el secreto que de otro modo se perdería o opte por volver al comportamiento anterior con `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` solo para desarrolladores locales. Consulte [Messaging](/docs/messaging#env-vars) para conocer las variables secretas de firma por integración.
+
+Las notificaciones `changes.watch` de Google Drive no pasan por esa puerta de enlace de adaptadores genérica: son solicitudes opacas sin cuerpo. Por eso el framework registra un token aleatorio por canal y verifica las cabeceras `X-Goog-Channel-ID`, `X-Goog-Channel-Token` y `X-Goog-Resource-ID` antes de obtener los cambios. Son notificaciones directas de Drive, no mensajes de Pub/Sub, y no contienen tokens OIDC de Pub/Sub.
 
 ## Lista de verificación de producción {#production-checklist}
 
@@ -390,7 +394,7 @@ Esta era anteriormente una postura de "advertir y aceptar": establezca el secret
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` **no** está configurado a menos que su organización realmente comparta claves de espacio de trabajo; consulte [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] En implementaciones multiinquilino, **los usuarios traen su propio `ANTHROPIC_API_KEY`**: el marco se niega a recurrir a la var de entorno de nivel de implementación
 
-Ejecuta `agent-native doctor` (`pnpm doctor` en una app generada con el scaffold) para comprobar automáticamente los elementos de esquema, credenciales y variables de entorno de esta lista de verificación — cada hallazgo indica el guard, el archivo y la línea. Consulta la documentación de [Doctor](/docs/doctor).
+Ejecuta `agent-native doctor` (`pnpm agent-native:doctor` en una app generada con el scaffold) para comprobar automáticamente los elementos de esquema, credenciales y variables de entorno de esta lista de verificación — cada hallazgo indica el guard, el archivo y la línea. Consulta la documentación de [Doctor](/docs/doctor).
 
 ---
 

@@ -26,7 +26,9 @@
  *
  * Tokens are produced by core's `signA2AToken` (`a2a/client.ts`): a standard
  * **HS256** JWT (`alg: "HS256"`, HMAC-SHA256 over the UTF-8 secret bytes)
- * with `sub` (caller email), `org_domain`, `iss`, `iat`, `exp`. We verify
+ * with optional caller-supplied identity claims and standard JWT metadata.
+ * The shared org secret proves only organization identity: ignore `sub`,
+ * email, and user claims. We verify
  * that exact shape with Node's built-in `crypto.createHmac` — the SAME
  * cryptographic operation jose performs for HS256. We do NOT invent an auth
  * scheme or a cipher; we reuse the A2A peer model and core's org/secret
@@ -38,32 +40,24 @@
  *
  * Same-org enforcement: the verified token's `org_domain` must resolve to a
  * local org (`resolveOrgByDomain`). A token with no `org_domain`, an unknown
- * domain, or a bad signature is rejected. There is no cross-org disclosure:
- * the only secrets that can sign an accepted token are the deployment's
- * global `A2A_SECRET` (shared first-party fabric) or the specific org's
- * `a2a_secret`.
+ * domain, or a bad signature is rejected. The org-specific secret is the
+ * normal path. A legacy deployment-wide secret is accepted only when the
+ * asserted domain is independently proven to be the deployment's sole org,
+ * so one global credential can never select among local tenants.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-/** The exact directory route. Registered as a publicPath so the core auth
- * guard does not 401 the peer call before our own JWT check runs (same
- * pattern as the identity-sso plugin's authorize route). */
 export const ORG_APPS_PATH = "/_agent-native/org/apps";
 
-/** A2A tokens are signed HS256 by core's `signA2AToken`. */
 const A2A_JWT_ALG = "HS256";
 
 export interface VerifiedA2APayload {
-  /** Caller email (JWT `sub`). */
-  email: string;
-  /** Org domain the caller asserted (JWT `org_domain`), lower-cased. */
   orgDomain: string;
 }
 
 function base64UrlDecodeToBuffer(input: string): Buffer | null {
   if (typeof input !== "string" || input.length === 0) return null;
-  // Reject anything outside the base64url alphabet up front.
   if (!/^[A-Za-z0-9_-]+$/.test(input)) return null;
   const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
   try {
@@ -72,6 +66,7 @@ function base64UrlDecodeToBuffer(input: string): Buffer | null {
       "base64",
     );
   } catch {
+    // coercion-ok: secret lookup failure is an authentication denial, never success.
     return null;
   }
 }
@@ -88,12 +83,6 @@ interface DecodedJwt {
   signature: Buffer;
 }
 
-/**
- * Split + base64url-decode a compact JWS WITHOUT verifying the signature.
- * Mirrors `jose.decodeJwt` usage in the core A2A receiver: used only to read
- * the UNVERIFIED `org_domain` so we know which org secret to verify against.
- * Trust is established by `verifyA2ABearerToken` below.
- */
 export function decodeJwtUnverified(token: string): DecodedJwt | null {
   if (typeof token !== "string") return null;
   const parts = token.split(".");
@@ -122,7 +111,6 @@ export function decodeJwtUnverified(token: string): DecodedJwt | null {
   return { header, payload, signingInput: `${h}.${p}`, signature };
 }
 
-/** Read the bearer token from an Authorization header value. */
 export function extractBearerToken(
   authHeader: string | null | undefined,
 ): string | null {
@@ -132,14 +120,6 @@ export function extractBearerToken(
   return tok && tok.length > 0 ? tok : null;
 }
 
-/**
- * Verify a candidate HS256 JWT against one secret. Returns the payload on a
- * valid signature + unexpired token, else null. This is exactly the
- * verification jose performs for HS256 (HMAC-SHA256 over
- * `base64url(header).base64url(payload)`, constant-time signature compare,
- * `exp` enforcement) — implemented with Node built-ins so this template does
- * not need a third-party JWT dependency.
- */
 function verifyWithSecret(
   decoded: DecodedJwt,
   secret: string,
@@ -152,7 +132,6 @@ function verifyWithSecret(
   if (expected.length !== decoded.signature.length) return null;
   if (!timingSafeEqual(expected, decoded.signature)) return null;
 
-  // Enforce `exp` (and `nbf` when present) like jose's jwtVerify default.
   const exp = decoded.payload.exp;
   if (typeof exp === "number" && nowSeconds >= exp) return null;
   const nbf = decoded.payload.nbf;
@@ -160,25 +139,13 @@ function verifyWithSecret(
   return decoded.payload;
 }
 
-/**
- * Verify an inbound A2A bearer token the same way the core A2A receiver does:
- *
- *   1. Decode (unverified) to read the asserted `org_domain`.
- *   2. Build the ordered candidate-secret set: the deployment's global
- *      `A2A_SECRET` first (current callers prefer it), then the specific
- *      org's `a2a_secret` resolved by domain (legacy / org-scoped callers).
- *   3. Verify the signature with each candidate; the first that validates
- *      wins. A token that validates under NO candidate is rejected.
- *
- * `resolveOrgSecretByDomain` is injected so this stays pure/testable; the
- * plugin wires it to `getA2ASecretByDomain` from `@agent-native/core/org`.
- *
- * Returns the verified `{ email, orgDomain }` or null. `null` => 401.
- */
 export async function verifyA2ABearerToken(input: {
   token: string;
-  globalSecret: string | undefined;
+  expectedAudience?: string;
   resolveOrgSecretByDomain: (domain: string) => Promise<string | null>;
+  resolveSoleOrgGlobalSecretByDomain?: (
+    domain: string,
+  ) => Promise<string | null>;
   nowSeconds?: number;
 }): Promise<VerifiedA2APayload | null> {
   const decoded = decodeJwtUnverified(input.token);
@@ -192,78 +159,81 @@ export async function verifyA2ABearerToken(input: {
 
   const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);
 
-  const candidates: string[] = [];
-  const pushCandidate = (s: string | null | undefined) => {
-    const t = s?.trim();
-    if (t && !candidates.includes(t)) candidates.push(t);
-  };
-  pushCandidate(input.globalSecret);
-  if (assertedDomain) {
-    try {
-      pushCandidate(await input.resolveOrgSecretByDomain(assertedDomain));
-    } catch {
-      // DB not ready / column missing — fall through to whatever we have.
+  if (!assertedDomain) return null;
+  let orgSecret: string | null = null;
+  let soleOrgGlobalSecret: string | null = null;
+  try {
+    orgSecret = await input.resolveOrgSecretByDomain(assertedDomain);
+    if (input.resolveSoleOrgGlobalSecretByDomain) {
+      soleOrgGlobalSecret =
+        await input.resolveSoleOrgGlobalSecretByDomain(assertedDomain);
     }
+    // coercion-ok: secret lookup failure is an authentication denial, never success.
+  } catch {
+    return null;
   }
-  if (candidates.length === 0) return null;
+  const candidateSecrets = [...new Set([orgSecret, soleOrgGlobalSecret])]
+    .filter((secret): secret is string => typeof secret === "string")
+    .map((secret) => secret.trim())
+    .filter(Boolean);
+  if (candidateSecrets.length === 0) return null;
 
-  for (const secret of candidates) {
-    const payload = verifyWithSecret(decoded, secret, now);
-    if (payload) {
-      // The org directory is a general A2A-peer endpoint. Reject tokens
-      // minted for a different single purpose — SSO identity assertions
-      // (`scope: "identity"`) or MCP-connect personal tokens
-      // (`scope: "mcp-connect"`) — so a leaked or replayed privileged token
-      // cannot enumerate the org's apps. General A2A peer tokens carry no
-      // `scope` claim and are still accepted.
-      const scope =
-        typeof (payload as { scope?: unknown }).scope === "string"
-          ? ((payload as { scope: string }).scope as string)
-          : "";
-      if (scope === "identity" || scope === "mcp-connect") return null;
-      const sub = payload.sub;
-      const email =
-        typeof sub === "string" && sub.trim() ? sub.trim() : undefined;
-      if (!email) return null;
-      // The verified token MUST carry an org_domain — the directory is
-      // strictly org-scoped, and the same-org check needs it. A token with
-      // no org_domain (e.g. a personal/no-org caller) cannot be tied to an
-      // org and is rejected.
-      if (!assertedDomain) return null;
-      return { email, orgDomain: assertedDomain };
+  const payload = candidateSecrets
+    .map((secret) => verifyWithSecret(decoded, secret, now))
+    .find((candidate) => candidate !== null);
+  if (payload) {
+    if (input.expectedAudience || typeof payload.aud !== "undefined") {
+      const audiences =
+        typeof payload.aud === "string"
+          ? [payload.aud]
+          : Array.isArray(payload.aud) &&
+              payload.aud.every((audience) => typeof audience === "string")
+            ? payload.aud
+            : [];
+      if (
+        !input.expectedAudience ||
+        !audiences.includes(input.expectedAudience)
+      ) {
+        return null;
+      }
     }
+    // The org directory is a general A2A-peer endpoint. Reject tokens
+    // minted for a different single purpose — SSO identity assertions
+    // (`scope: "identity"`) or MCP-connect personal tokens
+    // (`scope: "mcp-connect"`) — so a leaked or replayed privileged token
+    // cannot enumerate the org's apps. General A2A peer tokens carry no
+    // `scope` claim and are still accepted.
+    const scope =
+      typeof (payload as { scope?: unknown }).scope === "string"
+        ? ((payload as { scope: string }).scope as string)
+        : "";
+    if (scope === "identity" || scope === "mcp-connect") return null;
+    // The verified token MUST carry an org_domain — the directory is
+    // strictly org-scoped, and the same-org check needs it. A token with
+    // no org_domain (e.g. a personal/no-org caller) cannot be tied to an
+    // org and is rejected. The organization secret proves only org-level
+    // access; the JWT subject is caller-controlled and is intentionally
+    // ignored.
+    return { orgDomain: assertedDomain };
   }
   return null;
 }
 
 export interface OrgAppDirectoryEntry {
-  /** Stable app id (e.g. "mail", "calendar"). */
   id: string;
-  /** Human-readable app name. */
   name: string;
-  /** App base URL. */
   url: string;
-  /** A2A JSON-RPC endpoint for the app. */
   a2aUrl: string;
-  /** Optional one-line capability/description hint. */
   capabilities?: string;
 }
 
 export interface OrgAppDirectoryResponse {
-  /** The org this directory is scoped to (domain when known, else org id). */
   org: string;
   apps: OrgAppDirectoryEntry[];
 }
 
-/** The documented agent-native A2A JSON-RPC path. */
 const A2A_ENDPOINT_PATH = "/_agent-native/a2a";
 
-/**
- * Build the A2A endpoint URL for an app base URL. New agent-native apps
- * expose `/_agent-native/a2a` (see the a2a-protocol skill + core
- * `mountA2A`); the A2A client also probes `/a2a` for legacy peers, but the
- * canonical endpoint we advertise is `/_agent-native/a2a`.
- */
 export function toA2aUrl(appUrl: string): string {
   const trimmed = appUrl.replace(/\/+$/, "");
   return `${trimmed}${A2A_ENDPOINT_PATH}`;
@@ -276,17 +246,46 @@ export interface DiscoveredAppLike {
   url: string;
 }
 
-/**
- * Shape the discovered-agent list into the directory response. The input is
- * Dispatch's EXISTING connected-apps registry — `discoverAgents("dispatch")`
- * from `@agent-native/core/server/agent-discovery`, the same source
- * `list-connected-agents` and the `call-agent` delegation path use. It is
- * already allow-list-respecting (hidden first-party templates are excluded
- * from `BUILTIN_AGENTS` unless `defaultAgent`), so no second filter is
- * needed here; we only drop entries without a usable absolute http(s) URL
- * and Dispatch itself (a caller does not need to discover the directory it
- * just called).
- */
+export interface OrgDirectorySuccessCache<T> {
+  get(key: string, load: () => Promise<T>): Promise<T>;
+  clear(): void;
+}
+
+export function createOrgDirectorySuccessCache<T>(input?: {
+  ttlMs?: number;
+  now?: () => number;
+}): OrgDirectorySuccessCache<T> {
+  const ttlMs = input?.ttlMs ?? 60_000;
+  const now = input?.now ?? Date.now;
+  const values = new Map<string, { value: T; expiresAt: number }>();
+  const inFlight = new Map<string, Promise<T>>();
+
+  return {
+    async get(key, load) {
+      const cached = values.get(key);
+      if (cached && cached.expiresAt > now()) return cached.value;
+      values.delete(key);
+
+      const pending = inFlight.get(key);
+      if (pending) return pending;
+      const refresh = load()
+        .then((value) => {
+          values.set(key, { value, expiresAt: now() + ttlMs });
+          return value;
+        })
+        .finally(() => {
+          inFlight.delete(key);
+        });
+      inFlight.set(key, refresh);
+      return refresh;
+    },
+    clear() {
+      values.clear();
+      inFlight.clear();
+    },
+  };
+}
+
 export function buildOrgAppsResponse(input: {
   org: string;
   apps: DiscoveredAppLike[];

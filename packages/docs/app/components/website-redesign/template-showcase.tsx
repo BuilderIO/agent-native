@@ -1,0 +1,234 @@
+import { useLocale, useT } from "@agent-native/core/client/i18n";
+import {
+  IconArrowUpRight,
+  IconChevronLeft,
+  IconChevronRight,
+} from "@tabler/icons-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
+import { Link } from "react-router";
+
+import { sendAhrefsEvent } from "../../lib/ahrefs-analytics";
+import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
+import { sitePathForLocale } from "../docs-locale";
+import {
+  getScreenshotTileScaleX,
+  TEMPLATE_SCREENSHOTS,
+} from "../template-screenshots";
+import { TemplateScreenshot } from "../TemplateScreenshot";
+import { AppStatusBadge } from "./ds/app-status-badge";
+import { Button } from "./ds/button";
+import { CardArrow } from "./ds/card-arrow";
+import { GridInner, PageSection } from "./page-grid";
+
+const CARD_IMAGE_SIZES = "(max-width: 768px) 320px, 433px";
+
+const CARD_CLASS = [
+  "app-carousel-card group flex w-[433px] shrink-0 snap-start flex-col gap-[var(--spacing-4)] overflow-hidden bg-[var(--b-bg-page)] no-underline mobile:w-[320px]",
+  "transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]",
+  "border border-solid border-[var(--b-border-subtle)]",
+].join(" ");
+
+interface ShowcaseApp {
+  slug: keyof typeof TEMPLATE_SCREENSHOTS;
+  name: string;
+  href: string;
+}
+
+const APPS: ShowcaseApp[] = [
+  { slug: "design", name: "Design", href: "/apps/design" },
+  { slug: "slides", name: "Slides", href: "/apps/slides" },
+  { slug: "analytics", name: "Analytics", href: "/apps/analytics" },
+  { slug: "calendar", name: "Calendar", href: "/apps/calendar" },
+  { slug: "clips", name: "Clips", href: "/apps/clips" },
+  { slug: "mail", name: "Mail", href: "/apps/mail" },
+  { slug: "assets", name: "Assets", href: "/apps/assets" },
+  { slug: "content", name: "Content", href: "/apps/content" },
+];
+
+function CarouselIconButton({
+  children,
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      className={[
+        "inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[var(--b-radius)] border border-solid bg-transparent text-[var(--b-text-primary)] outline-none",
+        "transition-[background,border-color] duration-150 ease-[ease]",
+        "border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
+      ].join(" ")}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function TemplateShowcase() {
+  const t = useT();
+  const { locale } = useLocale();
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [canScrollPrev, setCanScrollPrev] = useState(false);
+  const [canScrollNext, setCanScrollNext] = useState(true);
+
+  function updateScrollState() {
+    const el = viewportRef.current;
+    if (!el) return;
+    setCanScrollPrev(el.scrollLeft > 4);
+    setCanScrollNext(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }
+
+  useEffect(() => {
+    updateScrollState();
+  }, []);
+
+  function scrollByPage(direction: 1 | -1) {
+    const el = viewportRef.current;
+    if (!el) return;
+    el.scrollBy({
+      left: direction * el.clientWidth * 0.9,
+      behavior: "smooth",
+    });
+  }
+
+  return (
+    <PageSection>
+      <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+        <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+          {t("homepage.showcase.title").replace("Agent-Native", "Agent‑Native")}
+        </h2>
+        <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+          {t("homepage.showcase.body")}
+        </p>
+        <div className="flex">
+          {/* `white` carries no `-icon` suffix, so the arrow the old
+              secondary-icon variant added by default has to be passed. */}
+          <Button
+            variant="white"
+            icon={IconArrowUpRight}
+            href={sitePathForLocale("/apps", locale)}
+            className="uppercase"
+            onClick={() => sendAhrefsEvent("browse_apps_click")}
+          >
+            {t("homepage.showcase.browseApps")}
+          </Button>
+        </div>
+        <div className="absolute right-[var(--spacing-8)] bottom-[var(--spacing-8)] flex gap-[var(--spacing-2)]">
+          <CarouselIconButton
+            aria-label={t("homepage.showcase.scrollLeft")}
+            onClick={() => scrollByPage(-1)}
+            disabled={!canScrollPrev}
+          >
+            <IconChevronLeft size={18} stroke={1.5} />
+          </CarouselIconButton>
+          <CarouselIconButton
+            aria-label={t("homepage.showcase.scrollRight")}
+            onClick={() => scrollByPage(1)}
+            disabled={!canScrollNext}
+          >
+            <IconChevronRight size={18} stroke={1.5} />
+          </CarouselIconButton>
+        </div>
+      </GridInner>
+
+      <GridInner>
+        <div
+          ref={viewportRef}
+          className="snap-x snap-mandatory scroll-smooth overflow-x-auto overflow-y-hidden border-x border-solid border-[var(--b-border-subtle)] [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          onScroll={updateScrollState}
+        >
+          <div className="app-carousel-track flex w-max gap-1 [&>:first-child]:border-l-0 [&>:last-child]:border-r-0">
+            {APPS.map((app) => {
+              return (
+                <Link
+                  key={app.slug}
+                  to={sitePathForLocale(app.href, locale)}
+                  className={CARD_CLASS}
+                  onClick={() =>
+                    sendAhrefsEvent("homepage_carousel_card_click", {
+                      app: app.slug,
+                    })
+                  }
+                >
+                  <div className="relative aspect-[8/5] overflow-hidden bg-[var(--b-bg-page)]">
+                    <TemplateScreenshot
+                      alt={t("templateCard.screenshotAlt", {
+                        name: app.name,
+                      })}
+                      frame={app.slug === "clips"}
+                      scaleX={getScreenshotTileScaleX(app.slug)}
+                      sizes={CARD_IMAGE_SIZES}
+                      variants={TEMPLATE_SCREENSHOTS[app.slug]}
+                    />
+                  </div>
+                  <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
+                    <h3 className="m-0 flex items-center gap-[var(--spacing-2)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                      {app.name}
+                      <AppStatusBadge appId={app.slug} />
+                    </h3>
+                    <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
+                      {t(`templates.${app.slug}.description`)}
+                    </p>
+                    <CardArrow />
+                  </div>
+                </Link>
+              );
+            })}
+            {/* Not a <Link> like the app cards: it holds two interactive
+                children of its own, and nesting those inside an anchor is
+                invalid. It still lives in the track so the arrows reach it.
+                Same footprint and divider as an app card so it reads as the
+                last item in the rail, but vertically centred rather than
+                top-aligned: it has no screenshot to anchor the top of the
+                box. Horizontal padding matches the app cards' text block so
+                the left edge of the copy lines up across the rail, and it is
+                what buys the two buttons room to sit on one line. */}
+            <div className="app-carousel-cta-card flex w-[433px] shrink-0 snap-start flex-col items-start justify-center gap-[var(--spacing-4)] border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] px-[var(--spacing-5)] py-[var(--spacing-8)] text-left transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)] mobile:w-[320px]">
+              <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                {t("buildFromScratch.title")}
+              </h3>
+              <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
+                {t("buildFromScratch.description")}
+              </p>
+              {/* Wraps rather than shrinks: the labels are whitespace-nowrap,
+                  so on the narrower mobile card they stack instead of
+                  overflowing the card. */}
+              <div className="mt-[var(--spacing-2)] flex flex-wrap gap-[var(--spacing-2)]">
+                <BuildOnlinePopover
+                  location="homepage_rail"
+                  trigger={
+                    <Button
+                      variant="white"
+                      icon={null}
+                      compact
+                      className="uppercase"
+                      onClick={() => sendAhrefsEvent("build_online_click")}
+                    >
+                      {t("buildFromScratch.buildOnline")}
+                    </Button>
+                  }
+                />
+                <Button
+                  variant="secondary"
+                  icon={null}
+                  compact
+                  href={sitePathForLocale("/docs", locale)}
+                  className="uppercase"
+                  onClick={() => sendAhrefsEvent("read_docs_click")}
+                >
+                  {t("buildFromScratch.readDocs")}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </GridInner>
+    </PageSection>
+  );
+}

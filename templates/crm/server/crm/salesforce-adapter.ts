@@ -14,7 +14,6 @@ import type {
   CrmFieldDefinition,
   CrmObjectDefinition,
   CrmObjectKind,
-  CrmProvenance,
   CrmRecord,
   CrmRecordRef,
   CrmRelationship,

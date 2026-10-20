@@ -1,0 +1,27 @@
+---
+title: "入口點"
+description: "app/entry.client.tsx 與 app/entry.server.tsx：簡薄的水合與 SSR 啟動包裝器，以及何時自訂串流行為。"
+---
+
+# 入口點
+
+`app/entry.client.tsx` 在瀏覽器中水合伺服器渲染的 HTML，`app/entry.server.tsx` 則在伺服器上渲染該 HTML。兩者都是由 React Router 產生的簡薄包裝器。您很少需要編輯它們。
+
+```ts filename="app/entry.server.tsx"
+import {
+  createDocumentRequestHandler,
+  streamTimeout,
+} from "@agent-native/core/server/entry-server";
+import { ServerRouter } from "react-router";
+
+export default createDocumentRequestHandler(ServerRouter);
+export { streamTimeout };
+```
+
+只有在進行進階 SSR 自訂時才使用這些，例如變更串流行為。一般的頁面、版面配置和資料不需要在這裡做任何變更。若要新增頁面，請改參閱[路由](/docs/client-routing)。
+
+## 下一步是什麼
+
+- [**總覽**](/docs/client-overview) — 這些檔案在 `app/` 中的位置
+- [**路由**](/docs/client-routing) — 新增頁面，擴充 `app/` 的一般方式
+- [**進階**](/docs/client-advanced) — 其他較低階的用戶端原語與逃生口

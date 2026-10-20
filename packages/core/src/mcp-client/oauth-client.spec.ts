@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMock = vi.hoisted(() => vi.fn());
+const discoverOAuthServerInfoMock = vi.hoisted(() => vi.fn());
 const refreshAuthorizationMock = vi.hoisted(() => vi.fn());
 const validateAuthorizationResponseIssuerMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensMock = vi.hoisted(() => vi.fn());
 const getOAuthTokensMock = vi.hoisted(() => vi.fn());
 const saveOAuthTokensMock = vi.hoisted(() => vi.fn());
+const replaceOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
+const deleteOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
+const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
+const getAppConfigMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@modelcontextprotocol/client", () => ({
   auth: authMock,
+  discoverOAuthServerInfo: discoverOAuthServerInfoMock,
   refreshAuthorization: refreshAuthorizationMock,
   validateAuthorizationResponseIssuer: validateAuthorizationResponseIssuerMock,
 }));
@@ -17,6 +23,43 @@ vi.mock("../oauth-tokens/store.js", () => ({
   deleteOAuthTokens: deleteOAuthTokensMock,
   getOAuthTokens: getOAuthTokensMock,
   saveOAuthTokens: saveOAuthTokensMock,
+  getOAuthTokenSnapshot: vi.fn(
+    async (provider: string, accountId: string, owner: string) => {
+      const tokens = await getOAuthTokensMock(provider, accountId, owner);
+      return tokens
+        ? {
+            tokens,
+            owner,
+            revision: 1,
+            legacyRevision: 1,
+            storageVersion: "test-storage-version",
+          }
+        : null;
+    },
+  ),
+  getOAuthTokenSnapshotForUserOwner: vi.fn(async () => null),
+  replaceOAuthTokensIfRevision: replaceOAuthTokensIfRevisionMock,
+  deleteOAuthTokensIfRevision: deleteOAuthTokensIfRevisionMock,
+}));
+
+vi.mock("../app-config/index.js", () => ({
+  getAppConfig: getAppConfigMock,
+}));
+
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  mutateSetting: vi.fn(
+    async (
+      _key: string,
+      updater: (
+        current: Record<string, unknown> | null,
+      ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+    ) => updater(null),
+  ),
+}));
+
+vi.mock("../extensions/url-safety.js", () => ({
+  ssrfSafeFetch: ssrfSafeFetchMock,
 }));
 
 import {
@@ -25,7 +68,11 @@ import {
   getMcpOAuthAccessToken,
   McpOAuthClientProvider,
   readMcpOAuthCredentials,
+  revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
+  McpOAuthRegistrationUnsupportedError,
+  resolveMcpOAuthAuthorizationServerDiscovery,
+  resolveMcpOAuthAuthorizationServerUrl,
   startMcpOAuthAuthorization,
   tokenExpiresAt,
   validateMcpOAuthCallbackIssuer,
@@ -60,15 +107,135 @@ const credentials = {
 };
 
 beforeEach(() => {
+  vi.restoreAllMocks();
+  getAppConfigMock.mockReset().mockReturnValue({ app: {} });
   authMock.mockReset();
+  discoverOAuthServerInfoMock.mockReset().mockResolvedValue({
+    authorizationServerUrl: "https://auth.example.com",
+    authorizationServerMetadata: {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      registration_endpoint: "https://auth.example.com/register",
+      response_types_supported: ["code"],
+    },
+  });
   refreshAuthorizationMock.mockReset();
   deleteOAuthTokensMock.mockReset();
   getOAuthTokensMock.mockReset();
   saveOAuthTokensMock.mockReset();
+  replaceOAuthTokensIfRevisionMock.mockReset();
+  replaceOAuthTokensIfRevisionMock.mockImplementation(
+    async (
+      _provider: string,
+      _accountId: string,
+      _owner: string,
+      _revision: number,
+      _legacyRevision: number,
+      _storageVersion: string,
+      tokens: Record<string, unknown>,
+    ) => {
+      getOAuthTokensMock.mockResolvedValue(tokens);
+      saveOAuthTokensMock(_provider, _accountId, tokens, _owner);
+      return true;
+    },
+  );
+  deleteOAuthTokensIfRevisionMock.mockReset();
+  deleteOAuthTokensIfRevisionMock.mockImplementation(
+    async (provider: string, accountId: string, owner: string) => {
+      deleteOAuthTokensMock(provider, accountId, owner);
+      getOAuthTokensMock.mockResolvedValue(null);
+      return true;
+    },
+  );
+  ssrfSafeFetchMock.mockReset();
+  ssrfSafeFetchMock.mockImplementation((url: string, init?: RequestInit) =>
+    fetch(url, init),
+  );
   validateAuthorizationResponseIssuerMock.mockReset();
 });
 
 describe("MCP OAuth client", () => {
+  it("starts Google Workspace OAuth without MCP discovery", async () => {
+    const result = await startMcpOAuthAuthorization({
+      serverUrl: "https://workspacemcp.googleapis.com/mcp/v1",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+      clientInformation: {
+        client_id: "google-client-id",
+        client_secret: "google-client-secret",
+        token_endpoint_auth_method: "client_secret_post",
+      },
+    });
+    const authorizationUrl = result.authorizationUrl;
+
+    expect(authMock).not.toHaveBeenCalled();
+    expect(authorizationUrl.origin).toBe("https://accounts.google.com");
+    expect(authorizationUrl.pathname).toBe("/o/oauth2/v2/auth");
+    expect(authorizationUrl.searchParams.get("client_id")).toBe(
+      "google-client-id",
+    );
+    expect(authorizationUrl.searchParams.get("state")).toBe("<STATE>");
+    expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe(
+      "S256",
+    );
+    expect(authorizationUrl.searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/drive.readonly",
+    );
+    expect(result.discoveryState).toMatchObject({
+      authorizationServerUrl: "https://accounts.google.com",
+      authorizationServerMetadata: {
+        token_endpoint: "https://oauth2.googleapis.com/token",
+      },
+      resourceMetadata: {
+        resource: "https://workspacemcp.googleapis.com/mcp/v1",
+      },
+    });
+  });
+
+  it("exchanges Google Workspace OAuth codes at Google's token endpoint", async () => {
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          access_token: "<ACCESS_TOKEN>",
+          refresh_token: "<REFRESH_TOKEN>",
+          token_type: "Bearer",
+          expires_in: 3_600,
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await finishMcpOAuthAuthorization({
+      serverUrl: "https://drivemcp.googleapis.com/mcp/v1",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+      codeVerifier: "<CODE_VERIFIER>",
+      clientInformation: {
+        client_id: "google-client-id",
+        client_secret: "google-client-secret",
+        token_endpoint_auth_method: "client_secret_post",
+      },
+      authorizationCode: "<AUTHORIZATION_CODE>",
+    });
+
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      "https://oauth2.googleapis.com/token",
+      expect.objectContaining({ method: "POST" }),
+      expect.anything(),
+    );
+    const request = ssrfSafeFetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = request.body as URLSearchParams;
+    expect(body.get("client_id")).toBe("google-client-id");
+    expect(body.get("client_secret")).toBe("google-client-secret");
+    expect(body.get("code_verifier")).toBe("<CODE_VERIFIER>");
+    expect(result.credentials.tokens).toMatchObject({
+      access_token: "<ACCESS_TOKEN>",
+      refresh_token: "<REFRESH_TOKEN>",
+      issuer: "https://accounts.google.com",
+    });
+  });
+
   it("starts a standard MCP authorization flow and preserves PKCE state", async () => {
     authMock.mockImplementationOnce(
       async (provider: McpOAuthClientProvider) => {
@@ -102,6 +269,148 @@ describe("MCP OAuth client", () => {
       application_type: "web",
       grant_types: ["authorization_code", "refresh_token"],
     });
+  });
+
+  it("uses app branding in OAuth client metadata", () => {
+    getAppConfigMock.mockReturnValue({
+      app: {
+        name: "Auttendo",
+        logoUrl: "https://auttendo.example/logo.png",
+        url: "https://different.example/workspace",
+      },
+    });
+
+    const metadata = new McpOAuthClientProvider({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://auttendo.example/callback",
+      state: "<STATE>",
+    }).clientMetadata;
+
+    expect(metadata).toMatchObject({
+      client_name: "Auttendo",
+      logo_uri: "https://auttendo.example/logo.png",
+      client_uri: "https://auttendo.example",
+    });
+  });
+
+  it("resolves arbitrary OAuth metadata URLs to their issuer", async () => {
+    const metadata = {
+      issuer: "https://auth.example.com/tenant",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      registration_endpoint: "https://auth.example.com/register",
+    };
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(metadata), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      resolveMcpOAuthAuthorizationServerUrl(
+        "https://auth.example.com/.well-known/custom",
+      ),
+    ).resolves.toBe("https://auth.example.com/tenant");
+
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(metadata), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(
+      resolveMcpOAuthAuthorizationServerDiscovery(
+        "https://auth.example.com/.well-known/custom",
+      ),
+    ).resolves.toEqual({
+      authorizationServerUrl: "https://auth.example.com/tenant",
+      authorizationServerMetadata: metadata,
+    });
+  });
+
+  it("bounds OAuth metadata before buffering the response", async () => {
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response("{" + "x".repeat(256 * 1024) + "}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      resolveMcpOAuthAuthorizationServerDiscovery(
+        "https://auth.example.com/.well-known/oversized",
+      ),
+    ).rejects.toThrow("MCP OAuth response exceeded the size limit.");
+  });
+
+  it("keeps arbitrary authorization metadata through the real start flow", async () => {
+    const discoveryState = {
+      authorizationServerUrl: "https://auth.example.com/tenant",
+      authorizationServerMetadata: {
+        issuer: "https://auth.example.com/tenant",
+        authorization_endpoint: "https://auth.example.com/authorize",
+        token_endpoint: "https://auth.example.com/token",
+        registration_endpoint: "https://auth.example.com/register",
+      },
+    };
+    authMock.mockImplementationOnce(
+      async (provider: McpOAuthClientProvider) => {
+        expect(provider.discoveryState()).toEqual(discoveryState);
+        provider.saveClientInformation(clientInformation as any);
+        provider.saveCodeVerifier("<CODE_VERIFIER>");
+        provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize"),
+        );
+        return "REDIRECT";
+      },
+    );
+
+    await expect(
+      startMcpOAuthAuthorization({
+        serverUrl: "https://mcp.example.com/mcp",
+        redirectUrl: "https://app.example.com/callback",
+        state: "<STATE>",
+        discoveryState,
+      }),
+    ).resolves.toMatchObject({
+      codeVerifier: "<CODE_VERIFIER>",
+      clientInformation,
+    });
+  });
+
+  it("sends the advertised RFC 8707 resource identifier without a trailing slash", async () => {
+    const provider = new McpOAuthClientProvider({
+      serverUrl: "https://api.builder.io",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+
+    const resource = await provider.validateResourceURL(
+      new URL("https://api.builder.io/"),
+      "https://api.builder.io",
+    );
+
+    expect(resource?.href).toBe("https://api.builder.io");
+    expect(String(resource)).toBe("https://api.builder.io");
+    expect(new URL("https://api.builder.io").href).toBe(
+      "https://api.builder.io/",
+    );
+  });
+
+  it("rejects an advertised resource that is not the same origin as the server", async () => {
+    const provider = new McpOAuthClientProvider({
+      serverUrl: "https://api.builder.io",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+
+    await expect(
+      provider.validateResourceURL(
+        new URL("https://api.builder.io/"),
+        "https://evil.example.com",
+      ),
+    ).rejects.toThrow(/does not match expected/);
   });
 
   it("derives native application_type for loopback callbacks", () => {
@@ -142,6 +451,7 @@ describe("MCP OAuth client", () => {
     await expect(
       fetchFn!("https://127.0.0.1/.well-known/oauth-authorization-server"),
     ).rejects.toThrow(/private\/internal address/);
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
     const provider = new McpOAuthClientProvider({
       serverUrl: "https://mcp.example.com/mcp",
       redirectUrl: "https://app.example.com/callback",
@@ -152,6 +462,44 @@ describe("MCP OAuth client", () => {
         authorizationServerUrl: "https://10.0.0.5/oauth",
       }),
     ).toThrow(/private\/internal address/);
+  });
+
+  it("routes OAuth discovery through the DNS-aware SSRF guard", async () => {
+    let fetchFn:
+      | ((url: string | URL, init?: RequestInit) => Promise<Response>)
+      | undefined;
+    authMock.mockImplementationOnce(
+      async (
+        provider: McpOAuthClientProvider,
+        options: { fetchFn?: typeof fetchFn },
+      ) => {
+        fetchFn = options.fetchFn;
+        provider.saveClientInformation(clientInformation as any);
+        provider.saveCodeVerifier("<CODE_VERIFIER>");
+        provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize"),
+        );
+        return "REDIRECT";
+      },
+    );
+    ssrfSafeFetchMock.mockResolvedValueOnce(new Response("ok"));
+
+    await startMcpOAuthAuthorization({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+    await fetchFn!("https://auth.example.com/discovery");
+
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      "https://auth.example.com/discovery",
+      expect.objectContaining({ redirect: "manual" }),
+      expect.objectContaining({
+        maxRedirects: 0,
+        followRedirects: false,
+        allowedPrivateOrigins: [],
+      }),
+    );
   });
 
   it("validates every OAuth redirect hop and strips credentials across origins", async () => {
@@ -215,6 +563,22 @@ describe("MCP OAuth client", () => {
     expect(new Headers(redirectedInit.headers).has("authorization")).toBe(
       false,
     );
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, {
+        status: 307,
+        headers: { location: "https://other.example.com/token" },
+      }),
+    );
+    await expect(
+      fetchFn!("https://auth.example.com/token", {
+        method: "POST",
+        headers: { Authorization: "Bearer <TOKEN>" },
+        body: "code=<CODE>&code_verifier=<CODE_VERIFIER>",
+      }),
+    ).rejects.toThrow(/cannot forward a request body across origins/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("finishes the code exchange without exposing the token to the flow result", async () => {
@@ -302,7 +666,39 @@ describe("MCP OAuth client", () => {
     expect(saveOAuthTokensMock).toHaveBeenCalledWith(
       "mcp",
       "mcp_oauth:test",
-      credentials,
+      expect.objectContaining({
+        ...credentials,
+        oauthLifecycle: {
+          version: 1,
+          provider: "mcp",
+          resource: "https://mcp.example.com/mcp",
+          owner: "user:alice@example.com",
+        },
+      }),
+      "user:alice@example.com",
+    );
+  });
+
+  it("stores a canonical resource URL in both identity and credential", async () => {
+    await saveMcpOAuthCredentials({
+      key: "mcp_oauth:test",
+      scope: "user",
+      scopeId: "alice@example.com",
+      credentials: {
+        ...credentials,
+        serverUrl: "https://mcp.example.com",
+      } as any,
+    });
+
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "mcp",
+      "mcp_oauth:test",
+      expect.objectContaining({
+        serverUrl: "https://mcp.example.com/",
+        oauthLifecycle: expect.objectContaining({
+          resource: "https://mcp.example.com/",
+        }),
+      }),
       "user:alice@example.com",
     );
   });
@@ -312,7 +708,7 @@ describe("MCP OAuth client", () => {
       ...credentials,
       tokenExpiresAt: Date.now() - 1,
     };
-    getOAuthTokensMock.mockResolvedValueOnce(expiring);
+    getOAuthTokensMock.mockResolvedValue(expiring);
     refreshAuthorizationMock.mockResolvedValueOnce({
       access_token: "<NEW_ACCESS_TOKEN>",
       token_type: "bearer",
@@ -340,8 +736,42 @@ describe("MCP OAuth client", () => {
     );
   });
 
+  it("refreshes with the advertised resource identifier, not the WHATWG href", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      serverUrl: "https://api.builder.io/",
+      tokenExpiresAt: Date.now() - 1,
+      discoveryState: {
+        ...credentials.discoveryState,
+        resourceMetadata: {
+          resource: "https://api.builder.io",
+          authorization_servers: ["https://auth.example.com"],
+        },
+      },
+    });
+    refreshAuthorizationMock.mockResolvedValueOnce({
+      access_token: "<NEW_ACCESS_TOKEN>",
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://api.builder.io",
+      }),
+    ).resolves.toBe("<NEW_ACCESS_TOKEN>");
+
+    const resource = refreshAuthorizationMock.mock.calls[0]?.[1]?.resource as
+      | URL
+      | undefined;
+    expect(resource?.href).toBe("https://api.builder.io");
+  });
+
   it("requires reauthorization for expiring legacy credentials without issuer binding", async () => {
-    getOAuthTokensMock.mockResolvedValueOnce({
+    getOAuthTokensMock.mockResolvedValue({
       ...credentials,
       clientInformation: {
         client_id: "legacy-client",
@@ -361,7 +791,7 @@ describe("MCP OAuth client", () => {
   });
 
   it("does not return an expired token when refresh fails", async () => {
-    getOAuthTokensMock.mockResolvedValueOnce({
+    getOAuthTokensMock.mockResolvedValue({
       ...credentials,
       tokenExpiresAt: Date.now() - 1,
     });
@@ -380,7 +810,7 @@ describe("MCP OAuth client", () => {
   });
 
   it("keeps a still-valid token when an early refresh fails", async () => {
-    getOAuthTokensMock.mockResolvedValueOnce({
+    getOAuthTokensMock.mockResolvedValue({
       ...credentials,
       tokenExpiresAt: Date.now() + 30_000,
     });
@@ -398,6 +828,142 @@ describe("MCP OAuth client", () => {
     ).resolves.toBe("<ACCESS_TOKEN>");
   });
 
+  it("does not return a legacy MCP token for a different resource", async () => {
+    getOAuthTokensMock.mockResolvedValue(credentials);
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://other.example.com/mcp",
+      }),
+    ).resolves.toBeNull();
+    expect(refreshAuthorizationMock).not.toHaveBeenCalled();
+  });
+
+  it("revokes the refresh token before deleting local MCP custody", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      discoveryState: {
+        ...credentials.discoveryState,
+        authorizationServerMetadata: {
+          ...credentials.discoveryState.authorizationServerMetadata,
+          revocation_endpoint: "https://auth.example.com/revoke",
+        },
+      },
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await expect(
+      revokeMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toEqual({ remote: "succeeded", local: "deleted" });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://auth.example.com/revoke",
+    );
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = new URLSearchParams(String(request.body));
+    expect(body.get("token")).toBe("<REFRESH_TOKEN>");
+    expect(body.get("token_type_hint")).toBe("refresh_token");
+    expect(body.get("client_id")).toBe("mcp-client-test");
+    expect(getOAuthTokensMock).toHaveBeenCalledTimes(1);
+    expect(deleteOAuthTokensIfRevisionMock).toHaveBeenCalledTimes(1);
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      "https://auth.example.com/revoke",
+      expect.any(Object),
+      expect.objectContaining({
+        allowedPrivateOrigins: [],
+        maxRedirects: 0,
+      }),
+    );
+  });
+
+  it("fails closed instead of posting a token to a loopback revocation endpoint", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      discoveryState: {
+        ...credentials.discoveryState,
+        authorizationServerMetadata: {
+          ...credentials.discoveryState.authorizationServerMetadata,
+          revocation_endpoint: "http://127.0.0.1:9000/revoke",
+        },
+      },
+    });
+    ssrfSafeFetchMock.mockRejectedValueOnce(
+      new Error("SSRF blocked: refusing to fetch private/internal address"),
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      revokeMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toEqual({ remote: "failed", local: "deleted" });
+
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:9000/revoke",
+      expect.any(Object),
+      expect.objectContaining({
+        allowedPrivateOrigins: [],
+        maxRedirects: 0,
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("applies the configured private-origin allowance to revocation", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_MCP_OAUTH_PRIVATE_ORIGINS",
+      "http://127.0.0.1:9443",
+    );
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      discoveryState: {
+        ...credentials.discoveryState,
+        authorizationServerMetadata: {
+          ...credentials.discoveryState.authorizationServerMetadata,
+          revocation_endpoint: "http://127.0.0.1:9443/revoke",
+        },
+      },
+    });
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(null, { status: 200 }),
+    );
+
+    try {
+      await expect(
+        revokeMcpOAuthCredentials({
+          key: "mcp_oauth:test",
+          scope: "user",
+          scopeId: "alice@example.com",
+          serverUrl: "https://mcp.example.com/mcp",
+        }),
+      ).resolves.toEqual({ remote: "succeeded", local: "deleted" });
+
+      expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+        "http://127.0.0.1:9443/revoke",
+        expect.any(Object),
+        expect.objectContaining({
+          allowedPrivateOrigins: ["http://127.0.0.1:9443"],
+          maxRedirects: 0,
+        }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("rejects malformed stored bundles", async () => {
     getOAuthTokensMock.mockResolvedValueOnce({ access_token: "<TOKEN>" });
 
@@ -406,35 +972,97 @@ describe("MCP OAuth client", () => {
         key: "mcp_oauth:test",
         scope: "user",
         scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
       }),
     ).resolves.toBeNull();
   });
 
-  it("binds reads and deletes to the credential owner", async () => {
-    getOAuthTokensMock.mockResolvedValueOnce(null);
-    deleteOAuthTokensMock.mockResolvedValueOnce(1);
+  it("fails closed for legacy reads and deletes without a serverUrl argument", async () => {
+    getOAuthTokensMock.mockResolvedValue(credentials);
 
-    await readMcpOAuthCredentials({
-      key: "mcp_oauth:test",
-      scope: "org",
-      scopeId: "org-test",
-    });
-    await deleteMcpOAuthCredentials({
-      key: "mcp_oauth:test",
-      scope: "org",
-      scopeId: "org-test",
-    });
+    await expect(
+      readMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "org",
+        scopeId: "org-test",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      deleteMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "org",
+        scopeId: "org-test",
+      }),
+    ).resolves.toBe(false);
 
-    expect(getOAuthTokensMock).toHaveBeenCalledWith(
-      "mcp",
-      "mcp_oauth:test",
-      "org:org-test",
-    );
-    expect(deleteOAuthTokensMock).toHaveBeenCalledWith(
-      "mcp",
-      "mcp_oauth:test",
-      "org:org-test",
-    );
+    expect(getOAuthTokensMock).not.toHaveBeenCalled();
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalled();
+  });
+
+  it("deletes a server-bound credential from one atomic lifecycle snapshot", async () => {
+    getOAuthTokensMock.mockResolvedValue(credentials);
+
+    await expect(
+      deleteMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toBe(true);
+
+    expect(getOAuthTokensMock).toHaveBeenCalledTimes(1);
+    expect(deleteOAuthTokensIfRevisionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses one canonical server URL across reads, access, and deletion", async () => {
+    const rootCredentials = {
+      ...credentials,
+      serverUrl: "https://mcp.example.com",
+    };
+    getOAuthTokensMock.mockResolvedValue(rootCredentials);
+    deleteOAuthTokensIfRevisionMock.mockResolvedValue(true);
+
+    await expect(
+      readMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com",
+      }),
+    ).resolves.toMatchObject({ serverUrl: "https://mcp.example.com/" });
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com",
+      }),
+    ).resolves.toBe("<ACCESS_TOKEN>");
+    await expect(
+      deleteMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com",
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("does not delete a legacy credential bound to another server", async () => {
+    getOAuthTokensMock.mockResolvedValue(credentials);
+
+    await expect(
+      deleteMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://different.example.com/mcp",
+      }),
+    ).resolves.toBe(false);
+
+    expect(getOAuthTokensMock).toHaveBeenCalledTimes(1);
+    expect(deleteOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
   });
 
   it("computes an expiry only for positive finite expires_in values", () => {
@@ -444,5 +1072,147 @@ describe("MCP OAuth client", () => {
     expect(
       tokenExpiresAt({ expires_in: "not-a-duration" } as any),
     ).toBeUndefined();
+  });
+});
+
+function authSavingDiscovery(
+  authorizationServerMetadata: Record<string, unknown>,
+  afterDiscovery?: () => never,
+) {
+  return async (provider: {
+    saveDiscoveryState?: (state: Record<string, unknown>) => void;
+  }) => {
+    provider.saveDiscoveryState?.({
+      authorizationServerUrl: String(authorizationServerMetadata.issuer ?? ""),
+      authorizationServerMetadata,
+    });
+    afterDiscovery?.();
+    return "REDIRECT" as const;
+  };
+}
+
+describe("MCP OAuth start failures that no retry can fix", () => {
+  beforeEach(() => {
+    authMock.mockReset();
+  });
+
+  const githubMetadata = {
+    issuer: "https://github.com/login/oauth",
+    authorization_endpoint: "https://github.com/login/oauth/authorize",
+    token_endpoint: "https://github.com/login/oauth/access_token",
+    response_types_supported: ["code"],
+    code_challenge_methods_supported: ["S256"],
+  };
+
+  const start = (overrides: Record<string, unknown> = {}) =>
+    startMcpOAuthAuthorization({
+      serverUrl: "https://api.githubcopilot.com/mcp/",
+      redirectUrl:
+        "https://app.example.com/_agent-native/mcp/servers/oauth/callback",
+      state: "<STATE>",
+      ...overrides,
+    });
+
+  it("refuses as soon as discovery shows no client can be registered", async () => {
+    authMock.mockImplementation(authSavingDiscovery(githubMetadata));
+
+    const failure = await start().catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(McpOAuthRegistrationUnsupportedError);
+    expect((failure as McpOAuthRegistrationUnsupportedError).issuer).toBe(
+      "https://github.com/login/oauth",
+    );
+  });
+
+  it("refuses a caller-supplied discovery state with no registration path", async () => {
+    authMock.mockResolvedValue("REDIRECT");
+
+    const failure = await start({
+      discoveryState: {
+        authorizationServerUrl: "https://github.com/login/oauth",
+        authorizationServerMetadata: githubMetadata,
+      },
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(McpOAuthRegistrationUnsupportedError);
+    expect(authMock).not.toHaveBeenCalled();
+  });
+
+  it("does not blame registration for a failure raised after discovery", async () => {
+    const cause = new Error("authorization endpoint unreachable");
+    authMock.mockImplementation(
+      authSavingDiscovery(
+        {
+          ...githubMetadata,
+          registration_endpoint: "https://auth.example.com/register",
+        },
+        () => {
+          throw cause;
+        },
+      ),
+    );
+
+    await expect(start()).rejects.toBe(cause);
+  });
+
+  it("still refuses when only the server advertises CIMD", async () => {
+    authMock.mockImplementation(
+      authSavingDiscovery({
+        ...githubMetadata,
+        client_id_metadata_document_supported: true,
+      }),
+    );
+
+    await expect(start()).rejects.toBeInstanceOf(
+      McpOAuthRegistrationUnsupportedError,
+    );
+  });
+
+  it("allows CIMD when the provider does supply a client metadata URL", async () => {
+    const cause = new Error("authorization endpoint unreachable");
+    authMock.mockImplementation(
+      async (provider: {
+        saveDiscoveryState?: (state: Record<string, unknown>) => void;
+      }) => {
+        Object.assign(provider, {
+          clientMetadataUrl: "https://app.example.com/client-metadata.json",
+        });
+        provider.saveDiscoveryState?.({
+          authorizationServerUrl: "https://github.com/login/oauth",
+          authorizationServerMetadata: {
+            ...githubMetadata,
+            client_id_metadata_document_supported: true,
+          },
+        });
+        throw cause;
+      },
+    );
+
+    await expect(start()).rejects.toBe(cause);
+  });
+
+  it("does not refuse a managed client that never needs registration", async () => {
+    const cause = new Error("authorization endpoint unreachable");
+    authMock.mockImplementation(
+      authSavingDiscovery(githubMetadata, () => {
+        throw cause;
+      }),
+    );
+
+    await expect(
+      start({
+        clientInformation: {
+          client_id: "managed-client",
+          client_secret: "managed-secret",
+        },
+      }),
+    ).rejects.toBe(cause);
+  });
+
+  it("keeps a pre-discovery failure generic", async () => {
+    const cause = new Error("network unreachable");
+    authMock.mockRejectedValue(cause);
+
+    await expect(start()).rejects.toBe(cause);
   });
 });

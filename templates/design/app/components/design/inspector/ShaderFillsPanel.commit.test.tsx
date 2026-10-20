@@ -36,10 +36,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: (...args: unknown[]) => mockUseActionMutation(...args),
 }));
 
-// Stub out ShaderControls entirely — it renders heavy shader canvases we
-// don't need for this gesture-lifecycle test. Expose a button that invokes
-// `onChange` with a tweaked descriptor, simulating one continuous-tuning
-// tick (e.g. one pointermove sample while dragging a uniform slider).
 vi.mock("./ShaderControls", () => ({
   ShaderControls: ({
     descriptor,
@@ -48,18 +44,27 @@ vi.mock("./ShaderControls", () => ({
     descriptor: { preset: string; params: Record<string, number> };
     onChange: (next: unknown) => void;
   }) => (
-    <button
-      type="button"
-      data-testid="tick"
-      onClick={() =>
+    <div
+      onPointerCancel={() =>
         onChange({
           ...descriptor,
-          params: { ...descriptor.params, intensity: 0.5 },
+          params: { ...descriptor.params, intensity: 0.1 },
         })
       }
     >
-      tick
-    </button>
+      <button
+        type="button"
+        data-testid="tick"
+        onClick={() =>
+          onChange({
+            ...descriptor,
+            params: { ...descriptor.params, intensity: 0.5 },
+          })
+        }
+      >
+        tick
+      </button>
+    </div>
   ),
 }));
 
@@ -143,7 +148,6 @@ describe("ShaderFillsPanel preview/commit split", () => {
       '[data-testid="tick"]',
     );
 
-    // Several drag ticks — each a cheap preview only.
     act(() => {
       tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -153,8 +157,6 @@ describe("ShaderFillsPanel preview/commit split", () => {
     expect(onCommit).not.toHaveBeenCalled();
     expect(mutateCalls).toHaveLength(0);
 
-    // Gesture ends: pointerup bubbles up from the (mocked) ShaderControls
-    // button through the wrapping div's onPointerUp handler.
     act(() => {
       tick?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     });
@@ -177,7 +179,6 @@ describe("ShaderFillsPanel preview/commit split", () => {
       );
     });
 
-    // Browse view — the "Create new" tile is a discrete, one-shot pick.
     const createNew = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Create new shader"]',
     );
@@ -193,12 +194,6 @@ describe("ShaderFillsPanel preview/commit split", () => {
   });
 
   it("a bare pointerup with no preceding preview tick never commits (no-change click/blur regression)", () => {
-    // Simulates opening/closing a Select, clicking a checkbox, or tabbing
-    // between fields inside the tuning container: the pointerup/blur bubbles
-    // out to the wrapping div, but no descriptor actually changed. Before the
-    // dirty-flag fix, `lastAppliedRef` was seeded on mount and never cleared,
-    // so this alone re-fired the real apply-shader mutation on an unchanged
-    // descriptor.
     const onApply = vi.fn();
     const onCommit = vi.fn();
 
@@ -224,9 +219,6 @@ describe("ShaderFillsPanel preview/commit split", () => {
       );
     });
     act(() => {
-      // React implements onBlur via the native (bubbling) "focusout" event
-      // rather than "blur" (which doesn't bubble) — see React's
-      // SimpleEventPlugin.
       tuningContainer?.dispatchEvent(
         new FocusEvent("focusout", { bubbles: true }),
       );
@@ -235,6 +227,66 @@ describe("ShaderFillsPanel preview/commit split", () => {
     expect(onApply).not.toHaveBeenCalled();
     expect(onCommit).not.toHaveBeenCalled();
     expect(mutateCalls).toHaveLength(0);
+  });
+
+  it("restores a canceled preview without committing it on a later unrelated pointerup or blur", () => {
+    const onApply = vi.fn();
+    const onCommit = vi.fn();
+
+    act(() => {
+      root.render(
+        <ShaderFillsPanel
+          descriptor={baseDescriptor}
+          onApply={onApply}
+          onCommit={onCommit}
+          onBack={() => undefined}
+        />,
+      );
+    });
+
+    const tick = container.querySelector<HTMLButtonElement>(
+      '[data-testid="tick"]',
+    );
+    expect(tick).not.toBeNull();
+
+    act(() => {
+      tick?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, pointerId: 7 }),
+      );
+      tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onApply).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      tick?.dispatchEvent(
+        new PointerEvent("pointercancel", { bubbles: true, pointerId: 7 }),
+      );
+    });
+    expect(onApply).toHaveBeenCalledTimes(2);
+    expect(onApply.mock.calls[1]?.[0]).toEqual(baseDescriptor);
+
+    act(() => {
+      tick?.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, pointerId: 7 }),
+      );
+      tick?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(mutateCalls).toHaveLength(0);
+
+    act(() => {
+      tick?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, pointerId: 8 }),
+      );
+      tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      tick?.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, pointerId: 8 }),
+      );
+    });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(mutateCalls).toHaveLength(1);
   });
 
   it("still commits via the apply-shader mutation when onCommit is omitted, but only after a preview tick", () => {
@@ -254,13 +306,11 @@ describe("ShaderFillsPanel preview/commit split", () => {
       '[data-testid="tick"]',
     );
 
-    // Bare pointerup first, with no preview tick yet — must not commit.
     act(() => {
       tick?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     });
     expect(mutateCalls).toHaveLength(0);
 
-    // A real tuning tick, then pointerup ends the gesture — commits once.
     act(() => {
       tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });

@@ -80,7 +80,7 @@ const COMMAND_FORCE_SETTLE_MS = 250;
 const APP_SERVER_INITIALIZE_PARAMS = {
   clientInfo: {
     name: "agent-native-desktop",
-    title: "Agent Native Desktop",
+    title: "Agent-Native Desktop",
     version: "1",
   },
   capabilities: {
@@ -301,10 +301,6 @@ export function createCodexAppServerClient(
   };
 }
 
-/**
- * Owns one initialized app-server process so rate-limit notifications can keep
- * the shared subscription state current between explicit refreshes.
- */
 export class CodexSubscriptionAdapter {
   private client: CodexAppServerClient | undefined;
   private initializingClient: Promise<CodexAppServerClient> | undefined;
@@ -372,15 +368,16 @@ export class CodexSubscriptionAdapter {
         }
       }
     } catch (error) {
-      if (this.status.telemetry.state === "stale") return this.status;
-      this.publish(
-        unavailableStatus(
-          "Codex subscription telemetry could not be refreshed.",
-          probe,
-          this.plan,
-          "error",
-        ),
-      );
+      if (this.status.telemetry.state !== "stale") {
+        this.publish(
+          unavailableStatus(
+            "Codex subscription telemetry could not be refreshed.",
+            probe,
+            this.plan,
+            "error",
+          ),
+        );
+      }
       this.clearSessionCache();
       this.closeClient();
       this.scheduleRestart();

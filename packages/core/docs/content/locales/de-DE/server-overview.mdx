@@ -5,7 +5,7 @@ description: "Die Nitro-Serverschicht in einer agentennativen App: wofür sie da
 
 # Server
 
-Das Verzeichnis `server/` ist die Infrastrukturschicht einer agentennativen App. Es übernimmt Startaufgaben, Authentifizierung und die HTTP-Oberflächen, die Actions nicht abdecken. Das meiste Produktverhalten gehört in [Actions](/docs/actions). Der Server macht diese Actions verfügbar.
+Das Verzeichnis `server/` ist die Infrastrukturschicht einer agentennativen App. Es übernimmt Startaufgaben, Authentifizierung und die HTTP-Oberflächen, die Actions nicht abdecken. Das meiste Produktverhalten gehört in [Actions](/docs/actions-overview). Der Server macht diese Actions verfügbar.
 
 <Diagram id="doc-block-server-overview-1" title="Wie Anfragen durch den Server fließen" summary="Aufrufer erreichen den Nitro-Server, der die meisten Anfragen über Actions abwickelt. Middleware und Routen decken die Fälle ab, die Actions nicht können. Beide Pfade können die Datenbank abfragen.">
 
@@ -196,7 +196,7 @@ Dies sind die Verzeichnisse und Dateien innerhalb von `server/`, die jede agente
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | **[Datenbank](/docs/server-database)**    | Schemadefinition mit `table()`-Helfern, `getDb` und ownable-Tabellenmustern                                  |
 | **[Middleware](/docs/server-middleware)** | Auth-Guards in `server/middleware/` und warum sie dort laufen statt in einem Plugin                          |
-| **[Plugins](/docs/server-plugins)**       | Die drei Startup-Plugins jeder App: DB-Migrationen, Auth und Agent-Chat                                      |
+| **[Plugins](/docs/server-plugins)**       | Startup-Plugins für Auth und Agent-Chat sowie optionale app-eigene Datenbankmigrationen                      |
 | **[Routen](/docs/server-routes)**         | Dateibasierte Routen, der SSR-Catch-all und die Eingrenzung benutzerdefinierter Routen auf den Anfragenutzer |
 
 ## Nitro {#nitro}
@@ -204,7 +204,7 @@ Dies sind die Verzeichnisse und Dateien innerhalb von `server/`, die jede agente
 [Nitro](https://nitro.build) ist das Server-Toolkit, das die agentennative HTTP-Schicht antreibt. Das meiste, was Sie in `server/` konfigurieren, ist Nitro: dateibasierte Routen, Startup-Plugins und Middleware.
 
 - **Dateibasiertes Routing**: Der Dateiname wird ohne Registrierung direkt auf eine HTTP-Methode und einen URL-Pfad abgebildet. `server/routes/api/health.get.ts` wird automatisch zu `GET /api/health`. Weitere Details finden Sie unter [Routen](/docs/server-routes).
-- **Plugins**: Code, der einmal beim Serverstart läuft, bevor irgendeine Anfrage bedient wird. Datenbankmigrationen, Auth-Konfiguration und das Einhängen des Agent-Chats geschehen alle in `server/plugins/`. Weitere Details finden Sie unter [Plugins](/docs/server-plugins).
+- **Plugins**: Code, der beim Serverstart registriert und einmal geladen wird. Framework-Hilfsfunktionen initialisieren Auth und Agent-Chat; optionale app-eigene Datenbankmigrationen können beim Eintreffen der ersten Anfrage noch laufen. Weitere Details finden Sie unter [Plugins](/docs/server-plugins).
 - **Middleware**: Code, der bei jeder eingehenden Anfrage läuft, bevor sie eine Route erreicht. Der Auth-Guard lebt in `server/middleware/`. Weitere Details finden Sie unter [Middleware](/docs/server-middleware).
 
 Nitro ist außerdem bereitstellungsunabhängig. Dieselbe App wird ohne Codeänderungen auf Node.js, Cloudflare Workers, Netlify, Vercel und weiteren Laufzeitumgebungen bereitgestellt. Legen Sie einfach ein Preset fest. Siehe [Deployment](/docs/deployment).
@@ -221,11 +221,11 @@ Die Agent-Native-Architektur ist anders. Wann immer Sie an ein neues Feature fü
 - MCP- und A2A-aufrufbaren Tools.
 - CLI-Befehlen für die Entwicklung.
 
-Verwenden Sie benutzerdefinierte `/api/*`-Routen nur, wenn Sie ein routenförmiges Protokoll oder binäres/streamendes Verhalten benötigen. Weitere Details finden Sie unter [Actions](/docs/actions).
+Verwenden Sie benutzerdefinierte `/api/*`-Routen nur, wenn Sie ein routenförmiges Protokoll oder binäres/streamendes Verhalten benötigen. Weitere Details finden Sie unter [Actions](/docs/actions-overview).
 
 ## Was kommt als nächstes? {#whats-next}
 
-- [**Actions**](/docs/actions): die Standard-Operationsoberfläche. Greifen Sie nur dann zu einer benutzerdefinierten Route, wenn sie nicht passt.
+- [**Actions**](/docs/actions-overview): die Standard-Operationsoberfläche. Greifen Sie nur dann zu einer benutzerdefinierten Route, wenn sie nicht passt.
 - [**Datenbank**](/docs/server-database): das `getDb()`/Schema-Muster, das sowohl benutzerdefinierte Routen als auch Actions importieren
 - [**Middleware**](/docs/server-middleware): Auth-Guards und das Verzeichnis `server/middleware/`
 - [**Plugins**](/docs/server-plugins): Startup-Plugins für Migrationen, Auth und den Agenten

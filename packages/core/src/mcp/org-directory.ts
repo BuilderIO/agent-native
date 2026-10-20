@@ -1,3 +1,5 @@
+import { canonicalA2AAudience } from "../a2a/audience.js";
+
 /**
  * Org-directory discovery for the generic cross-app MCP verbs
  * (`list_apps` / `ask_app` in `builtin-tools.ts`).
@@ -26,13 +28,15 @@
  *     identity hub). When *neither* is set the feature is simply inactive —
  *     `fetchOrgApps()` returns `[]` and nothing changes anywhere (asserted by
  *     a test). This makes the whole feature opt-in and back-compat.
- *   - On ANY error (no env, unreachable, 401, non-2xx, bad JSON, no signed
- *     token) `fetchOrgApps()` returns `[]` and NEVER throws — the cross-app
- *     verbs degrade silently to their exact current local-only behavior.
+ *   - `fetchOrgAppsResult()` preserves directory availability for callers
+ *     that cannot mistake a failed lookup for an empty directory.
+ *     `fetchOrgApps()` remains the best-effort compatibility wrapper: on ANY
+ *     error it returns `[]` and NEVER throws, so cross-app verbs still degrade
+ *     silently to their exact current local-only behavior.
  *   - A short in-memory TTL cache (default 60s) keyed by directory origin and
  *     caller identity/org scope so sibling app lists never cross tenants.
- *     Empty authenticated results are cached too (with a shorter TTL) so a
- *     transient failure doesn't hammer the directory on every call.
+ *     Only successful authenticated responses are cached; unavailable results
+ *     remain immediately retryable.
  *   - No secrets are ever logged.
  *
  * Bundled alongside `mountMCP` (no Node-only top-level imports). The A2A
@@ -40,40 +44,35 @@
  */
 
 export interface OrgApp {
-  /** Canonical app id, e.g. `calendar`. */
   id: string;
-  /** Human-readable name, e.g. `Calendar`. */
   name: string;
-  /** Deployed app origin/URL, e.g. `https://calendar.acme.com`. */
   url: string;
-  /**
-   * A2A endpoint to route `ask_app` to. The authority side returns this; we
-   * fall back to the app `url` (the A2A client appends `/_agent-native/a2a`).
-   */
   a2aUrl: string;
-  /** Optional capability hints the authority side may include. */
   capabilities?: string[];
 }
 
-/** Default cache TTL for a successful directory fetch. */
 const SUCCESS_TTL_MS = 60_000;
-/** Shorter TTL for an empty/failed fetch so transient errors recover fast. */
-const EMPTY_TTL_MS = 10_000;
-
 interface CacheEntry {
   apps: OrgApp[];
   expiresAt: number;
 }
 
-/** In-memory cache keyed by resolved directory origin (+ identity scope). */
+export type OrgDirectoryUnavailableReason =
+  | "not-configured"
+  | "authentication"
+  | "authorization"
+  | "timeout"
+  | "network"
+  | "invalid-response"
+  | "server-error"
+  | "http-error";
+
+export type OrgDirectoryFetchResult =
+  | { status: "available"; apps: OrgApp[] }
+  | { status: "unavailable"; reason: OrgDirectoryUnavailableReason };
+
 const cache = new Map<string, CacheEntry>();
 
-/**
- * Resolve the org-directory origin from env. Returns `null` when neither env
- * var is set — the caller treats `null` as "feature inactive".
- *
- * `env` is injectable for tests; defaults to `process.env`.
- */
 export function resolveOrgDirectoryOrigin(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
@@ -83,7 +82,6 @@ export function resolveOrgDirectoryOrigin(
   const trimmed = raw.trim().replace(/\/+$/, "");
   if (!trimmed) return null;
   try {
-    // Validate it's an absolute http(s) URL; reject anything else.
     const u = new URL(trimmed);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
     return trimmed;
@@ -92,25 +90,47 @@ export function resolveOrgDirectoryOrigin(
   }
 }
 
-function normalizeApp(raw: unknown): OrgApp | null {
-  if (!raw || typeof raw !== "object") return null;
+function isAbsoluteHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    // coercion-ok: URL parse failure is the predicate's explicit false result.
+    return false;
+  }
+}
+
+function normalizeApp(raw: unknown, strict = false): OrgApp | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   const id = typeof r.id === "string" ? r.id.trim().toLowerCase() : "";
   const url = typeof r.url === "string" ? r.url.trim() : "";
-  if (!id || !url) return null;
-  // Only accept absolute http(s) URLs from the directory.
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-  } catch {
+  if (!id || !url || !isAbsoluteHttpUrl(url)) return null;
+  if (
+    strict &&
+    ((r.name !== undefined && typeof r.name !== "string") ||
+      (r.a2aUrl !== undefined && typeof r.a2aUrl !== "string") ||
+      (r.capabilities !== undefined &&
+        typeof r.capabilities !== "string" &&
+        (!Array.isArray(r.capabilities) ||
+          r.capabilities.some((item) => typeof item !== "string"))))
+  ) {
     return null;
   }
   const name = typeof r.name === "string" && r.name.trim() ? r.name.trim() : id;
-  const a2aUrl =
-    typeof r.a2aUrl === "string" && r.a2aUrl.trim() ? r.a2aUrl.trim() : url;
-  const capabilities = Array.isArray(r.capabilities)
-    ? r.capabilities.filter((c): c is string => typeof c === "string")
-    : undefined;
+  const explicitA2aUrl = typeof r.a2aUrl === "string" ? r.a2aUrl.trim() : "";
+  if (strict && r.a2aUrl !== undefined && !isAbsoluteHttpUrl(explicitA2aUrl)) {
+    return null;
+  }
+  const a2aUrl = isAbsoluteHttpUrl(explicitA2aUrl) ? explicitA2aUrl : url;
+  const capabilities =
+    typeof r.capabilities === "string"
+      ? r.capabilities.trim()
+        ? [r.capabilities.trim()]
+        : undefined
+      : Array.isArray(r.capabilities)
+        ? r.capabilities.filter((c): c is string => typeof c === "string")
+        : undefined;
   return {
     id,
     name,
@@ -120,7 +140,6 @@ function normalizeApp(raw: unknown): OrgApp | null {
   };
 }
 
-/** Compare two origins by host (ignores trailing slash / protocol noise). */
 function sameOrigin(a: string, b: string): boolean {
   try {
     const ua = new URL(a);
@@ -138,11 +157,15 @@ function scopedCacheKey(
     orgId?: string;
     orgDomain?: string;
   },
+  includeDirectoryApp = false,
+  strictValidation = true,
 ): string {
   return [
     origin,
     `user:${auth.userEmail ?? ""}`,
     `org:${auth.orgId ?? auth.orgDomain ?? ""}`,
+    `include-directory:${includeDirectoryApp ? "1" : "0"}`,
+    `validation:${strictValidation ? "strict" : "permissive"}`,
   ].join("|");
 }
 
@@ -155,33 +178,35 @@ function authTokenAttempts(auth: {
   );
 }
 
-function serviceScopedCacheKey(origin: string, orgId: string): string {
-  return [origin, `service-org:${orgId}`].join("|");
+function serviceScopedCacheKey(
+  origin: string,
+  orgId: string,
+  includeDirectoryApp = false,
+  strictValidation = true,
+): string {
+  return [
+    origin,
+    `service-org:${orgId}`,
+    `include-directory:${includeDirectoryApp ? "1" : "0"}`,
+    `validation:${strictValidation ? "strict" : "permissive"}`,
+  ].join("|");
 }
 
-/**
- * Fetch the org's first-party sibling apps from the org directory.
- *
- * - Returns `[]` (never throws) on ANY failure or when the directory env is
- *   unset — the cross-app verbs then keep their exact local-only behavior.
- * - Short in-memory TTL cache so it isn't fetched on every tool call.
- * - Strips the current app from the result (compared by id and by origin) so
- *   `list_apps` / `ask_app` never offer to route to themselves.
- *
- * @param opts.selfId      Current app id (so it's stripped from the result).
- * @param opts.selfOrigin  Current app origin (so it's stripped by origin too).
- * @param opts.env         Injectable env (tests). Defaults to `process.env`.
- */
-export async function fetchOrgApps(opts?: {
+export interface FetchOrgAppsOptions {
   selfId?: string;
   selfOrigin?: string;
+  includeDirectoryApp?: boolean;
   serviceOrgId?: string;
   env?: NodeJS.ProcessEnv;
-}): Promise<OrgApp[]> {
+}
+
+async function fetchOrgAppsResultInternal(
+  opts?: FetchOrgAppsOptions,
+  strictValidation = true,
+): Promise<OrgDirectoryFetchResult> {
   const env = opts?.env ?? process.env;
   const origin = resolveOrgDirectoryOrigin(env);
-  // Feature inactive: no directory configured ⇒ behave exactly as before.
-  if (!origin) return [];
+  if (!origin) return { status: "unavailable", reason: "not-configured" };
 
   const selfId = (opts?.selfId ?? "").trim().toLowerCase();
   const selfOrigin = (opts?.selfOrigin ?? "").trim();
@@ -194,95 +219,144 @@ export async function fetchOrgApps(opts?: {
     });
 
   let cacheKey: string | null = null;
-  let apps: OrgApp[] = [];
-  let ttl = EMPTY_TTL_MS;
   const serviceOrgId = opts?.serviceOrgId?.trim();
   if (serviceOrgId) {
-    const serviceCacheKey = serviceScopedCacheKey(origin, serviceOrgId);
+    const serviceCacheKey = serviceScopedCacheKey(
+      origin,
+      serviceOrgId,
+      opts?.includeDirectoryApp,
+      strictValidation,
+    );
     const cached = cache.get(serviceCacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return stripSelf(cached.apps);
+      return { status: "available", apps: stripSelf(cached.apps) };
     }
     cacheKey = serviceCacheKey;
   }
   try {
+    const directoryUrl = `${origin}/_agent-native/org/apps`;
+    const audience = canonicalA2AAudience(origin);
     const auth = serviceOrgId
-      ? await resolveOrgDirectoryServiceAuth(serviceOrgId)
-      : await resolveOrgDirectoryCallerAuth();
+      ? await resolveOrgDirectoryServiceAuth(serviceOrgId, audience)
+      : await resolveOrgDirectoryCallerAuth(audience);
     const attempts = authTokenAttempts(auth);
     if (attempts.length === 0) {
-      // No signed token available (no A2A secret / no caller identity) — the
-      // directory requires the org bearer, so degrade silently to local-only.
-      return [];
+      return { status: "unavailable", reason: "authentication" };
     }
-
     if (!cacheKey) {
       const now = Date.now();
-      cacheKey = scopedCacheKey(origin, auth);
+      cacheKey = scopedCacheKey(
+        origin,
+        auth,
+        opts?.includeDirectoryApp,
+        strictValidation,
+      );
       const cached = cache.get(cacheKey);
       if (cached && cached.expiresAt > now) {
-        return stripSelf(cached.apps);
+        return { status: "available", apps: stripSelf(cached.apps) };
       }
     }
 
+    const { resolveVercelDeploymentProtectionHeaders } =
+      await import("../server/credential-provider.js");
+    const protectionHeaders =
+      resolveVercelDeploymentProtectionHeaders(directoryUrl);
+
     for (let i = 0; i < attempts.length; i++) {
-      const res = await fetch(`${origin}/_agent-native/org/apps`, {
+      const res = await fetch(directoryUrl, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${attempts[i]}`,
           Accept: "application/json",
+          ...protectionHeaders,
+          ...(opts?.includeDirectoryApp
+            ? { "X-Agent-Native-Include-Directory-App": "1" }
+            : {}),
         },
+        ...(protectionHeaders["x-vercel-protection-bypass"]
+          ? { redirect: "manual" as const }
+          : {}),
         signal: AbortSignal.timeout(4000),
       });
       if (res.ok) {
         const json = (await res.json()) as { apps?: unknown };
-        const list = Array.isArray(json?.apps) ? json.apps : [];
-        apps = list.map(normalizeApp).filter((a): a is OrgApp => a !== null);
-        ttl = SUCCESS_TTL_MS;
-        break;
+        if (!Array.isArray(json?.apps))
+          return { status: "unavailable", reason: "invalid-response" };
+        const normalizedApps = json.apps.map((app) =>
+          normalizeApp(app, strictValidation),
+        );
+        if (strictValidation && normalizedApps.some((app) => app === null)) {
+          return { status: "unavailable", reason: "invalid-response" };
+        }
+        const apps = normalizedApps.filter((a): a is OrgApp => a !== null);
+        if (cacheKey) {
+          cache.set(cacheKey, {
+            apps,
+            expiresAt: Date.now() + SUCCESS_TTL_MS,
+          });
+        }
+        return { status: "available", apps: stripSelf(apps) };
       }
-      if (res.status !== 401 || i >= attempts.length - 1) break;
+      if (res.status === 401 && i < attempts.length - 1) continue;
+      return {
+        status: "unavailable",
+        reason:
+          res.status === 401 || res.status === 403
+            ? "authorization"
+            : res.status === 429 || res.status >= 500
+              ? "server-error"
+              : "http-error",
+      };
     }
-    // Non-2xx ⇒ leave apps=[] with the short EMPTY_TTL (silent degrade).
-  } catch {
-    // Unreachable / parse error / abort ⇒ silent degrade to local-only.
-    apps = [];
-    ttl = EMPTY_TTL_MS;
+  } catch (error) {
+    return {
+      status: "unavailable",
+      reason:
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError")
+          ? "timeout"
+          : error instanceof SyntaxError
+            ? "invalid-response"
+            : "network",
+    };
   }
-
-  if (cacheKey) {
-    cache.set(cacheKey, {
-      apps,
-      expiresAt: Date.now() + ttl,
-    });
-  }
-  return stripSelf(apps);
+  return { status: "unavailable", reason: "authorization" };
 }
 
-/** Test-only: clear the in-memory cache between cases. */
+export async function fetchOrgAppsResult(
+  opts?: FetchOrgAppsOptions,
+): Promise<OrgDirectoryFetchResult> {
+  return fetchOrgAppsResultInternal(opts, true);
+}
+
+export async function fetchOrgApps(
+  opts?: FetchOrgAppsOptions,
+): Promise<OrgApp[]> {
+  const result = await fetchOrgAppsResultInternal(opts, false);
+  return result.status === "available" ? result.apps : [];
+}
+
 export function _resetOrgDirectoryCache(): void {
   cache.clear();
 }
 
-async function resolveOrgDirectoryCallerAuth(): Promise<{
+async function resolveOrgDirectoryCallerAuth(audience: string): Promise<{
   apiKey?: string;
   apiKeyFallbacks?: string[];
   userEmail?: string;
   orgId?: string;
   orgDomain?: string;
 }> {
-  // Reuse the existing A2A caller-auth: it reads userEmail + orgId from the
-  // request context, loads the org A2A secret via getOrgA2ASecret (falling
-  // back to the global A2A_SECRET env), and signs the same bearer JWT A2A
-  // peers already use. No new secret loading is invented for normal callers.
   const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
-  return resolveA2ACallerAuth();
+  return resolveA2ACallerAuth({ audience });
 }
 
-async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
+async function resolveOrgDirectoryServiceAuth(
+  orgId: string,
+  audience: string,
+): Promise<{
   apiKey?: string;
   apiKeyFallbacks?: string[];
-  userEmail?: string;
   orgId?: string;
   orgDomain?: string;
 }> {
@@ -296,23 +370,19 @@ async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
     orgSecret = (await getOrgA2ASecret(trimmedOrgId)) ?? undefined;
   } catch {}
   try {
-    const [{ signA2AToken }, { serviceIdentityEmail }] = await Promise.all([
-      import("../a2a/client.js"),
-      import("./connect-store.js"),
-    ]);
-    const userEmail = serviceIdentityEmail("mcp-client", trimmedOrgId);
+    const { getGlobalA2ASecret, signA2AOrganizationToken } =
+      await import("../a2a/client.js");
     const apiKeyAttempts: string[] = [];
     const addApiKeyAttempt = (token: string | undefined) => {
-      if (!token || apiKeyAttempts.includes(token)) return;
-      apiKeyAttempts.push(token);
+      if (token && !apiKeyAttempts.includes(token)) apiKeyAttempts.push(token);
     };
-    if (process.env.A2A_SECRET?.trim()) {
+    if (getGlobalA2ASecret()) {
       try {
         addApiKeyAttempt(
-          await signA2AToken(userEmail, orgDomain, orgSecret, {
+          await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
             expiresIn: "5m",
             preferGlobalSecret: true,
-            extraClaims: { org_id: trimmedOrgId },
+            audience,
           }),
         );
       } catch {}
@@ -320,10 +390,10 @@ async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
     if (orgSecret) {
       try {
         addApiKeyAttempt(
-          await signA2AToken(userEmail, orgDomain, orgSecret, {
+          await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
             expiresIn: "5m",
             preferGlobalSecret: false,
-            extraClaims: { org_id: trimmedOrgId },
+            audience,
           }),
         );
       } catch {}
@@ -333,7 +403,6 @@ async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
       ...(apiKeyAttempts.length > 1
         ? { apiKeyFallbacks: apiKeyAttempts.slice(1) }
         : {}),
-      userEmail,
       orgId: trimmedOrgId,
       orgDomain,
     };

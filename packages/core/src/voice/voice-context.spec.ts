@@ -46,6 +46,7 @@ describe("voice context helpers", () => {
     expect(guidance).toContain("Never add facts");
     expect(guidance).toContain("Prefer Builder.io casing");
     expect(guidance).toContain("builder io -> Builder.io");
+    expect(guidance).toContain("When audio input is available");
   });
 
   it("can strip voice context down to provider-safe vocabulary terms", () => {

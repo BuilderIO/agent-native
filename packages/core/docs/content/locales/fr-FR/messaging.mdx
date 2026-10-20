@@ -11,7 +11,7 @@ Connectez votre agent à Slack, Microsoft Teams, aux interactions Discord, à l�
 >
 > Teams requiert `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD` et `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`. Discord requiert `DISCORD_APPLICATION_ID` et `DISCORD_PUBLIC_KEY`. Telegram requiert aussi `TELEGRAM_WEBHOOK_SECRET`, et WhatsApp `WHATSAPP_APP_SECRET`.
 
-> **Vous utilisez le modèle Dispatch ?** Tout cela est configuré pour vous dans **Paramètres → Messagerie**. Cliquez pour connecter chaque plateforme. Vous n'avez pas besoin de lire le reste de cette page, sauf si vous personnalisez ou créez votre propre modèle. Voir [Dispatch](/docs/dispatch) ou [Dispatch template reference](/docs/template-dispatch).
+> **Vous utilisez le modèle Dispatch ?** Tout cela est configuré pour vous dans **Administration → Messagerie**. Cliquez pour connecter chaque plateforme. Vous n'avez pas besoin de lire le reste de cette page, sauf si vous personnalisez ou créez votre propre modèle. Voir [Dispatch](/docs/dispatch) ou [Dispatch template reference](/docs/template-dispatch).
 
 ## Ce que vous pouvez faire {#what-you-can-do}
 
@@ -127,7 +127,7 @@ et les événements `link_shared` vers le gestionnaire de déploiement des clips
 
 ### Conseils
 
-- **Mentions de canal** : utilisez une @mention pour démarrer le travail. Les réponses sans mention ne continuent que tant que ce fil précis contient un travail actif.
+- **Mentions de canal** : utilisez une @mention pour démarrer le travail. Chaque message du canal à traiter doit mentionner explicitement l’agent ; les réponses ordinaires dans un fil et les discussions générales du canal ne le déclenchent pas.
 - **Messages directs** — les messages directs personnels acceptés restent privés et exigent un membre vérifié de l’organisation ou une identité Slack associée.
 - **Identité** — les DM peuvent associer un e-mail Slack vérifié au même utilisateur de l'application ; les canaux gérés utilisent leur identité de service et leur règle.
 - **Listes autorisées de production** : définissez `SLACK_ALLOWED_TEAM_IDS` et, pour les applications Slack partagées, `SLACK_ALLOWED_API_APP_IDS` afin qu'un secret de signature valide ne puisse pas être réutilisé par un espace de travail inattendu.
@@ -135,14 +135,14 @@ et les événements `link_shared` vers le gestionnaire de déploiement des clips
 
 ### Add to Slack géré
 
-OAuth géré est la configuration recommandée. Dans **Paramètres → Messagerie**,
+OAuth géré est la configuration recommandée. Dans **Administration → Messagerie**,
 sélectionnez **Agent manifest** pour télécharger le fichier propre à l’hôte
 `agent-native-slack-manifest.json`, puis importez-le dans **App Manifest** dans
 Slack. Le manifeste active l’expérience `agent_view` actuelle et un onglet
 **Messages** modifiable pour les messages directs. Vérifiez ces portées de bot :
 
 L’icône de l’application ne fait pas partie du manifeste. Dans **Basic
-Information → Display Information**, chargez l’icône Agent Native afin que le
+Information → Display Information**, chargez l’icône Agent-Native afin que le
 sélecteur Agents respecte l’identité du produit. Vous pouvez partir du fichier
 public `icon-512.svg` de l’application et le convertir dans un format de
 téléversement accepté par Slack si nécessaire.
@@ -173,10 +173,10 @@ Event Subscriptions Request URL sur
 Interactivity Request URL sur
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`.
 Abonnez-vous à `app_home_opened`, `app_context_changed`, `app_mention`,
-`message.channels`, `message.groups`, `message.im` et `message.mpim`.
+`message.im`.
 Configurez `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` et
 `SLACK_SIGNING_SECRET`, puis cliquez sur **Add to Slack** dans
-**Paramètres → Messagerie**. Chaque installation conserve son jeton chiffré et
+**Administration → Messagerie**. Chaque installation conserve son jeton chiffré et
 isole ses clés par espace, application, canal et fil.
 
 Réinstallez l’application Slack après toute modification du manifeste, des
@@ -189,11 +189,11 @@ barre supérieure. Si l’installation réussit mais que l’agent reste invisib
 vérifiez ces contrôles ou ouvrez-le via **Tools → Apps**.
 
 Les messages directs Slack personnels ne sont acceptés que pour un membre
-vérifié de l’organisation Agent Native ou une identité Slack déjà associée.
+vérifié de l’organisation Agent-Native ou une identité Slack déjà associée.
 Les règles et budgets du principal de service d’un canal restent distincts.
 
-Les réponses sans mention ne pilotent qu'un fil dont la tâche est active ; les
-autres messages du canal n'appellent pas l'agent. Un contexte borné charge les
+Chaque message du canal doit mentionner explicitement l'agent ; les réponses
+ordinaires dans un fil et les autres messages du canal ne l'appellent pas. Un contexte borné charge les
 réactions et références de fichiers, tandis qu'une carte native affiche plan,
 progression, annulation et approbation/refus. Les DM utilisent l'identité personnelle ;
 les canaux gérés utilisent une identité de service explicite et des règles pour
@@ -375,7 +375,7 @@ Quand cela ne marche pas :
 | `notion credential not configured. Tried: NOTION_API_KEY`                     | Étape 3. La clé est dans `.env`, ou enregistrée en **Personal** pour un compte différent de celui qui exécute la tâche. Enregistrez-la en **Workspace**.       |
 | Notion répond `404`                                                           | Étape 4. La base de données n'a jamais été partagée avec l'intégration.                                                                                        |
 | Notion répond `400` à propos des propriétés                                   | Les noms ou types de propriétés de l'action ne correspondent pas aux colonnes de la base.                                                                      |
-| Cela a marché une fois, puis une réponse ultérieure dans le fil a été ignorée | C'est normal. Les réponses de fil sans mention n'atteignent l'agent que tant que ce fil a un travail actif — refaites une @mention.                            |
+| Cela a marché une fois, puis une réponse ultérieure dans le fil a été ignorée | C'est normal. Chaque message que l'agent doit traiter doit le mentionner explicitement — refaites une @mention.                                                |
 
 ## Configurer Telegram {#telegram}
 
@@ -499,7 +499,7 @@ Pourquoi c'est sympa :
 
 - **Un agent, une boîte de réception.** Tous vos canaux (Slack, e-mail, Telegram, WhatsApp) circulent dans Dispatch. Vous ne configurez les intégrations qu'une seule fois.
 - **Répartir les délégués.** Demander « résumer les inscriptions de la semaine dernière » – Dispatch appelle l'agent d'analyse. Demandez « rédigez une réponse à Alice » – Dispatch appelle l'agent de messagerie.
-- **Clics, pas de configuration.** La page **Paramètres → Messagerie** de Dispatch comporte des boutons de connexion pour chaque plate-forme avec les champs env-var intégrés.
+- **Clics, pas de configuration.** La page **Administration → Messagerie** de Dispatch comporte des boutons de connexion pour chaque plate-forme avec les champs env-var intégrés.
 
 Si vous n'avez pas besoin d'un orchestrateur, n'importe quel modèle peut connecter la messagerie directement à l'aide des variables d'environnement de cette page.
 
@@ -656,6 +656,20 @@ export default createIntegrationsPlugin({
   systemPrompt: "You are a helpful assistant...",
 });
 ```
+
+`createIntegrationsPlugin()` accepte un objet `IntegrationsPluginOptions` facultatif. Son option `initialToolNames?: readonly string[]` sélectionne les schémas des actions locales envoyés lors de la première requête au modèle. Si elle est omise, toutes les actions locales restent dans l’ensemble initial. Le tableau fourni est copié sans modifier celui de l’appelant.
+
+Une liste vide explicite diffère le chargement des actions locales jusqu’à leur découverte par `tool-search`. Les outils requis du framework restent disponibles dès le départ. Cette configuration désactive aussi la délégation entre applications lorsque le déploiement n’a aucun pair A2A :
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+Le même ensemble initial d’outils s’applique au traitement des webhooks, aux tâches en file d’attente et à l’interrogation périodique de Google Docs. Le registre complet des actions reste consultable par recherche. `callAgent: false` désactive indépendamment l’enregistrement de l’action intégrée `call-agent`, même si elle figure dans `initialToolNames`.
 
 Les plates-formes actives dépendent des variables d'environnement définies. Le plugin enregistre les routes de webhook pour chacune d'entre elles sous `/_agent-native/integrations/`.
 

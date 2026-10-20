@@ -1,14 +1,8 @@
-/**
- * OAuth 2.1 client support for remote MCP servers.
- *
- * MCP servers advertise their OAuth endpoints through the standard protected
- * resource and authorization-server metadata documents. The SDK handles the
- * protocol details; this module owns the framework-specific encrypted storage
- * and refresh boundary.
- */
+import crypto from "node:crypto";
 
 import {
   auth,
+  discoverOAuthServerInfo,
   refreshAuthorization,
   validateAuthorizationResponseIssuer,
   type AuthorizationServerMetadata,
@@ -22,15 +16,82 @@ import {
   OAuthTokens,
 } from "@modelcontextprotocol/client";
 
+import { getAppConfig } from "../app-config/index.js";
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
-  deleteOAuthTokens,
-  getOAuthTokens,
-  saveOAuthTokens,
-} from "../oauth-tokens/store.js";
+  readOAuthCredentialState,
+  resolveOAuthCredentialAccess,
+  markOAuthReconnectRequired,
+  revokeOAuthCredential,
+  saveOAuthCredential,
+  type OAuthCredential,
+  type OAuthCredentialIdentity,
+  type OAuthCredentialState,
+  type OAuthRevocationResult,
+} from "../oauth-tokens/lifecycle.js";
 import { validateRemoteUrl } from "./remote-url.js";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const MAX_OAUTH_REDIRECTS = 5;
+const MAX_OAUTH_RESPONSE_BYTES = 256 * 1024;
+const MCP_OAUTH_PRIVATE_ORIGINS_ENV = "AGENT_NATIVE_MCP_OAUTH_PRIVATE_ORIGINS";
+
+const GOOGLE_MCP_ISSUER = "https://accounts.google.com";
+const GOOGLE_MCP_AUTHORIZATION_ENDPOINT =
+  "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_MCP_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+const GOOGLE_MCP_SCOPES_BY_ORIGIN: Readonly<Record<string, readonly string[]>> =
+  {
+    "https://workspacemcp.googleapis.com": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/chat.messages.readonly",
+    ],
+    "https://gmailmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.compose",
+    ],
+    "https://drivemcp.googleapis.com": [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+    ],
+    "https://docsmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/documents.readonly",
+      "https://www.googleapis.com/auth/documents",
+    ],
+    "https://sheetsmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/spreadsheets.readonly",
+      "https://www.googleapis.com/auth/spreadsheets",
+    ],
+    "https://slidesmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/presentations.readonly",
+      "https://www.googleapis.com/auth/presentations",
+    ],
+    "https://calendarmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+      "https://www.googleapis.com/auth/calendar.events.freebusy",
+      "https://www.googleapis.com/auth/calendar.events.readonly",
+    ],
+    "https://chatmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/chat.spaces.readonly",
+      "https://www.googleapis.com/auth/chat.memberships.readonly",
+      "https://www.googleapis.com/auth/chat.messages.readonly",
+      "https://www.googleapis.com/auth/chat.messages.create",
+      "https://www.googleapis.com/auth/chat.users.readstate.readonly",
+    ],
+    "https://people.googleapis.com": [
+      "https://www.googleapis.com/auth/directory.readonly",
+      "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/contacts.readonly",
+    ],
+  };
 
 type GuardedFetch = (
   url: string | URL,
@@ -47,13 +108,273 @@ function checkedRemoteUrl(value: string | URL, label: string): URL {
   return result.url;
 }
 
+function canonicalServerUrl(value: string): string {
+  return checkedRemoteUrl(value, "server").toString();
+}
+
+function googleMcpScopes(serverUrl: string): readonly string[] | undefined {
+  try {
+    return GOOGLE_MCP_SCOPES_BY_ORIGIN[new URL(serverUrl).origin];
+  } catch {
+    // coercion-ok: an invalid URL is absent from the managed-server allowlist.
+    return undefined;
+  }
+}
+
+export function isGoogleWorkspaceMcpServer(value: string | URL): boolean {
+  return Boolean(
+    googleMcpScopes(typeof value === "string" ? value : value.toString()),
+  );
+}
+
+function googleMcpDiscoveryState(
+  serverUrl: string,
+  scopes: readonly string[],
+): McpOAuthDiscoveryState {
+  return {
+    authorizationServerUrl: GOOGLE_MCP_ISSUER,
+    authorizationServerMetadata: {
+      issuer: GOOGLE_MCP_ISSUER,
+      authorization_endpoint: GOOGLE_MCP_AUTHORIZATION_ENDPOINT,
+      token_endpoint: GOOGLE_MCP_TOKEN_ENDPOINT,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+      code_challenge_methods_supported: ["S256"],
+    },
+    resourceMetadata: {
+      resource: serverUrl,
+      authorization_servers: [GOOGLE_MCP_ISSUER],
+      bearer_methods_supported: ["header"],
+      scopes_supported: [...scopes],
+    },
+  };
+}
+
+function googleMcpClientInformation(
+  value: StoredOAuthClientInformation | undefined,
+): StoredOAuthClientInformation & { client_id: string; client_secret: string } {
+  const clientId = value?.client_id;
+  const clientSecret = value?.client_secret;
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "Google Workspace MCP OAuth client credentials are not configured.",
+    );
+  }
+  if (value.issuer && value.issuer !== GOOGLE_MCP_ISSUER) {
+    throw new Error("Google Workspace MCP OAuth issuer is invalid.");
+  }
+  return {
+    ...value,
+    client_id: clientId,
+    client_secret: clientSecret,
+    issuer: GOOGLE_MCP_ISSUER,
+  };
+}
+
+function startGoogleMcpOAuthAuthorization(
+  options: McpOAuthProviderOptions,
+  scopes: readonly string[],
+): McpOAuthStartResult {
+  const clientInformation = googleMcpClientInformation(
+    options.clientInformation,
+  );
+  const codeVerifier =
+    options.codeVerifier ?? crypto.randomBytes(48).toString("base64url");
+  const codeChallenge = crypto
+    .createHash("sha256")
+    .update(codeVerifier)
+    .digest("base64url");
+  const authorizationUrl = new URL(GOOGLE_MCP_AUTHORIZATION_ENDPOINT);
+  authorizationUrl.searchParams.set("client_id", clientInformation.client_id);
+  authorizationUrl.searchParams.set("redirect_uri", options.redirectUrl);
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("scope", scopes.join(" "));
+  authorizationUrl.searchParams.set("state", options.state);
+  authorizationUrl.searchParams.set("access_type", "offline");
+  authorizationUrl.searchParams.set("prompt", "consent");
+  authorizationUrl.searchParams.set("code_challenge", codeChallenge);
+  authorizationUrl.searchParams.set("code_challenge_method", "S256");
+
+  return {
+    authorizationUrl: checkedRemoteUrl(
+      authorizationUrl,
+      "authorization redirect",
+    ),
+    codeVerifier,
+    state: options.state,
+    clientInformation,
+    discoveryState: googleMcpDiscoveryState(options.serverUrl, scopes),
+  };
+}
+
+async function readOAuthResponseJson(
+  response: Response,
+): Promise<Record<string, unknown>> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_OAUTH_RESPONSE_BYTES
+  ) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("MCP OAuth response exceeded the size limit.");
+  }
+  if (!response.body) {
+    throw new Error("MCP OAuth response had no body.");
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > MAX_OAUTH_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("MCP OAuth response exceeded the size limit.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const text = new TextDecoder().decode(bytes);
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("MCP OAuth response was not an object.");
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    throw new Error("MCP OAuth response was not valid JSON.");
+  }
+}
+
+async function finishGoogleMcpOAuthAuthorization(
+  options: McpOAuthProviderOptions & { authorizationCode: string },
+  scopes: readonly string[],
+): Promise<McpOAuthCallbackResult> {
+  const clientInformation = googleMcpClientInformation(
+    options.clientInformation,
+  );
+  if (!options.codeVerifier) {
+    throw new Error("Google Workspace MCP OAuth code verifier is missing.");
+  }
+  const response = await guardedOAuthFetch()(GOOGLE_MCP_TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code: options.authorizationCode,
+      client_id: clientInformation.client_id,
+      client_secret: clientInformation.client_secret,
+      redirect_uri: options.redirectUrl,
+      grant_type: "authorization_code",
+      code_verifier: options.codeVerifier,
+    }),
+  });
+  const body = await readOAuthResponseJson(response);
+  const accessToken =
+    typeof body.access_token === "string" ? body.access_token : undefined;
+  const tokenType =
+    typeof body.token_type === "string" ? body.token_type : undefined;
+  if (!response.ok || !accessToken || !tokenType) {
+    throw new Error("Google Workspace MCP OAuth token exchange failed.");
+  }
+  const expiresIn = Number(body.expires_in);
+  const tokens: StoredOAuthTokens = {
+    access_token: accessToken,
+    token_type: tokenType,
+    ...(Number.isFinite(expiresIn) && expiresIn > 0
+      ? { expires_in: expiresIn }
+      : {}),
+    ...(typeof body.refresh_token === "string"
+      ? { refresh_token: body.refresh_token }
+      : {}),
+    ...(typeof body.scope === "string" ? { scope: body.scope } : {}),
+    ...(typeof body.id_token === "string" ? { id_token: body.id_token } : {}),
+    issuer: GOOGLE_MCP_ISSUER,
+  };
+  return {
+    credentials: {
+      serverUrl: options.serverUrl,
+      clientInformation,
+      discoveryState: googleMcpDiscoveryState(options.serverUrl, scopes),
+      tokens,
+      tokenExpiresAt: tokenExpiresAt(tokens),
+    },
+  };
+}
+
+class Rfc8707ResourceUrl extends URL {
+  readonly identifier: string;
+
+  constructor(identifier: string) {
+    super(identifier);
+    this.identifier = identifier;
+  }
+
+  override get href(): string {
+    return this.identifier;
+  }
+
+  override toString(): string {
+    return this.identifier;
+  }
+}
+
+function rfc8707ResourceUrl(identifier: string): URL {
+  checkedRemoteUrl(identifier, "resource");
+  return new Rfc8707ResourceUrl(identifier);
+}
+
+function resourceIsAllowed(requested: URL, configured: string): boolean {
+  const configuredUrl = new URL(configured);
+  if (requested.origin !== configuredUrl.origin) return false;
+  if (requested.pathname.length < configuredUrl.pathname.length) return false;
+  const requestedPath = requested.pathname.endsWith("/")
+    ? requested.pathname
+    : `${requested.pathname}/`;
+  const configuredPath = configuredUrl.pathname.endsWith("/")
+    ? configuredUrl.pathname
+    : `${configuredUrl.pathname}/`;
+  return requestedPath.startsWith(configuredPath);
+}
+
+function serverUrlsMatch(stored: string, canonical: string): boolean {
+  try {
+    return canonicalServerUrl(stored) === canonical;
+  } catch {
+    // coercion-ok: an invalid stored URL is an explicit identity mismatch.
+    return false;
+  }
+}
+
+function configuredPrivateOrigins(): string[] {
+  return (process.env[MCP_OAUTH_PRIVATE_ORIGINS_ENV] ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
 function guardedOAuthFetch(): GuardedFetch {
+  const allowedPrivateOrigins = configuredPrivateOrigins();
   return async (url, init) => {
     let currentUrl = checkedRemoteUrl(url, "request");
     let currentInit: RequestInit = { ...init, redirect: "manual" };
 
     for (let redirectCount = 0; ; redirectCount += 1) {
-      const response = await fetch(currentUrl, currentInit);
+      const response = await ssrfSafeFetch(currentUrl.href, currentInit, {
+        maxRedirects: 0,
+        followRedirects: false,
+        allowedPrivateOrigins,
+      });
       if (![301, 302, 303, 307, 308].includes(response.status)) {
         return response;
       }
@@ -75,10 +396,19 @@ function guardedOAuthFetch(): GuardedFetch {
       await response.body?.cancel().catch(() => undefined);
 
       const nextHeaders = new Headers(currentInit.headers);
-      if (nextUrl.origin !== currentUrl.origin) {
+      const changesOrigin = nextUrl.origin !== currentUrl.origin;
+      if (changesOrigin) {
         nextHeaders.delete("authorization");
         nextHeaders.delete("cookie");
         nextHeaders.delete("proxy-authorization");
+        if (
+          (response.status === 307 || response.status === 308) &&
+          currentInit.body !== null
+        ) {
+          throw new Error(
+            "MCP OAuth redirect cannot forward a request body across origins.",
+          );
+        }
       }
       const nextInit: RequestInit = {
         ...currentInit,
@@ -98,6 +428,23 @@ function guardedOAuthFetch(): GuardedFetch {
       currentInit = nextInit;
     }
   };
+}
+
+async function guardedRevocationFetch(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const endpoint = checkedRemoteUrl(url, "revocation endpoint");
+  return ssrfSafeFetch(endpoint.href, init, {
+    maxRedirects: 0,
+    allowedPrivateOrigins: configuredPrivateOrigins(),
+    assertUrlAllowed: (candidate) => {
+      const checked = checkedRemoteUrl(candidate, "revocation redirect");
+      if (checked.origin !== endpoint.origin) {
+        throw new Error("MCP OAuth revocation redirect changed origin.");
+      }
+    },
+  });
 }
 
 function validateDiscoveryUrls(state: {
@@ -129,13 +476,9 @@ function validateDiscoveryUrls(state: {
   }
 }
 
-function credentialOwner(options: { scope: "user" | "org"; scopeId: string }) {
-  return `${options.scope}:${options.scopeId}`;
-}
-
 export type McpOAuthDiscoveryState = OAuthDiscoveryState;
 
-export interface McpOAuthCredentialBundle {
+export interface McpOAuthCredentialBundle extends OAuthCredential {
   serverUrl: string;
   clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
@@ -159,9 +502,35 @@ export interface McpOAuthProviderOptions {
   serverUrl: string;
   redirectUrl: string;
   state: string;
+  tokenEndpointAuthMethod?: OAuthClientMetadata["token_endpoint_auth_method"];
   clientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
   discoveryState?: McpOAuthDiscoveryState;
+  /**
+   * Runs the moment the SDK persists discovery, which is before it selects a
+   * resource, resolves scope, or registers a client. Throwing here is how a
+   * caller refuses a flow that discovery has already proven cannot finish.
+   * Receives this provider's `clientMetadataUrl` because whether the SDK can
+   * skip registration depends on it as well as on the server's metadata.
+   */
+  onDiscoveryState?: (
+    state: McpOAuthDiscoveryState,
+    clientMetadataUrl: string | undefined,
+  ) => void;
+}
+
+function dynamicClientAuthMethod(
+  metadata: AuthorizationServerMetadata | undefined,
+): OAuthClientMetadata["token_endpoint_auth_method"] {
+  const methods = metadata?.token_endpoint_auth_methods_supported;
+  if (!Array.isArray(methods)) return "client_secret_basic";
+  if (methods.includes("none")) return "none";
+  for (const method of ["client_secret_basic", "client_secret_post"] as const) {
+    if (methods.includes(method)) return method;
+  }
+  throw new Error(
+    "MCP OAuth server does not support a client authentication method this connector can register with.",
+  );
 }
 
 function issuerForDiscovery(
@@ -169,6 +538,20 @@ function issuerForDiscovery(
 ): string | undefined {
   const issuer = discovery?.authorizationServerMetadata?.issuer;
   return typeof issuer === "string" && issuer ? issuer : undefined;
+}
+
+function credentialIdentity(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): OAuthCredentialIdentity {
+  return {
+    provider: "mcp",
+    accountId: options.key,
+    resource: options.serverUrl,
+    owner: { scope: options.scope, id: options.scopeId },
+  };
 }
 
 function withIssuer<T extends { issuer?: string }>(
@@ -203,11 +586,32 @@ function applicationTypeForRedirect(redirectUrl: string): "native" | "web" {
   return "web";
 }
 
-/**
- * A small adapter around the MCP SDK's OAuth provider interface. The route
- * stores the adapter's state in an encrypted, short-lived browser cookie; the
- * durable credential bundle is written only after the callback succeeds.
- */
+function brandedOAuthClientMetadata(): Pick<
+  OAuthClientMetadata,
+  "client_name" | "client_uri" | "logo_uri"
+> {
+  const app = getAppConfig().app;
+  const metadata: Pick<
+    OAuthClientMetadata,
+    "client_name" | "client_uri" | "logo_uri"
+  > = {
+    client_name: app.name?.trim() || "Agent-Native MCP connector",
+  };
+
+  if (app.logoUrl) {
+    try {
+      const logoUrl = new URL(app.logoUrl);
+      if (logoUrl.protocol === "https:") {
+        metadata.logo_uri = logoUrl.href;
+        metadata.client_uri = logoUrl.origin;
+      }
+    } catch {
+      // coercion-ok: an invalid optional logo is omitted from OAuth metadata.
+    }
+  }
+  return metadata;
+}
+
 export class McpOAuthClientProvider implements OAuthClientProvider {
   private readonly redirectUrlValue: string;
   private readonly stateValue: string;
@@ -217,6 +621,11 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   private savedCodeVerifier?: string;
   private savedDiscovery?: McpOAuthDiscoveryState;
   private authorizationUrl?: URL;
+  private readonly onDiscoveryState?: (
+    state: McpOAuthDiscoveryState,
+    clientMetadataUrl: string | undefined,
+  ) => void;
+  readonly clientMetadataUrl?: string;
 
   constructor(options: McpOAuthProviderOptions) {
     this.redirectUrlValue = options.redirectUrl;
@@ -224,6 +633,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     this.clientInfo = options.clientInformation;
     this.savedCodeVerifier = options.codeVerifier;
     this.savedDiscovery = options.discoveryState;
+    this.onDiscoveryState = options.onDiscoveryState;
     const recordedIssuer = issuerForDiscovery(this.savedDiscovery);
     if (
       this.clientInfo &&
@@ -237,12 +647,12 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       this.clientInfo = { ...this.clientInfo, issuer: recordedIssuer };
     }
     this.metadata = {
+      ...brandedOAuthClientMetadata(),
       redirect_uris: [options.redirectUrl],
-      token_endpoint_auth_method: "none",
+      token_endpoint_auth_method: options.tokenEndpointAuthMethod ?? "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       application_type: applicationTypeForRedirect(options.redirectUrl),
-      client_name: "Agent Native MCP connector",
     };
   }
 
@@ -314,6 +724,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }): void {
     validateDiscoveryUrls(state);
     this.savedDiscovery = state;
+    this.onDiscoveryState?.(state, this.clientMetadataUrl);
   }
 
   discoveryState(): McpOAuthDiscoveryState | undefined {
@@ -335,16 +746,173 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   get savedClientInformation(): StoredOAuthClientInformation | undefined {
     return this.clientInfo;
   }
+
+  async validateResourceURL(
+    defaultResource: string | URL,
+    advertised?: string,
+  ): Promise<URL | undefined> {
+    if (!advertised) return undefined;
+    const requested =
+      typeof defaultResource === "string"
+        ? new URL(defaultResource)
+        : defaultResource;
+    if (!resourceIsAllowed(requested, advertised)) {
+      throw new Error(
+        `Protected resource ${advertised} does not match expected ${requested} (or origin)`,
+      );
+    }
+    return rfc8707ResourceUrl(advertised);
+  }
+}
+
+/**
+ * The authorization server behind this MCP endpoint cannot mint a client on
+ * demand: its metadata advertises neither an RFC 7591 registration_endpoint nor
+ * SEP-991 Client ID Metadata Documents. Retrying never helps, which is what
+ * separates it from a transient discovery or network failure.
+ */
+export class McpOAuthRegistrationUnsupportedError extends Error {
+  readonly issuer?: string;
+  readonly authorizationServerUrl?: string;
+
+  constructor(details: { issuer?: string; authorizationServerUrl?: string }) {
+    const server =
+      details.issuer ?? details.authorizationServerUrl ?? "(unknown)";
+    super(
+      `MCP OAuth authorization server ${server} does not support dynamic client registration`,
+    );
+    this.name = "McpOAuthRegistrationUnsupportedError";
+    this.issuer = details.issuer;
+    this.authorizationServerUrl = details.authorizationServerUrl;
+  }
+}
+
+export async function resolveMcpOAuthAuthorizationServerUrl(
+  value: string,
+): Promise<string> {
+  return (await resolveMcpOAuthAuthorizationServerDiscovery(value))
+    .authorizationServerUrl;
+}
+
+export async function resolveMcpOAuthAuthorizationServerDiscovery(
+  value: string,
+): Promise<McpOAuthDiscoveryState> {
+  const candidate = checkedRemoteUrl(value, "authorization server metadata");
+  const response = await guardedOAuthFetch()(candidate, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    return { authorizationServerUrl: candidate.toString() };
+  }
+  const contentType =
+    response.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "";
+  if (!contentType.includes("json")) {
+    await response.body?.cancel().catch(() => undefined);
+    return { authorizationServerUrl: candidate.toString() };
+  }
+  const metadata = await readOAuthResponseJson(response);
+  const issuer = typeof metadata.issuer === "string" ? metadata.issuer : null;
+  const state: McpOAuthDiscoveryState = {
+    authorizationServerUrl: issuer
+      ? checkedRemoteUrl(issuer, "authorization server").toString()
+      : candidate.toString(),
+    ...(issuer
+      ? { authorizationServerMetadata: metadata as AuthorizationServerMetadata }
+      : {}),
+  };
+  validateDiscoveryUrls(state);
+  return state;
+}
+
+/**
+ * Refuse a start the moment discovery proves it cannot finish, rather than
+ * inferring the reason from a later rejection. Discovery lands before the SDK
+ * selects a resource, resolves scope, or registers, so a failure raised here is
+ * known to be the missing registration path; anything thrown afterwards is a
+ * different problem and keeps its own error.
+ */
+function assertRegisterableClient(
+  state: McpOAuthDiscoveryState,
+  clientMetadataUrl: string | undefined,
+): void {
+  const metadata = state.authorizationServerMetadata as
+    | (AuthorizationServerMetadata & {
+        client_id_metadata_document_supported?: boolean;
+      })
+    | undefined;
+  if (!metadata) return;
+  if (metadata.registration_endpoint) return;
+  if (
+    metadata.client_id_metadata_document_supported === true &&
+    clientMetadataUrl
+  ) {
+    return;
+  }
+  throw new McpOAuthRegistrationUnsupportedError({
+    issuer: typeof metadata.issuer === "string" ? metadata.issuer : undefined,
+    authorizationServerUrl: state.authorizationServerUrl,
+  });
 }
 
 export async function startMcpOAuthAuthorization(
-  options: McpOAuthProviderOptions & { scope?: string },
+  options: McpOAuthProviderOptions & {
+    scope?: string;
+    resourceMetadataUrl?: string;
+  },
 ): Promise<McpOAuthStartResult> {
-  checkedRemoteUrl(options.serverUrl, "server");
-  const provider = new McpOAuthClientProvider(options);
+  const serverUrl = checkedRemoteUrl(options.serverUrl, "server");
+  const googleScopes = googleMcpScopes(serverUrl.toString());
+  if (googleScopes) {
+    return startGoogleMcpOAuthAuthorization(
+      { ...options, serverUrl: serverUrl.toString() },
+      googleScopes,
+    );
+  }
+  const resourceMetadataUrl = options.resourceMetadataUrl
+    ? checkedRemoteUrl(options.resourceMetadataUrl, "resource metadata").href
+    : undefined;
+  const discoveredState =
+    !options.clientInformation && !options.discoveryState
+      ? await discoverOAuthServerInfo(serverUrl, {
+          fetchFn: guardedOAuthFetch(),
+          ...(resourceMetadataUrl
+            ? { resourceMetadataUrl: new URL(resourceMetadataUrl) }
+            : {}),
+        })
+      : undefined;
+  const discoveryState =
+    options.discoveryState ??
+    (discoveredState
+      ? {
+          ...discoveredState,
+          ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
+        }
+      : undefined);
+  if (discoveryState) validateDiscoveryUrls(discoveryState);
+  if (!options.clientInformation && discoveryState) {
+    assertRegisterableClient(discoveryState, undefined);
+  }
+  const provider = new McpOAuthClientProvider({
+    ...options,
+    ...(discoveryState ? { discoveryState } : {}),
+    ...(!options.clientInformation
+      ? {
+          tokenEndpointAuthMethod: dynamicClientAuthMethod(
+            discoveryState?.authorizationServerMetadata,
+          ),
+        }
+      : {}),
+    ...(options.clientInformation
+      ? {}
+      : { onDiscoveryState: assertRegisterableClient }),
+  });
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
     scope: options.scope,
+    ...(options.resourceMetadataUrl
+      ? { resourceMetadataUrl: new URL(options.resourceMetadataUrl) }
+      : {}),
     fetchFn: guardedOAuthFetch(),
   });
   if (result !== "REDIRECT" || !provider.authorizationRedirect) {
@@ -369,7 +937,14 @@ export async function finishMcpOAuthAuthorization(
     iss?: string;
   },
 ): Promise<McpOAuthCallbackResult> {
-  checkedRemoteUrl(options.serverUrl, "server");
+  const serverUrl = checkedRemoteUrl(options.serverUrl, "server");
+  const googleScopes = googleMcpScopes(serverUrl.toString());
+  if (googleScopes) {
+    return finishGoogleMcpOAuthAuthorization(
+      { ...options, serverUrl: serverUrl.toString() },
+      googleScopes,
+    );
+  }
   const provider = new McpOAuthClientProvider(options);
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
@@ -417,15 +992,21 @@ export async function saveMcpOAuthCredentials(options: {
   scopeId: string;
   credentials: McpOAuthCredentialBundle;
 }): Promise<void> {
-  checkedRemoteUrl(options.credentials.serverUrl, "server");
-  if (options.credentials.discoveryState) {
-    validateDiscoveryUrls(options.credentials.discoveryState);
+  const serverUrl = checkedRemoteUrl(
+    options.credentials.serverUrl,
+    "server",
+  ).toString();
+  const credentials = { ...options.credentials, serverUrl };
+  if (credentials.discoveryState) {
+    validateDiscoveryUrls(credentials.discoveryState);
   }
-  await saveOAuthTokens(
-    "mcp",
-    options.key,
-    options.credentials as unknown as Record<string, unknown>,
-    `${options.scope}:${options.scopeId}`,
+  await saveOAuthCredential(
+    credentialIdentity({
+      ...options,
+      serverUrl,
+    }),
+    credentials,
+    { legacyAccountKey: true },
   );
 }
 
@@ -433,23 +1014,17 @@ export async function readMcpOAuthCredentials(options: {
   key: string;
   scope: "user" | "org";
   scopeId: string;
+  serverUrl?: string;
 }): Promise<McpOAuthCredentialBundle | null> {
-  const stored = await getOAuthTokens(
-    "mcp",
-    options.key,
-    credentialOwner(options),
-  );
-  if (!stored) return null;
-  const parsed = stored as Partial<McpOAuthCredentialBundle>;
-  if (
-    typeof parsed.serverUrl !== "string" ||
-    !parsed.clientInformation ||
-    !parsed.tokens ||
-    typeof parsed.tokens.access_token !== "string"
-  ) {
-    return null;
-  }
-  if (!validateRemoteUrl(parsed.serverUrl).ok) return null;
+  if (!options.serverUrl) return null;
+  const serverUrl = canonicalServerUrl(options.serverUrl);
+  const state = await getMcpOAuthConnectionState({
+    ...options,
+    serverUrl,
+  });
+  if (state.kind === "missing" || state.kind === "malformed") return null;
+  const parsed = state.credential;
+  if (!serverUrlsMatch(parsed.serverUrl, serverUrl)) return null;
   if (parsed.discoveryState) {
     try {
       validateDiscoveryUrls(parsed.discoveryState);
@@ -457,97 +1032,181 @@ export async function readMcpOAuthCredentials(options: {
       return null;
     }
   }
-  return parsed as McpOAuthCredentialBundle;
+  return { ...parsed, serverUrl };
+}
+
+export async function getMcpOAuthConnectionState(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): Promise<OAuthCredentialState<McpOAuthCredentialBundle>> {
+  const serverUrl = canonicalServerUrl(options.serverUrl);
+  return readOAuthCredentialState<McpOAuthCredentialBundle>(
+    credentialIdentity({ ...options, serverUrl }),
+    {
+      allowLegacy: true,
+      legacyAccountKey: true,
+      validateCredential: (credential) =>
+        serverUrlsMatch(credential.serverUrl, serverUrl),
+    },
+  );
+}
+
+export async function markMcpOAuthReconnectRequired(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): Promise<boolean> {
+  const serverUrl = canonicalServerUrl(options.serverUrl);
+  return markOAuthReconnectRequired<McpOAuthCredentialBundle>(
+    credentialIdentity({ ...options, serverUrl }),
+    {
+      allowLegacy: true,
+      legacyAccountKey: true,
+      validateCredential: (credential) =>
+        serverUrlsMatch(credential.serverUrl, serverUrl),
+    },
+  );
 }
 
 export async function deleteMcpOAuthCredentials(options: {
   key: string;
   scope: "user" | "org";
   scopeId: string;
+  serverUrl?: string;
 }): Promise<boolean> {
-  return (
-    (await deleteOAuthTokens("mcp", options.key, credentialOwner(options))) > 0
-  );
+  if (!options.serverUrl) return false;
+  const serverUrl = canonicalServerUrl(options.serverUrl);
+  const identity = credentialIdentity({
+    ...options,
+    serverUrl,
+  });
+  const result = await revokeOAuthCredential(identity, {
+    allowLegacy: true,
+    legacyAccountKey: true,
+    validateCredential: (credential: McpOAuthCredentialBundle) =>
+      serverUrlsMatch(credential.serverUrl, serverUrl),
+  });
+  return result.local === "deleted";
+}
+
+export async function revokeMcpOAuthCredentials(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): Promise<OAuthRevocationResult> {
+  const serverUrl = canonicalServerUrl(options.serverUrl);
+  const identity = credentialIdentity({ ...options, serverUrl });
+  return revokeOAuthCredential<McpOAuthCredentialBundle>(identity, {
+    allowLegacy: true,
+    legacyAccountKey: true,
+    validateCredential: (credential) =>
+      serverUrlsMatch(credential.serverUrl, serverUrl),
+    revoke: async ({ credential }) => {
+      const endpoint = (
+        credential.discoveryState?.authorizationServerMetadata as
+          | (AuthorizationServerMetadata & { revocation_endpoint?: string })
+          | undefined
+      )?.revocation_endpoint;
+      if (!endpoint) return "unsupported";
+      const token =
+        credential.tokens.refresh_token ?? credential.tokens.access_token;
+      const body = new URLSearchParams({
+        token,
+        token_type_hint: credential.tokens.refresh_token
+          ? "refresh_token"
+          : "access_token",
+        client_id: credential.clientInformation.client_id,
+      });
+      const response = await guardedRevocationFetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error("MCP OAuth revocation failed.");
+      }
+      await response.body?.cancel().catch(() => undefined);
+      return "succeeded";
+    },
+  });
 }
 
 /**
  * Resolve an access token for the MCP manager. Refreshing happens only when a
  * token is near expiry, so ordinary manager reconfiguration does not perform
- * a network request for every connector.
+ * a network request for every connector. `forceRefresh` is for a caller whose
+ * request was just refused with 401 by a token that had not expired yet.
  */
 export async function getMcpOAuthAccessToken(options: {
   key: string;
   scope: "user" | "org";
   scopeId: string;
   serverUrl: string;
+  forceRefresh?: boolean;
 }): Promise<string | null> {
-  if (!validateRemoteUrl(options.serverUrl).ok) return null;
-  const credentials = await readMcpOAuthCredentials(options);
-  if (!credentials || credentials.serverUrl !== options.serverUrl) return null;
-
-  const accessToken = credentials.tokens.access_token;
-  const now = Date.now();
-  if (
-    typeof credentials.tokenExpiresAt !== "number" ||
-    credentials.tokenExpiresAt - now > TOKEN_EXPIRY_SKEW_MS
-  ) {
-    return accessToken;
-  }
-  const tokenIsExpired = credentials.tokenExpiresAt <= now;
-
-  const refreshToken = credentials.tokens.refresh_token;
-  const discovery = credentials.discoveryState;
-  if (!refreshToken || !discovery?.authorizationServerUrl) {
-    return tokenIsExpired ? null : accessToken;
-  }
-
-  try {
-    const expectedIssuer = issuerForDiscovery(discovery);
-    if (
-      !expectedIssuer ||
-      credentials.clientInformation.issuer !== expectedIssuer ||
-      credentials.tokens.issuer !== expectedIssuer
-    ) {
-      return null;
-    }
-    const resource = discovery.resourceMetadata?.resource
-      ? checkedRemoteUrl(discovery.resourceMetadata.resource, "resource")
-      : undefined;
-    const authorizationServerUrl = checkedRemoteUrl(
-      discovery.authorizationServerUrl,
-      "authorization server",
-    );
-    const refreshed = await refreshAuthorization(authorizationServerUrl, {
-      metadata: discovery.authorizationServerMetadata,
-      clientInformation: credentials.clientInformation,
-      refreshToken,
-      resource,
-      fetchFn: guardedOAuthFetch(),
-    });
-    const nextTokens: StoredOAuthTokens = {
-      ...credentials.tokens,
-      ...refreshed,
-      issuer: expectedIssuer,
-      ...(refreshed.refresh_token
-        ? { refresh_token: refreshed.refresh_token }
-        : credentials.tokens.refresh_token
-          ? { refresh_token: credentials.tokens.refresh_token }
-          : {}),
-    };
-    const next: McpOAuthCredentialBundle = {
-      ...credentials,
-      tokens: nextTokens,
-      tokenExpiresAt: tokenExpiresAt(nextTokens),
-    };
-    await saveMcpOAuthCredentials({
-      ...options,
-      credentials: next,
-    });
-    return nextTokens.access_token;
-  } catch {
-    // A still-valid token can survive a transient refresh failure. Once it has
-    // expired, omit it so callers surface reauthorization instead of retrying
-    // a credential that can never authenticate.
-    return tokenIsExpired ? null : accessToken;
-  }
+  const validation = validateRemoteUrl(options.serverUrl);
+  if (!validation.ok || !validation.url) return null;
+  const serverUrl = validation.url.toString();
+  const result = await resolveOAuthCredentialAccess<McpOAuthCredentialBundle>(
+    credentialIdentity({ ...options, serverUrl }),
+    {
+      allowLegacy: true,
+      legacyAccountKey: true,
+      validateCredential: (credential) =>
+        serverUrlsMatch(credential.serverUrl, serverUrl),
+      expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
+      forceRefresh: options.forceRefresh,
+      refresh: async ({ credential: credentials }) => {
+        const refreshToken = credentials.tokens.refresh_token;
+        const discovery = credentials.discoveryState;
+        if (!refreshToken || !discovery?.authorizationServerUrl) {
+          throw new Error("MCP OAuth refresh is unavailable.");
+        }
+        const expectedIssuer = issuerForDiscovery(discovery);
+        if (
+          !expectedIssuer ||
+          credentials.clientInformation.issuer !== expectedIssuer ||
+          credentials.tokens.issuer !== expectedIssuer
+        ) {
+          throw new Error("MCP OAuth refresh issuer binding is invalid.");
+        }
+        const resource = discovery.resourceMetadata?.resource
+          ? rfc8707ResourceUrl(discovery.resourceMetadata.resource)
+          : undefined;
+        const authorizationServerUrl = checkedRemoteUrl(
+          discovery.authorizationServerUrl,
+          "authorization server",
+        );
+        const refreshed = await refreshAuthorization(authorizationServerUrl, {
+          metadata: discovery.authorizationServerMetadata,
+          clientInformation: credentials.clientInformation,
+          refreshToken,
+          resource,
+          fetchFn: guardedOAuthFetch(),
+        });
+        const nextTokens: StoredOAuthTokens = {
+          ...credentials.tokens,
+          ...refreshed,
+          issuer: expectedIssuer,
+          ...(refreshed.refresh_token
+            ? { refresh_token: refreshed.refresh_token }
+            : credentials.tokens.refresh_token
+              ? { refresh_token: credentials.tokens.refresh_token }
+              : {}),
+        };
+        const next: McpOAuthCredentialBundle = {
+          ...credentials,
+          tokens: nextTokens,
+          tokenExpiresAt: tokenExpiresAt(nextTokens),
+        };
+        return next;
+      },
+    },
+  );
+  return result.accessToken;
 }

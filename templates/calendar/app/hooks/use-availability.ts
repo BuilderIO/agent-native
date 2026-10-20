@@ -15,7 +15,7 @@ export function useUpdateAvailability() {
     "update-availability",
     {
       onSuccess: () => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "get-availability"],
         });
       },

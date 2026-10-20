@@ -7,8 +7,10 @@ import { describe, expect, it } from "vitest";
 import type { OverscannedViewportBounds } from "./culling";
 import {
   applyScreenPaintSuppression,
+  observeScreenPaintTargets,
   resolveSuppressedScreenIds,
   type ScreenPaintCandidate,
+  type ScreenPaintTarget,
 } from "./paint-suppression";
 
 const frame = (x: number): ScreenPaintCandidate["geometry"] => ({
@@ -58,14 +60,64 @@ describe("overview paint suppression", () => {
     ).toBe(0);
   });
 
+  it("refreshes paint targets only when target wrappers change", async () => {
+    const surface = document.createElement("div");
+    const firstShell = document.createElement("div");
+    firstShell.dataset.screenShell = "";
+    firstShell.dataset.frameId = "first";
+    const first = document.createElement("span");
+    first.dataset.screenContent = "";
+    firstShell.append(first);
+    surface.append(firstShell);
+
+    const updates: ScreenPaintTarget[][] = [];
+    const stop = observeScreenPaintTargets(surface, (targets) => {
+      updates.push(targets);
+    });
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toEqual([{ element: first, screenId: "first" }]);
+
+    first.append(document.createElement("em"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(updates).toHaveLength(1);
+
+    const secondShell = document.createElement("div");
+    secondShell.dataset.screenShell = "";
+    secondShell.dataset.frameId = "second";
+    const second = document.createElement("span");
+    second.dataset.screenContent = "";
+    secondShell.append(second);
+    surface.append(secondShell);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(updates).toHaveLength(2);
+    expect(updates[1]).toEqual([
+      { element: first, screenId: "first" },
+      { element: second, screenId: "second" },
+    ]);
+
+    secondShell.dataset.frameId = "renamed";
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(updates[2]).toEqual([
+      { element: first, screenId: "first" },
+      { element: second, screenId: "renamed" },
+    ]);
+
+    firstShell.remove();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(updates[3]).toEqual([{ element: second, screenId: "renamed" }]);
+
+    stop();
+    secondShell.remove();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(updates).toHaveLength(4);
+  });
+
   it("writes a freshly mounted wrapper and leaves an unchanged one alone", () => {
     const element = document.createElement("span");
     const targets = [{ element, screenId: "screen" }];
 
     applyScreenPaintSuppression(targets, new Set(["screen"]));
     expect(element.style.visibility).toBe("hidden");
-    // content-visibility discards rendering state, so un-hiding would blank the
-    // iframe for a frame. visibility alone skips paint and restores instantly.
     expect(element.style.getPropertyValue("content-visibility")).toBe("");
 
     element.style.setProperty("visibility", "visible");
@@ -82,12 +134,8 @@ describe("overview paint suppression", () => {
       "app/components/design/MultiScreenCanvas.tsx",
       "utf8",
     );
-    // Two owners drift: React's style diff stops re-applying a value it thinks
-    // is unchanged, so suppression silently dies with nothing visibly broken.
     expect(source).not.toContain("contentVisibility:");
     expect(source).not.toContain("visibility: isCulled");
-    // A camera move that skips this leaves screens hidden until the debounced
-    // commit — the zoom flicker this whole module exists for.
     const applyViewToDom = source.slice(
       source.indexOf("const applyViewToDom = useCallback("),
     );

@@ -1,26 +1,32 @@
-import { defineBlock } from "@agent-native/core/blocks";
-import type { BlockReadProps } from "@agent-native/core/blocks";
+import { defineBlock } from "@agent-native/toolkit/app/blocks";
+import type { BlockReadProps } from "@agent-native/toolkit/app/blocks";
 import type React from "react";
 
 import {
   comparisonSchema,
   comparisonMdx,
   type ComparisonData,
+  type ComparisonSide,
 } from "./comparison.config";
 
 export type { ComparisonData };
 
-const ACCENT_CLASSES: Record<string, string> = {
-  before: "docs-comparison-col--before",
-  after: "docs-comparison-col--after",
-  old: "docs-comparison-col--before",
-  new: "docs-comparison-col--after",
-  without: "docs-comparison-col--before",
-  with: "docs-comparison-col--after",
+const ACCENT_COLOR_KEYS = new Set(["blue", "green", "red", "yellow"]);
+
+const LEGACY_LABEL_ACCENT: Record<string, string> = {
+  before: "red",
+  old: "red",
+  without: "red",
+  after: "green",
+  new: "green",
+  with: "green",
 };
 
-function accentClass(label: string): string {
-  return ACCENT_CLASSES[label.toLowerCase().trim()] ?? "";
+function resolveAccentColor(side: ComparisonSide): string | undefined {
+  if (side.color) {
+    return ACCENT_COLOR_KEYS.has(side.color) ? side.color : undefined;
+  }
+  return LEGACY_LABEL_ACCENT[side.label.toLowerCase().trim()];
 }
 
 export function ComparisonBlock({ data, ctx }: BlockReadProps<ComparisonData>) {
@@ -32,7 +38,8 @@ export function ComparisonBlock({ data, ctx }: BlockReadProps<ComparisonData>) {
       {data.sides.map((side, i) => (
         <div
           key={i}
-          className={`docs-comparison-col ${accentClass(side.label)}`}
+          className="docs-comparison-col"
+          data-accent-color={resolveAccentColor(side)}
         >
           <p className="docs-comparison-label">{side.label}</p>
           <div className="docs-comparison-body">

@@ -26,7 +26,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 vi.mock("@tabler/icons-react", () => ({
-  IconDots: () => <span />,
+  IconDotsVertical: () => <span data-testid="vertical-dots" />,
   IconDownload: () => <span />,
   IconTrash: () => <span />,
 }));
@@ -34,9 +34,12 @@ vi.mock("@tabler/icons-react", () => ({
 vi.mock("@/components/ui/button", () => ({
   Button: ({
     children,
+    size,
     ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button {...props}>{children}</button>
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { size?: string }) => (
+    <button data-size={size} {...props}>
+      {children}
+    </button>
   ),
 }));
 
@@ -143,17 +146,48 @@ describe("RecordingOptionsMenu", () => {
     act(() => deleteButton?.click());
     expect(mocks.mutationOptions).not.toBeNull();
 
-    act(() => mocks.mutationOptions.onSuccess());
+    void act(() => mocks.mutationOptions.onSuccess());
     expect(onDeleted).not.toHaveBeenCalled();
 
     const closeEvent = { preventDefault: vi.fn() };
     act(() => mocks.closeAutoFocus?.(closeEvent));
     expect(closeEvent.preventDefault).toHaveBeenCalled();
-    expect(onDeleted).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
     expect(onDeleted).toHaveBeenCalledOnce();
+  });
+
+  it("uses the standard toolbar control size for overflow", () => {
+    act(() => {
+      root.render(
+        <RecordingOptionsMenu
+          recordingId="recording-1"
+          canDelete={false}
+          canDownload
+          onDownload={vi.fn()}
+        />,
+      );
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="deleteRecordingMenu.clipOptions"]',
+    );
+
+    expect(button?.getAttribute("data-size")).toBe("icon-sm");
+    expect(button?.className).toContain("order-last");
+    expect(container.querySelector('[data-testid="vertical-dots"]')).not.toBe(
+      null,
+    );
+  });
+
+  it("renders advanced controls even when delete is unavailable", () => {
+    act(() => {
+      root.render(
+        <RecordingOptionsMenu recordingId="recording-1" canDelete={false}>
+          <span>Remove filler words</span>
+        </RecordingOptionsMenu>,
+      );
+    });
+
+    expect(container.textContent).toContain("Remove filler words");
+    expect(container.textContent).not.toContain("deleteRecordingMenu.delete");
   });
 });

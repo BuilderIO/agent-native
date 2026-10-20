@@ -4,7 +4,7 @@ An open-source, agent-native alternative to Amplitude and FullStory. Ask
 analytics questions in plain English and get charts, dashboards, and re-runnable
 investigations back — you own the code, the queries, and the data.
 
-**Live app: [analytics.agent-native.com](https://analytics.agent-native.com)**
+**Live app: [analytics.agent-native.com](https://analytics.agent-native.com?utm_source=github&utm_medium=referral&utm_content=analytics-readme)**
 
 The agent connects to your data, writes and validates the SQL for you, and
 renders the answer as a chart, table, metric, or saved dashboard panel. Anything
@@ -26,10 +26,10 @@ you can do in the UI, the agent can do through the same actions.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-analytics --standalone --template analytics
+npx --yes @agent-native/core@latest create my-analytics --standalone --template analytics
 cd my-analytics
 pnpm install
 pnpm dev
 ```
 
-Full docs: [agent-native.com/docs/template-analytics](https://agent-native.com/docs/template-analytics).
+Full docs: [agent-native.com/docs/template-analytics](https://agent-native.com/docs/template-analytics?utm_source=github&utm_medium=referral&utm_content=analytics-readme).

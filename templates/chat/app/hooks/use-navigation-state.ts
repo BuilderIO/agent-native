@@ -1,11 +1,22 @@
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  appBasePath,
+  appPathFromLocalRoute,
+} from "@agent-native/core/client/api-path";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
+import {
+  chatThreadPath,
+  HOME_PATH,
+  isChatPathname,
+  NEW_CHAT_PATH,
+  threadIdFromPath,
+} from "@/lib/chat-paths";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
-  view: string;
+  view?: string;
   path?: string;
+  publicPath?: string;
   threadId?: string;
 }
 
@@ -13,36 +24,64 @@ export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
-    getNavigationState: ({ pathname }) => {
-      const threadId = threadIdFromPath(pathname);
-      return {
-        view: viewForPath(pathname),
-        path: appPath(pathname),
-        ...(threadId ? { threadId } : {}),
-      };
-    },
-    getCommandPath: (command) =>
-      routerPath(command.path || pathForCommand(command)),
+    getNavigationState: ({ pathname }) => navigationStateForPath(pathname),
+    getCommandPath: commandPathForNavigation,
   });
 }
 
-function threadIdFromPath(pathname: string): string | null {
-  const match = pathname.match(/^\/chat\/([^/]+)/);
-  if (!match) return null;
-  try {
-    const value = decodeURIComponent(match[1]).trim();
-    return value || null;
-  } catch {
-    return null;
+export function commandPathForNavigation(command: NavigationState): string {
+  const fallbackPath = pathForCommand(command);
+  const path = typeof command?.path === "string" ? command.path : "";
+  if (!path) return fallbackPath;
+
+  const basePath = appBasePath();
+  if (!basePath) return path;
+
+  const suffixIndex = path.search(/[?#]/);
+  const pathname = suffixIndex === -1 ? path : path.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : path.slice(suffixIndex);
+  const publicPath =
+    typeof command?.publicPath === "string" ? command.publicPath : "";
+  const publicPathSuffixIndex = publicPath.search(/[?#]/);
+  const declaredPublicPath =
+    publicPathSuffixIndex === -1
+      ? publicPath
+      : publicPath.slice(0, publicPathSuffixIndex);
+  const publicViewPath = appPathFromLocalRoute(pathForView(command?.view));
+  if (
+    matchesPathPrefix(pathname, basePath) &&
+    (matchesPathPrefix(pathname, publicViewPath) ||
+      (declaredPublicPath && declaredPublicPath === pathname))
+  ) {
+    return `${pathname.slice(basePath.length) || "/"}${suffix}`;
   }
+  return path;
+}
+
+function matchesPathPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+export function navigationStateForPath(pathname: string): NavigationState {
+  const threadId = threadIdFromPath(pathname);
+  return {
+    view: viewForPath(pathname),
+    path: pathname,
+    publicPath: appPathFromLocalRoute(pathname),
+    ...(threadId ? { threadId } : {}),
+  };
 }
 
 function viewForPath(pathname: string): string {
-  if (isChatPath(pathname)) return "chat";
+  if (isChatPathname(pathname)) return "chat";
+  if (pathname === HOME_PATH) return "home";
   if (pathname.startsWith("/database")) return "database";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
-  if (pathname.startsWith("/agent")) return "agent";
+  if (pathname.startsWith("/settings/agent") || pathname.startsWith("/agent")) {
+    return "agent";
+  }
+  if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/team")) return "settings";
   return "chat";
 }
@@ -50,9 +89,10 @@ function viewForPath(pathname: string): string {
 function pathForView(view?: string): string {
   switch (view) {
     case "chat":
-    case "home":
     case "ask":
-      return "/";
+      return NEW_CHAT_PATH;
+    case "home":
+      return HOME_PATH;
     case "database":
       return "/database";
     case "extensions":
@@ -60,34 +100,20 @@ function pathForView(view?: string): string {
     case "observability":
       return "/observability";
     case "agent":
-      return "/agent";
+      return "/settings/agent";
     case "settings":
       return "/settings";
     case "team":
       return "/settings/organization";
     default:
-      return "/";
+      return HOME_PATH;
   }
 }
 
-function pathForCommand(command: any): string {
+export function pathForCommand(command: any): string {
   const path = pathForView(command?.view);
-  if (path !== "/") return path;
+  if (command?.view !== "chat" && command?.view !== "ask") return path;
   const threadId =
     typeof command?.threadId === "string" ? command.threadId.trim() : "";
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
-}
-
-function routerPath(path: string): string {
-  const basePath = appBasePath();
-  if (!basePath) return path;
-  if (path === basePath) return "/";
-  if (path.startsWith(`${basePath}/`)) {
-    return path.slice(basePath.length) || "/";
-  }
-  return path;
-}
-
-function isChatPath(pathname: string): boolean {
-  return pathname === "/" || pathname.startsWith("/chat/");
+  return threadId ? chatThreadPath(threadId) : path;
 }

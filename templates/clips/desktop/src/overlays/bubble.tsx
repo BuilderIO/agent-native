@@ -1,97 +1,71 @@
 import { IconCameraOff } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
+
+import {
+  buildHitMask,
+  createHitMaskSender,
+  hitMaskContains,
+  hitMaskCellSize,
+  type HitMask,
+  type HitRect,
+  hitMaskGrid,
+} from "../lib/bubble-hit-mask";
+import {
+  BUBBLE_PLAY_HEARTBEAT_MS,
+  BUBBLE_RENDER_GRACE_MS,
+  shouldClaimWebrtcPath,
+  shouldReportUnrendered,
+} from "../lib/bubble-playback";
+import { useCameraCutoutPreference } from "../lib/camera-cutout-preference";
+import { createPersonCutout } from "../lib/person-cutout";
+
+// Upper bound for the cut-out canvas in device pixels.
+const CUTOUT_MAX_PX = 720;
+// How often the click-through mask follows the cut-out.
+const HIT_MASK_INTERVAL_MS = 100;
+
+function toHitRect(el: Element): HitRect {
+  const { left, top, right, bottom } = el.getBoundingClientRect();
+  return { left, top, right, bottom };
+}
+
 type BubbleSize = "small" | "medium";
 
-/**
- * Draggable, circular camera bubble — a PURE RENDERER.
- *
- * # Why we usually don't call getUserMedia here
- *
- * Tauri v2's macOS backend runs every webview window inside a single
- * WebKit process. WebKit enforces a documented single-page
- * capture-exclusion policy: when one page calls `getDisplayMedia` or
- * `getUserMedia`, all capture sources in OTHER pages in the same
- * process are MUTED — the track stays `readyState="live"` but frames
- * stop arriving (see WebKit bugs 179363, 237359, 212040, 238456;
- * changeset 271154). Earlier attempts worked around this with onmute
- * listeners, watchdogs, luma probes, cooldowns, and
- * destroy-and-respawn dances — none held up reliably because the
- * underlying behavior is intentional in WebKit.
- *
- * The robust fix for browser/window capture is architectural: the POPOVER
- * owns the camera (it also owns the display-capture session, so "same page"
- * applies), and streams video to this overlay. Two transport paths are
- * supported:
- *
- *   1. **WebRTC loopback (preferred)** — the popover runs an
- *      `RTCPeerConnection`, adds the camera video track, creates an
- *      offer, and shuttles SDP + ICE through Tauri events. This
- *      bubble creates a receiving `RTCPeerConnection`, gets the
- *      track via `ontrack`, and plays it in a `<video>` element.
- *      Zero main-thread encode cost. Hardware-accelerated decode.
- *      See `bubble-webrtc.ts` for the full protocol.
- *
- *   2. **Canvas frame stream (fallback)** — legacy path. The popover
- *      runs `bubble-pump.ts`, encodes each frame as a JPEG data-URL,
- *      and emits `clips:bubble-frame`. This bubble decodes each
- *      payload via an `<img>` and blits onto a canvas. Kept so the
- *      feature degrades gracefully if the WebRTC handshake fails.
- *
- * The bubble always sets up BOTH receivers on mount. Whichever path
- * delivers video first wins — the other stays passive. If the
- * popover's WebRTC handshake fails (ICE timeout / failed state), it
- * stops trying and the popover starts the canvas pump instead, at
- * which point the canvas path takes over seamlessly.
- *
- * # Hover controls (Loom-style)
- *
- * On pointerenter, a small horizontal pill fades in above the bubble
- * with two size-dot buttons (small / medium) and an X close button.
- * Clicking a dot calls `set_bubble_size` on the Rust side, which
- * resizes this window and persists the choice to disk. On
- * pointerleave the pill fades back out after ~400ms — matches Loom's
- * dwell timing so a brief cursor wander off the bubble doesn't yank
- * the controls away mid-reach.
- */
 export function Bubble() {
-  // Dual-path rendering: <video> for WebRTC, <canvas> for the legacy
-  // JPEG stream. CSS stacks them in the same circle — whichever has a
-  // stream / frames visible fills the same space. Starts with canvas
-  // hidden via `data-path="webrtc"` on the root; once a WebRTC track
-  // arrives we set it to "webrtc", and if WebRTC fails and canvas
-  // frames start arriving we flip to "canvas".
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cutoutRef = useRef<HTMLCanvasElement | null>(null);
   const firstFrameAtRef = useRef<number | null>(null);
-  // Which transport delivered the most recent usable frame. Starts as
-  // "none" — we flip to "webrtc" on ontrack, or "canvas" on the first
-  // JPEG frame, whichever lands first.
+  const firstTrackAtRef = useRef<number | null>(null);
+  const trackArrivedAtRef = useRef<number | null>(null);
+  const attemptPlayRef = useRef<() => void>(() => {});
+  const fallbackRequestedRef = useRef(false);
   const [activePath, setActivePath] = useState<"none" | "webrtc" | "canvas">(
     "none",
   );
-  // Small is the default bubble size — matches the Rust-side default in
-  // `load_bubble_size_name`. On mount we `invoke("load_bubble_size")` to
-  // read the persisted choice and override this if the user previously
-  // picked medium.
   const [size, setSize] = useState<BubbleSize>("small");
   const [showControls, setShowControls] = useState(false);
+  const [cutout] = useCameraCutoutPreference();
+  const [cutoutReady, setCutoutReady] = useState(false);
+  const activePathRef = useRef(activePath);
+  activePathRef.current = activePath;
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const showControlsRef = useRef(showControls);
+  const showCutoutRef = useRef(false);
+  const hitProbeRef = useRef<HTMLCanvasElement | null>(null);
+  const hitMaskDirtyRef = useRef(true);
+  const hitMaskSenderRef = useRef<ReturnType<
+    typeof createHitMaskSender
+  > | null>(null);
 
-  // ---- initial size fetch -------------------------------------------------
-  // Rust already sized the Tauri window on spawn based on the saved size;
-  // we just need to mirror that choice into React state so the canvas +
-  // control pill render at the matching CSS dimensions.
   useEffect(() => {
     let cancelled = false;
     invoke<string>("load_bubble_size")
       .then((value) => {
         if (cancelled) return;
-        // Default is "small" — mirrors the Rust-side fallback. Only a
-        // stored "medium" flips us to the larger circle; anything else
-        // (including a corrupted JSON blob) stays small.
         setSize(value === "medium" ? "medium" : "small");
       })
       .catch((err) => {
@@ -102,7 +76,6 @@ export function Bubble() {
     };
   }, []);
 
-  // ---- hover controls -----------------------------------------------------
   const handleMouseEnter = () => {
     if (leaveTimerRef.current) {
       clearTimeout(leaveTimerRef.current);
@@ -112,8 +85,6 @@ export function Bubble() {
   };
   const handleMouseLeave = () => {
     if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
-    // ~400ms dwell matches Loom — short enough to feel responsive, long
-    // enough that a quick cursor detour doesn't yank the controls away.
     leaveTimerRef.current = setTimeout(() => {
       leaveTimerRef.current = null;
       setShowControls(false);
@@ -125,7 +96,102 @@ export function Bubble() {
     };
   }, []);
 
-  // ---- size change --------------------------------------------------------
+  // Rust reports whether the cursor is over the person or a control while
+  // the transparent parts are click-through; the window then gets no native
+  // mouseleave, so hover follows this instead.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    listen<boolean>("clips:bubble-hover", (event) => {
+      if (event.payload) handleMouseEnter();
+      else handleMouseLeave();
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    showControlsRef.current = showControls;
+    hitMaskDirtyRef.current = true;
+  }, [showControls]);
+
+  const hitMaskSender = () =>
+    (hitMaskSenderRef.current ??= createHitMaskSender(
+      (mask) => invoke("set_bubble_hit_mask", { mask }),
+      {
+        onFailed: (err) => {
+          console.warn("[bubble] set_bubble_hit_mask failed", err);
+          hitMaskDirtyRef.current = true;
+        },
+      },
+    ));
+  const sendHitMask = (mask: HitMask | null) => hitMaskSender().send(mask);
+
+  // Samples the displayed cut-out onto a grid over the whole window.
+  const computeHitMask = (cutoutCanvas: HTMLCanvasElement): HitMask | null => {
+    const grid = hitMaskGrid(window.innerWidth, window.innerHeight);
+    const { cols, rows } = grid;
+    const { cellWidth, cellHeight } = hitMaskCellSize(
+      window.innerWidth,
+      window.innerHeight,
+      grid,
+    );
+    const probe = (hitProbeRef.current ??= document.createElement("canvas"));
+    if (probe.width !== cols) probe.width = cols;
+    if (probe.height !== rows) probe.height = rows;
+    const ctx = probe.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cols, rows);
+    const box = cutoutCanvas.getBoundingClientRect();
+    const transform = getComputedStyle(cutoutCanvas).transform;
+    const mirrored = transform !== "none" && new DOMMatrix(transform).a < 0;
+    const sx = 1 / cellWidth;
+    const sy = 1 / cellHeight;
+    ctx.setTransform(
+      mirrored ? -sx : sx,
+      0,
+      0,
+      sy,
+      (mirrored ? box.right : box.left) * sx,
+      box.top * sy,
+    );
+    // Only the part inside the bubble circle is visible, so only it counts.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(box.width / 2, box.height / 2, box.width / 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(cutoutCanvas, 0, 0, box.width, box.height);
+    ctx.restore();
+    const rgba = ctx.getImageData(0, 0, cols, rows).data;
+    const rects = showControlsRef.current
+      ? Array.from(
+          wrapperRef.current?.querySelectorAll(
+            ".bubble-close, .bubble-controls",
+          ) ?? [],
+          toHitRect,
+        )
+      : [];
+    return buildHitMask({
+      cols,
+      rows,
+      rgba,
+      rects,
+      // The bubble is clipped to a circle, so keep the corners click-through.
+      emptyFallback: toHitRect(cutoutCanvas),
+      emptyFallbackShape: "ellipse",
+      cellWidth,
+      cellHeight,
+    });
+  };
+
   const pickSize = async (next: BubbleSize) => {
     if (next === size) return;
     try {
@@ -136,11 +202,110 @@ export function Bubble() {
     }
   };
 
-  // ---- close --------------------------------------------------------------
+  // One segmenter for as long as the cut-out is on; the loop follows
+  // whichever camera path (WebRTC video or canvas pump) is live.
+  useEffect(() => {
+    setCutoutReady(false);
+    const target = cutoutRef.current;
+    if (!cutout || !target) return;
+
+    let stopped = false;
+    let raf: number | null = null;
+    let close: (() => void) | null = null;
+    const abort = new AbortController();
+
+    createPersonCutout({ canvas: target, signal: abort.signal })
+      .then((personCutout) => {
+        if (stopped) {
+          personCutout.close();
+          return;
+        }
+        close = () => personCutout.close();
+        let ready = false;
+        let lastHitMaskAt = 0;
+        const tick = () => {
+          if (stopped) return;
+          raf = requestAnimationFrame(tick);
+          const path = activePathRef.current;
+          const source =
+            path === "canvas"
+              ? canvasRef.current
+              : path === "webrtc"
+                ? videoRef.current
+                : null;
+          const box = target.parentElement?.clientWidth ?? 0;
+          if (!source || box <= 0) return;
+          const size = Math.min(
+            CUTOUT_MAX_PX,
+            Math.round(box * window.devicePixelRatio),
+          );
+          if (!personCutout.render(source, size)) return;
+          if (!ready) {
+            ready = true;
+            setCutoutReady(true);
+          }
+          const now = performance.now();
+          if (
+            showCutoutRef.current &&
+            (hitMaskDirtyRef.current ||
+              now - lastHitMaskAt >= HIT_MASK_INTERVAL_MS)
+          ) {
+            hitMaskDirtyRef.current = false;
+            lastHitMaskAt = now;
+            let mask: HitMask | null = null;
+            try {
+              mask = computeHitMask(target);
+            } catch (err) {
+              console.warn("[bubble] hit mask failed", err);
+            }
+            // No mask means the whole window stays clickable.
+            sendHitMask(mask);
+          }
+        };
+        raf = requestAnimationFrame(tick);
+      })
+      .catch((err) => {
+        if (abort.signal.aborted) return;
+        console.warn("[bubble] person cut-out unavailable", err);
+      });
+
+    return () => {
+      stopped = true;
+      abort.abort();
+      if (raf !== null) cancelAnimationFrame(raf);
+      close?.();
+    };
+  }, [cutout]);
+
+  const showCutout = cutout && cutoutReady && activePath !== "none";
+  showCutoutRef.current = showCutout;
+
+  // Click-through only applies to the cut-out; otherwise (and on unmount)
+  // the whole bubble window takes clicks again.
+  useEffect(() => {
+    if (!showCutout) {
+      sendHitMask(null);
+      return;
+    }
+    hitMaskDirtyRef.current = true;
+    // Rust polls the cursor, so moving off the person would leave the window
+    // taking clicks until the next poll; ask it to update right away.
+    const onPointerMove = (event: PointerEvent) => {
+      const mask = hitMaskSender().current();
+      if (!mask) return;
+      const fx = event.clientX / window.innerWidth;
+      const fy = event.clientY / window.innerHeight;
+      if (hitMaskContains(mask, fx, fy)) return;
+      invoke("recheck_bubble_hit").catch(() => {});
+    };
+    window.addEventListener("pointermove", onPointerMove);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      sendHitMask(null);
+    };
+  }, [showCutout]);
+
   const onClose = async () => {
-    // Let the popover clear its `cameraOn` state — the session effect
-    // then tears down the stream + pump cleanly. Emit first so the
-    // popover gets the signal before the webview is destroyed.
     try {
       await emit("clips:bubble-closed");
     } catch (err) {
@@ -153,11 +318,97 @@ export function Bubble() {
     }
   };
 
-  // ---- WebRTC receiver ----------------------------------------------------
-  // Sets up a fresh RTCPeerConnection on mount, emits `bubble-ready`
-  // so the popover knows to start the handshake, and renegotiates on
-  // every fresh offer. Fully self-contained — survives popover
-  // restarts, stream swaps, and size changes.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    let stopped = false;
+    let lastFailure: string | null = null;
+
+    const attemptPlay = () => {
+      if (stopped) return;
+      if (!video.srcObject || !video.paused) return;
+      video.play().catch((err: unknown) => {
+        const name = (err as { name?: string } | null)?.name ?? "unknown";
+        const message =
+          (err as { message?: string } | null)?.message ?? String(err);
+        const signature = `${name}: ${message}`;
+        if (lastFailure === signature) return;
+        lastFailure = signature;
+        console.warn("[bubble] video.play() rejected —", signature);
+      });
+    };
+    attemptPlayRef.current = attemptPlay;
+
+    const maybeClaimWebrtcPath = () => {
+      const claims = shouldClaimWebrtcPath({
+        fallbackRequested: fallbackRequestedRef.current,
+        videoWidth: video.videoWidth,
+      });
+      if (!claims) return;
+      setActivePath((current) => {
+        if (current !== "webrtc") {
+          console.log(
+            "[bubble] webrtc playback started %dx%d",
+            video.videoWidth,
+            video.videoHeight,
+          );
+        }
+        return "webrtc";
+      });
+    };
+
+    const onPlaying = () => {
+      if (stopped) return;
+      lastFailure = null;
+      maybeClaimWebrtcPath();
+    };
+
+    video.addEventListener("playing", onPlaying);
+    video.addEventListener("loadedmetadata", attemptPlay);
+    video.addEventListener("canplay", attemptPlay);
+    video.addEventListener("pause", attemptPlay);
+    document.addEventListener("visibilitychange", attemptPlay);
+
+    const heartbeat = setInterval(() => {
+      if (stopped) return;
+      attemptPlay();
+      maybeClaimWebrtcPath();
+      const unrendered = shouldReportUnrendered({
+        trackArrivedAt: trackArrivedAtRef.current,
+        now: Date.now(),
+        paused: video.paused,
+        videoWidth: video.videoWidth,
+        alreadyReported: fallbackRequestedRef.current,
+      });
+      if (!unrendered) return;
+      fallbackRequestedRef.current = true;
+      console.warn(
+        "[bubble] webrtc track is not rendering after %dms (paused=%o readyState=%d videoWidth=%d) — asking popover for the canvas pump",
+        BUBBLE_RENDER_GRACE_MS,
+        video.paused,
+        video.readyState,
+        video.videoWidth,
+      );
+      emit("clips:bubble-webrtc-unrendered", {
+        paused: video.paused,
+        readyState: video.readyState,
+        videoWidth: video.videoWidth,
+        lastPlayFailure: lastFailure,
+      }).catch(() => {});
+    }, BUBBLE_PLAY_HEARTBEAT_MS);
+
+    return () => {
+      stopped = true;
+      clearInterval(heartbeat);
+      video.removeEventListener("playing", onPlaying);
+      video.removeEventListener("loadedmetadata", attemptPlay);
+      video.removeEventListener("canplay", attemptPlay);
+      video.removeEventListener("pause", attemptPlay);
+      document.removeEventListener("visibilitychange", attemptPlay);
+      attemptPlayRef.current = () => {};
+    };
+  }, []);
+
   useEffect(() => {
     const unlistens: Array<() => void> = [];
     let stopped = false;
@@ -166,10 +417,6 @@ export function Bubble() {
     // offer we processed. ICE candidates arriving for a stale id are
     // ignored (the popover sometimes re-negotiates if it reboots).
     let currentHandshakeId: number | null = null;
-    // Same race-safe listen tracker as in app.tsx. Every `listen()` is
-    // an async IPC call; if this effect cleans up before the promise
-    // resolves, the fire-and-forget `.then(push)` pattern leaks the
-    // listener (and its entire closure scope, including pc + senders).
     const trackListen = (p: Promise<() => void>) => {
       p.then((u) => {
         if (stopped) {
@@ -187,12 +434,8 @@ export function Bubble() {
     };
 
     function teardownPeer() {
+      trackArrivedAtRef.current = null;
       if (pc) {
-        // Detach the incoming video <video>.srcObject BEFORE closing the
-        // peer — otherwise WKWebView's media pipeline keeps the decoder
-        // alive referencing the (now-dead) track. This is how a single
-        // 1080p receiver peer can pin ~100 MB of GPU + decoder state
-        // that GC can't reclaim.
         const videoEl = videoRef.current;
         if (videoEl && videoEl.srcObject) {
           try {
@@ -202,8 +445,6 @@ export function Bubble() {
           }
           videoEl.srcObject = null;
         }
-        // Null handlers so the closure graph doesn't keep the old peer
-        // reachable through React state refs.
         try {
           pc.onicecandidate = null;
           pc.oniceconnectionstatechange = null;
@@ -228,16 +469,9 @@ export function Bubble() {
       type: string,
     ): Promise<void> {
       if (stopped) return;
-      // Always restart on a new offer — the popover rebuilds its peer
-      // on every bubble re-mount, so we do too.
       teardownPeer();
       currentHandshakeId = incomingId;
 
-      // Same config as the sender — empty iceServers, all transports
-      // allowed (see bubble-webrtc.ts). Receiver doesn't need to call
-      // getUserMedia; WebKit's host-candidate restriction only means
-      // WE don't expose host candidates, but we connect to the
-      // sender's host candidate, which is all we need.
       const localPc = new RTCPeerConnection({
         iceServers: [],
         iceTransportPolicy: "all",
@@ -272,17 +506,13 @@ export function Bubble() {
         const incomingStream = ev.streams[0];
         if (!incomingStream) return;
         videoEl.srcObject = incomingStream;
-        videoEl.play().catch((err) => {
-          // Autoplay might be blocked in some WebKit corners —
-          // `muted` + `playsInline` in JSX should be enough, but log
-          // if it trips so we know to investigate.
-          console.warn("[bubble] video.play() rejected", err);
-        });
-        if (firstFrameAtRef.current == null) {
-          firstFrameAtRef.current = Date.now();
+        trackArrivedAtRef.current = Date.now();
+        fallbackRequestedRef.current = false;
+        attemptPlayRef.current();
+        if (firstTrackAtRef.current == null) {
+          firstTrackAtRef.current = Date.now();
           console.log("[bubble] first webrtc track received");
         }
-        setActivePath("webrtc");
       };
 
       try {
@@ -355,9 +585,6 @@ export function Bubble() {
       }),
     );
 
-    // The popover may ping us if it thinks we missed the first
-    // bubble-ready emit (e.g. popover restart with an already-mounted
-    // bubble). Re-emit on demand.
     trackListen(
       listen("clips:bubble-handshake-request", () => {
         if (stopped) return;
@@ -365,7 +592,6 @@ export function Bubble() {
       }),
     );
 
-    // Announce readiness once the listeners are all wired.
     emit("clips:bubble-ready", {}).catch((err) => {
       console.warn("[bubble] emit bubble-ready failed", err);
     });
@@ -384,11 +610,6 @@ export function Bubble() {
     };
   }, []);
 
-  // ---- canvas fallback sink ----------------------------------------------
-  // Legacy path — the popover's canvas pump emits JPEG data URLs. Only
-  // drives display when WebRTC hasn't taken over (activePath != webrtc).
-  // Kept so a popover that falls back to the canvas pump (or a stale
-  // build) still drives the bubble.
   useEffect(() => {
     const unlistens: Array<() => void> = [];
     let stopped = false;
@@ -408,8 +629,6 @@ export function Bubble() {
       });
     };
 
-    // Two-slot `<img>` pool — see the extensive rationale comment below.
-    // Same pattern as the old implementation.
     type ImgSlot = {
       img: HTMLImageElement;
       busy: boolean;
@@ -483,10 +702,6 @@ export function Bubble() {
           );
         }
 
-        // During full-screen recording WebRTC can remain "connected" while
-        // WebKit stops advancing frames. The popover starts the canvas pump
-        // explicitly for that phase, so any canvas frame is a better display
-        // source than a stale WebRTC frame.
         setActivePath("canvas");
 
         if (dataUrl) {
@@ -495,8 +710,6 @@ export function Bubble() {
           return;
         }
 
-        // Legacy fallback — bytes array. Kept so that a stale popover
-        // build can still drive this bubble.
         if (!bytes || !bytes.length) return;
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -519,8 +732,6 @@ export function Bubble() {
       }),
     );
 
-    // Keep `clips:bubble-config` as a no-op legacy listener so emits
-    // from older code paths don't blow up.
     trackListen(
       listen("clips:bubble-config", (ev) => {
         console.log("[bubble] bubble-config (legacy, ignored)", ev.payload);
@@ -537,11 +748,6 @@ export function Bubble() {
         }
       });
       unlistens.length = 0;
-      // Drop pending frame reference + clear each slot's image so the
-      // data URL string + decoded bitmap are GC'able. In normal operation
-      // the Bubble window is destroyed on `hide_overlays`, but if the
-      // component ever re-mounts we don't want to leak the previous
-      // slot's dataUrl.
       latestPending = null;
       for (const slot of slots) {
         try {
@@ -556,108 +762,43 @@ export function Bubble() {
     };
   }, []);
 
-  // ---- position persistence ----------------------------------------------
-  // Persist the bubble's position whenever the user drags it. Tauri fires
-  // `onMoved` during the drag AND during OS-level window animations (the
-  // window server interpolates position changes), so we debounce by 400ms —
-  // long enough to coalesce a drag-gesture's worth of events into a single
-  // disk write, short enough that a quick drop+quit still saves.
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let lastSaved: { x: number; y: number } | null = null;
-
-    const scheduleSave = (x: number, y: number) => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        if (cancelled) return;
-        if (lastSaved && lastSaved.x === x && lastSaved.y === y) return;
-        lastSaved = { x, y };
-        void invoke("save_bubble_position", { x, y }).catch((err) => {
-          console.warn("[bubble] save_bubble_position failed", err);
-        });
-      }, 400);
-    };
-
-    const win = getCurrentWindow();
-    win
-      .onMoved((e) => {
-        const { x, y } = e.payload;
-        scheduleSave(x, y);
-      })
-      .then((u) => {
-        if (cancelled) {
-          u();
-        } else {
-          unlisten = u;
-        }
-      })
-      .catch((err) => {
-        console.warn("[bubble] onMoved listener failed", err);
-      });
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  // ---- explicit drag handler --------------------------------------------
-  // Loom-style manual drag. We deliberately do NOT use Tauri's native
-  // `startDragging()` (or `data-tauri-drag-region`): with a native drag the OS
-  // window server owns the position, so the only way to keep the bubble on
-  // screen is to clamp AFTER each move and `set_position` it back — and the OS
-  // immediately shoves it back out toward the cursor on the next frame. That
-  // fight is exactly the jitter/snap-back we're killing here.
-  //
-  // Instead we drive the move ourselves. On pointer-down Rust snapshots the
-  // cursor + window anchor; each frame `bubble_drag_move` reads the live cursor,
-  // offsets the window by the cursor delta, and clamps BEFORE moving. The
-  // window therefore stops dead at the edge like a puck against a wall — the
-  // cursor keeps going, the bubble stays pinned, nothing to snap back from.
-  //
-  // Interactive children (close X, size dots) are marked `data-no-drag` so
-  // their clicks land on their onClick handlers instead of starting a drag.
   const draggingRef = useRef(false);
   const moveFrameRef = useRef<number | null>(null);
+  // Keep drag start, move, and final-save IPC in invocation order.
+  const dragCommandQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  const queueDragCommand = (
+    command: "bubble_drag_start" | "bubble_drag_move" | "bubble_drag_end",
+  ) => {
+    const pending = dragCommandQueueRef.current.then(() => invoke(command));
+    dragCommandQueueRef.current = pending
+      .then(() => {})
+      .catch((err) => {
+        console.warn(`[bubble] ${command} failed`, err);
+      });
+  };
 
   const handleBubblePointerDown = (e: React.PointerEvent) => {
-    // Only the left button initiates a drag.
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    // Any ancestor marked `data-no-drag` means we're over a real control.
     if (target.closest("[data-no-drag]")) return;
     e.preventDefault();
     draggingRef.current = true;
-    // Pointer capture keeps pointermove/up flowing even after the cursor
-    // leaves the (small) bubble window — which it will the moment the bubble
-    // hits an edge and the cursor outruns it.
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
       // capture is best-effort
     }
-    void invoke("bubble_drag_start").catch((err) => {
-      console.warn("[bubble] bubble_drag_start failed", err);
-    });
+    queueDragCommand("bubble_drag_start");
   };
 
   const handleBubblePointerMove = (e: React.PointerEvent) => {
     if (!draggingRef.current) return;
-    // Coalesce a burst of pointermove events into at most one reposition per
-    // animation frame, no matter how fast the OS delivers them. Rust reads the
-    // live cursor itself, so the frame callback needs no coordinates.
     if (moveFrameRef.current != null) return;
     moveFrameRef.current = requestAnimationFrame(() => {
       moveFrameRef.current = null;
       if (!draggingRef.current) return;
-      void invoke("bubble_drag_move").catch(() => {
-        // Transient failures (e.g. window mid-teardown) are non-fatal; the
-        // next pointermove schedules another frame.
-      });
+      queueDragCommand("bubble_drag_move");
     });
   };
 
@@ -673,16 +814,12 @@ export function Bubble() {
     } catch {
       // already released
     }
-    void invoke("bubble_drag_end").catch((err) => {
-      console.warn("[bubble] bubble_drag_end failed", err);
-    });
+    queueDragCommand("bubble_drag_end");
   };
 
   return (
-    // The ENTIRE wrapper is the drag surface — pointer-down drives the manual
-    // clamp-before-move drag loop. No `startDragging()`, no
-    // `data-tauri-drag-region` — see `handleBubblePointerDown` above.
     <div
+      ref={wrapperRef}
       className={`bubble-wrapper bubble-${size}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -691,6 +828,7 @@ export function Bubble() {
       onPointerUp={endBubbleDrag}
       onPointerCancel={endBubbleDrag}
       data-path={activePath}
+      data-cutout={showCutout ? "true" : undefined}
     >
       <div className="bubble-root">
         {/*
@@ -712,18 +850,27 @@ export function Bubble() {
           autoPlay
           playsInline
           muted
-          style={activePath === "canvas" ? { display: "none" } : undefined}
+          style={
+            activePath === "canvas" || showCutout
+              ? { display: "none" }
+              : undefined
+          }
         />
         <canvas
           ref={canvasRef}
           className="bubble-video"
           style={
-            activePath === "webrtc"
+            activePath === "webrtc" || showCutout
               ? { display: "none" }
-              : // Canvas stays visible during the "none" state so we show
-                // a (black) circle rather than blank while handshake runs.
-                undefined
+              : undefined
           }
+        />
+        {/* Person cut-out on a transparent background, drawn from
+            whichever source above is live. */}
+        <canvas
+          ref={cutoutRef}
+          className="bubble-video bubble-cutout"
+          style={showCutout ? undefined : { display: "none" }}
         />
         {/* Close X — top-right of bubble, only visible on hover. Marked
             `data-no-drag` so pointer-down here does NOT start a drag;

@@ -3,7 +3,6 @@ import * as Y from "yjs";
 
 import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
 
-/** Build a <paragraph> element wrapping a single text node. */
 function paragraph(text: string): Y.XmlElement {
   const el = new Y.XmlElement("paragraph");
   const t = new Y.XmlText();
@@ -112,8 +111,6 @@ describe("extractTextFromYXml", () => {
       list.insert(0, [paragraph("a"), paragraph("b")]);
       frag.insert(0, [list, paragraph("c")]);
     });
-    // The list joins its two paragraphs with "\n", then the fragment joins
-    // the list result and "c" with another "\n".
     expect(extractTextFromYXml(frag)).toBe("a\nb\nc");
   });
 });

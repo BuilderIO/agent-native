@@ -4,6 +4,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import {
+  isCreativeContextLabAvailable,
   registerNativeResourceCaptureAdapter,
   setupCreativeContext,
   type CreativeContextProjectionAdapters,
@@ -159,13 +160,14 @@ registerOnboardingStep({
   title: "Connect your creative library",
   description:
     "Connect prior work and reference sources so agents can reuse approved creative context.",
+  isAvailable: (context) => isCreativeContextLabAvailable(context?.userEmail),
   methods: [
     {
       id: "library",
       kind: "link",
       primary: true,
       label: "Open Library",
-      payload: { url: "/agent#library", external: false },
+      payload: { url: "/settings/library", external: false },
     },
   ],
   isComplete: async () => {

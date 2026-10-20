@@ -1,17 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_CONTROL,
   DISABLED_SSR_CACHE_HEADERS,
   isSsrCacheEnabled,
   parseSsrCacheSetting,
   resolveSsrCacheHeaders,
+  resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
+  SSR_HTML_CONTENT_TYPE,
+  SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
+  withSsrHtmlContentType,
 } from "./cache-control.js";
-
+import { CHUNK_RECOVERY_QUERY_PARAM } from "./route-chunk-recovery-bootstrap.js";
 function envWith(value: string | undefined) {
   return { [SSR_CACHE_ENV_VAR]: value };
 }
@@ -192,6 +197,24 @@ describe("resolveSsrCacheHeaders", () => {
   });
 });
 
+describe("resolveChunkRecoveryCacheHeaders", () => {
+  it("revalidates recovery shells in browsers and bypasses shared CDNs", () => {
+    expect(resolveChunkRecoveryCacheHeaders(DEFAULT_SSR_CACHE_HEADERS)).toEqual(
+      {
+        "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+        "cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+        "netlify-cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+      },
+    );
+  });
+
+  it("keeps recovery responses disabled when the deployment opts out", () => {
+    expect(
+      resolveChunkRecoveryCacheHeaders(DISABLED_SSR_CACHE_HEADERS),
+    ).toEqual(DISABLED_SSR_CACHE_HEADERS);
+  });
+});
+
 describe("resolveSsrCacheKeyHeaders", () => {
   it("narrows query variation on Netlify", () => {
     expect(resolveSsrCacheKeyHeaders({ NETLIFY: "true" })).toEqual({
@@ -202,11 +225,43 @@ describe("resolveSsrCacheKeyHeaders", () => {
     });
   });
 
+  it("uses full query variation only when requested", () => {
+    expect(
+      resolveSsrCacheKeyHeaders({ NETLIFY: "true" }, { varyByQuery: true }),
+    ).toEqual({ "netlify-vary": "query" });
+  });
+
+  it("varies only on the fixed legacy recovery marker when requested", () => {
+    expect(
+      resolveSsrCacheKeyHeaders(
+        { NETLIFY: "true" },
+        { varyByLegacyRecovery: true },
+      ),
+    ).toEqual({
+      "netlify-vary": `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    });
+  });
+
   it("does not emit a Netlify header outside Netlify", () => {
     expect(resolveSsrCacheKeyHeaders({})).toEqual({});
     expect(
       resolveSsrCacheKeyHeaders({ NETLIFY: "true", NETLIFY_LOCAL: "true" }),
     ).toEqual({});
+  });
+});
+
+describe("withSsrHtmlContentType", () => {
+  it("marks query-preserving redirects for full cache-key variation", () => {
+    const response = new Response(null, {
+      status: 302,
+      headers: { location: "/library?from=home" },
+    });
+
+    expect(withSsrHtmlContentType(response, { varyByQuery: true })).toBe(
+      response,
+    );
+    expect(response.headers.get("content-type")).toBe(SSR_HTML_CONTENT_TYPE);
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe("query");
   });
 });
 
@@ -231,5 +286,18 @@ describe("isSsrCacheEnabled", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     expect(isSsrCacheEnabled(envWith("banana"))).toBe(true);
+  });
+});
+describe("withSsrHtmlContentType", () => {
+  it("marks an existing redirect as HTML without changing its contract", () => {
+    const response = new Response(null, {
+      status: 302,
+      headers: { location: "/library?from=home" },
+    });
+
+    expect(withSsrHtmlContentType(response)).toBe(response);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/library?from=home");
+    expect(response.headers.get("content-type")).toBe(SSR_HTML_CONTENT_TYPE);
   });
 });

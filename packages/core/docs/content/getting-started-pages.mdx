@@ -6,15 +6,16 @@ description: "Build a React route that calls your action and displays its result
 # Add a Page
 
 This is part three of the Getting Started series. In [Add an Action](/docs/getting-started-actions)
-you created `analyze-text`. Here you'll call that same action from a route. No
-database is needed yet: Chat already includes the SQL runtime for when you need
-to persist domain data.
+you created `analyze-text`. Here you'll call that same action from a route. This
+example does not need a new database table. Chat already stores chat history in
+SQL; add your own tables when you need to persist domain data.
 
 ## Create the route {#add-a-page}
 
-Route files in `app/routes/` are picked up automatically. Create
-`app/routes/text-analyses.tsx`; it will be available at
-`http://localhost:8080/text-analyses`.
+The dev server reads route files when it starts. Create
+`app/routes/text-analyses.tsx`, then restart `pnpm dev` if it is already
+running. Open the local URL printed by `pnpm dev` and append
+`/text-analyses`; the port may change when 8080 is already in use.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -58,9 +59,9 @@ export default function TextAnalysesRoute() {
 ```
 
 `useActionQuery` calls the same read-only action the agent uses. The page does
-not need a custom API route, a second data layer, or SQL yet.
+not need a custom API route, a second data layer, or a new SQL table.
 
-Open `http://localhost:8080/text-analyses`, or ask the agent:
+Open the printed local URL with `/text-analyses` appended, or ask the agent:
 
 > Navigate to `/text-analyses`.
 

@@ -6,7 +6,13 @@ import { ImageBlock } from "./ImageBlock";
 
 export interface ContentImageOptions extends ImageOptions {
   documentId?: string;
+  canMutateMedia?: () => boolean;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
+  onImageFilePickerRequest?: (request: {
+    pickerId: string;
+    position: number;
+    attrs: Record<string, unknown>;
+  }) => void;
 }
 
 function normalizedImageWidth(value: unknown): number | null {
@@ -28,7 +34,6 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-// Override the default image serializer to treat images as block elements
 defaultMarkdownSerializer.nodes.image = function (state: any, node: any) {
   const src = node.attrs.src || "";
   const alt = node.attrs.alt || "";
@@ -64,7 +69,9 @@ export const ImageNode = Image.extend<ContentImageOptions>({
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       ...this.parent!(),
       documentId: undefined,
+      canMutateMedia: undefined,
       onImageComment: undefined,
+      onImageFilePickerRequest: undefined,
     };
   },
 

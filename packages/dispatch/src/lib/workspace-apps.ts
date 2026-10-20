@@ -1,13 +1,30 @@
-import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
+import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first-state";
+import {
+  getClientSurface,
+  isInBuilderFrame,
+} from "@agent-native/core/client/host";
+import {
+  normalizeWorkspaceAppHomePath,
+  resolveEnvironmentTargets,
+  withBuilderUtmTrackingParams,
+} from "@agent-native/core/shared";
+
+import {
+  CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
+  isWorkspaceSsoAppUrl,
+} from "../shared/workspace-sso";
 
 export interface WorkspaceAppSummary {
   id: string;
   name: string;
   description?: string;
+  defaultDescriptionKey?: string;
   path: string;
+  homePath?: string;
   url?: string | null;
   isDispatch?: boolean;
   audience?: "internal" | "public";
+  visibility?: "private" | "org";
   publicPaths?: string[];
   protectedPaths?: string[];
   status?: "ready" | "pending";
@@ -24,10 +41,273 @@ export interface WorkspaceAppSummary {
   agentName?: string | null;
   agentSkillsCount?: number | null;
   archived?: boolean;
+  workspaceSso?: boolean;
+  source?: WorkspaceAppSource;
+}
+
+export type WorkspaceAppSource = "workspace" | "builtin" | "connected";
+
+/** Maps list-connected-agents' `source` onto the sidebar grouping. */
+export function workspaceAppSourceFromConnected(
+  source: string | undefined,
+): WorkspaceAppSource {
+  if (source === "builtin") return "builtin";
+  if (source === "custom") return "connected";
+  return "workspace";
+}
+
+interface WorkspaceAppHrefSource {
+  path?: string | null;
+  url?: string | null;
+  workspaceSso?: boolean;
+}
+
+export function isDispatchWorkspaceAppId(appId: string): boolean {
+  return appId.trim().toLowerCase() === "dispatch";
+}
+
+function clientRuntimeEnvironment(): "production" | "development" {
+  const importMetaEnv = (
+    import.meta as unknown as {
+      env?: Record<string, string | boolean | undefined>;
+    }
+  ).env;
+  const processEnv = (
+    globalThis as typeof globalThis & {
+      process?: { env?: Record<string, string | boolean | undefined> };
+    }
+  ).process?.env;
+  const env = { ...processEnv, ...importMetaEnv };
+  if (
+    env.PROD === true ||
+    env.MODE === "production" ||
+    env.NODE_ENV === "production"
+  ) {
+    return "production";
+  }
+  if (
+    env.DEV === true ||
+    env.MODE === "development" ||
+    env.MODE === "test" ||
+    env.NODE_ENV === "development" ||
+    env.NODE_ENV === "test"
+  ) {
+    return "development";
+  }
+  return "production";
+}
+
+function clientEnvironmentLane(): "production" | "beta" {
+  if (typeof window === "undefined") return "production";
+  const hostname = window.location.hostname
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, "");
+  const targets = resolveEnvironmentTargets(hostname);
+  return targets?.betaHost === hostname ? "beta" : "production";
+}
+
+export function isWorkspaceSsoApp(
+  app: WorkspaceAppHrefSource & { id: string },
+): boolean {
+  const rawUrl = app.url?.trim();
+  if (!rawUrl) return false;
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    if (app.workspaceSso === true) return true;
+    return isWorkspaceSsoAppUrl(
+      { id: app.id, url: rawUrl },
+      {
+        nodeEnv: clientRuntimeEnvironment(),
+        environmentLane: clientEnvironmentLane(),
+      },
+    );
+    // coercion-ok: malformed app metadata is not eligible for workspace SSO.
+  } catch {
+    return false;
+  }
+}
+
+function isCanonicalWorkspaceSsoOrigin(rawUrl: string): boolean {
+  try {
+    const origin = new URL(rawUrl).origin;
+    return Object.values(CANONICAL_WORKSPACE_SSO_APP_ORIGINS).some(
+      (canonicalOrigin) => canonicalOrigin === origin,
+    );
+  } catch {
+    // coercion-ok: malformed app metadata is not a canonical first-party app.
+    return false;
+  }
+}
+
+export function isPathMountedWorkspaceApp(
+  app: WorkspaceAppHrefSource,
+): boolean {
+  const rawUrl = app.url?.trim();
+  if (rawUrl) {
+    try {
+      const pathname = new URL(rawUrl).pathname.replace(/\/+$/, "") || "/";
+      return pathname !== "/" || !isCanonicalWorkspaceSsoOrigin(rawUrl);
+      // coercion-ok: invalid absolute URLs use the mounted path fallback.
+    } catch {
+      // Fall through to the mounted path for relative manifest values.
+    }
+  }
+  const path = app.path?.trim().replace(/\/+$/, "") || "/";
+  return path !== "/";
+}
+
+export function isDefaultWorkspaceAppHiddenId(appId: string): boolean {
+  const normalized = appId.trim().toLowerCase();
+  return normalized === "chat" || isDispatchWorkspaceAppId(normalized);
+}
+
+export function isWorkspaceAppVisibleInDefaultLaunchers(
+  app: Pick<WorkspaceAppSummary, "id" | "isDispatch">,
+): boolean {
+  return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
+}
+
+const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<
+  string,
+  { text: string; key: string }
+> = {
+  calendar: {
+    text: "Agent-Native Google Calendar — manage events, sync, and public booking",
+    key: "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+  },
+  clips: {
+    text: "Screen recording, meeting notes, and voice dictation — all with AI",
+    key: "dispatch.pages.chatFirstDefaultDescriptionClips",
+  },
+  content: {
+    text: "Open-source Obsidian for MDX — edit local docs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionContent",
+  },
+  design: {
+    text: "Agent-Native design tool — create and edit visual designs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionDesign",
+  },
+  mail: {
+    text: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
+    key: "dispatch.pages.chatFirstDefaultDescriptionMail",
+  },
+};
+
+export function defaultWorkspaceAppUrl(rawUrl: string): string {
+  if (typeof window === "undefined") return rawUrl;
+
+  const hostname = window.location.hostname
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, "");
+  const requestTargets = resolveEnvironmentTargets(hostname);
+  if (!requestTargets || requestTargets.betaHost !== hostname) return rawUrl;
+
+  try {
+    const url = new URL(rawUrl);
+    const appTargets = resolveEnvironmentTargets(url.hostname);
+    if (!appTargets) return rawUrl;
+    url.protocol = "https:";
+    url.hostname = appTargets.betaHost;
+    url.port = "";
+    return url.toString();
+  } catch {
+    // coercion-ok: malformed default metadata remains an absent navigation target.
+    return rawUrl;
+  }
 }
 
 export function workspaceAppRoute(appId: string): string {
   return `/apps/${encodeURIComponent(appId)}`;
+}
+
+function normalizeWorkspaceAppRoutePath(rawPath: string): URL | null {
+  if (
+    typeof rawPath !== "string" ||
+    !rawPath.startsWith("/") ||
+    rawPath.startsWith("//") ||
+    /[\u0000-\u001f\u007f]/.test(rawPath)
+  ) {
+    return null;
+  }
+
+  try {
+    return new URL(rawPath, "https://agent-native.invalid");
+  } catch {
+    // coercion-ok: malformed child routes are ignored by the host.
+    return null;
+  }
+}
+
+function normalizedWorkspaceAppMountPath(rawPath: string): string {
+  const pathname = rawPath.split(/[?#]/, 1)[0] ?? rawPath;
+  const normalized = `/${pathname.replace(/^[/\\]+/, "")}`;
+  return normalized.replace(/\/+$/, "") || "/";
+}
+
+function workspaceAppMountPath(
+  app: Pick<WorkspaceAppSummary, "path" | "url">,
+): string {
+  const rawUrl = app.url?.trim();
+  if (rawUrl) {
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return normalizedWorkspaceAppMountPath(parsed.pathname);
+      }
+      // coercion-ok: invalid URL falls back to app path.
+    } catch {
+      // Fall through to the mounted path when optional URL metadata is invalid.
+    }
+  }
+  return normalizedWorkspaceAppMountPath(app.path?.trim() || "/");
+}
+
+export function workspaceAppRouteForChildPath(
+  app: Pick<WorkspaceAppSummary, "id" | "path" | "url">,
+  childPath: string,
+): string | null {
+  const parsed = normalizeWorkspaceAppRoutePath(childPath);
+  if (!parsed) return null;
+
+  const mountPath = workspaceAppMountPath(app);
+  const relativePathname =
+    mountPath !== "/" &&
+    (parsed.pathname === mountPath ||
+      parsed.pathname.startsWith(`${mountPath}/`))
+      ? parsed.pathname.slice(mountPath.length) || "/"
+      : parsed.pathname;
+  const routePath = workspaceAppRoute(app.id);
+  const suffix = relativePathname === "/" ? "" : relativePathname;
+  return `${routePath}${suffix}${parsed.search}${parsed.hash}`;
+}
+
+export function workspaceAppInitialPathFromSplat(
+  routeSplat: string | undefined,
+  search: string,
+  hash: string,
+): string | undefined {
+  const pathname = routeSplat?.trim()
+    ? `/${routeSplat.trim().replace(/^[/\\]+/, "")}`
+    : "/";
+  const parsed = normalizeWorkspaceAppRoutePath(`${pathname}${search}${hash}`);
+  if (!parsed) return undefined;
+  const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  return path === "/" ? undefined : path;
+}
+
+export function workspaceAppIdFromRoute(pathname: string): string | null {
+  const match = pathname.match(/^\/apps\/([^/]+)(?:\/|$)/);
+  if (!match) return null;
+  try {
+    const appId = decodeURIComponent(match[1]).trim();
+    return appId || null;
+  } catch {
+    // coercion-ok: malformed app routes are inactive, not app ids.
+    return null;
+  }
 }
 
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
@@ -39,9 +319,224 @@ export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
         })
       : null;
   }
-  return app.path || app.url || null;
+  const base = app.path || app.url || null;
+  if (!base || app.isDispatch) return base;
+  return workspaceAppDirectHref(app, workspaceAppTargetPath(app));
+}
+
+export function workspaceAppTargetPath(app: {
+  homePath?: string | null;
+  url?: string | null;
+}): string {
+  if (typeof app.homePath === "string") {
+    return normalizeWorkspaceAppHomePath(app.homePath);
+  }
+
+  const rawUrl = app.url?.trim();
+  if (rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      if (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        url.pathname !== "/"
+      ) {
+        return "/";
+      }
+    } catch {
+      // coercion-ok: invalid app URLs use the default app home path.
+    }
+  }
+
+  return normalizeWorkspaceAppHomePath(undefined);
+}
+
+export function workspaceAppDirectLaunchHref(app: {
+  path?: string | null;
+  url?: string | null;
+  homePath?: string | null;
+}): string | null {
+  if (app.path?.trim()) return null;
+  return workspaceAppDirectHref(app, workspaceAppTargetPath(app));
+}
+
+export function workspaceAppEmbedTarget(
+  app: Pick<WorkspaceAppSummary, "path" | "url">,
+): { path?: string; url?: string } {
+  const url = app.url?.trim();
+  if (url) return { url };
+
+  const path = app.path.trim();
+  return path.startsWith("/") ? { path } : path ? { url: path } : {};
+}
+
+export function workspaceAppDirectHref(
+  app: WorkspaceAppHrefSource,
+  targetPath: string,
+): string | null {
+  const target = targetPath.trim();
+  if (!target || !target.startsWith("/") || target.startsWith("//")) {
+    return null;
+  }
+
+  let targetUrl: URL;
+  try {
+    targetUrl = new URL(target, "https://agent-native.invalid");
+  } catch {
+    // coercion-ok: invalid relative target input has no safe href.
+    return null;
+  }
+  const targetPathname = targetUrl.pathname || "/";
+
+  let absoluteBase: URL | null = null;
+  const rawUrl = app.url?.trim();
+  if (rawUrl) {
+    try {
+      const parsedBase = new URL(rawUrl);
+      if (parsedBase.protocol === "http:" || parsedBase.protocol === "https:") {
+        absoluteBase = parsedBase;
+      }
+      // coercion-ok: invalid app URLs use the mounted path fallback below.
+    } catch {
+      absoluteBase = null;
+    }
+  }
+
+  const mountedPath = app.path?.trim();
+  const basePath = absoluteBase
+    ? absoluteBase.pathname
+    : mountedPath
+      ? `/${mountedPath.replace(/^[/\\]+/, "").split(/[?#]/, 1)[0]}`
+      : null;
+  if (!basePath) return null;
+
+  const normalizedBasePath = basePath.replace(/\/+$/, "") || "/";
+  const targetIsMountedPath =
+    normalizedBasePath !== "/" &&
+    (targetPathname === normalizedBasePath ||
+      targetPathname.startsWith(`${normalizedBasePath}/`));
+  const resolvedPath = targetIsMountedPath
+    ? targetPathname
+    : normalizedBasePath === "/"
+      ? targetPathname
+      : targetPathname === "/"
+        ? normalizedBasePath
+        : `${normalizedBasePath}/${targetPathname.replace(/^\/+/, "")}`;
+
+  if (absoluteBase) {
+    absoluteBase.pathname = resolvedPath;
+    if (target.includes("?")) absoluteBase.search = targetUrl.search;
+    if (target.includes("#")) absoluteBase.hash = targetUrl.hash;
+    return absoluteBase.toString();
+  }
+
+  return `${resolvedPath}${targetUrl.search}${targetUrl.hash}`;
 }
 
 export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
   return app.status === "pending" && !!app.builderUrl;
+}
+
+export function shouldOpenWorkspaceAppInTopWindow(): boolean {
+  if (typeof window === "undefined") return false;
+  return isInBuilderFrame() || getClientSurface() !== "web";
+}
+
+export function navigateToWorkspaceApp(href: string): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    const targetUrl = new URL(href, window.location.href);
+    if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
+      return false;
+    }
+    const targetWindow =
+      shouldOpenWorkspaceAppInTopWindow() && window.top ? window.top : window;
+    targetWindow.location.href = targetUrl.href;
+    return true;
+  } catch {
+    // coercion-ok: a blocked top-window assignment is an expected fallback signal.
+    return false;
+  }
+}
+
+/**
+ * Mounted workspace apps plus the chat-first default built-ins that are part
+ * of this workspace. `enabledBuiltinAppIds` must come from the server
+ * (list-connected-agents entries with source "builtin"), which already applies
+ * the builder's `agent-native.builtinAgents` config. While it is unknown, no
+ * default is added. `extraApps` fill missing rows and configured built-in URLs.
+ */
+export function mergeChatFirstWorkspaceApps(
+  apps: readonly WorkspaceAppSummary[] | undefined,
+  enabledBuiltinAppIds: readonly string[] | undefined,
+  extraApps: readonly {
+    id: string;
+    name: string;
+    description?: string | null;
+    url?: string | null;
+    source?: WorkspaceAppSource;
+  }[] = [],
+): WorkspaceAppSummary[] {
+  const enabledBuiltins = new Set(
+    (enabledBuiltinAppIds ?? []).map((id) => id.trim().toLowerCase()),
+  );
+  const merged = new Map<string, WorkspaceAppSummary>();
+  for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
+    if (!enabledBuiltins.has(id)) continue;
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
+    merged.set(id, {
+      id,
+      name: id.charAt(0).toUpperCase() + id.slice(1),
+      description: fallback?.text,
+      defaultDescriptionKey: fallback?.key,
+      path: "/",
+      url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
+      status: "ready",
+      source: "builtin",
+    });
+  }
+  for (const app of apps ?? []) {
+    const id = app.id.trim().toLowerCase();
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
+    merged.set(id, {
+      ...app,
+      id,
+      source: app.source ?? "workspace",
+      description: app.description ?? fallback?.text,
+      defaultDescriptionKey:
+        app.description === undefined ||
+        app.description === null ||
+        app.description === fallback?.text
+          ? fallback?.key
+          : undefined,
+    });
+  }
+
+  for (const app of extraApps) {
+    const id = app.id.trim().toLowerCase();
+    if (!id) continue;
+    const existing = merged.get(id);
+    if (existing) {
+      if (existing.source === "builtin" && app.source === "builtin") {
+        merged.set(id, {
+          ...existing,
+          name: app.name.trim() || existing.name,
+          description: app.description ?? existing.description,
+          url: app.url?.trim() || existing.url,
+        });
+      }
+      continue;
+    }
+    merged.set(id, {
+      id,
+      name: app.name.trim() || id,
+      description: app.description ?? undefined,
+      path: "",
+      url: app.url?.trim() || null,
+      status: "ready",
+      source: app.source ?? "connected",
+    });
+  }
+
+  return [...merged.values()];
 }

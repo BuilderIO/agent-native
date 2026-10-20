@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
-import { interpolate } from "./interpolate";
+import {
+  isDateRangePresetFilter,
+  normalizeMultiSelectValue,
+} from "./filter-vars";
+import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import type { DashboardFilter } from "./types";
 
 function daysAgo(n: number): string {
@@ -14,10 +18,6 @@ const noParams = () => "";
 
 describe("resolveFilterVars", () => {
   it("keeps a select default literal even when it looks like the Nd date shorthand", () => {
-    // Regression: a `timeRange` select with default "90d" must resolve to the
-    // literal option value "90d" — not a date. Expanding it to a date left the
-    // dropdown blank and made every panel's `'{{timeRange}}' = '90d'` branch
-    // false, so the whole dashboard showed "No data".
     const filters: DashboardFilter[] = [
       {
         id: "timeRange",
@@ -77,6 +77,95 @@ describe("resolveFilterVars", () => {
     ).toBe("'__missing_dashboard_time_filter__' IN ('', 'all')");
   });
 
+  it("applies custom bounds to the BigQuery preset predicate", () => {
+    const sql = interpolateDashboardPanelSql(
+      "SELECT * FROM events WHERE ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '365d' AND e.event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)))",
+      {
+        timeRange: "custom",
+        timeRangeStart: "2026-08-01",
+        timeRangeEnd: "2026-08-15",
+      },
+      { source: "bigquery" },
+    );
+
+    expect(sql).toContain(
+      "('custom' IN ('', 'all') OR ('custom' = '365d' AND e.event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)) OR ('custom' = 'custom' AND e.event_date >= DATE('2026-08-01') AND e.event_date <= DATE('2026-08-15')))",
+    );
+  });
+
+  it("quotes BigQuery panel values with GoogleSQL escapes", () => {
+    const sql = interpolateDashboardPanelSql(
+      "SELECT * FROM events WHERE name = '{{name}}' AND note = \"{{note}}\"",
+      { name: "o'brien\\", note: 'say "hi"\nnow' },
+      { source: "bigquery" },
+    );
+
+    expect(sql).toBe(
+      String.raw`SELECT * FROM events WHERE name = 'o\'brien\\' AND note = "say \"hi\"\nnow"`,
+    );
+  });
+
+  it("keeps PostgreSQL quoting for first-party panels the BigQuery binder re-quotes", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM analytics_events WHERE name = '{{name}}'",
+        { name: "o'brien\\" },
+        { source: "first-party" },
+      ),
+    ).toBe("SELECT * FROM analytics_events WHERE name = 'o''brien\\'");
+  });
+
+  it("applies custom bounds to repeated Postgres cohort predicates", () => {
+    const sql = interpolate(
+      "SELECT * FROM events WHERE ((('{{timeRange}}' = '365d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) OR (('{{timeRange}}' = '365d' AND b.event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))))",
+      {
+        timeRange: "custom",
+        timeRangeStart: "2026-08-01",
+        timeRangeEnd: "2026-08-15",
+      },
+      { customDateRangeSupport: true },
+    );
+
+    expect(sql.match(/'custom' = 'custom'/g)).toHaveLength(2);
+    expect(sql).toContain(
+      "cohort_date >= to_char('2026-08-01'::date, 'YYYY-MM-DD') AND cohort_date <= to_char('2026-08-15'::date, 'YYYY-MM-DD')",
+    );
+    expect(sql).toContain(
+      "b.event_date >= to_char('2026-08-01'::date, 'YYYY-MM-DD') AND b.event_date <= to_char('2026-08-15'::date, 'YYYY-MM-DD')",
+    );
+  });
+
+  it("uses the custom end date for generated date spines", () => {
+    const sql = interpolate(
+      "WITH signups AS (SELECT event_date FROM events WHERE ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '365d' AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)))), bounds AS (SELECT COALESCE(MIN(event_date), CASE WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) END) AS start_date FROM signups), dates AS (SELECT date FROM bounds, UNNEST(GENERATE_DATE_ARRAY(start_date, CURRENT_DATE())) AS date)",
+      {
+        timeRange: "custom",
+        timeRangeStart: "2026-08-01",
+        timeRangeEnd: "2026-08-15",
+      },
+      { customDateRangeSupport: true },
+    );
+
+    expect(sql).toContain("WHEN 'custom' = 'custom' THEN DATE('2026-08-01')");
+    expect(sql).toContain(
+      "UNNEST(GENERATE_DATE_ARRAY(start_date, IF('custom' = 'custom', LEAST(DATE('2026-08-15'), CURRENT_DATE()), CURRENT_DATE())))",
+    );
+  });
+
+  it("fails closed for custom ranges without a supported SQL predicate", () => {
+    expect(
+      interpolate(
+        "SELECT CASE '{{timeRange}}' WHEN '7d' THEN 7 ELSE 90 END",
+        {
+          timeRange: "custom",
+          timeRangeStart: "2026-08-01",
+          timeRangeEnd: "2026-08-15",
+        },
+        { customDateRangeSupport: true },
+      ),
+    ).toBe("SELECT __unsupported_custom_date_range__");
+  });
+
   it("keeps explicit date values and date shorthands valid", () => {
     const filters: DashboardFilter[] = [
       { id: "window", label: "Window", type: "date-range", default: "30d" },
@@ -120,10 +209,442 @@ describe("resolveFilterVars", () => {
     expect(vars.windowEnd).toBe(daysAgo(0));
   });
 
+  it("does not replace invalid explicit date-range bounds with defaults", () => {
+    const filters: DashboardFilter[] = [
+      { id: "window", label: "Window", type: "date-range", default: "7d" },
+    ];
+    const params: Record<string, string> = {
+      windowStart: "2026-02-31",
+      windowEnd: "2026-02-31",
+    };
+    const vars = resolveFilterVars(filters, (key) => params[key] || "");
+
+    expect(vars.windowStart).toBe("");
+    expect(vars.windowEnd).toBe("");
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM events WHERE event_date BETWEEN DATE('{{windowStart}}') AND DATE('{{windowEnd}}')",
+        vars,
+        { source: "bigquery" },
+      ),
+    ).toContain("__missing_dashboard_time_filter__");
+  });
+
+  it("leaves ordinary custom-valued variables alone", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT '{{segment}}' AS segment",
+        { segment: "custom" },
+        { source: "bigquery" },
+      ),
+    ).toBe("SELECT 'custom' AS segment");
+  });
+
+  it("treats a customRange select as a preset date filter without inventing bounds", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        default: "this",
+        customRange: true,
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "last", label: "Last quarter" },
+          { value: "custom", label: "Custom date range" },
+        ],
+      },
+    ];
+    expect(isDateRangePresetFilter(filters[0])).toBe(true);
+    expect(resolveFilterVars(filters, () => "")).toEqual({
+      quarter: "this",
+      quarterStart: "",
+      quarterEnd: "",
+    });
+    const params: Record<string, string> = {
+      quarter: "custom",
+      quarterStart: "2026-11-01",
+      quarterEnd: "2026-12-31",
+    };
+    expect(resolveFilterVars(filters, (key) => params[key] || "")).toEqual(
+      params,
+    );
+  });
+
+  it("ignores URL bounds on a customRange select unless custom is picked", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        default: "this",
+        customRange: true,
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "30d", label: "Last 30 days" },
+          { value: "custom", label: "Custom date range" },
+        ],
+      },
+    ];
+    const stale = { quarterStart: "2025-01-01", quarterEnd: "2025-02-01" };
+    const resolve = (quarter: string) =>
+      resolveFilterVars(
+        filters,
+        (key) => ({ quarter, ...stale })[key as "quarter"] || "",
+      );
+
+    expect(resolve("this")).toEqual({
+      quarter: "this",
+      quarterStart: "",
+      quarterEnd: "",
+    });
+    expect(resolve("30d").quarterStart).toBe(daysAgo(30));
+    expect(resolve("custom")).toEqual({ quarter: "custom", ...stale });
+  });
+
+  it("gives an all-time option an all-time start, with or without customRange", () => {
+    for (const customRange of [true, undefined]) {
+      const filters: DashboardFilter[] = [
+        {
+          id: "window",
+          label: "Window",
+          type: "select",
+          default: "30d",
+          customRange,
+          options: [
+            { value: "30d", label: "Last 30 days" },
+            { value: "all", label: "All time" },
+            { value: "custom", label: "Custom" },
+          ],
+        },
+      ];
+      const vars = resolveFilterVars(filters, (key) =>
+        key === "window" ? "all" : "",
+      );
+      expect(vars.windowStart).toBe("1970-01-01");
+      expect(vars.windowEnd).toBe(daysAgo(0));
+    }
+  });
+
+  it("treats an oversized day count like any unrecognized value instead of throwing", () => {
+    const options = [
+      { value: "30d", label: "Last 30 days" },
+      { value: "all", label: "All time" },
+    ];
+    const huge = (id: string) => (key: string) =>
+      key === id ? "99999999999d" : "";
+
+    // A plain preset select falls back to its 30-day default bounds.
+    const preset = resolveFilterVars(
+      [
+        {
+          id: "window",
+          label: "Window",
+          type: "select",
+          default: "30d",
+          options,
+        },
+      ],
+      huge("window"),
+    );
+    expect(preset.windowStart).toBe(daysAgo(30));
+    expect(preset.windowEnd).toBe(daysAgo(0));
+
+    // A customRange select doesn't offer it, so it falls back to its default.
+    const period = resolveFilterVars(
+      [
+        {
+          id: "window",
+          label: "Window",
+          type: "select",
+          default: "30d",
+          customRange: true,
+          options,
+        },
+      ],
+      huge("window"),
+    );
+    expect(period.window).toBe("30d");
+    expect(period.windowStart).toBe(daysAgo(30));
+
+    // A date filter treats it as an invalid date.
+    const date = resolveFilterVars(
+      [{ id: "since", label: "Since", type: "date" }],
+      huge("since"),
+    );
+    expect(date.since).toBe("");
+
+    // The largest supported count still resolves.
+    expect(
+      resolveFilterVars(
+        [
+          {
+            id: "window",
+            label: "Window",
+            type: "select",
+            default: "30d",
+            options,
+          },
+        ],
+        (key) => (key === "window" ? "36500d" : ""),
+      ).windowStart,
+    ).toBe(daysAgo(36500));
+  });
+
+  it("only accepts values a customRange select offers", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        default: "this",
+        customRange: true,
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "last", label: "Last quarter" },
+        ],
+      },
+    ];
+    const resolve = (quarter: string) =>
+      resolveFilterVars(filters, (key) => (key === "quarter" ? quarter : ""));
+
+    // Values the select doesn't offer fall back to its default.
+    for (const unoffered of ["all", "90d", "next"]) {
+      expect(resolve(unoffered)).toEqual({
+        quarter: "this",
+        quarterStart: "",
+        quarterEnd: "",
+      });
+    }
+    // "custom" is always offered, and configured options pass through.
+    expect(resolve("custom").quarter).toBe("custom");
+    expect(resolve("last").quarter).toBe("last");
+  });
+
+  it("leaves quarter-style selects without customRange as plain selects", () => {
+    expect(
+      isDateRangePresetFilter({
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "custom", label: "Custom date range" },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it("resolves custom bounds for a preset date filter", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "timeRange",
+        label: "Time range",
+        type: "select",
+        default: "90d",
+        options: [
+          { value: "30d", label: "Last 30 days" },
+          { value: "90d", label: "Last 90 days" },
+          { value: "all", label: "All time" },
+        ],
+      },
+    ];
+    const params: Record<string, string> = {
+      timeRange: "custom",
+      timeRangeStart: "2026-08-01",
+      timeRangeEnd: "2026-08-15",
+    };
+
+    const vars = resolveFilterVars(filters, (key) => params[key] || "");
+    expect(vars).toMatchObject(params);
+
+    params.timeRangeStart = "2026-02-31";
+    params.timeRangeEnd = "2026-02-31";
+    const invalid = resolveFilterVars(filters, (key) => params[key] || "");
+    expect(invalid.timeRangeStart).toBe("");
+    expect(invalid.timeRangeEnd).toBe("");
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM events WHERE '{{timeRange}}' = 'custom'",
+        invalid,
+        { source: "bigquery" },
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+  });
+
+  it("does not replace missing custom bounds with the preset range", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "timeRange",
+        label: "Time range",
+        type: "select",
+        default: "90d",
+        options: [{ value: "90d", label: "Last 90 days" }],
+      },
+    ];
+    const params: Record<string, string> = { timeRange: "custom" };
+    const vars = resolveFilterVars(filters, (key) => params[key] || "");
+
+    expect(vars.timeRangeStart).toBe("");
+    expect(vars.timeRangeEnd).toBe("");
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM events WHERE '{{timeRange}}' = 'custom'",
+        vars,
+        { source: "bigquery" },
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM events WHERE '{{timeRange}}' = 'custom'",
+        { timeRange: "custom" },
+        { source: "first-party" },
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+
+    params.timeRangeStart = "2026-08-01";
+    const partial = resolveFilterVars(filters, (key) => params[key] || "");
+    expect(partial.timeRangeStart).toBe("2026-08-01");
+    expect(partial.timeRangeEnd).toBe("");
+  });
+
+  it("adds custom bounds to replay date expressions in persisted queries", () => {
+    const sql = interpolateDashboardPanelSql(
+      "SELECT * FROM replay_sessions WHERE ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '365d' AND substr(started_at, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) ",
+      {
+        timeRange: "custom",
+        timeRangeStart: "2026-08-01",
+        timeRangeEnd: "2026-08-15",
+      },
+      { source: "first-party" },
+    );
+
+    expect(sql).toContain(
+      "OR ('custom' = 'custom' AND substr(started_at, 1, 10) >= to_char('2026-08-01'::date, 'YYYY-MM-DD') AND substr(started_at, 1, 10) <= to_char('2026-08-15'::date, 'YYYY-MM-DD'))",
+    );
+  });
+
+  it("fails closed for reversed custom date ranges", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM events WHERE '{{timeRange}}' = 'custom'",
+        {
+          timeRange: "custom",
+          timeRangeStart: "2026-08-15",
+          timeRangeEnd: "2026-08-01",
+        },
+        { source: "bigquery" },
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+  });
+
+  it("fails closed when a custom range would generate an oversized date spine", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM UNNEST(GENERATE_DATE_ARRAY(DATE('{{timeRangeStart}}'), DATE('{{timeRangeEnd}}')))",
+        {
+          timeRange: "custom",
+          timeRangeStart: "2000-01-01",
+          timeRangeEnd: "2026-01-01",
+        },
+        { source: "bigquery" },
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+  });
+
+  it("keeps fixed-window panel queries outside custom range rewriting", () => {
+    const sql = interpolateDashboardPanelSql(
+      "SELECT * FROM events WHERE '{{timeRange}}' = '365d'",
+      {
+        timeRange: "custom",
+        timeRangeStart: "2026-08-01",
+        timeRangeEnd: "2026-08-15",
+      },
+      { source: "bigquery", config: { timeScope: "fixed-window" } },
+    );
+
+    expect(sql).toBe("SELECT * FROM events WHERE 'custom' = '365d'");
+  });
+
   it("keeps a text default literal", () => {
     const filters: DashboardFilter[] = [
       { id: "q", label: "Query", type: "text", default: "30d" },
     ];
     expect(resolveFilterVars(filters, noParams).q).toBe("30d");
+  });
+});
+
+describe("multi-select filters", () => {
+  const tier: DashboardFilter = {
+    id: "tier",
+    label: "Tier",
+    type: "multi-select",
+    options: [
+      { value: "free", label: "Free" },
+      { value: "self_serve", label: "Self-Serve" },
+      { value: "enterprise", label: "Enterprise" },
+    ],
+  };
+
+  it("keeps the comma-joined selection from the URL param or default", () => {
+    const fromUrl = (key: string) => (key === "tier" ? "free,self_serve" : "");
+    expect(resolveFilterVars([tier], fromUrl).tier).toBe("free,self_serve");
+    expect(
+      resolveFilterVars([{ ...tier, default: "enterprise" }], noParams).tier,
+    ).toBe("enterprise");
+  });
+
+  it("expands the list placeholder into one quoted literal per selected value", () => {
+    expect(
+      interpolate("WHERE tier IN ({{tier:list}})", { tier: "free,self_serve" }),
+    ).toBe("WHERE tier IN ('free', 'self_serve')");
+  });
+
+  it("drops a clause guarded by the conditional when nothing is selected", () => {
+    const sql = "SELECT 1{{?tier}} WHERE tier IN ({{tier:list}}){{/tier}}";
+    expect(interpolate(sql, { tier: "" })).toBe("SELECT 1");
+    expect(interpolate(sql, { tier: "free" })).toBe(
+      "SELECT 1 WHERE tier IN ('free')",
+    );
+  });
+
+  it("fails loudly for an unguarded list with no selection", () => {
+    expect(interpolate("WHERE tier IN ({{tier:list}})", { tier: "" })).toBe(
+      "WHERE tier IN (__empty_list_filter__)",
+    );
+  });
+
+  it("drops empty tokens so a comma-only value reads as no selection", () => {
+    expect(normalizeMultiSelectValue(",")).toBe("");
+    expect(normalizeMultiSelectValue("free,,self_serve")).toBe(
+      "free,self_serve",
+    );
+    expect(resolveFilterVars([{ ...tier, default: "," }], noParams).tier).toBe(
+      "",
+    );
+  });
+
+  it("treats the empty marker as no selection even when a default is set", () => {
+    const withDefault: DashboardFilter = { ...tier, default: "enterprise" };
+    const vars = resolveFilterVars([withDefault], (key) =>
+      key === "tier" ? "__empty__" : "",
+    );
+    expect(vars.tier).toBe("");
+    expect(
+      interpolate(
+        "SELECT 1{{?tier}} WHERE tier IN ({{tier:list}}){{/tier}}",
+        vars,
+      ),
+    ).toBe("SELECT 1");
+  });
+
+  it("uses GoogleSQL escapes for each item on BigQuery panels", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "WHERE plan IN ({{plan:list}})",
+        { plan: "o'brien,pro" },
+        { source: "bigquery" },
+      ),
+    ).toBe(String.raw`WHERE plan IN ('o\'brien', 'pro')`);
   });
 });

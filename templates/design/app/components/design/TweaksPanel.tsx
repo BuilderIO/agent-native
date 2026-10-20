@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { docsUrl } from "@agent-native/core/shared";
 import { VisualTweakControl } from "@agent-native/toolkit/design-tweaks";
 import type { TweakDefinition } from "@shared/api";
 import {
@@ -63,7 +64,7 @@ export function TweaksPanelContent({
           {onRequestTweaks && (
             <Button
               type="button"
-              variant="outline"
+              variant="secondary"
               size="sm"
               className="h-6 cursor-pointer border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2.5 !text-[11px] text-foreground shadow-none hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
               onClick={(e) => onRequestTweaks(e.currentTarget)}
@@ -80,7 +81,7 @@ export function TweaksPanelContent({
       >
         {t("designEditor.tweaksHelp")}{" "}
         <a
-          href="/docs/template-design#tweaks"
+          href={docsUrl("template-design")}
           target="_blank"
           rel="noreferrer"
           className="font-medium text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
@@ -109,7 +110,6 @@ export function TweaksPanel({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      // Only start drag on left click
       if (e.button !== 0) return;
       e.preventDefault();
       dragging.current = true;

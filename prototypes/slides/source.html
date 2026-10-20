@@ -1,0 +1,1249 @@
+<!--
+  Slides prototype: the shipped templates/slides app. Build with: node prototypes/kit/build.ts slides
+  (writes dist/index.html; the kit fills the placeholders, see kit/build.ts).
+  Layout of this file:
+    <style>   tokens the build can't read yet, app shell, then one commented block per surface
+              (app sidebar, header, home, deck cards, templates, design systems, editor toolbar,
+              context toolbar, slide rail, canvas, speaker notes, comments, history, share,
+              agent chat, presentation, presenter view, slides)
+    markup    review strip and the app root; everything else renders from the script
+    <script>  banners "/* ───────── name ───────── */": data, slides, app sidebar, header, home,
+              templates, design systems, editor, menus, share, history, comments, agent chat,
+              present, behavior (click and key handlers)
+  Search for a banner name to jump to a surface. The review strip (Scenario, Theme, Changes) exists
+  only in the prototype.
+-->
+<title>Slides</title>
+__KIT_HEAD__
+<style>
+:root {
+  --kit-accent: hsl(var(--primary));
+  /* Slides' menus are shadcn's default density: 14/20 text, 32px rows, 4px inset. */
+  --kit-menu-font: 14px; --kit-menu-line: 20px; --kit-menu-row: 32px; --kit-menu-padding: 4px; --kit-menu-item-radius: 2px;
+  /* Not tokens in the code yet: the code writes these as literals. */
+  --slides-selection: #609ff8;          /* thumbnail and element selection, history dots, progress bar */
+  --slides-agent: #00b5ff;              /* PresenceBar AGENT_COLOR and the AI marker */
+  --slides-star: #f5c451;               /* starred deck */
+  --slides-stage: #000;                 /* presentation background */
+  --slides-presenter: hsl(240 6% 6%);   /* presenter view background */
+  --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+body { font-size: 14px; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible, textarea:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+.mix-60 { background: color-mix(in srgb, var(--color-accent) 60%, transparent); }
+
+/* Menus: the toolkit's shadcn DropdownMenu density (text-sm, py-1.5 rows, p-1, rounded-md). */
+.menu { box-shadow: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%); }
+.menu hr { margin: 4px -4px; background: var(--color-muted); opacity: 1; }
+.menu .lbl { height: 32px; padding: 0 8px; font-size: 12px; font-weight: 600; }
+.menu .kbd { font-size: 12px; letter-spacing: .1em; opacity: .6; color: inherit; }
+.menu button.danger { color: var(--color-destructive); }
+.menu .badge { margin-left: auto; border-radius: 999px; background: var(--color-primary); color: var(--color-primary-foreground); padding: 0 6px; font-size: 10px; font-weight: 600; }
+.toast { bottom: 24px; font-size: 13px; background: var(--color-popover); color: var(--color-foreground); border: 1px solid var(--color-border); }
+
+/* ───────── shell ───────── */
+.app { position: relative; height: calc(100vh - 36px); display: flex; overflow: hidden; background: var(--agent-kit-recessed-surface); }
+.app-left { flex: none; width: 224px; background: var(--color-sidebar); display: flex; flex-direction: column; transition: width 260ms var(--ease-drawer); overflow: clip; }
+.app-left.collapsed { width: 56px; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--color-background); }
+.with-left .main { border-start-start-radius: 8px; border-end-start-radius: 8px; }
+.main-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* ───────── app sidebar (toolkit AppSidebar): 260 expanded, 56 collapsed ───────── */
+.app-left { width: 260px; border-inline-end: 1px solid var(--color-border); transition: width 200ms ease-out; }
+.as-brand { height: 56px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--color-border); color: var(--color-primary); }
+.as-brand svg { width: 24px; height: 14px; flex: none; }
+.as-brand .nm { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.collapsed .as-brand { padding: 0 8px; justify-content: center; }
+.collapsed .as-brand .nm, .collapsed .as-item span, .collapsed .as-org .wide { display: none; }
+.as-nav { display: flex; flex-direction: column; gap: 2px; padding: 12px 8px; flex: 1; min-height: 0; overflow-y: auto; }
+.collapsed .as-nav { align-items: center; gap: 4px; }
+.as-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; color: var(--color-primary); font-size: 12px; line-height: 16px; white-space: nowrap; width: 100%; text-align: left; }
+.as-item:hover { background: color-mix(in srgb, var(--color-accent) 60%, transparent); }
+.as-item[aria-current="page"] { background: color-mix(in srgb, var(--color-primary) 10%, transparent); font-weight: 500; }
+.collapsed .as-item { width: 36px; height: 36px; justify-content: center; padding: 0; border-radius: 6px; }
+.as-foot { flex: none; border-top: 1px solid var(--color-border); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.as-foot .row { display: flex; align-items: center; gap: 2px; }
+.collapsed .as-foot .row { flex-direction: column; gap: 4px; }
+.as-foot .ib { width: 36px; height: 36px; color: var(--color-primary); }
+.as-foot .ib:hover { background: color-mix(in srgb, var(--color-accent) 60%, transparent); color: var(--color-primary); }
+.as-org { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; text-align: left; color: var(--color-foreground); }
+.as-org:hover, .as-org[aria-expanded="true"] { background: color-mix(in srgb, var(--color-accent) 60%, transparent); }
+.collapsed .as-org { flex: none; padding: 4px; }
+.av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 600; background: var(--color-accent); color: var(--color-muted-foreground); border: 1px solid var(--color-border); flex: none; }
+.collapsed .av { width: 24px; height: 24px; }
+.as-org .t { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.as-org .t b { font-size: 13px; font-weight: 500; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.as-org .t small { display: flex; align-items: center; gap: 4px; font-size: 12px; line-height: 1.25; color: var(--color-muted-foreground); }
+.ib { width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; color: var(--color-muted-foreground); flex: none; }
+.ib:hover { background: var(--color-accent); color: var(--color-foreground); }
+.ib.sm { width: 28px; height: 28px; }
+.ib[aria-pressed="true"] { background: var(--color-accent); color: var(--color-foreground); }
+.ib[disabled] { opacity: .5; cursor: default; background: none; }
+.ib.primary-ic { color: var(--color-primary); }
+.ib.hdr-ic:hover { background: color-mix(in srgb, var(--color-accent) 40%, transparent); }
+.ib .bdg { position: absolute; top: -2px; right: -2px; padding: 0 4px; border-radius: 999px; background: var(--color-primary); color: var(--color-primary-foreground); font-size: 10px; line-height: 14px; }
+.ib { position: relative; }
+
+/* ───────── header ───────── */
+.hdr { flex: none; height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--color-border); }
+.hdr h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.01em; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hdr.hdr-home { height: 56px; border-bottom: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 1fr) minmax(0, 1fr); column-gap: 12px; }
+.hdr.hdr-home h1 { font-size: 16px; line-height: 20px; }
+.hdr-search { position: relative; width: 100%; max-width: 480px; justify-self: center; }
+.hdr-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--color-muted-foreground); }
+.input { height: 32px; width: 100%; border: 1px solid var(--color-input); border-radius: 6px; background: transparent; padding: 0 12px; font-size: 14px; outline: none; color: var(--color-foreground); }
+.input::placeholder, textarea::placeholder { color: var(--color-muted-foreground); }
+.input:focus { box-shadow: 0 0 0 2px hsl(var(--ring) / .5); }
+.hdr-search .input { padding-left: 36px; }
+.hdr-ctl { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.b { height: 32px; padding: 0 12px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 14px; font-weight: 500; white-space: nowrap; }
+.b.outline { border: 1px solid var(--color-input); background: var(--color-background); }
+.b.outline:hover { background: var(--color-accent); }
+.b.primary { background: var(--color-primary); color: var(--color-primary-foreground); }
+.b.primary:hover { opacity: .9; }
+.b.ghost:hover { background: var(--color-accent); }
+.b.sm { height: 32px; padding: 0 12px; font-size: 13px; }
+.b.danger { background: var(--color-destructive); color: var(--color-destructive-foreground); }
+.b[disabled] { opacity: .5; cursor: default; }
+
+/* ───────── home (toolkit PromptHome) ───────── */
+.home { max-width: 1480px; margin: 0 auto; padding: 0 32px 56px; }
+.hero { min-height: clamp(36rem, 64svh, 44rem); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.hero h2 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -.02em; }
+.hero-composer { width: 100%; max-width: 700px; margin-top: 16px; text-align: start; }
+.chips { width: 100%; max-width: 700px; margin-top: 16px; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.chip-s { height: 28px; padding: 0 10px; border-radius: 999px; background: color-mix(in srgb, var(--color-muted) 55%, transparent); border: 1px solid transparent; font-size: 11px; color: color-mix(in srgb, var(--color-foreground) 80%, transparent); }
+.chip-s:hover { background: var(--color-muted); border-color: color-mix(in srgb, var(--color-border) 55%, transparent); color: var(--color-foreground); }
+
+/* the shared composer (AgentComposerFrame + PromptComposer) */
+.composer { border: 1px solid var(--agent-kit-composer-border-color); border-radius: var(--agent-kit-composer-radius); background: var(--agent-kit-raised-surface); box-shadow: var(--agent-kit-composer-elevation); display: flex; flex-direction: column; min-height: var(--agent-kit-composer-min-height); }
+.composer.hero-c { min-height: 9rem; }
+.composer:focus-within { border-color: var(--agent-kit-composer-focus-border-color); }
+.cmp-input { flex: 1; min-height: var(--agent-kit-composer-editor-min-height); max-height: 12rem; overflow-y: auto; padding: 14px 16px 2px; font-size: 14px; line-height: 20px; outline: none; white-space: pre-wrap; text-align: left; }
+.hero-c .cmp-input { min-height: 5.125rem; }
+.cmp-input:empty::before { content: attr(data-ph); color: var(--color-muted-foreground); pointer-events: none; }
+.cmp-bar { display: flex; align-items: center; gap: 4px; padding: 4px 16px 8px 10px; }
+.cmp-bar .grow { flex: 1; }
+.cmp-btn { height: 28px; min-width: 28px; padding: 0 6px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--color-muted-foreground); }
+.cmp-btn:hover { background: var(--color-accent); color: var(--color-foreground); }
+.cmp-send { width: 32px; height: 32px; border-radius: 999px; display: grid; place-items: center; background: var(--color-primary); color: var(--color-primary-foreground); }
+.cmp-send[disabled] { opacity: .35; cursor: default; }
+.cmp-send.stop { background: var(--color-foreground); color: var(--color-background); }
+
+/* library tabs */
+.lib { padding-top: 32px; }
+.tabs-h { position: sticky; top: 0; z-index: 10; padding: 8px 0; background: var(--color-background); display: flex; align-items: center; gap: 8px; }
+.tabs-l { display: inline-flex; height: 36px; align-items: center; padding: 4px; border-radius: 6px; background: var(--color-muted); color: var(--color-muted-foreground); }
+.tabs-l button { height: 28px; padding: 4px 12px; border-radius: 2px; font-size: 14px; font-weight: 500; }
+.tabs-l button[aria-selected="true"] { background: var(--color-background); color: var(--color-foreground); box-shadow: 0 1px 2px 0 rgb(0 0 0 / 5%); }
+.tabs-h .grow { flex: 1; }
+.filter-t { position: relative; width: 36px; height: 36px; border-radius: 6px; display: grid; place-items: center; border: 1px solid var(--color-input); background: var(--color-background); }
+.filter-t:hover { background: var(--color-accent); }
+.filter-t.on { border-color: color-mix(in srgb, var(--color-primary) 40%, transparent); color: var(--color-primary); }
+.filter-t.on::after { content: ""; position: absolute; top: -4px; right: -4px; width: 6px; height: 6px; border-radius: 50%; background: var(--color-primary); }
+.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 8px; }
+@media (max-width: 1280px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.empty-box { border-radius: 12px; background: var(--color-card); padding: 24px; font-size: 14px; color: var(--color-muted-foreground); }
+
+/* deck card */
+.card { position: relative; min-width: 0; }
+.card-l { display: block; width: 100%; text-align: left; overflow: hidden; border-radius: 12px; border: 1px solid transparent; background: var(--color-card); transition: background-color .2s, border-color .2s; }
+.card-l:hover { border-color: var(--color-border); background: color-mix(in srgb, var(--color-accent) 30%, var(--color-card)); }
+.card-p { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: color-mix(in srgb, var(--color-muted) 30%, transparent); }
+.card-p::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, hsl(240 5% 8%), transparent 50%); opacity: .6; pointer-events: none; }
+.card-c { min-height: 80px; padding: 16px 48px 16px 16px; display: flex; align-items: center; gap: 8px; }
+.card-c h3 { margin: 0; flex: 1; min-width: 0; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-c input { flex: 1; min-width: 0; background: transparent; border: 0; border-bottom: 1px solid var(--color-border); font-size: 14px; font-weight: 500; outline: none; }
+.vis { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--color-muted-foreground); flex: none; }
+.card-a { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; z-index: 2; }
+.card-a button { padding: 6px; border-radius: 6px; border: 1px solid var(--color-border); background: rgb(0 0 0 / 60%); backdrop-filter: blur(4px); color: rgb(255 255 255 / 70%); display: grid; place-items: center; }
+.card-a button:hover { background: rgb(0 0 0 / 80%); }
+.card-a .star { opacity: 0; }
+.card:hover .card-a .star, .card-a .star.on { opacity: 1; }
+.card-a .star.on { color: var(--slides-star); }
+.card-a .star.on svg { fill: currentColor; }
+.card-tpl .card-c { flex-direction: column; align-items: flex-start; gap: 4px; padding-right: 48px; }
+.card-tpl .card-c p { margin: 0; font-size: 14px; line-height: 20px; color: var(--color-muted-foreground); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-tpl .card-p::after { display: none; }
+.card-tpl .more { position: absolute; right: 8px; bottom: 34px; opacity: 0; }
+.card-tpl:hover .more { opacity: 1; }
+.opening { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 12px; background: color-mix(in srgb, var(--color-background) 80%, transparent); backdrop-filter: blur(4px); font-size: 14px; font-weight: 500; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* templates and design systems pages */
+.page { max-width: 1480px; margin: 0 auto; padding: 24px 32px; display: grid; gap: 24px; }
+.page .search { position: relative; max-width: 700px; }
+.page .search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--color-muted-foreground); }
+.page .search .input { padding-left: 36px; }
+.ds-page { max-width: 1152px; margin: 0 auto; padding: 40px 24px; }
+.ds-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 320px)); gap: 16px; }
+.ds-card { position: relative; border-radius: 12px; border: 1px solid var(--color-border); background: var(--color-card); overflow: hidden; }
+.ds-card:hover { border-color: color-mix(in srgb, var(--color-foreground) 20%, transparent); }
+.ds-new { border-style: dashed; text-align: left; width: 100%; display: flex; flex-direction: column; justify-content: flex-start; }
+.ds-new .pv { aspect-ratio: 16 / 9; display: grid; place-items: center; background: color-mix(in srgb, var(--color-muted) 30%, transparent); }
+.ds-new .pv span { width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--color-accent) 50%, transparent); color: var(--color-muted-foreground); }
+.ds-pv { aspect-ratio: 16 / 9; padding: 20px; display: flex; flex-direction: column; justify-content: space-between; }
+.ds-sw { display: flex; gap: 6px; }
+.ds-sw i { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--color-border); }
+.ds-info { padding: 16px; display: grid; gap: 6px; }
+.ds-info .t { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; }
+.ds-info small { font-size: 12px; color: var(--color-muted-foreground); }
+.ds-badge { font-size: 10px; border: 1px solid color-mix(in srgb, var(--slides-selection) 40%, transparent); color: var(--slides-selection); border-radius: 999px; padding: 0 6px; line-height: 16px; }
+.ds-acts { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; }
+.ds-acts button { height: 36px; min-width: 36px; padding: 0 8px; border-radius: 6px; background: color-mix(in srgb, var(--color-background) 80%, transparent); border: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent); backdrop-filter: blur(4px); display: grid; place-items: center; font-size: 13px; font-weight: 500; }
+
+/* ───────── editor ───────── */
+.deck-editor-shell { --agent-native-lower-surface: var(--agent-kit-nav-surface); --slides-editor-surface: color-mix(in srgb, hsl(var(--background)) 35%, var(--agent-native-lower-surface, hsl(var(--background))) 65%); flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-start-start-radius: 8px; border-end-start-radius: 8px; background: var(--color-background); }
+.etb { flex: none; height: 48px; display: flex; align-items: center; gap: 4px; padding: 0 12px; background: var(--color-background); white-space: nowrap; }
+.etb .tb-ic { width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; color: var(--color-muted-foreground); flex: none; }
+.etb .tb-ic:hover { background: var(--color-accent); color: color-mix(in srgb, var(--color-foreground) 70%, transparent); }
+.etb .title { min-width: 40px; max-width: 500px; background: transparent; border: 0; font-size: 14px; font-weight: 500; color: color-mix(in srgb, var(--color-foreground) 90%, transparent); outline: none; margin-left: 4px; }
+.etb .title:focus { color: var(--color-foreground); }
+.etb .right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.view-only { display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-muted) 50%, transparent); padding: 4px 10px; font-size: 12px; font-weight: 500; color: var(--color-muted-foreground); }
+/* SaveStatusIndicator: the code draws offline, failed, and conflict saves in destructive red. */
+.save-warn { display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 4px 6px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--color-destructive) 30%, transparent); background: color-mix(in srgb, var(--color-destructive) 10%, transparent); font-size: 11px; color: var(--color-destructive); margin-right: 4px; flex: none; }
+.save-warn button { height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: 6px; color: inherit; }
+.save-warn button:hover { background: color-mix(in srgb, var(--color-destructive) 10%, transparent); }
+.presence { display: flex; align-items: center; padding-left: 8px; }
+.pav { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; border: 1px solid #fff; flex: none; }
+.pav.pav-ai { background: var(--slides-agent); }
+.pav.pav-ai.active { animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--slides-agent) 50%, transparent); } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--slides-agent) 0%, transparent); } }
+.etb .share { height: 36px; padding: 0 12px; border: 1px solid var(--color-input); border-radius: 6px; font-size: 14px; font-weight: 500; background: var(--color-background); margin-left: 4px; }
+.etb .share:hover { background: var(--color-accent); }
+.etb .present { height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-primary); color: var(--color-primary-foreground); display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; margin: 0 4px; }
+.etb .present:hover { opacity: .9; }
+.etb .present[disabled] { opacity: .5; cursor: default; }
+.etb .present svg { width: 14px; height: 14px; }
+
+/* contextual toolbar (SlideContextToolbar), one 40px row under the header */
+.ctb { flex: none; height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 12px; white-space: nowrap; overflow-x: auto; }
+.ctb .dv { margin: 0 4px; width: 1px; height: 16px; background: var(--color-border); flex: none; }
+.ctb .t7 { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; color: var(--color-muted-foreground); flex: none; }
+.ctb .t7:hover { background: var(--color-accent); color: var(--color-foreground); }
+.ctb .t7[aria-pressed="true"] { background: var(--color-accent); color: var(--color-foreground); }
+.ctb .t7[disabled] { opacity: .5; cursor: default; background: none; }
+.ctb .newslide { height: 28px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--color-muted-foreground); }
+.ctb .newslide:hover { background: var(--color-accent); color: var(--color-foreground); }
+.ctb .val { height: 28px; padding: 0 6px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; min-width: 56px; }
+.ctb .val:hover { background: var(--color-accent); }
+.ctb .sw { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; }
+.ctb .sw:hover { background: var(--color-accent); }
+.ctb .sw i { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--color-border); }
+.ctb .zoom { width: 44px; text-align: center; font-size: 12px; color: var(--color-muted-foreground); font-variant-numeric: tabular-nums; }
+.ctb .ml-auto { margin-left: auto; }
+.ctb .size { display: inline-flex; align-items: center; height: 28px; border-radius: 6px; background: color-mix(in srgb, var(--color-muted) 82%, transparent); font-size: 11px; font-weight: 500; }
+.ctb .size button { width: 22px; height: 28px; display: grid; place-items: center; color: var(--color-muted-foreground); }
+.ctb .size span { width: 32px; text-align: center; font-variant-numeric: tabular-nums; }
+
+.workspace { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--color-background); }
+
+/* slide rail (EditorSidebar) */
+.rail { flex: none; width: 208px; display: flex; flex-direction: column; background: var(--color-background); }
+.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.th { width: 100%; text-align: left; display: flex; align-items: flex-start; gap: 6px; padding: 6px; border-radius: 8px; cursor: grab; transition: background-color .15s; position: relative; }
+.th.active { background: color-mix(in srgb, var(--color-accent) 60%, transparent); }
+.th.selected { background: var(--color-accent); }
+.th .num { width: 16px; flex: none; align-self: stretch; position: relative; text-align: center; font-size: 10px; font-weight: 500; line-height: 20px; color: color-mix(in srgb, var(--color-muted-foreground) 70%, transparent); }
+.th .num .ai { position: absolute; left: 50%; top: 20px; transform: translateX(-50%); }
+.ai-mark { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: 8px; font-weight: 700; color: #fff; background: var(--slides-agent); }
+.th .fr { flex: 1; min-width: 0; position: relative; border-radius: 4px; border: 1px solid rgb(255 255 255 / 6%); overflow: hidden; }
+.th.active .fr, .th.selected .fr { border-color: var(--slides-selection); box-shadow: 0 0 0 2px var(--slides-selection); }
+.th.skipped .fr .sl-frame { opacity: .4; }
+.th .skip { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: rgb(0 0 0 / 40%); color: rgb(255 255 255 / 80%); }
+.th .skip svg { width: 24px; height: 24px; }
+.th.dragging { opacity: .4; }
+.drop-line { height: 2px; border-radius: 1px; background: var(--slides-selection); margin: -3px 6px -1px 28px; }
+.shimmer { position: absolute; inset: 0; z-index: 3; background: linear-gradient(100deg, transparent 30%, hsl(var(--foreground) / .08) 50%, transparent 70%); background-size: 200% 100%; animation: shimmer 1.6s linear infinite; }
+@keyframes shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+
+/* canvas */
+.ed-col { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; border-start-start-radius: 8px; border-end-start-radius: 8px; background: var(--slides-editor-surface); }
+.canvas { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 64px 32px 32px; position: relative; }
+.stage { position: relative; flex: none; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 40%); }
+.stage [data-el] { cursor: text; }
+.stage [data-el]:hover { outline: 1px solid var(--slides-selection); outline-offset: 2px; }
+.stage [data-el].sel { outline: 2px solid var(--slides-selection); outline-offset: 2px; }
+.gen-stage { width: 100%; max-width: 1152px; margin: auto; }
+.gen { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-muted) 20%, transparent); }
+.gen .art { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 16px; padding: 14%; background: color-mix(in srgb, var(--color-muted) 30%, transparent); }
+.gen.thumb .art { gap: 4px; }
+.sk { border-radius: 6px; background: var(--color-muted); position: relative; overflow: hidden; }
+.sk::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, hsl(var(--foreground) / .043) 50%, transparent 70%); background-size: 200% 100%; animation: shimmer 1.6s linear infinite; }
+.gen .two { margin-top: 5%; display: grid; grid-template-columns: 1fr 1fr; gap: 8%; }
+.empty-deck { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; max-width: 384px; }
+
+/* speaker notes */
+.notes { flex: none; background: var(--slides-editor-surface); }
+.notes .grip { height: 8px; display: flex; align-items: center; justify-content: center; cursor: row-resize; }
+.notes .grip i { width: 40px; height: 1px; border-radius: 1px; background: hsl(var(--muted-foreground) / .3); }
+.notes .tog { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 6px 16px; }
+.notes .tog span { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; color: var(--color-muted-foreground); }
+.notes .tog:hover span { color: color-mix(in srgb, var(--color-foreground) 80%, transparent); }
+.notes textarea { display: block; width: 100%; height: 100%; resize: none; background: transparent; border: 0; outline: none; font-family: var(--mono); font-size: 12px; line-height: 16px; color: var(--color-muted-foreground); }
+.notes .ta { padding: 0 16px 12px; height: 120px; }
+
+/* comments panel */
+.cm { flex: none; width: 272px; display: flex; flex-direction: column; background: var(--slides-editor-surface); }
+.cm-h { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; }
+.cm-h span { font-size: 13px; font-weight: 500; color: color-mix(in srgb, var(--color-foreground) 80%, transparent); }
+.cm-h .acts { display: flex; gap: 4px; }
+.cm-h .acts button { padding: 4px; border-radius: 4px; color: var(--color-muted-foreground); display: grid; }
+.cm-h .acts button:hover { background: var(--color-accent); color: var(--color-foreground); }
+.cm-f { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 8px; border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent); }
+.cm-f .segm { display: inline-flex; border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent); border-radius: 6px; padding: 2px; }
+.cm-f .segm button { padding: 4px 8px; border-radius: 4px; font-size: 10px; color: var(--color-muted-foreground); }
+.cm-f .segm button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-foreground); }
+.cm-b { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.thread { border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-background); padding: 10px 12px; font-size: 12px; line-height: 18px; }
+.thread .who { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+.thread .who .pav { width: 20px; height: 20px; font-size: 9px; border: 0; }
+.thread .who small { color: var(--color-muted-foreground); font-weight: 400; }
+.thread .reply { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border); }
+.thread .go { margin-top: 6px; font-size: 11px; color: var(--color-muted-foreground); }
+.cm-new { width: 100%; text-align: center; padding: 40px 0; border-radius: 8px; border: 1px dashed color-mix(in srgb, var(--color-border) 70%, transparent); }
+.cm-new:hover { background: var(--color-accent); }
+.cm-new p { margin: 8px 0 0; font-size: 12px; color: var(--color-muted-foreground); }
+.cm-new small { font-size: 11px; color: color-mix(in srgb, var(--color-muted-foreground) 70%, transparent); }
+.pin { position: absolute; z-index: 5; width: 24px; height: 24px; border-radius: 50% 50% 50% 0; background: var(--slides-selection); color: #000; display: grid; place-items: center; font-size: 11px; font-weight: 700; transform: translate(-4px, -24px); border: 2px solid #fff; }
+
+/* popovers, sheets, dialogs */
+.pop { position: fixed; z-index: 55; background: var(--color-popover); color: var(--color-foreground); border: 1px solid var(--color-border); border-radius: 8px; box-shadow: var(--agent-kit-overlay-elevation); }
+.share-pop { width: min(460px, 92vw); padding: 16px; display: flex; flex-direction: column; }
+.share-pop h2 { margin: 0 0 16px; font-size: 16px; font-weight: 600; }
+.sp-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.sp-row b { display: block; font-size: 14px; font-weight: 500; }
+.sp-row small { font-size: 12px; color: var(--color-muted-foreground); }
+.sp-lbl { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.sp-access { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.sp-access .ic { width: 36px; height: 36px; border-radius: 50%; background: var(--color-muted); color: var(--color-muted-foreground); display: grid; place-items: center; flex: none; }
+.sel-t { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px; margin-left: -6px; border-radius: 6px; font-size: 14px; font-weight: 500; }
+.sel-t:hover { background: var(--color-accent); }
+.sp-access small { display: block; font-size: 12px; color: var(--color-muted-foreground); }
+.sp-add { display: flex; gap: 8px; margin-bottom: 8px; }
+.sp-add .input { height: 36px; background: var(--color-card); }
+.sp-add .role { height: 36px; padding: 0 10px; border: 1px solid var(--color-input); border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; flex: none; }
+.sp-people { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.sp-people li { display: flex; align-items: center; gap: 12px; padding: 6px 4px; font-size: 14px; }
+.sp-people li .pav { width: 28px; height: 28px; border: 0; font-size: 11px; }
+.sp-people li > span:not(.pav) { flex: 1; min-width: 0; line-height: 18px; }
+.sp-people li small { font-size: 12px; color: var(--color-muted-foreground); }
+.sp-notify { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-muted-foreground); margin-bottom: 12px; }
+.sheet-scrim { position: fixed; inset: 36px 0 0; z-index: 50; background: rgb(0 0 0 / 50%); }
+.sheet { position: fixed; top: 36px; right: 0; bottom: 0; z-index: 51; width: min(92vw, 640px); background: var(--color-background); border-left: 1px solid var(--color-border); display: flex; flex-direction: column; box-shadow: var(--agent-kit-drawer-elevation); }
+.sheet-h { display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 12px; border-bottom: 1px solid var(--color-border); }
+.sheet-h .t { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; }
+.sheet-h .t .hi { color: var(--slides-selection); }
+.sheet-h .back { display: inline-flex; align-items: center; gap: 6px; color: var(--color-muted-foreground); }
+.sheet-h .back:hover { color: var(--color-foreground); }
+.ver { width: 100%; text-align: left; border-radius: 6px; padding: 10px 12px; display: flex; gap: 12px; }
+.ver:hover { background: var(--color-accent); }
+.ver .dot { margin-top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--slides-selection); flex: none; }
+.ver b { font-size: 14px; font-weight: 500; }
+.ver .when { margin-left: 8px; font-size: 10px; color: var(--color-muted-foreground); }
+.ver small { display: block; margin-top: 2px; font-size: 11px; color: var(--color-muted-foreground); }
+.ver small.why { color: color-mix(in srgb, var(--color-muted-foreground) 80%, transparent); }
+.snap-h { padding: 12px 16px; border-bottom: 1px solid var(--color-border); }
+.snap-h b { font-size: 14px; font-weight: 500; }
+.snap-h small { display: block; margin-top: 2px; font-size: 11px; color: var(--color-muted-foreground); }
+.snap-g { flex: 1; overflow-y: auto; padding: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-content: start; }
+.snap-g p { margin: 6px 0 0; font-size: 11px; color: var(--color-muted-foreground); }
+.snap-f { padding: 12px; border-top: 1px solid var(--color-border); }
+.snap-f .b { width: 100%; }
+.dlg-scrim { position: fixed; inset: 0; z-index: 80; background: rgb(0 0 0 / 80%); display: grid; place-items: center; }
+.dlg { width: min(512px, calc(100vw - 32px)); background: var(--color-background); border: 1px solid var(--color-border); border-radius: 8px; padding: 24px; box-shadow: var(--agent-kit-overlay-elevation); }
+.dlg h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.dlg p { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--color-muted-foreground); }
+.dlg .f { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+.add-pop { width: min(420px, calc(100vw - 24px)); padding: 12px; border-radius: 12px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 60%); }
+.add-pop .h { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 8px; font-size: 14px; font-weight: 500; }
+.add-pop .opt { width: 100%; margin-bottom: 4px; padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; gap: 8px; font-size: 14px; color: color-mix(in srgb, var(--color-foreground) 90%, transparent); text-align: left; }
+.add-pop .opt:hover { background: var(--color-accent); }
+.add-pop .opt svg { color: var(--color-muted-foreground); }
+.add-pop .opt small { margin-left: auto; font-size: 11px; color: var(--color-muted-foreground); }
+.add-pop hr { border: 0; height: 1px; background: var(--color-border); margin: 4px -12px 8px; }
+.add-pop .composer { min-height: 0; box-shadow: none; }
+.shape-pop { padding: 6px; width: 208px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.shape-pop button { width: 36px; height: 36px; border-radius: 6px; display: grid; place-items: center; color: var(--color-muted-foreground); }
+.shape-pop button:hover { background: var(--color-accent); color: var(--color-foreground); }
+.shape-pop svg { width: 20px; height: 20px; }
+.color-pop { padding: 12px; width: 232px; }
+.color-pop .lbl { font-size: 11px; font-weight: 500; color: var(--color-muted-foreground); margin-bottom: 8px; }
+.color-pop .row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 12px; }
+.color-pop .row button { aspect-ratio: 1; border-radius: 6px; border: 1px solid var(--color-border); }
+.color-pop .row button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--slides-selection); }
+.tip { position: fixed; z-index: 90; padding: 6px 12px; border-radius: 6px; background: var(--color-primary); color: var(--color-primary-foreground); font-size: 12px; pointer-events: none; white-space: nowrap; }
+.work { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: min(calc(100vw - 2rem), 384px); z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-popover) 95%, transparent); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 20%); font-size: 14px; font-weight: 500; }
+.work .l { display: flex; align-items: center; gap: 8px; }
+.work .l svg { color: var(--slides-selection); }
+.work button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--color-border); font-size: 12px; font-weight: 400; color: var(--color-muted-foreground); }
+.work button:hover { background: var(--color-accent); }
+
+/* ───────── agent chat (toolkit AgentSidebar): 380 default, nav surface, 13px density ───────── */
+.agent { flex: none; width: 0; overflow: clip; transition: width 260ms var(--ease-drawer); background: var(--agent-kit-nav-surface); display: flex; font-size: 13px; }
+.agent.open { width: 380px; border-left: 1px solid hsl(var(--border)); }
+.agent-in { width: 380px; min-width: 380px; display: flex; flex-direction: column; height: 100%; }
+.ag-h { flex: none; height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; }
+.ag-tabs { display: flex; gap: 2px; min-width: 0; }
+.ag-tab { position: relative; min-width: 56px; max-width: 150px; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 500; color: var(--color-muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 6px; }
+.ag-tab:hover { background: var(--color-accent); }
+.ag-tab[aria-selected="true"] { background: var(--color-accent); color: var(--color-foreground); }
+.ag-tab .run { width: 6px; height: 6px; border-radius: 50%; background: var(--slides-agent); animation: blink 1.2s infinite; flex: none; }
+.ag-acts { display: flex; gap: 2px; flex: none; }
+.ag-acts button { width: 24px; height: 24px; border-radius: 4px; display: grid; place-items: center; color: var(--color-muted-foreground); }
+.ag-acts button:hover { color: var(--color-foreground); background: color-mix(in srgb, var(--color-accent) 50%, transparent); }
+.ag-b { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 16px; display: flex; flex-direction: column; }
+.ag-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: color-mix(in srgb, var(--color-muted-foreground) 60%, transparent); }
+.ag-empty svg { width: 20px; height: 20px; }
+.msg { font-size: 14px; line-height: 1.52; margin-bottom: 20px; }
+.msg-u { align-self: flex-end; max-inline-size: min(88%, 38rem); background: hsl(var(--muted)); border-radius: 8px; padding: 10px 13px; white-space: pre-wrap; }
+.msg-a p { margin: 0 0 10px; }
+.msg-a p:last-child { margin: 0; }
+.msg-a ul { margin: 0 0 10px; padding-left: 20px; }
+.acts-d { font-size: 13px; color: var(--color-muted-foreground); margin-bottom: 12px; }
+.acts-d > button { display: inline-flex; align-items: center; gap: 6px; }
+.acts-d > button:hover { color: var(--color-foreground); }
+.acts-d > button svg { transition: transform .15s; }
+.acts-d.open > button svg { transform: rotate(90deg); }
+.acts-d .rows { margin-top: 4px; }
+.act { display: flex; gap: 8px; padding: 4px 0; align-items: center; }
+.act svg { width: 16px; height: 16px; stroke-width: 1.7; flex: none; }
+.thinking { font-size: 14px; font-weight: 500; background: linear-gradient(90deg, var(--color-muted-foreground) 30%, var(--color-foreground) 50%, var(--color-muted-foreground) 70%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.6s linear infinite; }
+.ag-sugs { display: flex; gap: 4px; overflow-x: auto; padding: 8px 12px; scrollbar-width: none; }
+.ag-f { flex: none; padding: 0 12px 12px; }
+.ag-f .composer { border-radius: 14px; border: 1px solid hsl(var(--border) / .9); min-height: 0; box-shadow: 0 .5rem 1.875rem hsl(var(--foreground) / .06); }
+.ag-f .cmp-input { min-height: 52px; padding: 12px 14px 4px; }
+.ag-f .cmp-bar { padding: 6px 8px 8px; }
+.ag-f .cmp-send { width: 28px; height: 28px; }
+.ag-f .cmp-btn { border-radius: 6px; }
+.ctx-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0; }
+.ctx-chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-muted) 50%, transparent); padding: 2px 4px 2px 8px; font-size: 11px; font-weight: 500; }
+.ctx-chip button { width: 16px; height: 16px; display: grid; place-items: center; color: var(--color-muted-foreground); border-radius: 4px; }
+.ctx-chip button:hover { background: var(--color-accent); color: var(--color-foreground); }
+
+/* ───────── presentation (PresentationView, PresenterView) ───────── */
+.present-v { position: fixed; inset: 36px 0 0; z-index: 70; background: var(--slides-stage); overflow: hidden; display: grid; place-items: center; cursor: none; }
+.present-v.show { cursor: default; }
+.present-v .bar { position: absolute; inset: auto 0 0; transition: opacity .3s, transform .3s; opacity: 0; transform: translateY(16px); }
+.present-v.show .bar { opacity: 1; transform: none; }
+.present-v .bar-in { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; background: linear-gradient(to top, rgb(0 0 0 / 80%), transparent); color: #fff; }
+.present-v .ctr { font-family: var(--mono); font-size: 14px; color: rgb(255 255 255 / 50%); min-width: 120px; }
+.present-v .grp { display: flex; gap: 8px; min-width: 120px; justify-content: flex-end; }
+.present-v .grp.c { justify-content: center; min-width: 0; }
+.pv-b { padding: 8px; border-radius: 8px; background: rgb(255 255 255 / 10%); color: #fff; display: grid; place-items: center; }
+.pv-b:hover { background: rgb(255 255 255 / 20%); }
+.pv-b[disabled] { opacity: .3; cursor: default; }
+.present-v .prog { height: 2px; background: rgb(255 255 255 / 10%); }
+.present-v .prog i { display: block; height: 100%; background: var(--slides-selection); transform-origin: left; transition: transform .3s; }
+.present-v .fs { position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; border-radius: 8px; background: rgb(255 255 255 / 10%); padding: 12px 16px; font-size: 14px; color: #fff; z-index: 2; }
+.present-v .fs:hover { background: rgb(255 255 255 / 20%); }
+.presenter { position: fixed; inset: 36px 0 0; z-index: 70; display: flex; flex-direction: column; background: var(--slides-presenter); color: #fff; }
+.presenter .h { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; border-bottom: 1px solid rgb(255 255 255 / 10%); }
+.presenter .h .ctr { font-family: var(--mono); font-size: 14px; color: rgb(255 255 255 / 50%); }
+.presenter .h .tm { font-family: var(--mono); font-size: 24px; color: rgb(255 255 255 / 80%); font-variant-numeric: tabular-nums; }
+.presenter .h .acts { display: flex; gap: 8px; }
+.presenter .bd { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; padding: 16px; }
+.presenter .top { display: flex; gap: 16px; }
+.presenter .cur { width: 66.666%; border-radius: 8px; overflow: hidden; background: #000; }
+.presenter .nx { width: 33.333%; display: flex; flex-direction: column; gap: 8px; }
+.presenter .cap { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: rgb(255 255 255 / 40%); }
+.presenter .nx .fr { border-radius: 8px; overflow: hidden; background: #000; }
+.presenter .end { border-radius: 8px; background: rgb(255 255 255 / 4%); padding: 16px; font-size: 14px; color: rgb(255 255 255 / 40%); }
+.presenter .nt { flex: 1; min-height: 0; overflow-y: auto; border-radius: 8px; background: rgb(255 255 255 / 4%); padding: 20px; }
+.presenter .nt p { margin: 8px 0 0; white-space: pre-wrap; font-size: 18px; line-height: 1.625; color: rgb(255 255 255 / 90%); }
+.presenter .nt p.none { font-size: 14px; color: rgb(255 255 255 / 40%); }
+
+/* ───────── slides (SlideRenderer + .fmd-slide) ───────── */
+/* Slide content colors come from each deck's design system (--ds-*), not the app theme. */
+.sl-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; }
+.sl-frame > .sl { position: absolute; left: 0; top: 0; width: 960px; height: 540px; transform-origin: 0 0; transform: scale(var(--s, .2)); }
+.sl { display: flex; flex-direction: column; padding: 64px 80px; color: var(--ds-text); background: var(--ds-bg); font-family: var(--ds-body-font, "Inter", sans-serif); box-sizing: border-box; overflow: hidden; position: relative; }
+.sl h1, .sl h2 { margin: 0; font-family: var(--ds-heading-font, var(--ds-body-font, "Inter", sans-serif)); font-weight: 700; letter-spacing: -.03em; color: var(--ds-text); }
+.sl p, .sl ul { margin: 0; }
+.sl--title { justify-content: center; align-items: flex-start; gap: 24px; }
+.sl--title h1 { font-size: 64px; line-height: 1.05; }
+.sl--content, .sl--two-column { justify-content: flex-start; gap: 24px; }
+.sl--content h1, .sl--two-column h1, .sl--statement h1 { font-size: 38px; line-height: 1.15; }
+.sl--statement { align-items: center; justify-content: center; gap: 24px; text-align: center; }
+.sl--statement h2 { font-size: 42px; line-height: 1.15; max-width: 720px; }
+.sl--section { justify-content: flex-end; gap: 12px; }
+.sl--section h1 { font-size: 56px; line-height: 1.05; }
+.sl .sub { font-size: 22px; line-height: 1.4; color: var(--ds-text-muted); }
+.sl .lbl { color: var(--ds-accent); font-size: 11px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; }
+.sl .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.sl .cols3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.sl .card { background: var(--ds-card); border: 1px solid var(--ds-card-border); border-radius: 12px; padding: 20px 24px; }
+.sl .card h3 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
+.sl .card p { font-size: 16px; line-height: 1.5; color: var(--ds-text-muted); }
+.sl .stat { font-family: "Poppins", var(--font); font-size: 56px; font-weight: 800; line-height: 1; color: var(--ds-accent); }
+.sl ul.bul { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 18px; font-size: 22px; line-height: 1.4; color: var(--ds-text-muted); }
+.sl ul.bul li { display: flex; gap: 14px; }
+.sl ul.bul li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ds-accent); margin-top: 11px; flex: none; }
+.sl .tl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; border-top: 2px solid var(--ds-card-border); padding-top: 24px; margin-top: 16px; }
+.sl .tl b { display: block; font-size: 15px; color: var(--ds-accent); margin-bottom: 8px; }
+.sl .tl span { font-size: 22px; font-weight: 600; }
+.sl .tl small { display: block; margin-top: 6px; font-size: 15px; line-height: 1.45; color: var(--ds-text-muted); }
+.sl .foot { position: absolute; left: 80px; right: 80px; bottom: 32px; display: flex; justify-content: space-between; font-size: 12px; color: var(--ds-text-muted); }
+.sl .glow { position: absolute; width: 520px; height: 520px; right: -140px; top: -160px; border-radius: 50%; background: radial-gradient(closest-side, var(--ds-glow), transparent); }
+.sl .price b { display: block; font-size: 40px; font-weight: 800; letter-spacing: -.03em; margin: 8px 0; }
+.sl .price b small { font-size: 16px; font-weight: 500; color: var(--ds-text-muted); }
+</style>
+
+<div class="review" role="toolbar" aria-label="Prototype controls">
+  <span class="name">Slides</span><span class="ver">Prototype</span>
+  <span class="grow"></span>
+  <label class="chip" title="States that only appear some of the time">Scenario <select id="scenario-sel"><option value="default">Default</option><option value="empty">No decks yet</option><option value="generating">Deck mid-generation</option><option value="viewer">View only</option><option value="offline">Offline, unsaved changes</option></select></label>
+  <button class="chip" id="theme-btn">Theme</button>
+  <button class="chip" id="changes-btn" aria-pressed="false">Changes</button>
+</div>
+<div class="app" id="app"></div>
+
+__KIT_SCRIPT__
+<script>
+const app = $("#app");
+try { document.documentElement.dataset.theme = localStorage.getItem("slides-proto-theme") || "dark"; } catch { document.documentElement.dataset.theme = "dark"; }
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+const k = s => MAC ? s : s.replace(/⌘/g, "Ctrl+").replace(/⌥/g, "Alt+").replace(/⇧/g, "Shift+");
+
+/* ───────── data ───────── */
+// Design systems: each deck's slides render with its --ds-* variables, the names SlideRenderer uses.
+const DS = {
+  fieldnote: { name: "Fieldnote", fonts: "Inter · Inter", vars: { "--ds-bg": "#0f1218", "--ds-text": "#f4f6fa", "--ds-text-muted": "rgba(244,246,250,.68)", "--ds-accent": "#8ea8ff", "--ds-card": "rgba(255,255,255,.05)", "--ds-card-border": "rgba(255,255,255,.1)", "--ds-glow": "rgba(142,168,255,.32)" }, swatches: ["#8ea8ff", "#2b3550", "#ffd27a", "#0f1218", "#f4f6fa"], isDefault: true },
+  paper: { name: "Lumen Health", fonts: "Inter · Lora", vars: { "--ds-bg": "#f5f2ea", "--ds-text": "#1f2933", "--ds-text-muted": "#667085", "--ds-accent": "#2457d6", "--ds-card": "rgba(36,87,214,.06)", "--ds-card-border": "rgba(31,41,51,.12)", "--ds-glow": "rgba(36,87,214,.18)", "--ds-heading-font": "Georgia, serif" }, swatches: ["#2457d6", "#c9d6f5", "#e07a5f", "#f5f2ea", "#1f2933"] },
+  white: { name: "Default", vars: { "--ds-bg": "#ffffff", "--ds-text": "#1f2933", "--ds-text-muted": "#667085", "--ds-accent": "#2457d6", "--ds-card": "#f3f5f9", "--ds-card-border": "#e4e7ec", "--ds-glow": "rgba(36,87,214,.14)" } },
+};
+const FOOT = n => `<div class="foot"><span>Fieldnote 2.0 · Launch plan</span><span>${n}</span></div>`;
+let uid = 100;
+const S_ = (layout, html, notes = "", extra = {}) => ({ id: "s" + uid++, layout, html, notes, ...extra });
+const LAUNCH_SLIDES = () => [
+  S_("title", `<div class="glow"></div><span class="lbl" data-el="t1">Product launch · Q4 2026</span><h1 data-el="t2">Fieldnote 2.0</h1><p class="sub" data-el="t3">Notes that find you. Launch plan for leadership review.</p>`, "Open with the one-line pitch, then hand to Priya for the beta numbers.\n\nKeep this under a minute."),
+  S_("content", `<span class="lbl">Why now</span><h1 data-el="h">Teams write more than ever and find less</h1><ul class="bul" data-el="b"><li>Meeting notes per person tripled since 2024</li><li>62% of notes are never opened a second time</li><li>Search, not storage, is where people give up</li></ul>${FOOT(2)}`, "The 62% number is from our own telemetry across 4,100 workspaces, last 90 days."),
+  S_("statement", `<span class="lbl">The idea</span><h2 data-el="h">Your notes should surface the answer before you think to search.</h2>`, ""),
+  S_("two-column", `<span class="lbl">What ships</span><h1 data-el="h">Two features, one promise</h1><div class="cols"><div class="card" data-el="c1"><h3>Ask your notes</h3><p>Plain questions over every meeting, doc, and thread you can see. Answers cite the note they came from.</p></div><div class="card" data-el="c2"><h3>Shared spaces</h3><p>Team notebooks with live presence, comments, and an agent that keeps decisions in one place.</p></div></div>${FOOT(4)}`, "Demo Ask your notes live here. Use the Northwind workspace, not production."),
+  S_("content", `<span class="lbl">Beta results</span><h1 data-el="h">Six weeks, 380 teams</h1><div class="cols3"><div class="card" data-el="c1"><div class="stat">+41%</div><p style="margin-top:12px">weekly retention for teams using Ask</p></div><div class="card" data-el="c2"><div class="stat">2.4×</div><p style="margin-top:12px">searches per active user</p></div><div class="card" data-el="c3"><div class="stat">18 min</div><p style="margin-top:12px">saved per person each week</p></div></div>${FOOT(5)}`, "Retention lift is against a matched control of teams on 1.9."),
+  S_("section", `<span class="lbl">Part two</span><h1 data-el="h">Go to market</h1><p class="sub">Timeline, pricing, and what we need from each team</p>`, ""),
+  S_("content", `<span class="lbl">Timeline</span><h1 data-el="h">Three dates that matter</h1><div class="tl"><div><b>Oct 20</b><span>Press preview</span><small>Embargoed briefings with six outlets and two analysts</small></div><div><b>Nov 3</b><span>Public launch</span><small>Self-serve rollout to every workspace, blog and keynote</small></div><div><b>Nov 17</b><span>Enterprise</span><small>Admin controls, SSO-gated spaces, and data residency</small></div></div>${FOOT(7)}`, "Nov 3 is fixed. Enterprise can slip a week if the residency audit runs long."),
+  S_("content", `<span class="lbl">Pricing</span><h1 data-el="h">Ask is in every paid plan</h1><div class="cols3"><div class="card price"><h3>Free</h3><b>$0</b><p>Personal notes, 20 questions a month</p></div><div class="card price"><h3>Pro</h3><b>$10 <small>/ month</small></b><p>Unlimited Ask, shared spaces up to 5 people</p></div><div class="card price"><h3>Team</h3><b>$18 <small>/ seat</small></b><p>Unlimited spaces, admin, audit log</p></div></div>${FOOT(8)}`, "We are not raising Team pricing at launch. Revisit in Q2."),
+  S_("title", `<div class="glow"></div><span class="lbl">Thank you</span><h1 data-el="h">Questions</h1><p class="sub">launch@fieldnote.app · #fieldnote-launch</p>`, ""),
+];
+const OTHER = (title, ds, layout, html) => ({ title, ds, slides: [S_(layout, html)] });
+const DECKS_ALL = () => [
+  { id: "launch", title: "Fieldnote 2.0 launch plan", ds: "fieldnote", visibility: "org", starred: true, mine: true, slides: LAUNCH_SLIDES() },
+  { id: "qbr", ...OTHER("Q3 business review", "white", "title", `<span class="lbl">Quarterly business review</span><h1>Q3 2026</h1><p class="sub">Revenue, retention, and what changes in Q4</p>`), visibility: "org", mine: true },
+  { id: "lumen", ...OTHER("Customer story: Lumen Health", "paper", "title", `<span class="lbl">Customer story</span><h1>How Lumen Health cut charting time in half</h1>`), visibility: "public", mine: true },
+  { id: "onboard", ...OTHER("Onboarding for new engineers", "white", "statement", `<span class="lbl">Week one</span><h2>Ship something small on day three.</h2>`), visibility: "org", mine: false },
+  { id: "board", ...OTHER("Board update, October", "fieldnote", "title", `<div class="glow"></div><span class="lbl">Board of directors</span><h1>October update</h1><p class="sub">Confidential</p>`), visibility: "private", mine: true },
+  { id: "dsm", ...OTHER("Design system migration", "paper", "content", `<span class="lbl">Engineering</span><h1>Moving every app to one token set</h1><ul class="bul"><li>Audit: 1,240 hard-coded colors</li><li>Plan: three waves by surface</li></ul>`), visibility: "private", mine: true },
+];
+let DECKS = DECKS_ALL();
+const TEMPLATES = [
+  ["Swiss pitch", "A strict-grid investor pitch in black, paper, and one signal red: problem, product, market, model, and the ask.", "#f2efe8", "#111", "#e2231a", "Seed round", "Problem. Product. Market."],
+  ["Product team readout", "A quiet, precise weekly readout: status at a glance, a shipped table, a progress chart, open decisions, and the next six weeks.", "#fbfbfa", "#20242a", "#3a7d5c", "Week 41", "Product readout"],
+  ["The company book", "An editorial company overview set like a print magazine: masthead cover, a drop-cap essay, a pull quote, principles, history, and a closing letter.", "#efe9df", "#2a2118", "#a4532a", "Issue no. 1", "The company book"],
+  ["Quarterly business review", "A disciplined dark data-terminal review: KPI scorecard, revenue and retention charts, a segment table, and guidance for next quarter.", "#0b0f0d", "#e8f3ec", "#38e08c", "QBR · Q3", "$4.2M ARR, up 18%"],
+  ["Customer story", "A warm, human case study with duotone photo placeholders: the customer, their challenge, the approach, a big quote, and the results.", "#f6ece4", "#3a2420", "#d0613f", "Case study", "A customer story"],
+  ["Workshop kit", "A playful whiteboard kit for facilitators: dotted paper, sticky notes, marker arrows, a timed agenda, an exercise, clustering, and a parking lot.", "#fffdf6", "#24323f", "#f1b51c", "90 minutes", "Workshop kit"],
+  ["Launch Keynote", "A cinematic product launch: near-black stage, one luminous glow per slide, and enormous type that lands one idea at a time.", "#050507", "#ffffff", "#8a7dff", "Keynote", "Introducing"],
+  ["Loud Manifesto", "A neo-brutalist design talk: acid yellow, massive condensed caps, thick black rules, and numbered theses that refuse to whisper.", "#e7ff3a", "#000", "#000", "Thesis 01", "STOP WHISPERING"],
+  ["Research Findings", "A quiet, rigorous findings talk: ivory pages, Garamond headings, numbered figures with captions, footnotes, and a proper references slide.", "#fbf8f0", "#22201b", "#6d5a3a", "Findings", "What we learned"],
+  ["Course Lesson", "A friendly, readable lesson module: learning objectives, a concept diagram, step-by-step process, a quick quiz, and a recap, color-coded by section.", "#f4f8ff", "#1c2b4a", "#2f6fed", "Lesson 3", "Course lesson"],
+  ["Product Roadmap", "A calm planning deck in indigo and lilac: north-star metric, Now/Next/Later, a swimlane quarter timeline, bets, risks, and the decisions you need.", "#f3f1ff", "#251f5c", "#6a5ae0", "2027 plan", "Now, next, later"],
+  ["Quiet Portfolio", "A minimal, Japanese-inspired creative portfolio: washi paper tones, sumi ink, small Garamond, tracked caps, vertical rules, and asymmetric image frames.", "#f3eee4", "#1d1b18", "#8b2e22", "Portfolio", "Selected work"],
+  ["The pitch", "A focused narrative from problem to next step.", "#ffffff", "#1f2933", "#2457d6", "Pitch", "The pitch"],
+  ["Team update", "Progress, priorities, and decisions in one calm readout.", "#ffffff", "#1f2933", "#2457d6", "Update", "Team update"],
+  ["Company introduction", "An editorial introduction to purpose, work, and people.", "#f5f2ea", "#1f2933", "#2457d6", "Introduction", "Who we are"],
+  ["Quarterly review", "A deliberate structure for evidence, lessons, and priorities.", "#ffffff", "#1f2933", "#2457d6", "Review", "Quarterly review"],
+  ["Case study", "A source-conscious story of a challenge and response.", "#f5f2ea", "#1f2933", "#2457d6", "Case study", "The challenge"],
+  ["Working session", "A facilitation-ready sequence from shared question to action.", "#ffffff", "#1f2933", "#2457d6", "Session", "Shared question"],
+];
+const VERSIONS = [
+  { t: "Fieldnote 2.0 launch plan", when: "12m ago", n: 9, why: "Before agent edit: Turn beta results into three stats" },
+  { t: "Fieldnote 2.0 launch plan", when: "1h ago", n: 9, why: "Before agent edit: Add a pricing slide" },
+  { t: "Fieldnote 2.0 launch plan", when: "3h ago", n: 8 },
+  { t: "Fieldnote launch draft", when: "1d ago", n: 6, why: "Before agent edit: Create the launch plan from the PRD" },
+];
+const COMMENTS = [
+  { slide: 4, who: "Priya Raman", init: "P", color: "#7c5cff", when: "2h", text: "Can we lead with retention? It's the number the board asked about.", replies: [{ who: "Shawn", init: "S", color: "#16a34a", when: "1h", text: "Yes, moving it first." }] },
+  { slide: 6, who: "Marcus Lee", init: "M", color: "#e07a5f", when: "35m", text: "Enterprise date depends on the residency audit. Flag it here?", replies: [] },
+];
+const S = {
+  screen: "home", collapsed: false, deck: null, cur: 0, sel: [], el: null, agentOpen: false, homeTab: "recent", filter: "mine", q: "", tq: "",
+  scenario: "default", comments: false, notes: true, zoom: 100, renaming: null, present: null, presenter: null, history: null, genSel: false, textMode: false, chat: "deck",
+};
+const deck = () => DECKS.find(d => d.id === S.deck);
+const curSlide = () => deck()?.slides[S.cur];
+const canEdit = () => S.scenario !== "viewer";
+
+/* ───────── slides ───────── */
+const dsVars = id => Object.entries((DS[id] || DS.white).vars).map(([k, v]) => `${k}:${v}`).join(";");
+function slideHTML(slide, ds, { stage = false, width = "" } = {}) {
+  const html = stage ? slide.html : slide.html.replace(/ data-el="[^"]*"/g, "");
+  return `<div class="sl-frame" ${width ? `style="width:${width}px"` : ""}><div class="sl sl--${slide.layout}" style="${dsVars(ds)}">${html}</div></div>`;
+}
+function tplSlide(t) {
+  const [name, , bg, fg, acc, lbl, head] = t;
+  const vars = `--ds-bg:${bg};--ds-text:${fg};--ds-text-muted:${fg}b0;--ds-accent:${acc};--ds-card:${fg}0d;--ds-card-border:${fg}1f;--ds-glow:${acc}55`;
+  return `<div class="sl-frame"><div class="sl sl--title" style="${vars}">${name === "Launch Keynote" ? '<div class="glow"></div>' : ""}<span class="lbl">${lbl}</span><h1 style="font-size:${head.length > 20 ? 52 : 68}px">${head}</h1></div></div>`;
+}
+// Thumbnails paint the full 960 × 540 canvas and scale it down, as SlideRenderer does.
+function fitScales(root = document) { root.querySelectorAll(".sl-frame").forEach(f => f.style.setProperty("--s", f.offsetWidth / 960)); }
+addEventListener("resize", () => { if (S.screen === "editor") renderEditor(); else fitScales(); });
+
+/* ───────── shell ───────── */
+function render() {
+  closeMenu?.();
+  $(".pop")?.remove();
+  const left = S.screen !== "editor";
+  app.className = "app" + (left ? " with-left" : "");
+  app.innerHTML = `${left ? `<nav class="app-left ${S.collapsed ? "collapsed" : ""}" aria-label="App">${renderSidebar()}</nav>` : ""}<div class="main" id="main"></div><aside class="agent ${S.agentOpen ? "open" : ""}" id="agent" aria-label="Agent"><div class="agent-in" id="agent-in"></div></aside>`;
+  const main = $("#main");
+  if (S.screen === "home") main.innerHTML = renderHome();
+  else if (S.screen === "templates") main.innerHTML = renderTemplatesPage();
+  else if (S.screen === "design-systems") main.innerHTML = renderDesignSystems();
+  else main.innerHTML = `<div class="deck-editor-shell" id="shell"></div>`;
+  if (S.screen === "editor") renderEditor();
+  renderAgent();
+  renderWork();
+  fitScales();
+}
+
+/* ───────── app sidebar (toolkit AppSidebar) ───────── */
+const NAV = [["home", "Decks", "layout-grid"], ["templates", "Templates", "template"], ["design-systems", "Design Systems", "components"]];
+function renderSidebar() {
+  const c = S.collapsed;
+  return `<div class="as-brand" ${c ? 'data-tip="Slides"' : ""}>__LOGO__<span class="nm">Slides</span></div>
+  <div class="as-nav">${NAV.map(([id, label, icon]) => `<button class="as-item" data-nav="${id}" ${S.screen === id ? 'aria-current="page"' : ""} ${c ? `data-tip="${label}" aria-label="${label}"` : ""}>${ic(icon)}<span>${label}</span></button>`).join("")}</div>
+  <div class="as-foot">${c ? `<button class="ib" data-act="feedback" data-tip="Send feedback" aria-label="Send feedback">${ic("message-circle")}</button>` : `<button class="as-item" data-act="feedback">${ic("message-circle")}<span>Send feedback</span></button>`}
+  <div class="row"><button class="as-org" id="org-btn" aria-haspopup="menu" ${c ? 'data-tip="Shawn · Builder.io"' : ""}><span class="av">S</span><span class="t wide"><b>Shawn</b><small>${ic("briefcase", "s12")}Builder.io</small></span><span class="wide muted">${ic("selector", "s14")}</span></button><button class="ib" data-act="search-decks" data-tip="Search decks" aria-label="Search decks">${ic("search")}</button><button class="ib" data-act="collapse" data-tip="${c ? "Expand sidebar" : "Collapse sidebar"}" aria-label="${c ? "Expand sidebar" : "Collapse sidebar"}">${ic(c ? "layout-sidebar-left-expand" : "layout-sidebar-left-collapse")}</button></div></div>`;
+}
+// RunsTray renders nothing while no run is active; the agent toggle hides while the panel is open.
+function headerControls({ bell = true } = {}) {
+  const busy = generating();
+  return `${bell ? `<button class="ib hdr-ic" data-act="bell" data-tip="Notifications" aria-label="Notifications">${ic("bell")}</button>` : ""}${busy ? `<button class="ib hdr-ic" data-act="runs" data-tip="Agent runs" aria-label="Agent runs">${ic("loader-2", "spin")}<span class="bdg">1</span></button>` : ""}${S.agentOpen ? "" : `<button class="ib hdr-ic" data-act="agent" data-tip="Toggle agent" aria-label="Toggle agent">${ic("layout-sidebar-right")}</button>`}`;
+}
+
+/* ───────── home (PromptHome + PromptHomeLibrary) ───────── */
+function visibleDecks() {
+  const q = S.q.trim().toLowerCase();
+  return DECKS.filter(d => (S.filter === "all" || d.mine) && (!q || d.title.toLowerCase().includes(q)))
+    .sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0));
+}
+const VIS = { private: ["lock", "Private"], org: ["users-group", "Org"], public: ["world", "Public"] };
+function deckCard(d) {
+  const [vi, vl] = VIS[d.visibility];
+  const title = S.renaming === d.id ? `<input id="rename-in" value="${esc(d.title)}" aria-label="Deck title">` : `<h3>${esc(d.title)}</h3>`;
+  return `<div class="card" data-deck="${d.id}"><button class="card-l" data-open="${d.id}"><div class="card-p">${slideHTML(d.slides[0] || { layout: "title", html: "" }, d.ds)}</div><div class="card-c">${title}<span class="vis">${ic(vi, "s14")}${vl}</span></div></button>
+  <div class="card-a">${d.mine ? `<button class="star ${d.starred ? "on" : ""}" data-star="${d.id}" aria-label="${d.starred ? "Unstar deck" : "Star deck"}" data-tip="${d.starred ? "Unstar deck" : "Star deck"}">${ic("star", "s14")}</button>` : ""}<button data-deck-menu="${d.id}" aria-label="Deck options" aria-haspopup="menu">${ic("dots", "s14")}</button></div></div>`;
+}
+function tplCard(t, i) {
+  return `<div class="card card-tpl" data-tpl="${i}"><button class="card-l" data-use-tpl="${i}"><div class="card-p">${tplSlide(t)}</div><div class="card-c"><h3>${t[0]}</h3><p>${t[1]}</p></div></button><button class="ib sm more" data-tpl-menu="${i}" aria-label="Template actions for ${t[0]}">${ic("dots", "s14")}</button></div>`;
+}
+function renderDeckGrid() {
+  const list = visibleDecks();
+  return list.map(deckCard).join("") || `<div class="empty-box">${S.q.trim() ? "No decks match your search." : "No decks created by you yet."}</div>`;
+}
+function renderHome() {
+  const hasDecks = DECKS.length > 0;
+  const tab = S.homeTab;
+  return `<header class="hdr hdr-home"><h1>Decks</h1>${hasDecks ? `<div class="hdr-search">${ic("search")}<input class="input" type="search" id="deck-search" placeholder="Search decks" aria-label="Search decks" value="${esc(S.q)}"></div>` : "<span></span>"}<div class="hdr-ctl"><button class="b primary sm" id="import-btn" aria-haspopup="menu" style="padding:0 10px">${ic("upload")}Import${ic("chevron-down", "s14")}</button>${headerControls({ bell: false })}</div></header>
+  <div class="main-scroll"><div class="home">
+    <section class="hero" aria-labelledby="hero-t"><h2 id="hero-t">Let's create your first presentation</h2>
+      <div class="hero-composer">${composer({ id: "home-input", ph: "Describe the presentation you want to generate...", hero: true })}</div>
+      <div class="chips" aria-label="Suggested prompts">${["Create a product pitch deck", "Create a product roadmap", "Explain a topic in a presentation"].map(s => `<button class="chip-s" data-suggest="${esc(s)}">${s}</button>`).join("")}</div>
+    </section>
+    <section class="lib" aria-label="Templates"><div class="tabs-h"><div class="tabs-l" role="tablist"><button role="tab" data-tab="templates" aria-selected="${tab === "templates"}">Templates</button><button role="tab" data-tab="recent" aria-selected="${tab === "recent"}">Recent</button></div><span class="grow"></span>
+      ${tab === "templates" ? `<button class="b ghost sm" data-nav="templates">Browse all${ic("arrow-right", "s14")}</button>` : hasDecks ? `<button class="filter-t ${S.filter === "mine" ? "on" : ""}" id="filter-btn" aria-haspopup="menu" aria-label="${S.filter === "mine" ? "Show decks created by me" : "Show all decks"}" data-tip="${S.filter === "mine" ? "Show decks created by me" : "Show all decks"}">${ic("filter", "s14")}</button>` : ""}</div>
+      <div class="grid" id="deck-grid">${tab === "templates" ? TEMPLATES.slice(0, 8).map(tplCard).join("") : renderDeckGrid()}</div></section>
+  </div></div>`;
+}
+// The shared composer. Home (hero): + then model then send. Sidebar: context chips, + , model, Act, mic, send.
+function composer({ id, ph, hero = false, chip = "", running = false }) {
+  const send = running ? `<button class="cmp-send stop" data-stop aria-label="Stop" data-tip="Stop">${ic("player-stop", "s14")}</button>` : `<button class="cmp-send" data-send="${id}" aria-label="Send message" data-tip="Send message" disabled>${ic("arrow-up", "s14")}</button>`;
+  return `<div class="composer ${hero ? "hero-c" : ""}" data-composer="${id}">${chip ? `<div class="ctx-chips"><span class="ctx-chip">${ic("clipboard-list", "s12")}${chip}<button data-chip-x aria-label="Remove">${ic("x", "s12")}</button></span></div>` : ""}<div class="cmp-input" id="${id}" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${ph}" data-ph="${ph}"></div>
+  <div class="cmp-bar"><button class="cmp-btn" data-cmp-add="${id}" aria-label="Add context" aria-haspopup="menu" data-tip="Add context">${ic("plus")}</button><span class="grow"></span><button class="cmp-btn" data-cmp-model aria-haspopup="menu">Claude Sonnet 4.5${ic("chevron-down", "s12")}</button>${hero ? "" : `<button class="cmp-btn" data-cmp-mode aria-haspopup="menu">Act${ic("chevron-down", "s12")}</button><button class="cmp-btn" aria-label="Dictate" data-tip="Dictate (${k("⌘⇧M")})" data-act="voice">${ic("microphone")}</button>`}${send}</div></div>`;
+}
+
+/* ───────── templates page, design systems ───────── */
+function renderTemplatesPage() {
+  const q = S.tq.trim().toLowerCase();
+  const list = TEMPLATES.map((t, i) => [t, i]).filter(([t]) => !q || (t[0] + t[1]).toLowerCase().includes(q));
+  return `<header class="hdr"><h1>Templates</h1><div class="hdr-ctl">${headerControls()}</div></header><div class="main-scroll"><div class="page"><div class="search">${ic("search")}<input class="input" type="search" id="tpl-search" placeholder="Search templates…" aria-label="Search templates…" value="${esc(S.tq)}"></div><div class="grid" id="tpl-grid">${list.map(([t, i]) => tplCard(t, i)).join("") || '<div class="empty-box">No templates match your search.</div>'}</div></div></div>`;
+}
+function renderDesignSystems() {
+  const systems = ["fieldnote", "paper"];
+  return `<header class="hdr"><h1>Design Systems</h1><div class="hdr-ctl"><button class="b primary sm" data-act="new-ds">${ic("plus", "s14")}New Design System</button>${headerControls()}</div></header><div class="main-scroll"><div class="ds-page"><div class="ds-grid">
+  <button class="ds-card ds-new" data-act="new-ds"><div class="pv"><span>${ic("plus")}</span></div><div class="ds-info"><span class="muted" style="font-size:14px;font-weight:500">New Design System</span><small style="opacity:.7">Set up your brand</small></div></button>
+  ${systems.map(id => { const d = DS[id], v = d.vars; return `<div class="ds-card"><div class="ds-pv" style="background:${v["--ds-bg"]}"><div class="ds-sw">${d.swatches.map(c => `<i style="background:${c}"></i>`).join("")}</div><div><div style="font-size:18px;font-weight:600;color:${v["--ds-text"]};font-family:${v["--ds-heading-font"] || "inherit"}">Heading</div><div style="font-size:12px;color:${v["--ds-text-muted"]}">Body text in Inter</div></div></div>
+  <div class="ds-acts"><button data-ds-star="${id}" data-tip="${d.isDefault ? "Default design system" : "Set as default"}" aria-label="${d.isDefault ? "Default design system" : "Set as default"}">${ic("star", "s14")}</button><button data-act="share-ds">Share</button><button data-ds-menu="${id}" aria-label="More actions" aria-haspopup="menu">${ic("dots", "s14")}</button></div>
+  <div class="ds-info"><span class="t">${ic("components", "s14")}${d.name}${d.isDefault ? '<span class="ds-badge">Workspace default</span>' : ""}</span><small>${d.fonts}</small><span class="vis" style="font-size:11px">${ic(id === "paper" ? "lock" : "users-group", "s12")}${id === "paper" ? "Private" : "Org"}</span></div></div>`; }).join("")}
+  </div></div></div>`;
+}
+
+/* ───────── editor (DeckEditor + EditorToolbar + SlideEditor) ───────── */
+const generating = () => S.scenario === "generating" && S.deck === "launch" && !!S.gen;
+const GEN_DONE = 4;
+function editorSlides() { const d = deck(); return generating() ? d.slides.slice(0, S.gen.done) : d.slides; }
+function renderEditor() {
+  const shell = $("#shell"); if (!shell) return;
+  const d = deck(), slides = editorSlides(), s = slides[S.cur], edit = canEdit();
+  const agentBusy = generating();
+  shell.innerHTML = `<div class="etb" role="toolbar" aria-label="Editor">
+    <button class="tb-ic" data-act="back" data-tip="Back to decks" aria-label="Back to decks">${ic("arrow-left")}</button>
+    <input class="title" id="deck-title" value="${esc(d.title)}" ${edit ? "" : "readonly"} spellcheck="false" aria-label="Deck title">
+    <div style="width:8px;flex:none"></div>
+    ${edit ? "" : '<span class="view-only">View only</span>'}
+    ${edit && S.scenario === "offline" ? `<span class="save-warn" role="alert" title="Changes will save when reconnected">${ic("cloud-off", "s14")}<span>Offline</span><button data-act="backup" aria-label="Download backup" data-tip="Download backup">${ic("download", "s14")}</button><button data-act="import-backup" aria-label="Import backup" data-tip="Import backup">${ic("upload", "s14")}</button></span>` : ""}
+    <div class="right">
+      <div class="presence">${agentBusy || S.agentOpen ? `<span class="pav pav-ai ${agentBusy ? "active" : ""}" data-tip="${agentBusy ? "AI is editing" : "AI agent"}">AI</span>` : ""}<span class="pav" style="background:#7c5cff;margin-left:6px" data-tip="Priya Raman">P</span></div>
+      <button class="tb-ic" id="more-btn" data-tip="More" aria-label="More" aria-haspopup="menu">${ic("dots-vertical")}</button>
+    </div>
+    <button class="share" id="share-btn" aria-haspopup="dialog">Share</button>
+    <button class="present" data-act="present" ${slides.length ? "" : "disabled"}>${ic("player-play")}Present</button>
+    <span style="display:flex;gap:4px">${headerControls({ bell: false })}</span>
+  </div>
+  ${s ? renderContextToolbar() : ""}
+  <div class="workspace">
+    <div class="rail"><div class="rail-scroll" id="rail" role="listbox" aria-label="Slides" aria-multiselectable="true">${slides.map((sl, i) => thumb(sl, i)).join("")}${agentBusy ? `<button class="th ${S.genSel ? "selected" : ""}" data-gen aria-label="Generating slide"><span class="num">${slides.length + 1}<span class="ai"><span class="ai-mark">AI</span></span></span><span class="fr" style="border:0;box-shadow:none">${genArt(true)}</span></button>` : ""}</div></div>
+    <div class="ed-col">
+      <div class="canvas" id="canvas">${agentBusy && S.genSel ? `<div class="gen-stage">${genArt(false)}</div>` : s ? `<div class="stage" id="stage">${slideHTML(s, d.ds, { stage: true, width: stageWidth() })}${S.comments ? pins() : ""}</div>` : `<div class="gen-stage">${genArt(false, false)}</div>`}</div>
+      ${s ? renderNotes(s) : ""}
+    </div>
+    ${S.comments ? renderComments() : ""}
+  </div>`;
+  fitScales(shell);
+  if (S.el) $(`#stage [data-el="${S.el}"]`)?.classList.add("sel");
+  $("#rail .th.active")?.scrollIntoView({ block: "nearest" });
+}
+function stageWidth() {
+  const ws = innerWidth - (S.agentOpen ? 400 : 0) - 208 - (S.comments ? 272 : 0) - 64;
+  const hs = innerHeight - 36 - 48 - 40 - 96 - (S.notes ? 162 : 30);
+  return Math.max(320, Math.floor(Math.min(ws, hs * 16 / 9) * S.zoom / 100));
+}
+function genArt(thumb, busy = true) {
+  return `<div class="gen ${thumb ? "thumb" : ""}" aria-label="Generating slide"><div class="art"><div class="sk" style="height:7%;width:42%;opacity:.7"></div><div class="sk" style="height:4%;width:68%;opacity:.5"></div><div class="two"><div class="sk" style="height:${thumb ? 14 : 96}px;opacity:.5"></div><div class="sk" style="height:${thumb ? 14 : 96}px;opacity:.4"></div></div></div>${!thumb && busy ? "" : ""}</div>`;
+}
+function thumb(sl, i) {
+  const active = i === S.cur && !S.genSel, selected = S.sel.includes(sl.id) && S.sel.length > 1;
+  const aiEditing = sl.aiEditing;
+  return `<button class="th ${active ? "active" : ""} ${selected ? "selected" : ""} ${sl.skipped ? "skipped" : ""}" data-thumb="${i}" draggable="${canEdit()}" aria-label="Select slide ${i + 1}" ${active ? 'aria-current="true"' : ""}><span class="num">${i + 1}${aiEditing ? '<span class="ai"><span class="ai-mark">AI</span></span>' : ""}</span><span class="fr">${slideHTML(sl, deck().ds)}${sl.skipped ? `<span class="skip">${ic("eye-off")}</span>` : ""}${aiEditing ? '<span class="shimmer"></span>' : ""}</span></button>`;
+}
+function renderContextToolbar() {
+  const edit = canEdit(), el = S.el;
+  const lead = edit ? `<button class="newslide" data-act="new-slide">${ic("plus", "s14")}New slide</button><span class="dv"></span><button class="t7" data-act="text-mode" aria-pressed="${S.textMode}" data-tip="Add text box (T)" aria-label="Add text box">${ic("text-size")}</button><span class="dv"></span><button class="t7" id="shapes-btn" data-tip="Shapes" aria-label="Shapes" aria-haspopup="menu">${ic("shape")}</button><span class="dv"></span>` : "";
+  const elTools = el ? `<button class="t7" data-act="animations" data-tip="Transitions" aria-label="Transitions">${ic("bolt", "s14")}</button><span class="dv"></span><button class="t7" data-act="add-comment" data-tip="Add comment" aria-label="Add comment">${ic("message-circle", "s14")}</button><span class="dv"></span>
+    <button class="val" id="font-btn" aria-haspopup="menu" data-tip="Font family">Inter${ic("chevron-down", "s12")}</button>
+    <span class="size" data-tip="Size"><button aria-label="Decrease font size" data-size="-1">${ic("minus", "s12")}</button><span id="size-v">${S.size || 38}</span><button aria-label="Increase font size" data-size="1">${ic("plus", "s12")}</button></span>
+    <button class="val" id="weight-btn" aria-haspopup="menu" data-tip="Weight">${S.weight || "Bold"}${ic("chevron-down", "s12")}</button>
+    <button class="t7" data-toggle="italic" aria-pressed="${!!S.italic}" data-tip="Italic (${k("⌘I")})" aria-label="Italic">${ic("italic")}</button>
+    <button class="t7" data-toggle="underline" aria-pressed="${!!S.underline}" data-tip="Underline (${k("⌘U")})" aria-label="Underline">${ic("underline")}</button>
+    <button class="sw" id="text-color" data-tip="Text color" aria-label="Text color"><i style="background:${DS[deck().ds].vars["--ds-text"]}"></i></button>
+    <button class="t7" id="align-btn" data-tip="Align" aria-label="Align" aria-haspopup="menu">${ic("align-left")}</button>
+    <button class="t7" data-act="list" data-tip="Bullet list" aria-label="Bullet list">${ic("list")}</button>
+    <button class="t7" data-act="list" data-tip="Numbered list" aria-label="Numbered list">${ic("list-numbers")}</button>
+    <span class="dv"></span><button class="t7" id="arrange-btn" data-tip="Position" aria-label="Position" aria-haspopup="menu">${ic("layout-align-left", "s14")}</button>`
+    : `<button class="sw" id="bg-btn" data-tip="Slide background" aria-label="Slide background" ${edit ? "" : "disabled"}><i style="background:${DS[deck().ds].vars["--ds-bg"]}"></i></button>`;
+  return `<div class="ctb" role="toolbar" aria-label="Style">${lead}${edit ? elTools : ""}<span class="dv ml-auto"></span><button class="t7" data-zoom="-1" data-tip="Zoom out" aria-label="Zoom out" ${S.zoom <= 50 ? "disabled" : ""}>${ic("zoom-out", "s14")}</button><span class="zoom">${S.zoom}%</span><button class="t7" data-zoom="1" data-tip="Zoom in" aria-label="Zoom in" ${S.zoom >= 200 ? "disabled" : ""}>${ic("zoom-in", "s14")}</button></div>`;
+}
+function renderNotes(s) {
+  return `<div class="notes">${S.notes ? '<div class="grip" role="separator" aria-label="Speaker Notes"><i></i></div>' : ""}<button class="tog" data-act="notes"><span>Speaker Notes</span>${ic(S.notes ? "chevron-down" : "chevron-up", "s12")}</button>${S.notes ? `<div class="ta"><textarea id="notes-ta" placeholder="${canEdit() ? "Add speaker notes..." : ""}" ${canEdit() ? "" : "readonly"} aria-label="Speaker Notes">${esc(s.notes)}</textarea></div>` : ""}</div>`;
+}
+function pins() {
+  return COMMENTS.filter(c => c.slide === S.cur).map((c, i) => `<span class="pin" style="left:${70 + i * 8}%;top:${30 + i * 20}%" data-tip="${c.who}">${c.replies.length + 1}</span>`).join("");
+}
+function renderComments() {
+  const scope = S.cmScope || "slide", aud = S.cmAud || "all";
+  const list = COMMENTS.filter(c => scope === "all" || c.slide === S.cur);
+  return `<div class="cm" aria-label="Comments"><div class="cm-h"><span>Comments</span><div class="acts"><button data-act="add-comment" data-tip="Add comment" aria-label="Add comment">${ic("message-circle", "s14")}</button><button data-act="cm-filters" data-tip="Comment filters" aria-label="Comment filters">${ic(S.cmFilters ? "chevron-up" : "chevron-down", "s14")}</button><button data-act="comments" data-tip="Close" aria-label="Close">${ic("x", "s14")}</button></div></div>
+  ${S.cmFilters ? `<div class="cm-f"><span class="segm" aria-label="Comment scope"><button data-cm-scope="slide" aria-pressed="${scope === "slide"}">This slide</button><button data-cm-scope="all" aria-pressed="${scope === "all"}">All slides</button></span><span class="segm" aria-label="Comment audience"><button data-cm-aud="all" aria-pressed="${aud === "all"}">All</button><button data-cm-aud="you" aria-pressed="${aud === "you"}">For you</button></span></div>` : ""}
+  <div class="cm-b">${list.length ? list.map(c => `<div class="thread"><div class="who"><span class="pav" style="background:${c.color}">${c.init}</span>${c.who}<small>${c.when}</small></div>${esc(c.text)}${c.replies.map(r => `<div class="reply"><div class="who"><span class="pav" style="background:${r.color}">${r.init}</span>${r.who}<small>${r.when}</small></div>${esc(r.text)}</div>`).join("")}${scope === "all" && c.slide !== S.cur ? `<div class="go"><button data-goto="${c.slide}">Go to slide ${c.slide + 1}</button></div>` : ""}</div>`).join("") : `<button class="cm-new" data-act="add-comment">${ic("message-circle")}<p>No comments yet</p><small>Click to add a comment</small></button>`}</div></div>`;
+}
+function renderWork() {
+  $(".work")?.remove();
+  if (!generating() || S.agentOpen || S.screen !== "editor") return;
+  const w = document.createElement("div"); w.className = "work"; w.setAttribute("role", "status");
+  w.innerHTML = `<span class="l">${ic("loader-2", "spin")}Agent is working</span><button data-act="agent">${ic("message-circle", "s12")}Open chat</button>`;
+  $(".ed-col")?.append(w);
+}
+
+/* ───────── agent chat (toolkit AgentSidebar) ───────── */
+const CHATS = {
+  deck: { title: "Beta results as stats", msgs: [
+    { u: "Turn the beta results slide into three big numbers and put retention first" },
+    { acts: "Worked for 14s", rows: [["book-2", "Read slide 5"], ["code", "Updated slide 5"], ["circle-check", "Checked layout overflows"]] },
+    { a: "<p>Slide 5 now leads with retention and shows each result as one number with a short label:</p><ul><li>+41% weekly retention for teams using Ask</li><li>2.4× searches per active user</li><li>18 min saved per person each week</li></ul><p>Your footer and speaker notes are unchanged. Want the same treatment on the pricing slide?</p>" },
+  ] },
+  gen: { title: "Fieldnote launch plan", msgs: [
+    { u: "Create a 9-slide launch plan for Fieldnote 2.0 from the attached PRD. The audience is the leadership team." },
+    { acts: "Thinking", running: true, rows: [["book-2", "Read Fieldnote 2.0 PRD.pdf"], ["code", "Created deck Fieldnote 2.0 launch plan"], ["code", "Added slide 1: Fieldnote 2.0"], ["code", "Added slide 2: Why now"], ["code", "Added slide 3: The idea"], ["code", "Added slide 4: What ships"]] },
+  ] },
+  new: { title: "New chat", msgs: [] },
+};
+const SUGGESTIONS = ["Build a 10-slide pitch from this doc", "Apply our brand to this deck", "Generate a hero image for this slide"];
+let chatOpenActs = new Set();
+function chatKey() { if (S.chat === "new") return "new"; if (S.screen !== "editor") return S.chat === "deck" ? "new" : S.chat; return generating() ? "gen" : S.chat; }
+function renderAgent() {
+  const el = $("#agent-in"); if (!el) return;
+  const key = chatKey(), c = CHATS[key];
+  const running = key === "gen" && generating();
+  const tabs = [[key, c.title]];
+  const chip = S.screen === "editor" ? (S.el ? "Current Selection" : `Slide ${S.cur + 1}`) : "";
+  el.innerHTML = `<div class="ag-h"><div class="ag-tabs" role="tablist">${tabs.map(([id, t]) => `<button class="ag-tab" role="tab" aria-selected="true">${running ? '<span class="run"></span>' : ""}${esc(t)}</button>`).join("")}</div><div class="ag-acts"><button data-act="new-chat" data-tip="New chat" aria-label="New chat">${ic("plus", "s14")}</button><button id="ag-menu" data-tip="Agent panel options" aria-label="Agent panel options" aria-haspopup="menu">${ic("dots-vertical", "s14")}</button><button data-act="agent" data-tip="Collapse sidebar" aria-label="Collapse sidebar">${ic("x", "s14")}</button></div></div>
+  <div class="ag-b" id="ag-b">${c.msgs.length ? c.msgs.map((m, i) => m.u ? `<div class="msg msg-u">${esc(m.u)}</div>` : m.acts ? `<div class="acts-d ${chatOpenActs.has(key + i) || m.running ? "open" : ""}"><button data-acts="${key + i}">${m.running ? `<span class="thinking">Thinking</span>` : m.acts}${ic("chevron-right", "s14")}</button>${chatOpenActs.has(key + i) || m.running ? `<div class="rows">${m.rows.map(([icn, t]) => `<div class="act">${ic(icn)}<span>${esc(t)}</span></div>`).join("")}${m.running ? `<div class="act">${ic("loader-2", "spin")}<span>Adding slide ${(S.gen?.done ?? GEN_DONE) + 1}</span></div>` : ""}</div>` : ""}</div>` : `<div class="msg msg-a">${m.a}</div>`).join("") : `<div class="ag-empty"><span class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Ask me anything about your presentations</span>${ic("message")}</div>`}</div>
+  ${c.msgs.length ? "" : `<div class="ag-sugs" aria-label="Suggestions">${SUGGESTIONS.map(s => `<button class="chip-s" data-agent-suggest="${esc(s)}">${s}</button>`).join("")}</div>`}
+  <div class="ag-f">${composer({ id: "agent-input", ph: "Ask the agent to explore, build, or explain…", chip, running })}</div>`;
+  const b = $("#ag-b"); b.scrollTop = b.scrollHeight;
+}
+function sendToAgent(text) {
+  if (!text.trim()) return;
+  if (S.screen !== "editor" && S.chat !== "new") S.chat = "new";
+  const key = chatKey(), c = CHATS[key];
+  if (key === "new") c.title = text.length > 28 ? text.slice(0, 28) + "…" : text;
+  c.msgs.push({ u: text });
+  const n = S.cur + 1, act = { acts: "Thinking", running: true, rows: S.screen === "editor" ? [["book-2", `Read slide ${n}`]] : [["search", "Searched your decks"]] };
+  c.msgs.push(act);
+  renderAgent();
+  const s = S.screen === "editor" ? curSlide() : null;
+  if (s) { s.aiEditing = true; renderEditor(); }
+  setTimeout(() => {
+    act.running = false; act.acts = "Worked for 6s";
+    if (s) { act.rows.push(["code", `Updated slide ${n}`]); delete s.aiEditing; }
+    c.msgs.push({ a: s ? `<p>Done. I updated slide ${n} and kept your speaker notes. Take a look and tell me what to adjust.</p>` : "<p>You have six decks. The most recent is Fieldnote 2.0 launch plan, edited 12 minutes ago. Want me to open it?</p>" });
+    renderAgent(); if (S.screen === "editor") renderEditor();
+  }, 1600);
+}
+
+/* ───────── generation (deck mid-generation scenario) ───────── */
+let genTimer = null;
+function startGeneration() {
+  clearInterval(genTimer);
+  S.gen = { done: GEN_DONE };
+  const c = CHATS.gen; c.msgs = c.msgs.slice(0, 2); c.msgs[1].running = true; c.msgs[1].rows = c.msgs[1].rows.slice(0, 6);
+  genTimer = setInterval(() => {
+    if (S.scenario !== "generating") return clearInterval(genTimer);
+    S.gen.done++;
+    const sl = deck()?.slides[S.gen.done - 1];
+    if (sl) c.msgs[1].rows.push(["code", `Added slide ${S.gen.done}: ${sl.html.match(/<h[12][^>]*>([^<]+)/)?.[1] || "Slide"}`]);
+    if (S.gen.done >= 9) {
+      clearInterval(genTimer);
+      c.msgs[1].running = false; c.msgs[1].acts = "Worked for 1m 12s";
+      c.msgs.push({ a: "<p>Your launch plan is ready: 9 slides covering why now, what ships, beta results, the timeline, and pricing. Speaker notes are on the slides that need them.</p><p>Want me to apply the Fieldnote design system to the charts next?</p>" });
+      S.scenario = "default"; $("#scenario-sel").value = "default"; S.gen = null; S.genSel = false;
+      toast("5 slides added");
+    }
+    if (S.screen === "editor") { renderEditor(); renderAgent(); renderWork(); }
+  }, 4000);
+}
+
+/* ───────── menus ───────── */
+const run = (t, fn) => ({ t, run: fn });
+function deckMenu(btn, d) {
+  openMenu(btn, [
+    { t: "Rename", icon: "pencil", run: () => { S.renaming = d.id; renderGridOnly(); const i = $("#rename-in"); i.focus(); i.select(); } },
+    { t: "Duplicate", icon: "copy", run: () => { const c = { ...structuredClone(d), id: d.id + "-copy" + uid++, title: d.title + " (copy)", starred: false }; DECKS.splice(DECKS.indexOf(d) + 1, 0, c); renderGridOnly(); toast("Deck duplicated"); } },
+    { t: "Share Presentation", icon: "share-2", run: () => openShare(btn, d) },
+    { t: "Set as workspace default", icon: "building-community", run: () => confirmDialog("Set as workspace default?", `"${d.title}" is private. Setting it as the workspace default shares it with every member of this workspace, and new decks will use it as their style reference. Members can select a different reference deck when they create a deck.`, "Set as default", () => toast("Set as the workspace default")) },
+    "-",
+    { t: "Delete", icon: "trash", danger: true, run: () => confirmDialog("Delete Deck?", "This will permanently delete this deck and all its slides. This action cannot be undone.", "Delete", () => { DECKS = DECKS.filter(x => x !== d); renderGridOnly(); }, true) },
+  ], { align: "right", minWidth: 224 });
+}
+function moreMenu(btn) {
+  const edit = canEdit(), slides = editorSlides().length > 0;
+  const items = [];
+  if (edit) items.push({ label: "Slide tools" }, { t: "Transitions", icon: "bolt", run: () => toast("Transitions") }, { t: "Layers", icon: "layers-subtract", run: () => toast("Layers") }, { t: "Tweaks", icon: "adjustments", run: () => toast("Tweaks") }, { t: "Annotate slide", icon: "pencil-plus", run: () => toast("Draw on the slide, then send it to the agent") });
+  items.push({ t: "Pin comments", icon: "pin", run: () => toast("Click anywhere to drop a comment pin") }, "-", { t: "Comments", icon: "message", run: () => { S.comments = !S.comments; renderEditor(); } }, "-");
+  if (edit) items.push({ t: `Undo (${k("⌘Z")})`, icon: "arrow-back-up", disabled: true }, { t: `Redo (${k("⇧⌘Z")})`, icon: "arrow-forward-up", disabled: true }, "-");
+  items.push({ t: "History", icon: "history", run: openHistory }, "-",
+    { t: "Export", icon: "upload", disabled: !slides, sub: [{ t: "Download as HTML", icon: "code", run: () => toast("Downloaded Fieldnote 2.0 launch plan.html") }, { t: "Export as PDF", icon: "file-type-pdf", run: () => toast("Exporting...") }, { t: "Export as PPTX", icon: "download", run: () => toast("Exporting...") }, { t: "Export to Google Slides", icon: "brand-google", run: () => toast("Exported to Google Slides") }] },
+    "-", { t: "Duplicate deck", icon: "copy", run: () => toast("Deck duplicated") }, "-", { t: "Import file", icon: "download", run: () => toast("Import PPTX, DOCX, or PDF") });
+  openMenu(btn, items, { align: "right", minWidth: 256 });
+  const cm = [...document.querySelectorAll(".menu button")].find(b => b.textContent.trim() === "Comments");
+  if (cm) cm.insertAdjacentHTML("beforeend", `<span class="badge">${COMMENTS.length}</span>`);
+}
+function thumbMenu(e, i) {
+  const d = deck(), ids = S.sel.length > 1 ? S.sel : [d.slides[i].id];
+  const sl = d.slides[i], canDel = d.slides.length > ids.length, edit = canEdit();
+  openMenu(e.target, [
+    { t: "Cut", k: k("⌘X"), disabled: !canDel || !edit, run: () => { clip = ids.map(id => d.slides.find(s => s.id === id)); removeSlides(ids); } },
+    { t: "Copy", k: k("⌘C"), run: () => { clip = ids.map(id => d.slides.find(s => s.id === id)); toast(ids.length > 1 ? `${ids.length} slides copied` : "Slide copied"); } },
+    { t: "Paste", k: k("⌘V"), disabled: !clip || !edit, run: () => pasteAfter(i) },
+    "-",
+    { t: "New slide", disabled: !edit, run: () => newSlideAfter(i) },
+    { t: "Duplicate slide", disabled: !edit, run: () => { const c = ids.map(id => ({ ...structuredClone(d.slides.find(s => s.id === id)), id: "s" + uid++ })); d.slides.splice(i + 1, 0, ...c); S.cur = i + 1; S.sel = [c[0].id]; renderEditor(); } },
+    { t: sl.skipped ? "Unskip slide" : "Skip slide", disabled: !edit, run: () => { const v = !sl.skipped; ids.forEach(id => d.slides.find(s => s.id === id).skipped = v); renderEditor(); } },
+    "-",
+    { t: "Delete slide", danger: true, disabled: !canDel || !edit, run: () => removeSlides(ids) },
+  ], { at: { x: e.clientX, y: e.clientY } });
+}
+function elementMenu(e) {
+  openMenu(e.target, [
+    { t: "Cut", k: k("⌘X") }, { t: "Copy", k: k("⌘C") }, { t: "Paste", k: k("⌘V"), disabled: true }, { t: "Duplicate", k: k("⌘D") }, { t: "Delete", k: "⌫", run: () => { toast("Deleted"); } },
+    "-", { t: "Copy style", k: k("⌥⌘C") }, { t: "Paste style", k: k("⌥⌘V"), disabled: true },
+    "-", { t: "Order", sub: [{ t: "Bring to front" }, { t: "Bring forward", k: k("⌘↑") }, { t: "Send backward", k: k("⌘↓") }, { t: "Send to back" }] },
+    "-", { t: "Group", k: k("⌥⌘G"), disabled: true }, { t: "Ungroup", k: k("⌥⇧⌘G"), disabled: true },
+  ], { at: { x: e.clientX, y: e.clientY } });
+}
+function composerAddMenu(btn) {
+  const home = btn.dataset.cmpAdd === "home-input";
+  const design = { t: "Design", sub: [run("Reference a presentation", () => toast("Search presentations…")), run("Use a design system", () => toast("Choose a design system")), run("Add Figma", () => toast("Paste a Figma link")), run("Add website", () => toast("Paste a website URL")), { t: "Integrations", sub: [{ t: "Google Drive" }, { t: "Notion" }, { t: "Slack" }] }] };
+  const items = [{ t: "Upload File", icon: "file", run: () => toast("Choose a file to attach") }, { t: "Add context", icon: "text-recognition", sub: [design] }];
+  if (!home) items.push(run("Schedule Task", () => toast("Schedule Task")), run("Create Automation", () => toast("Create Automation")), run("Create Skill", () => toast("Create Skill")));
+  openMenu(btn, items, { minWidth: 256, above: !home });
+}
+function modelMenu(btn) {
+  openMenu(btn, ["Claude Sonnet 4.5", "Claude Opus 4.5", "Claude Haiku 4.5"].map((t, i) => ({ t, radio: true, on: i === 0, run: () => toast(`Model: ${t}`) })), { align: "right", above: !btn.closest(".hero-c") });
+}
+function agentMenu(btn) {
+  openMenu(btn, [
+    { t: "Collapse sidebar", icon: "layout-sidebar-right-collapse", k: k("⌘."), run: () => { S.agentOpen = false; render(); } }, "-",
+    { t: "Widen chat", icon: "arrows-horizontal", run: () => toast("Widen chat") }, run("Open full view", () => toast("Open full view")), { t: "Integrations", icon: "plug-connected", run: () => toast("Integrations") }, "-",
+    { t: "New chat", icon: "plus", run: () => { S.chat = "new"; CHATS.new = { title: "New chat", msgs: [] }; renderAgent(); } }, { t: "Share", icon: "share-3", run: () => toast("Share chat") }, { t: "All chats", icon: "history", run: () => toast("All chats") }, { t: "Agent runs", icon: generating() ? "loader-2" : "subtask", sub: [{ t: generating() ? "Fieldnote launch plan, running" : "No recent runs", disabled: !generating() }] }, "-",
+    { t: "Feedback", icon: "message-dots", run: () => toast("Feedback") }, "-", { t: "Clear chat", icon: "x", run: () => { CHATS[chatKey()].msgs = []; renderAgent(); } },
+  ], { align: "right", minWidth: 192 });
+}
+function orgMenu(btn) {
+  openMenu(btn, [{ label: "shawn@example.com" }, { t: "Builder.io", icon: "briefcase", run: () => {} }, { t: "Create organization", icon: "plus", run: () => toast("Create organization") }, "-", { t: "Settings", icon: "settings", k: k("⌘,"), run: () => openSettings("profile") }, { t: "Usage", icon: "chart-bar", run: () => openSettings("usage") }, "-", { t: "Log out", icon: "logout", run: () => toast("Log out") }], { above: true, minWidth: 248 });
+  trailingCheck("Builder.io");
+}
+// A checked row with its check after the label, as OrgSwitcher and the composer's mode menu draw it.
+function trailingCheck(label) { const b = [...document.querySelectorAll(".menu button")].find(x => x.querySelector("span")?.textContent === label || x.querySelector(".tt span")?.textContent === label); b?.insertAdjacentHTML("beforeend", `<span class="kbd" style="opacity:1;color:var(--color-primary)">${ic("check", "s14")}</span>`); }
+function pickMenu(btn, list, cur, set) { openMenu(btn, list.map(t => ({ t, radio: true, on: t === cur, run: () => set(t) })), { minWidth: 160 }); }
+
+/* ───────── popovers: share, shapes, color, add slide ───────── */
+function popover(anchor, html, cls, { align = "right", gap = 6 } = {}) {
+  closeMenu?.(); $(".pop")?.remove();
+  const p = document.createElement("div"); p.className = "pop " + cls; p.innerHTML = html; p.setAttribute("role", "dialog");
+  document.body.append(p);
+  const r = anchor.getBoundingClientRect();
+  p.style.top = Math.min(r.bottom + gap, innerHeight - p.offsetHeight - 8) + "px";
+  p.style.left = Math.max(8, Math.min(innerWidth - p.offsetWidth - 8, align === "right" ? r.right - p.offsetWidth : align === "beside" ? r.right + 8 : r.left)) + "px";
+  if (align === "beside") p.style.top = Math.max(44, Math.min(r.top, innerHeight - p.offsetHeight - 8)) + "px";
+  const off = e => { if (!p.contains(e.target) && !anchor.contains(e.target) && !e.target.closest(".menu")) { p.remove(); document.removeEventListener("pointerdown", off, true); } };
+  setTimeout(() => document.addEventListener("pointerdown", off, true));
+  return p;
+}
+const VISIBILITY = { private: ["lock", "Private", "Only people with access can view"], org: ["users-group", "Organization", "Anyone in your organization can view"], public: ["world", "Public", "Anyone with the link can view"] };
+function openShare(anchor, d = deck()) {
+  const [vi, vl, vd] = VISIBILITY[d.visibility];
+  const pub = d.visibility === "public";
+  const p = popover(anchor, `<h2>Share Presentation</h2>
+    <div class="sp-row"><div><b>${pub ? "Presentation link" : "Editor link"}</b><small>${pub ? "Opens directly in fullscreen presentation mode." : "Opens the deck in the editor"}</small></div><button class="b outline" style="height:36px" data-copy>Copy</button></div>
+    <div class="sp-lbl">General access</div>
+    <div class="sp-access"><span class="ic">${ic(vi)}</span><div><button class="sel-t" id="vis-btn" aria-haspopup="menu">${vl}${ic("chevron-down", "s12")}</button><small>${vd}</small></div></div>
+    <div class="sp-lbl">People with access</div>
+    <div class="sp-add"><input class="input" placeholder="Add people from your organization" aria-label="Add people from your organization"><button class="role" id="role-btn" aria-haspopup="menu">Viewer${ic("chevron-down", "s12")}</button><button class="b primary" style="height:36px" data-share-add>Add</button></div>
+    <label class="sp-notify"><input type="checkbox" checked> Notify people</label>
+    <ul class="sp-people"><li><span class="pav" style="background:#16a34a">S</span><span>Shawn<br><small>shawn@example.com</small></span><small>Owner</small></li><li><span class="pav" style="background:#7c5cff">P</span><span>Priya Raman<br><small>priya@example.com</small></span><button class="sel-t" style="font-size:12px;font-weight:400;color:var(--color-muted-foreground)" data-role-row>Editor${ic("chevron-down", "s12")}</button></li></ul>`, "share-pop");
+  p.addEventListener("click", e => {
+    if (e.target.closest("[data-copy]")) { const b = e.target.closest("[data-copy]"); b.textContent = "Copied"; setTimeout(() => (b.textContent = "Copy"), 1400); }
+    if (e.target.closest("#vis-btn")) openMenu(e.target.closest("#vis-btn"), Object.entries(VISIBILITY).map(([key, [, t, desc]]) => ({ t, desc, radio: true, on: key === d.visibility, run: () => { d.visibility = key; openShare(anchor, d); if (S.screen === "home") renderGridOnly(); } })), { minWidth: 280 });
+    const rb = e.target.closest("#role-btn, [data-role-row]");
+    if (rb) openMenu(rb, [["Viewer", "Can view"], ["Commenter", "Can view and add comments"], ["Editor", "Can edit"], ["Admin", "Can edit and manage sharing"]].map(([t, desc]) => ({ t, desc, radio: true, on: rb.textContent.trim() === t, run: () => { rb.firstChild.textContent = t; } })), { minWidth: 240 });
+    if (e.target.closest("[data-share-add]")) { const i = p.querySelector(".sp-add input"); if (i.value.trim()) { toast(`Shared with ${i.value.trim()}`); i.value = ""; } else i.focus(); }
+  });
+}
+const SHAPES = [["square", "Rectangle"], ["circle", "Circle"], ["arrow-big-right", "Arrow"], ["triangle", "Triangle"], ["line", "Line"]];
+const PALETTE = ["#0f1218", "#2b3550", "#8ea8ff", "#ffd27a", "#f4f6fa", "#ffffff", "#000000", "#64748b", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b"];
+function colorPop(anchor, label, cur, set) {
+  const p = popover(anchor, `<div class="lbl">Brand Colors</div><div class="row">${PALETTE.slice(0, 6).map(c => `<button style="background:${c}" data-c="${c}" aria-pressed="${c === cur}" aria-label="${c}"></button>`).join("")}</div><div class="lbl">${label}</div><div class="row">${PALETTE.slice(6).map(c => `<button style="background:${c}" data-c="${c}" aria-pressed="${c === cur}" aria-label="${c}"></button>`).join("")}</div>`, "color-pop", { align: "left" });
+  p.addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (b) { set(b.dataset.c); p.remove(); } });
+}
+function openAddSlide(anchor, i) {
+  const p = popover(anchor, `<div class="h">Describe this slide<button class="ib sm" style="width:20px;height:20px" data-x aria-label="Close">${ic("x", "s14")}</button></div>
+    <button class="opt" data-empty>${ic("square-plus")}<span>Add empty slide</span><small>no AI</small></button>
+    <button class="opt" data-dup>${ic("copy")}<span>Duplicate current slide</span><small>no AI</small></button><hr>
+    ${composer({ id: "add-input", ph: "Describe the slides you want..." })}`, "add-pop", { align: "beside" });
+  p.querySelector(".cmp-input").focus();
+  p.addEventListener("click", e => {
+    if (e.target.closest("[data-x], [data-empty]")) { p.remove(); return; }
+    if (e.target.closest("[data-dup]")) { const d = deck(); d.slides[i] = { ...structuredClone(d.slides[i - 1] || d.slides[i]), id: d.slides[i].id }; p.remove(); renderEditor(); }
+    const sb = e.target.closest("[data-send]"); if (sb) { const t = p.querySelector(".cmp-input").innerText; p.remove(); fillSlide(i, t); }
+  });
+}
+function fillSlide(i, text) {
+  const s = deck().slides[i];
+  s.aiEditing = true; renderEditor(); toast("Sent to agent");
+  setTimeout(() => { s.layout = "statement"; s.html = `<span class="lbl">New</span><h2 data-el="h">${esc(text || "A new slide from the agent")}</h2>`; delete s.aiEditing; renderEditor(); }, 2200);
+}
+
+/* ───────── history sheet ───────── */
+function openHistory(version = null) {
+  $(".sheet")?.remove(); $(".sheet-scrim")?.remove();
+  const scrim = document.createElement("div"); scrim.className = "sheet-scrim"; scrim.onclick = closeHistory;
+  const sh = document.createElement("div"); sh.className = "sheet"; sh.setAttribute("role", "dialog"); sh.setAttribute("aria-label", "History");
+  const v = typeof version === "number" ? VERSIONS[version] : null;
+  const slides = v ? deck().slides.slice(0, v.n) : [];
+  sh.innerHTML = `<div class="sheet-h"><span class="t">${v ? `<button class="back" data-hist-back>${ic("arrow-left", "s14")}<span>Back to history</span></button>` : `${ic("history", "hi")}<span>History</span>`}</span><button class="ib sm" data-hist-close aria-label="Close">${ic("x", "s14")}</button></div>
+  ${v ? `<div class="snap-h"><b>${v.t}</b><small>${v.when} · ${v.n} slides</small></div><div class="snap-g">${slides.map((s, i) => `<div>${slideHTML(s, deck().ds)}<p>Slide ${i + 1}</p></div>`).join("")}</div><div class="snap-f"><button class="b primary" data-restore>${ic("restore", "s14")}Restore this version</button></div>`
+    : `<div style="padding:8px;overflow-y:auto">${VERSIONS.map((x, i) => `<button class="ver" data-ver="${i}"><span class="dot"></span><span style="min-width:0;flex:1"><span style="display:flex;align-items:center"><b>${x.t}</b><span class="when">${x.when}</span></span><small>${x.n} slides</small>${x.why ? `<small class="why">${x.why}</small>` : ""}</span></button>`).join("")}</div>`}`;
+  document.body.append(scrim, sh);
+  fitScales(sh);
+  sh.addEventListener("click", e => {
+    if (e.target.closest("[data-hist-close]")) closeHistory();
+    if (e.target.closest("[data-hist-back]")) openHistory();
+    const vb = e.target.closest("[data-ver]"); if (vb) openHistory(+vb.dataset.ver);
+    if (e.target.closest("[data-restore]")) { closeHistory(); toast("Version restored"); }
+  });
+}
+function closeHistory() { $(".sheet")?.remove(); $(".sheet-scrim")?.remove(); }
+
+/* ───────── dialogs ───────── */
+function confirmDialog(title, body, action, fn, danger = false) {
+  const d = document.createElement("div"); d.className = "dlg-scrim";
+  d.innerHTML = `<div class="dlg" role="alertdialog" aria-label="${esc(title)}"><h2>${esc(title)}</h2><p>${esc(body)}</p><div class="f"><button class="b outline" data-no>${danger || action !== "Use template" ? "Cancel" : "Close"}</button><button class="b ${danger ? "danger" : "primary"}" data-yes>${action}</button></div></div>`;
+  document.body.append(d);
+  d.querySelector("[data-yes]").focus();
+  d.addEventListener("click", e => { if (e.target === d || e.target.closest("[data-no]")) d.remove(); if (e.target.closest("[data-yes]")) { d.remove(); fn(); } });
+}
+function previewTemplate(i) {
+  const t = TEMPLATES[i];
+  const d = document.createElement("div"); d.className = "dlg-scrim";
+  d.innerHTML = `<div class="dlg" style="width:min(960px,calc(100vw - 64px))" role="dialog" aria-label="${t[0]}"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h2>${t[0]}</h2><button class="b primary sm" data-use>Use template</button></div><div style="display:grid;grid-template-columns:192px 1fr;gap:16px"><div><div class="card-tpl" style="outline:2px solid hsl(var(--ring));outline-offset:2px;border-radius:8px;overflow:hidden">${tplSlide(t)}</div><div style="padding-top:8px;font-size:14px">Slide 1 of 1</div></div><div style="border-radius:8px;overflow:hidden">${tplSlide(t)}</div></div></div>`;
+  document.body.append(d); fitScales(d);
+  d.addEventListener("click", e => { if (e.target === d) d.remove(); if (e.target.closest("[data-use]")) { d.remove(); useTemplate(i); } });
+}
+function useTemplate(i) {
+  const t = TEMPLATES[i];
+  const id = "tpl" + uid++;
+  DECKS.unshift({ id, title: t[0], ds: "white", visibility: "private", mine: true, slides: [{ id: "s" + uid++, layout: "title", html: "", tpl: t, notes: "" }] });
+  const d = DECKS[0]; d.slides[0].html = `<span class="lbl" data-el="l">${t[5]}</span><h1 data-el="h">${t[6]}</h1>`; DS[id] = { name: t[0], vars: { "--ds-bg": t[2], "--ds-text": t[3], "--ds-text-muted": t[3] + "b0", "--ds-accent": t[4], "--ds-card": t[3] + "0d", "--ds-card-border": t[3] + "1f", "--ds-glow": t[4] + "55" } }; d.ds = id;
+  openDeck(id);
+}
+
+/* ───────── present (PresentationView, PresenterView) ───────── */
+let hideTimer = null, presTimer = null;
+function presentable() { return editorSlides().map((s, i) => [s, i]).filter(([s]) => !s.skipped); }
+function startPresent(i = S.cur) { const list = presentable(); S.present = { i: Math.max(0, list.findIndex(([, j]) => j >= i)) }; renderPresent(); poke(); }
+function renderPresent() {
+  $(".present-v")?.remove(); $(".presenter")?.remove();
+  if (S.presenter) return renderPresenter();
+  if (!S.present) return;
+  const list = presentable(), [s] = list[S.present.i], d = deck();
+  const w = Math.min(innerWidth, (innerHeight - 36) * 16 / 9);
+  const v = document.createElement("div"); v.className = "present-v"; v.tabIndex = -1;
+  v.innerHTML = `<div style="width:${w}px">${slideHTML(s, d.ds)}</div><button class="fs" data-fs>${ic("maximize")}Click to enter fullscreen</button>
+  <div class="bar"><div class="bar-in"><span class="ctr">${S.present.i + 1} / ${list.length}</span><span class="grp c"><button class="pv-b" data-pv="prev" aria-label="Previous slide" ${S.present.i ? "" : "disabled"}>${ic("chevron-left")}</button><button class="pv-b" data-pv="next" aria-label="Next slide" ${S.present.i < list.length - 1 ? "" : "disabled"}>${ic("chevron-right")}</button></span><span class="grp"><button class="pv-b" data-pv="pdf" aria-label="Export as PDF" data-tip="Export as PDF">${ic("file-type-pdf")}</button><button class="pv-b" data-pv="presenter" aria-label="Presenter view" data-tip="Presenter view">${ic("notes")}</button><button class="pv-b" data-pv="exit" aria-label="Exit presentation" data-tip="Exit presentation">${ic("x")}</button></span></div><div class="prog"><i style="transform:scaleX(${(S.present.i + 1) / list.length})"></i></div></div>`;
+  document.body.append(v); fitScales(v); v.focus();
+  v.addEventListener("mousemove", poke);
+  v.addEventListener("click", e => {
+    const b = e.target.closest("[data-pv]");
+    if (e.target.closest("[data-fs]")) { document.documentElement.requestFullscreen?.().catch(() => {}); e.target.closest("[data-fs]").remove(); return; }
+    if (!b) return step(1);
+    const a = b.dataset.pv;
+    if (a === "prev") step(-1); else if (a === "next") step(1); else if (a === "exit") exitPresent(); else if (a === "presenter") openPresenter(); else toast("Exporting...");
+  });
+}
+function poke() { const v = $(".present-v"); if (!v) return; v.classList.add("show"); clearTimeout(hideTimer); hideTimer = setTimeout(() => v.classList.remove("show"), 2500); }
+function step(n) {
+  const list = presentable(), st = S.presenter || S.present;
+  const ni = Math.max(0, Math.min(list.length - 1, st.i + n)); if (ni === st.i) return;
+  st.i = ni; if (S.present && S.presenter) S.present.i = ni;
+  renderPresent(); if (!S.presenter) poke();
+}
+function exitPresent() { const list = presentable(), st = S.presenter || S.present; S.cur = list[st.i][1]; S.present = null; S.presenter = null; clearInterval(presTimer); $(".present-v")?.remove(); $(".presenter")?.remove(); renderEditor(); renderAgent(); }
+function openPresenter() { S.presenter = { i: S.present ? S.present.i : 0, start: Date.now() }; clearInterval(presTimer); presTimer = setInterval(() => { const t = $(".presenter .tm"); if (t) t.textContent = mmss(); }, 1000); renderPresent(); }
+const mmss = () => { const s = Math.floor((Date.now() - S.presenter.start) / 1000); return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
+function renderPresenter() {
+  const list = presentable(), i = S.presenter.i, [s] = list[i], nx = list[i + 1], d = deck();
+  const v = document.createElement("div"); v.className = "presenter"; v.tabIndex = -1; v.setAttribute("aria-label", "Presenter view");
+  v.innerHTML = `<div class="h"><span class="ctr">${i + 1} / ${list.length}</span><span class="tm">${mmss()}</span><span class="acts"><button class="pv-b" data-pv="prev" aria-label="Previous slide" ${i ? "" : "disabled"}>${ic("chevron-left")}</button><button class="pv-b" data-pv="next" aria-label="Next slide" ${nx ? "" : "disabled"}>${ic("chevron-right")}</button><button class="pv-b" data-pv="exit" aria-label="Close presenter view" data-tip="Close presenter view">${ic("x")}</button></span></div>
+  <div class="bd"><div class="top"><div class="cur">${slideHTML(s, d.ds)}</div><div class="nx"><span class="cap">Up next</span>${nx ? `<div class="fr">${slideHTML(nx[0], d.ds)}</div>` : '<div class="end">End of deck</div>'}</div></div>
+  <div class="nt"><span class="cap">Speaker notes</span>${s.notes ? `<p>${esc(s.notes)}</p>` : '<p class="none">No notes for this slide</p>'}</div></div>`;
+  document.body.append(v); fitScales(v); v.focus();
+  v.addEventListener("click", e => { const b = e.target.closest("[data-pv]"); if (!b) return; const a = b.dataset.pv; if (a === "prev") step(-1); else if (a === "next") step(1); else { S.presenter = null; clearInterval(presTimer); if (S.present) renderPresent(); else exitPresent(); } });
+}
+
+/* ───────── editor actions ───────── */
+let clip = null, dragFrom = null;
+function openDeck(id) { S.deck = id; S.screen = "editor"; S.cur = 0; S.sel = [deck().slides[0]?.id].filter(Boolean); S.el = null; S.comments = false; S.zoom = 100; S.genSel = false; if (S.scenario === "generating" && id === "launch") { startGeneration(); S.agentOpen = true; } render(); }
+function selectSlide(i, e = {}) {
+  const d = deck(), id = editorSlides()[i].id;
+  if (e.shiftKey && S.sel.length) { const a = d.slides.findIndex(s => s.id === S.sel[0]); const [lo, hi] = [Math.min(a, i), Math.max(a, i)]; S.sel = d.slides.slice(lo, hi + 1).map(s => s.id); }
+  else if (e.metaKey || e.ctrlKey) S.sel = S.sel.includes(id) ? S.sel.filter(x => x !== id) : [...S.sel, id];
+  else S.sel = [id];
+  S.cur = i; S.el = null; S.genSel = false;
+  renderEditor(); renderAgent();
+  $(`#rail [data-thumb="${i}"]`)?.focus();
+}
+function newSlideAfter(i) {
+  const d = deck(), s = { id: "s" + uid++, layout: "content", html: "", notes: "" };
+  d.slides.splice(i + 1, 0, s); S.cur = i + 1; S.sel = [s.id]; S.el = null; renderEditor();
+  openAddSlide($(`#rail [data-thumb="${i + 1}"]`), i + 1);
+}
+function removeSlides(ids) { const d = deck(); d.slides = d.slides.filter(s => !ids.includes(s.id)); S.cur = Math.min(S.cur, d.slides.length - 1); S.sel = [d.slides[S.cur].id]; renderEditor(); toast("Slide deleted"); }
+function pasteAfter(i) { const d = deck(); const c = clip.map(s => ({ ...structuredClone(s), id: "s" + uid++ })); d.slides.splice(i + 1, 0, ...c); S.cur = i + 1; S.sel = [c[0].id]; renderEditor(); }
+function moveSlide(from, to) { const d = deck(); const ids = S.sel.length > 1 ? S.sel : [d.slides[from].id]; const moving = d.slides.filter(s => ids.includes(s.id)); const rest = d.slides.filter(s => !ids.includes(s.id)); const before = d.slides.slice(0, to).filter(s => !ids.includes(s.id)).length; rest.splice(before, 0, ...moving); d.slides = rest; S.cur = d.slides.indexOf(moving[0]); renderEditor(); }
+function renderGridOnly() { const g = $("#deck-grid"); if (!g) return; if (S.homeTab === "recent") g.innerHTML = renderDeckGrid(); fitScales(g); }
+
+/* ───────── behavior ───────── */
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.closest(".menu, .pop, .sheet, .dlg-scrim, .present-v, .presenter")) return;
+  const q = sel => t.closest(sel);
+  let b;
+  if ((b = q("[data-nav]"))) { S.screen = b.dataset.nav; S.renaming = null; return render(); }
+  if ((b = q("[data-open]"))) { if (S.renaming) return; return openDeck(b.dataset.open); }
+  if ((b = q("[data-star]"))) { const d = DECKS.find(x => x.id === b.dataset.star); d.starred = !d.starred; return renderGridOnly(); }
+  if ((b = q("[data-deck-menu]"))) return deckMenu(b, DECKS.find(x => x.id === b.dataset.deckMenu));
+  if ((b = q("[data-ds-menu]"))) return openMenu(b, [{ t: "Set as workspace default", icon: "building-community", run: () => toast("Set as the workspace default") }, "-", { t: "Delete", icon: "trash", danger: true, run: () => confirmDialog("Delete design system?", "This permanently deletes the design system. Decks using it keep their current look but are no longer linked to it.", "Delete", () => toast("Design system deleted"), true) }], { align: "right", minWidth: 224 });
+  if ((b = q("[data-tpl-menu]"))) return openMenu(b, [run("Preview", () => previewTemplate(+b.dataset.tplMenu))], { align: "right" });
+  if ((b = q("[data-use-tpl]"))) { const c = b.closest(".card"); c.insertAdjacentHTML("beforeend", `<div class="opening">${ic("loader-2", "spin")}Opening template…</div>`); return setTimeout(() => useTemplate(+b.dataset.useTpl), 700); }
+  if ((b = q("[data-tab]"))) { S.homeTab = b.dataset.tab; return render(); }
+  if ((b = q("[data-suggest]"))) return startFromPrompt(b.dataset.suggest);
+  if ((b = q("[data-agent-suggest]"))) return sendToAgent(b.dataset.agentSuggest);
+  if ((b = q("[data-cmp-add]"))) return composerAddMenu(b);
+  if ((b = q("[data-cmp-model]"))) return modelMenu(b);
+  if ((b = q("[data-cmp-mode]"))) { openMenu(b, [{ t: "Act", icon: "pencil", desc: "Use tools and make approved changes", run: () => {} }, { t: "Plan", icon: "clipboard-list", desc: "Read-only research and approval first", run: () => toast("Plan mode") }], { above: true, align: "right", minWidth: 272 }); return trailingCheck("Act"); }
+  if ((b = q("[data-send]"))) { const inp = $("#" + b.dataset.send); const text = inp.innerText; inp.textContent = ""; b.disabled = true; return b.dataset.send === "home-input" ? startFromPrompt(text) : sendToAgent(text); }
+  if (q("[data-stop]")) { clearInterval(genTimer); const c = CHATS.gen; c.msgs[1].running = false; c.msgs[1].acts = "Stopped"; S.scenario = "default"; $("#scenario-sel").value = "default"; S.gen = null; render(); return; }
+  if (q("[data-chip-x]")) { q(".ctx-chip").remove(); return; }
+  if ((b = q("[data-acts]"))) { const id = b.dataset.acts; chatOpenActs.has(id) ? chatOpenActs.delete(id) : chatOpenActs.add(id); return renderAgent(); }
+  if (q("#import-btn")) return openMenu(q("#import-btn"), [run("PDF", () => toast("Choose a PDF file.")), run("Google Slides", () => toast("Paste a Google Slides link")), run("PPT", () => toast("Choose a PPTX file."))], { align: "right", minWidth: 160 });
+  if (q("#filter-btn")) return openMenu(q("#filter-btn"), [{ t: "Mine", radio: true, on: S.filter === "mine", run: () => { S.filter = "mine"; render(); } }, { t: "All", radio: true, on: S.filter === "all", run: () => { S.filter = "all"; render(); } }], { minWidth: 128 });
+  if (q("#org-btn")) return orgMenu(q("#org-btn"));
+  if (q("#more-btn")) return moreMenu(q("#more-btn"));
+  if (q("#share-btn")) return openShare(q("#share-btn"));
+  if (q("#ag-menu")) return agentMenu(q("#ag-menu"));
+  if (q("#shapes-btn")) { const p = popover(q("#shapes-btn"), SHAPES.map(([i, l]) => `<button aria-label="${l}" data-tip="${l}" data-shape="${l}">${ic(i)}</button>`).join(""), "shape-pop", { align: "left" }); p.setAttribute("role", "menu"); p.onclick = e2 => { const s = e2.target.closest("[data-shape]"); if (s) { p.remove(); toast(`Click on the slide to place a ${s.dataset.shape.toLowerCase()}`); } }; return; }
+  if (q("#bg-btn")) return colorPop(q("#bg-btn"), "Slide background", DS[deck().ds].vars["--ds-bg"], c => { curSlide().html = curSlide().html; $("#stage .sl").style.background = c; curSlide().bg = c; toast("Slide background updated"); });
+  if (q("#text-color")) return colorPop(q("#text-color"), "Text color", "", c => { const el = $(`#stage [data-el="${S.el}"]`); if (el) el.style.color = c; });
+  if (q("#font-btn")) return pickMenu(q("#font-btn"), ["Inherit", "Sans Serif", "Serif", "Monospace", "Inter", "Poppins", "Playfair Display", "JetBrains Mono"], "Inter", f => toast(`Font: ${f}`));
+  if (q("#weight-btn")) return pickMenu(q("#weight-btn"), ["Reg", "Med", "Semi", "Bold"], S.weight || "Bold", w => { S.weight = w; renderEditor(); });
+  if (q("#align-btn")) return openMenu(q("#align-btn"), [["Left", "align-left"], ["Center", "align-center"], ["Right", "align-right"], ["Justify", "align-justified"]].map(([t, icon]) => ({ t, icon, run: () => { const el = $(`#stage [data-el="${S.el}"]`); if (el) el.style.textAlign = t.toLowerCase(); } })), { minWidth: 160 });
+  if (q("#arrange-btn")) return openMenu(q("#arrange-btn"), [{ label: "Position" }, { t: "Left" }, { t: "Center" }, { t: "Right" }, "-", { t: "Top" }, { t: "Middle" }, { t: "Bottom" }, "-", { t: "Send to back", icon: "stack-back" }, { t: "Send backward", icon: "stack-back" }, { t: "Bring to front", icon: "stack-front" }, { t: "Bring forward", icon: "stack-front" }], { minWidth: 176 });
+  if ((b = q("[data-size]"))) { S.size = (S.size || 38) + +b.dataset.size; $("#size-v").textContent = S.size; const el = $(`#stage [data-el="${S.el}"]`); if (el) el.style.fontSize = S.size + "px"; return; }
+  if ((b = q("[data-toggle]"))) { const kk = b.dataset.toggle; S[kk] = !S[kk]; b.setAttribute("aria-pressed", S[kk]); const el = $(`#stage [data-el="${S.el}"]`); if (el) el.style[kk === "italic" ? "fontStyle" : "textDecoration"] = S[kk] ? kk : ""; return; }
+  if ((b = q("[data-zoom]"))) { S.zoom = Math.max(50, Math.min(200, S.zoom + 25 * +b.dataset.zoom)); return renderEditor(); }
+  if ((b = q("[data-thumb]"))) return selectSlide(+b.dataset.thumb, e);
+  if (q("[data-gen]")) { S.genSel = true; return renderEditor(); }
+  if ((b = q("[data-goto]"))) return selectSlide(+b.dataset.goto);
+  if ((b = q("[data-cm-scope]"))) { S.cmScope = b.dataset.cmScope; return renderEditor(); }
+  if ((b = q("[data-cm-aud]"))) { S.cmAud = b.dataset.cmAud; return renderEditor(); }
+  if ((b = q("#stage [data-el]")) && canEdit()) { S.el = b.dataset.el; renderEditor(); renderAgent(); return; }
+  if (q("#canvas") && !q("#stage [data-el]")) { if (S.el) { S.el = null; renderEditor(); renderAgent(); } return; }
+  if ((b = q("[data-act]"))) return act(b.dataset.act, b);
+});
+function act(a, b) {
+  switch (a) {
+    case "collapse": S.collapsed = !S.collapsed; return render();
+    case "agent": S.agentOpen = !S.agentOpen; return render();
+    case "back": S.screen = "home"; S.present = null; return render();
+    case "present": return startPresent();
+    case "new-slide": return newSlideAfter(S.cur);
+    case "text-mode": S.textMode = !S.textMode; renderEditor(); return toast(S.textMode ? "Click anywhere on the slide to add a text box" : "Text box tool off");
+    case "notes": S.notes = !S.notes; return renderEditor();
+    case "comments": S.comments = !S.comments; return renderEditor();
+    case "cm-filters": S.cmFilters = !S.cmFilters; return renderEditor();
+    case "add-comment": if (!S.comments) { S.comments = true; renderEditor(); } return toast("Click anywhere to drop a comment pin");
+    case "animations": return toast("Select an object on the slide to add a transition.");
+    case "new-chat": S.chat = "new"; CHATS.new = { title: "New chat", msgs: [] }; return renderAgent();
+    case "search-decks": S.screen = "home"; S.homeTab = "recent"; render(); return $("#deck-search")?.focus();
+    case "new-ds": return toast("New Design System");
+    case "feedback": return toast("Send feedback");
+    case "bell": return toast("No notifications");
+    case "voice": return toast("Listening…");
+    case "list": return toast(b.getAttribute("aria-label"));
+    case "backup": return toast("Backup downloaded");
+    case "import-backup": return toast("Choose a valid Slides backup JSON file.");
+    case "share-ds": return openShare(b, { title: "Fieldnote", visibility: "org" });
+    default: toast(b.getAttribute("aria-label") || a);
+  }
+}
+function startFromPrompt(text) {
+  if (!text.trim()) return;
+  S.scenario = "generating"; $("#scenario-sel").value = "generating";
+  const c = CHATS.gen; c.msgs[0].u = text;
+  DECKS = DECKS.length ? DECKS : DECKS_ALL();
+  openDeck("launch");
+}
+document.addEventListener("contextmenu", e => {
+  const th = e.target.closest("[data-thumb]");
+  if (th) { e.preventDefault(); const i = +th.dataset.thumb; const id = editorSlides()[i].id; if (!S.sel.includes(id)) selectSlide(i); return thumbMenu({ target: $(`#rail [data-thumb="${i}"]`), clientX: e.clientX, clientY: e.clientY }, i); }
+  const el = e.target.closest("#stage [data-el]");
+  if (el && canEdit()) { e.preventDefault(); S.el = el.dataset.el; renderEditor(); return elementMenu({ target: $(`#stage [data-el="${S.el}"]`), clientX: e.clientX, clientY: e.clientY }); }
+});
+document.addEventListener("input", e => {
+  const t = e.target;
+  if (t.id === "deck-search") { S.q = t.value; if (S.q.trim() && S.homeTab !== "recent") { S.homeTab = "recent"; render(); const i = $("#deck-search"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); } else renderGridOnly(); }
+  if (t.id === "tpl-search") { S.tq = t.value; const g = $("#tpl-grid"); const q = S.tq.trim().toLowerCase(); const list = TEMPLATES.map((x, i) => [x, i]).filter(([x]) => !q || (x[0] + x[1]).toLowerCase().includes(q)); g.innerHTML = list.map(([x, i]) => tplCard(x, i)).join("") || '<div class="empty-box">No templates match your search.</div>'; fitScales(g); }
+  if (t.id === "deck-title") deck().title = t.value;
+  if (t.id === "notes-ta") curSlide().notes = t.value;
+  if (t.classList?.contains("cmp-input")) { const sb = t.closest(".composer").querySelector("[data-send]"); if (sb) sb.disabled = !t.innerText.trim(); }
+});
+document.addEventListener("keydown", e => {
+  const t = e.target;
+  if (S.presenter || S.present) {
+    if (["ArrowRight", "ArrowDown", " "].includes(e.key)) { e.preventDefault(); step(1); }
+    else if (["ArrowLeft", "ArrowUp"].includes(e.key)) { e.preventDefault(); step(-1); }
+    else if (e.key === "Escape") { if (S.presenter && S.present) { S.presenter = null; clearInterval(presTimer); renderPresent(); } else exitPresent(); }
+    else if (!S.presenter && e.key.toLowerCase() === "s") openPresenter();
+    else if (!S.presenter && e.key.toLowerCase() === "f") document.documentElement.requestFullscreen?.().catch(() => {});
+    return;
+  }
+  if (t.id === "rename-in") {
+    if (e.key === "Enter") { const d = DECKS.find(x => x.id === S.renaming); if (t.value.trim()) d.title = t.value.trim(); S.renaming = null; renderGridOnly(); }
+    if (e.key === "Escape") { S.renaming = null; renderGridOnly(); }
+    return;
+  }
+  if (t.classList?.contains("cmp-input") && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); t.closest(".composer").querySelector("[data-send]:not([disabled])")?.click(); return; }
+  if (t.closest?.("input, textarea, [contenteditable]")) return;
+  if (S.screen !== "editor" || $(".menu, .pop, .sheet, .dlg-scrim")) return;
+  const n = editorSlides().length;
+  if ((e.metaKey || e.ctrlKey) && (e.key === "ArrowUp" || e.key === "ArrowDown") && canEdit() && t.closest?.("#rail")) { e.preventDefault(); const to = e.shiftKey ? (e.key === "ArrowUp" ? 0 : n) : S.cur + (e.key === "ArrowUp" ? -1 : 2); moveSlide(S.cur, Math.max(0, Math.min(n, to))); $(`#rail [data-thumb="${S.cur}"]`)?.focus(); return; }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); const i = Math.max(0, Math.min(n - 1, S.cur + (e.key === "ArrowDown" ? 1 : -1))); return selectSlide(i, { shiftKey: e.shiftKey && false }); }
+  if (e.key === "Escape" && S.el) { S.el = null; renderEditor(); renderAgent(); }
+  if (e.key.toLowerCase() === "t" && !e.metaKey && canEdit()) act("text-mode");
+  if ((e.key === "Backspace" || e.key === "Delete") && t.closest?.("#rail") && canEdit() && n > 1) removeSlides(S.sel.length ? S.sel : [curSlide().id]);
+});
+document.addEventListener("focusout", e => { if (e.target.id === "rename-in") setTimeout(() => { if (!S.renaming) return; const d = DECKS.find(x => x.id === S.renaming); if (e.target.value.trim()) d.title = e.target.value.trim(); S.renaming = null; renderGridOnly(); }); });
+// Rail drag to reorder, as the dnd-kit filmstrip does: a drop line marks where the slide lands.
+document.addEventListener("dragstart", e => { const th = e.target.closest?.("[data-thumb]"); if (!th) return; dragFrom = +th.dataset.thumb; th.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(dragFrom)); });
+document.addEventListener("dragover", e => {
+  const th = e.target.closest?.("[data-thumb]"); if (dragFrom === null || !th) return;
+  e.preventDefault(); $(".drop-line")?.remove();
+  const r = th.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+  th.insertAdjacentHTML(after ? "afterend" : "beforebegin", '<div class="drop-line"></div>');
+  th.closest("#rail").dataset.dropAt = +th.dataset.thumb + (after ? 1 : 0);
+});
+document.addEventListener("drop", e => { const rail = $("#rail"); if (dragFrom === null || !rail?.dataset.dropAt) return; e.preventDefault(); const to = +rail.dataset.dropAt, from = dragFrom; dragFrom = null; moveSlide(from, to); });
+document.addEventListener("dragend", () => { dragFrom = null; $(".drop-line")?.remove(); document.querySelectorAll(".th.dragging").forEach(x => x.classList.remove("dragging")); });
+
+// Tooltips: the shadcn Tooltip stands in as a small primary label under the control.
+(() => {
+  let tip = null, timer = null;
+  const hide = () => { clearTimeout(timer); tip?.remove(); tip = null; };
+  document.addEventListener("pointerover", e => {
+    const b = e.target.closest?.("[data-tip]"); if (!b || b.contains(e.relatedTarget)) return;
+    hide(); timer = setTimeout(() => {
+      tip = document.createElement("div"); tip.className = "tip"; tip.textContent = b.dataset.tip; document.body.append(tip);
+      const r = b.getBoundingClientRect(), side = b.closest(".app-left") ? "right" : "bottom";
+      if (side === "right") { tip.style.left = r.right + 8 + "px"; tip.style.top = r.top + r.height / 2 - tip.offsetHeight / 2 + "px"; }
+      else { tip.style.left = Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, r.left + r.width / 2 - tip.offsetWidth / 2)) + "px"; tip.style.top = (r.bottom + 6 + tip.offsetHeight > innerHeight ? r.top - 6 - tip.offsetHeight : r.bottom + 6) + "px"; }
+    }, 500);
+  });
+  document.addEventListener("pointerout", e => { const b = e.target.closest?.("[data-tip]"); if (b && !b.contains(e.relatedTarget)) hide(); });
+  document.addEventListener("pointerdown", hide, true);
+})();
+
+/* ───────── review strip ───────── */
+$("#theme-btn").addEventListener("click", () => {
+  const nx = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = nx;
+  try { localStorage.setItem("slides-proto-theme", nx); } catch {}
+});
+$("#scenario-sel").addEventListener("change", e => {
+  const v = e.target.value, was = S.scenario;
+  S.scenario = v; S.gen = null; clearInterval(genTimer);
+  if (v === "empty") { DECKS = []; S.homeTab = "templates"; S.screen = S.screen === "editor" ? "home" : S.screen; }
+  else if (was === "empty" || !DECKS.length) { DECKS = DECKS_ALL(); S.homeTab = "recent"; }
+  if (v === "generating") { DECKS = DECKS_ALL(); return openDeck("launch"); }
+  if (v === "viewer" || v === "offline") { if (!deck()) DECKS = DECKS_ALL(); if (S.screen !== "editor") return openDeck("launch"); }
+  render();
+});
+kitChangesInit($("#changes-btn"));
+kitSettingsInit({ app: "Slides", mcpName: "slides", mcpUrl: "https://slides.agent-native.com/mcp" });
+render();
+</script>

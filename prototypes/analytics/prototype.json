@@ -1,0 +1,19 @@
+{
+  "template": "analytics",
+  "figma": {
+    "file": "oJQ7t9q4e8oHzLZKuki7k1",
+    "page": "Analytics",
+    "pageId": "2827:11218",
+    "sections": {
+      "Analytics · Screens": "2848:24",
+      "Ask · home": "2856:349",
+      "Ask · answer": "2856:512",
+      "Dashboard · Product Overview": "2857:845",
+      "Dashboard · Add panel": "2859:1398",
+      "Data Sources · setup walkthrough": "2862:2320",
+      "Dashboard · Empty": "2861:2195",
+      "Analytics · Menus and popovers": "2848:25",
+      "Analytics · Parts": "2848:26"
+    }
+  }
+}

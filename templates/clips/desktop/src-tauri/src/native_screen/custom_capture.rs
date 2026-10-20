@@ -1,74 +1,26 @@
-//! Custom ScreenCaptureKit capture engine.
-//!
-//! Owns everything between "SCStream hands us a sample buffer" and "a
-//! fragmented MP4 grows on disk": the AVAssetWriter wrapper
-//! (`CustomScreenCaptureWriter`), the realtime `LiveAudioMixer` that combines
-//! mic + system audio into one track, the PCM decode/resample helpers, the
-//! AVFoundation/CoreMedia FFI glue, and the capture watchdog that rebuilds a
-//! stopped/stalled SCStream in place. Session management and live upload stay
-//! in the parent `native_screen` module and the `live_upload` sibling.
-
 use super::*;
 use screencapturekit::error::SCError;
 use screencapturekit::stream::delegate_trait::SCStreamDelegateTrait;
 use std::io::{Seek, SeekFrom, Write};
+use std::sync::RwLock;
+use tauri::{AppHandle, Emitter};
 
-/// `AVAssetWriter.status` raw value for `.completed`.
 const AV_WRITER_STATUS_COMPLETED: i64 = 2;
-/// `kAudioFormatMPEG4AAC` FourCC ('aac ') for the writer's audio output.
 const AUDIO_FORMAT_AAC: i64 = 0x6161_6320;
-/// Cadence of delegate-produced output segments in segmented mode (seconds of
-/// media time). Smaller = data becomes uploadable sooner, at a small
-/// container-overhead cost.
 const OUTPUT_SEGMENT_INTERVAL_SECONDS: i64 = 1;
-/// Capture-time H.264 budget in bits per pixel per frame. 0.15 bpp matches
-/// Cap's "instant" quality tier (~3.3 Mbps at 1280x720@24) and keeps most
-/// recordings small enough to upload without a post-capture transcode.
 const CAPTURE_VIDEO_BPP: f64 = 0.15;
 
-// Self-healing capture watchdog. ScreenCaptureKit can silently stop feeding a
-// display stream when the captured display changes Spaces (virtual desktops),
-// a full-screen app takes over, or the display config changes — sometimes with
-// a `did_stop_with_error` callback, sometimes by just going quiet. Either way
-// the recording file stops growing with no app-level signal. The watchdog
-// notices the gap and rebuilds the SCStream in place so recording continues.
-//
-// How long without any delivered sample buffer before we treat the stream as
-// dead and rebuild it. Generous enough not to trip on a momentarily idle
-// screen (SCK still delivers idle frames, which count as activity here).
 const CAPTURE_STALL_TIMEOUT: Duration = Duration::from_secs(4);
-// Watchdog poll cadence.
 const CAPTURE_WATCHDOG_POLL: Duration = Duration::from_millis(1000);
-/// A stream is not healthy merely because `start_capture` returned. Rewind's
-/// fragmented writer must receive a usable video frame and emit real media.
 const CAPTURE_FIRST_SAMPLE_TIMEOUT: Duration = Duration::from_secs(4);
 const CAPTURE_FIRST_FRAGMENT_TIMEOUT: Duration = Duration::from_secs(3);
-/// Keep a small PCM tail unwritten so a fence can still divide callbacks that
-/// arrived ahead of the corresponding encoded video fragment report.
 const AUDIO_FENCE_LOOKBEHIND_SECONDS: f64 = 2.0;
-// Consecutive failed restarts (rebuild or start error, or an immediate
-// re-stall) before giving up and finalizing whatever was captured. A single
-// successful stretch of frames resets the counter.
 const CAPTURE_MAX_RESTARTS: u32 = 5;
 
-/// Liveness state shared between the SCK output handler (which records that a
-/// sample arrived), the stream delegate (which records an OS-reported stop),
-/// and the watchdog thread (which reads both to decide when to rebuild the
-/// stream).
 pub(crate) struct CaptureWatch {
-    /// Wall-clock time of the most recent delivered sample buffer.
     last_activity: Mutex<Instant>,
-    /// Set by the stream delegate when ScreenCaptureKit reports the stream
-    /// stopped. Consumed by the watchdog to force an immediate rebuild.
     stream_stopped: Mutex<Option<String>>,
-    /// The user stopped capture through macOS itself (menu-bar "Stop
-    /// Sharing", SCStreamError code -3817). The watchdog must treat this as
-    /// a clean stop request, never as a failure to rebuild from.
     user_stopped: AtomicBool,
-    /// True between pause and resume. The capture source (SCStream) is
-    /// intentionally stopped while the writer/file/uploader stay alive, so
-    /// the watchdog must not read the silence as a stall and rebuild — resume
-    /// brings a fresh stream back and clears this.
     paused: AtomicBool,
     screen_samples: AtomicU64,
     usable_screen_samples: AtomicU64,
@@ -159,23 +111,6 @@ impl CaptureWatch {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Segmented output (live-upload mode)
-//
-// With `movieFragmentInterval` + a writer-owned file, `finishWriting`
-// DEFRAGMENTS the file in place (fragmented layout -> classic mdat+moov), so
-// byte ranges streamed to the server during recording no longer match the
-// final file and the uploaded clip comes back corrupt. The fix is Apple's
-// segment API: the writer is created WITHOUT an output URL, produces discrete
-// fMP4 segments through `AVAssetWriterDelegate`, and WE append them to the
-// local file ourselves. AVFoundation never owns the file, so nothing is ever
-// rewritten — the file is append-only by construction and the live uploader
-// can safely tail it forever.
-// ---------------------------------------------------------------------------
-
-/// Apple's `AVAssetWriterSegmentType` values. Apple documents initialization
-/// data as `1` and separable media data as `2`; keeping this distinction is
-/// what lets each logical output remain a standalone fMP4.
 const AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION: isize = 1;
 const AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE: isize = 2;
 
@@ -203,9 +138,9 @@ fn segmented_output_enabled(output: CustomWriterOutput, live_upload_enabled: boo
 fn live_audio_mixing_enabled(
     output: CustomWriterOutput,
     include_audio: bool,
-    capture_system_audio: bool,
+    _capture_system_audio: bool,
 ) -> bool {
-    include_audio && capture_system_audio && !output.preserves_separate_audio()
+    include_audio && !output.preserves_separate_audio()
 }
 
 pub(crate) fn audio_sidecar_path(video_path: &Path, source: &str) -> PathBuf {
@@ -413,10 +348,6 @@ impl AudioSidecarManager {
         session_start_seconds: f64,
     ) {
         let base = *state.segment_base_pts.get_or_insert(session_start_seconds);
-        // ScreenCaptureKit callbacks from different output queues can arrive
-        // after a fragment fence even when their PTS belongs to the preceding
-        // fragment. Discard only the portion before this segment's video
-        // boundary instead of incorrectly prepending it to the new sidecar.
         let skip = (((base - pts_seconds) * sample_rate).ceil() as isize)
             .clamp(0, samples.len() as isize) as usize;
         let samples = &samples[skip..];
@@ -549,7 +480,6 @@ impl AudioSidecarManager {
     }
 }
 
-/// Metadata for a logical fMP4 closed at a media-fragment boundary.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ClosedSegmentFile {
     pub path: PathBuf,
@@ -559,7 +489,6 @@ pub(crate) struct ClosedSegmentFile {
     pub boundary_seconds: Option<f64>,
 }
 
-/// A non-blocking fence request. Await it off AVFoundation's delegate queue.
 pub(crate) struct SegmentFence {
     result: std::sync::mpsc::Receiver<Result<ClosedSegmentFile, String>>,
     audio_sidecars: Option<(Arc<AudioSidecarManager>, PathBuf)>,
@@ -623,8 +552,6 @@ struct SegmentProgress {
     has_initialization: bool,
 }
 
-/// Delegate callbacks and fence requests share one mutex, making every media
-/// fragment an indivisible routing unit. No fragment can cross two files.
 pub(super) struct SegmentSink {
     state: Mutex<SegmentSinkState>,
 }
@@ -744,10 +671,6 @@ impl SegmentSink {
                     );
                     return;
                 };
-                // Do not close an init-only file. Once the current logical
-                // file has media, service exactly one request at each later
-                // boundary; repeated fences then make consecutive non-empty
-                // files without splitting a fragment.
                 if state.media_fragments > 0 && !state.pending_fences.is_empty() {
                     let fence = state.pending_fences.pop_front().expect("checked above");
                     use std::io::Write;
@@ -813,7 +736,6 @@ impl SegmentSink {
     }
 }
 
-/// Instance variables for the segment delegate: just the shared sink.
 struct SegmentDelegateIvars {
     sink: Arc<SegmentSink>,
 }
@@ -827,8 +749,6 @@ objc2::define_class!(
     struct SegmentWriterDelegate;
 
     impl SegmentWriterDelegate {
-        /// `AVAssetWriterDelegate` — receives each fMP4 segment (type 1 =
-        /// initialization, 2 = separable media) as it is produced.
         #[unsafe(method(assetWriter:didOutputSegmentData:segmentType:segmentReport:))]
         fn did_output_segment(
             &self,
@@ -837,8 +757,6 @@ objc2::define_class!(
             segment_type: isize,
             segment_report: *mut objc2::runtime::AnyObject,
         ) {
-            // Crossing the ObjC boundary: a Rust panic here would abort the
-            // whole process, so contain it.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 if data.is_null() {
                     return;
@@ -884,77 +802,46 @@ impl SegmentWriterDelegate {
     }
 }
 
-/// Cheap-to-clone handle around one `AVAssetWriter` producing a fragmented
-/// MP4. SCK callbacks append through it from multiple dispatch queues; the
-/// stop path calls [`Self::finish`]. All clones share the same underlying
-/// state (everything inside is an `Arc`).
 pub(crate) struct CustomScreenCaptureWriter {
     inner: Arc<Mutex<CustomScreenCaptureWriterState>>,
-    /// Present only in live-mixing mode; combines the two incoming audio
-    /// streams into the one track written to `mixed_audio_input`. Lives on its
-    /// own lock so PCM mixing on the audio callbacks never blocks video frame
-    /// appends (which only need `inner`). Lock order is always `mixer` →
-    /// `inner`; never take `mixer` while holding `inner`.
     mixer: Option<Arc<Mutex<LiveAudioMixer>>>,
-    /// The writer session has started (first video frame ran
-    /// `startSessionAtSourceTime:`). Written under the `inner` lock, read
-    /// lock-free by the audio callbacks.
     started: Arc<AtomicBool>,
-    /// Source-time (seconds, as f64 bits) the writer session started at.
-    /// `f64::NAN` until known; mixed audio earlier than this must be dropped
-    /// or the writer rejects it. Written before `started` flips true.
     session_start_bits: Arc<AtomicU64>,
-    /// Once true the writer accepts no more samples — set on stop, cancel, and
-    /// any append failure.
     appends_closed: Arc<AtomicBool>,
-    /// Samples skipped because an AVAssetWriterInput wasn't ready; logged
-    /// periodically so realtime backpressure is visible.
     dropped_samples: Arc<AtomicU64>,
-    /// Accumulated pause time (seconds, as f64 bits) to subtract from the
-    /// zero-based session timeline so a pause/resume leaves no gap in the
-    /// append-only file. Zero until the first resume. Read by the video
-    /// retime path and the live audio mixer.
     pause_offset_bits: Arc<AtomicU64>,
-    /// Present for Rewind's one physical ScreenCaptureKit producer. Clones
-    /// share one registration across watchdog rebuilds; `finish` deactivates
-    /// it before capture teardown so new consumers cannot attach to a dying
-    /// stream.
     audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
-    /// Rewind persists independently selectable microphone and system PCM
-    /// beside the video-only fMP4 because AVAssetWriter's segmented profiles
-    /// reject a writer graph containing two AAC inputs.
     audio_sidecars: Option<Arc<AudioSidecarManager>>,
 }
 
-/// The lock-guarded half of the writer: the retained AVFoundation objects
-/// plus lifecycle flags. Every Objective-C call on these handles happens
-/// while holding this state's mutex (see the SAFETY note below).
 struct CustomScreenCaptureWriterState {
     writer: objc2::rc::Retained<objc2::runtime::AnyObject>,
     video_input: objc2::rc::Retained<objc2::runtime::AnyObject>,
     system_audio_input: Option<objc2::rc::Retained<objc2::runtime::AnyObject>>,
     mic_audio_input: Option<objc2::rc::Retained<objc2::runtime::AnyObject>>,
-    /// Single output track used when mic + system audio are mixed live into one
-    /// stream. Mutually exclusive with `system_audio_input` / `mic_audio_input`.
     mixed_audio_input: Option<objc2::rc::Retained<objc2::runtime::AnyObject>>,
-    /// Segmented (delegate-fed) output mode; see the "Segmented output"
-    /// section. When true, `initialSegmentStartTime` must be set before
-    /// `startWriting`.
     segmented: bool,
-    /// Local-file writer for segmented mode (we own the file, not
-    /// AVFoundation). `None` in plain file mode.
     segment_sink: Option<Arc<SegmentSink>>,
-    /// Keeps the ObjC delegate alive — `AVAssetWriter.delegate` is weak.
     #[allow(dead_code)]
     segment_delegate: Option<objc2::rc::Retained<SegmentWriterDelegate>>,
-    /// First video frame's PTS as (value, timescale). In segmented mode the
-    /// writer session starts at ZERO and every sample is rebased against this
-    /// — the segment API preserves source timestamps verbatim, so appending
-    /// raw host-clock PTS would give the clip a media timeline starting at
-    /// "seconds since boot" (browsers then show wall-clock-like times).
     session_start_time: Option<(i64, i32)>,
     finished: bool,
     failed: Option<String>,
+    append_stats: std::collections::HashMap<&'static str, TrackAppendStats>,
+}
+
+mod track_labels {
+    pub(super) const VIDEO: &str = "video";
+    pub(super) const SYSTEM_AUDIO: &str = "system-audio";
+    pub(super) const MIC_AUDIO: &str = "mic-audio";
+    pub(super) const MIXED_AUDIO: &str = "mixed-audio";
+}
+
+#[derive(Default, Clone, Copy)]
+struct TrackAppendStats {
+    appended: u64,
+    last_pts_seconds: Option<f64>,
+    pts_regressions: u64,
 }
 
 // SAFETY: `Retained<AnyObject>` is `!Send`/`!Sync` by default because objc2
@@ -973,19 +860,16 @@ unsafe impl Sync for CustomScreenCaptureWriter {}
 unsafe impl Send for CustomScreenCaptureWriterState {}
 
 #[derive(Clone)]
-/// The `SCStreamOutputTrait` sink registered for all three output types
-/// (screen / system audio / microphone). One instance is shared across the
-/// registrations and across watchdog stream rebuilds, so the same writer
-/// keeps receiving samples over the whole recording.
 struct CustomScreenCaptureOutputHandler {
+    app: AppHandle,
     writer: CustomScreenCaptureWriter,
-    /// At most one temporary Clips writer may mirror this physical producer.
-    /// It deliberately lives beside the callback handler rather than the
-    /// audio bus: the bus has one producer contract and must never publish a
-    /// second copy just because a Clip starts.
+    stream_generation: u64,
+    active_stream_generation: Arc<AtomicU64>,
+    callback_admission: Arc<RwLock<()>>,
     clip_sink: Arc<Mutex<Option<ClipSinkSlot>>>,
     recording_enabled: Arc<AtomicBool>,
     mic_ready: Option<Arc<AtomicBool>>,
+    audio_level_tick: Arc<AtomicU32>,
     watch: Arc<CaptureWatch>,
 }
 
@@ -1068,9 +952,6 @@ impl ClipSinkGate {
     }
 }
 
-/// Handle for the one temporary Clip writer attached to an existing custom
-/// ScreenCaptureKit producer. Preparation allocates the writer but does not
-/// admit callbacks; activation is a single in-memory state transition.
 pub(crate) struct PreparedClipSink {
     slot: Arc<Mutex<Option<ClipSinkSlot>>>,
     writer: CustomScreenCaptureWriter,
@@ -1091,7 +972,6 @@ impl PreparedClipSink {
             .activated_at
             .lock()
             .map_err(|error| error.to_string())? = Some(Instant::now());
-        // Publish Active last, while holding the same slot lock callbacks use.
         self.gate
             .state
             .store(ClipSinkState::Active as u64, Ordering::SeqCst);
@@ -1108,7 +988,6 @@ impl PreparedClipSink {
             .paused_at
             .lock()
             .map_err(|error| error.to_string())? = Some(Instant::now());
-        // Close callback admission only after the pause boundary is durable.
         self.gate
             .state
             .store(ClipSinkState::Paused as u64, Ordering::SeqCst);
@@ -1136,22 +1015,13 @@ impl PreparedClipSink {
         *paused_total = paused_total.saturating_add(paused_for);
         self.writer
             .set_pause_offset(self.writer.pause_offset() + paused_for.as_secs_f64());
-        // Re-open callback admission only after every timestamp offset is in
-        // place. The slot lock prevents an in-flight append from observing a
-        // half-resumed writer.
         self.gate
             .state
             .store(ClipSinkState::Active as u64, Ordering::SeqCst);
         Ok(())
     }
 
-    /// Logical close is synchronous and precedes the potentially slow writer
-    /// finalization. This makes Stop's accepted-sample boundary exact.
     pub(crate) fn deactivate(&self) {
-        // The callback holds this same lock across its accepted append. Taking
-        // it here makes the return from deactivate the exact no-more-samples
-        // boundary: a callback either completed before logical end or sees
-        // Closed after it. No disk/network/finalize work occurs under it.
         if let Ok(_slot) = self.slot.lock() {
             self.gate
                 .state
@@ -1191,10 +1061,6 @@ impl PreparedClipSink {
     }
 }
 
-/// Allocate an Apple-HLS, append-only Clip writer and install it as the only
-/// secondary sink on a running physical producer. This does not start any
-/// ScreenCaptureKit or audio input and is deliberately independent of the
-/// ordinary remote-live-upload feature flag.
 pub(crate) fn prepare_clip_sink(
     slot: Arc<Mutex<Option<ClipSinkSlot>>>,
     output_path: &Path,
@@ -1202,6 +1068,7 @@ pub(crate) fn prepare_clip_sink(
     height: u32,
     include_mic: bool,
     include_system_audio: bool,
+    voice_cleanup_enabled: bool,
 ) -> Result<PreparedClipSink, String> {
     let mut installed = slot.lock().map_err(|e| e.to_string())?;
     if installed.is_some() {
@@ -1218,7 +1085,9 @@ pub(crate) fn prepare_clip_sink(
             include_mic,
             include_system_audio,
         ),
+        voice_cleanup_enabled,
         CustomWriterOutput::ClipHls,
+        false,
         None,
     )?;
     let gate = Arc::new(ClipSinkGate::new());
@@ -1249,39 +1118,107 @@ impl Clone for CustomScreenCaptureWriter {
     }
 }
 
+impl CustomScreenCaptureOutputHandler {
+    fn replacement_stream(&self) -> Self {
+        let _admission = self
+            .callback_admission
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
+        let stream_generation = self.active_stream_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        Self {
+            app: self.app.clone(),
+            writer: self.writer.clone(),
+            stream_generation,
+            active_stream_generation: Arc::clone(&self.active_stream_generation),
+            callback_admission: Arc::clone(&self.callback_admission),
+            clip_sink: Arc::clone(&self.clip_sink),
+            recording_enabled: Arc::clone(&self.recording_enabled),
+            mic_ready: self.mic_ready.clone(),
+            audio_level_tick: Arc::clone(&self.audio_level_tick),
+            watch: Arc::clone(&self.watch),
+        }
+    }
+
+    fn invalidate_stream(&self) {
+        let _admission = self
+            .callback_admission
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
+        self.active_stream_generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn is_current(&self) -> bool {
+        stream_generation_is_current(
+            self.active_stream_generation.load(Ordering::SeqCst),
+            self.stream_generation,
+        )
+    }
+
+    fn emit_microphone_level(&self, samples: &[f32]) {
+        let tick = self.audio_level_tick.fetch_add(1, Ordering::Relaxed);
+        if tick % 3 != 0 || samples.is_empty() {
+            return;
+        }
+        let level = samples
+            .iter()
+            .copied()
+            .map(f32::abs)
+            .fold(0.0_f32, f32::max)
+            .min(1.0);
+        let _ = self.app.emit(
+            "voice:audio-level",
+            serde_json::json!({ "level": level, "source": "mic" }),
+        );
+    }
+}
+
+fn stream_generation_is_current(active_generation: u64, sample_generation: u64) -> bool {
+    active_generation == sample_generation
+}
+
+fn sample_pts_advances(previous: Option<f64>, current: f64) -> bool {
+    previous.is_none_or(|last| current > last)
+}
+
 impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
     fn did_output_sample_buffer(
         &self,
         sample_buffer: screencapturekit::cm::CMSampleBuffer,
         of_type: SCStreamOutputType,
     ) {
+        let Ok(_admission) = self.callback_admission.read() else {
+            return;
+        };
+        if !self.is_current() {
+            return;
+        }
         if matches!(of_type, SCStreamOutputType::Microphone) {
             if let Some(mic_ready) = &self.mic_ready {
                 mic_ready.store(true, Ordering::Relaxed);
             }
         }
-        // Rewind may already own both physical audio inputs before a meeting
-        // begins. Publish decoded PCM even while recording output is deferred;
-        // the bus is about source ownership, not writer attachment.
         if matches!(
             of_type,
             SCStreamOutputType::Audio | SCStreamOutputType::Microphone
         ) {
+            let mut decoded_mic = None;
             let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let _ = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
-                    self.writer.publish_audio_sample(&sample_buffer, of_type);
+                    decoded_mic = self.writer.publish_audio_sample(&sample_buffer, of_type);
                 }));
             }));
             if panic_result.is_err() {
                 eprintln!("[mixer] panic while publishing shared {of_type:?} PCM");
             }
+            if matches!(of_type, SCStreamOutputType::Microphone) {
+                if let Some(samples) = decoded_mic.as_deref() {
+                    self.emit_microphone_level(samples);
+                }
+            }
         }
         if !self.recording_enabled.load(Ordering::SeqCst) {
             return;
         }
-        // A delivered buffer (even a content-less idle frame) proves the stream
-        // is still alive; record it so the watchdog can tell a genuinely stalled
-        // stream apart from a quiet one.
         self.watch.note_activity();
         self.watch.note_sample(
             of_type,
@@ -1290,14 +1227,6 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
         if self.writer.appends_closed.load(Ordering::SeqCst) {
             return;
         }
-        // Append every screen frame that carries an image buffer, INCLUDING
-        // idle/blank ones. On a static screen (e.g. after switching to another
-        // Space) ScreenCaptureKit delivers Idle frames; dropping them starves
-        // the video track, and fragmented-MP4 interleaving then can't complete
-        // a fragment — the file stops growing even though audio keeps flowing.
-        // Idle frames still reference the current surface, and the encoder
-        // turns repeats into tiny P-frames, so appending them is cheap. Only
-        // frames with no image buffer are skipped (nothing to encode).
         if matches!(of_type, SCStreamOutputType::Screen) {
             use std::sync::atomic::AtomicU64;
             static SCREEN_SEEN: AtomicU64 = AtomicU64::new(0);
@@ -1321,9 +1250,6 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
                 );
             }
         }
-        // Mirror into the temporary Clip writer only after its atomic
-        // activation. Do not call `publish_audio_sample` here: this is a
-        // second consumer of existing callbacks, not another audio producer.
         if let Ok(slot) = self.clip_sink.lock() {
             if let Some(clip) = slot.as_ref().filter(|clip| clip.gate.accepts()) {
                 let _ = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
@@ -1331,13 +1257,6 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
                 }));
             }
         }
-        // ScreenCaptureKit invokes this from its own dispatch queues through an
-        // Objective-C boundary. Two failure modes can abort the whole process:
-        //   - an Objective-C exception (e.g. AVFoundation), which `catch_unwind`
-        //     CANNOT catch ("Rust cannot catch foreign exceptions"), so we wrap
-        //     the body in `objc2::exception::catch` first; and
-        //   - a Rust panic, contained by the outer `catch_unwind`.
-        // Either way we log the cause and cancel the capture instead of dying.
         let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let exc_result = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
                 self.writer.append_sample(&sample_buffer, of_type);
@@ -1358,11 +1277,6 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
 }
 
 impl CustomScreenCaptureWriter {
-    /// Build the `AVAssetWriter` + inputs for one recording file. With live
-    /// mixing (mic + system) a single mixed audio track is created;
-    /// otherwise each captured source gets its own track. In live-upload
-    /// mode the writer produces movie fragments (append-only file); without
-    /// it, a regular MP4 with faststart.
     fn new(
         output_path: &Path,
         width: u32,
@@ -1370,7 +1284,9 @@ impl CustomScreenCaptureWriter {
         capture_system_audio: bool,
         include_audio: bool,
         mix_live: bool,
+        voice_cleanup_enabled: bool,
         output: CustomWriterOutput,
+        live_upload_enabled: bool,
         audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
     ) -> Result<Self, String> {
         use objc2::msg_send;
@@ -1383,27 +1299,15 @@ impl CustomScreenCaptureWriter {
             static AVFileTypeProfileMPEG4AppleHLS: *const AnyObject;
             static AVFileTypeProfileMPEG4CMAFCompliant: *const AnyObject;
         }
-        // Force-load UniformTypeIdentifiers so the runtime UTType lookup in
-        // segmented mode resolves.
         #[link(name = "UniformTypeIdentifiers", kind = "framework")]
         extern "C" {}
 
-        // Rewind's local rolling buffer always needs append-only fMP4 output,
-        // independent of whether the remote live uploader is enabled.
-        let segmented = segmented_output_enabled(
-            output,
-            crate::remote_flags::current().custom_sck_pipeline_live_upload_enabled,
-        );
+        let segmented = segmented_output_enabled(output, live_upload_enabled);
         unsafe {
             let writer_cls = av_class_named("AVAssetWriter")
                 .ok_or_else(|| "AVAssetWriter missing".to_string())?;
 
             let (writer, segment_sink, segment_delegate) = if segmented {
-                // Segmented mode: the writer has NO output URL. It produces
-                // discrete fMP4 segments through the delegate, and WE append
-                // them to the local file — so the file is append-only by
-                // construction and `finishWriting` cannot defragment/rewrite
-                // it (which would invalidate live-uploaded byte ranges).
                 let ident = av_ns_string_from("public.mpeg-4")
                     .ok_or_else(|| "NSString for UTType failed".to_string())?;
                 let ut_cls =
@@ -1430,12 +1334,6 @@ impl CustomScreenCaptureWriter {
                     epoch: 0,
                 };
                 let _: () = msg_send![&*writer, setPreferredOutputSegmentInterval: interval];
-                // Rewind's video-only rolling artifact uses CMAF, with its
-                // independent audio persisted in adjacent PCM sidecars below.
-                // Ordinary uploaded Clips must retain Apple HLS: those files
-                // contain a live-mixed AAC track, and applying Rewind's CMAF
-                // profile to that writer graph makes AVAssetWriter reject
-                // startWriting before the first byte reaches disk.
                 let output_profile = if output.preserves_separate_audio() {
                     AVFileTypeProfileMPEG4CMAFCompliant
                 } else {
@@ -1448,13 +1346,9 @@ impl CustomScreenCaptureWriter {
 
                 let sink = SegmentSink::create(output_path)?;
                 let delegate = SegmentWriterDelegate::new(Arc::clone(&sink));
-                // `AVAssetWriter.delegate` is weak — the Retained delegate is
-                // stored in the writer state to keep it alive.
                 let _: () = msg_send![&*writer, setDelegate: &*delegate];
                 (writer, Some(sink), Some(delegate))
             } else {
-                // Plain file mode: AVFoundation owns the file; faststart is
-                // safe because nothing tails the file during recording.
                 let url = av_file_url(output_path).ok_or_else(|| {
                     format!("could not build output URL for {}", output_path.display())
                 })?;
@@ -1506,16 +1400,18 @@ impl CustomScreenCaptureWriter {
                 .then(|| AudioSidecarManager::create(output_path, sidecar_sources))
                 .transpose()?;
 
-            // AVAssetWriter's fragmented profiles reject two independent AAC
-            // inputs. Rewind therefore writes video-only fMP4 plus local PCM
-            // sidecars; ordinary recordings retain their existing inputs.
             let (system_audio_input, mic_audio_input, mixed_audio_input, mixer) = if mix_live {
                 let mixed = av_make_audio_writer_input(input_cls, &writer)?;
                 (
                     None,
                     None,
                     Some(mixed),
-                    Some(LiveAudioMixer::new(segmented)?),
+                    Some(LiveAudioMixer::new(
+                        segmented,
+                        include_audio,
+                        capture_system_audio,
+                        voice_cleanup_enabled,
+                    )?),
                 )
             } else {
                 let system_audio_input =
@@ -1545,6 +1441,7 @@ impl CustomScreenCaptureWriter {
                     session_start_time: None,
                     finished: false,
                     failed: None,
+                    append_stats: std::collections::HashMap::new(),
                 })),
                 mixer: mixer.map(|m| Arc::new(Mutex::new(m))),
                 started: Arc::new(AtomicBool::new(false)),
@@ -1562,17 +1459,17 @@ impl CustomScreenCaptureWriter {
         &self,
         sample: &screencapturekit::cm::CMSampleBuffer,
         of_type: SCStreamOutputType,
-    ) {
+    ) -> Option<Vec<f32>> {
         if self.audio_producer.is_none() && self.audio_sidecars.is_none() {
-            return;
+            return None;
         }
         let label = match of_type {
             SCStreamOutputType::Audio => "shared-system",
             SCStreamOutputType::Microphone => "shared-mic",
-            _ => return,
+            _ => return None,
         };
         let Some((interleaved, pts_seconds)) = extract_interleaved_stereo(sample, label) else {
-            return;
+            return None;
         };
         let mono: Vec<f32> = interleaved
             .chunks_exact(2)
@@ -1592,7 +1489,7 @@ impl CustomScreenCaptureWriter {
             }
         }
         let Some(producer) = self.audio_producer.as_ref() else {
-            return;
+            return Some(mono);
         };
         match of_type {
             SCStreamOutputType::Audio => {
@@ -1603,11 +1500,9 @@ impl CustomScreenCaptureWriter {
             }
             _ => {}
         }
+        Some(mono)
     }
 
-    /// Whether the writer runs the segmented (zero-based, append-only) output
-    /// used by live upload. Only that mode rebases sample timestamps, so it's
-    /// the only mode where a fresh SCStream can be spliced onto the same file.
     pub(super) fn segmented(&self) -> bool {
         self.inner.lock().map(|g| g.segmented).unwrap_or(false)
     }
@@ -1642,7 +1537,6 @@ impl CustomScreenCaptureWriter {
         Ok(fence)
     }
 
-    /// Whether the writer session has begun (first video frame appended).
     pub(super) fn is_started(&self) -> bool {
         self.started.load(Ordering::SeqCst)
     }
@@ -1662,34 +1556,46 @@ impl CustomScreenCaptureWriter {
             .and_then(|guard| guard.failed.clone())
     }
 
-    /// Accumulated pause offset in seconds. Every appended sample skips this
-    /// much wall-clock time so a pause/resume leaves no gap in the file.
+    fn append_stats_summary(&self) -> String {
+        let Ok(guard) = self.inner.lock() else {
+            return "append stats unavailable (writer lock poisoned)".to_string();
+        };
+        if guard.append_stats.is_empty() {
+            return "no samples appended on any track".to_string();
+        }
+        let mut tracks: Vec<_> = guard.append_stats.iter().collect();
+        tracks.sort_by_key(|(track, _)| **track);
+        tracks
+            .iter()
+            .map(|(track, stats)| {
+                format!(
+                    "{track}: appended={} last_pts={} regressions={}",
+                    stats.appended,
+                    stats
+                        .last_pts_seconds
+                        .map(|v| format!("{v:.6}s"))
+                        .unwrap_or_else(|| "none".to_string()),
+                    stats.pts_regressions
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
     pub(super) fn pause_offset(&self) -> f64 {
         f64::from_bits(self.pause_offset_bits.load(Ordering::SeqCst))
     }
 
-    /// Set the accumulated pause offset (clamped to non-negative). Resume reads
-    /// the prior value, applies `prior + paused_for` once the replacement stream
-    /// is about to start, and restores the prior value if startup fails — so a
-    /// failed-then-retried resume never double-counts the same pause.
     pub(super) fn set_pause_offset(&self, seconds: f64) {
         self.pause_offset_bits
             .store(seconds.max(0.0).to_bits(), Ordering::SeqCst);
     }
 
-    /// Route one SCK sample buffer to the right writer input. Mixed-mode
-    /// audio goes through [`Self::append_mixed_audio`] (no writer lock while
-    /// decoding); everything else appends directly under the `inner` lock.
-    /// The first video frame starts the writer session.
     fn append_sample(
         &self,
         sample: &screencapturekit::cm::CMSampleBuffer,
         of_type: SCStreamOutputType,
     ) {
-        // Live-mixing mode: mic + system audio are combined into one track
-        // before being written, instead of going to separate inputs. Handled
-        // before taking the writer lock — the decode/resample/mix work happens
-        // on the audio callbacks and must not delay video frame appends.
         if self.mixer.is_some()
             && matches!(
                 of_type,
@@ -1706,10 +1612,14 @@ impl CustomScreenCaptureWriter {
         if guard.finished || guard.failed.is_some() {
             return;
         }
-        let input = match of_type {
-            SCStreamOutputType::Screen => Some(guard.video_input.clone()),
-            SCStreamOutputType::Audio => guard.system_audio_input.clone(),
-            SCStreamOutputType::Microphone => guard.mic_audio_input.clone(),
+        let (input, track) = match of_type {
+            SCStreamOutputType::Screen => (Some(guard.video_input.clone()), track_labels::VIDEO),
+            SCStreamOutputType::Audio => {
+                (guard.system_audio_input.clone(), track_labels::SYSTEM_AUDIO)
+            }
+            SCStreamOutputType::Microphone => {
+                (guard.mic_audio_input.clone(), track_labels::MIC_AUDIO)
+            }
         };
         let Some(input) = input else {
             return;
@@ -1718,45 +1628,42 @@ impl CustomScreenCaptureWriter {
             Ok(timing) if timing.presentation_time_stamp.is_valid() => timing,
             _ => return,
         };
+        let source_pts = timing.presentation_time_stamp.as_seconds();
 
         unsafe {
             if !self.ensure_session_started(&mut guard, timing.presentation_time_stamp) {
                 return;
             }
             if guard.segmented {
-                // Segmented mode runs a ZERO-based session timeline: append a
-                // copy with PTS/DTS rebased against the session start.
-                // Appending the raw buffer here would put host-clock times in
-                // the track — the writer then buffers/starves (frozen video)
-                // and browsers show wall-clock timestamps.
                 let Some(base) = guard.session_start_time else {
                     return;
                 };
                 let pause_offset = self.pause_offset();
                 match retimed_sample_copy(sample, &timing, base, pause_offset) {
                     Ok(copy) => {
-                        self.append_sample_ptr(&mut guard, &input, copy.as_ptr());
+                        let rebased_pts = copy
+                            .sample_timing_info(0)
+                            .ok()
+                            .and_then(|t| t.presentation_time_stamp.as_seconds());
+                        self.append_sample_ptr(
+                            &mut guard,
+                            &input,
+                            copy.as_ptr(),
+                            track,
+                            rebased_pts,
+                        );
                     }
                     Err(err) => {
                         drop(guard);
-                        self.fail(format!("sample retime failed: {err}"));
+                        self.fail(format!("sample retime failed on {track}: {err}"));
                     }
                 }
             } else {
-                self.append_sample_ptr(&mut guard, &input, sample.as_ptr());
+                self.append_sample_ptr(&mut guard, &input, sample.as_ptr(), track, source_pts);
             }
         }
     }
 
-    /// Pull PCM out of an audio sample, push it into the mixer, then append any
-    /// mixed buffers the mixer is ready to emit. The session is started by the
-    /// video track, so emitted audio is held until that happens.
-    ///
-    /// Locking: PCM decode + resample run with no lock held; timeline placement
-    /// and draining run under the mixer lock, which stays held through the
-    /// appends below so two concurrently-draining audio callbacks can't
-    /// interleave out-of-PTS-order appends; the writer (`inner`) lock is taken
-    /// last, only around the actual appends.
     fn append_mixed_audio(
         &self,
         sample: &screencapturekit::cm::CMSampleBuffer,
@@ -1767,7 +1674,6 @@ impl CustomScreenCaptureWriter {
             SCStreamOutputType::Microphone => (MixSource::Mic, "mic"),
             _ => return,
         };
-        // Heavy part (decode + resample) — pure function of the sample.
         let Some((interleaved, pts_seconds)) = extract_interleaved_stereo(sample, label) else {
             return;
         };
@@ -1809,8 +1715,18 @@ impl CustomScreenCaptureWriter {
             return;
         };
         for buffer in &emitted {
+            let pts = buffer
+                .sample_timing_info(0)
+                .ok()
+                .and_then(|t| t.presentation_time_stamp.as_seconds());
             unsafe {
-                self.append_sample_ptr(&mut guard, &input, buffer.as_ptr());
+                self.append_sample_ptr(
+                    &mut guard,
+                    &input,
+                    buffer.as_ptr(),
+                    track_labels::MIXED_AUDIO,
+                    pts,
+                );
             }
             if guard.failed.is_some() {
                 break;
@@ -1818,7 +1734,6 @@ impl CustomScreenCaptureWriter {
         }
     }
 
-    /// Close the writer to further samples and record the failure reason.
     fn fail(&self, err: String) {
         self.appends_closed.store(true, Ordering::SeqCst);
         if let Ok(mut guard) = self.inner.lock() {
@@ -1828,10 +1743,6 @@ impl CustomScreenCaptureWriter {
         }
     }
 
-    /// Start the writer session at the first video frame's PTS (once). Also
-    /// publishes the session start time to the lock-free atomics the audio
-    /// path reads. Returns false (and records the failure) if AVFoundation
-    /// refuses to start.
     unsafe fn ensure_session_started(
         &self,
         guard: &mut CustomScreenCaptureWriterState,
@@ -1842,15 +1753,8 @@ impl CustomScreenCaptureWriter {
         if self.started.load(Ordering::SeqCst) {
             return true;
         }
-        // `startWriting` / `startSessionAtSourceTime:` can raise Objective-C
-        // exceptions (e.g. invalid state). Catch them so they don't abort the
-        // process from inside the realtime callback.
         let writer_ptr = &*guard.writer as *const objc2::runtime::AnyObject;
         let segmented = guard.segmented;
-        // Segmented mode: the session runs on a ZERO-based timeline and every
-        // appended sample is rebased (see `session_start_time`). Plain file
-        // mode keeps the source clock — `startSessionAtSourceTime:` writes an
-        // implicit edit so playback still starts at zero there.
         let start = if segmented {
             ObjcCMTime {
                 value: 0,
@@ -1862,8 +1766,6 @@ impl CustomScreenCaptureWriter {
             ObjcCMTime::from(pts)
         };
         let outcome = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
-            // Segmented output requires the initial segment start time to be
-            // set before writing starts; it must equal the session start.
             if segmented {
                 let _: () = msg_send![&*writer_ptr, setInitialSegmentStartTime: start];
             }
@@ -1877,9 +1779,6 @@ impl CustomScreenCaptureWriter {
         match outcome {
             Ok(true) => {
                 guard.session_start_time = Some((pts.value, pts.timescale.max(1)));
-                // Publish the session start time before flipping `started` so
-                // lock-free readers that observe `started == true` always see
-                // a valid start time.
                 if let Some(secs) = pts.as_seconds() {
                     self.session_start_bits
                         .store(secs.to_bits(), Ordering::SeqCst);
@@ -1914,31 +1813,56 @@ impl CustomScreenCaptureWriter {
         }
     }
 
-    /// Append one CMSampleBuffer to a writer input, containing Objective-C
-    /// exceptions and recording any failure into `guard.failed`. Skips (and
-    /// counts) samples when the input reports not-ready — realtime capture
-    /// must never block the SCK callback.
     unsafe fn append_sample_ptr(
         &self,
         guard: &mut CustomScreenCaptureWriterState,
         input: &objc2::rc::Retained<objc2::runtime::AnyObject>,
         sample_ptr: *mut std::ffi::c_void,
+        track: &'static str,
+        pts_seconds: Option<f64>,
     ) {
         use objc2::msg_send;
 
         let ready: bool = msg_send![&**input, isReadyForMoreMediaData];
         if !ready {
-            // Realtime mode: skip rather than block the capture callback, but
-            // count and periodically log so sustained backpressure is visible.
             let dropped = self.dropped_samples.fetch_add(1, Ordering::Relaxed) + 1;
             if dropped == 1 || dropped % 100 == 0 {
-                eprintln!("[mixer] writer input not ready; dropped {dropped} sample(s) so far");
+                eprintln!(
+                    "[mixer] writer input not ready on {track}; dropped {dropped} sample(s) so far"
+                );
             }
             return;
         }
-        // `appendSampleBuffer:` throws Objective-C exceptions on bad input
-        // (format/timestamp/state). Those can't be caught by `catch_unwind`
-        // and would abort the app, so contain them here.
+        let stats = guard.append_stats.entry(track).or_default();
+        let previous_pts = stats.last_pts_seconds;
+        if let Some(pts) = pts_seconds {
+            if !sample_pts_advances(previous_pts, pts) {
+                stats.pts_regressions += 1;
+                let regressions = stats.pts_regressions;
+                if regressions == 1 || regressions % 100 == 0 {
+                    crate::logfile::diagnostic(&format!(
+                        "[capture-health] dropped {track} sample with non-advancing PTS: {:.6}s after {:.6}s ({regressions} so far)",
+                        pts,
+                        previous_pts.unwrap_or(f64::NAN)
+                    ));
+                }
+                return;
+            }
+            stats.last_pts_seconds = Some(pts);
+        }
+        let appended_before = stats.appended;
+        stats.appended += 1;
+        let pts_report = |outcome: &str| {
+            format!(
+                "AVAssetWriter appendSampleBuffer {outcome} on {track} (pts={}, previous={}, appended={appended_before})",
+                pts_seconds
+                    .map(|v| format!("{v:.6}s"))
+                    .unwrap_or_else(|| "unknown".to_string()),
+                previous_pts
+                    .map(|v| format!("{v:.6}s"))
+                    .unwrap_or_else(|| "none".to_string()),
+            )
+        };
         let input_ptr = &**input as *const objc2::runtime::AnyObject;
         let outcome = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
             let appended: bool = msg_send![&*input_ptr, appendSampleBuffer: sample_ptr];
@@ -1949,28 +1873,23 @@ impl CustomScreenCaptureWriter {
             Ok(false) => {
                 self.appends_closed.store(true, Ordering::SeqCst);
                 guard.failed = Some(format!(
-                    "AVAssetWriter appendSampleBuffer failed{}",
+                    "{}{}",
+                    pts_report("failed"),
                     av_writer_error_suffix(&guard.writer)
                 ));
             }
             Err(exc) => {
                 self.appends_closed.store(true, Ordering::SeqCst);
                 let detail = describe_objc_exception(exc);
-                eprintln!("[mixer] appendSampleBuffer raised Objective-C exception: {detail}");
-                guard.failed = Some(format!("AVAssetWriter appendSampleBuffer raised: {detail}"));
+                eprintln!(
+                    "[mixer] appendSampleBuffer raised Objective-C exception on {track}: {detail}"
+                );
+                guard.failed = Some(format!("{}: {detail}", pts_report("raised")));
             }
         }
     }
 
-    /// Stop accepting samples, flush audio still held by the mixer, mark all
-    /// inputs finished, and finalize the file. With `wait_for_finalize` the
-    /// call blocks (bounded) until AVFoundation completes and verifies the
-    /// writer status; without it, finalization completes in the background
-    /// (the fragmented file is already playable up to the last fragment).
     pub(super) fn finish(&self, wait_for_finalize: bool) -> Result<(), String> {
-        // Close shared subscriptions before stopping SCK. A meeting start that
-        // races teardown will now see no producer and may safely use the legacy
-        // physical path, instead of attaching to a stream that is going away.
         if let Some(producer) = self.audio_producer.as_ref() {
             producer.deactivate();
         }
@@ -1983,8 +1902,6 @@ impl CustomScreenCaptureWriter {
             "[mixer] writer finish requested (wait={wait_for_finalize}, dropped_samples={dropped})"
         );
 
-        // Flush any audio still held in the mixer (treating a missing source as
-        // silence) before we tear the writer down. Lock order: mixer → inner.
         if let Some(mixer) = self.mixer.as_ref() {
             if self.started.load(Ordering::SeqCst) {
                 let mut mixer_guard = mixer.lock().map_err(|e| e.to_string())?;
@@ -1999,8 +1916,18 @@ impl CustomScreenCaptureWriter {
                         Ok(buffers) => {
                             if let Some(input) = guard.mixed_audio_input.clone() {
                                 for buffer in &buffers {
+                                    let pts = buffer
+                                        .sample_timing_info(0)
+                                        .ok()
+                                        .and_then(|t| t.presentation_time_stamp.as_seconds());
                                     unsafe {
-                                        self.append_sample_ptr(&mut guard, &input, buffer.as_ptr());
+                                        self.append_sample_ptr(
+                                            &mut guard,
+                                            &input,
+                                            buffer.as_ptr(),
+                                            track_labels::MIXED_AUDIO,
+                                            pts,
+                                        );
                                     }
                                     if guard.failed.is_some() {
                                         break;
@@ -2103,9 +2030,6 @@ impl CustomScreenCaptureWriter {
                 }
             }
         }
-        // Segmented mode: the delegate delivers the final segment before the
-        // completion handler fires, so by now the local file is complete —
-        // unless a disk write failed along the way.
         if let Some(sink) = segment_sink.as_ref() {
             if let Some(err) = sink.failure() {
                 sink.cancel_pending("fragment fence cancelled because segment output failed");
@@ -2120,68 +2044,24 @@ impl CustomScreenCaptureWriter {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Live audio mixer
-//
-// Combines the two ScreenCaptureKit audio streams (system + mic) into a single
-// interleaved-stereo track in real time, so the recorded file already has one
-// mixed audio track and no post-recording ffmpeg mixing pass is needed.
-//
-// The hard part is that the two streams arrive on independent callbacks with
-// their own timestamps and can start late (mic warmup) or stall. We place each
-// stream on a shared sample timeline (anchored to the first audio sample),
-// zero-filling gaps, and only emit output up to the point where we have data we
-// trust from every still-active source.
-// ---------------------------------------------------------------------------
-
-/// Frames per emitted mixed buffer (~85ms at 48kHz).
 const MIX_CHUNK_FRAMES: i64 = 4096;
-/// A source with no data for this long stops bounding output (treated as
-/// silent) so one stalled source can't freeze the mixed track.
 const MIX_STALL_TIMEOUT: Duration = Duration::from_millis(250);
-/// How long after mixer creation to keep waiting for a source that hasn't
-/// produced its first buffer (mic warmup); afterwards it counts as absent.
 const MIX_SOURCE_GRACE: Duration = Duration::from_millis(2000);
 const AUDIO_FORMAT_LPCM: u32 = 0x6C70_636D; // 'lpcm'
 const AUDIO_FORMAT_FLAGS_FLOAT_PACKED: u32 = 1 | 8; // float + packed, interleaved, little-endian
 
-/// Speech RMS the mic auto-gain aims for (~-20 dBFS), and how far it may
-/// travel to get there. It never attenuates: a hot mic keeps its own level
-/// and the limiter below owns peak safety.
 const MIC_AGC_TARGET_RMS: f32 = 0.1;
 const MIC_AGC_MIN_GAIN: f32 = 1.0;
 const MIC_AGC_MAX_GAIN: f32 = 8.0; // +18 dB
-/// Below this RMS the mic is between words: hold the current gain rather than
-/// chasing the target, or every pause swells room tone to speech level.
-///
-/// Set at ~-60 dBFS, not the -50 dBFS that room tone alone would justify. A
-/// quiet built-in MacBook mic — the whole reason this stage exists — can carry
-/// speech at -45 dBFS RMS, and a floor set just under that would gate out the
-/// exact signal it is supposed to lift. Worst case here is room tone amplified
-/// to 0.001 × MIC_AGC_MAX_GAIN, still inaudible.
 const MIC_AGC_NOISE_FLOOR_RMS: f32 = 0.001;
 const MIC_AGC_ENVELOPE_SECONDS: f32 = 0.15;
-/// Asymmetric: back off quickly when the mic gets loud (the limiter should be
-/// a backstop, not the thing shaping the sound), return slowly so a boost
-/// doesn't audibly pump across sentences.
 const MIC_AGC_DUCK_SECONDS: f32 = 0.08;
 const MIC_AGC_BOOST_SECONDS: f32 = 1.5;
-/// Until the first speech has been levelled, converge at this rate instead of
-/// `MIC_AGC_BOOST_SECONDS`. Gain starts at unity, so a quiet mic needs to
-/// travel most of its range; at the steady-state rate that takes several
-/// seconds and the opening sentence audibly swells.
 const MIC_AGC_WARMUP_SECONDS: f32 = 0.2;
-/// How close to the target counts as levelled and ends the warmup.
 const MIC_AGC_CONVERGED_TOLERANCE: f32 = 0.05;
-/// -1.0 dBFS, near the true-peak ceiling the offline loudnorm chain targets.
 const MIX_LIMIT_CEILING: f32 = 0.891;
 const MIX_LIMIT_RELEASE_SECONDS: f32 = 0.15;
 
-/// One-pole smoothing coefficient for a time constant at the mixer's rate.
-///
-/// `exp_m1`, not `1.0 - exp(x)`: at 48 kHz the exponent is ~1e-5, so the
-/// subtraction form cancels away most of the f32 mantissa and the longer time
-/// constants come out with about three significant digits.
 fn one_pole_coefficient(tau_seconds: f32, sample_rate: i32) -> f32 {
     if tau_seconds <= 0.0 || sample_rate <= 0 {
         return 1.0;
@@ -2189,19 +2069,9 @@ fn one_pole_coefficient(tau_seconds: f32, sample_rate: i32) -> f32 {
     -(-1.0 / (tau_seconds * sample_rate as f32)).exp_m1()
 }
 
-/// Causal mic auto-gain.
-///
-/// ScreenCaptureKit captures without AGC — unlike the browser path, which gets
-/// one from `autoGainControl` — so a MacBook mic lands far below the -16 LUFS
-/// the offline chain in `native_screen.rs` normalizes to. Live-uploaded clips
-/// never reach that chain: their bytes stream to the server while the writer
-/// is still producing them, so nothing downstream can re-read the file. Gain
-/// has to be decided here, from what has already been heard.
 struct MicAutoGain {
     mean_square: f32,
     gain: f32,
-    /// False until the first speech has been levelled; see
-    /// `MIC_AGC_WARMUP_SECONDS`.
     levelled: bool,
     envelope_coefficient: f32,
     warmup_coefficient: f32,
@@ -2239,10 +2109,6 @@ impl MicAutoGain {
             if !self.levelled && (self.gain - target).abs() <= target * MIC_AGC_CONVERGED_TOLERANCE
             {
                 self.levelled = true;
-                // Once per recording. A "clip is too quiet" report is only
-                // diagnosable if the log says what the mic measured and how
-                // much was added; `gain` pinned at MIC_AGC_MAX_GAIN means the
-                // cap, not the target, decided the level.
                 crate::logfile::diagnostic(&format!(
                     "[capture-health] mic auto-gain levelled: rms={rms:.6} gain={:.2} capped={}",
                     self.gain,
@@ -2254,12 +2120,98 @@ impl MicAutoGain {
     }
 }
 
-/// Zero-latency peak limiter over the summed mix.
-///
-/// This replaces a flat 0.5x weight on each source, which bought clip safety
-/// by discarding 6 dB whether or not anything was near full scale. Lookahead
-/// would buy cleaner transients but costs an output delay, and the live
-/// uploader has already streamed the frames preceding it.
+struct MicDenoiser {
+    state: Box<nnnoiseless::DenoiseState<'static>>,
+    pending: Vec<f32>,
+    pending_start_pts: Option<f64>,
+    first_frame: bool,
+}
+
+impl MicDenoiser {
+    const SAMPLE_RATE: f64 = 48_000.0;
+    const SCALE: f32 = 32_768.0;
+
+    fn new() -> Self {
+        Self {
+            state: nnnoiseless::DenoiseState::new(),
+            pending: Vec::new(),
+            pending_start_pts: None,
+            first_frame: true,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.state = nnnoiseless::DenoiseState::new();
+        self.pending.clear();
+        self.pending_start_pts = None;
+        self.first_frame = true;
+    }
+
+    fn process(&mut self, interleaved: &[f32], pts_seconds: f64) -> Vec<(Vec<f32>, f64)> {
+        let frame_count = interleaved.len() / 2;
+        if frame_count == 0 {
+            return Vec::new();
+        }
+
+        if let Some(start) = self.pending_start_pts {
+            let expected = start + self.pending.len() as f64 / Self::SAMPLE_RATE;
+            if (pts_seconds - expected).abs() > 0.02 {
+                self.reset();
+            }
+        }
+        if self.pending_start_pts.is_none() {
+            self.pending_start_pts = Some(pts_seconds);
+        }
+        self.pending
+            .extend(interleaved[..frame_count * 2].chunks_exact(2).map(|frame| {
+                ((frame[0] + frame[1]) * 0.5 * Self::SCALE).clamp(-Self::SCALE, Self::SCALE)
+            }));
+
+        let frame_size = nnnoiseless::DenoiseState::FRAME_SIZE;
+        let mut output = Vec::new();
+        while self.pending.len() >= frame_size {
+            let start = self.pending_start_pts.unwrap_or(pts_seconds);
+            let input = self.pending[..frame_size].to_vec();
+            let mut denoised = vec![0.0_f32; frame_size];
+            self.state.process_frame(&mut denoised, &input);
+            let samples = if self.first_frame { &input } else { &denoised };
+            output.push((Self::stereo_samples(samples), start));
+            self.first_frame = false;
+            self.pending.drain(..frame_size);
+            self.pending_start_pts = Some(start + frame_size as f64 / Self::SAMPLE_RATE);
+        }
+        output
+    }
+
+    fn flush(&mut self) -> Vec<(Vec<f32>, f64)> {
+        if self.pending.is_empty() {
+            return Vec::new();
+        }
+        let frame_size = nnnoiseless::DenoiseState::FRAME_SIZE;
+        let count = self.pending.len();
+        let start = self.pending_start_pts.unwrap_or(0.0);
+        let mut input = vec![0.0_f32; frame_size];
+        input[..count].copy_from_slice(&self.pending);
+        let mut denoised = vec![0.0_f32; frame_size];
+        self.state.process_frame(&mut denoised, &input);
+        let samples = if self.first_frame { &input } else { &denoised };
+        let result = vec![(Self::stereo_samples(&samples[..count]), start)];
+        self.pending.clear();
+        self.pending_start_pts = None;
+        self.first_frame = false;
+        result
+    }
+
+    fn stereo_samples(mono: &[f32]) -> Vec<f32> {
+        let mut stereo = Vec::with_capacity(mono.len() * 2);
+        for &sample in mono {
+            let sample = (sample / Self::SCALE).clamp(-1.0, 1.0);
+            stereo.extend([sample, sample]);
+        }
+        stereo
+    }
+}
+
 struct PeakLimiter {
     gain: f32,
     release_coefficient: f32,
@@ -2282,28 +2234,27 @@ impl PeakLimiter {
     }
 }
 
-/// The mixer's whole gain stage: auto-gain the mic, sum with system audio at
-/// unity, limit the result. Kept separate from `LiveAudioMixer` so the mix rule
-/// is reachable without constructing a `CMFormatDescription` — the reported bug
-/// was a wrong per-frame weight, so that arithmetic is what needs covering.
 struct MixGainStage {
+    voice_cleanup_enabled: bool,
     mic: MicAutoGain,
     limiter: PeakLimiter,
 }
 
 impl MixGainStage {
-    fn new(sample_rate: i32) -> Self {
+    fn new(sample_rate: i32, voice_cleanup_enabled: bool) -> Self {
         Self {
+            voice_cleanup_enabled,
             mic: MicAutoGain::new(sample_rate),
             limiter: PeakLimiter::new(sample_rate),
         }
     }
 
-    /// One output frame. Neither source is pre-attenuated: system audio passes
-    /// at unity and the mic is only ever boosted, with the limiter owning peak
-    /// safety for the sum.
     fn frame(&mut self, system: (f32, f32), mic: (f32, f32)) -> (f32, f32) {
-        let mic_gain = self.mic.next_gain(mic.0, mic.1);
+        let mic_gain = if self.voice_cleanup_enabled {
+            self.mic.next_gain(mic.0, mic.1)
+        } else {
+            1.0
+        };
         let left = system.0 + mic.0 * mic_gain;
         let right = system.1 + mic.1 * mic_gain;
         let limit = self.limiter.next_gain(left.abs().max(right.abs()));
@@ -2315,19 +2266,13 @@ impl MixGainStage {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-/// Which capture stream a pushed PCM chunk came from.
 enum MixSource {
     System,
     Mic,
 }
 
-/// One source's contiguous PCM ring on the shared output timeline. Gaps
-/// between pushes are zero-filled; consumed frames are dropped from the
-/// front as the mixer emits.
 struct MixerTimeline {
-    /// Absolute frame index (anchor = 0) of `samples[0]`.
     base_frame: i64,
-    /// Interleaved stereo f32 samples from `base_frame` onward.
     samples: Vec<f32>,
     started: bool,
     last_push: Option<Instant>,
@@ -2343,13 +2288,10 @@ impl MixerTimeline {
         }
     }
 
-    /// One past the last frame this source has data for (absolute index).
     fn end_frame(&self) -> i64 {
         self.base_frame + (self.samples.len() / 2) as i64
     }
 
-    /// Stereo sample at an absolute frame index; silence outside the
-    /// buffered range, so callers never need bounds checks.
     fn sample_at(&self, frame: i64) -> (f32, f32) {
         if frame < self.base_frame {
             return (0.0, 0.0);
@@ -2394,45 +2336,36 @@ impl MixerTimeline {
 }
 
 enum SourceBound {
-    /// Started and recently fed; bounds output to `end_frame`.
     Active(i64),
-    /// Started but no recent data; treat beyond its data as silence.
     Stalled,
-    /// Not started yet but still within the warmup grace window; hold output.
     Pending,
-    /// Not started and past grace; treat as silent.
     Absent,
 }
 
-/// Realtime mic + system mixer. Places each source on a shared 48kHz
-/// stereo timeline anchored at the first audio PTS, then emits summed
-/// chunks up to the point every still-active source has data for. See the
-/// section comment above for the full design rationale.
 struct LiveAudioMixer {
     format_desc: screencapturekit::cm::CMFormatDescription,
     sample_rate: i32,
-    /// Subtract the writer session start from emitted PTS (segmented mode,
-    /// where the session timeline is zero-based). Plain file mode keeps
-    /// absolute source time to match `startSessionAtSourceTime:`.
+    include_microphone: bool,
+    capture_system_audio: bool,
     rebase_output: bool,
-    /// Session start in source seconds, recorded by `set_min_start`.
     session_start_seconds: Option<f64>,
-    /// Accumulated pause time (seconds) subtracted from every incoming source
-    /// PTS so a pause/resume leaves no gap on the audio timeline — mirrors the
-    /// video path's `pause_offset`.
     pause_offset_seconds: f64,
     anchor_seconds: Option<f64>,
     out_pos: i64,
     system: MixerTimeline,
     mic: MixerTimeline,
-    /// Gain stage, carried across chunks: emitted frames are already uploaded,
-    /// so its state is the only memory the mix has.
+    mic_denoiser: Option<MicDenoiser>,
     gain: MixGainStage,
     created_at: Instant,
 }
 
 impl LiveAudioMixer {
-    fn new(rebase_output: bool) -> Result<Self, String> {
+    fn new(
+        rebase_output: bool,
+        include_microphone: bool,
+        capture_system_audio: bool,
+        voice_cleanup_enabled: bool,
+    ) -> Result<Self, String> {
         let sample_rate = AUDIO_OUTPUT_SAMPLE_RATE as i32;
         let asbd = AudioStreamBasicDescription {
             sample_rate: AUDIO_OUTPUT_SAMPLE_RATE as f64,
@@ -2468,6 +2401,8 @@ impl LiveAudioMixer {
         Ok(Self {
             format_desc,
             sample_rate,
+            include_microphone,
+            capture_system_audio,
             rebase_output,
             session_start_seconds: None,
             pause_offset_seconds: 0.0,
@@ -2475,31 +2410,38 @@ impl LiveAudioMixer {
             out_pos: 0,
             system: MixerTimeline::new(),
             mic: MixerTimeline::new(),
-            gain: MixGainStage::new(sample_rate),
+            mic_denoiser: voice_cleanup_enabled.then(MicDenoiser::new),
+            gain: MixGainStage::new(sample_rate, voice_cleanup_enabled),
             created_at: Instant::now(),
         })
     }
 
-    /// Place decoded PCM on the source's timeline at its PTS-derived frame
-    /// position, zero-filling any gap since the previous push (capped so a
-    /// glitched timestamp can't allocate gigabytes).
     fn push(&mut self, source: MixSource, interleaved: &[f32], pts_seconds: f64) {
+        if source == MixSource::Mic {
+            let processed = self
+                .mic_denoiser
+                .as_mut()
+                .map(|denoiser| denoiser.process(interleaved, pts_seconds));
+            if let Some(processed) = processed {
+                for (processed, processed_pts) in processed {
+                    self.push_timeline(MixSource::Mic, &processed, processed_pts);
+                }
+                return;
+            }
+        }
+        self.push_timeline(source, interleaved, pts_seconds);
+    }
+
+    fn push_timeline(&mut self, source: MixSource, interleaved: &[f32], pts_seconds: f64) {
         let frames = interleaved.len() / 2;
         if frames == 0 {
             return;
         }
-        // Collapse the paused gap: pull post-resume audio back onto the
-        // continuous timeline so its frame positions abut the pre-pause data
-        // instead of leaving a silence hole (which `push` would otherwise cap
-        // at `max_gap` and desync from the video track).
         let pts_seconds = pts_seconds - self.pause_offset_seconds;
         let anchor = *self.anchor_seconds.get_or_insert(pts_seconds);
         let frame_index =
             (((pts_seconds - anchor) * self.sample_rate as f64).round() as i64).max(0);
         let out_pos = self.out_pos;
-        // Cap silence inserted for a timestamp gap. A glitched/discontinuous
-        // PTS could otherwise compute a multi-billion-frame gap and try to
-        // allocate gigabytes of zeros, aborting the process.
         let max_gap = self.sample_rate as i64 * 2;
         let timeline = match source {
             MixSource::System => &mut self.system,
@@ -2509,20 +2451,18 @@ impl LiveAudioMixer {
         timeline.last_push = Some(Instant::now());
     }
 
-    /// Update the accumulated pause offset (seconds) applied to incoming
-    /// source PTS in `push`. Set from the writer's shared offset on resume.
     fn set_pause_offset(&mut self, seconds: f64) {
+        if seconds > self.pause_offset_seconds + f64::EPSILON {
+            if let Some(denoiser) = self.mic_denoiser.as_mut() {
+                denoiser.reset();
+            }
+        }
         self.pause_offset_seconds = seconds;
     }
 
-    /// Advance the output cursor so we never emit audio earlier than the
-    /// writer session start (the writer rejects samples before it).
     fn set_min_start(&mut self, start_seconds: f64) {
         self.session_start_seconds = Some(start_seconds);
         if let Some(anchor) = self.anchor_seconds {
-            // ceil, not round: rounding down would place the first emitted
-            // sample a fraction of a frame BEFORE the session start, which
-            // AVAssetWriter can reject when it writes the fragment.
             let floor = (((start_seconds - anchor) * self.sample_rate as f64).ceil() as i64).max(0);
             if floor > self.out_pos {
                 self.out_pos = floor;
@@ -2531,9 +2471,6 @@ impl LiveAudioMixer {
         }
     }
 
-    /// How a source currently bounds output: actively feeding (bound to its
-    /// data end), stalled/absent (ignored), or still warming up (holds all
-    /// output back).
     fn classify(&self, timeline: &MixerTimeline, now: Instant) -> SourceBound {
         if !timeline.started {
             if now.duration_since(self.created_at) < MIX_SOURCE_GRACE {
@@ -2551,22 +2488,36 @@ impl LiveAudioMixer {
         }
     }
 
-    /// The frame up to which mixing is safe: the minimum data end across
-    /// active sources (or everything buffered when flushing at stop).
     fn compute_safe_end(&self, flush: bool) -> i64 {
         if flush {
-            return self.system.end_frame().max(self.mic.end_frame());
+            let mut end = self.out_pos;
+            if self.capture_system_audio {
+                end = end.max(self.system.end_frame());
+            }
+            if self.include_microphone {
+                end = end.max(self.mic.end_frame());
+            }
+            return end;
         }
         let now = Instant::now();
-        let sys = self.classify(&self.system, now);
-        let mic = self.classify(&self.mic, now);
-        if matches!(sys, SourceBound::Pending) || matches!(mic, SourceBound::Pending) {
-            // Still expecting a source to start; don't run ahead of it.
+        let sys = self
+            .capture_system_audio
+            .then(|| self.classify(&self.system, now));
+        let mic = self
+            .include_microphone
+            .then(|| self.classify(&self.mic, now));
+        if sys
+            .as_ref()
+            .is_some_and(|bound| matches!(bound, SourceBound::Pending))
+            || mic
+                .as_ref()
+                .is_some_and(|bound| matches!(bound, SourceBound::Pending))
+        {
             return self.out_pos;
         }
         let mut bound = i64::MAX;
         let mut any_active = false;
-        for b in [&sys, &mic] {
+        for b in [sys.as_ref(), mic.as_ref()].into_iter().flatten() {
             if let SourceBound::Active(end) = b {
                 bound = bound.min(*end);
                 any_active = true;
@@ -2575,24 +2526,29 @@ impl LiveAudioMixer {
         if any_active {
             bound
         } else {
-            // Everything stalled/absent: drain whatever frozen data we have.
-            self.system.end_frame().max(self.mic.end_frame())
+            let mut end = self.out_pos;
+            if self.capture_system_audio {
+                end = end.max(self.system.end_frame());
+            }
+            if self.include_microphone {
+                end = end.max(self.mic.end_frame());
+            }
+            end
         }
     }
 
-    /// Emit mixed sample buffers covering `out_pos..safe_end` in
-    /// `MIX_CHUNK_FRAMES` chunks: auto-gain the mic, sum with system audio,
-    /// limit, wrap as LPCM `CMSampleBuffer`s with contiguous PTS.
-    ///
-    /// Clip safety belongs to `PeakLimiter`, not to a fixed weight per source.
-    /// Two full-scale signals do occur — a USB interface with software
-    /// monitoring routes the mic back through system audio — but attenuating
-    /// every frame for that case is what left live-uploaded clips ~6 dB below
-    /// the rest, with no post-processing stage left to make it back up.
     fn drain_ready(
         &mut self,
         flush: bool,
     ) -> Result<Vec<screencapturekit::cm::CMSampleBuffer>, String> {
+        if flush {
+            let processed = self.mic_denoiser.as_mut().map(MicDenoiser::flush);
+            if let Some(processed) = processed {
+                for (processed, processed_pts) in processed {
+                    self.push_timeline(MixSource::Mic, &processed, processed_pts);
+                }
+            }
+        }
         if self.anchor_seconds.is_none() {
             return Ok(Vec::new());
         }
@@ -2622,8 +2578,6 @@ impl LiveAudioMixer {
         Ok(emitted)
     }
 
-    /// Free PCM below the output cursor from both timelines (already mixed
-    /// and emitted; `sample_at` treats it as silence if ever re-read).
     fn drain_consumed(&mut self) {
         let out_pos = self.out_pos;
         for timeline in [&mut self.system, &mut self.mic] {
@@ -2636,8 +2590,6 @@ impl LiveAudioMixer {
         }
     }
 
-    /// Wrap raw interleaved f32 PCM as a ready-to-append LPCM
-    /// `CMSampleBuffer` whose PTS continues the mixer's output timeline.
     fn build_sample_buffer(
         &self,
         interleaved: &[f32],
@@ -2653,8 +2605,6 @@ impl LiveAudioMixer {
         let block = screencapturekit::cm::CMBlockBuffer::create(bytes)
             .ok_or_else(|| "CMBlockBuffer create failed".to_string())?;
         let anchor = self.anchor_seconds.unwrap_or(0.0);
-        // Zero-based session timeline: emit PTS relative to the session start
-        // (set_min_start guarantees emitted frames are never earlier than it).
         let base = if self.rebase_output {
             self.session_start_seconds.unwrap_or(anchor)
         } else {
@@ -2689,10 +2639,6 @@ impl LiveAudioMixer {
     }
 }
 
-/// Decode little-endian f32 samples from a CoreMedia byte buffer. Copies
-/// instead of reinterpreting the pointer: CoreAudio makes no alignment
-/// guarantee, and casting an unaligned `*const u8` to `&[f32]` is undefined
-/// behavior.
 fn bytes_to_f32_vec(bytes: &[u8]) -> Vec<f32> {
     bytes
         .chunks_exact(4)
@@ -2700,11 +2646,9 @@ fn bytes_to_f32_vec(bytes: &[u8]) -> Vec<f32> {
         .collect()
 }
 
-// CoreAudio format flags (AudioFormatFlags).
 const K_AUDIO_FLAG_IS_FLOAT: u32 = 1 << 0;
 const K_AUDIO_FLAG_IS_SIGNED_INT: u32 = 1 << 2;
 
-/// Render a caught Objective-C exception (name + reason) for logging.
 fn describe_objc_exception(
     exc: Option<objc2::rc::Retained<objc2::exception::Exception>>,
 ) -> String {
@@ -2714,8 +2658,6 @@ fn describe_objc_exception(
     }
 }
 
-/// Read the source stream's `AudioStreamBasicDescription` (rate, channels,
-/// sample format) off a sample buffer; `None` when unavailable.
 fn source_asbd(
     sample: &screencapturekit::cm::CMSampleBuffer,
 ) -> Option<AudioStreamBasicDescription> {
@@ -2727,8 +2669,6 @@ fn source_asbd(
     Some(unsafe { std::ptr::read(asbd) })
 }
 
-/// Decode one audio buffer's raw bytes into f32 samples according to the
-/// stream's sample format (float32/float64 or signed int16/int24/int32).
 fn decode_samples_to_f32(bytes: &[u8], is_float: bool, bits: u32) -> Vec<f32> {
     match (is_float, bits) {
         (true, 32) => bytes_to_f32_vec(bytes),
@@ -2743,7 +2683,6 @@ fn decode_samples_to_f32(bytes: &[u8], is_float: bool, bits: u32) -> Vec<f32> {
         (false, 24) => bytes
             .chunks_exact(3)
             .map(|c| {
-                // Reconstruct a 24-bit little-endian signed integer and sign-extend to i32.
                 let raw = (c[0] as i32) | ((c[1] as i32) << 8) | ((c[2] as i32) << 16);
                 let signed = if raw & 0x800000 != 0 {
                     raw | !0x00FF_FFFFi32
@@ -2757,15 +2696,10 @@ fn decode_samples_to_f32(bytes: &[u8], is_float: bool, bits: u32) -> Vec<f32> {
             .chunks_exact(4)
             .map(|c| i32::from_le_bytes(c.try_into().unwrap()) as f32 / 2_147_483_648.0)
             .collect(),
-        // Unknown: best-effort treat as float32.
         _ => bytes_to_f32_vec(bytes),
     }
 }
 
-/// Resample interleaved-stereo f32 from `src_rate` to `dst_rate` with linear
-/// interpolation. ScreenCaptureKit delivers the microphone at its native rate
-/// (often 44.1 kHz / mono-upmixed), which is not the 48 kHz the mixer assumes;
-/// without this the mic plays back pitch-shifted and unintelligible.
 fn resample_interleaved_stereo(input: &[f32], src_rate: f64, dst_rate: f64) -> Vec<f32> {
     let in_frames = input.len() / 2;
     if in_frames == 0 || src_rate <= 0.0 || dst_rate <= 0.0 || (src_rate - dst_rate).abs() < 1.0 {
@@ -2811,7 +2745,6 @@ fn extract_interleaved_stereo(
     let asbd = source_asbd(sample);
     let (is_float, bits, src_rate) = match asbd {
         Some(a) => {
-            // If neither float nor signed-int is flagged, assume float (SCK default).
             let is_float = a.format_flags & K_AUDIO_FLAG_IS_FLOAT != 0
                 || a.format_flags & K_AUDIO_FLAG_IS_SIGNED_INT == 0;
             (is_float, a.bits_per_channel, a.sample_rate)
@@ -2823,7 +2756,6 @@ fn extract_interleaved_stereo(
 
     let mut out = vec![0.0_f32; frames * 2];
     if num_buffers >= 2 {
-        // Non-interleaved (planar): one channel per buffer.
         let left = decode_samples_to_f32(abl.get(0)?.data(), is_float, bits);
         let right = decode_samples_to_f32(abl.get(1)?.data(), is_float, bits);
         let n = frames.min(left.len()).min(right.len());
@@ -2836,14 +2768,12 @@ fn extract_interleaved_stereo(
         let channels = buf.number_channels.max(1) as usize;
         let decoded = decode_samples_to_f32(buf.data(), is_float, bits);
         if channels >= 2 {
-            // Interleaved multi-channel: take the first two channels.
             let n = frames.min(decoded.len() / channels);
             for i in 0..n {
                 out[i * 2] = decoded[i * channels];
                 out[i * 2 + 1] = decoded[i * channels + 1];
             }
         } else {
-            // Mono: duplicate into both channels.
             let n = frames.min(decoded.len());
             for i in 0..n {
                 out[i * 2] = decoded[i];
@@ -2852,8 +2782,6 @@ fn extract_interleaved_stereo(
         }
     }
 
-    // Normalize every source to the mixer's output rate so contiguous placement
-    // on the timeline matches real time (otherwise the mic is pitch-shifted).
     out = resample_interleaved_stereo(&out, src_rate, AUDIO_OUTPUT_SAMPLE_RATE as f64);
     log_decoded_audio_signal_once(label, &out);
     Some((out, pts_seconds))
@@ -2872,9 +2800,6 @@ pub(crate) fn extract_mono_audio(
     )
 }
 
-/// Record whether decoded source PCM contains a real signal before it reaches
-/// the timeline mixer. This distinguishes capture/format failures from mixer
-/// or writer failures without persisting any audio content.
 fn log_decoded_audio_signal_once(label: &str, samples: &[f32]) {
     use std::sync::atomic::AtomicBool;
     static SYS_SIGNAL_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -2884,9 +2809,6 @@ fn log_decoded_audio_signal_once(label: &str, samples: &[f32]) {
         .copied()
         .map(f32::abs)
         .fold(0.0_f32, f32::max);
-    // Initial SCK audio callbacks are normally zero-filled while the device
-    // warms. Wait for the first real signal so this diagnostic proves source
-    // health instead of permanently recording that uninteresting pre-roll.
     if peak <= 0.000_01 {
         return;
     }
@@ -2914,8 +2836,6 @@ fn log_decoded_audio_signal_once(label: &str, samples: &[f32]) {
     ));
 }
 
-/// Logs the decoded audio format the first time each source is seen, so format
-/// mismatches (rate / channels / int-vs-float / interleaving) are diagnosable.
 fn log_audio_format_once(
     label: &str,
     asbd: &Option<AudioStreamBasicDescription>,
@@ -2941,8 +2861,6 @@ fn log_audio_format_once(
     );
 }
 
-/// Mirror of CoreAudio's `AudioStreamBasicDescription` (repr(C) so it can
-/// cross the FFI boundary by value).
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 struct AudioStreamBasicDescription {
@@ -2957,7 +2875,6 @@ struct AudioStreamBasicDescription {
     reserved: u32,
 }
 
-/// `CMSampleTimingInfo` mirror for the retiming FFI call.
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct ObjcCMSampleTimingInfo {
@@ -2966,10 +2883,6 @@ struct ObjcCMSampleTimingInfo {
     decode_time_stamp: ObjcCMTime,
 }
 
-/// Rebase a timestamp onto the zero-based session timeline (subtract the
-/// first video frame's PTS). `pause_offset_seconds` is additionally subtracted
-/// so time spent paused collapses to nothing — the file stays gapless across a
-/// pause/resume. Invalid times pass through untouched.
 fn rebased_time(
     t: screencapturekit::cm::CMTime,
     base: (i64, i32),
@@ -2983,11 +2896,9 @@ fn rebased_time(
     let base_in_t = if t.timescale == base_timescale {
         base_value
     } else {
-        // Convert the base into this timestamp's timescale before subtracting.
         (i128::from(base_value) * i128::from(t.timescale) / i128::from(base_timescale.max(1)))
             as i64
     };
-    // Convert the accumulated pause time into this timestamp's timescale.
     let pause_in_t = (pause_offset_seconds * f64::from(t.timescale)).round() as i64;
     ObjcCMTime {
         value: t.value - base_in_t - pause_in_t,
@@ -2997,9 +2908,6 @@ fn rebased_time(
     }
 }
 
-/// Copy a sample buffer with its PTS/DTS rebased onto the session timeline.
-/// One timing entry applies to every sample in the buffer (SCK video buffers
-/// hold one frame; audio buffers have uniform per-sample timing).
 fn retimed_sample_copy(
     sample: &screencapturekit::cm::CMSampleBuffer,
     timing: &screencapturekit::cm::CMSampleTimingInfo,
@@ -3034,8 +2942,6 @@ fn retimed_sample_copy(
         .ok_or_else(|| "retimed CMSampleBuffer wrap failed".to_string())
 }
 
-// CoreMedia C API used to hand-build the mixer's LPCM output buffers —
-// the screencapturekit crate has no constructors for these.
 #[link(name = "CoreMedia", kind = "framework")]
 extern "C" {
     fn CMAudioFormatDescriptionCreate(
@@ -3072,9 +2978,6 @@ extern "C" {
     ) -> i32;
 }
 
-/// Mirror of CoreMedia's `CMTime`, with objc2 `Encode` impls so it can be
-/// passed by value through `msg_send!` (e.g. `startSessionAtSourceTime:`,
-/// `setPreferredOutputSegmentInterval:`).
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct ObjcCMTime {
@@ -3112,13 +3015,11 @@ impl From<screencapturekit::cm::CMTime> for ObjcCMTime {
     }
 }
 
-/// Look up an Objective-C class by name at runtime.
 unsafe fn av_class_named(name: &str) -> Option<&'static objc2::runtime::AnyClass> {
     let bytes = std::ffi::CString::new(name).ok()?;
     objc2::runtime::AnyClass::get(&bytes)
 }
 
-/// Build a retained `NSString` from a Rust string.
 unsafe fn av_ns_string_from(s: &str) -> Option<objc2::rc::Retained<objc2::runtime::AnyObject>> {
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
@@ -3137,7 +3038,6 @@ unsafe fn av_ns_string_from(s: &str) -> Option<objc2::rc::Retained<objc2::runtim
     }
 }
 
-/// Build a retained `NSURL` file URL for the writer's output path.
 unsafe fn av_file_url(path: &Path) -> Option<objc2::rc::Retained<objc2::runtime::AnyObject>> {
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
@@ -3152,7 +3052,6 @@ unsafe fn av_file_url(path: &Path) -> Option<objc2::rc::Retained<objc2::runtime:
     }
 }
 
-/// Boxed `NSNumber` for integer settings-dictionary values.
 unsafe fn av_number_i64(value: i64) -> Option<objc2::rc::Retained<objc2::runtime::AnyObject>> {
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
@@ -3165,7 +3064,6 @@ unsafe fn av_number_i64(value: i64) -> Option<objc2::rc::Retained<objc2::runtime
     }
 }
 
-/// Boxed boolean `NSNumber` for settings-dictionary flags.
 unsafe fn av_number_bool(value: bool) -> Option<objc2::rc::Retained<objc2::runtime::AnyObject>> {
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
@@ -3178,7 +3076,6 @@ unsafe fn av_number_bool(value: bool) -> Option<objc2::rc::Retained<objc2::runti
     }
 }
 
-/// Fresh `NSMutableDictionary` for AVFoundation output settings.
 unsafe fn av_dict() -> Result<objc2::rc::Retained<objc2::runtime::AnyObject>, String> {
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
@@ -3192,7 +3089,6 @@ unsafe fn av_dict() -> Result<objc2::rc::Retained<objc2::runtime::AnyObject>, St
     }
 }
 
-/// `dict[key] = value` on an `NSMutableDictionary`.
 unsafe fn av_dict_set(
     dict: &objc2::runtime::AnyObject,
     key: *const objc2::runtime::AnyObject,
@@ -3203,9 +3099,6 @@ unsafe fn av_dict_set(
     let _: () = msg_send![dict, setObject: value, forKey: key];
 }
 
-/// H.264 output settings for the video writer input, sized to the capture
-/// dimensions and with frame reordering (B-frames) disabled — required for
-/// stable fragmented-MP4 writing (see the comment inside).
 unsafe fn av_video_output_settings(
     width: u32,
     height: u32,
@@ -3234,20 +3127,11 @@ unsafe fn av_video_output_settings(
     av_dict_set(&settings, AVVideoWidthKey, &width_value);
     av_dict_set(&settings, AVVideoHeightKey, &height_value);
 
-    // Segmented output (preferredOutputSegmentInterval) needs monotonic video timing
-    // inside each fragment. The encoder's default B-frames (frame reordering)
-    // intermittently kill the writer with -11800 / OSStatus -16341 when a
-    // reordered frame group straddles a fragment boundary, truncating the
-    // recording at an exact fragment-boundary timestamp. Screen capture gains
-    // almost nothing from B-frames; disable reordering.
     let compression = av_dict()?;
     let no_reordering =
         av_number_bool(false).ok_or_else(|| "NSNumber reordering flag failed".to_string())?;
     av_dict_set(&compression, AVVideoAllowFrameReorderingKey, &no_reordering);
 
-    // Capture-time rate control (mirrors Cap's AVAssetWriter setup). Without
-    // an explicit budget the encoder default runs several times larger and
-    // every upload needs an ffmpeg transcode pass to shrink it.
     let average_bit_rate =
         (CAPTURE_VIDEO_BPP * f64::from(width) * f64::from(height) * f64::from(NATIVE_CAPTURE_FPS))
             as i64;
@@ -3261,8 +3145,6 @@ unsafe fn av_video_output_settings(
         AVVideoExpectedSourceFrameRateKey,
         &expected_fps,
     );
-    // ~0.75s keyframe cadence: guarantees at least one sync sample per movie
-    // fragment (1s interval) so every fragment stays independently seekable.
     let keyframe_interval = av_number_i64((i64::from(NATIVE_CAPTURE_FPS) * 3 / 4).max(1))
         .ok_or_else(|| "NSNumber keyframe interval failed".to_string())?;
     av_dict_set(
@@ -3275,8 +3157,6 @@ unsafe fn av_video_output_settings(
     Ok(settings)
 }
 
-/// AAC 48kHz stereo 128kbps output settings for the audio writer inputs
-/// (both the mixed track and per-source tracks).
 unsafe fn av_audio_output_settings(
 ) -> Result<objc2::rc::Retained<objc2::runtime::AnyObject>, String> {
     use objc2::runtime::AnyObject;
@@ -3303,8 +3183,6 @@ unsafe fn av_audio_output_settings(
     Ok(settings)
 }
 
-/// Create an AAC `AVAssetWriterInput` (realtime mode), attach it to the
-/// writer, and return it retained.
 unsafe fn av_make_audio_writer_input(
     input_cls: &objc2::runtime::AnyClass,
     writer: &objc2::runtime::AnyObject,
@@ -3337,9 +3215,6 @@ unsafe fn av_make_audio_writer_input(
     Ok(input)
 }
 
-/// Render an `NSError` for logs: description, domain+code, failure reason,
-/// and the underlying error's domain+code (where the raw OSStatus that
-/// names the real cause usually hides).
 unsafe fn av_error_suffix(err_obj: *mut objc2::runtime::AnyObject) -> String {
     if err_obj.is_null() {
         return String::new();
@@ -3347,8 +3222,6 @@ unsafe fn av_error_suffix(err_obj: *mut objc2::runtime::AnyObject) -> String {
     let desc_obj: *mut objc2::runtime::AnyObject = objc2::msg_send![err_obj, localizedDescription];
     let mut out = av_string_suffix(desc_obj);
 
-    // Domain + code identify the error class; the localizedDescription alone
-    // is usually a generic "The operation could not be completed".
     let domain_obj: *mut objc2::runtime::AnyObject = objc2::msg_send![err_obj, domain];
     let code: i64 = objc2::msg_send![err_obj, code];
     out.push_str(&format!(
@@ -3362,8 +3235,6 @@ unsafe fn av_error_suffix(err_obj: *mut objc2::runtime::AnyObject) -> String {
         out.push_str(&format!(" reason{}", av_string_suffix(reason_obj)));
     }
 
-    // The underlying error carries the raw OSStatus naming the real cause
-    // (e.g. CoreMedia -12780); surface its domain + code too.
     if let Some(cls) = av_class_named("NSString") {
         let key_cstr = b"NSUnderlyingError\0".as_ptr() as *const i8;
         let key: *mut objc2::runtime::AnyObject =
@@ -3388,14 +3259,12 @@ unsafe fn av_error_suffix(err_obj: *mut objc2::runtime::AnyObject) -> String {
     out
 }
 
-/// Render the writer's current status + `error` property for logs.
 unsafe fn av_writer_error_suffix(writer: &objc2::runtime::AnyObject) -> String {
     let status: i64 = objc2::msg_send![writer, status];
     let err_obj: *mut objc2::runtime::AnyObject = objc2::msg_send![writer, error];
     format!(" (writer status={status}){}", av_error_suffix(err_obj))
 }
 
-/// `": <string>"` from an `NSString` pointer, or empty when nil.
 unsafe fn av_string_suffix(obj: *mut objc2::runtime::AnyObject) -> String {
     if obj.is_null() {
         return String::new();
@@ -3408,82 +3277,124 @@ unsafe fn av_string_suffix(obj: *mut objc2::runtime::AnyObject) -> String {
     format!(": {}", cstr.to_string_lossy())
 }
 
-/// Plain, `Send` capture parameters kept so the watchdog can rebuild the
-/// SCStream from scratch after an interruption without holding on to any
-/// non-`Send` ScreenCaptureKit handles. `width`/`height` are fixed to the
-/// dimensions the writer was created with so a rebuilt stream keeps producing
-/// frames the existing video input accepts.
 #[derive(Clone)]
 struct RestartParams {
+    recording_id: Option<String>,
     include_audio: bool,
     capture_system_audio: bool,
+    include_camera_overlay: bool,
+    emit_recorder_stop: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     target_display_id: Option<u32>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
+    alignment_generation: u64,
     capture_region: Option<NativeCaptureRegion>,
     width: u32,
     height: u32,
 }
 
-/// Everything the pause/resume path needs to stop the capture source without
-/// tearing down the writer, and to splice a fresh SCStream onto the same
-/// (append-only) file on resume. Cheap to clone — all handles are `Arc`s or
-/// plain data — so it lives alongside the backend and shares the watchdog's
-/// stream/handler/watch.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WatchdogInstallDecision {
+    Install,
+    Retry,
+    Finalize,
+    Exit,
+}
+
+#[cfg(target_os = "macos")]
+fn watchdog_install_decision(
+    shutting_down: bool,
+    appends_closed: bool,
+    paused: bool,
+    user_stopped: bool,
+    handler_is_current: bool,
+) -> WatchdogInstallDecision {
+    if shutting_down {
+        WatchdogInstallDecision::Exit
+    } else if appends_closed {
+        WatchdogInstallDecision::Finalize
+    } else if paused || user_stopped || !handler_is_current {
+        WatchdogInstallDecision::Retry
+    } else {
+        WatchdogInstallDecision::Install
+    }
+}
+
+fn emit_capture_recorder_stop(app: &AppHandle, recording_id: Option<&str>) {
+    if let Some(recording_id) = recording_id {
+        let _ = app.emit(
+            "clips:recorder-stop",
+            serde_json::json!({ "recordingId": recording_id }),
+        );
+    } else {
+        let _ = app.emit("clips:recorder-stop", ());
+    }
+}
+
 pub(crate) struct CustomCaptureResume {
     stream: Arc<Mutex<SCStream>>,
+    configuration: Arc<Mutex<SCStreamConfiguration>>,
     handler: CustomScreenCaptureOutputHandler,
     watch: Arc<CaptureWatch>,
     params: RestartParams,
 }
 
 impl CustomCaptureResume {
-    /// Pause: stop only the capture source (SCStream). The writer, file, and
-    /// live uploader stay alive; mic/screen go cold. The watchdog is told to
-    /// hold so it never reads the silence as a stall and rebuilds.
-    pub(crate) fn pause(&self) {
+    pub(crate) fn pause(&self) -> Result<(), String> {
         self.watch.set_paused(true);
-        if let Ok(guard) = self.stream.lock() {
-            let _ = guard.stop_capture();
+        let guard = match self.stream.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                self.watch.set_paused(false);
+                return Err(format!("capture pause stream lock failed: {error}"));
+            }
+        };
+        if let Err(error) = guard.stop_capture() {
+            self.watch.set_paused(false);
+            return Err(format!("capture pause stop_capture failed: {error:?}"));
         }
+        drop(guard);
+        self.handler.invalidate_stream();
         eprintln!("[mixer] capture paused; source stream stopped, writer/file kept open");
+        Ok(())
     }
 
-    /// Resume: build a fresh SCStream wired to the SAME writer and start it,
-    /// after advancing the writer's pause offset by `paused_for` so the new
-    /// samples rebase past the pause gap. The result is one continuous
-    /// append-only file — the live uploader is never interrupted, exactly like
-    /// a watchdog stream rebuild.
     pub(crate) fn resume(&self, paused_for: Duration) -> Result<(), String> {
         let writer = &self.handler.writer;
         let prev_offset = writer.pause_offset();
 
-        // Build the replacement stream FIRST: a build failure must not shift the
-        // timeline. The session stays paused and can be retried — and a retry
-        // re-measures `paused_for` from the same (uncleared) pause instant, so
-        // advancing the offset here would compound on every failed attempt.
-        let new_stream = build_custom_scstream(&self.params, &self.handler, &self.watch)?;
+        let replacement_handler = self.handler.replacement_stream();
+        let (new_stream, new_configuration) =
+            build_custom_scstream(&self.params, &replacement_handler, &self.watch, None)?;
 
-        // Apply the pause gap just before the stream starts delivering, so the
-        // first rebased frame already skips it. Roll back if startup fails so
-        // the failed attempt leaves the offset exactly as it was.
         writer.set_pause_offset(prev_offset + paused_for.as_secs_f64());
         if let Err(err) = new_stream.start_capture() {
             writer.set_pause_offset(prev_offset);
             return Err(format!("resume start_capture failed: {err:?}"));
         }
 
-        // Stop any lingering paused stream, then swap the fresh one in under
-        // the same lock the watchdog uses so the two never feed at once.
-        if let Ok(guard) = self.stream.lock() {
-            let _ = guard.stop_capture();
-        }
-        if let Ok(mut guard) = self.stream.lock() {
-            *guard = new_stream;
-        }
-        // Discard the stop note our own pause/stop raised and reset the
-        // activity clock so the watchdog doesn't immediately treat the just-
-        // rebuilt stream as stalled, then hand supervision back.
+        let mut stream = match self.stream.lock() {
+            Ok(stream) => stream,
+            Err(error) => {
+                let _ = new_stream.stop_capture();
+                writer.set_pause_offset(prev_offset);
+                return Err(format!("capture resume stream lock failed: {error}"));
+            }
+        };
+        let mut configuration = match self.configuration.lock() {
+            Ok(configuration) => configuration,
+            Err(error) => {
+                let _ = new_stream.stop_capture();
+                writer.set_pause_offset(prev_offset);
+                return Err(format!("capture resume configuration lock failed: {error}"));
+            }
+        };
+        let _ = stream.stop_capture();
+        *stream = new_stream;
+        *configuration = new_configuration;
         let _ = self.watch.take_stream_stopped();
         self.watch.note_activity();
         self.watch.set_paused(false);
@@ -3495,25 +3406,16 @@ impl CustomCaptureResume {
     }
 }
 
-/// Stream lifecycle delegate for the custom pipeline. ScreenCaptureKit calls
-/// this when it stops the stream (e.g. the captured display changed Spaces or a
-/// full-screen app took over). Without it those stops are invisible and the
-/// recording silently freezes. We only flag the watchdog here — rebuilding the
-/// stream from an SCK callback thread is unsafe, so recovery happens off-thread.
 struct CustomCaptureStreamDelegate {
     watch: Arc<CaptureWatch>,
 }
 
 impl SCStreamDelegateTrait for CustomCaptureStreamDelegate {
     fn did_stop_with_error(&self, error: SCError) {
-        // The user stopping capture via macOS (menu-bar "Stop Sharing") is a
-        // request, not a failure — rebuilding the stream would fight the
-        // user. Everything else (SystemStoppedStream on lid close / display
-        // sleep, connection failures, ...) goes to the rebuild path.
         if error.stream_error_code()
             == Some(screencapturekit::error::SCStreamErrorCode::UserStopped)
         {
-            eprintln!("[mixer] capture stopped by the user via macOS; requesting recording stop");
+            eprintln!("[mixer] capture stopped by the user via macOS");
             self.watch.note_user_stopped();
             return;
         }
@@ -3530,31 +3432,69 @@ impl SCStreamDelegateTrait for CustomCaptureStreamDelegate {
     }
 }
 
-/// Build (but do not start) a fresh SCStream for the custom pipeline from plain
-/// parameters. Shared by the initial start and every watchdog rebuild so the
-/// filter/config/handler/delegate wiring can never drift between them.
 fn build_custom_scstream(
     params: &RestartParams,
     handler: &CustomScreenCaptureOutputHandler,
     watch: &Arc<CaptureWatch>,
-) -> Result<SCStream, String> {
-    let content =
-        SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
+    prefetched_content: Option<SCShareableContent>,
+) -> Result<(SCStream, SCStreamConfiguration), String> {
+    let content = match prefetched_content {
+        Some(content) => content,
+        None => SCShareableContent::get()
+            .map_err(|e| format!("shareable content lookup failed: {e:?}"))?,
+    };
+    let window = params.target_window_id.and_then(|id| {
+        content
+            .windows()
+            .into_iter()
+            .find(|candidate| candidate.window_id() == id)
+    });
+    if params.target_window_id.is_some() && window.is_none() {
+        return Err("The selected window is no longer available.".to_string());
+    }
     let displays = content.displays();
-    let display = params
-        .target_display_id
-        .and_then(|id| displays.iter().find(|d| d.display_id() == id))
-        .or_else(|| displays.first())
-        .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
-
-    let region_rect = region_source_rect(params.capture_region, display.width(), display.height())?;
-    let filter_builder = SCContentFilter::create()
-        .with_display(display)
-        .with_excluding_windows(&[]);
-    let filter = if let Some((rect, _, _)) = region_rect {
-        filter_builder.with_content_rect(rect).build()
+    let display = if window.is_none() {
+        Some(
+            params
+                .target_display_id
+                .and_then(|id| displays.iter().find(|d| d.display_id() == id))
+                .or_else(|| displays.first())
+                .ok_or_else(|| {
+                    "No displays available for ScreenCaptureKit recording.".to_string()
+                })?,
+        )
     } else {
-        filter_builder.build()
+        None
+    };
+    let (source_width, source_height) = if let Some(window) = window.as_ref() {
+        params.target_window_dimensions.unwrap_or_else(|| {
+            let frame = window.frame();
+            (
+                frame.width.max(1.0).round() as u32,
+                frame.height.max(1.0).round() as u32,
+            )
+        })
+    } else {
+        let display = display.expect("display is present when no window is selected");
+        (display.width(), display.height())
+    };
+    let region_rect = if window.is_some() {
+        None
+    } else {
+        region_source_rect(params.capture_region, source_width, source_height)?
+    };
+    let (filter, window_source_rect) = if let Some(window) = window.as_ref() {
+        super::selected_window_capture_filter(&content, window, params.include_camera_overlay)?
+    } else {
+        let display = display.expect("display is present when no window is selected");
+        let filter_builder = SCContentFilter::create()
+            .with_display(display)
+            .with_excluding_windows(&[]);
+        if let Some((rect, _, _)) = region_rect {
+            (filter_builder.with_content_rect(rect).build(), None)
+        } else {
+            (filter_builder.build(), None)
+        }
     };
 
     let selected_mic = if params.include_audio {
@@ -3566,9 +3506,7 @@ fn build_custom_scstream(
         None
     };
 
-    let mut config = SCStreamConfiguration::new()
-        .with_width(params.width)
-        .with_height(params.height)
+    let mut config = fixed_output_stream_configuration(params.width, params.height)
         .with_fps(NATIVE_CAPTURE_FPS)
         .with_queue_depth(8)
         .with_shows_cursor(true)
@@ -3577,19 +3515,11 @@ fn build_custom_scstream(
         .with_excludes_current_process_audio(true)
         .with_sample_rate(48000)
         .with_channel_count(2);
-    // Pin SDR NV12 (video-range 4:2:0) delivery, matching Cap. Two reasons:
-    //  - Without a pin, ScreenCaptureKit switches the delivered pixel format
-    //    to HDR/EDR variants (half-float / 10-bit) when the frontmost app
-    //    renders EDR content; the SDR H.264 writer input then rejects every
-    //    appended frame (-11800 / OSStatus -16122) and the writer dies —
-    //    including on rebuilt streams while that app stays frontmost.
-    //  - NV12 is VideoToolbox's native encoder input and half the memory
-    //    bandwidth of BGRA.
-    // NOTE: do not add `set_color_space_name` — the crate's ObjC shim for it
-    // raises an uncatchable Objective-C exception and aborts the process;
-    // the pixel-format pin alone keeps the encoder input format stable.
     config.set_pixel_format(screencapturekit::stream::configuration::PixelFormat::YCbCr_420v);
-    if let Some((rect, _, _)) = region_rect {
+    if let Some(rect) = window_source_rect
+        .map(|geometry| geometry.source_rect)
+        .or_else(|| region_rect.map(|(rect, _, _)| rect))
+    {
         config.set_source_rect(rect);
     }
     if let Some(device) = selected_mic.as_ref() {
@@ -3612,7 +3542,7 @@ fn build_custom_scstream(
     if params.include_audio {
         stream.add_output_handler(handler.clone(), SCStreamOutputType::Microphone);
     }
-    Ok(stream)
+    Ok((stream, config))
 }
 
 fn await_segmented_capture_readiness(
@@ -3684,9 +3614,6 @@ fn await_segmented_capture_readiness(
     ))
 }
 
-/// Supervise a running custom capture and rebuild the SCStream when it stops or
-/// goes silent (the Spaces/full-screen interruption). Runs on its own thread;
-/// exits when recording is torn down (`shutdown`) or the writer is closed.
 fn spawn_capture_watchdog(
     app: AppHandle,
     stream: Arc<Mutex<SCStream>>,
@@ -3695,13 +3622,16 @@ fn spawn_capture_watchdog(
     watch: Arc<CaptureWatch>,
     recording_enabled: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
+    configuration: Arc<Mutex<SCStreamConfiguration>>,
     params: RestartParams,
 ) {
     std::thread::spawn(move || {
         let mut restart_streak: u32 = 0;
-        // After a rebuild, hold off re-evaluating until the new stream has had a
-        // fair chance to deliver its first frames.
         let mut cooldown_until: Option<Instant> = None;
+        let mut geometry_error: Option<String> = None;
+        let mut consecutive_geometry_errors = 0;
+        let mut last_geometry = None;
+        let mut watchdog_fatal_error: Option<String> = None;
 
         loop {
             std::thread::sleep(CAPTURE_WATCHDOG_POLL);
@@ -3709,57 +3639,113 @@ fn spawn_capture_watchdog(
                 return;
             }
             if writer.appends_closed.load(Ordering::SeqCst) {
-                // Appends closed while we're still supervising. A clean stop
-                // sets `watchdog_shutdown` BEFORE closing appends (SeqCst), so
-                // re-check it: if it's still unset, appends were closed by an
-                // unrecoverable capture failure (an Objective-C exception or
-                // panic in the sample callback, an `appendSampleBuffer` error,
-                // or a writer-session failure) with the SCStream still running
-                // and the UI still showing "recording". Stop capture and fire
-                // the normal stop so the partial — still a valid fragmented
-                // file — is finalized/uploaded instead of silently truncating.
                 if shutdown.load(Ordering::SeqCst) {
                     return;
                 }
-                eprintln!(
-                    "[mixer] appends closed without a stop request; treating as fatal capture failure and finalizing partial recording"
-                );
                 let writer_error = writer
                     .failure()
                     .unwrap_or_else(|| "unknown writer failure".to_string());
+                let failure = watchdog_fatal_error
+                    .take()
+                    .map(|error| format!("{error}; writer: {writer_error}"))
+                    .unwrap_or(writer_error);
+                eprintln!(
+                    "[mixer] capture failed without a stop request ({failure}); finalizing partial recording"
+                );
                 crate::logfile::diagnostic(&format!(
-                    "[capture-health] writer closed unexpectedly; finalizing partial recording: {writer_error}"
+                    "[capture-health] capture closed unexpectedly; finalizing partial recording: {failure}"
                 ));
-                if let Ok(guard) = stream.lock() {
+                crate::logfile::diagnostic(&format!(
+                    "[capture-health] append stats at failure — {}",
+                    writer.append_stats_summary()
+                ));
+                {
+                    let guard = stream.lock().unwrap_or_else(|error| {
+                        eprintln!(
+                            "[mixer] capture watchdog stream lock failed during finalization: {error}"
+                        );
+                        error.into_inner()
+                    });
                     let _ = guard.stop_capture();
                 }
-                let _ = app.emit("clips:recorder-stop", ());
+                if params.emit_recorder_stop {
+                    emit_capture_recorder_stop(&app, params.recording_id.as_deref());
+                }
                 return;
             }
-            // Nothing to supervise until output is enabled and the writer
-            // session has actually begun; the handler keeps `last_activity`
-            // fresh from the first delivered buffer, so there is no false stall
-            // when we start evaluating.
             if !recording_enabled.load(Ordering::SeqCst) || !writer.started.load(Ordering::SeqCst) {
                 continue;
             }
 
-            // Paused: the capture source is intentionally stopped while the
-            // writer/file/uploader stay alive. Don't read the silence as a
-            // stall or rebuild — resume splices a fresh stream back in.
+            if watch.user_stopped() {
+                {
+                    let guard = stream.lock().unwrap_or_else(|error| {
+                        eprintln!(
+                            "[mixer] capture watchdog stream lock failed after user stop: {error}"
+                        );
+                        error.into_inner()
+                    });
+                    let _ = guard.stop_capture();
+                }
+                if params.emit_recorder_stop {
+                    eprintln!("[mixer] user stopped capture via macOS; emitting recorder stop");
+                    emit_capture_recorder_stop(&app, params.recording_id.as_deref());
+                } else {
+                    eprintln!("[mixer] user stopped Screen Memory capture via macOS");
+                }
+                return;
+            }
+
             if watch.is_paused() {
                 restart_streak = 0;
                 cooldown_until = None;
                 continue;
             }
 
-            // User stopped capture from the macOS UI: trigger the normal stop
-            // flow (same event the toolbar Stop button emits, so the clip is
-            // finalized and uploaded) and stop supervising. Never rebuild.
-            if watch.user_stopped() {
-                eprintln!("[mixer] user stopped capture via macOS; emitting recorder stop");
-                let _ = app.emit("clips:recorder-stop", ());
-                return;
+            if params.include_camera_overlay {
+                if let Some(target_window_id) = params.target_window_id {
+                    match super::refresh_selected_window_camera_capture(
+                        &app,
+                        &stream,
+                        &configuration,
+                        target_window_id,
+                        params.alignment_generation,
+                        || {
+                            !shutdown.load(Ordering::SeqCst)
+                                && !watch.is_paused()
+                                && !watch.user_stopped()
+                        },
+                        &mut last_geometry,
+                    ) {
+                        Ok(true) => {
+                            geometry_error = None;
+                            consecutive_geometry_errors = 0;
+                        }
+                        Ok(false) => continue,
+                        Err(error) => {
+                            if shutdown.load(Ordering::SeqCst) {
+                                return;
+                            }
+                            if watch.is_paused() || watch.user_stopped() {
+                                continue;
+                            }
+                            if geometry_error.as_ref() != Some(&error) {
+                                eprintln!(
+                                    "[mixer] selected-window camera geometry refresh failed: {error}"
+                                );
+                                geometry_error = Some(error);
+                            }
+                            consecutive_geometry_errors += 1;
+                            if consecutive_geometry_errors >= 5 {
+                                eprintln!(
+                                    "[mixer] selected-window camera geometry did not recover after {consecutive_geometry_errors} attempts; finalizing the partial recording"
+                                );
+                                writer.appends_closed.store(true, Ordering::SeqCst);
+                                continue;
+                            }
+                        }
+                    }
+                }
             }
 
             if let Some(until) = cooldown_until {
@@ -3768,11 +3754,9 @@ fn spawn_capture_watchdog(
                 }
                 cooldown_until = None;
                 if watch.since_activity() < CAPTURE_STALL_TIMEOUT {
-                    // Rebuild recovered — frames are flowing again.
                     restart_streak = 0;
                     continue;
                 }
-                // Still no frames after the rebuild; fall through and retry.
             }
 
             let reported_stop = watch.take_stream_stopped();
@@ -3793,17 +3777,19 @@ fn spawn_capture_watchdog(
                 eprintln!(
                     "[mixer] capture interrupted ({reason}) and did not recover after {CAPTURE_MAX_RESTARTS} restarts; finalizing partial recording"
                 );
-                // Close appends (but leave `failed` unset) so the stop path
-                // still finalizes everything captured before the interruption
-                // instead of discarding it.
                 writer.appends_closed.store(true, Ordering::SeqCst);
-                if let Ok(guard) = stream.lock() {
+                {
+                    let guard = stream.lock().unwrap_or_else(|error| {
+                        eprintln!(
+                            "[mixer] capture watchdog stream lock failed after restart limit: {error}"
+                        );
+                        error.into_inner()
+                    });
                     let _ = guard.stop_capture();
                 }
-                // Fire the normal stop so the partial clip is finalized/uploaded
-                // and the UI leaves the recording state, rather than sitting on
-                // a frozen recording after the watchdog gives up.
-                let _ = app.emit("clips:recorder-stop", ());
+                if params.emit_recorder_stop {
+                    emit_capture_recorder_stop(&app, params.recording_id.as_deref());
+                }
                 return;
             }
 
@@ -3811,42 +3797,108 @@ fn spawn_capture_watchdog(
                 "[mixer] capture interrupted ({reason}); rebuilding stream (attempt {restart_streak}/{CAPTURE_MAX_RESTARTS})"
             );
 
-            // Stop the dead/wedged stream before starting a replacement so two
-            // streams never feed the writer at once. Slow build/start work is
-            // done without holding the stream lock.
-            if let Ok(guard) = stream.lock() {
+            let replacement_handler = handler.replacement_stream();
+            {
+                let guard = stream.lock().unwrap_or_else(|error| {
+                    eprintln!(
+                        "[mixer] capture watchdog stream lock failed before rebuild: {error}"
+                    );
+                    error.into_inner()
+                });
                 let _ = guard.stop_capture();
             }
-            if shutdown.load(Ordering::SeqCst) || writer.appends_closed.load(Ordering::SeqCst) {
+            if shutdown.load(Ordering::SeqCst) {
                 return;
             }
+            if writer.appends_closed.load(Ordering::SeqCst) {
+                continue;
+            }
 
-            match build_custom_scstream(&params, &handler, &watch).and_then(|s| {
-                s.start_capture()
-                    .map(|()| s)
-                    .map_err(|e| format!("start_capture failed: {e:?}"))
+            let alignment_result = if params.include_camera_overlay {
+                params.target_window_id.map_or(Ok(()), |target_window_id| {
+                    let state = app.state::<super::NativeFullscreenRecordingState>();
+                    super::align_camera_bubble_to_selected_window_while(
+                        &app,
+                        &state,
+                        target_window_id,
+                        params.alignment_generation,
+                        super::RestoreRetryBehavior::Preserve,
+                        || {
+                            !shutdown.load(Ordering::SeqCst)
+                                && !watch.is_paused()
+                                && !watch.user_stopped()
+                        },
+                    )
+                })
+            } else {
+                Ok(())
+            };
+            match alignment_result.and_then(|()| {
+                if shutdown.load(Ordering::SeqCst) || watch.is_paused() || watch.user_stopped() {
+                    return Err("Recording stopped while rebuilding the capture stream.".into());
+                }
+                build_custom_scstream(&params, &replacement_handler, &watch, None).and_then(
+                    |(stream, configuration)| {
+                        stream
+                            .start_capture()
+                            .map(|()| (stream, configuration))
+                            .map_err(|e| format!("start_capture failed: {e:?}"))
+                    },
+                )
             }) {
-                Ok(new_stream) => {
-                    if shutdown.load(Ordering::SeqCst)
-                        || writer.appends_closed.load(Ordering::SeqCst)
-                    {
-                        let _ = new_stream.stop_capture();
-                        return;
+                Ok((new_stream, new_configuration)) => {
+                    let mut pending_stream = Some(new_stream);
+                    let decision = match stream.lock() {
+                        Ok(mut guard) => match configuration.lock() {
+                            Ok(mut configuration_guard) => {
+                                let decision = watchdog_install_decision(
+                                    shutdown.load(Ordering::SeqCst),
+                                    writer.appends_closed.load(Ordering::SeqCst),
+                                    watch.is_paused(),
+                                    watch.user_stopped(),
+                                    replacement_handler.is_current(),
+                                );
+                                if decision == WatchdogInstallDecision::Install {
+                                    *guard = pending_stream
+                                        .take()
+                                        .expect("pending watchdog stream is available");
+                                    *configuration_guard = new_configuration;
+                                }
+                                decision
+                            }
+                            Err(error) => {
+                                watchdog_fatal_error = Some(format!(
+                                    "capture watchdog configuration lock failed: {error}"
+                                ));
+                                WatchdogInstallDecision::Finalize
+                            }
+                        },
+                        Err(error) => {
+                            watchdog_fatal_error =
+                                Some(format!("capture watchdog stream lock failed: {error}"));
+                            WatchdogInstallDecision::Finalize
+                        }
+                    };
+                    if decision != WatchdogInstallDecision::Install {
+                        if let Some(stream) = pending_stream {
+                            let _ = stream.stop_capture();
+                        }
+                        match decision {
+                            WatchdogInstallDecision::Retry => continue,
+                            WatchdogInstallDecision::Finalize => {
+                                writer.appends_closed.store(true, Ordering::SeqCst);
+                                continue;
+                            }
+                            WatchdogInstallDecision::Exit => return,
+                            WatchdogInstallDecision::Install => unreachable!(),
+                        }
                     }
-                    if let Ok(mut guard) = stream.lock() {
-                        *guard = new_stream;
-                    }
-                    // Discard any stop note the deliberate teardown of the old
-                    // stream raised; otherwise a later poll would consume it as
-                    // a fresh failure and rebuild the healthy stream again.
                     let _ = watch.take_stream_stopped();
                     cooldown_until = Some(Instant::now() + CAPTURE_STALL_TIMEOUT);
                     eprintln!("[mixer] capture stream rebuilt; waiting for frames");
                 }
                 Err(err) => {
                     eprintln!("[mixer] capture rebuild failed: {err}");
-                    // Short cooldown before the next attempt so a hard failure
-                    // (e.g. display gone) doesn't spin the CPU.
                     cooldown_until = Some(Instant::now() + CAPTURE_WATCHDOG_POLL);
                 }
             }
@@ -3854,67 +3906,101 @@ fn spawn_capture_watchdog(
     });
 }
 
-/// Start the custom capture backend: create the fragmented-MP4 writer,
-/// build + start the SCStream from rebuildable params, and spawn the
-/// capture watchdog that supervises it. Returns the backend handle plus
-/// the output dimensions.
 pub(crate) fn start_custom_screencapturekit_backend_at(
     app: &AppHandle,
     output_path: &Path,
     include_audio: bool,
     capture_system_audio: bool,
+    recording_id: Option<&str>,
+    include_camera_overlay: bool,
+    alignment_generation: u64,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
     force_segmented_output: bool,
+    emit_recorder_stop: bool,
+    live_upload_enabled: bool,
+    prefetched_content: Option<SCShareableContent>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     eprintln!("[clips-tray] starting custom screen capture backend");
-    let content =
-        SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
+    let content = match prefetched_content {
+        Some(content) => content,
+        None => SCShareableContent::get()
+            .map_err(|e| format!("shareable content lookup failed: {e:?}"))?,
+    };
+    let window = target_window_id.and_then(|id| {
+        content
+            .windows()
+            .into_iter()
+            .find(|candidate| candidate.window_id() == id)
+    });
+    if target_window_id.is_some() && window.is_none() {
+        return Err("The selected window is no longer available.".to_string());
+    }
     let displays = content.displays();
-    let display = target_display_id
-        .and_then(|id| displays.iter().find(|d| d.display_id() == id))
-        .or_else(|| displays.first())
-        .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
-
-    let source_width = display.width();
-    let source_height = display.height();
-    let region_rect = region_source_rect(capture_region, source_width, source_height)?;
+    let display = if window.is_none() {
+        Some(
+            target_display_id
+                .and_then(|id| displays.iter().find(|d| d.display_id() == id))
+                .or_else(|| displays.first())
+                .ok_or_else(|| {
+                    "No displays available for ScreenCaptureKit recording.".to_string()
+                })?,
+        )
+    } else {
+        None
+    };
+    let (source_width, source_height) = if let Some(window) = window.as_ref() {
+        target_window_dimensions.unwrap_or_else(|| {
+            let frame = window.frame();
+            (
+                frame.width.max(1.0).round() as u32,
+                frame.height.max(1.0).round() as u32,
+            )
+        })
+    } else {
+        let display = display.expect("display is present when no window is selected");
+        (display.width(), display.height())
+    };
+    let region_rect = if window.is_some() {
+        None
+    } else {
+        region_source_rect(capture_region, source_width, source_height)?
+    };
     let (capture_width, capture_height) = region_rect
         .as_ref()
         .map(|(_, width, height)| (*width, *height))
         .unwrap_or((source_width, source_height));
     let (width, height) = native_capture_dimensions(capture_width, capture_height);
-    // The display handle here is only used to size the output; the actual
-    // (rebuildable) stream is constructed from plain params via
-    // `build_custom_scstream` so the watchdog can recreate it later.
 
     let params = RestartParams {
+        recording_id: recording_id.map(str::to_string),
         include_audio,
         capture_system_audio,
+        include_camera_overlay,
+        emit_recorder_stop,
         mic_device_id: mic_device_id.map(str::to_string),
         mic_device_label: mic_device_label.map(str::to_string),
         target_display_id,
+        target_window_id,
+        target_window_dimensions,
+        alignment_generation,
         capture_region,
         width,
         height,
     };
 
-    // Rewind keeps microphone and system audio on separate writer tracks for
-    // later local transcription. The ordinary recorder retains its existing
-    // live-mix behavior (needed for its remote upload path).
     let output = if force_segmented_output {
         CustomWriterOutput::RewindCmaf
     } else {
         CustomWriterOutput::Standard
     };
     let mix_live = live_audio_mixing_enabled(output, include_audio, capture_system_audio);
-    // The active custom capture is the single physical owner of mic/system
-    // audio for both Rewind and ordinary Clips. Live transcription subscribes
-    // to this producer instead of opening a competing SCK/AVAudioEngine input,
-    // which can make every microphone consumer receive digital silence.
+    let voice_cleanup_enabled = crate::config::feature_config(app).voice_cleanup_enabled;
     let audio_producer = (include_audio || capture_system_audio)
         .then(|| {
             crate::capture_audio_bus::AudioProducer::register(
@@ -3929,7 +4015,9 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         capture_system_audio,
         include_audio,
         mix_live,
+        voice_cleanup_enabled,
         output,
+        live_upload_enabled,
         audio_producer,
     )?;
     let recording_enabled = Arc::new(AtomicBool::new(!defer_recording_output));
@@ -3937,14 +4025,19 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     let mic_ready = include_audio.then(|| Arc::new(AtomicBool::new(false)));
     let watch = Arc::new(CaptureWatch::new());
     let handler = CustomScreenCaptureOutputHandler {
+        app: app.clone(),
         writer: writer.clone(),
+        stream_generation: 0,
+        active_stream_generation: Arc::new(AtomicU64::new(0)),
+        callback_admission: Arc::new(RwLock::new(())),
         clip_sink: Arc::clone(&clip_sink),
         recording_enabled: Arc::clone(&recording_enabled),
         mic_ready: mic_ready.clone(),
+        audio_level_tick: Arc::new(AtomicU32::new(0)),
         watch: Arc::clone(&watch),
     };
 
-    let stream = build_custom_scstream(&params, &handler, &watch)?;
+    let (stream, configuration) = build_custom_scstream(&params, &handler, &watch, Some(content))?;
     if let Err(err) = stream.start_capture() {
         let _ = std::fs::remove_file(output_path);
         return Err(format!("custom capture start failed: {err:?}"));
@@ -3974,12 +4067,11 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     );
 
     let stream = Arc::new(Mutex::new(stream));
+    let configuration = Arc::new(Mutex::new(configuration));
     let watchdog_shutdown = Arc::new(AtomicBool::new(false));
-    // Snapshot the handles pause/resume needs before the watchdog consumes
-    // `handler` and `params`; the fresh stream it builds on resume feeds the
-    // same writer as the watchdog's own rebuilds.
     let resume = CustomCaptureResume {
         stream: Arc::clone(&stream),
+        configuration: Arc::clone(&configuration),
         handler: handler.clone(),
         watch: Arc::clone(&watch),
         params: params.clone(),
@@ -3992,6 +4084,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         Arc::clone(&watch),
         Arc::clone(&recording_enabled),
         Arc::clone(&watchdog_shutdown),
+        Arc::clone(&configuration),
         params,
     );
 
@@ -4028,6 +4121,36 @@ mod fragment_fence_tests {
         for path in paths {
             let _ = std::fs::remove_file(path);
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn watchdog_retries_transient_install_rejections() {
+        assert_eq!(
+            watchdog_install_decision(false, false, false, false, false),
+            WatchdogInstallDecision::Retry,
+            "a stale replacement handler must leave the watchdog alive"
+        );
+        assert_eq!(
+            watchdog_install_decision(false, false, true, false, true),
+            WatchdogInstallDecision::Retry
+        );
+        assert_eq!(
+            watchdog_install_decision(false, false, false, true, true),
+            WatchdogInstallDecision::Retry
+        );
+        assert_eq!(
+            watchdog_install_decision(true, false, false, false, true),
+            WatchdogInstallDecision::Exit
+        );
+        assert_eq!(
+            watchdog_install_decision(false, true, false, false, true),
+            WatchdogInstallDecision::Finalize
+        );
+        assert_eq!(
+            watchdog_install_decision(false, false, false, false, true),
+            WatchdogInstallDecision::Install
+        );
     }
 
     #[test]
@@ -4116,14 +4239,73 @@ mod fragment_fence_tests {
             true,
             true
         ));
-        // Clip HLS is forced segmented regardless of the ordinary remote flag,
-        // but keeps a single live-mixed AAC track and no Rewind sidecars.
+        assert!(live_audio_mixing_enabled(
+            CustomWriterOutput::Standard,
+            true,
+            false
+        ));
+        assert!(!live_audio_mixing_enabled(
+            CustomWriterOutput::Standard,
+            false,
+            true
+        ));
         assert!(segmented_output_enabled(CustomWriterOutput::ClipHls, false));
         assert!(live_audio_mixing_enabled(
             CustomWriterOutput::ClipHls,
             true,
             true
         ));
+    }
+
+    #[test]
+    fn mic_denoiser_preserves_frame_boundaries_and_duration() {
+        let mut denoiser = MicDenoiser::new();
+        let first = vec![0.08_f32; 300 * 2];
+        let second = vec![0.12_f32; 300 * 2];
+
+        assert!(denoiser.process(&first, 10.0).is_empty());
+        let processed = denoiser.process(&second, 10.0 + 300.0 / 48_000.0);
+        assert_eq!(processed.len(), 1);
+        assert_eq!(processed[0].0.len(), 480 * 2);
+        assert_eq!(processed[0].1, 10.0);
+        assert!(processed[0].0.iter().all(|sample| sample.is_finite()));
+        assert!(processed[0].0.iter().any(|sample| sample.abs() > 0.01));
+
+        let flushed = denoiser.flush();
+        assert_eq!(flushed.len(), 1);
+        assert_eq!(flushed[0].0.len(), 120 * 2);
+        assert!(flushed[0].0.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn mic_denoiser_resets_pending_audio_after_pause() {
+        let mut denoiser = MicDenoiser::new();
+        let input = vec![0.1_f32; 120 * 2];
+        assert!(denoiser.process(&input, 10.0).is_empty());
+        denoiser.reset();
+        assert!(denoiser.flush().is_empty());
+        assert!(denoiser.process(&input, 20.0).is_empty());
+        assert_eq!(denoiser.flush()[0].1, 20.0);
+    }
+
+    #[test]
+    fn mic_only_mixer_does_not_wait_for_a_disabled_system_source() {
+        let mixer = LiveAudioMixer::new(false, true, false, true).unwrap();
+        assert_eq!(mixer.compute_safe_end(false), 0);
+    }
+
+    #[test]
+    fn replacement_stream_rejects_callbacks_from_the_prior_generation() {
+        assert!(stream_generation_is_current(1, 1));
+        assert!(!stream_generation_is_current(1, 0));
+    }
+
+    #[test]
+    fn timestamp_admission_rejects_equal_and_regressing_samples() {
+        assert!(sample_pts_advances(None, 1.0));
+        assert!(sample_pts_advances(Some(1.0), 1.01));
+        assert!(!sample_pts_advances(Some(1.0), 1.0));
+        assert!(!sample_pts_advances(Some(1.0), 0.99));
     }
 
     #[test]
@@ -4158,7 +4340,6 @@ mod fragment_fence_tests {
         sidecars.append(false, &[0.25; 480], 48_000.0, 10.010, 10.0);
         sidecars.append(true, &[0.5; 480], 48_000.0, 10.020, 10.0);
         sidecars.begin_fence().unwrap();
-        // These two buffers cross the exact 30 ms video-fragment boundary.
         sidecars.append(false, &[0.1; 960], 48_000.0, 10.025, 10.0);
         sidecars.append(true, &[0.2; 960], 48_000.0, 10.025, 10.0);
         sidecars.complete_fence(&second, 0.030).unwrap();

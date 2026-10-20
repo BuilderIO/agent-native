@@ -1,34 +1,9 @@
-import type { Dialect } from "@agent-native/core/db";
-
 import type { DashboardPanelLike } from "./dashboard-time-scope.js";
 
-const POSTGRES_DATE_BOUND =
-  "to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
-const SQLITE_DATE_BOUND = "date('now', '-365 days')";
-
-/**
- * Fixes for first-party dashboard panels found, via a full-org audit
- * (2026-07-25), reading `analytics_events` with no date bound at all in some
- * or all of their scan units — a full 6.7M-row table scan on every render.
- * Unlike the id-keyed replacements in first-party-metric-catalog.ts (which
- * repair one specific dashboard's known panel ids), these are matched purely
- * by exact SQL text so the same fix applies wherever the identical broken
- * query was cloned into a different dashboard under a different panel id.
- * Each entry only changes the added bound (`AND event_date >= ...365 days`,
- * or the exact same bound already live on the repaired canonical dashboard
- * for the retention-cohort case) — never the query's selected columns,
- * grouping, or business logic.
- */
 export type UnboundedFirstPartyPanelFix = {
   legacySql: string;
   sql: string;
 };
-
-function dialectBoundedSql(sql: string, dialect: Dialect): string {
-  return dialect === "postgres"
-    ? sql
-    : sql.split(POSTGRES_DATE_BOUND).join(SQLITE_DATE_BOUND);
-}
 
 export const UNBOUNDED_FIRST_PARTY_PANEL_FIXES: readonly UnboundedFirstPartyPanelFix[] =
   [
@@ -45,7 +20,12 @@ export const UNBOUNDED_FIRST_PARTY_PANEL_FIXES: readonly UnboundedFirstPartyPane
     {
       legacySql:
         "SELECT COALESCE(NULLIF(app, ''), 'unknown') AS app, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' GROUP BY COALESCE(NULLIF(app, ''), 'unknown') ORDER BY count DESC LIMIT 20",
-      sql: "SELECT COALESCE(NULLIF(app, ''), 'unknown') AS app, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD') GROUP BY COALESCE(NULLIF(app, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      sql: "SELECT lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) AS app, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD') GROUP BY lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) ORDER BY count DESC LIMIT 20",
+    },
+    {
+      legacySql:
+        "SELECT COALESCE(NULLIF(app, ''), 'unknown') AS app, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD') GROUP BY COALESCE(NULLIF(app, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      sql: "SELECT lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) AS app, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD') GROUP BY lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) ORDER BY count DESC LIMIT 20",
     },
     {
       legacySql:
@@ -145,7 +125,6 @@ export const UNBOUNDED_FIRST_PARTY_PANEL_FIXES: readonly UnboundedFirstPartyPane
 
 export function repairUnboundedFirstPartyPanels(
   config: Record<string, unknown>,
-  dialect: Dialect = "postgres",
 ): { config: Record<string, unknown>; changed: boolean } {
   if (!Array.isArray(config.panels)) return { config, changed: false };
 
@@ -162,7 +141,7 @@ export function repairUnboundedFirstPartyPanels(
     const fixedSql = fixBySql.get(panel.sql);
     if (fixedSql === undefined) return rawPanel;
     changed = true;
-    return { ...panel, sql: dialectBoundedSql(fixedSql, dialect) };
+    return { ...panel, sql: fixedSql };
   });
   if (!changed) return { config, changed: false };
   return { config: { ...config, panels }, changed: true };

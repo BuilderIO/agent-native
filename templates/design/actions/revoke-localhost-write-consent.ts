@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -29,10 +29,6 @@ export default defineAction({
 
     const db = getDb();
 
-    // The delete result's rows-affected shape varies by driver (and some
-    // drivers do not report it at all), so SELECT the scoped grant first and
-    // derive `revoked` from its existence — portable across dialects without
-    // assuming RETURNING support.
     const scope = and(
       eq(schema.designLocalhostWriteGrants.designId, designId),
       eq(schema.designLocalhostWriteGrants.connectionId, connectionId),

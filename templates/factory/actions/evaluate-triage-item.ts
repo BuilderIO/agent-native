@@ -11,10 +11,17 @@ import {
   triageItems,
   triageRules,
 } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryItemFilter,
+  orgFactoryRuleFilter,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import {
   normalizeTriagePolicyGuards,
   triageGuardCodeSchema,
@@ -24,9 +31,12 @@ import { evaluateStructuredGuards } from "../server/triage/guards.js";
 export default defineAction({
   description:
     "Triage one Factory item against enabled rules and append structured guard decisions. This records proposals only and never changes a provider.",
-  schema: z.object({ itemId: z.string().min(1) }),
+  schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
+    itemId: z.string().min(1),
+  }),
   http: { method: "POST" },
-  run: async ({ itemId }, context) => {
+  run: async ({ factoryId, itemId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -35,7 +45,12 @@ export default defineAction({
       await db
         .select()
         .from(triageItems)
-        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .where(
+          and(
+            eq(triageItems.id, itemId),
+            orgFactoryItemFilter(orgId, factoryId),
+          ),
+        )
         .limit(1)
     )[0];
     if (!item) throw new Error("Triage item not found");
@@ -43,7 +58,9 @@ export default defineAction({
     const rules = await db
       .select()
       .from(triageRules)
-      .where(and(eq(triageRules.orgId, orgId), eq(triageRules.enabled, 1)));
+      .where(
+        and(eq(triageRules.enabled, 1), orgFactoryRuleFilter(orgId, factoryId)),
+      );
     const metadata = parseMetadata(item.metadataJson);
     const evidence = {
       repository: item.repository ?? undefined,
@@ -70,6 +87,21 @@ export default defineAction({
         : `Observed failure taxonomy: ${failureTaxonomy.label} (${failureTaxonomy.code}; ${failureTaxonomy.regime}). `;
 
     if (rules.length === 0) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "evaluate-triage-item",
+          kind: "decision",
+          factoryId,
+          status: "skipped",
+          itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          summary: "No enabled shadow rules were available for this item.",
+          details: { evaluated: 0 },
+        },
+      );
       return {
         ok: true,
         itemId,
@@ -101,6 +133,7 @@ export default defineAction({
         createdAt: now,
         ownerEmail: userEmail,
         orgId,
+        factoryId,
       };
     });
 
@@ -116,8 +149,36 @@ export default defineAction({
             : "shadow_decided",
           updatedAt: now,
         })
-        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+        .where(
+          and(
+            eq(triageItems.id, itemId),
+            orgFactoryItemFilter(orgId, factoryId),
+          ),
+        );
     });
+
+    for (const decision of decisions) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "evaluate-triage-item",
+          kind: "decision",
+          factoryId,
+          itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          summary: decision.reason,
+          details: {
+            decisionId: decision.id,
+            outcome: decision.outcome,
+            ruleId: decision.ruleId,
+            mode: decision.mode,
+            promptVersion: decision.promptVersion,
+          },
+        },
+      );
+    }
 
     return {
       ok: true,

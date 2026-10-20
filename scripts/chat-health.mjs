@@ -1,38 +1,4 @@
 #!/usr/bin/env node
-// Reports what fraction of real agent-chat turns ended without an answer, per
-// hosted app, straight from each app's production database.
-//
-// This exists because nothing else answers the question. `agent_run_outcome_daily`
-// is written by the pruner and read by nobody — `getRunOutcomeCounters()` has no
-// production callers — so until now the only detector for "chat is broken again"
-// was somebody typing it in Slack. That is how one defect got reported fifteen
-// times by nine people across three months.
-//
-// Two measurement traps this deliberately avoids, both of which have produced
-// confidently wrong headlines here before:
-//
-//   1. Per-RUN counts are not what a user feels. One turn can span several runs
-//      as the agent hands off to background work; a turn that recovered on run
-//      three was a success, not two failures. Everything below groups by
-//      `turn_id` and scores only the FINAL run of each turn.
-//   2. Do not read `agent_run_outcome_daily` for a recent window. Completed runs
-//      fold into it after 24h but failures only after 7 days, so any window
-//      inside the last week shows successes with almost no failures and looks
-//      perfect. This reads live `agent_runs` rows instead.
-//
-// Also separates `aborted:user*` (someone pressed stop — working as intended)
-// from everything else, so user-cancelled turns are not counted as breakage.
-//
-// Credentials come from each `templates/<app>/.env` DATABASE_URL, which is
-// gitignored and local-only, so this runs on a workstation rather than in CI.
-//
-//   node scripts/chat-health.mjs                 # last 24h, every app
-//   node scripts/chat-health.mjs --hours 48      # wider window
-//   node scripts/chat-health.mjs --json          # machine readable
-//   node scripts/chat-health.mjs --app analytics # one app
-//   node scripts/chat-health.mjs --strict        # exit 1 if any app is over the bar
-//
-// --strict is the monitoring mode: a partial outage must not exit 0.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -42,9 +8,6 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES = resolve(HERE, "../templates");
 
-// `postgres` is a template dependency, not a root one, so it does not resolve
-// from scripts/. Resolve it through a template that depends on it rather than
-// hardcoding a .pnpm path, which would break on the next version bump.
 function loadPostgres() {
   for (const app of readdirSync(TEMPLATES).sort()) {
     const pkg = `${TEMPLATES}/${app}/package.json`;
@@ -62,23 +25,15 @@ function loadPostgres() {
 
 const postgres = loadPostgres();
 
-/** Share of non-user-aborted turns that may end badly before --strict fails. */
 const BAD_TURN_BUDGET = 0.1;
-/** Share of received A2A tasks that may fail or hang before --strict fails. */
 const A2A_FAIL_BUDGET = 0.1;
+const STALL_TURN_S = 600;
+const STALL_BUDGET = 0.02;
 const CONNECT_TIMEOUT_S = 20;
-// Thresholds set from a real outage, not intuition. Healthy analytics right now
-// reads 0 / 128ms / 1; at the point it went down it read 20 / 6000ms / 56.
-//
-// packages/core/src/server/db-pressure.ts reads the same three signals from
-// inside each deployed app, which is how the hourly fleet audit gets them
-// without any production credential. Its spec fails if these numbers drift
-// apart — change both, or neither.
 const MAX_IDLE_TXN_AGE_S = 60;
 const MAX_TRIVIAL_QUERY_MS = 1_000;
 const MAX_SAME_QUERY_CONCURRENCY = 10;
 
-/** Reasons this app's database looks pressured, or [] when it looks fine. */
 function dbPressureWarnings(p) {
   if (!p) return [];
   const out = [];
@@ -115,7 +70,6 @@ if (!Number.isFinite(hours) || hours <= 0) {
   process.exit(1);
 }
 
-/** Apps are discovered from disk so a new template is covered automatically. */
 function discoverApps() {
   const apps = [];
   for (const name of readdirSync(TEMPLATES).sort()) {
@@ -131,11 +85,16 @@ function discoverApps() {
   return apps;
 }
 
-// Scores the LAST run of every interactive turn in the window. `job-%` ids are
-// scheduled automations, which fail in completely different ways and would
-// swamp the number people actually experience.
 const TURN_OUTCOME_SQL = `
-WITH final_run AS (
+WITH turn_span AS (
+  SELECT turn_id,
+    (max(coalesce(completed_at, heartbeat_at, started_at)) - min(started_at)) / 1000.0 AS span_s
+  FROM agent_runs
+  WHERE id NOT LIKE 'job-%'
+    AND turn_id IS NOT NULL
+    AND started_at > $1
+  GROUP BY turn_id
+), final_run AS (
   SELECT DISTINCT ON (turn_id)
     turn_id, status, error_code, terminal_reason
   FROM agent_runs
@@ -146,13 +105,21 @@ WITH final_run AS (
 )
 SELECT
   count(*)::int AS turns,
-  count(*) FILTER (WHERE status = 'completed')::int AS ok,
-  count(*) FILTER (WHERE terminal_reason LIKE 'aborted:user%')::int AS user_stopped,
+  count(*) FILTER (WHERE f.status = 'completed')::int AS ok,
+  count(*) FILTER (WHERE f.terminal_reason LIKE 'aborted:user%')::int AS user_stopped,
   count(*) FILTER (
-    WHERE status <> 'completed'
-      AND coalesce(terminal_reason, '') NOT LIKE 'aborted:user%'
-  )::int AS bad
-FROM final_run`;
+    WHERE f.status <> 'completed'
+      AND coalesce(f.terminal_reason, '') NOT LIKE 'aborted:user%'
+  )::int AS bad,
+  coalesce(round(percentile_cont(0.5) WITHIN GROUP (ORDER BY s.span_s))::int, 0) AS p50_wait_s,
+  coalesce(round(percentile_cont(0.9) WITHIN GROUP (ORDER BY s.span_s))::int, 0) AS p90_wait_s,
+  coalesce(round(max(s.span_s))::int, 0) AS max_wait_s,
+  count(*) FILTER (
+    WHERE s.span_s > ${STALL_TURN_S}
+      AND f.status <> 'completed'
+      AND coalesce(f.terminal_reason, '') NOT LIKE 'aborted:user%'
+  )::int AS stalled
+FROM final_run f JOIN turn_span s USING (turn_id)`;
 
 const TURN_REASONS_SQL = `
 WITH final_run AS (
@@ -172,14 +139,6 @@ GROUP BY 1
 ORDER BY turns DESC
 LIMIT 5`;
 
-// Inbound app-to-app work, from the receiving app's own task table — the
-// authoritative record. The CALLER's `agent_call` events carry no failure
-// reason at all, so a caller-side view can only say "it failed", never why.
-//
-// Latency is reported alongside the failure rate because for A2A they are the
-// same complaint: a failed task usually takes LONGER than a successful one
-// (the remote agent runs until it runs out of time), so callers wait minutes
-// to be told it did not work.
 const A2A_SQL = `
 SELECT
   count(*)::int AS tasks,
@@ -197,9 +156,6 @@ SELECT
 FROM a2a_tasks
 WHERE created_at > $1`;
 
-// `status_message` is an A2A message envelope; the human sentence is the first
-// `text` part. Trimmed to a prefix so distinct causes group together instead of
-// splintering on ids and token counts embedded later in the sentence.
 const A2A_REASONS_SQL = `
 SELECT
   left(regexp_replace(coalesce(status_message, '(none)'),
@@ -209,22 +165,6 @@ FROM a2a_tasks
 WHERE status_state = 'failed' AND created_at > $1
 GROUP BY 1 ORDER BY tasks DESC LIMIT 4`;
 
-// Database pressure — the three signals that preceded a real outage and that
-// nothing here was watching.
-//
-// Analytics degraded for hours before it fell over, and every check we had said
-// UP until the moment it said DOWN. What was actually true, and visible the
-// whole time in pg_stat_activity:
-//
-//   - 11-20 connections stuck `idle in transaction` up to 283s, left behind by
-//     serverless workers killed mid-transaction. They hold locks; nothing
-//     reaped them.
-//   - `SELECT 1` drifting from ~0.2s to 6s as those locks accumulated.
-//   - 47-56 concurrent copies of one unprojected query, each dragging a JSON
-//     blob per row.
-//
-// None of that is "down". All of it is the hour before down. A monitor that
-// only distinguishes 200 from 500 cannot see any of it.
 const DB_PRESSURE_SQL = `
 SELECT
   count(*)::int AS connections,
@@ -234,11 +174,16 @@ SELECT
   coalesce((
     SELECT max(c) FROM (
       SELECT count(*)::int AS c FROM pg_stat_activity
-      WHERE state = 'active' AND query <> '' GROUP BY left(query, 60)
+      WHERE pid <> pg_backend_pid()
+        AND datname = current_database()
+        AND state = 'active'
+        AND query <> ''
+      GROUP BY query
     ) q
   ), 0)::int AS max_same_query
 FROM pg_stat_activity
-WHERE pid <> pg_backend_pid()`;
+WHERE pid <> pg_backend_pid()
+  AND datname = current_database()`;
 
 async function measure({ name, url }, since) {
   const sql = postgres(url, {
@@ -251,9 +196,6 @@ async function measure({ name, url }, since) {
   try {
     const [totals] = await sql.unsafe(TURN_OUTCOME_SQL, [since]);
     const reasons = await sql.unsafe(TURN_REASONS_SQL, [since]);
-    // Not every app receives A2A work, and an older one may predate the table.
-    // "No a2a_tasks table" is a real, different answer from "zero tasks", so it
-    // is carried as null rather than folded into a zero.
     let a2a = null;
     try {
       const [t] = await sql.unsafe(A2A_SQL, [since]);
@@ -262,8 +204,6 @@ async function measure({ name, url }, since) {
     } catch {
       a2a = null;
     }
-    // Timed, because latency on a trivial query IS the signal: it drifted from
-    // ~0.2s to 6s during the incident while every other check still said UP.
     let dbPressure = null;
     try {
       const t0 = Date.now();
@@ -280,9 +220,6 @@ async function measure({ name, url }, since) {
 
 const apps = discoverApps();
 if (apps.length === 0) {
-  // Never exit 0 having measured nothing — a silent empty run is
-  // indistinguishable from a clean one, which is the failure this file exists
-  // to stop repeating.
   console.error(
     onlyApp
       ? `No templates/${onlyApp}/.env with a DATABASE_URL. Nothing was measured.`
@@ -310,7 +247,12 @@ settled.forEach((outcome, i) => {
 const scored = results
   .map((r) => {
     const scored = r.turns - r.user_stopped;
-    return { ...r, badRate: scored > 0 ? r.bad / scored : 0, scored };
+    return {
+      ...r,
+      badRate: scored > 0 ? r.bad / scored : 0,
+      stallRate: scored > 0 ? r.stalled / scored : 0,
+      scored,
+    };
   })
   .sort((a, b) => b.badRate - a.badRate);
 
@@ -318,9 +260,10 @@ const fleet = scored.reduce(
   (acc, r) => ({
     turns: acc.turns + r.turns,
     bad: acc.bad + r.bad,
+    stalled: acc.stalled + r.stalled,
     scored: acc.scored + r.scored,
   }),
-  { turns: 0, bad: 0, scored: 0 },
+  { turns: 0, bad: 0, stalled: 0, scored: 0 },
 );
 const fleetRate = fleet.scored > 0 ? fleet.bad / fleet.scored : 0;
 
@@ -343,7 +286,7 @@ if (asJson) {
     `Agent chat turns, last ${hours}h (excludes user-stopped turns)\n`,
   );
   console.log(
-    `  ${"app".padEnd(11)}${"turns".padStart(6)}${"ok".padStart(6)}${"bad".padStart(6)}${"bad%".padStart(7)}  top reasons`,
+    `  ${"app".padEnd(11)}${"turns".padStart(6)}${"ok".padStart(6)}${"bad".padStart(6)}${"bad%".padStart(7)}${"p50s".padStart(6)}${"p90s".padStart(6)}${"maxs".padStart(6)}${"stall".padStart(6)}  top reasons`,
   );
   for (const r of scored) {
     const pct = `${(r.badRate * 100).toFixed(0)}%`;
@@ -351,13 +294,20 @@ if (asJson) {
       .slice(0, 3)
       .map((x) => `${x.reason}(${x.turns})`)
       .join(" ");
-    const mark = r.badRate > BAD_TURN_BUDGET ? "!" : " ";
+    const mark =
+      r.badRate > BAD_TURN_BUDGET || r.stallRate > STALL_BUDGET ? "!" : " ";
     console.log(
-      `${mark} ${r.name.padEnd(11)}${String(r.turns).padStart(6)}${String(r.ok).padStart(6)}${String(r.bad).padStart(6)}${pct.padStart(7)}  ${top}`,
+      `${mark} ${r.name.padEnd(11)}${String(r.turns).padStart(6)}${String(r.ok).padStart(6)}${String(r.bad).padStart(6)}${pct.padStart(7)}${String(r.p50_wait_s).padStart(6)}${String(r.p90_wait_s).padStart(6)}${String(r.max_wait_s).padStart(6)}${String(r.stalled).padStart(6)}  ${top}`,
     );
   }
   console.log(
     `\n  fleet: ${fleet.bad}/${fleet.scored} turns ended without an answer (${(fleetRate * 100).toFixed(1)}%)`,
+  );
+  console.log(
+    `  fleet: ${fleet.stalled}/${fleet.scored} turns ran over ${STALL_TURN_S / 60}m and still ended without one`,
+  );
+  console.log(
+    "  p50s/p90s/maxs are seconds the user waited for one message, first run start to last run end.",
   );
 
   const withA2a = scored.filter((r) => r.a2a && r.a2a.tasks > 0);
@@ -412,13 +362,12 @@ if (asJson) {
   }
 }
 
-// An app we could not reach is an unknown, not a pass. Report it as a failure
-// in strict mode rather than quietly averaging it away.
 if (strict && scored.some((r) => dbPressureWarnings(r.dbPressure).length > 0)) {
   process.exit(1);
 }
 if (unreachable.length > 0 && strict) process.exit(1);
 if (strict && scored.some((r) => r.badRate > BAD_TURN_BUDGET)) process.exit(1);
+if (strict && scored.some((r) => r.stallRate > STALL_BUDGET)) process.exit(1);
 if (
   strict &&
   scored.some(

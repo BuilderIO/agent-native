@@ -13,6 +13,12 @@ import {
 } from "@agent-native/core/ingestion";
 
 import { normalizeWhitespace } from "./normalize.js";
+import {
+  chromiumPackUrl,
+  loadOptionalServerlessChromium,
+} from "./serverless-chromium.js";
+
+export { chromiumPackUrl } from "./serverless-chromium.js";
 
 export type RenderedPageMethod =
   | "builder-browser"
@@ -135,7 +141,7 @@ interface PlaywrightPageLike {
   locator(selector: string): { innerText(): Promise<string> };
   setViewportSize(size: { width: number; height: number }): Promise<void>;
   screenshot(options: { type: "png"; fullPage: boolean }): Promise<Uint8Array>;
-  evaluate<T>(callback: () => T): Promise<T>;
+  evaluate<T>(callback: string | (() => T)): Promise<T>;
 }
 
 interface PlaywrightContextLike {
@@ -274,9 +280,6 @@ export async function renderWithPlaywright(
     : await launchChromium(playwright.chromium);
   let isolatedContext: PlaywrightContextLike | undefined;
   try {
-    // Never reuse a connected browser's ambient context: it can carry cookies,
-    // extensions, or tabs from another workflow. The safe proxy below is only
-    // useful when the page itself is isolated from that state.
     if (!browser.newContext) {
       throw new Error("Browser did not provide isolated context support.");
     }
@@ -301,9 +304,6 @@ export async function renderWithPlaywright(
           `Browser load stabilization unavailable: ${errorMessage(error)}`,
         );
       });
-    // React hydration, CSS-in-JS insertion, and web fonts commonly finish just
-    // after `load`. Give those layers a bounded chance to settle, then capture
-    // the computed cascade rather than the server HTML.
     await page
       .waitForLoadState?.("networkidle", { timeout: 4_000 })
       .catch((error) => {
@@ -348,12 +348,14 @@ export async function renderWithPlaywright(
           );
           return undefined;
         }),
-      page.evaluate(captureRenderedWebsiteContext).catch((error) => {
-        warnings.push(
-          `Browser style extraction unavailable: ${errorMessage(error)}`,
-        );
-        return emptyExtraction();
-      }),
+      page
+        .evaluate<WebsiteExtraction>(browserCaptureExpression())
+        .catch((error) => {
+          warnings.push(
+            `Browser style extraction unavailable: ${errorMessage(error)}`,
+          );
+          return emptyExtraction();
+        }),
     ]);
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileScreenshot = await page
@@ -538,9 +540,6 @@ async function installNavigationGuard(
       return;
     }
 
-    // Reserve the request slot before the first await. Browser route handlers
-    // overlap, so incrementing only after the proxy response arrives lets a
-    // burst of requests all pass the limit check.
     resourceCount += 1;
     let bodyBudgetRelease: (() => void) | undefined;
     let committedBytes = 0;
@@ -669,7 +668,8 @@ async function launchChromium(
   const serverlessChromium = await loadOptionalServerlessChromium();
   if (serverlessChromium) {
     try {
-      const executablePath = await serverlessChromium.executablePath();
+      const executablePath =
+        await serverlessChromium.executablePath(chromiumPackUrl());
       if (executablePath) {
         return await chromium.launch({
           ...launchOptions,
@@ -678,7 +678,6 @@ async function launchChromium(
         });
       }
     } catch (error) {
-      if (!isMissingBrowserError(error)) throw error;
       missingBrowserError = error;
     }
   }
@@ -699,31 +698,6 @@ async function launchChromium(
   );
 }
 
-interface ServerlessChromiumLike {
-  args?: string[];
-  executablePath(): Promise<string>;
-}
-
-async function loadOptionalServerlessChromium(): Promise<ServerlessChromiumLike | null> {
-  const specifier = "@sparticuz/chromium";
-  try {
-    const module = (await import(/* @vite-ignore */ specifier)) as unknown as {
-      default?: Partial<ServerlessChromiumLike>;
-    } & Partial<ServerlessChromiumLike>;
-    const chromium = module.default ?? module;
-    return typeof chromium.executablePath === "function"
-      ? (chromium as ServerlessChromiumLike)
-      : null;
-  } catch {
-    // coercion-ok: this optional capability is absent in non-serverless installs.
-    return null;
-  }
-}
-
-/*
- * Kept separate from Playwright loading so a deployment can omit the large
- * serverless Chromium package and still use Builder Browser or system Chrome.
- */
 async function loadOptionalPlaywright(): Promise<PlaywrightLike | null> {
   for (const specifier of [
     "playwright",
@@ -774,7 +748,6 @@ function isMissingBrowserError(error: unknown): boolean {
   );
 }
 
-/** Close common consent banners without accepting tracking or changing page data. */
 function dismissConsentOverlays(): void {
   const selectors = [
     '[aria-label*="reject" i]',
@@ -910,7 +883,7 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
     WebsiteExtraction["designTokens"]["semanticColors"]
   > = {};
 
-  const isOpaque = (value: string): boolean => {
+  function isOpaque(value: string): boolean {
     const normalized = value.trim().toLowerCase();
     if (!normalized || normalized === "transparent") return false;
     const functionBody = normalized.match(/^[a-z-]+\((.*)\)$/)?.[1];
@@ -925,15 +898,15 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
       ? Number.parseFloat(alphaValue) / 100
       : Number.parseFloat(alphaValue);
     return Number.isNaN(alpha) || alpha > 0.02;
-  };
+  }
 
-  const addColor = (value: string): void => {
+  function addColor(value: string): void {
     if (colors.length >= MAX_COLOR_VALUES || !isOpaque(value)) return;
     const normalized = value.trim();
     if (!colors.includes(normalized)) colors.push(normalized);
-  };
+  }
 
-  const visible = (element: Element): boolean => {
+  function visible(element: Element): boolean {
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     return (
@@ -943,20 +916,22 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
       style.visibility !== "hidden" &&
       Number(style.opacity || 1) > 0.02
     );
-  };
+  }
 
-  const firstVisible = (selector: string): Element | undefined =>
-    Array.from(document.querySelectorAll(selector)).find(visible);
+  function firstVisible(selector: string): Element | undefined {
+    return Array.from(document.querySelectorAll(selector)).find(visible);
+  }
 
-  const opaqueValue = (value: string): string | undefined =>
-    isOpaque(value) ? value.trim() : undefined;
+  function opaqueValue(value: string): string | undefined {
+    return isOpaque(value) ? value.trim() : undefined;
+  }
 
-  const recordComputedStyle = (
+  function recordComputedStyle(
     element: Element,
     role?: NonNullable<
       WebsiteExtraction["designTokens"]["components"]
     >[number]["role"],
-  ) => {
+  ): CSSStyleDeclaration {
     const style = getComputedStyle(element);
     const values = [
       style.color,
@@ -1042,24 +1017,24 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
         style.textTransform !== "none" ? style.textTransform : undefined,
     });
     return style;
-  };
+  }
 
-  const styleFor = (
+  function styleFor(
     selector: string,
     role?: NonNullable<
       WebsiteExtraction["designTokens"]["components"]
     >[number]["role"],
-  ): CSSStyleDeclaration | undefined => {
+  ): CSSStyleDeclaration | undefined {
     const element = firstVisible(selector);
     if (!element) return undefined;
     return recordComputedStyle(element, role);
-  };
+  }
 
-  const addAsset = (
+  function addAsset(
     raw: string | null | undefined,
     kind: WebsiteExtraction["assets"][number]["kind"],
     role?: "logo" | "open-graph",
-  ) => {
+  ): void {
     if (!raw || assets.size >= MAX_ASSETS) return;
     try {
       const url = new URL(raw, document.baseURI);
@@ -1074,7 +1049,7 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
     } catch {
       return;
     }
-  };
+  }
   for (const image of document.querySelectorAll("img")) {
     if (assets.size >= MAX_ASSETS) break;
     const identity = `${image.getAttribute("alt") ?? ""} ${image.getAttribute("class") ?? ""} ${image.id}`;
@@ -1144,7 +1119,7 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
   const bodyBackground = bodyStyle
     ? opaqueValue(bodyStyle.backgroundColor)
     : undefined;
-  const headingStyle = styleFor("h1, h2, h3", "heading");
+
   const textStyle = styleFor("p, li, label, body", "body");
   const buttonStyle = styleFor(
     'button, [role="button"], input[type="submit"], a[class*="button" i], a[class*="cta" i]',
@@ -1159,14 +1134,14 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
   styleFor("nav, header", "nav");
   styleFor('main, [class*="hero" i]', "hero");
 
-  const setSemantic = (
+  function setSemantic(
     role: keyof NonNullable<
       WebsiteExtraction["designTokens"]["semanticColors"]
     >,
     value: string | undefined,
-  ): void => {
+  ): void {
     if (value) semanticColors[role] = value;
-  };
+  }
   setSemantic("background", bodyBackground ?? rootBackground);
   setSemantic(
     "surface",
@@ -1248,6 +1223,13 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
       layout,
     },
   };
+}
+
+function browserCaptureExpression(): string {
+  return `(function () {
+    const __name = (value) => value;
+    return (${captureRenderedWebsiteContext.toString()})();
+  })()`;
 }
 
 export function boundWebsiteExtraction(

@@ -1,17 +1,28 @@
 // @vitest-environment happy-dom
 
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const coreClientMocks = vi.hoisted(() => ({
+const agentkitChatMocks = vi.hoisted(() => ({
   useGuidedQuestionFlow: vi.fn(),
   formatGuidedAnswersForAgent: vi.fn((answers: Record<string, unknown>) =>
     JSON.stringify(answers),
   ),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => coreClientMocks);
+vi.mock(
+  "@agent-native/toolkit/app/chat/agentkit-chat",
+  () => agentkitChatMocks,
+);
+vi.mock("@agent-native/toolkit/composer", () => ({
+  isLocalRuntimeEngine: vi.fn((engine?: string) =>
+    ["codex-cli", "claude-cli", "pi-cli", "opencode-cli"].includes(
+      engine ?? "",
+    ),
+  ),
+}));
 
 const agentChatMocks = vi.hoisted(() => ({
   sendToDesignAgentChat: vi.fn(
@@ -22,7 +33,11 @@ const agentChatMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/agent-chat", () => agentChatMocks);
 
-import { useQuestionFlow } from "./use-question-flow";
+import {
+  buildGenerationBriefContext,
+  useQuestionFlow,
+  type QuestionFlowGenerationBrief,
+} from "./use-question-flow";
 
 let latestHook: ReturnType<typeof useQuestionFlow> | null = null;
 
@@ -32,11 +47,8 @@ interface ProbeProps {
   onContinue?: (tabId: string) => void;
   model?: string;
   engine?: string;
-  /**
-   * Stand-in for the caller's ref: starts null and is replaced with a fresh
-   * object after mount, so a render-time read genuinely sees nothing.
-   */
   selectionRef?: { current: { model?: string; engine?: string } | null };
+  getGenerationBrief?: () => QuestionFlowGenerationBrief | null;
 }
 
 function Probe(props: ProbeProps) {
@@ -49,6 +61,7 @@ function Probe(props: ProbeProps) {
         ? { model: props.model, engine: props.engine }
         : null;
     },
+    getGenerationBrief: props.getGenerationBrief,
   });
   return null;
 }
@@ -73,23 +86,51 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
 
   beforeEach(() => {
     clearMock.mockClear();
+    agentkitChatMocks.useGuidedQuestionFlow.mockClear();
     agentChatMocks.sendToDesignAgentChat.mockClear();
     agentChatMocks.sendToDesignAgentChat.mockImplementation(
       () => "generated-tab-id",
     );
-    coreClientMocks.useGuidedQuestionFlow.mockReturnValue({
+    agentkitChatMocks.useGuidedQuestionFlow.mockReturnValue({
       payload: null,
       questions: null,
       title: undefined,
       description: undefined,
       skipLabel: undefined,
       submitLabel: undefined,
+      isSubmissionBlocked: false,
+      providerStatus: "configured",
+      retryProviderStatus: vi.fn(),
       clear: clearMock,
-      // These are intentionally shadowed by useQuestionFlow's own
-      // handleSubmit/handleSkip — see the hook's inline comment.
       handleSubmit: vi.fn(),
       handleSkip: vi.fn(),
     });
+  });
+
+  it("keeps the frozen source snapshot alongside the original prompt and uploaded brief", () => {
+    const context = buildGenerationBriefContext(
+      {
+        prompt: "Original request",
+        uploadedFileContext: "Uploaded brief",
+        contextItems: Object.freeze([
+          Object.freeze({
+            key: "reference",
+            title: "Reference",
+            context: "Frozen source content",
+          }),
+          Object.freeze({
+            key: "design-home-template",
+            title: "Template",
+            context: "",
+          }),
+        ]),
+      },
+      "",
+    );
+
+    expect(context).toContain("Original request");
+    expect(context).toContain("Uploaded brief");
+    expect(context).toContain("Frozen source content");
   });
 
   it("always requests newTab so the returned tabId matches the thread that actually receives the message, even with no prior continuation tab", async () => {
@@ -106,10 +147,6 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
 
     expect(agentChatMocks.sendToDesignAgentChat).toHaveBeenCalledTimes(1);
     const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0];
-    // Regression guard: without `newTab: true` here, the message would be
-    // posted to whichever tab is currently active while the caller is told
-    // a different, never-actually-used tabId — desyncing generation tracking
-    // (false "stopped, please retry" toasts; completion never detected).
     expect(call.newTab).toBe(true);
     expect(call.tabId).toBeUndefined();
     expect(onContinue).toHaveBeenCalledWith("generated-tab-id");
@@ -118,9 +155,43 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     await cleanup();
   });
 
-  // The continuation is the turn that actually generates. It must re-send the
-  // selection the design was started with: a fresh thread has no override, and
-  // a reused thread loses its in-memory one across a reload.
+  it("clears the questionnaire before sending the generating continuation", async () => {
+    const order: string[] = [];
+    clearMock.mockImplementation(() => order.push("clear"));
+    agentChatMocks.sendToDesignAgentChat.mockImplementation(() => {
+      order.push("send");
+      return "generated-tab-id";
+    });
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      await latestHook!.handleSubmit({ q1: "answer" });
+    });
+
+    expect(order).toEqual(["clear", "send"]);
+    await cleanup();
+  });
+
+  it("clears the questionnaire without sending when the generation brief is unavailable", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: "existing-tab",
+      getGenerationBrief: () => null,
+    });
+
+    act(() => {
+      latestHook!.handleSubmit({ q1: "answer" });
+    });
+
+    expect(clearMock).toHaveBeenCalledTimes(1);
+    expect(agentChatMocks.sendToDesignAgentChat).not.toHaveBeenCalled();
+
+    await cleanup();
+  });
+
   it("carries the starting model selection into the continuation", async () => {
     const { cleanup } = await renderProbe({
       designId: "design-1",
@@ -143,9 +214,35 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     await cleanup();
   });
 
-  // The caller's source is a ref filled by the generation kickoff effect, which
-  // runs after the render that wires this hook up. Snapshotting a value during
-  // render captured the pre-kickoff null and sent no model at all.
+  it("carries fixed-canvas intent into the answers continuation", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+      getGenerationBrief: () => ({ prompt: "Create a LinkedIn ad" }),
+    });
+
+    await act(async () => {
+      await latestHook!.handleSubmit({ q1: "Use the existing brand" });
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      context?: string;
+    };
+    expect(call.context).toContain(
+      "Fixed canvas: LinkedIn Single Image Ad, 1200×627px",
+    );
+    expect(call.context).toContain("Pass `devices: []` to `generate-design`");
+    expect(call.context).toContain(
+      "run `take-design-screenshot` once with widths: [1200] and heights: [627]",
+    );
+    expect(call.context).not.toContain(
+      "take-design-screenshot` at desktop and mobile viewports",
+    );
+    expect(call.context).not.toContain("After responsive app generation");
+
+    await cleanup();
+  });
+
   it("reads the selection at send time, not at render time", async () => {
     const selectionRef: {
       current: { model?: string; engine?: string } | null;
@@ -156,8 +253,6 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
       selectionRef,
     });
 
-    // Filled after mount with no re-render, exactly as the generation kickoff
-    // effect fills the caller's ref.
     selectionRef.current = { model: "gpt-5-6-terra", engine: "builder" };
 
     await act(async () => {
@@ -194,6 +289,47 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     await cleanup();
   });
 
+  it("does not submit answers or skip while provider setup is required", async () => {
+    agentkitChatMocks.useGuidedQuestionFlow.mockReturnValue({
+      payload: null,
+      questions: null,
+      title: undefined,
+      description: undefined,
+      skipLabel: undefined,
+      submitLabel: undefined,
+      isSubmissionBlocked: true,
+      providerStatus: "missing",
+      retryProviderStatus: vi.fn(),
+      clear: clearMock,
+      handleSubmit: vi.fn(),
+      handleSkip: vi.fn(),
+    });
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      latestHook!.handleSubmit({ q1: "answer" });
+      latestHook!.handleSkip();
+    });
+
+    expect(agentChatMocks.sendToDesignAgentChat).not.toHaveBeenCalled();
+    await cleanup();
+  });
+
+  it("leaves local-runtime continuations outside the hosted provider gate", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      engine: "claude-cli",
+    });
+
+    expect(agentkitChatMocks.useGuidedQuestionFlow).toHaveBeenCalledWith(
+      expect.objectContaining({ engine: "claude-cli" }),
+    );
+    await cleanup();
+  });
+
   it("reuses the tracked continuation tab id while still requesting newTab", async () => {
     const onContinue = vi.fn();
     const { cleanup } = await renderProbe({
@@ -211,6 +347,47 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     expect(call.newTab).toBe(true);
     expect(call.tabId).toBe("existing-tab");
     expect(onContinue).toHaveBeenCalledWith("generated-tab-id");
+
+    await cleanup();
+  });
+
+  it("keeps answered questions on the existing design shell", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      latestHook!.handleSubmit({ q1: "answer" });
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      context?: string;
+    };
+    expect(call.context).toContain(
+      "The design shell already exists and is the only design to modify.",
+    );
+    expect(call.context).toContain(
+      'Use designId "design-1" for generation. Never call create-design',
+    );
+
+    await cleanup();
+  });
+
+  it("marks the continuation as the turn that must persist a design", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      latestHook!.handleSkip();
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      context?: string;
+    };
+    expect(call.context).toContain(DESIGN_MUTATION_REQUIRED_DIRECTIVE);
 
     await cleanup();
   });

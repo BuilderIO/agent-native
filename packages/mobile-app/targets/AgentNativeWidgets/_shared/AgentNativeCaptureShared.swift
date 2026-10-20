@@ -22,7 +22,7 @@ struct AgentNativeCaptureAttributes: ActivityAttributes {
 struct StopAgentNativeCaptureIntent: LiveActivityIntent {
   static let title: LocalizedStringResource = "Stop Capture"
   static let description = IntentDescription(
-    "Stop the active Agent Native recording."
+    "Stop the active Agent-Native recording."
   )
 
   @Parameter(title: "Capture ID")

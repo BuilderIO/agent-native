@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createCustomField } from "../custom-fields/store.js";
@@ -5,7 +6,7 @@ import { listTaskFieldValues } from "../custom-fields/task-fields.js";
 import { updateCustomFieldValuesByTaskId } from "../custom-fields/values/store.js";
 import { BULK_WRITE_CHUNK_SIZE } from "../db/bulk-write.js";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
-import { createInboxItem, updateInboxItem } from "../inbox/store.js";
+import { createInboxItem } from "../inbox/store.js";
 import { getStoredItem } from "../stored-items/store.js";
 import {
   createTask,
@@ -26,6 +27,8 @@ vi.mock("../db/bulk-write.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../db/bulk-write.js")>();
   return {
     ...original,
+    caseById: (id: any, entries: any[]) =>
+      sql`(${original.caseById(id, entries)})::double precision`,
     BULK_WRITE_CHUNK_SIZE: 2,
     chunk: <T>(items: T[], size = 2) => original.chunk(items, size),
   };

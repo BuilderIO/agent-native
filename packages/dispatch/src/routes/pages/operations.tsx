@@ -1,6 +1,6 @@
-import { DbAdminPage } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { DbAdminPage } from "@agent-native/toolkit/app/db-admin";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 import {
   IconActivity,
   IconArrowUpRight,
@@ -105,11 +105,11 @@ export default function OperationsRoute() {
       >
         <TabsList className="w-fit">
           <TabsTrigger value="monitoring">
-            <IconActivity size={15} />
+            <IconActivity size={15} className="mr-1.5" />
             {t("dispatch.pages.monitoring")}
           </TabsTrigger>
           <TabsTrigger value="database">
-            <IconDatabase size={15} />
+            <IconDatabase size={15} className="mr-1.5" />
             {t("dispatch.pages.database")}
           </TabsTrigger>
         </TabsList>

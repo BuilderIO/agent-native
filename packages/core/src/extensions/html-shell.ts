@@ -1,21 +1,107 @@
+// Import-free on purpose: this shell is also built in the browser
+// (ExtensionViewer, InlineExtensionFrame), so it must not import the
+// app-config store. Configured sources are resolved server-side in
+// ./iframe-csp.ts: the render route passes them in, and the client renderers
+// fetch them from EXTENSION_IFRAME_DISPLAY_SOURCES_PATH.
+import {
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+  extensionDisplaySourcesError,
+} from "../app-config/extension-display-sources.js";
 import { buildSessionReplayIframeBootstrap } from "./session-replay-iframe.js";
 
-const EXTENSION_IFRAME_CSP_BASE =
-  "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';";
+/**
+ * Builds the iframe CSP from the img-src / media-src lists.
+ *
+ * SECURITY: both lists are validated again here, at the point they are
+ * interpolated, rather than trusted because they came from app config. The
+ * resolved config is a cached, mutable object, and the client renderers pass
+ * lists fetched from the server, so neither is guaranteed to still be what the
+ * schema accepted. A list that fails validation throws instead of producing a
+ * policy with an injected directive.
+ */
+export function extensionIframeCspBase(
+  imageSources: readonly string[],
+  mediaSources: readonly string[],
+): string {
+  const imageError = extensionDisplaySourcesError(imageSources);
+  if (imageError) {
+    throw new TypeError(`Invalid extension iframe img-src: ${imageError}`);
+  }
+  const mediaError = extensionDisplaySourcesError(mediaSources);
+  if (mediaError) {
+    throw new TypeError(`Invalid extension iframe media-src: ${mediaError}`);
+  }
+  return `default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src ${imageSources.join(" ")}; media-src ${mediaSources.join(" ")}; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';`;
+}
 
 export const EXTENSION_FRAME_ANCESTORS = [
   "'self'",
   "https://agent-native.com",
   "https://*.agent-native.com",
+  "https://agent-workspace.builder.io",
   "http://localhost:*",
   "http://127.0.0.1:*",
   "https://*.claudemcpcontent.com",
   "https://*.web-sandbox.oaiusercontent.com",
 ].join(" ");
 
-export const EXTENSION_IFRAME_CSP = `${EXTENSION_IFRAME_CSP_BASE} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
+// The two constants below are the policy an app gets before it configures
+// anything. `buildExtensionIframeCsp()` (server-only, ./iframe-csp.ts) resolves `extensions.iframeImageSources`
+// and `extensions.iframeMediaSources` and is what the render route sets, so a
+// deployment that widens img-src / media-src still gets the same
+// `connect-src 'self'` as one that does not. A remote image or media
+// origin is its own egress permission: the browser requests that URL.
+export const EXTENSION_IFRAME_CSP = `${extensionIframeCspBase(DEFAULT_EXTENSION_DISPLAY_SOURCES, DEFAULT_EXTENSION_DISPLAY_SOURCES)} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
 
-export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
+export const EXTENSION_IFRAME_META_CSP = extensionIframeCspBase(
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+);
+
+/**
+ * Authenticated endpoint that returns the deployment's validated
+ * `{ imageSources, mediaSources }`, so the client-rendered `srcDoc` frames
+ * (`ExtensionViewer`, `InlineExtensionFrame`) can apply the same img-src /
+ * media-src policy as the server render route without importing app config.
+ */
+export const EXTENSION_IFRAME_DISPLAY_SOURCES_PATH =
+  "/_agent-native/extensions/iframe/display-sources";
+
+export const EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE =
+  "agent-native-extension.hello-link-channel";
+export const EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE =
+  "agent-native-extension.host-bridge-port";
+export const EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE =
+  "agent-native-extension.link-channel-ready-ack";
+export const EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE =
+  "agent-native-extension.link-channel-ready";
+export const EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE =
+  "agent-native-extension.open-external-link";
+export const EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE =
+  "agent-native-extension.navigate-same-origin";
+
+/**
+ * Builds the meta CSP for a client-rendered frame from the
+ * `EXTENSION_IFRAME_DISPLAY_SOURCES_PATH` response. Anything that is not a
+ * valid pair of source lists falls back to the default policy, which blocks
+ * every remote image and media source (fail closed).
+ */
+export function extensionIframeMetaCspFromDisplaySources(
+  value: unknown,
+): string {
+  if (typeof value !== "object" || value === null) {
+    return EXTENSION_IFRAME_META_CSP;
+  }
+  const { imageSources, mediaSources } = value as Record<string, unknown>;
+  try {
+    return extensionIframeCspBase(
+      imageSources as readonly string[],
+      mediaSources as readonly string[],
+    );
+  } catch {
+    return EXTENSION_IFRAME_META_CSP;
+  }
+}
 
 /**
  * SECURITY — EXTENSION CONTENT IS UNTRUSTED.
@@ -28,7 +114,8 @@ export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
  *      include `allow-same-origin`. The viewer (`ExtensionViewer.tsx`,
  *      `EmbeddedExtension.tsx`) normalizes the sandbox through
  *      `normalizeAgentNativeExtensionSandbox()`, which permits scripts, forms,
- *      popups, and downloads but strips `allow-same-origin`. Adding
+ *      and downloads. External anchors ask the parent to open a fresh tab;
+ *      extensions never receive top-level navigation or popup permission. Adding
  *      `allow-same-origin` would give the extension full DOM access to the
  *      parent window via cross-frame script.
  *
@@ -36,6 +123,14 @@ export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
  *      hostile. The bridge in `iframe-bridge.ts` enforces a path allowlist,
  *      header sanitization, and method allowlist; do not relax those gates
  *      for "convenience" in this file or any caller.
+ *
+ *   3. `connect-src` stays `'self'` and stays out of app config. Remote
+ *      images and media are `extensions.iframeImageSources` /
+ *      `iframeMediaSources`, which reach only `img-src` / `media-src`.
+ *      Each allowed remote origin is an explicit egress permission: the
+ *      browser sends the URL, and extension script can encode data into
+ *      it. API calls stay on the permission-gated host bridge. Token
+ *      validation still stops a value from appending another directive.
  *
  * For the trust model rationale, see audit 05-tools-sandbox.md (C1) and the
  * `extensions` skill. When in doubt, fail closed.
@@ -53,14 +148,11 @@ export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
  */
 
 export interface ExtensionRenderBinding {
-  /** Email of the user who authored / owns the extension. */
   authorEmail: string;
-  /** Email of the user currently viewing/running the extension. */
   viewerEmail: string;
-  /** True when viewer === author. */
   isAuthor: boolean;
   /**
-   * Resolved role for the viewer ("owner" | "admin" | "editor" | "viewer").
+   * Resolved role for the viewer ("owner" | "admin" | "editor" | "commenter" | "viewer").
    *
    * TODO(security, audit H4): the host-side bridge does not yet gate any
    * helper based on this value — every viewer gets the same powers as the
@@ -69,13 +161,8 @@ export interface ExtensionRenderBinding {
    * eventually require an explicit consent step before running a shared
    * extension, audit C1). For now this is metadata only.
    */
-  role: "owner" | "admin" | "editor" | "viewer";
-  /** Where the extension definition came from. Database extensions are the default. */
+  role: "owner" | "admin" | "editor" | "commenter" | "viewer";
   source?: "database" | "local-files";
-  /**
-   * Fine-grained helper permissions for local file extensions. Database-backed
-   * extensions keep using the role table in the parent bridge.
-   */
   permissions?: {
     appActions?: string[];
     extensionData?: boolean;
@@ -84,12 +171,472 @@ export interface ExtensionRenderBinding {
   };
 }
 
+export function buildExtensionExternalLinkTargetBootstrap(
+  linkNonce?: string,
+): string {
+  const nonceAttribute = linkNonce
+    ? ` data-link-nonce="${escapeHtmlAttribute(linkNonce)}"`
+    : "";
+  return `<script${nonceAttribute}>
+    (function() {
+      var sendExternalLink = null;
+      var pendingLinkRequests = [];
+      var NativeMessageChannel = window.MessageChannel;
+      var messagePortPrototype = window.MessagePort && window.MessagePort.prototype;
+      var eventTargetPrototype = window.EventTarget && window.EventTarget.prototype;
+      var portAddEventListener = messagePortPrototype && messagePortPrototype.addEventListener || eventTargetPrototype && eventTargetPrototype.addEventListener;
+      var portPostMessage = messagePortPrototype && messagePortPrototype.postMessage;
+      var portClose = messagePortPrototype && messagePortPrototype.close;
+      var portStart = messagePortPrototype && messagePortPrototype.start;
+      var parentWindow = window.parent;
+      var parentPostMessage = parentWindow.postMessage.bind(parentWindow);
+      var bootstrapScript = document.currentScript;
+      var pendingPorts = [];
+      var handshakeTimer = null;
+      var handshakeRetryTimer = null;
+      var handshakePendingPort = null;
+      var activeChildPort = null;
+      var activeHostPort = null;
+      var handshakeAttempts = 0;
+      var linkNonce = bootstrapScript && bootstrapScript.getAttribute('data-link-nonce');
+      // Route frames receive this one-use value through window.name so it never
+      // appears in the URL or its PerformanceNavigationTiming entry.
+      var routeFrameName = window.name;
+      var routeNameContainsNonce = routeFrameName.indexOf('__agent_native_link_nonce=') === 0;
+      var routeNameMatch = /^__agent_native_link_nonce=([0-9a-f]{48})$/.exec(routeFrameName);
+      if (routeNameContainsNonce) window.name = '';
+      if (!linkNonce && routeNameMatch) linkNonce = routeNameMatch[1];
+      var routeHashContainsNonce = /^__agent_native_link_nonce=/.test(window.location.hash.slice(1));
+      if (!linkNonce) linkNonce = ${JSON.stringify(linkNonce ?? "")};
+      var shouldBlockExternalLinksWithoutNonce = false;
+      if (!linkNonce && parentWindow !== window) {
+        var navigationEntry = null;
+        var navigationEntryUnreadable = false;
+        try {
+          var navigationEntries = window.performance.getEntriesByType('navigation');
+          navigationEntry = navigationEntries.length ? navigationEntries[0] : null;
+        } catch (_) {
+          navigationEntryUnreadable = true;
+        }
+        var navigationRequiresRecovery =
+          navigationEntryUnreadable || !navigationEntry || navigationEntry.type !== 'navigate';
+        shouldBlockExternalLinksWithoutNonce =
+          routeHashContainsNonce || routeNameContainsNonce || navigationRequiresRecovery;
+      }
+      if (linkNonce) {
+        Object.defineProperty(window, '__agentNativeExternalLinkBridgeActive', {
+          value: true
+        });
+      }
+      if (bootstrapScript) bootstrapScript.remove();
+
+      function sendLinkChannelRequest() {
+        if (!linkNonce || !NativeMessageChannel || sendExternalLink || handshakePendingPort || handshakeAttempts >= 20) return;
+
+        handshakeAttempts += 1;
+        var channel = new NativeMessageChannel();
+        var childPort = channel.port1;
+        handshakePendingPort = childPort;
+        portAddEventListener.call(childPort, 'message', function(event) {
+          if (
+            event.data &&
+            event.data.type === ${JSON.stringify(EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE)} &&
+            event.ports.length === 1
+          ) {
+            if (activeHostPort) portClose.call(activeHostPort);
+            activeHostPort = event.ports[0];
+            window.__agentNativeExtensionHostPort = activeHostPort;
+            window.dispatchEvent(new Event('agent-native-extension-host-port-ready'));
+            return;
+          }
+          if (!event.data || event.data.type !== ${JSON.stringify(EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE)}) return;
+          if (pendingPorts.indexOf(childPort) === -1) return;
+          if (typeof event.data.verifyId === 'number') {
+            portPostMessage.call(childPort, {
+              type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE)},
+              verifyId: event.data.verifyId
+            });
+            return;
+          }
+          if (handshakeRetryTimer) clearTimeout(handshakeRetryTimer);
+          handshakeRetryTimer = null;
+          handshakePendingPort = null;
+          sendExternalLink = portPostMessage.bind(childPort);
+          activeChildPort = childPort;
+          if (handshakeTimer) clearInterval(handshakeTimer);
+          handshakeTimer = null;
+          pendingPorts.forEach(function(port) {
+            if (port !== childPort) portClose.call(port);
+          });
+          pendingPorts = [childPort];
+          portPostMessage.call(childPort, {
+            type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE)}
+          });
+          pendingLinkRequests.splice(0).forEach(function(request) {
+            sendExternalLink(request);
+          });
+        });
+        portStart.call(childPort);
+        pendingPorts.push(childPort);
+        handshakeRetryTimer = setTimeout(function() {
+          if (handshakePendingPort !== childPort) return;
+          handshakePendingPort = null;
+          handshakeRetryTimer = null;
+          if (handshakeAttempts >= 20) {
+            if (handshakeTimer) clearInterval(handshakeTimer);
+            handshakeTimer = null;
+            pendingPorts.forEach(function(port) { portClose.call(port); });
+            pendingPorts = [];
+            return;
+          }
+          sendLinkChannelRequest();
+        }, 500);
+        parentPostMessage({
+          type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE)},
+          nonce: linkNonce
+        }, '*', [channel.port2]);
+      }
+
+      function startLinkChannel() {
+        if (!linkNonce) return;
+        if (!handshakeTimer) {
+          handshakeTimer = setInterval(function() {
+            sendLinkChannelRequest();
+            if (handshakeAttempts >= 20 && handshakeTimer) {
+              clearInterval(handshakeTimer);
+              handshakeTimer = null;
+            }
+          }, 100);
+        }
+        sendLinkChannelRequest();
+      }
+
+      function sendLinkRequest(request) {
+        if (sendExternalLink) {
+          sendExternalLink(request);
+          return;
+        }
+        pendingLinkRequests.push(request);
+      }
+
+      // Clear the one-use browsing-context name before extension-provided scripts run.
+      startLinkChannel();
+      window.addEventListener('pagehide', function() {
+        if (handshakeTimer) clearInterval(handshakeTimer);
+        handshakeTimer = null;
+        if (handshakeRetryTimer) clearTimeout(handshakeRetryTimer);
+        handshakeRetryTimer = null;
+        handshakePendingPort = null;
+        var activeChildWasPending = activeChildPort && pendingPorts.indexOf(activeChildPort) !== -1;
+        pendingPorts.forEach(function(port) { portClose.call(port); });
+        pendingPorts = [];
+        if (activeChildPort && !activeChildWasPending) portClose.call(activeChildPort);
+        activeChildPort = null;
+        sendExternalLink = null;
+        pendingLinkRequests = [];
+        handshakeAttempts = 0;
+        if (activeHostPort) portClose.call(activeHostPort);
+        activeHostPort = null;
+        window.__agentNativeExtensionHostPort = null;
+      });
+      window.addEventListener('pageshow', function(event) {
+        if (event.persisted) startLinkChannel();
+      });
+
+      function linkFromEvent(event) {
+        var path = typeof event.composedPath === 'function'
+          ? event.composedPath()
+          : [];
+        if (!path || path.length === 0) path = [event.target];
+        for (var i = 0; i < path.length; i += 1) {
+          var element = path[i];
+          if (!element || element.nodeType !== 1) continue;
+          var name = String(element.localName || element.tagName || '').toLowerCase();
+          if (
+            (name === 'a' || name === 'area') &&
+            (element.hasAttribute('href') ||
+              element.hasAttributeNS('http://www.w3.org/1999/xlink', 'href'))
+          ) return element;
+        }
+        return null;
+      }
+
+      function linkTarget(link) {
+        if (link.hasAttribute('target')) return link.getAttribute('target') || '';
+        var base = document.querySelector('base[target]');
+        return base ? base.getAttribute('target') || '' : '';
+      }
+
+      function opensNewContext(event, link) {
+        if (event.type === 'auxclick') return event.button === 1;
+        var target = linkTarget(link);
+        var namedTarget = target && !/^_(self|parent|top|blank)$/i.test(target);
+        return event.type === 'click' && event.button === 0 && !event.altKey &&
+          (event.metaKey || event.ctrlKey || event.shiftKey || /^_blank$/i.test(target) || namedTarget);
+      }
+
+      var routedLinkEvents = new WeakSet();
+
+      function routeExternalLinkAfterHandlers(event, request) {
+        var path = typeof event.composedPath === 'function'
+          ? event.composedPath()
+          : [event.target];
+        var targets = [];
+        for (var i = 0; i < path.length; i += 1) {
+          var target = path[i];
+          if (
+            target &&
+            typeof target.addEventListener === 'function' &&
+            targets.indexOf(target) === -1
+          ) targets.push(target);
+        }
+        if (targets.indexOf(window) === -1) targets.push(window);
+
+        var finished = false;
+        var handlerPrevented = false;
+        var routerPrevented = false;
+        var settingRouterPrevented = false;
+        var originalPreventDefault = event.preventDefault;
+        var originalStopPropagation = event.stopPropagation;
+        var originalStopImmediatePropagation = event.stopImmediatePropagation;
+        var defaultPreventedDescriptor = Object.getOwnPropertyDescriptor(event, 'defaultPrevented');
+        var preventDefaultDescriptor = Object.getOwnPropertyDescriptor(event, 'preventDefault');
+        var stopPropagationDescriptor = Object.getOwnPropertyDescriptor(event, 'stopPropagation');
+        var stopImmediatePropagationDescriptor = Object.getOwnPropertyDescriptor(event, 'stopImmediatePropagation');
+        var defaultPreventedGetter = null;
+        var eventPrototype = event;
+        while (!defaultPreventedGetter && eventPrototype) {
+          var defaultPreventedCandidate = Object.getOwnPropertyDescriptor(eventPrototype, 'defaultPrevented');
+          if (defaultPreventedCandidate && defaultPreventedCandidate.get) {
+            defaultPreventedGetter = defaultPreventedCandidate.get;
+          }
+          eventPrototype = Object.getPrototypeOf(eventPrototype);
+        }
+        function restoreEventMethod(name, descriptor) {
+          if (descriptor) {
+            Object.defineProperty(event, name, descriptor);
+          } else {
+            delete event[name];
+          }
+        }
+        function restoreEventMethods() {
+          restoreEventMethod('defaultPrevented', defaultPreventedDescriptor);
+          restoreEventMethod('preventDefault', preventDefaultDescriptor);
+          restoreEventMethod('stopPropagation', stopPropagationDescriptor);
+          restoreEventMethod('stopImmediatePropagation', stopImmediatePropagationDescriptor);
+        }
+        Object.defineProperty(event, 'defaultPrevented', {
+          configurable: true,
+          get: function() {
+            if (routerPrevented) return handlerPrevented;
+            return handlerPrevented || (defaultPreventedGetter && defaultPreventedGetter.call(event));
+          }
+        });
+        Object.defineProperty(event, 'preventDefault', {
+          configurable: true,
+          value: function() {
+            if (!settingRouterPrevented) handlerPrevented = true;
+            return originalPreventDefault.call(event);
+          }
+        });
+        function preventDefaultForStoppedEvent() {
+          if (handlerPrevented || routerPrevented) return;
+          // Stopping propagation leaves the anchor's native action enabled unless canceled now.
+          routerPrevented = true;
+          settingRouterPrevented = true;
+          try {
+            originalPreventDefault.call(event);
+          } finally {
+            settingRouterPrevented = false;
+          }
+          queueMicrotask(function() { finish(event.cancelBubble); });
+        }
+        Object.defineProperty(event, 'stopPropagation', {
+          configurable: true,
+          value: function() {
+            originalStopPropagation.call(event);
+            preventDefaultForStoppedEvent();
+          }
+        });
+        Object.defineProperty(event, 'stopImmediatePropagation', {
+          configurable: true,
+          value: function() {
+            originalStopImmediatePropagation.call(event);
+            preventDefaultForStoppedEvent();
+          }
+        });
+        function cleanup() {
+          targets.forEach(function(target) {
+            target.removeEventListener(event.type, observeCapture, true);
+            target.removeEventListener(event.type, observeBubble, false);
+          });
+        }
+        function finish(shouldRoute) {
+          if (finished) return;
+          finished = true;
+          cleanup();
+          restoreEventMethods();
+          if (
+            !shouldRoute ||
+            handlerPrevented ||
+            (!routerPrevented && defaultPreventedGetter && defaultPreventedGetter.call(event))
+          ) return;
+          if (!sendExternalLink && parentWindow === window) return;
+          event.preventDefault();
+          sendLinkRequest(request);
+        }
+        function observe(isCapture) {
+          if (routerPrevented) return;
+          if (event.defaultPrevented) {
+            finish(false);
+          } else if (
+            event.cancelBubble &&
+            (!isCapture || event.currentTarget !== event.target)
+          ) {
+            finish(true);
+          } else if (
+            !isCapture &&
+            event.currentTarget === window &&
+            event.eventPhase === Event.BUBBLING_PHASE
+          ) {
+            finish(true);
+          }
+        }
+        function observeCapture() { observe(true); }
+        function observeBubble() { observe(false); }
+
+        targets.forEach(function(target) {
+          target.addEventListener(event.type, observeCapture, true);
+          target.addEventListener(event.type, observeBubble, false);
+        });
+        setTimeout(function() { finish(event.cancelBubble); }, 0);
+      }
+
+      function routeExternalLink(event) {
+        if (!event.isTrusted) return;
+        if (!linkNonce) {
+          if (shouldBlockExternalLinksWithoutNonce) {
+            blockExternalLinkWithoutNonce(event);
+          }
+          return;
+        }
+        if (event.defaultPrevented) return;
+        if (routedLinkEvents.has(event)) return;
+        if (event.type === 'click' && event.button !== 0) return;
+        if (event.type === 'auxclick' && event.button !== 1) return;
+        if (event.type !== 'click' && event.type !== 'auxclick') return;
+        var link = linkFromEvent(event);
+        if (!link) return;
+        if (event.type === 'click' && event.altKey) return;
+        var href = link.getAttribute('href');
+        if (href === null) {
+          href = link.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        }
+        if (href === null) href = link.getAttribute('xlink:href');
+        if (href === null) return;
+        var destination;
+        try {
+          destination = new URL(href, document.baseURI);
+        } catch (_) {
+          return;
+        }
+        if (destination.protocol !== 'http:' && destination.protocol !== 'https:') return;
+        var sameOrigin = destination.origin === new URL(document.baseURI).origin;
+        if (link.hasAttribute('download') && sameOrigin) return;
+        var target = linkTarget(link);
+        var openInNewContext = opensNewContext(event, link);
+        if (sameOrigin && !openInNewContext) {
+          if (href.trim().charAt(0) === '#') return;
+          routedLinkEvents.add(event);
+          routeExternalLinkAfterHandlers(event, {
+            type: ${JSON.stringify(EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE)},
+            href: destination.href,
+            target: target || '_self'
+          });
+          return;
+        }
+
+        var request = {
+          type: ${JSON.stringify(EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE)},
+          href: destination.href
+        };
+        if (openInNewContext) request.openInNewContext = true;
+        routedLinkEvents.add(event);
+        routeExternalLinkAfterHandlers(event, request);
+      }
+
+      function blockExternalLinkWithoutNonce(event) {
+        if (!event.isTrusted || event.defaultPrevented) return;
+        if (event.type === 'click' && event.button !== 0) return;
+        if (event.type === 'auxclick' && event.button !== 1) return;
+        if (event.type !== 'click' && event.type !== 'auxclick') return;
+        if (event.type === 'click' && event.altKey) return;
+        var link = linkFromEvent(event);
+        if (!link) return;
+        var href = link.getAttribute('href');
+        if (href === null) href = link.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        if (href === null) href = link.getAttribute('xlink:href');
+        if (href === null) return;
+        try {
+          var destination = new URL(href, document.baseURI);
+          if (
+            (destination.protocol === 'http:' ||
+              destination.protocol === 'https:') &&
+            destination.origin !== new URL(document.baseURI).origin
+          ) {
+            event.preventDefault();
+          }
+        } catch (_) {
+          event.preventDefault();
+        }
+      }
+
+      if (linkNonce && typeof Element !== 'undefined' && Element.prototype.attachShadow) {
+        var nativeAttachShadow = Element.prototype.attachShadow;
+        Element.prototype.attachShadow = function(init) {
+          var root = nativeAttachShadow.apply(this, arguments);
+          if (init && init.mode === 'closed') {
+            root.addEventListener('click', routeExternalLink, true);
+            root.addEventListener('auxclick', routeExternalLink, true);
+          }
+          return root;
+        };
+      }
+
+      window.addEventListener('click', routeExternalLink, true);
+      window.addEventListener('auxclick', routeExternalLink, true);
+
+      document.addEventListener('submit', function(event) {
+        if (!linkNonce) return;
+        var form = event.target;
+        if (!form || form.tagName !== 'FORM') return;
+        var submitter = event.submitter;
+        var action = submitter && submitter.hasAttribute('formaction')
+          ? submitter.formAction
+          : form.action;
+        try {
+          var destination = new URL(action, document.baseURI);
+          if (
+            (destination.protocol === 'http:' || destination.protocol === 'https:') &&
+            destination.origin !== new URL(document.baseURI).origin
+          ) event.preventDefault();
+        } catch (_) {
+          event.preventDefault();
+        }
+      }, true);
+    })();
+  </script>`;
+}
+
 export function buildExtensionHtml(
   content: string,
   themeVars: string,
   isDark: boolean,
   extensionId?: string,
   binding?: ExtensionRenderBinding,
+  metaCsp: string = EXTENSION_IFRAME_META_CSP,
+  linkNonce?: string,
+  enableExternalLinkBridge = true,
 ): string {
   const extensionIdJson = JSON.stringify(extensionId ?? "");
   const extensionIdAttr = escapeHtmlAttribute(extensionId ?? "");
@@ -107,7 +654,7 @@ export function buildExtensionHtml(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="${EXTENSION_IFRAME_META_CSP}" />
+  <meta http-equiv="Content-Security-Policy" content="${metaCsp}" />
   ${binding && !binding.isAuthor ? `<meta name="agent-native-extension-author" content="${escapeHtmlAttribute(binding.authorEmail)}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -171,6 +718,7 @@ export function buildExtensionHtml(
       _collectError(msg, stack);
     });
   </script>
+  ${enableExternalLinkBridge ? buildExtensionExternalLinkTargetBootstrap(linkNonce) : ""}
   <!--
     SECURITY: pinned to exact patch versions + SRI integrity hashes. A
     malicious republish of @tailwindcss/browser@4.x or alpinejs@3.x would
@@ -229,6 +777,11 @@ export function buildExtensionHtml(
   </style>
 	  <style>
 	    *, *::before, *::after { border-color: hsl(var(--border)); }
+	    /* Alpine only honours x-cloak when a stylesheet hides it, and extension
+	       content is a body snippet that cannot supply one. Without this, an
+	       x-cloak overlay paints over the whole extension until Alpine boots —
+	       and forever if it never does. */
+	    [x-cloak] { display: none !important; }
 	    html, body {
 	      /* Transparent so the iframe inherits the host surface (dashboard panel,
 	         sidebar, chat) instead of painting the browser's default white canvas.
@@ -244,7 +797,6 @@ export function buildExtensionHtml(
 	      color: hsl(var(--foreground));
 	      font-family: 'Inter', sans-serif;
 	      margin: 0;
-	      min-height: 100vh;
 	      padding: var(--agent-native-extension-padding);
 	    }
 	    body:has(> [data-extension-layout="full-bleed"]),
@@ -475,7 +1027,9 @@ export function buildExtensionHtml(
 	        type: 'agent-native-send-to-chat',
 	        message: text,
 	        context: options.context,
-	        submit: options.submit !== false,
+	        // Extension code can run polling and error handlers without a user
+	        // gesture; submitting is opt-in for an explicit user action.
+	        submit: options.submit === true,
 	        openSidebar: options.openSidebar !== false,
 	      }, '*');
 	      return { ok: true };
@@ -535,6 +1089,16 @@ export function buildExtensionHtml(
 
     var _extensionId = ${extensionIdJson};
     var _extensionBinding = ${bindingJson};
+    // Proves an open-url request comes from this shell document, not from a
+    // page the iframe later navigated to. Announced with the binding below.
+    // Without secure randomness there is no token, the host never offers to
+    // open links, and links keep their native behavior.
+    var _openUrlToken =
+      window.crypto && typeof window.crypto.getRandomValues === 'function'
+        ? Array.prototype.map.call(window.crypto.getRandomValues(new Uint8Array(16)), function(b) {
+            return ('0' + b.toString(16)).slice(-2);
+          }).join('')
+        : '';
     window.extensionBinding = _extensionBinding;
     // Legacy alias for extension bodies authored before the rename.
     window.toolBinding = _extensionBinding;
@@ -550,10 +1114,75 @@ export function buildExtensionHtml(
           type: 'agent-native-extension-binding',
           extensionId: _extensionId,
           binding: _extensionBinding,
+          openUrlToken: _openUrlToken,
         },
         '*',
       );
     } catch (_) {}
+    // A tab opened from this sandboxed iframe inherits the sandbox (an opaque
+    // origin with no cookies), so apps like HubSpot render blank. Once the host
+    // says it can, hand new-tab web links to it: it opens them unsandboxed with
+    // noopener, so the new tab gets no handle on the host page. Without that
+    // reply (no host, a standalone /render, or no token) links stay native, and
+    // window.open is never touched. Set up here, before extension content runs,
+    // so the reply can't be missed and extension globals can't interfere.
+    (function(token) {
+      if (!token) return;
+      var hostOpensLinks = false;
+      window.addEventListener('message', function(event) {
+        if (event.source !== window.parent) return;
+        var msg = event.data;
+        if (msg && msg.type === 'agent-native-extension-open-url-ready') hostOpensLinks = true;
+      });
+      function linkOf(e) {
+        var path = typeof e.composedPath === 'function' ? e.composedPath() : [e.target];
+        for (var i = 0; i < path.length; i++) {
+          var node = path[i];
+          if (node instanceof HTMLAnchorElement || node instanceof HTMLAreaElement) {
+            if (node.hasAttribute('href')) return { element: node, url: node };
+          } else if (node && node.namespaceURI === 'http://www.w3.org/2000/svg' && node.localName === 'a') {
+            // An SVG link's href isn't a URL string; resolve it the way an HTML
+            // link would, against the document's base URL.
+            var raw = node.getAttribute('href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+            if (raw) {
+              var resolved = document.createElement('a');
+              resolved.href = raw;
+              return { element: node, url: resolved };
+            }
+          }
+        }
+        return null;
+      }
+      function targetOf(link) {
+        if (link.hasAttribute('target')) return link.getAttribute('target');
+        var base = document.querySelector('base[target]');
+        return base ? base.getAttribute('target') : '';
+      }
+      function route(e) {
+        if (window.__agentNativeExternalLinkBridgeActive || !hostOpensLinks || !e.isTrusted || e.defaultPrevented) return;
+        if (e.type === 'click' && e.button !== 0) return;
+        if (e.type === 'auxclick' && e.button !== 1) return;
+        if (e.type !== 'click' && e.type !== 'auxclick') return;
+        var link = linkOf(e);
+        if (!link || link.element.hasAttribute('download')) return;
+        if (link.url.protocol !== 'http:' && link.url.protocol !== 'https:') return;
+        var target = targetOf(link.element);
+        var newTab = e.type === 'auxclick'
+          ? e.button === 1
+          : e.button === 0 && !e.altKey &&
+            (e.metaKey || e.ctrlKey || e.shiftKey || /^_blank$/i.test(target));
+        var defaultOrSelf = /^_self$/i.test(target) ||
+          (!link.element.hasAttribute('target') && !document.querySelector('base[target]'));
+        var externalSameTab = e.type === 'click' && e.button === 0 && !e.altKey &&
+          defaultOrSelf && link.url.origin !== window.location.origin;
+        if (!newTab && !externalSameTab) return;
+        e.preventDefault();
+        window.parent.postMessage({ type: 'agent-native-extension-open-url', url: link.url.href, token: token }, '*');
+      }
+      // On window, so extension handlers delegated on document run first.
+      window.addEventListener('click', route);
+      window.addEventListener('auxclick', route);
+    })(_openUrlToken);
     // SECURITY: when the viewer is not the author of this extension, emit a
     // clear console warning. The bridge currently runs every helper with the
     // viewer's session — a malicious shared extension can call any action,
@@ -691,27 +1320,333 @@ export function buildExtensionHtml(
 	    // transient inline chat UI uses srcdoc, so detect that by parent frame.
 	    // The host listens for agent-native-extension-resize and adjusts height.
 	    if (new URLSearchParams(location.search).get('slot') || window.parent !== window) {
-	      var _lastH = 0;
-	      var _reportHeight = function() {
-	        var h = Math.max(
-	          document.documentElement.scrollHeight,
-	          document.body ? document.body.scrollHeight : 0,
-	        );
-	        if (h !== _lastH) {
-	          _lastH = h;
-	          window.parent.postMessage({ type: 'agent-native-extension-resize', height: h }, '*');
+      var _ro = null;
+      var _positionedElements = new Set();
+      var _motionElements = new Set();
+      var _observedPositionedElements = new Set();
+	      var _isExcludedFromHeight = function(element, body) {
+	        if (!element) return false;
+	        if (window.getComputedStyle(element).position === 'fixed') return true;
+	        var current = element.parentElement;
+        while (current && current !== body) {
+	          var style = window.getComputedStyle(current);
+	          if (
+	            style.position === 'fixed' ||
+	            /^(?:auto|scroll|overlay|hidden|clip)$/.test(style.overflowY)
+	          ) return true;
+	          current = current.parentElement;
+	        }
+	        return false;
+	      };
+	      var _trackPositionedElement = function(element) {
+	        if (!element || element.nodeType !== 1 || _motionElements.has(element)) {
+	          return false;
+	        }
+	        _motionElements.add(element);
+	        return true;
+	      };
+      var _observePositioned = function() {
+        if (!document.body) return;
+        _positionedElements.clear();
+        _motionElements.forEach(function(element) {
+          if (!document.body.contains(element)) _motionElements.delete(element);
+        });
+        var _nextObservedPositionedElements = new Set();
+        if (_ro) {
+          _ro.observe(document.documentElement);
+          _ro.observe(document.body);
+        }
+        Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(element) {
+	          var style = window.getComputedStyle(element);
+		          if (style.position !== 'static' || style.transform !== 'none') {
+		            _positionedElements.add(element);
+          }
+          if (_ro && style.position === 'absolute') {
+            _ro.observe(element);
+            _nextObservedPositionedElements.add(element);
+          }
+        });
+        if (_ro && typeof _ro.unobserve === 'function') {
+          _observedPositionedElements.forEach(function(element) {
+            if (!_nextObservedPositionedElements.has(element)) {
+              _ro.unobserve(element);
+            }
+          });
+        }
+        _observedPositionedElements = _nextObservedPositionedElements;
+	      };
+	      var _enqueueResizeWork = function(callback) {
+	        if (typeof window.requestAnimationFrame === 'function') {
+	          window.requestAnimationFrame(callback);
+	        } else {
+	          window.setTimeout(callback, 16);
 	        }
 	      };
-	      if (typeof ResizeObserver !== 'undefined') {
-	        var _ro = new ResizeObserver(_reportHeight);
-	        document.addEventListener('DOMContentLoaded', function() {
-	          _ro.observe(document.documentElement);
-	          if (document.body) _ro.observe(document.body);
+	      var _resizeWorkScheduled = false;
+	      var _positionObservationScheduled = false;
+	      var _positionMonitorScheduled = false;
+	      var _positionMonitorActive = false;
+	      var _activeCssMotionCount = 0;
+      // ponytail: cap polling for motion without a reliable completion signal.
+      var _positionMonitorFramesRemaining = 0;
+	      var _activeAnimations = function() {
+	        if (typeof document.getAnimations !== 'function') return null;
+	        var animations;
+	        try {
+	          animations = document.getAnimations();
+		          // coercion-ok: animation introspection can be unavailable; CSS events remain authoritative.
+		        } catch (_) {
+	          return null;
+	        }
+	        var active = [];
+	        for (var i = 0; i < animations.length; i++) {
+	          if (
+	            animations[i].playState === 'running' ||
+	            animations[i].playState === 'pending'
+	          ) {
+	            active.push(animations[i]);
+	          }
+	        }
+	        return active;
+	      };
+	      var _scheduleResizeWork = function() {
+	        if (_resizeWorkScheduled) return;
+	        _resizeWorkScheduled = true;
+	        _enqueueResizeWork(function() {
+	          _resizeWorkScheduled = false;
+	          _reportHeight();
 	        });
+	      };
+	      var _watchedAnimations = [];
+	      var _removeWatchedAnimation = function(animation) {
+	        var index = _watchedAnimations.indexOf(animation);
+	        if (index !== -1) _watchedAnimations.splice(index, 1);
+	      };
+	      var _watchAnimationCompletion = function(animation) {
+	        if (_watchedAnimations.indexOf(animation) !== -1) return false;
+	        _watchedAnimations.push(animation);
+	        try {
+	          var finished = animation.finished;
+          if (finished && typeof finished.then === 'function') {
+            finished.then(function() {
+              _removeWatchedAnimation(animation);
+              _reportHeight();
+              _motionElements.delete(animation.effect && animation.effect.target);
+              _scheduleResizeWork();
+            }, function() {
+              _removeWatchedAnimation(animation);
+              _reportHeight();
+              _motionElements.delete(animation.effect && animation.effect.target);
+              _scheduleResizeWork();
+            });
+	          }
+	        } catch (_) {
+	          _removeWatchedAnimation(animation);
+	        }
+	        return true;
+	      };
+	      var _schedulePositionObservation = function() {
+	        if (_positionObservationScheduled) return;
+	        _positionObservationScheduled = true;
+	        _enqueueResizeWork(function() {
+	          _positionObservationScheduled = false;
+	          _observePositioned();
+	        });
+	      };
+      var _schedulePositionMonitor = function() {
+        if (!_positionMonitorActive) return;
+        if (_positionMonitorScheduled) return;
+        _positionMonitorScheduled = true;
+        _enqueueResizeWork(function() {
+          _positionMonitorScheduled = false;
+          if (!_positionMonitorActive) return;
+          var body = document.body;
+          if (!body) return;
+          _reportHeight();
+          var animations = _activeAnimations();
+          var hasFiniteAnimation = false;
+          var hasIndefiniteAnimation =
+            animations === null || _activeCssMotionCount > 0;
+          if (animations) {
+            animations.forEach(function(animation) {
+              var effect = animation.effect;
+              _trackPositionedElement(effect && effect.target);
+              _watchAnimationCompletion(animation);
+              var timing =
+                effect && typeof effect.getComputedTiming === 'function'
+                  ? effect.getComputedTiming()
+                  : null;
+              if (timing && timing.endTime !== Infinity) {
+                hasFiniteAnimation = true;
+              } else {
+                hasIndefiniteAnimation = true;
+              }
+            });
+          }
+          if (hasFiniteAnimation || hasIndefiniteAnimation) {
+            _positionMonitorFramesRemaining -= 1;
+          }
+          if (
+            (hasFiniteAnimation || hasIndefiniteAnimation) &&
+            _positionMonitorFramesRemaining > 0
+          ) {
+            _schedulePositionMonitor();
+            return;
+          }
+          _positionMonitorActive = false;
+          if (!hasFiniteAnimation && !hasIndefiniteAnimation) {
+            _motionElements.clear();
+          }
+          _scheduleResizeWork();
+        });
+      };
+	      var _startPositionMonitor = function(event) {
+	        _trackPositionedElement(event && event.target);
+	        if (
+            event &&
+            (event.type === 'animationstart' ||
+              event.type === 'transitionrun')
+	        ) {
+	          _activeCssMotionCount += 1;
+	        }
+	        _positionMonitorActive = true;
+        _positionMonitorFramesRemaining = 120;
+        _schedulePositionObservation();
+	        _scheduleResizeWork();
+        _schedulePositionMonitor();
+        if (typeof _scheduleAnimationProbe === 'function') {
+          _scheduleAnimationProbe();
+        }
+      };
+	      var _startPositionMonitorIfActive = function() {
+	        var animations = _activeAnimations();
+	        if (animations && animations.length) {
+	          var newlyObserved = false;
+	          animations.forEach(function(animation) {
+	            var effect = animation.effect;
+            _trackPositionedElement(effect && effect.target);
+            if (_watchAnimationCompletion(animation)) newlyObserved = true;
+          });
+	          if (newlyObserved) _startPositionMonitor();
+          else if (_positionMonitorActive) _schedulePositionMonitor();
+        }
+      };
+      var _finishPositionMonitor = function(event) {
+        if (_activeCssMotionCount > 0) _activeCssMotionCount -= 1;
+	        var animations = _activeAnimations();
+	        if (animations) {
+	          animations.forEach(function(animation) {
+	            var effect = animation.effect;
+	            _trackPositionedElement(effect && effect.target);
+	          });
+	        }
+        _positionMonitorActive =
+          (animations && animations.length > 0) ||
+          (animations === null && _activeCssMotionCount > 0);
+        if (!_positionMonitorActive) {
+          _reportHeight();
+          _motionElements.clear();
+        }
+        _scheduleResizeWork();
+        if (_positionMonitorActive) _schedulePositionMonitor();
+      };
+      if (
+        typeof Element !== 'undefined' &&
+        typeof Element.prototype.animate === 'function'
+      ) {
+        var _nativeAnimate = Element.prototype.animate;
+        Element.prototype.animate = function() {
+          var animation = _nativeAnimate.apply(this, arguments);
+          _trackPositionedElement(this);
+          _watchAnimationCompletion(animation);
+          _startPositionMonitor();
+          return animation;
+        };
+      }
+      var _lastH = null;
+      var _measurePositionedContent = function(body, bodyTop) {
+        var bottom = 0;
+        var measure = function(element) {
+          if (!element || !body.contains(element) || _isExcludedFromHeight(element, body)) {
+            return;
+          }
+          bottom = Math.max(bottom, element.getBoundingClientRect().bottom - bodyTop);
+        };
+        _positionedElements.forEach(measure);
+        _motionElements.forEach(measure);
+        return bottom;
+      };
+      var _reportHeight = function() {
+        try {
+          var body = document.body;
+          if (!body) return;
+          var bodyRect = body.getBoundingClientRect();
+          var bodyStyle = window.getComputedStyle(body);
+          var paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+          var paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+          var contentBottom = Math.max(
+            paddingTop,
+            bodyRect.height - paddingBottom,
+            _measurePositionedContent(body, bodyRect.top),
+          );
+          var h = Math.ceil(contentBottom + paddingBottom);
+          if (h !== _lastH) {
+            _lastH = h;
+            window.parent.postMessage({ type: 'agent-native-extension-resize', height: h }, '*');
+          }
+          // coercion-ok: transient measurement failures are retried by later reports.
+        } catch (_) {}
+      };
+	      window.addEventListener('scroll', _scheduleResizeWork, true);
+	      window.addEventListener('resize', _scheduleResizeWork);
+	      document.addEventListener('animationstart', _startPositionMonitor, true);
+	      document.addEventListener('transitionrun', _startPositionMonitor, true);
+	      document.addEventListener('transitionstart', _startPositionMonitor, true);
+	      document.addEventListener('animationend', _finishPositionMonitor, true);
+	      document.addEventListener('animationcancel', _finishPositionMonitor, true);
+	      document.addEventListener('transitionend', _finishPositionMonitor, true);
+	      document.addEventListener('transitioncancel', _finishPositionMonitor, true);
+	      if (typeof ResizeObserver !== 'undefined') {
+	        _ro = new ResizeObserver(_scheduleResizeWork);
+		        document.addEventListener('DOMContentLoaded', function() {
+		          _observePositioned();
+		          _scheduleResizeWork();
+		          _startPositionMonitorIfActive();
+	          if (typeof MutationObserver !== 'undefined' && document.body) {
+	            new MutationObserver(function() {
+	              _schedulePositionObservation();
+	              _scheduleResizeWork();
+	              _startPositionMonitorIfActive();
+	            }).observe(document.body, {
+	              attributes: true,
+	              characterData: true,
+	              childList: true,
+	              subtree: true,
+	            });
+	          }
+	        });
+	      } else {
+	        setInterval(function() {
+	          _observePositioned();
+	          _reportHeight();
+	        }, 1000);
 	      }
 	      // Initial reports — Alpine takes a tick to render after DOMContentLoaded.
 	      setTimeout(_reportHeight, 50);
 	      setTimeout(_reportHeight, 250);
+	      var _animationProbeTimer = null;
+      var _scheduleAnimationProbe = function() {
+        if (_animationProbeTimer !== null) return;
+        _animationProbeTimer = window.setTimeout(function() {
+          _animationProbeTimer = null;
+          _startPositionMonitorIfActive();
+          var animations = _activeAnimations();
+          if ((animations && animations.length) || _positionMonitorActive) {
+            _scheduleAnimationProbe();
+          }
+        }, 250);
+      };
+	      if (typeof document.getAnimations === 'function') _scheduleAnimationProbe();
 	    }
 
 	    window.addEventListener('message', function(event) {

@@ -7,11 +7,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { actionsToEngineTools } from "../agent/production-agent.js";
 import { createDevScriptRegistry } from "../scripts/dev/index.js";
 import { createDbScriptEntries } from "../server/agent-chat/script-entries.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   BASH_OUTPUT_HEAD_CHARS,
   BASH_OUTPUT_TAIL_CHARS,
+  canonicalizeShellCommand,
   createCodingToolRegistry,
   isReadOnlyShellCommand,
+  runCodingCommand,
   spawnBackgroundCommand,
   truncateBashOutput,
   truncateCodingOutput,
@@ -53,6 +56,39 @@ describe("shared coding tools", () => {
     );
     await expect(registry.bash.run({ command: "ls -a" })).resolves.toContain(
       "hello.txt",
+    );
+  });
+
+  it("keeps restricted commands and file paths inside the workspace", async () => {
+    const cwd = tempDir();
+    const outside = tempDir();
+    fs.writeFileSync(path.join(outside, "secret.txt"), "outside\n", "utf8");
+    fs.symlinkSync(outside, path.join(cwd, "outside-link"), "dir");
+    const registry = createCodingToolRegistry({ cwd, restrictToCwd: true });
+
+    await expect(registry.bash.run({ command: "pwd" })).resolves.toContain(cwd);
+    await expect(
+      registry.bash.run({ command: "pwd", cwd: ".." }),
+    ).resolves.toBe("Error: cwd must stay inside the workspace.");
+    await expect(
+      registry.bash.run({ command: "cat /etc/hosts" }),
+    ).resolves.toBe("Error: command paths must stay inside the workspace.");
+    await expect(
+      registry.bash.run({ command: "git -C .. status" }),
+    ).resolves.toBe("Error: command paths must stay inside the workspace.");
+    await expect(
+      registry.read.run({ path: "outside-link/secret.txt" }),
+    ).resolves.toBe("Error: path must stay inside the workspace.");
+    await expect(
+      registry.write.run({
+        path: "outside-link/created.txt",
+        content: "must stay inside\n",
+      }),
+    ).resolves.toBe("Error: path must stay inside the workspace.");
+    expect(fs.existsSync(path.join(outside, "created.txt"))).toBe(false);
+    fs.symlinkSync(outside, path.join(cwd, ".agent-native"), "dir");
+    expect(() => spawnBackgroundCommand("echo must-stay-inside", cwd)).toThrow(
+      "Background log path must stay inside the workspace.",
     );
   });
 
@@ -129,6 +165,29 @@ describe("shared coding tools", () => {
     ).resolves.toContain("raw database tools are disabled");
   });
 
+  it("enforces request-scoped app actions through the local bash path", async () => {
+    const registry = await createDevScriptRegistry({ databaseTools: false });
+
+    await expect(
+      runWithRequestContext(
+        { run: { allowedActionNames: ["allowed-action"] } },
+        () =>
+          registry.bash.run({
+            command: "pnpm action denied-action --value=secret",
+          }),
+      ),
+    ).resolves.toContain(
+      'action "denied-action" is not available in this request\'s action surface',
+    );
+
+    await expect(
+      runWithRequestContext(
+        { run: { allowedActionNames: ["allowed-action"] } },
+        () => registry.bash.run({ command: "printf local-bash" }),
+      ),
+    ).resolves.toContain("local-bash");
+  });
+
   it("can expose read-only database tools without raw SQL write tools", async () => {
     const registry = await createDevScriptRegistry({ databaseTools: "read" });
 
@@ -193,7 +252,6 @@ describe("shared coding tools", () => {
     expect(isReadOnlyShellCommand("rg button; node -e '1'")).toBe(false);
     expect(isReadOnlyShellCommand("rg button | tee out.txt")).toBe(false);
     expect(isReadOnlyShellCommand("rg $(node -e '1')")).toBe(false);
-    // sed: prints are read-only; w/W/-i can write and must be rejected.
     expect(isReadOnlyShellCommand("sed -n '1,10p' README.md")).toBe(true);
     expect(isReadOnlyShellCommand("sed -n '/window/p' README.md")).toBe(true);
     expect(isReadOnlyShellCommand("sed -n '1w notes.txt' README.md")).toBe(
@@ -296,17 +354,22 @@ describe("structuredMeta side-channel via onToolMetadata", () => {
       },
     });
 
-    await registry.edit.run({
+    const args = {
       path: "greet.txt",
       oldText: "hello world",
       newText: "hi world",
-    });
+    };
+    await registry.edit.run(args);
 
     const editMeta = doneMetas[0];
     expect(editMeta?.toolKind).toBe("edit");
     expect(editMeta?.filePath).toBe("greet.txt");
     expect(editMeta?.oldText).toContain("hello world");
     expect(editMeta?.newText).toContain("hi world");
+    expect(registry.edit.fileMutationProof?.(args)).toMatchObject({
+      path: "greet.txt",
+      contentSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
   });
 
   it("calls onToolMetadata for write with content/lineCount on done", async () => {
@@ -319,13 +382,18 @@ describe("structuredMeta side-channel via onToolMetadata", () => {
       },
     });
 
-    await registry.write.run({ path: "new.txt", content: "line1\nline2\n" });
+    const args = { path: "new.txt", content: "line1\nline2\n" };
+    await registry.write.run(args);
 
     const writeMeta = doneMetas[0];
     expect(writeMeta?.toolKind).toBe("write");
     expect(writeMeta?.filePath).toBe("new.txt");
     expect(writeMeta?.lineCount).toBe(3);
     expect(writeMeta?.content).toContain("line1");
+    expect(registry.write.fileMutationProof?.(args)).toMatchObject({
+      path: "new.txt",
+      contentSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
   });
 });
 
@@ -341,6 +409,12 @@ describe("bash background execution", () => {
     expect(result).toMatch(/Background process spawned/);
     expect(result).toMatch(/pid:/);
     expect(result).toMatch(/log:/);
+    const logMatch = result.match(/log:\s*(\S+\.log)/);
+    expect(
+      logMatch?.[1]?.startsWith(
+        path.join(cwd, ".agent-native", "background-logs"),
+      ),
+    ).toBe(true);
   });
 
   it("spawnBackgroundCommand returns pid and log path in output", async () => {
@@ -353,13 +427,15 @@ describe("bash background execution", () => {
 
   it("writes output to the log file", async () => {
     const cwd = tempDir();
+    const registry = createCodingToolRegistry({ cwd, restrictToCwd: true });
     const result = spawnBackgroundCommand("echo logged-output", cwd);
     const logMatch = result.match(/log:\s*(\S+)/);
     expect(logMatch).not.toBeNull();
     const logFile = logMatch![1];
-    // Give the process a moment to write its output.
     await new Promise((resolve) => setTimeout(resolve, 200));
-    const content = fs.readFileSync(logFile, "utf8");
+    const content = await registry.read.run({
+      path: path.relative(cwd, logFile),
+    });
     expect(content).toContain("logged-output");
     fs.unlinkSync(logFile);
   });
@@ -380,8 +456,100 @@ describe("bash background execution", () => {
     expect(result).toBe("Error: blocked by policy");
   });
 
+  it("settles when a backgrounded grandchild keeps the output pipe open", async () => {
+    const started = Date.now();
+    const result = await runCodingCommand(
+      "(sleep 30 &) ; echo started",
+      process.cwd(),
+      20_000,
+    );
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("started");
+    expect(result.outputStillOpen).toBe(true);
+    expect(result.timedOut).toBe(false);
+  }, 15_000);
+
+  it("reports a clean finish as fully closed", async () => {
+    const result = await runCodingCommand("echo done", process.cwd(), 20_000);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("done");
+    expect(result.outputStillOpen).toBeUndefined();
+  }, 15_000);
+
+  it("kills the whole process group on timeout", async () => {
+    const result = await runCodingCommand(
+      "sleep 30 | cat",
+      process.cwd(),
+      1_000,
+    );
+    expect(result.timedOut).toBe(true);
+  }, 15_000);
+
+  it("canonicalizes shell quoting and flags what it cannot decode", () => {
+    expect(canonicalizeShellCommand("git 'checkout' main").canonical).toBe(
+      "git checkout main",
+    );
+    expect(canonicalizeShellCommand("gi''t checkout").canonical).toBe(
+      "git checkout",
+    );
+    expect(canonicalizeShellCommand('rm -"r"f x').canonical).toBe("rm -rf x");
+    expect(canonicalizeShellCommand("rm -r\\f x").canonical).toBe("rm -rf x");
+    expect(canonicalizeShellCommand("$'\\x67it' status").unanalyzable).toBe(
+      true,
+    );
+    expect(canonicalizeShellCommand("rg pattern src").unanalyzable).toBe(false);
+  });
+
+  it("flags runtime-built text it cannot see through", () => {
+    for (const command of [
+      "$(printf git) checkout main",
+      "`printf git` checkout",
+      'echo "$(whoami)"',
+    ]) {
+      expect(canonicalizeShellCommand(command).unanalyzable).toBe(true);
+    }
+    expect(canonicalizeShellCommand("rg '$(foo)' src").unanalyzable).toBe(
+      false,
+    );
+    expect(canonicalizeShellCommand("rg '`foo`' src").unanalyzable).toBe(false);
+  });
+
+  it("still SIGKILLs a TERM-ignoring descendant after the call returns", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-sigkill-"));
+    tmpRoots.push(root);
+    const pidFile = path.join(root, "child.pid");
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const immune = [
+      "process.on('SIGTERM', () => {});",
+      `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+      "setTimeout(() => {}, 45000);",
+    ].join("");
+    await runCodingCommand(
+      `node -e ${JSON.stringify(immune)} & sleep 45`,
+      root,
+      1_000,
+    );
+
+    const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+    expect(Number.isInteger(pid)).toBe(true);
+
+    const deadline = Date.now() + 8_000;
+    while (alive(pid) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(alive(pid)).toBe(false);
+  }, 25_000);
+
   it("default timeout is 120000 ms", () => {
-    // Verify the exported default via tool description which mentions 120000.
     const registry = createCodingToolRegistry({});
     const bashTool = registry.bash.tool;
     const timeoutParam = (

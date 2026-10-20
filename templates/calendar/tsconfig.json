@@ -2,6 +2,7 @@
   "extends": "@agent-native/core/tsconfig.base.json",
   "compilerOptions": {
     "ignoreDeprecations": "6.0",
+    "types": ["vite/client"],
     "rootDirs": [".", "./.react-router/types"],
     "paths": {
       "*": ["./*"],
@@ -13,6 +14,7 @@
     "app/**/*",
     "server/**/*",
     "shared/**/*",
+    "scripts/**/*",
     "vite.config.ts",
     "react-router.config.ts",
     ".react-router/types/**/*",

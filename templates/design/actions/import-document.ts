@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   extractDocumentColors,
   extractDocumentFonts,
@@ -51,7 +51,6 @@ export default defineAction({
     const processedFiles = capped.map((file) => {
       const contentType = classifyFile(file.fileType);
 
-      // Truncate textContent before regex scanning to bound CPU/memory usage.
       let text = file.textContent;
       if (text) {
         const encoded = new TextEncoder().encode(text);

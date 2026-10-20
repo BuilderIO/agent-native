@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
 import { z } from "zod";
 
@@ -6,7 +6,7 @@ import { updateWorkspaceAppMetadata } from "../server/lib/app-creation-store.js"
 
 export default defineAction({
   description:
-    "Update the human-editable display name and description Dispatch uses for a workspace app. These details are also used as connected-agent/A2A context.",
+    "Update the human-editable display name and description Dispatch uses for a workspace app. Workspace members can edit these shared details, which are also used as connected-agent/A2A context.",
   schema: z.object({
     appId: z
       .string()

@@ -1,0 +1,237 @@
+// @vitest-environment happy-dom
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const sessionMocks = vi.hoisted(() => ({ useSession: vi.fn() }));
+vi.mock("../use-session.js", () => sessionMocks);
+
+const analyticsMocks = vi.hoisted(() => ({ trackEvent: vi.fn() }));
+vi.mock("../analytics.js", () => analyticsMocks);
+
+import { useLab, useLabState, useLabStates, useLabs } from "./use-lab.js";
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+describe("useLabState / useLab / useLabs session gating", () => {
+  const roots: ReturnType<typeof createRoot>[] = [];
+  const containers: HTMLDivElement[] = [];
+
+  afterEach(() => {
+    for (const root of roots) act(() => root.unmount());
+    for (const container of containers) container.remove();
+    roots.length = 0;
+    containers.length = 0;
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  function mountProbe(Probe: React.FC) {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const queryClient = new QueryClient();
+    return act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      ),
+    );
+  }
+
+  it("never fires get-labs for a signed-out visitor, and keeps today's not-yet-known default", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "unauthenticated" });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    let lab: boolean | undefined;
+    let labs: Record<string, boolean> | undefined;
+    function Probe() {
+      lab = useLab("beta-editor");
+      labs = useLabs();
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(lab).toBe(true);
+    expect(labs).toEqual({});
+  });
+
+  it("fires get-labs once the session is authenticated", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        "beta-editor": { enabled: true, source: "choice", mixed: false },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let lab: boolean | undefined;
+    function Probe() {
+      lab = useLab("beta-editor");
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(lab).toBe(true);
+  });
+
+  it("keeps per-Lab read errors distinct while preserving readable choices", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        "bad-lab": { error: "invalid-choice" },
+        "good-lab": { enabled: true, source: "choice", mixed: false },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let states: Record<string, any> | undefined;
+    function Probe() {
+      states = useLabStates();
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(states).toEqual({
+      "bad-lab": { error: "invalid-choice" },
+      "good-lab": { enabled: true, source: "choice", mixed: false },
+    });
+  });
+
+  it("does not fire while the session is still loading", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "loading" });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    function Probe() {
+      useLabState("beta-editor");
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reads a lab definition as its default until the server answers", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "loading" });
+    vi.stubGlobal("fetch", vi.fn());
+
+    const results: Record<string, boolean> = {};
+    function Probe() {
+      results.onLab = useLab({ key: "voice", defaultEnabled: true });
+      results.offLab = useLab({ key: "meetings" });
+      results.onState = useLabState({
+        key: "voice",
+        defaultEnabled: true,
+      }).enabled;
+      results.bareKey = useLab("meetings");
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(results).toEqual({
+      onLab: true,
+      offLab: false,
+      onState: true,
+      // A bare key can't know its default, so it stays on as before.
+      bareKey: true,
+    });
+  });
+
+  it("reads the saved value over the default once the server answers", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          voice: { enabled: false, source: "choice", mixed: false },
+        }),
+      ),
+    );
+
+    let lab: boolean | undefined;
+    function Probe() {
+      lab = useLab({ key: "voice", defaultEnabled: true });
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(lab).toBe(false);
+  });
+
+  it("reads a Lab state again after it failed to load", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "bad request" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValue(
+          jsonResponse({
+            voice: { enabled: true, source: "choice", mixed: false },
+          }),
+        ),
+    );
+
+    let state: ReturnType<typeof useLabState> | undefined;
+    function Probe() {
+      state = useLabState("voice");
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(state?.isError).toBe(true);
+
+    await act(async () => {
+      state?.refetch();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(state).toMatchObject({ isError: false, enabled: true });
+  });
+
+  it("reports isLoading while the session itself is still resolving", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "loading" });
+    vi.stubGlobal("fetch", vi.fn());
+
+    let isLoading: boolean | undefined;
+    function Probe() {
+      ({ isLoading } = useLabState("beta-editor"));
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(isLoading).toBe(true);
+  });
+});

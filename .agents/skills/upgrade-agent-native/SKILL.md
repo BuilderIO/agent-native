@@ -1,7 +1,7 @@
 ---
 name: upgrade-agent-native
 description: >-
-  Bring an older Agent Native app or workspace current. Use when updating
+  Bring an older Agent-Native app or workspace current. Use when updating
   @agent-native/core, fixing a broken upgrade, or when tempted to patch or
   override core/dispatch packages to make an old branch run.
 scope: dev
@@ -9,14 +9,15 @@ metadata:
   internal: true
 ---
 
-# Upgrade Agent Native
+# Upgrade Agent-Native
 
 ## Rule
 
-When an older Agent Native app/branch needs to run on current packages, use
+When an older Agent-Native app/branch needs to run on current packages, use
 `agent-native upgrade`. Never "fix" upgrade breakage with
-`pnpm.overrides`, `patchedDependencies`, `resolutions`, local patches, or
-edits under `node_modules/@agent-native/*` — especially not against
+`pnpm patch`, `pnpm patch-commit`, `pnpm.patchedDependencies`,
+`pnpm.overrides`, `patchedDependencies`, `resolutions`, local patch artifacts,
+or edits under `node_modules/@agent-native/*` — especially not against
 `@agent-native/core` or `@agent-native/dispatch`.
 
 ## Why
@@ -28,25 +29,40 @@ install → refresh scaffold skills → verify, then fix **app** code only.
 
 ## How
 
+For the Core 0.198.0 package and import migration, follow the
+[Core 0.198.0 upgrade runbook](../../../packages/core/docs/content/upgrading-core-ui.mdx).
+It covers the preview and apply commands, Toolkit and optional peer packages,
+codemod limits, and a symbol-level path map.
+
 1. **Preview migration codemods first**
 
    ```bash
-   npx @agent-native/core@latest upgrade --codemods
+   npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
    ```
 
-   Codemods are preview-by-default: read the diff before applying it. Do not
-   manually edit imports before running this command; the migration manifest is
-   the source of truth for renamed specifiers and symbols.
+   `--dry-run` previews the diff without writing. Do not manually edit imports
+   before applying the codemod; the migration manifest is the source of truth
+   for renamed specifiers and symbols.
 
-2. **Apply the reviewed codemods, then run the upgrade**
+2. **Apply the reviewed upgrade and codemods**
 
    ```bash
-   npx @agent-native/core@latest upgrade --codemods --yes
-   npx @agent-native/core@latest upgrade
+   npx @agent-native/core@0.198.0 upgrade --codemods
    ```
 
-   Or from an already-installed CLI: `pnpm exec agent-native upgrade` /
-   `agent-native upgrade`.
+   Use the versioned CLI while the app still has Core 0.196 or another older
+   Core version: its local CLI carries an older migration manifest. After Core
+   0.198.0 is installed, `npx agent-native upgrade --codemods` (or
+   `pnpm exec agent-native upgrade --codemods` from an already-installed CLI)
+   uses the matching manifest. Either invocation applies supported codemods and
+   runs the upgrade, including dependency installation, scaffold skill refresh,
+   and typecheck when available. Do not run a second upgrade command just to
+   apply the codemods.
+
+   Afterward, run `npx agent-native doctor` from the app root. Its default
+   `migration-manifest` and `feature-dependencies` checks report stale imports
+   and missing optional peers detected from local settings. Confirm remote
+   deployment settings separately because Doctor cannot inspect them.
 
    What it does:
 
@@ -109,6 +125,8 @@ install → refresh scaffold skills → verify, then fix **app** code only.
 
 - Don't add `pnpm.overrides`, `overrides`, `resolutions`, or
   `patchedDependencies` for any `@agent-native/*` package
+- Don't run `pnpm patch` or `pnpm patch-commit`, or commit files under
+  `patches/`, for any dependency
 - Don't edit `node_modules/@agent-native/core` or
   `node_modules/@agent-native/dispatch`
 - Don't invent local "dispatch behavior" shims to paper over version skew

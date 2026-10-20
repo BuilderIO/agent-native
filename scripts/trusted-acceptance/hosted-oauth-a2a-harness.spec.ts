@@ -55,7 +55,7 @@ describe("hosted OAuth and A2A acceptance harness", () => {
         },
       },
     });
-    assert.match(identity.email, /\+qa-/);
+    assert.match(identity.email, /\+autoz-/);
     assert.equal(identity.passwordEntropyBits, 256);
     let password = "";
     await identity.withPassword((value) => {

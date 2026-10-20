@@ -7,15 +7,10 @@ import {
   fetchEmailPreview,
   type EmailPreview,
 } from "../client/transactional-emails";
+import { resolveEmailPreviewAssets } from "../lib/transactional-email-preview";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Skeleton } from "./ui/skeleton";
 
-/**
- * The "core" app id means the email was read from Dispatch's own local
- * catalog (see transactional-email.tsx), not a cross-app fetch, so its
- * preview must render the same way — Dispatch always has the definition
- * registered locally and a cross-app fetch would have no real appPath to hit.
- */
 function useEmailPreviewQuery(appId: string, appPath: string, id: string) {
   const isCore = appId === "core";
   const local = useActionQuery<EmailPreview>(
@@ -79,7 +74,7 @@ export function EmailPreviewPane({
       <iframe
         title={t("dispatch.transactionalEmail.previewFrameTitle", { name })}
         sandbox=""
-        srcDoc={preview.data.html}
+        srcDoc={resolveEmailPreviewAssets(preview.data.html)}
         // guard:allow-raw-color — the frame previews email HTML, which renders on white in mail clients regardless of app theme.
         className="h-96 w-full rounded-xl border bg-white"
       />

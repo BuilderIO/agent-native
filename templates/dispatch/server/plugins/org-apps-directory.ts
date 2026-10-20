@@ -14,8 +14,9 @@
  * (`packages/core/src/a2a/server.ts` `verifyA2AToken`) and
  * `receiveA2ASecretHandler` (`packages/core/src/org/handlers.ts`): peek the
  * unverified `org_domain`, build the ordered candidate-secret set
- * (`process.env.A2A_SECRET` then the org's per-domain `a2a_secret` via
- * `getA2ASecretByDomain` from `@agent-native/core/org`), verify the HS256
+ * (the org's per-domain `a2a_secret` via `getA2ASecretByDomain` from
+ * `@agent-native/core/org`, with the global secret only for a proven
+ * single-org legacy deployment), verify the HS256
  * signature, then require the verified org_domain to resolve to a LOCAL org
  * (`resolveOrgByDomain`). Cross-org / unauthenticated callers are rejected.
  * The crypto/secret-resolution helpers are imported from `@agent-native/core`
@@ -24,7 +25,7 @@
  *
  * APP-LIST SOURCE — Dispatch's existing connected-apps registry.
  * -------------------------------------------------------------
- * Dispatch already has a connected-apps concept: `discoverAgents("dispatch")`
+ * Dispatch already has a connected-apps concept: `discoverAgents()`
  * from `@agent-native/core/server/agent-discovery` (the same source
  * `list-connected-agents` and the `call-agent` delegation path use). It
  * returns the allow-listed first-party apps with their prod URLs PLUS any
@@ -37,9 +38,9 @@
  * Auth-guard reachability: `/_agent-native/*` is 401'd by the core auth
  * guard when there is no session. This route is authenticated by the A2A
  * JWT, not a cookie, so — exactly like the identity-sso plugin's authorize
- * route — it registers its exact path as a `publicPath` via a second
- * additive `createAuthPlugin({ publicPaths })` call. "Public path" only
- * means "the guard does not pre-empt with a 401"; the handler still performs
+ * route — Dispatch's primary auth plugin receives its exact `publicPath`
+ * from `setupDispatch`. "Public path" only means "the guard does not pre-empt
+ * with a 401"; the handler still performs
  * the full A2A JWT + same-org check itself (defense in depth). The path is
  * matched exactly, so no other `/_agent-native/org/*` route is affected.
  *
@@ -47,28 +48,43 @@
  */
 
 import {
+  canonicalA2AAudience,
+  getGlobalA2ASecret,
+} from "@agent-native/core/a2a";
+import {
   getA2ASecretByDomain,
   getOrgDomain,
+  isSoleOrgDomain,
   resolveOrgByDomain,
 } from "@agent-native/core/org";
 import {
-  createAuthPlugin,
+  getConfiguredAppBasePath,
+  getForwardedRequestOrigin,
   getH3App,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { discoverAgents } from "@agent-native/core/server/agent-discovery";
+import { discoverOrgDirectoryAgents } from "@agent-native/core/server/agent-discovery";
 import { defineEventHandler, getMethod, getRequestHeader } from "h3";
 import type { H3Event } from "h3";
 
 import {
   ORG_APPS_PATH,
   buildOrgAppsResponse,
+  createOrgDirectorySuccessCache,
   extractBearerToken,
   verifyA2ABearerToken,
   type DiscoveredAppLike,
 } from "../lib/org-apps-directory.js";
 
 const SELF_APP_ID = "dispatch";
+const directoryCache = createOrgDirectorySuccessCache<DiscoveredAppLike[]>();
+
+class DirectoryDiscoveryUnavailable extends Error {
+  constructor(readonly reason: "remote-manifests" | "workspace-metadata") {
+    super("Organization app directory discovery is unavailable.");
+    this.name = "DirectoryDiscoveryUnavailable";
+  }
+}
 
 function jsonResponse(
   body: unknown,
@@ -81,14 +97,13 @@ function jsonResponse(
   });
 }
 
-const orgAppsHandler = defineEventHandler(
+export const orgAppsHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
     const method = getMethod(event);
     if (method !== "GET" && method !== "HEAD") {
       return jsonResponse({ error: "method_not_allowed" }, 405);
     }
 
-    // ---- A2A peer auth (reuses core's A2A verification recipe) ----------
     const token = extractBearerToken(getRequestHeader(event, "authorization"));
     if (!token) {
       return jsonResponse(
@@ -104,8 +119,15 @@ const orgAppsHandler = defineEventHandler(
 
     const verified = await verifyA2ABearerToken({
       token,
-      globalSecret: process.env.A2A_SECRET,
+      expectedAudience: canonicalA2AAudience(
+        getForwardedRequestOrigin(event),
+        getConfiguredAppBasePath(),
+      ),
       resolveOrgSecretByDomain: (domain) => getA2ASecretByDomain(domain),
+      resolveSoleOrgGlobalSecretByDomain: async (domain) => {
+        if (!(await isSoleOrgDomain(domain))) return null;
+        return getGlobalA2ASecret() || null;
+      },
     });
     if (!verified) {
       return jsonResponse(
@@ -128,8 +150,6 @@ const orgAppsHandler = defineEventHandler(
       localOrg = null;
     }
     if (!localOrg) {
-      // Either the domain is unknown here, or it belongs to a different org
-      // than this Dispatch serves — do not disclose anything cross-org.
       return jsonResponse(
         {
           error: "forbidden",
@@ -140,22 +160,53 @@ const orgAppsHandler = defineEventHandler(
       );
     }
 
-    // ---- Build the directory from Dispatch's existing registry ---------
-    // Scope discovery to the verified caller's org/user so org-tracked
-    // custom/remote agents resolve correctly (discoverAgents reads request
-    // context). No DB writes; this is strictly read-only.
-    const apps: DiscoveredAppLike[] = await runWithRequestContext(
-      { userEmail: verified.email, orgId: localOrg.orgId },
-      async () => {
-        const discovered = await discoverAgents(SELF_APP_ID);
-        return discovered.map((a) => ({
-          id: a.id,
-          name: a.name,
-          description: a.description,
-          url: a.url,
-        }));
-      },
-    );
+    const includeDirectoryApp =
+      getRequestHeader(event, "x-agent-native-include-directory-app") === "1";
+    const preferLocalUrls =
+      process.env.AGENT_NATIVE_PREFER_LOCAL_APP_URLS === "1";
+    const cacheKey = [
+      localOrg.orgId,
+      includeDirectoryApp ? "include-self" : "exclude-self",
+      preferLocalUrls ? "local" : "hosted",
+    ].join("|");
+    let apps: DiscoveredAppLike[];
+    try {
+      apps = await directoryCache.get(cacheKey, async () =>
+        runWithRequestContext({ orgId: localOrg.orgId }, async () => {
+          const startedAt = Date.now();
+          const discovered = await discoverOrgDirectoryAgents(
+            includeDirectoryApp ? undefined : SELF_APP_ID,
+            { preferLocalUrls },
+          );
+          const durationMs = Date.now() - startedAt;
+          if (discovered.status === "unavailable") {
+            console.error("[org-apps-directory] discovery unavailable", {
+              stage: discovered.reason,
+              durationMs,
+            });
+            throw new DirectoryDiscoveryUnavailable(discovered.reason);
+          }
+          console.info("[org-apps-directory] discovery complete", {
+            durationMs,
+            appCount: discovered.agents.length,
+          });
+          return discovered.agents.map((agent) => ({
+            id: agent.id,
+            name: agent.name,
+            description: agent.description,
+            url: agent.url,
+          }));
+        }),
+      );
+    } catch (error) {
+      const reason =
+        error instanceof DirectoryDiscoveryUnavailable
+          ? error.reason
+          : "unexpected";
+      return jsonResponse({ error: "directory_unavailable", reason }, 503, {
+        "Cache-Control": "private, no-store",
+      });
+    }
 
     let orgLabel = verified.orgDomain;
     try {
@@ -169,26 +220,19 @@ const orgAppsHandler = defineEventHandler(
     const body = buildOrgAppsResponse({
       org: orgLabel,
       apps,
-      selfId: SELF_APP_ID,
+      selfId: includeDirectoryApp ? undefined : SELF_APP_ID,
     });
 
-    // Short, cacheable, read-only. Private (per-org) so shared caches must
-    // not store it; a small max-age lets the caller poll cheaply.
     return jsonResponse(body, 200, {
       "Cache-Control": "private, max-age=60",
     });
   },
 );
 
-/**
- * Dispatch org-app-directory plugin. Mounts the directory route and
- * registers its exact path as a public path so the core auth guard does not
- * 401 the A2A peer call before our own JWT + same-org check runs. The
- * `createAuthPlugin({ publicPaths })` call is additive — it appends to the
- * live guard config without disturbing Dispatch's primary auth plugin
- * (same mechanism the identity-sso plugin relies on).
- */
+export function _resetOrgAppsDirectoryCache(): void {
+  directoryCache.clear();
+}
+
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(ORG_APPS_PATH, orgAppsHandler);
-  return createAuthPlugin({ publicPaths: [ORG_APPS_PATH] })(nitroApp);
 };

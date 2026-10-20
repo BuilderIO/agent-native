@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -14,6 +14,7 @@ import {
   Legend,
 } from "recharts";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,6 +23,15 @@ import type { QueryMetricsResult } from "@/lib/query-metrics";
 import type { ExplorerConfig } from "../types";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
+function stringifyValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return typeof value === "number" || typeof value === "boolean"
+    ? String(value)
+    : JSON.stringify(value);
+}
 
 const COLORS = [
   "var(--brand-blue)",
@@ -74,8 +84,13 @@ export function ExplorerChart({
     );
   }
 
+  const incomplete = Boolean(
+    result?.partial || result?.truncated || result?.warnings?.length,
+  );
+  let chart: ReactNode;
+
   if (error) {
-    return (
+    chart = (
       <Card>
         <CardContent className="p-6">
           <div className="text-destructive text-sm">
@@ -84,27 +99,41 @@ export function ExplorerChart({
         </CardContent>
       </Card>
     );
-  }
-
-  if (rows.length === 0) {
-    return (
+  } else if (rows.length === 0) {
+    chart = (
       <Card>
         <CardContent className="flex items-center justify-center h-64 text-muted-foreground text-sm">
           {t("explorer.noDataReturned")}
         </CardContent>
       </Card>
     );
+  } else {
+    switch (config.chartType) {
+      case "metric":
+        chart = <MetricView rows={rows} config={config} />;
+        break;
+      case "table":
+        chart = <TableView rows={rows} />;
+        break;
+      case "line":
+      case "bar":
+        chart = <TimeSeriesView rows={rows} config={config} />;
+        break;
+    }
   }
 
-  switch (config.chartType) {
-    case "metric":
-      return <MetricView rows={rows} config={config} />;
-    case "table":
-      return <TableView rows={rows} />;
-    case "line":
-    case "bar":
-      return <TimeSeriesView rows={rows} config={config} />;
-  }
+  return (
+    <>
+      {incomplete && (
+        <Alert role="status">
+          <AlertDescription>
+            {t("explorer.incompleteResultsWarning")}
+          </AlertDescription>
+        </Alert>
+      )}
+      {chart}
+    </>
+  );
 }
 
 function MetricView({
@@ -117,7 +146,7 @@ function MetricView({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
       {rows.map((row, i) => {
-        const label = String(
+        const label = stringifyValue(
           row.event_label ?? config.events[0]?.event ?? "Count",
         );
         const value = Number(row.count ?? 0);
@@ -250,7 +279,6 @@ function TimeSeriesView({
 
   const { chartData, seriesNames } = useMemo(() => {
     if (!seriesKey) {
-      // Simple: date + count
       return {
         chartData: rows.map((r) => ({
           date: formatDate(r.date),
@@ -260,13 +288,12 @@ function TimeSeriesView({
       };
     }
 
-    // Pivot: date x series → wide format
     const dateMap = new Map<string, Record<string, number>>();
     const allSeries = new Set<string>();
 
     for (const row of rows) {
       const d = formatDate(row.date);
-      const s = String(row[seriesKey] ?? "unknown");
+      const s = stringifyValue(row[seriesKey] ?? "unknown");
       const v = Number(row.count ?? 0);
       allSeries.add(s);
       if (!dateMap.has(d)) dateMap.set(d, {});
@@ -274,7 +301,6 @@ function TimeSeriesView({
       entry[s] = (entry[s] ?? 0) + v;
     }
 
-    // Rank series by total, keep top 10
     const totals = new Map<string, number>();
     for (const entry of dateMap.values()) {
       for (const [s, v] of Object.entries(entry)) {
@@ -359,10 +385,9 @@ function TimeSeriesView({
 
 function formatDate(val: unknown): string {
   if (!val) return "";
-  const s = String(val);
-  // BigQuery DATE format: { value: "2024-01-15" } or plain string
+  const s = stringifyValue(val);
   if (typeof val === "object" && val !== null && "value" in val) {
-    return String((val as any).value);
+    return stringifyValue((val as { value: unknown }).value);
   }
   return s.slice(0, 10);
 }
@@ -371,6 +396,6 @@ function formatCell(val: unknown): string {
   if (val == null) return "";
   if (typeof val === "number") return val.toLocaleString();
   if (typeof val === "object" && val !== null && "value" in val)
-    return String((val as any).value);
-  return String(val);
+    return stringifyValue((val as { value: unknown }).value);
+  return stringifyValue(val);
 }

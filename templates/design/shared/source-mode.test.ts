@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  designScreenSourceTypeFromData,
   designConnectionIdFromData,
+  designConnectionIdsFromData,
   designSourceTypeFromData,
   makeLocalhostRouteId,
   normalizeDesignSourceType,
@@ -54,6 +56,18 @@ describe("source mode helpers", () => {
       ),
     ).toBe("legacy");
     expect(designConnectionIdFromData("not-json")).toBeUndefined();
+    expect(
+      designConnectionIdsFromData({
+        connectionId: "primary",
+        screenMetadata: {
+          first: { connectionId: "primary" },
+          second: { connectionId: "secondary" },
+        },
+        localhostScreens: {
+          third: { connectionId: "legacy" },
+        },
+      }),
+    ).toEqual(["primary", "secondary", "legacy"]);
   });
 
   it("creates stable ids and titles for localhost route artboards", () => {
@@ -64,7 +78,6 @@ describe("source mode helpers", () => {
     expect(makeLocalhostRouteId("/design/:id")).toMatch(
       /^route-design-pid-[a-z0-9]+$/,
     );
-    // Param routes and plausible literal equivalents must NOT collide:
     expect(makeLocalhostRouteId("/design-id")).toMatch(
       /^route-design-id-[a-z0-9]+$/,
     );
@@ -74,7 +87,6 @@ describe("source mode helpers", () => {
     expect(makeLocalhostRouteId("/design/:id")).not.toBe(
       makeLocalhostRouteId("/design/pid"),
     );
-    // Wildcard catch-alls stay distinct from their base path:
     expect(makeLocalhostRouteId("/users")).toMatch(/^route-users-[a-z0-9]+$/);
     expect(makeLocalhostRouteId("/users/*")).toMatch(
       /^route-users-w-[a-z0-9]+$/,
@@ -114,5 +126,28 @@ describe("source mode helpers", () => {
     expect(sourcePositionPrecision("vue-inspector")).toBe("authored");
     expect(sourcePositionPrecision("svelte-meta")).toBe("authored");
     expect(sourcePositionPrecision("debug-stack")).toBe("transformed");
+  });
+});
+
+describe("designScreenSourceTypeFromData", () => {
+  it("keeps an unmarked screen inline in a localhost design", () => {
+    const data = {
+      sourceType: "localhost",
+      screenMetadata: {
+        local: { sourceType: "localhost" },
+        seeded: {},
+        withSourceFile: { sourceFile: "app/routes/home.tsx" },
+      },
+      localhostScreens: {
+        legacy: { sourceFile: "app/routes/legacy.tsx" },
+      },
+    };
+    expect(designScreenSourceTypeFromData(data, "local")).toBe("localhost");
+    expect(designScreenSourceTypeFromData(data, "seeded")).toBe("inline");
+    expect(designScreenSourceTypeFromData(data, "withSourceFile")).toBe(
+      "inline",
+    );
+    expect(designScreenSourceTypeFromData(data, "legacy")).toBe("localhost");
+    expect(designScreenSourceTypeFromData(data, "missing")).toBe("inline");
   });
 });

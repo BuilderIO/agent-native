@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.view.source-query"
 name: "Cross-source Queries"
-user_promise: "One visual typed Query composes authorized Databases, Sources, and Queries without copying their records or hiding where values come from."
+user_promise: "One visual typed Query composes authorized Collections, Sources, and Queries without copying their records or hiding where values come from."
 primary_user_job: "Combine related work from several places into one useful live result while keeping each record's owner, access, and write route clear."
 kind: "surface"
 state: "approved_shape"
@@ -12,7 +12,7 @@ availability: "universal"
 dependencies: ["content.query.object", "content.source.catalog"]
 related_features: ["content.feature.connect-your-sources"]
 roadmap_boundary: "feature"
-acceptance_summary: "A visual builder composes access-scoped Databases, governed Sources, and Queries with explicit stable-identity alignment and Query-owned outputs; every result retains provenance, and edits or creation route only through declared unambiguous authorized owners."
+acceptance_summary: "A visual builder composes access-scoped Collections, governed Sources, and Queries with explicit stable-identity alignment and Query-owned outputs; every result retains provenance, and edits or creation route only through declared unambiguous authorized owners."
 proof_requirements:
   [
     "Visual and agent editing of one validated typed Query representation with sources, alignment, filters, joins, preview, renderers, scale, and cycle checks",
@@ -32,12 +32,12 @@ Work often lives in several collections that people need to read together.
 Copying it into a third table produces stale duplicates and ambiguous writes.
 A cross-source Query provides one visual composition surface while leaving
 canonical records, stored values, access, and provider authority with the
-Databases and Sources that already own them.
+Collections and Sources that already own them.
 
 ## Example workflow
 
 An editor creates a Query, adds two governed provider collections and a local
-Database, then aligns two stable title fields into an output field named
+Collection, then aligns two stable title fields into an output field named
 `Title`. They add a relation-based join, a filter, and a Board renderer. Each
 result shows its Source provenance. Editing a mapped provider field routes only
 to its authorized owner; the `Title` alias and a computed score are Query-owned
@@ -48,7 +48,7 @@ uses a declared route or asks which source should own it.
 
 ### One visual builder and typed representation
 
-- A Query may compose authorized Databases, catalog-selected Sources, and other
+- A Query may compose authorized Collections, catalog-selected Sources, and other
   Queries through unions, joins, relationships, filters, grouping, sorting,
   limits, variables, and compatible renderers without creating a third
   canonical row store.
@@ -85,7 +85,7 @@ uses a declared route or asks which source should own it.
   unambiguous. Computed fields, aggregates, lossy alignments, and ambiguous
   joined fields are read-only.
 - A Query declares zero or more creation routes terminating in writable
-  Databases or Sources. A View may select an applicable declared default but
+  Collections or Sources. A View may select an applicable declared default but
   cannot invent a destination; zero routes is read-only, one route proceeds,
   and several routes require a permitted default or an explicit choice.
 - Existing row-union source identity, guarded writes, per-source bindings,
@@ -94,7 +94,7 @@ uses a declared route or asks which source should own it.
 
 ## Boundaries and non-goals
 
-- A Database owns a writable collection, schema, membership, validation, and
+- A Collection owns a writable collection, schema, membership, validation, and
   canonical create route. A Query derives a result and output contract. A View
   presents and refines either input.
 - Sources catalog owns governed Source discovery; Source adapters own provider
@@ -137,7 +137,7 @@ write/create behavior. This Capability remains `approved_shape`.
 ## Proof plan
 
 1. Build equivalent Queries through visual controls and agent Actions across
-   Databases, governed Sources, and nested Queries; compare AST, output schema,
+   Collections, governed Sources, and nested Queries; compare AST, output schema,
    preview, cycle checks, and compatible renderer behavior.
 2. Test stable field identities, qualified collisions, explicit alignments,
    aliases, computed outputs, joins, filters, variables, provenance, freshness,

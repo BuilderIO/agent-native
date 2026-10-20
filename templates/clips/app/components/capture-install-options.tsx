@@ -3,14 +3,24 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBrandApple,
   IconBrandChrome,
+  IconBrandUbuntu,
   IconBrandWindows,
   IconChevronDown,
   IconDeviceDesktop,
-  IconExternalLink,
 } from "@tabler/icons-react";
-import { type ReactNode, useSyncExternalStore } from "react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  useSyncExternalStore,
+} from "react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
@@ -25,8 +35,6 @@ import {
 } from "@/lib/capture-install-options";
 import { cn } from "@/lib/utils";
 
-// SSR snapshot is always false; same-tab markDesktopAppDownloaded() notifies
-// subscribers so mounted CTAs flip to "Open" without a reload.
 function useHasDownloadedDesktopApp(): boolean {
   return useSyncExternalStore(
     subscribeDownloaded,
@@ -43,45 +51,69 @@ type PopoverPlacement = {
 type CaptureInstallButtonProps = Omit<ButtonProps, "asChild"> &
   PopoverPlacement & {
     children: ReactNode;
-    /** Label shown once the desktop app has been downloaded. */
     downloadedChildren?: ReactNode;
     desktopHref?: string;
   };
 
 type CaptureInstallInlineLinkProps = PopoverPlacement & {
   children: ReactNode;
-  /** Label shown once the desktop app has been downloaded. */
   downloadedChildren?: ReactNode;
   className?: string;
   desktopHref?: string;
 };
 
-/**
- * The desktop-app tile shows the icon for the visitor's current OS — Apple on
- * macOS, Windows on Windows — and falls back to a neutral desktop glyph on other
- * platforms or during SSR. The Chrome tile always uses the Chrome brand icon.
- */
 function desktopOsIcon(): typeof IconDeviceDesktop {
   if (typeof navigator === "undefined") return IconDeviceDesktop;
   const ua = navigator.userAgent;
   if (/Windows/i.test(ua)) return IconBrandWindows;
   if (/Mac|iPhone|iPad/i.test(ua)) return IconBrandApple;
+  if (/Linux/i.test(ua)) return IconBrandUbuntu;
   return IconDeviceDesktop;
+}
+
+const subscribeToDesktopPlatform = () => () => undefined;
+
+export function DesktopPlatformIcon(
+  props: ComponentProps<typeof IconDeviceDesktop>,
+) {
+  const DesktopIcon = useSyncExternalStore(
+    subscribeToDesktopPlatform,
+    desktopOsIcon,
+    () => IconDeviceDesktop,
+  );
+  return <DesktopIcon {...props} />;
 }
 
 function InstallOptionsContent({ desktopHref = "/download" }) {
   const t = useT();
   const chromeAvailable = Boolean(clipsChromeExtensionUrl);
-  const DesktopIcon = desktopOsIcon();
-
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-1">
+      <a
+        href={appPath(desktopHref)}
+        className="flex items-start gap-3 rounded-md px-2.5 py-2 text-start transition hover:bg-accent"
+      >
+        <DesktopPlatformIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium">
+            {t("captureInstall.desktopTitle")}
+          </span>
+          <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+            {t("captureInstall.desktopDescription")}
+          </span>
+        </span>
+      </a>
+
+      {chromeAvailable && (
+        <div aria-hidden="true" className="mx-2 h-px bg-border" />
+      )}
+
       {chromeAvailable ? (
         <a
           href={clipsChromeExtensionUrl ?? undefined}
           target="_blank"
           rel="noreferrer"
-          className="flex items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
+          className="flex items-start gap-3 rounded-md px-2.5 py-2 text-start transition hover:bg-accent"
         >
           <IconBrandChrome className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <span className="min-w-0 flex-1">
@@ -92,10 +124,9 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
               {t("captureInstall.chromeDescription")}
             </span>
           </span>
-          <IconExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </a>
       ) : (
-        <div className="flex items-start gap-3 rounded-md border border-dashed border-border p-3 text-start opacity-70">
+        <div className="flex items-start gap-3 rounded-md px-2.5 py-2 text-start opacity-70">
           <IconBrandChrome className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">
@@ -107,21 +138,6 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
           </span>
         </div>
       )}
-
-      <a
-        href={appPath(desktopHref)}
-        className="flex items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
-      >
-        <DesktopIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium">
-            {t("captureInstall.desktopTitle")}
-          </span>
-          <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-            {t("captureInstall.desktopDescription")}
-          </span>
-        </span>
-      </a>
     </div>
   );
 }
@@ -131,7 +147,7 @@ export function CaptureInstallButton({
   downloadedChildren,
   className,
   desktopHref = "/download",
-  align = "end",
+  align = "center",
   side = "bottom",
   ...buttonProps
 }: CaptureInstallButtonProps) {
@@ -176,6 +192,82 @@ export function CaptureInstallButton({
         <InstallOptionsContent desktopHref={desktopHref} />
       </PopoverContent>
     </Popover>
+  );
+}
+
+export function CaptureInstallMenu({
+  children,
+  className,
+  desktopHref = "/download",
+  size = "sm",
+  variant = "ghost",
+  ...buttonProps
+}: Omit<CaptureInstallButtonProps, "downloadedChildren">) {
+  const t = useT();
+  const downloaded = useHasDownloadedDesktopApp();
+  const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
+
+  if (downloaded) {
+    const { onClick, ...restButtonProps } = buttonProps;
+    return (
+      <Button
+        className={className}
+        size={size}
+        variant={variant}
+        {...restButtonProps}
+        onClick={(event) => {
+          onClick?.(event);
+          if (event.defaultPrevented) return;
+          attemptOpenDesktopApp(desktopHref);
+        }}
+      >
+        <DesktopPlatformIcon aria-hidden="true" className="size-4" />
+        {children}
+      </Button>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          className={className}
+          size={size}
+          variant={variant}
+          {...buttonProps}
+        >
+          <DesktopPlatformIcon aria-hidden="true" className="size-4" />
+          {children}
+          <IconChevronDown className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="center" className="w-52">
+        <DropdownMenuItem asChild>
+          <a href={appPath(desktopHref)} className="gap-2">
+            <DesktopPlatformIcon aria-hidden="true" className="size-4" />
+            {t("recordRoute.downloadDesktopApp")}
+          </a>
+        </DropdownMenuItem>
+        {chromeExtensionEnabled && clipsChromeExtensionUrl ? (
+          <DropdownMenuItem asChild>
+            <a
+              href={clipsChromeExtensionUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="gap-2"
+            >
+              <IconBrandChrome aria-hidden="true" className="size-4" />
+              {t("recordRoute.getChromeExtension")}
+            </a>
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem disabled className="gap-2">
+            <IconBrandChrome aria-hidden="true" className="size-4" />
+            {t("recordRoute.getChromeExtension")}
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

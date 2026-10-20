@@ -1,48 +1,43 @@
-/**
- * Shared "first stream event" deadline for model-request engines.
- *
- * A request that connects successfully but then streams zero events means the
- * transport or gateway is wedged, not slow — real models (including deep
- * thinking ones) emit their first event within seconds. Bounding this window
- * separately from any total-request deadline turns a silent multi-minute hang
- * into a fast abort-and-retry.
- */
 export const FIRST_STREAM_EVENT_TIMEOUT_MS = 120_000;
+
+export const STREAM_TOTAL_TIMEOUT_MS = 14 * 60_000;
 
 export interface FirstEventAbortController {
   readonly signal: AbortSignal;
-  /** Idempotent. Call once the first real (non-keepalive) stream event arrives. */
   markFirstEvent: () => void;
   didTimeout: () => boolean;
+  timeoutMessage: () => string | undefined;
   cleanup: () => void;
 }
 
-/**
- * Layer a first-event deadline on top of a caller's AbortSignal. Aborts if
- * `markFirstEvent()` is not called within `FIRST_STREAM_EVENT_TIMEOUT_MS`.
- * Has no opinion on a total-request deadline — callers that need one (e.g.
- * builder-engine's flat gateway timeout) compose their own on top.
- */
 export function createFirstEventAbortController(
   parentSignal: AbortSignal,
 ): FirstEventAbortController {
   const controller = new AbortController();
-  let timedOut = false;
+  const startedAt = Date.now();
+  let timeoutMessage: string | undefined;
   let firstEventSeen = false;
 
   const abortFromParent = () => {
+    clearTimeout(timeout);
     if (!controller.signal.aborted) controller.abort(parentSignal.reason);
   };
 
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    if (!controller.signal.aborted) {
-      controller.abort(
-        new Error(
-          `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s`,
-        ),
-      );
-    }
+  const fireTimeout = (message: string) => {
+    // Record a timeout ONLY when this controller wins the abort race. Setting
+    // the message first and checking `aborted` after made a deadline that
+    // merely fired into an already-aborted controller indistinguishable from
+    // one that caused the abort — and `didTimeout()` is what the engines read
+    // to decide a failure was the transport's fault and worth retrying.
+    if (controller.signal.aborted) return;
+    timeoutMessage = message;
+    controller.abort(new Error(message));
+  };
+
+  let timeout = setTimeout(() => {
+    fireTimeout(
+      `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s`,
+    );
   }, FIRST_STREAM_EVENT_TIMEOUT_MS);
 
   if (parentSignal.aborted) abortFromParent();
@@ -51,11 +46,20 @@ export function createFirstEventAbortController(
   return {
     signal: controller.signal,
     markFirstEvent: () => {
-      if (firstEventSeen) return;
+      if (firstEventSeen || controller.signal.aborted) return;
       firstEventSeen = true;
       clearTimeout(timeout);
+      timeout = setTimeout(
+        () => {
+          fireTimeout(
+            `Model request exceeded the ${STREAM_TOTAL_TIMEOUT_MS / 60_000}-minute total stream deadline`,
+          );
+        },
+        Math.max(0, STREAM_TOTAL_TIMEOUT_MS - (Date.now() - startedAt)),
+      );
     },
-    didTimeout: () => timedOut,
+    didTimeout: () => timeoutMessage !== undefined,
+    timeoutMessage: () => timeoutMessage,
     cleanup: () => {
       clearTimeout(timeout);
       parentSignal.removeEventListener("abort", abortFromParent);

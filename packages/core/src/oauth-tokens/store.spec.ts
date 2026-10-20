@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Deterministic key so the at-rest encryption round-trips within the test.
-// Must be set before importing ./store.js (which pulls in secrets/crypto).
 process.env.SECRETS_ENCRYPTION_KEY ||= "oauth-store-test-key";
 
 const { decryptSecretValue, isEncryptedSecretValue } =
@@ -15,13 +13,54 @@ interface ExecCall {
 const execCalls: ExecCall[] = [];
 let existingOwner: string | null = null;
 let existingTokens: Record<string, unknown> | null = null;
-let mockPostgres = false;
+let existingRevision = 100;
+let existingLegacyRevision = 100;
+let existingStorageVersion = JSON.stringify({});
+let conflictOwnerAfterUpsert: string | null = null;
+let upsertAttempted = false;
 
 const mockDb = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     const sql = typeof input === "string" ? input : input.sql;
     const args = typeof input === "string" ? [] : (input.args ?? []);
     execCalls.push({ sql, args });
+
+    if (/^\s*INSERT\s+INTO\s+(?:public\.)?oauth_tokens/i.test(sql)) {
+      upsertAttempted = true;
+      return {
+        rows: [],
+        rowsAffected: conflictOwnerAfterUpsert ? 0 : 1,
+      };
+    }
+
+    if (/SELECT owner FROM (?:public\.)?oauth_tokens/i.test(sql)) {
+      const owner =
+        existingOwner ?? (upsertAttempted ? conflictOwnerAfterUpsert : null);
+      return {
+        rows: owner ? [{ owner }] : [],
+        rowsAffected: 0,
+      };
+    }
+
+    if (
+      /SELECT owner, tokens, revision, updated_at FROM (?:public\.)?oauth_tokens/i.test(
+        sql,
+      )
+    ) {
+      return {
+        rows: existingOwner
+          ? [
+              {
+                owner: existingOwner,
+                tokens: existingStorageVersion,
+                revision: existingRevision,
+                updated_at: existingLegacyRevision,
+              },
+            ]
+          : [],
+        rowsAffected: 0,
+      };
+    }
 
     if (
       /SELECT owner, display_name, tokens FROM (?:public\.)?oauth_tokens/i.test(
@@ -42,18 +81,60 @@ const mockDb = {
       };
     }
 
+    if (/^UPDATE\s+(?:public\.)?oauth_tokens SET tokens/i.test(sql)) {
+      return {
+        rows: [],
+        rowsAffected:
+          existingOwner &&
+          args.at(-3) === existingRevision &&
+          args.at(-2) === existingLegacyRevision &&
+          args.at(-1) === existingStorageVersion
+            ? 1
+            : 0,
+      };
+    }
+
+    if (/^DELETE\s+FROM\s+(?:public\.)?oauth_tokens/i.test(sql)) {
+      return {
+        rows: [],
+        rowsAffected:
+          existingOwner &&
+          args.at(-3) === existingRevision &&
+          args.at(-2) === existingLegacyRevision &&
+          args.at(-1) === existingStorageVersion
+            ? 1
+            : 0,
+      };
+    }
+
+    if (/^UPDATE\s+(?:public\.)?oauth_tokens/i.test(sql)) {
+      return { rows: [], rowsAffected: existingOwner ? 1 : 0 };
+    }
+
     return { rows: [], rowsAffected: 0 };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => (mockPostgres ? "BIGINT" : "INTEGER"),
-  isPostgres: () => mockPostgres,
+  withDbExec: (_exec: unknown, run: () => unknown) => run(),
 }));
 
-const { deleteOAuthTokens, getOAuthTokens, saveOAuthTokens } =
-  await import("./store.js");
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
+const {
+  deleteOAuthTokens,
+  deleteOAuthTokensIfRevision,
+  getOAuthTokenSnapshot,
+  getOAuthTokenSnapshotForUserOwner,
+  getOAuthTokens,
+  listOAuthTokenOwners,
+  replaceOAuthTokensIfRevision,
+  saveOAuthTokens,
+} = await import("./store.js");
 
 function lastInsert(): ExecCall {
   const inserts = execCalls.filter((c) => /^\s*INSERT\b/i.test(c.sql));
@@ -66,8 +147,45 @@ describe("oauth token store", () => {
     execCalls.length = 0;
     existingOwner = null;
     existingTokens = null;
-    mockPostgres = false;
+    existingRevision = 100;
+    existingLegacyRevision = 100;
+    existingStorageVersion = JSON.stringify({});
+    conflictOwnerAfterUpsert = null;
+    upsertAttempted = false;
     vi.clearAllMocks();
+  });
+
+  it("reads token owners for many accounts in bounded batches", async () => {
+    const accountIds = Array.from({ length: 1_100 }, (_, i) => `acct-${i}`);
+    const original = mockDb.execute.getMockImplementation()!;
+    mockDb.execute.mockImplementation(async (input) => {
+      const sql = typeof input === "string" ? input : input.sql;
+      const args = typeof input === "string" ? [] : (input.args ?? []);
+      execCalls.push({ sql, args });
+      if (
+        /SELECT account_id, owner FROM/i.test(sql) &&
+        args.includes("acct-7")
+      ) {
+        return {
+          rows: [{ account_id: "acct-7", owner: "user:ann@example.com" }],
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(
+      listOAuthTokenOwners("mcp", [...accountIds, "acct-7"]),
+    ).resolves.toEqual([
+      { accountId: "acct-7", owner: "user:ann@example.com" },
+    ]);
+
+    const reads = execCalls.filter((call) =>
+      /SELECT account_id, owner FROM/i.test(call.sql),
+    );
+    expect(reads.map((call) => call.args.length - 1)).toEqual([500, 500, 100]);
+    expect(reads.every((call) => call.args[0] === "mcp")).toBe(true);
+    await expect(listOAuthTokenOwners("mcp", [])).resolves.toEqual([]);
+    mockDb.execute.mockImplementation(original);
   });
 
   it("refuses to rebind a Google account owned by a different user", async () => {
@@ -85,6 +203,100 @@ describe("oauth token store", () => {
       existingOwner: "other@example.com",
       attemptedOwner: "steve@builder.io",
     });
+  });
+
+  it("keeps the union of scopes when a shared Google token is reauthorized", async () => {
+    existingOwner = "steve@builder.io";
+    existingTokens = {
+      scope: "openid https://www.googleapis.com/auth/gmail.readonly",
+    };
+
+    await saveOAuthTokens(
+      "google",
+      "steve@builder.io",
+      { scope: "https://www.googleapis.com/auth/calendar.readonly" },
+      "steve@builder.io",
+    );
+
+    const stored = JSON.parse(
+      decryptSecretValue(String(lastInsert().args[4])),
+    ) as { scope?: string };
+    expect(stored.scope).toBe(
+      "openid https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly",
+    );
+  });
+
+  it("normalizes a matching legacy mixed-case user owner when saving", async () => {
+    existingOwner = "user:Alice@Example.com";
+
+    await expect(
+      saveOAuthTokens(
+        "mcp",
+        "mcp_oauth:test",
+        { access_token: "new-token" },
+        "user:alice@example.com",
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(lastInsert().sql).toContain("SET owner=EXCLUDED.owner");
+    expect(lastInsert().sql).toContain(
+      "LOWER(public.oauth_tokens.owner) = LOWER(EXCLUDED.owner)",
+    );
+    expect(lastInsert().args[2]).toBe("user:alice@example.com");
+  });
+
+  it("finds only case-insensitive legacy user owners", async () => {
+    existingOwner = "user:Alice@Example.com";
+    existingTokens = { access_token: "legacy-token" };
+
+    await expect(
+      getOAuthTokenSnapshotForUserOwner(
+        "mcp",
+        "mcp_oauth:test",
+        "user:alice@example.com",
+      ),
+    ).resolves.toMatchObject({ owner: "user:Alice@Example.com" });
+
+    const read = execCalls.find((call) =>
+      call.sql.includes("LOWER(owner) = LOWER(?)"),
+    );
+    expect(read?.sql).toContain("LOWER(owner) LIKE 'user:%'");
+  });
+
+  it("does not treat differently cased organization owners as equivalent", async () => {
+    existingOwner = "org:Example";
+
+    await expect(
+      saveOAuthTokens(
+        "mcp",
+        "mcp_oauth:test",
+        { access_token: "new-token" },
+        "org:example",
+      ),
+    ).rejects.toMatchObject({
+      name: "OAuthAccountOwnedByOtherUserError",
+    });
+  });
+
+  it("refuses a different owner that wins the row between the pre-read and upsert", async () => {
+    conflictOwnerAfterUpsert = "other@example.com";
+
+    await expect(
+      saveOAuthTokens(
+        "google",
+        "steve@builder.io",
+        { access_token: "new-token" },
+        "steve@builder.io",
+      ),
+    ).rejects.toMatchObject({
+      name: "OAuthAccountOwnedByOtherUserError",
+      existingOwner: "other@example.com",
+      attemptedOwner: "steve@builder.io",
+    });
+
+    expect(lastInsert().sql).toContain(
+      "WHERE public.oauth_tokens.owner = EXCLUDED.owner",
+    );
   });
 
   it("supports owner-scoped reads and deletes for tenant-bound OAuth credentials", async () => {
@@ -108,9 +320,164 @@ describe("oauth token store", () => {
     ]);
   });
 
-  it("qualifies the real oauth_tokens table on Postgres so temp scoped views cannot shadow OAuth callbacks", async () => {
-    mockPostgres = true;
+  it("reads and conditionally replaces one exact owner-bound revision", async () => {
+    existingOwner = "user:alice@example.com";
+    existingTokens = { access_token: "old-access" };
+    existingStorageVersion = JSON.stringify(existingTokens);
 
+    const snapshot = await getOAuthTokenSnapshot(
+      "builder",
+      "managed-ai",
+      "user:alice@example.com",
+    );
+    expect(snapshot).toMatchObject({
+      owner: "user:alice@example.com",
+      revision: 100,
+      tokens: { access_token: "old-access" },
+    });
+
+    await expect(
+      replaceOAuthTokensIfRevision(
+        "builder",
+        "managed-ai",
+        "user:alice@example.com",
+        100,
+        100,
+        snapshot!.storageVersion,
+        { access_token: "new-access", refresh_token: "new-refresh" },
+      ),
+    ).resolves.toBe(true);
+
+    const conditionalUpdate = execCalls.find((call) =>
+      /^UPDATE\s+(?:public\.)?oauth_tokens/i.test(call.sql),
+    );
+    expect(conditionalUpdate?.sql).toContain("COALESCE(revision, 0) = ?");
+    expect(conditionalUpdate?.sql).toContain("AND updated_at = ?");
+    expect(conditionalUpdate?.sql).toContain("AND tokens = ?");
+    expect(conditionalUpdate?.args.slice(-6)).toEqual([
+      "builder",
+      "managed-ai",
+      "user:alice@example.com",
+      100,
+      100,
+      snapshot!.storageVersion,
+    ]);
+    const encrypted = conditionalUpdate?.args[0] as string;
+    expect(isEncryptedSecretValue(encrypted)).toBe(true);
+    expect(JSON.parse(decryptSecretValue(encrypted))).toMatchObject({
+      access_token: "new-access",
+      refresh_token: "new-refresh",
+    });
+  });
+
+  it("conditionally deletes only the revision and owner that were inspected", async () => {
+    existingOwner = "user:alice@example.com";
+    const snapshot = await getOAuthTokenSnapshot(
+      "builder",
+      "managed-ai",
+      "user:alice@example.com",
+    );
+
+    await expect(
+      deleteOAuthTokensIfRevision(
+        "builder",
+        "managed-ai",
+        "user:alice@example.com",
+        100,
+        100,
+        snapshot!.storageVersion,
+      ),
+    ).resolves.toBe(true);
+
+    const conditionalDelete = execCalls.find((call) =>
+      /^DELETE\s+FROM\s+(?:public\.)?oauth_tokens/i.test(call.sql),
+    );
+    expect(conditionalDelete?.sql).toContain("COALESCE(revision, 0) = ?");
+    expect(conditionalDelete?.sql).toContain("AND updated_at = ?");
+    expect(conditionalDelete?.sql).toContain("AND tokens = ?");
+    expect(conditionalDelete?.args).toEqual([
+      "builder",
+      "managed-ai",
+      "user:alice@example.com",
+      100,
+      100,
+      snapshot!.storageVersion,
+    ]);
+  });
+
+  it("rejects replace and delete after a legacy writer advances updated_at", async () => {
+    existingOwner = "user:alice@example.com";
+    existingTokens = { access_token: "old-access" };
+    existingStorageVersion = JSON.stringify(existingTokens);
+    const snapshot = await getOAuthTokenSnapshot(
+      "builder",
+      "managed-ai",
+      "user:alice@example.com",
+    );
+    expect(snapshot).toMatchObject({ revision: 100, legacyRevision: 100 });
+
+    existingLegacyRevision = 101;
+
+    await expect(
+      replaceOAuthTokensIfRevision(
+        "builder",
+        "managed-ai",
+        "user:alice@example.com",
+        snapshot!.revision,
+        snapshot!.legacyRevision,
+        snapshot!.storageVersion,
+        { access_token: "stale-replacement" },
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      deleteOAuthTokensIfRevision(
+        "builder",
+        "managed-ai",
+        "user:alice@example.com",
+        snapshot!.revision,
+        snapshot!.legacyRevision,
+        snapshot!.storageVersion,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("rejects replace and delete when a legacy writer changes tokens without advancing either revision", async () => {
+    existingOwner = "user:alice@example.com";
+    existingTokens = { access_token: "old-access" };
+    existingStorageVersion = JSON.stringify(existingTokens);
+    const snapshot = await getOAuthTokenSnapshot(
+      "builder",
+      "managed-ai",
+      "user:alice@example.com",
+    );
+
+    existingTokens = { access_token: "newer-legacy-access" };
+    existingStorageVersion = JSON.stringify(existingTokens);
+
+    await expect(
+      replaceOAuthTokensIfRevision(
+        "builder",
+        "managed-ai",
+        "user:alice@example.com",
+        snapshot!.revision,
+        snapshot!.legacyRevision,
+        snapshot!.storageVersion,
+        { access_token: "stale-replacement" },
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      deleteOAuthTokensIfRevision(
+        "builder",
+        "managed-ai",
+        "user:alice@example.com",
+        snapshot!.revision,
+        snapshot!.legacyRevision,
+        snapshot!.storageVersion,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("qualifies the real oauth_tokens table on Postgres so temp scoped views cannot shadow OAuth callbacks", async () => {
     await saveOAuthTokens(
       "google",
       "steve@builder.io",
@@ -144,7 +511,6 @@ describe("oauth token store", () => {
     );
 
     const storedColumn = lastInsert().args[4] as string;
-    // Tokens are encrypted at rest, not stored as plaintext JSON.
     expect(isEncryptedSecretValue(storedColumn)).toBe(true);
     const stored = JSON.parse(decryptSecretValue(storedColumn));
     expect(stored).toMatchObject({
@@ -152,6 +518,36 @@ describe("oauth token store", () => {
       refresh_token: "keep-refresh",
       expiry_date: 200,
     });
+  });
+
+  it("advances the revision atomically when a replacement lands in the same clock tick", async () => {
+    existingOwner = "user:alice@example.com";
+
+    await saveOAuthTokens(
+      "builder",
+      "managed-ai",
+      { access_token: "new-access" },
+      "user:alice@example.com",
+    );
+
+    expect(lastInsert().sql).toContain(
+      "revision=GREATEST(COALESCE(public.oauth_tokens.revision, 0) + 1, EXCLUDED.revision)",
+    );
+  });
+
+  it("advances a null legacy revision atomically on Postgres", async () => {
+    existingOwner = "user:alice@example.com";
+
+    await saveOAuthTokens(
+      "builder",
+      "managed-ai",
+      { access_token: "new-access" },
+      "user:alice@example.com",
+    );
+
+    expect(lastInsert().sql).toContain(
+      "revision=GREATEST(COALESCE(public.oauth_tokens.revision, 0) + 1, EXCLUDED.revision)",
+    );
   });
 
   it("encrypts the token bundle at rest (no plaintext refresh token in the column)", async () => {

@@ -63,7 +63,6 @@ describe("resolveDevUserEmail", () => {
     expect(call.sql).toContain("FROM sessions");
     expect(call.sql).toContain("GROUP BY TRIM(email)");
     expect(call.sql).toContain("LIMIT 2");
-    // Sentinel must be excluded from the result set
     expect(call.args).toEqual(["local@localhost"]);
   });
 
@@ -117,7 +116,7 @@ describe("resolveDevUserEmail", () => {
     vi.stubEnv("NODE_ENV", "development");
     const execute = vi
       .fn()
-      .mockRejectedValue(new Error("no such table: sessions"));
+      .mockRejectedValue(new Error('relation "sessions" does not exist'));
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => ({ execute }),
     }));

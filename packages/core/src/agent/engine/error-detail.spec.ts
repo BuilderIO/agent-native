@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  canonicalizeBuilderGatewayErrorCode,
   classifyProviderError,
   classifyTerminalErrorCode,
   describeErrorWithCauses,
+  isBareProviderRejectionMessage,
+  isBuilderGatewayInternalErrorMessage,
+  isInvalidAttachmentProviderMessage,
   isProviderConnectionError,
   isProviderConnectionErrorMessage,
 } from "./error-detail.js";
@@ -45,10 +50,6 @@ describe("describeErrorWithCauses", () => {
 });
 
 describe("isProviderConnectionErrorMessage", () => {
-  // The exact string production throws ~150 times a week. A classifier
-  // anchored with `startsWith`/`===` scores this as unclassified, the run
-  // persists `error_code = 'unknown'`, and the client — which only
-  // auto-recovers known transport codes — ends the user's chat on a blip.
   it("matches the AI SDK RetryError wrapper around a TLS reset", () => {
     const wrapped =
       "Failed after 2 attempts. Last error: Cannot connect to API: " +
@@ -98,14 +99,6 @@ describe("isProviderConnectionErrorMessage", () => {
     ).toBe("builder_gateway_network_error");
   });
 
-  // These two were left unclassified so a deterministic failure could not be
-  // promoted to a recoverable code and spiral. But unclassified means
-  // `unknown`, which the client also never retries AND renders as raw provider
-  // text — 41 dead turns/week across the prod app DBs (2026-07-24..31), each at
-  // exactly 1.00 runs/turn. Naming a failure and marking it recoverable are
-  // separate decisions: these get names, and
-  // `sse-event-processor.spec.ts` ("names a deterministic failure without
-  // making it recoverable") holds the line that names alone never auto-continue.
   it("names deterministic failures instead of leaving them unknown", () => {
     expect(classifyTerminalErrorCode("Missing Authentication header")).toBe(
       "authentication_error",
@@ -116,15 +109,93 @@ describe("isProviderConnectionErrorMessage", () => {
       ),
     ).toBe("provider_config_error");
     expect(classifyTerminalErrorCode(undefined)).toBe(undefined);
-    // A bare "429"/"529" inside a request id must not promote the failure.
     expect(
       classifyTerminalErrorCode("Bad request (request_id: req_a529b429c)"),
     ).toBe(undefined);
   });
 
-  // `streamText` reports most provider HTTP failures as a stream part, not a
-  // throw. That path discarded statusCode/isRetryable, so every one landed as
-  // `unknown` and was retried only if its prose matched a keyword.
+  it.each([
+    "image exceeds 5 MB maximum: 7340032 bytes > 5242880 bytes",
+    "Could not process image",
+    "Invalid image.",
+    "You uploaded an unsupported image. Please make sure your image is below 20 MB in size.",
+    "Unable to process input image. Please retry.",
+    "Provided image is not valid.",
+    "Image too large",
+  ])(
+    "recognizes a provider image rejection without a status: %s",
+    (message) => {
+      expect(isInvalidAttachmentProviderMessage(message)).toBe(true);
+      // The message alone cannot say a request carried an attachment, so only
+      // the attachment-aware stop path may name it; a text-only run keeps Retry.
+      expect(classifyTerminalErrorCode(message)).toBe(undefined);
+    },
+  );
+
+  it.each([
+    "Image generation is not supported for this model.",
+    "Prompt is too long for this model; the attached image exceeds the input token limit.",
+  ])("leaves an image-adjacent non-rejection unclassified: %s", (message) => {
+    expect(classifyTerminalErrorCode(message)).toBeUndefined();
+  });
+
+  it("names the Builder gateway internal-error envelope", () => {
+    expect(
+      classifyTerminalErrorCode(
+        "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+      ),
+    ).toBe(BUILDER_GATEWAY_INTERNAL_ERROR_CODE);
+    expect(
+      classifyTerminalErrorCode(
+        "Sorry, this was caused by an internal error. ERROR ID: ee0d523bbb22473387d71fd97da220ea",
+      ),
+    ).toBe(BUILDER_GATEWAY_INTERNAL_ERROR_CODE);
+  });
+
+  it("keeps a more specific upstream classification over the envelope", () => {
+    expect(
+      classifyTerminalErrorCode(
+        "Overloaded. ERROR ID: bebaeb5da13441539790834b63ff955a",
+      ),
+    ).toBe("overloaded_error");
+  });
+
+  it("does not read an ordinary id as the envelope", () => {
+    expect(
+      isBuilderGatewayInternalErrorMessage("Bad request (request id: req_9)"),
+    ).toBe(false);
+    expect(isBuilderGatewayInternalErrorMessage("error id: abc")).toBe(false);
+    expect(classifyTerminalErrorCode("Bad request, no id at all")).toBe(
+      undefined,
+    );
+  });
+
+  it("canonicalizes coded and message-only Builder envelopes", () => {
+    const envelope =
+      "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a";
+    expect(
+      canonicalizeBuilderGatewayErrorCode("provider_internal_error", envelope),
+    ).toBe(BUILDER_GATEWAY_INTERNAL_ERROR_CODE);
+    expect(canonicalizeBuilderGatewayErrorCode(undefined, envelope)).toBe(
+      BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+    );
+    expect(
+      canonicalizeBuilderGatewayErrorCode(
+        "provider_internal_error",
+        "upstream provider failed",
+      ),
+    ).toBe("provider_internal_error");
+    expect(
+      canonicalizeBuilderGatewayErrorCode(
+        "provider_internal_error",
+        "Provider failed. ERROR ID: bebaeb5da13441539790834b63ff955a",
+      ),
+    ).toBe("provider_internal_error");
+    expect(canonicalizeBuilderGatewayErrorCode("rate_limited", envelope)).toBe(
+      "rate_limited",
+    );
+  });
+
   it("classifies a provider error identically however it arrived", () => {
     const apiError = Object.assign(new Error("Rate limit reached"), {
       statusCode: 429,
@@ -136,7 +207,6 @@ describe("isProviderConnectionErrorMessage", () => {
       providerRetryable: true,
     });
 
-    // Same error wrapped by the SDK's exhausted-retry RetryError.
     const retryError = Object.assign(
       new Error("Failed after 2 attempts. Last error: Rate limit reached"),
       { lastError: apiError },
@@ -146,6 +216,30 @@ describe("isProviderConnectionErrorMessage", () => {
       statusCode: 429,
       providerRetryable: true,
     });
+  });
+
+  it("reads an HTTP status a provider client keeps on the wrapped cause", () => {
+    // ai-sdk-ollama wraps ollama-js's ResponseError, which names it status_code.
+    const response = Object.assign(new Error("model failed"), {
+      name: "ResponseError",
+      status_code: 500,
+    });
+    const wrapped = new Error("model failed", { cause: response });
+    expect(classifyProviderError(wrapped)).toEqual({
+      errorCode: "http_500",
+      statusCode: 500,
+    });
+    expect(classifyProviderError(response)).toEqual({
+      errorCode: "http_500",
+      statusCode: 500,
+    });
+    expect(
+      classifyProviderError(
+        new Error("model failed", {
+          cause: Object.assign(new Error("not http"), { status_code: 7 }),
+        }),
+      ),
+    ).toEqual({});
   });
 
   it("falls back to the message when the provider error carries no status", () => {
@@ -176,11 +270,195 @@ describe("isProviderConnectionErrorMessage", () => {
     });
   });
 
+  it.each([
+    [400, "Invalid 'input[0].content[1].file_url': string too long."],
+    [422, "Unsupported image format for media_type image/tiff."],
+    [400, "The image size exceeds the provider's maximum allowed size."],
+    [400, "Could not process image"],
+    [400, "Invalid image."],
+  ])(
+    "classifies a structured attachment rejection with status %i as non-retryable",
+    (statusCode, message) => {
+      const providerError = Object.assign(new Error(message), {
+        statusCode,
+        isRetryable: true,
+      });
+
+      expect(classifyProviderError(providerError)).toEqual({
+        errorCode: "invalid_attachment",
+        statusCode,
+        providerRetryable: false,
+      });
+    },
+  );
+
+  it.each([
+    [400, "Function tools with reasoning_effort are not supported."],
+    [400, "Image generation is not supported for this model."],
+    [413, "The file is too large for this request."],
+    [400, "Invalid file path: /workspace/docs/report.pdf"],
+    [
+      422,
+      "Prompt length exceeds the limit for a request with an attached file.",
+    ],
+    [
+      422,
+      "Prompt is too long for this model; the attached image exceeds the input token limit.",
+    ],
+  ])(
+    "leaves unrelated provider status %i errors outside attachment classification",
+    (statusCode, message) => {
+      const providerError = Object.assign(new Error(message), {
+        statusCode,
+        isRetryable: false,
+      });
+
+      expect(classifyProviderError(providerError)).toEqual({
+        errorCode: `http_${statusCode}`,
+        statusCode,
+        providerRetryable: false,
+      });
+    },
+  );
+
   it("finds the transport failure on the cause chain", () => {
     const err = new Error("stream failed", {
       cause: new Error("Connection error."),
     });
     expect(isProviderConnectionError(err)).toBe(true);
     expect(isProviderConnectionError(new Error("bad request"))).toBe(false);
+  });
+
+  it("classifies a bare 403 as a transient rejection instead of a credential error", () => {
+    const bareForbidden = Object.assign(
+      new Error("403 status code (no body)"),
+      { statusCode: 403 },
+    );
+    expect(classifyProviderError(bareForbidden)).toEqual({
+      errorCode: "provider_transient_rejection",
+      statusCode: 403,
+      providerRetryable: true,
+    });
+  });
+
+  it("keeps a structured 403 message as an ordinary http_403", () => {
+    const namedRejection = Object.assign(
+      new Error("Invalid API key provided"),
+      { statusCode: 403 },
+    );
+    expect(classifyProviderError(namedRejection)).toEqual({
+      errorCode: "http_403",
+      statusCode: 403,
+    });
+  });
+
+  it("keeps http_403 for a message that only starts with the status echo but names a reason", () => {
+    const partialEcho = Object.assign(
+      new Error("403 status code: invalid API key"),
+      { statusCode: 403 },
+    );
+    expect(classifyProviderError(partialEcho)).toEqual({
+      errorCode: "http_403",
+      statusCode: 403,
+    });
+  });
+});
+
+describe("classifyProviderError explicit non-retryable 403", () => {
+  it("keeps http_403 when the SDK says an opaque 403 is not retryable", () => {
+    const err = Object.assign(new Error("Forbidden"), {
+      statusCode: 403,
+      isRetryable: false,
+    });
+    const classified = classifyProviderError(err);
+    expect(classified.errorCode).toBe("http_403");
+    expect(classified.providerRetryable).toBe(false);
+  });
+});
+
+describe("isBareProviderRejectionMessage", () => {
+  it("matches an SDK/proxy status echo with no reason", () => {
+    expect(isBareProviderRejectionMessage("")).toBe(true);
+    expect(isBareProviderRejectionMessage("Forbidden")).toBe(true);
+    expect(isBareProviderRejectionMessage("403 status code (no body)")).toBe(
+      true,
+    );
+    expect(isBareProviderRejectionMessage("Builder gateway returned 403")).toBe(
+      true,
+    );
+  });
+
+  it("does not match a message that names an actual reason", () => {
+    expect(isBareProviderRejectionMessage("Invalid API key provided")).toBe(
+      false,
+    );
+    expect(
+      isBareProviderRejectionMessage("User is not authorized for this space"),
+    ).toBe(false);
+    expect(
+      isBareProviderRejectionMessage("403 status code: invalid API key"),
+    ).toBe(false);
+  });
+
+  it("matches the exact status-echo forms with no reason", () => {
+    expect(isBareProviderRejectionMessage("403 status code")).toBe(true);
+    expect(isBareProviderRejectionMessage("403 status code (no body)")).toBe(
+      true,
+    );
+  });
+});
+
+describe("classifyProviderError retryAfterMs", () => {
+  it("reads a seconds-form retry-after off the error's own responseHeaders", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      responseHeaders: { "retry-after": "5" },
+    });
+    expect(classifyProviderError(apiError).retryAfterMs).toBe(5000);
+  });
+
+  it("reads retry-after off the AI SDK RetryError's unwrapped lastError", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      responseHeaders: { "Retry-After": "5" },
+    });
+    const retryError = Object.assign(
+      new Error("Failed after 2 attempts. Last error: Too many requests"),
+      { lastError: apiError },
+    );
+    expect(classifyProviderError(retryError).retryAfterMs).toBe(5000);
+  });
+
+  it("falls back to a plain .cause when neither the error nor lastError carries headers", () => {
+    const err = Object.assign(new Error("upstream failure"), {
+      cause: { responseHeaders: { "retry-after": "5" } },
+    });
+    expect(classifyProviderError(err).retryAfterMs).toBe(5000);
+  });
+
+  it("parses an HTTP-date retry-after into a millisecond delta", () => {
+    const future = new Date(Date.now() + 7000).toUTCString();
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      responseHeaders: { "retry-after": future },
+    });
+    const ms = classifyProviderError(apiError).retryAfterMs;
+    expect(ms).toBeGreaterThan(6000);
+    expect(ms).toBeLessThanOrEqual(7000);
+  });
+
+  it("leaves retryAfterMs undefined with no header present", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+    });
+    expect(classifyProviderError(apiError).retryAfterMs).toBeUndefined();
+  });
+
+  it("caps an oversized retry-after at 60s instead of trusting it outright", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      responseHeaders: { "retry-after": "600" },
+    });
+    expect(classifyProviderError(apiError).retryAfterMs).toBe(60_000);
   });
 });

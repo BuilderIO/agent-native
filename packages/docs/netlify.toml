@@ -1,12 +1,79 @@
 [build]
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && if { [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; } && [ \"${AGENT_NATIVE_PREBUILT_SKIP_RELEASE_MIGRATIONS:-}\" != \"1\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
 publish = "packages/docs/dist"
+edge_functions = "packages/docs/netlify/edge-functions"
 
-# Keep legacy template links at the CDN edge instead of running the SSR
-# redirect loader for every request.
+[[redirects]]
+from = "/examples/self-hosted-chat/Dockerfile"
+to = "/examples/self-hosted-chat/Dockerfile.txt"
+status = 200
+force = true
+
+# Brain is a public template without an /apps/ landing page; its docs are the
+# canonical page. These must stay above the /templates/* splat.
+[[redirects]]
+from = "/apps/brain"
+to = "/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/apps/brain/"
+to = "/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/templates/brain"
+to = "/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/templates/brain/"
+to = "/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/apps/brain"
+to = "/:locale/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/apps/brain/"
+to = "/:locale/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/templates/brain"
+to = "/:locale/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/templates/brain/"
+to = "/:locale/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/home"
+to = "/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/home/"
+to = "/"
+status = 301
+force = true
+
 [[redirects]]
 from = "/templates"
-to = "/apps"
+to = "/apps/"
 status = 301
 force = true
 
@@ -24,7 +91,7 @@ force = true
 
 [[redirects]]
 from = "/:locale/templates"
-to = "/:locale/apps"
+to = "/:locale/apps/"
 status = 301
 force = true
 
@@ -40,28 +107,39 @@ to = "/:locale/apps/:splat"
 status = 301
 force = true
 
-# Slug redirects for renamed docs — keep in sync with SLUG_REDIRECTS in app/routes/docs.$slug.tsx.
+[[redirects]]
+from = "/docs/getting-started"
+to = "/docs/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/docs/getting-started"
+to = "/:locale/docs/"
+status = 301
+force = true
+
 [[redirects]]
 from = "/docs/resources"
-to = "/docs/agent-resources"
+to = "/docs/agent-resources/"
 status = 301
 force = true
 
 [[redirects]]
 from = "/docs/workspace"
-to = "/docs/agent-resources"
+to = "/docs/agent-resources/"
 status = 301
 force = true
 
 [[redirects]]
 from = "/:locale/docs/workspace"
-to = "/:locale/docs/agent-resources"
+to = "/:locale/docs/agent-resources/"
 status = 301
 force = true
 
 [[redirects]]
 from = "/docs/:locale/workspace"
-to = "/:locale/docs/agent-resources"
+to = "/:locale/docs/agent-resources/"
 status = 301
 force = true
 
@@ -71,14 +149,9 @@ GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
 VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
-
 [context.production.environment]
 # The docs app owns the framework schema at release time, so production
 # request functions do not spend their cold-start budget on migration probes.
 AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
-
-# Cache headers intentionally live in @agent-native/core instead of this
-# Netlify config. The framework emits SSR HTML/.data SWR headers from the
-# shared server handler and immutable hashed asset headers during build, so
-# docs and templates do not need provider-specific [[headers]] blocks to stay
-# fast or protect private client-side routes.
+AGENT_NATIVE_ENABLE_KEEP_WARM = "1"
+AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1"

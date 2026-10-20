@@ -49,4 +49,21 @@ describe("list_apps", () => {
       }),
     ]);
   });
+
+  it("lists only what the gateway discovered, so disabled built-ins never appear", async () => {
+    mocks.listGrantedApps.mockResolvedValue([
+      {
+        id: "crm",
+        name: "CRM",
+        description: "Workspace app",
+        url: "https://workspace.example.test/crm",
+      },
+    ]);
+
+    const result = await listApps.run({});
+
+    expect(JSON.parse(result.message)).toEqual({
+      apps: [{ id: "crm", name: "CRM" }],
+    });
+  });
 });

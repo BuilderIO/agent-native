@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -13,8 +13,6 @@ import {
 } from "./_provider-action-utils";
 
 export default defineAction({
-  // Read-only provider query: safe to call from run-code `appAction` and
-  // reusable across continuation retries (no re-fetch on resume).
   readOnly: true,
   description:
     "Query Google Cloud Run/Cloud Functions services, Cloud Monitoring metrics, and Cloud Logging entries.",
@@ -56,6 +54,7 @@ export default defineAction({
       .describe("Additional Cloud Monitoring filter expression"),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async (args) => {
     const credentials = await requireActionCredentials(
       ["BIGQUERY_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS_JSON"],

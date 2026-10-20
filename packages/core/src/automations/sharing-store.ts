@@ -1,11 +1,4 @@
-import {
-  getDbExec,
-  getDialect,
-  isPostgres,
-  retryOnDdlRace,
-  type DbExec,
-  type DbExecStatement,
-} from "../db/client.js";
+import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 export type AutomationSharingVisibility = "private" | "organization";
@@ -177,7 +170,6 @@ function chunks<T>(values: readonly T[], size: number): T[][] {
 }
 
 async function ensureTables(): Promise<void> {
-  const client = getDbExec();
   const createOverlaysSql = `
     CREATE TABLE IF NOT EXISTS ${OVERLAYS_TABLE} (
       resource_id TEXT PRIMARY KEY,
@@ -202,24 +194,16 @@ async function ensureTables(): Promise<void> {
   const organizationIndexSql = `CREATE INDEX IF NOT EXISTS idx_automation_sharing_overlays_organization ON ${OVERLAYS_TABLE} (organization_id, visibility, resource_id)`;
   const userGrantIndexSql = `CREATE INDEX IF NOT EXISTS idx_automation_sharing_grants_user ON ${GRANTS_TABLE} (user_email, resource_id)`;
 
-  if (isPostgres()) {
-    await ensureTableExists(OVERLAYS_TABLE, createOverlaysSql);
-    await ensureTableExists(GRANTS_TABLE, createGrantsSql);
-    await ensureIndexExists(
-      "idx_automation_sharing_overlays_organization",
-      organizationIndexSql,
-    );
-    await ensureIndexExists(
-      "idx_automation_sharing_grants_user",
-      userGrantIndexSql,
-    );
-    return;
-  }
-
-  await retryOnDdlRace(() => client.execute(createOverlaysSql));
-  await retryOnDdlRace(() => client.execute(createGrantsSql));
-  await retryOnDdlRace(() => client.execute(organizationIndexSql));
-  await retryOnDdlRace(() => client.execute(userGrantIndexSql));
+  await ensureTableExists(OVERLAYS_TABLE, createOverlaysSql);
+  await ensureTableExists(GRANTS_TABLE, createGrantsSql);
+  await ensureIndexExists(
+    "idx_automation_sharing_overlays_organization",
+    organizationIndexSql,
+  );
+  await ensureIndexExists(
+    "idx_automation_sharing_grants_user",
+    userGrantIndexSql,
+  );
 }
 
 export async function ensureAutomationSharingTables(): Promise<void> {
@@ -454,14 +438,18 @@ export async function replaceAutomationSharingState(
   const client = getDbExec();
   const replacement = prepareAutomationSharingReplacement(resourceId, input);
 
-  if (getDialect() === "d1") {
-    if (!client.atomicBatch) {
-      throw new Error(
-        "D1 automation sharing replacement requires atomic batch support.",
-      );
+  if (client.atomicBatch) {
+    try {
+      await client.atomicBatch(replacement.statements);
+      return replacement.summary;
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        error.message !== "This database does not support atomic batches."
+      ) {
+        throw error;
+      }
     }
-    await client.atomicBatch(replacement.statements);
-    return replacement.summary;
   }
   if (!client.transaction) {
     throw new Error("Automation sharing replacement requires transactions.");

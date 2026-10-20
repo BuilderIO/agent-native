@@ -1,20 +1,20 @@
 // @vitest-environment jsdom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
-import { BuildOnlinePopover } from "./BuilderWaitlistPopover";
-import { TemplateCard, templates } from "./TemplateCard";
+import {
+  BuildOnlinePopover,
+  BuilderLaunchLink,
+} from "./BuilderWaitlistPopover";
+import { installAppLinkAttribution } from "./marketing-attribution";
+import { TemplateLandingActions } from "./template-landing/TemplateLandingActions";
+import { templates } from "./TemplateCard";
+import { Button } from "./website-redesign/ds/button";
 
 afterEach(() => {
   cleanup();
@@ -44,30 +44,71 @@ function expectAnimatedPopover(element: HTMLElement) {
 }
 
 describe("docs popover controls", () => {
-  it("opens Build online in the shared animated popover", () => {
-    renderWithProviders(<BuildOnlinePopover location="templates_index" />);
+  it("opens Builder launch links in a new tab", () => {
+    renderWithProviders(
+      <>
+        <BuilderLaunchLink />
+        <BuilderLaunchLink trigger={<a href="/docs">Custom launch</a>} />
+      </>,
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Build online" }));
+    for (const name of ["Launch Builder", "Custom launch"]) {
+      const link = screen.getByRole("link", { name });
+      const url = new URL(link.getAttribute("href") ?? "");
+      expect(url.origin + url.pathname).toBe("https://builder.io/signup");
+      expect(url.searchParams.get("initialPrompt")).toBe(
+        "Create a new Agent-Native app.",
+      );
+      expect(url.searchParams.get("useFusion")).toBe("true");
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    }
+  });
 
-    const content = screen
-      .getByText("Join the waitlist")
-      .closest("[role=dialog]");
-    expect(content).not.toBeNull();
-    expectAnimatedPopover(content as HTMLElement);
+  it("launches online builds directly in Fusion without a waitlist", () => {
+    renderWithProviders(
+      <BuildOnlinePopover
+        location="templates_index"
+        trigger={
+          <Button variant="white" icon={null} compact>
+            Build online
+          </Button>
+        }
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "Build online" });
+    const url = new URL(link.getAttribute("href") ?? "");
+    expect(url.origin + url.pathname).toBe("https://builder.io/signup");
+    expect(url.searchParams.get("initialPrompt")).toBe(
+      "Create a new Agent-Native app.",
+    );
+    expect(url.searchParams.get("useFusion")).toBe("true");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(screen.queryByText(/waitlist/i)).toBeNull();
   });
 
   it("keeps Customize It modes inside the shared animated popover", () => {
-    renderWithProviders(<TemplateCard template={templates[0]} />);
+    renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
 
-    const editOnline = screen.getByRole("button", { name: "Edit Online" });
-    const content = editOnline.closest("[role=dialog]");
+    const customizeOnline = screen.getByRole("button", {
+      name: /^Online/,
+    });
+    const content = customizeOnline.closest("[role=dialog]");
     expect(content).not.toBeNull();
     expectAnimatedPopover(content as HTMLElement);
+    expect(screen.queryByText("Join waitlist")).toBeNull();
 
-    fireEvent.click(editOnline);
-    expect(screen.getByText("Join the waitlist")).toBeTruthy();
+    fireEvent.click(customizeOnline);
+    expect(screen.getByText("Build in the browser")).toBeTruthy();
+    const launch = screen.getByRole("link", { name: "Launch Builder" });
+    const launchUrl = new URL(launch.getAttribute("href") ?? "");
+    expect(launchUrl.searchParams.get("initialPrompt")).toBe(
+      "Customize the Agent-Native Clips template for my workflow.",
+    );
+    expect(launchUrl.searchParams.get("useFusion")).toBe("true");
   });
 
   it("passes stored first-touch attribution to demo links", () => {
@@ -78,42 +119,16 @@ describe("docs popover controls", () => {
         utm_campaign: "launch",
       }),
     );
-    renderWithProviders(<TemplateCard template={templates[0]} />);
+    // The site root installs this for every app link.
+    const uninstall = installAppLinkAttribution();
+    renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
-    const demoLink = screen.getByRole("link", { name: "Try It" });
+    const demoLink = screen.getByRole("link", { name: "Try Clips free" });
     fireEvent.click(demoLink);
+    uninstall();
 
     const url = new URL(demoLink.getAttribute("href") ?? "");
     expect(url.searchParams.get("utm_source")).toBe("newsletter");
     expect(url.searchParams.get("utm_campaign")).toBe("launch");
-  });
-
-  it("submits the selected template with customization waitlist requests", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    renderWithProviders(<TemplateCard template={templates[0]} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit Online" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
-      target: { value: "reader@example.com" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Join waitlist" }));
-
-    const waitlistRequests = () =>
-      fetchMock.mock.calls.filter(([url]) =>
-        String(url).includes("/_agent-native/builder/branch-waitlist"),
-      );
-    await waitFor(() => expect(waitlistRequests()).toHaveLength(1));
-    const request = waitlistRequests()[0]?.[1] as RequestInit;
-    expect(JSON.parse(String(request.body))).toMatchObject({
-      email: "reader@example.com",
-      source: "docs_template_card",
-      template: templates[0].slug,
-      useCase: "docs_edit_online_waitlist",
-    });
   });
 });

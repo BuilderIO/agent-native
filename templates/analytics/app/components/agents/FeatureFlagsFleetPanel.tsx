@@ -1,5 +1,4 @@
 import {
-  FeatureFlagsEditor,
   type FeatureFlagMetadata,
   type SetFeatureFlagInput,
 } from "@agent-native/core/client/feature-flags";
@@ -8,14 +7,17 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FeatureFlagsEditor } from "@agent-native/toolkit/app/feature-flags";
 import { IconRefresh } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 export interface FeatureFlag {
   key: string;
+  canManage?: boolean;
+  movedToLab?: string;
   displayName?: string | null;
   description?: string | null;
   defaultValue?: boolean;
@@ -40,8 +42,57 @@ export interface FlagDirectory {
   apps?: FlagApp[];
 }
 
+interface VerifiedFlagMutation {
+  contractVersion: 3;
+  status: "verified";
+  key: string;
+  rules: FeatureFlagMetadata["rules"];
+  enabledForCurrentUser: boolean;
+}
+
+export function reconcileVerifiedFleetMutation(
+  value: unknown,
+  targetAppId: string,
+  verified: VerifiedFlagMutation,
+): FlagDirectory {
+  const data = asDirectory(value);
+  return {
+    ...data,
+    apps: data.apps?.map((app) =>
+      appId(app) !== targetAppId
+        ? app
+        : {
+            ...app,
+            flags: app.flags?.map((flag) =>
+              flag.key === verified.key
+                ? {
+                    ...flag,
+                    rules: verified.rules,
+                    enabledForCurrentUser: verified.enabledForCurrentUser,
+                  }
+                : flag,
+            ),
+          },
+    ),
+  };
+}
+
+export function recoverFleetMutationFailure(
+  client: QueryClient,
+  context?: { previous: unknown; key: readonly unknown[] },
+) {
+  if (context) client.setQueryData(context.key, context.previous);
+  void client.invalidateQueries({
+    queryKey: ["action", "list-workspace-feature-flags"],
+  });
+}
+
 function asDirectory(value: unknown): FlagDirectory {
   return value && typeof value === "object" ? (value as FlagDirectory) : {};
+}
+
+export function hasFleetApps(value: unknown): boolean {
+  return (asDirectory(value).apps?.length ?? 0) > 0;
 }
 
 function isReady(app: FlagApp) {
@@ -79,6 +130,7 @@ export function FeatureFlagsFleetPanel() {
     unknown,
     { appId: string } & SetFeatureFlagInput
   >("set-workspace-feature-flag", {
+    skipActionQueryInvalidation: true,
     onMutate: async (input) => {
       await client.cancelQueries({
         queryKey: ["action", "list-workspace-feature-flags"],
@@ -119,22 +171,41 @@ export function FeatureFlagsFleetPanel() {
       });
       return { previous, key };
     },
-    onError: (_error, _input, context: any) => {
-      if (context) client.setQueryData(context.key, context.previous);
+    onError: (_error, _input, context: any) =>
+      recoverFleetMutationFailure(client, context),
+    onSuccess: (result, input, context: any) => {
+      if (
+        !result ||
+        typeof result !== "object" ||
+        (result as Partial<VerifiedFlagMutation>).contractVersion !== 3 ||
+        (result as Partial<VerifiedFlagMutation>).status !== "verified"
+      ) {
+        void client.invalidateQueries({
+          queryKey: ["action", "list-workspace-feature-flags"],
+        });
+        return;
+      }
+      const verified = result as VerifiedFlagMutation;
+      client.setQueryData(context.key, (old: unknown) =>
+        reconcileVerifiedFleetMutation(old, input.appId, verified),
+      );
     },
-    onSettled: () =>
-      void client.invalidateQueries({
-        queryKey: ["action", "list-workspace-feature-flags"],
-      }),
   });
   const directory = asDirectory(flags.data);
   const apps = directory.apps ?? [];
   if (flags.isLoading) return <PanelLoading />;
-  if (flags.error || directory.directoryStatus === "unavailable")
+  if (
+    flags.error ||
+    (directory.directoryStatus === "unavailable" && !hasFleetApps(directory))
+  )
     return (
       <StatusState
         title={t("agents.flagsUnavailable")}
-        detail={flags.error?.message || t("agents.flagsUnreachable")}
+        detail={
+          mutation.error?.message ||
+          flags.error?.message ||
+          t("agents.flagsUnreachable")
+        }
         onRetry={() => void flags.refetch()}
       />
     );
@@ -164,6 +235,14 @@ export function FeatureFlagsFleetPanel() {
           {t("agents.reloadFlags")}
         </Button>
       </div>
+      {directory.directoryStatus === "unavailable" ? (
+        <p
+          className="rounded-lg border px-4 py-3 text-sm text-muted-foreground"
+          role="status"
+        >
+          {t("agents.flagsUnreachable")}
+        </p>
+      ) : null}
       {apps.map((app) => (
         <section key={appId(app)} className="overflow-hidden rounded-lg border">
           <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
@@ -179,22 +258,19 @@ export function FeatureFlagsFleetPanel() {
           </div>
           {isReady(app) ? (
             <div className="p-4">
+              {mutation.variables?.appId === appId(app) && mutation.error ? (
+                <p className="mb-3 text-sm text-destructive">
+                  {mutation.error.message}
+                </p>
+              ) : null}
               <FeatureFlagsEditor
                 flags={(app.flags ?? []).filter(
                   (flag): flag is FeatureFlagMetadata =>
                     !!flag.rules && typeof flag.defaultValue === "boolean",
                 )}
                 isPending={mutation.isPending}
-                error={
-                  mutation.variables?.appId === appId(app)
-                    ? mutation.error
-                    : null
-                }
-                errorFlagKey={
-                  mutation.variables?.appId === appId(app)
-                    ? mutation.variables.key
-                    : null
-                }
+                error={null}
+                errorFlagKey={null}
                 showHeader={false}
                 onMutate={(input) =>
                   mutation.mutate(qualifyFleetMutation(appId(app), input))

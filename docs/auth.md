@@ -10,7 +10,7 @@
 
 ## TL;DR
 
-Agent-native uses **Better Auth** by default — every visitor creates an account on first visit. Sessions feed `getSession(event)` server-side and `useSession()` client-side.
+Agent-Native uses **Better Auth** by default — every visitor creates an account on first visit. Sessions feed `getSession(event)` server-side and `useSession()` client-side.
 
 Auth modes:
 

@@ -24,7 +24,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { appApiPath } from "@/lib/api-path";
 
 interface BookingInfo {
@@ -34,6 +34,8 @@ interface BookingInfo {
   end: string;
   slug: string;
   meetingLink?: string;
+  zoomCancellationNeedsReview?: boolean;
+  meetingLinkPending?: boolean;
   status: "confirmed" | "cancelled";
 }
 
@@ -81,8 +83,23 @@ export function ManageBookingPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Spinner className="size-8 text-foreground" />
+      <div className="flex min-h-screen flex-col items-center justify-center px-4">
+        <div className="w-full max-w-md space-y-6" aria-busy="true">
+          <div className="flex flex-col items-center gap-2">
+            <Skeleton className="h-7 w-44" />
+            <Skeleton className="h-4 w-64 max-w-full" />
+          </div>
+          <div className="space-y-3 rounded-lg border border-border bg-card p-5">
+            <Skeleton className="h-6 w-3/4" />
+            <Skeleton className="h-4 w-48 max-w-full" />
+            <Skeleton className="h-4 w-40 max-w-full" />
+            <Skeleton className="h-4 w-32 max-w-full" />
+          </div>
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-10 w-full rounded-md" />
+            <Skeleton className="h-10 w-full rounded-md" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -156,11 +173,20 @@ export function ManageBookingPage() {
           <div className="text-sm text-muted-foreground">
             {t("manageBooking.bookedBy", { name: booking.name })}
           </div>
+          {booking.meetingLinkPending && (
+            <p className="text-sm text-muted-foreground">
+              {t("bookingLinks.meetingDetailsPending")}
+            </p>
+          )}
         </div>
 
         {isPast ? (
           <p className="text-center text-sm text-muted-foreground">
             {t("manageBooking.pastMeeting")}
+          </p>
+        ) : booking.zoomCancellationNeedsReview ? (
+          <p className="text-center text-sm text-muted-foreground">
+            {t("bookingLinks.zoomCancellationRequiresHostReview")}
           </p>
         ) : (
           <div className="flex flex-col gap-3">

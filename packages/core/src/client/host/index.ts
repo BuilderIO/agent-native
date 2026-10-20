@@ -1,9 +1,16 @@
 export { initializeAgentNativeClient } from "../client-bootstrap.js";
 export {
+  agentNativeApiDisabledReason,
+  AgentNativeApiDisabledError,
+  setAgentNativeApiDisabled,
+} from "../api-surface.js";
+export {
   ensureEmbedAuthFetchInterceptor,
   getEmbedAuthToken,
   isEmbedAuthActive,
   isEmbedMcpChatBridgeActive,
+  isMcpDirectoryWidgetReadOnlyEmbed,
+  isMcpDirectoryWidgetWriteEmbed,
 } from "../embed-auth.js";
 export {
   sendToFrame,
@@ -14,6 +21,7 @@ export {
   getCallbackOrigin,
   oauthRedirectUri,
   isInFrame,
+  isTrustedFrameMessage,
   enterStyleEditing,
   enterTextEditing,
   exitSelectionMode,
@@ -23,67 +31,26 @@ export {
   getBuilderParentOrigin,
   isInBuilderFrame,
   sendToBuilderChat,
+  shouldParentFrameOwnAgentPanel,
+  isTrustedBuilderMessage,
+  tryDelegateBuildRequestToBuilder,
   type BuilderChatMessage,
 } from "../builder-frame.js";
-export {
-  AgentNative,
-  useAgentNativeScreenContext,
-  type AgentNativeCommandCallback,
-  type AgentNativeCommandCallbackInfo,
-  type AgentNativeProps,
-} from "../AgentNative.js";
-export {
-  AgentNativeEmbedded,
-  useAgentNativeEmbeddedBrowserSession,
-  type AgentNativeEmbeddedBrowserSessionOptions,
-  type AgentNativeEmbeddedCommandCallback,
-  type AgentNativeEmbeddedCommandCallbackInfo,
-  type AgentNativeEmbeddedProps,
-  type UseAgentNativeEmbeddedBrowserSessionOptions,
-} from "../AgentNativeEmbedded.js";
+export { getClientSurface, type ClientSurface } from "../client-surface.js";
 export {
   defineClientAction,
   type AgentNativeClientActionDefinition,
   type AgentNativeClientActionRunner,
 } from "../client-action.js";
 export {
-  AgentNativeFrame,
-  type AgentNativeFrameProps,
-} from "../AgentNativeFrame.js";
-export {
-  AgentNativeRouteWarmup,
-  type AgentNativeRouteWarmupProps,
-} from "../route-warmup.js";
-export {
-  AgentNativeExtensionFrame,
-  AgentNativeExtensionSlot,
-  type AgentNativeExtensionFrameProps,
-  type AgentNativeExtensionPermissionList,
-  type AgentNativeExtensionSlotProps,
-  type AgentNativeExtensionStorageScopeList,
-} from "../extensions/AgentNativeExtensionFrame.js";
-export {
-  AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
-  buildAgentNativeExtensionHtml,
-  createHttpAgentNativeExtensionStorage,
-  createLocalStorageAgentNativeExtensionStorage,
-  getAgentNativeExtensionManifest,
-  isAgentNativeExtensionAllowedInSlot,
-  normalizeAgentNativeExtensionSandbox,
-  type AgentNativeExtensionDefinition,
-  type AgentNativeExtensionManifest,
-  type AgentNativeExtensionMessageType,
-  type AgentNativeExtensionStorage,
-  type AgentNativeExtensionStorageContext,
-  type AgentNativeExtensionStorageOptions,
-  type AgentNativeExtensionStorageRow,
-  type AgentNativeExtensionStorageScope,
-  type BuildAgentNativeExtensionHtmlOptions,
-  type CreateHttpAgentNativeExtensionStorageOptions,
-} from "../extensions/portable-extension.js";
+  DESKTOP_LOCAL_CODE_CHANGE_EVENT,
+  requestDesktopLocalCodeChange,
+  type DesktopLocalCodeChangeDetail,
+} from "../desktop-local-code-change.js";
 export {
   buildSessionReplayIframeBootstrap,
   injectSessionReplayIframeBootstrap,
+  RRWEB_RECORD_IFRAME_CDN_URL,
 } from "../../extensions/session-replay-iframe.js";
 export {
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
@@ -101,7 +68,9 @@ export {
   readAgentNativeScreenContext,
   requestAgentNativeHostActions,
   requestAgentNativeHostContext,
+  requestAgentNativeHostWebMcpTools,
   runAgentNativeHostAction,
+  runAgentNativeHostWebMcpTool,
   sendAgentNativeHostCommand,
   type AgentNativeActionAvailability,
   type AgentNativeActionManifestEntry,
@@ -134,6 +103,22 @@ export {
   type BuiltInAgentNativeHostCommand,
 } from "../host-bridge.js";
 export {
+  AgentNativeWebMcpUnsupportedError,
+  createAgentNativeWebMcpClient,
+  createAgentNativeWebMcpRegistration,
+  initializeAgentNativeWebMcp,
+  isAgentNativeWebMcpSupported,
+  type AgentNativeWebMcpApprovalRequest,
+  type AgentNativeWebMcpClient,
+  type AgentNativeWebMcpClientOptions,
+  type AgentNativeWebMcpRegistration,
+  type AgentNativeWebMcpRegistrationOptions,
+  type AgentNativeWebMcpTool,
+  type AgentNativeWebMcpToolAnnotations,
+  type AgentNativeWebMcpToolExecutionOptions,
+  type AgentNativeWebMcpToolResult,
+} from "../webmcp.js";
+export {
   AGENT_NATIVE_HOST_TOOL_NAMES,
   createAgentNativeHostTools,
   type AgentNativeHostToolDefinition,
@@ -142,12 +127,14 @@ export {
   type AgentNativeHostToolSet,
   type CreateAgentNativeHostToolsOptions,
   type RunAgentNativeHostActionToolInput,
+  type RunAgentNativeHostWebMcpToolInput,
   type SendAgentNativeHostCommandToolInput,
 } from "../host-tools.js";
 export {
   createAgentNativeBrowserSessionBridge,
   startAgentNativeBrowserSessionBridge,
   type AgentNativeBrowserSessionBridge,
+  type AgentNativeBrowserSessionBridgeErrorSource,
   type AgentNativeBrowserSessionBridgeOptions,
 } from "../browser-session-bridge.js";
 export type {
@@ -167,4 +154,3 @@ export type {
   CodeCompleteMessage,
   ChatRunningMessage,
 } from "../frame-protocol.js";
-export { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";

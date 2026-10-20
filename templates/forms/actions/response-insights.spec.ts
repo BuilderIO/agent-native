@@ -1,3 +1,4 @@
+import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "@agent-native/core/action-ui";
 import {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
@@ -5,8 +6,15 @@ import {
 } from "@agent-native/core/data-widgets";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => "owner@example.com",
+  getRequestOrgId: () => undefined,
+}));
+
 const dbMock = vi.hoisted(() => {
   let results: unknown[][] = [];
+  const selectCalls: unknown[] = [];
 
   function query() {
     const result = results.shift() ?? [];
@@ -21,16 +29,24 @@ const dbMock = vi.hoisted(() => {
   }
 
   return {
+    selectCalls,
     setResults(next: unknown[][]) {
       results = [...next];
     },
+    clearSelectCalls() {
+      selectCalls.length = 0;
+    },
     getDb: () => ({
-      select: vi.fn(() => query()),
+      select: vi.fn((projection: unknown) => {
+        selectCalls.push(projection);
+        return query();
+      }),
     }),
   };
 });
 
 const sharingMock = vi.hoisted(() => ({
+  resolveAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
   accessFilter: vi.fn(() => true),
   assertAccess: vi.fn(async () => ({ resource: form })),
 }));
@@ -91,15 +107,19 @@ async function runInsights(
     [{ formId: "form_1", count: responseRows.length }],
   ]);
 
-  return responseInsights.run({
-    formId: "form_1",
-    ...(displayMode ? { displayMode } : {}),
-  });
+  return responseInsights.run(
+    {
+      formId: "form_1",
+      ...(displayMode ? { displayMode } : {}),
+    },
+    { caller: "frontend", userEmail: form.ownerEmail, orgId: form.orgId },
+  );
 }
 
 describe("response-insights action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    dbMock.clearSelectCalls();
     sharingMock.assertAccess.mockResolvedValue({ resource: form });
   });
 
@@ -132,6 +152,24 @@ describe("response-insights action", () => {
     expect(result.widget).toBe(DATA_CHART_WIDGET);
     expect(result.chartSeries).toBeDefined();
     expect("table" in result).toBe(false);
+  });
+
+  it("does not load unused delivery or request metadata for insights", async () => {
+    await runInsights("chart");
+
+    expect(dbMock.selectCalls[0]).toEqual({
+      id: expect.anything(),
+      formId: expect.anything(),
+      data: expect.anything(),
+      submittedAt: expect.anything(),
+      submitterEmail: expect.anything(),
+    });
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("deliverySnapshot");
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("deliveryStatus");
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("idempotencyKey");
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("pageUrl");
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("clientSurface");
+    expect(dbMock.selectCalls[0]).not.toHaveProperty("ip");
   });
 
   it("returns only a table widget for table requests", async () => {
@@ -172,6 +210,9 @@ describe("response-insights action", () => {
     const result = await runInsights();
 
     expect(result.widget).toBe(DATA_INSIGHTS_WIDGET);
+    expect(responseInsights.chatUI?.renderer).toBe(
+      ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+    );
     expect(result.chartSeries).toBeDefined();
     expect(result.table).toBeDefined();
   });

@@ -1,20 +1,23 @@
 import {
+  cdnSafeOriginStatus,
   FeatureNotConfiguredError,
   fetchBuilderDesignSystemDecodeJobStatus,
-  getSession,
 } from "@agent-native/core/server";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
-import { withSlidesRequestContext } from "./request-auth-context.js";
+import {
+  resolveSlidesRequestAuth,
+  withSlidesRequestContext,
+} from "./request-auth-context.js";
 
-/**
- * Reads a Builder design-system decode job's status. The UI polls this after
- * `/api/index-design-system-sources` returns a jobId, until the `.fig` decode
- * job leaves `pending` and exposes a `branchUrl` (or reports an `error`).
- */
 export const designSystemDecodeJobStatus = defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
+  if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
@@ -26,8 +29,10 @@ export const designSystemDecodeJobStatus = defineEventHandler(async (event) => {
   }
 
   try {
-    return await withSlidesRequestContext(event, () =>
-      fetchBuilderDesignSystemDecodeJobStatus(jobId.trim()),
+    return await withSlidesRequestContext(
+      event,
+      () => fetchBuilderDesignSystemDecodeJobStatus(jobId.trim()),
+      session,
     );
   } catch (err) {
     if (err instanceof FeatureNotConfiguredError) {
@@ -38,7 +43,7 @@ export const designSystemDecodeJobStatus = defineEventHandler(async (event) => {
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
       };
     }
-    setResponseStatus(event, 502);
+    setResponseStatus(event, cdnSafeOriginStatus(502));
     return {
       error:
         err instanceof Error

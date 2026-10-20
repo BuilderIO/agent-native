@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { BrowserControlLoopbackBridge } from "../browser-control/bridge";
 import type { BrowserHostBridgeRegistration } from "../browser-control/protocol";
+import type { CaptureActiveDesktopBrowserScreenshot } from "../desktop-browser-screenshot";
 import { ComputerControlBroker } from "./broker";
 import type { DesktopHelper } from "./helper-client";
 import {
@@ -19,6 +20,7 @@ import type { MutationOperation, SemanticSnapshot } from "./types";
 const snapshot: SemanticSnapshot = {
   snapshotId: "snapshot-1",
   bundleId: "com.example.Editor",
+  applicationName: "Editor",
   origin: "https://example.com/private/path",
   capturedAt: "2026-07-10T00:00:00.000Z",
   nodes: [{ id: "button-1", role: "AXButton", title: "Continue" }],
@@ -45,6 +47,16 @@ afterEach(async () => {
 async function createHarness(
   permissionMode: DesktopComputerPermissionMode,
   withBrowser = false,
+  openContentWorkingCopy?: (input: {
+    runId: string;
+    folder: string;
+    name: string;
+  }) => {
+    id: string;
+    name: string;
+    kind: "temporary";
+  },
+  captureActiveBrowserScreenshot?: CaptureActiveDesktopBrowserScreenshot,
 ): Promise<Harness> {
   const mutations: MutationOperation[] = [];
   const releaseAll = vi.fn(async () => undefined);
@@ -66,7 +78,7 @@ async function createHarness(
       getSources: vi.fn(async () => [
         {
           id: "screen:1:0",
-          name: "Private window title",
+          name: "Editor",
           thumbnail: {
             isEmpty: () => false,
             getSize: () => ({ width: 800, height: 600 }),
@@ -86,6 +98,8 @@ async function createHarness(
     permissionStatus,
     screenObserver,
     browserBridge,
+    openContentWorkingCopy,
+    captureActiveBrowserScreenshot,
   });
   const url = await bridge.start();
   const registration = bridge.registerRun("run-server-owned", permissionMode);
@@ -113,6 +127,104 @@ async function createHarness(
 }
 
 describe("DesktopComputerMcpBridge", () => {
+  it("returns active inline browser pixels without requiring computer control", async () => {
+    const screenshot = {
+      data: Buffer.from("inline-browser").toString("base64"),
+      mediaType: "image/jpeg" as const,
+      width: 1_200,
+      height: 800,
+    };
+    const harness = await createHarness(
+      "read-only",
+      false,
+      undefined,
+      async () => screenshot,
+    );
+    const result = await harness.client.callTool({
+      name: "browser_screenshot",
+      arguments: {},
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          captured: true,
+          source: "active-inline-browser",
+          width: 1_200,
+          height: 800,
+        }),
+      },
+      { type: "image", data: screenshot.data, mimeType: "image/jpeg" },
+    ]);
+
+    const connectorRegistration = harness.bridge.registerConnector();
+    const connector = new Client(
+      { name: "remote-connector-test", version: "1.0.0" },
+      { versionNegotiation: { mode: "auto" } },
+    );
+    try {
+      await connector.connect(
+        new StreamableHTTPClientTransport(new URL(connectorRegistration.url), {
+          requestInit: {
+            headers: {
+              Authorization: `Bearer ${connectorRegistration.bearerToken}`,
+            },
+          },
+        }),
+      );
+      await expect(
+        connector.callTool({
+          name: "browser_screenshot",
+          arguments: {},
+        }),
+      ).rejects.toThrow("Unsupported connector computer tool.");
+    } finally {
+      await connector.close().catch(() => undefined);
+    }
+  });
+
+  it("opens only named local Content working copies through the trusted bridge", async () => {
+    const openContentWorkingCopy = vi.fn(({ folder, name }) => ({
+      id: "folder-opaque",
+      name,
+      kind: "temporary" as const,
+    }));
+    const harness = await createHarness(
+      "full-auto",
+      false,
+      openContentWorkingCopy,
+    );
+    const tool = (await harness.client.listTools()).tools.find(
+      (candidate) => candidate.name === "content_open_local_working_copy",
+    );
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+
+    const missingName = await harness.client.callTool({
+      name: "content_open_local_working_copy",
+      arguments: { folder: "/private/worktree" },
+    });
+    expect(missingName.isError).toBe(true);
+    expect(openContentWorkingCopy).not.toHaveBeenCalled();
+
+    const opened = await harness.client.callTool({
+      name: "content_open_local_working_copy",
+      arguments: { folder: "/private/worktree", name: "Fix local sync" },
+    });
+    expect(openContentWorkingCopy).toHaveBeenCalledWith({
+      runId: "run-server-owned",
+      folder: "/private/worktree",
+      name: "Fix local sync",
+    });
+    expect(JSON.stringify(opened)).not.toContain("/private/worktree");
+    expect(JSON.stringify(opened)).toContain("folder-opaque");
+  });
+
   it("requires its per-run bearer and exposes observation without model-supplied identity", async () => {
     const harness = await createHarness("full-auto");
     const unauthorized = await fetch(harness.registration.url, {
@@ -272,6 +384,22 @@ describe("DesktopComputerMcpBridge", () => {
     });
     await respond(attach.id, { tabId: 9, origin: "https://example.com" });
     expect((await attaching).isError).not.toBe(true);
+
+    const opening = harness.client.callTool({
+      name: "browser_open_tab",
+      arguments: { url: "https://example.com/next" },
+    });
+    const openTab = await poll();
+    expect(openTab.command).toMatchObject({
+      type: "open-tab",
+      url: "https://example.com/next",
+    });
+    await respond(openTab.id, {
+      url: "https://example.com/next",
+      origin: "https://example.com",
+      active: false,
+    });
+    expect((await opening).isError).not.toBe(true);
 
     const observing = harness.client.callTool({
       name: "browser_observe",

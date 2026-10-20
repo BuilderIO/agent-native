@@ -1,0 +1,195 @@
+import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import type { Dispatch, RefObject, SetStateAction } from "react";
+import { toast } from "sonner";
+
+import {
+  type FrameElementTarget,
+  frameElementTarget,
+  type PortableStyleSnapshotRead,
+} from "@/components/design/multi-screen/read-portable-style-snapshot";
+import {
+  getDesignClipboardTrustToken,
+  plainTextFromDesignHtml,
+  writeDesignClipboard,
+} from "@/lib/design-clipboard";
+import type {
+  DesignClipboardPayload,
+  DesignClipboardScreenEntry,
+} from "@/lib/design-import";
+import { serializeDesignClipboardPayload } from "@/lib/design-import";
+import { resolveClipboardLayerSourceHtml } from "@/pages/design-editor/clipboard-layer-source";
+import { preserveClipboardLayerName } from "@/pages/design-editor/clone-and-pen-edit";
+import { preferredCodeLayerSelector } from "@/pages/design-editor/code-layer-state";
+import type {
+  CanvasLayerClipboardEntry,
+  LiveScreenSnapshot,
+  RuntimeLayerSnapshot,
+  SelectedCanvasLayerSnapshot,
+} from "@/pages/design-editor/command-types";
+import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
+import { shouldUseRuntimeLayerProjection } from "@/pages/design-editor/pending-edits";
+import type { DesignFile } from "@/pages/design-editor/types";
+
+export interface CopySelectionArgs {
+  canvasFrameGeometryById: CanvasFrameGeometryById;
+  copiedLayerEntriesRef: RefObject<CanvasLayerClipboardEntry[]>;
+  copiedLayerHtmlRef: RefObject<string | null>;
+  copiedScreenEntriesRef: RefObject<DesignClipboardScreenEntry[] | undefined>;
+  designSourceType: "inline" | "localhost" | "fusion";
+  files: DesignFile[];
+  getScreenContent: (screenId: string) => string;
+  getSelectedLayerSnapshots: () => SelectedCanvasLayerSnapshot[];
+  lastWrittenClipboardMarkerRef: RefObject<string | null>;
+  lastWrittenClipboardPlainTextRef: RefObject<string | null>;
+  liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
+  overviewScreens: OverviewScreen[];
+  overviewSelectedScreenIds: string[];
+  pasteCascadeRef: RefObject<number>;
+  readPortableStyleSnapshot: (
+    screenId: string,
+    target: FrameElementTarget,
+  ) => PortableStyleSnapshotRead;
+  runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
+  setHasCanvasClipboard: Dispatch<SetStateAction<boolean>>;
+  t: (key: string, options?: Record<string, unknown>) => string;
+  viewModeRef: RefObject<"single" | "overview">;
+}
+
+function portableStylesForClipboard(
+  snapshot: SelectedCanvasLayerSnapshot,
+  readPortableStyleSnapshot: CopySelectionArgs["readPortableStyleSnapshot"],
+): Pick<
+  CanvasLayerClipboardEntry,
+  "portableStyleSnapshot" | "styleSnapshotCaptureFailed"
+> {
+  if (snapshot.portableStyleSnapshot || snapshot.styleSnapshotCaptureFailed) {
+    return {
+      portableStyleSnapshot: snapshot.portableStyleSnapshot,
+      styleSnapshotCaptureFailed: snapshot.styleSnapshotCaptureFailed,
+    };
+  }
+  const read = readPortableStyleSnapshot(
+    snapshot.sourceFileId,
+    frameElementTarget(preferredCodeLayerSelector(snapshot.node), snapshot),
+  );
+  if (read.status === "captured") {
+    return { portableStyleSnapshot: read.snapshot };
+  }
+  if (read.status === "failed" || snapshot.styleSnapshotReadOnDemand) {
+    return { styleSnapshotCaptureFailed: true };
+  }
+  return {};
+}
+
+export async function runCopySelection({
+  canvasFrameGeometryById,
+  copiedLayerEntriesRef,
+  copiedLayerHtmlRef,
+  copiedScreenEntriesRef,
+  designSourceType,
+  files,
+  getScreenContent,
+  getSelectedLayerSnapshots,
+  lastWrittenClipboardMarkerRef,
+  lastWrittenClipboardPlainTextRef,
+  liveScreenSnapshotsById,
+  overviewScreens,
+  overviewSelectedScreenIds,
+  pasteCascadeRef,
+  readPortableStyleSnapshot,
+  runtimeLayerSnapshotsById,
+  setHasCanvasClipboard,
+  t,
+  viewModeRef,
+}: CopySelectionArgs) {
+  const snapshots = getSelectedLayerSnapshots();
+  const entries: CanvasLayerClipboardEntry[] = snapshots.map((snapshot) => ({
+    html: preserveClipboardLayerName(
+      snapshot.html,
+      snapshot.node.layerNameSource === "text"
+        ? undefined
+        : snapshot.node.layerName,
+    ),
+    rootNodeId: snapshot.rootNodeId,
+    sourceParentNodeId: snapshot.sourceParentNodeId,
+    sourceFileId: snapshot.sourceFileId,
+    ...(snapshot.sourceRelativeOffset !== undefined
+      ? { sourceRelativeOffset: snapshot.sourceRelativeOffset }
+      : {}),
+    ...portableStylesForClipboard(snapshot, readPortableStyleSnapshot),
+    managedStyleSnapshot: snapshot.managedStyleSnapshot,
+  }));
+  const screens: DesignClipboardPayload["screens"] =
+    entries.length === 0 && viewModeRef.current === "overview"
+      ? overviewSelectedScreenIds
+          .map((screenId): DesignClipboardScreenEntry | null => {
+            const file = files.find((candidate) => candidate.id === screenId);
+            const runtimeProjectionEligible =
+              file &&
+              shouldUseRuntimeLayerProjection({
+                screen: overviewScreens.find(
+                  (screen) => screen.id === screenId,
+                ),
+                fallbackSourceType: designSourceType,
+                content: file.content ?? "",
+              });
+            const runtimeSnapshot = runtimeProjectionEligible
+              ? runtimeLayerSnapshotsById[screenId]
+              : undefined;
+            const content = resolveClipboardLayerSourceHtml({
+              runtimeProjectionEligible: Boolean(runtimeProjectionEligible),
+              runtimeSnapshot,
+              liveSnapshotHtml: liveScreenSnapshotsById[screenId]?.html,
+              storedContent: getScreenContent(screenId) ?? file?.content,
+            });
+            if (!file || typeof content !== "string") return null;
+            return {
+              filename: file.filename,
+              fileType: file.fileType,
+              content,
+              sourceScreenId: screenId,
+              canvasFrame: canvasFrameGeometryById[screenId],
+            };
+          })
+          .filter((entry): entry is DesignClipboardScreenEntry =>
+            Boolean(entry),
+          )
+      : [];
+  if (entries.length === 0 && screens.length === 0) {
+    return { copied: false, written: false };
+  }
+  const copiedHtml =
+    entries.length > 0
+      ? entries.map((entry) => entry.html).join("\n")
+      : screens.map((screen) => screen.content).join("\n");
+  const plainText = plainTextFromDesignHtml(
+    entries.length > 0
+      ? entries.map((entry) => entry.html)
+      : screens.map((screen) => screen.content),
+  );
+  const clipboardHtml = serializeDesignClipboardPayload(
+    copiedHtml,
+    {
+      version: 1,
+      entries,
+      screens,
+    },
+    getDesignClipboardTrustToken() ?? undefined,
+  );
+  copiedLayerEntriesRef.current = entries;
+  copiedScreenEntriesRef.current = screens;
+  copiedLayerHtmlRef.current = clipboardHtml;
+  lastWrittenClipboardMarkerRef.current = clipboardHtml;
+  lastWrittenClipboardPlainTextRef.current = plainText;
+  pasteCascadeRef.current = 0;
+  setHasCanvasClipboard(true);
+  const writePromise = writeDesignClipboard({ plainText, html: clipboardHtml });
+  let written = false;
+  try {
+    await writePromise;
+    written = true;
+  } catch {
+    toast.error(t("designEditor.toasts.clipboardBlocked"));
+  }
+  return { copied: true, written };
+}

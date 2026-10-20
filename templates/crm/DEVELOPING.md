@@ -1,6 +1,6 @@
 # CRM — Development Guide
 
-CRM is a React Router + Nitro Agent Native template. The UI and agent share the
+CRM is a React Router + Nitro Agent-Native template. The UI and agent share the
 same `actions/` contract; normal client reads and writes use action hooks, not
 custom CRUD routes.
 

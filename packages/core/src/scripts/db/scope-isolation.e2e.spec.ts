@@ -2,23 +2,34 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createClient, type Client } from "@libsql/client";
-/**
- * End-to-end isolation test for the agent's raw-SQL tools against a REAL
- * (temp-file) SQLite database with two tenants. This is the regression proof
- * for the schema-qualified scope-bypass fix (safety.ts) and the credential-row
- * exclusion (scoping.ts): it runs the actual exported db-query / db-exec entry
- * points — no mocks of the SQL layer — and asserts true row-level isolation.
- */
+import {
+  createPostgresScriptClient,
+  type PostgresScriptClient,
+} from "./postgres-client.js";
+
+type Client = PostgresScriptClient;
+
+async function createClient({ url }: { url: string }) {
+  const client = await createPostgresScriptClient(url);
+  return {
+    async execute(input: string | { sql: string; args?: unknown[] }) {
+      return client.unsafe(
+        typeof input === "string" ? input : input.sql,
+        typeof input === "string" ? undefined : input.args,
+      );
+    },
+    close: () => client.end(),
+  };
+}
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-describe("db tools cross-tenant isolation (e2e, real sqlite)", () => {
+describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
   let dir: string;
   let dbFile: string;
   let url: string;
 
   async function withClient<T>(fn: (c: Client) => Promise<T>): Promise<T> {
-    const c = createClient({ url });
+    const c = await createClient({ url });
     try {
       return await fn(c);
     } finally {
@@ -28,14 +39,17 @@ describe("db tools cross-tenant isolation (e2e, real sqlite)", () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), "an-scope-"));
-    dbFile = path.join(dir, "app.db");
-    url = "file:" + dbFile;
+    dbFile = path.join(dir, "app");
+    url = "pglite:" + dbFile;
     await withClient(async (c) => {
       await c.execute(
         `CREATE TABLE notes (id TEXT PRIMARY KEY, owner_email TEXT, body TEXT)`,
       );
       await c.execute(
         `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
+      );
+      await c.execute(
+        `CREATE TABLE chat_threads (id TEXT PRIMARY KEY, owner_email TEXT, thread_data TEXT)`,
       );
       await c.execute({
         sql: `INSERT INTO notes VALUES (?, ?, ?)`,
@@ -56,6 +70,14 @@ describe("db tools cross-tenant isolation (e2e, real sqlite)", () => {
       await c.execute({
         sql: `INSERT INTO settings VALUES (?, ?, ?)`,
         args: ["u:a@x.com:pref:theme", JSON.stringify({ value: "dark" }), 1],
+      });
+      await c.execute({
+        sql: `INSERT INTO chat_threads VALUES (?, ?, ?)`,
+        args: ["thread-a", "a@x.com", "current thread"],
+      });
+      await c.execute({
+        sql: `INSERT INTO chat_threads VALUES (?, ?, ?)`,
+        args: ["thread-b", "a@x.com", "another private thread"],
       });
     });
     vi.stubEnv("AGENT_USER_EMAIL", "a@x.com");
@@ -95,7 +117,6 @@ describe("db tools cross-tenant isolation (e2e, real sqlite)", () => {
     }
   }
 
-  // ── Reads ──────────────────────────────────────────────────────────────
   it("rejects a schema-qualified read (the scope bypass)", async () => {
     const { default: dbQuery } = await import("./query.js");
     await expect(
@@ -117,7 +138,12 @@ describe("db tools cross-tenant isolation (e2e, real sqlite)", () => {
     expect(keys.some((k: string) => k.includes(":credential:"))).toBe(false);
   });
 
-  // ── Writes ─────────────────────────────────────────────────────────────
+  it("rejects raw reads of another private chat thread", async () => {
+    await expect(
+      runQuery("SELECT thread_data FROM chat_threads WHERE id = 'thread-b'"),
+    ).rejects.toThrow(/Sensitive framework table "chat_threads"/);
+  });
+
   it("rejects a schema-qualified write", async () => {
     const { default: dbExec } = await import("./exec.js");
     await expect(
@@ -128,11 +154,10 @@ describe("db tools cross-tenant isolation (e2e, real sqlite)", () => {
         dbFile,
       ]),
     ).rejects.toThrow(/schema-qualified/i);
-    // The other tenant's row is untouched.
     const rows = await withClient((c) =>
       c
         .execute(`SELECT body FROM notes WHERE owner_email = 'b@x.com'`)
-        .then((r) => r.rows),
+        .then((r) => r),
     );
     expect(rows[0].body).toBe("B-secret");
   });
@@ -140,11 +165,8 @@ describe("db tools cross-tenant isolation (e2e, real sqlite)", () => {
   it("scopes a normal DELETE to the current tenant (no cross-tenant wipe)", async () => {
     await runExec("DELETE FROM notes");
     const remaining = await withClient((c) =>
-      c
-        .execute(`SELECT owner_email, body FROM notes`)
-        .then((r) => r.rows as any[]),
+      c.execute(`SELECT owner_email, body FROM notes`).then((r) => r as any[]),
     );
-    // Only tenant A's row was deleted; tenant B's survives.
     expect(remaining).toHaveLength(1);
     expect(remaining[0].owner_email).toBe("b@x.com");
   });
@@ -154,12 +176,12 @@ describe("db tools cross-tenant isolation (e2e, real sqlite)", () => {
     const rows = await withClient((c) =>
       c
         .execute(`SELECT owner_email, body FROM notes ORDER BY owner_email`)
-        .then((r) => r.rows as any[]),
+        .then((r) => r as any[]),
     );
     const byOwner = Object.fromEntries(
       rows.map((r) => [r.owner_email, r.body]),
     );
     expect(byOwner["a@x.com"]).toBe("edited");
-    expect(byOwner["b@x.com"]).toBe("B-secret"); // untouched
+    expect(byOwner["b@x.com"]).toBe("B-secret");
   });
 });

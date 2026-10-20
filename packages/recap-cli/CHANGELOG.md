@@ -1,5 +1,498 @@
 # @agent-native/recap-cli
 
+## 0.5.78
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.77
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.76
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.75
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+
+## 0.5.74
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.73
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.72
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.71
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.70
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.69
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 6b63993: Publish fresh PR recap snapshots with run-scoped idempotency keys.
+
+## 0.5.68
+
+### Patch Changes
+
+- 116fdc9: Verify a published recap is readable before capturing it, and report Plan read and screenshot failures in the informational PR recap check.
+- Release all public npm packages with a patch version bump.
+
+## 0.5.67
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.66
+
+### Patch Changes
+
+- c3feada: Allow revocable organization service tokens to have a lifetime of up to ten years and give recap-auth failures the correct recovery command.
+- Release all public npm packages with a patch version bump.
+
+## 0.5.65
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.64
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.63
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.62
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.61
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- dd47e1b: Fix published recap CLI installation in visual recap workflows by preferring `agent-native-recap` and falling back to the legacy `agent-native` executable for older pinned versions.
+
+## 0.5.60
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.59
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.56
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.55
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.54
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- be78352: Embed the PR recap workflow in the package runtime so bundled apps do not look for it in the consumer repository.
+
+## 0.5.53
+
+### Patch Changes
+
+- 8f82288: Scaffold configured feature dependencies and preserve long workspace URLs.
+  Keep optional Playwright imports external to app bundles so builds do not require its optional Chromium dependency.
+- Release all public npm packages with a patch version bump.
+
+## 0.5.52
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.51
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.50
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.49
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 82ad87c: Keep Playwright optional and use a distinct `agent-native-recap` executable name so Core can include the recap commands without replacing its `agent-native` CLI.
+
+## 0.5.48
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.47
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.46
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+
+## 0.5.45
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.44
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.43
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.42
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.41
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.40
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.39
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.38
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.37
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.35
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.34
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.33
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.31
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.30
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.29
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.27
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.26
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.25
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.24
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.23
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.21
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.20
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.19
+
+### Patch Changes
+
+- 4776e61: Reduce CI lint warnings across publishable packages.
+- Release all public npm packages with a patch version bump.
+
+## 0.5.18
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.16
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.12
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- a4b36e0: Stop billing cached prompt tokens twice, and normalize what `inputTokens` means
+  across every engine.
+
+  Providers disagree: OpenAI's `prompt_tokens` includes cached tokens, Anthropic's
+  `input_tokens` excludes them. The `usage` event never said which it carried, so
+  both conventions reached `calculateCost`, which charged `inputTokens` at the
+  full input rate and then added `cacheReadTokens` / `cacheWriteTokens` on top.
+  On a long cached conversation the cache is nearly the whole prompt, so a turn
+  that cost $0.0054 was reported as $0.0478 — and every `token_usage` row for an
+  OpenAI-family model was inflated the same way.
+  - The `usage` event now documents one convention: `inputTokens` is the whole
+    prompt and INCLUDES both cache counts, which are a slice of it rather than an
+    addition. This matches the AI SDK's own `inputTokens.total` / `noCache` /
+    `cacheRead` / `cacheWrite` normalization, and the Builder gateway.
+  - `anthropic-engine` was the only ENGINE reporting the exclusive form. It now
+    adds the cache counts back, which also fixes its prompt size: a fully cached
+    turn used to report ~3 input tokens instead of the real 42,438.
+  - `calculateCost` treats the three counts as a partition and prices each token
+    exactly once. Callers with no prompt caching pass zeroes and are unaffected.
+
+  The recap CLI carried all three conventions at once and now shares this one:
+  `parseClaudeUsage` adds Anthropic's cache counts back into the prompt,
+  `parseCodexUsage` no longer strips OpenAI's cached tokens out of it (it did that
+  to compensate for the old pricing formula, so keeping both would have swung the
+  error the other way), and `parseOpenAiCompatibleUsage` was already correct.
+
+## 0.5.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.7
+
+### Patch Changes
+
+- 95d9d70: Bound public-site monitor requests and clarify unified-diff framing in visual recap authoring prompts.
+
+## 0.5.6
+
+### Patch Changes
+
+- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
+  imports from its layout, transactional email pages, and MCP gateway;
+  creative-context drops unused type imports and an unread `headingStyle`;
+  recap-cli drops the `node:os` import and two unread locals; skills drops the
+  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
+  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
+  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
+  blocks new ones.
+
+## 0.5.5
+
+### Patch Changes
+
+- 16cbc53: Stop PR Visual Recap gate skips from creating visible pull request comments.
+
+## 0.5.4
+
+### Patch Changes
+
+- 061896a: Use the recap CLI package as the single implementation source for Core's recap skill, Plan block, and publish-token helpers while preserving Core compatibility exports.
+
 ## 0.5.3
 
 ### Patch Changes

@@ -78,12 +78,10 @@ default, not an exception.
 
 ## Parallel edits are the intended pattern, not a risk
 
-This repo has exactly one collision guard: `scripts/hooks/file-lease.mjs`. It
-denies a write only when another live session leased the same file in the
-last 15 minutes, or the file changed on disk since your session last wrote
-it. Parallel subagents editing disjoint files is normal and expected here —
-give each subagent its own file set up front so leases never collide, and let
-the hook catch the rare real overlap instead of avoiding parallelism to be safe.
+Parallel subagents editing disjoint files is normal and expected here. Assign
+non-overlapping file sets before you fan out, and have each subagent re-read
+existing changes before editing. Use the shared checkout's normal
+read-before-edit discipline.
 
 ## Related skills
 

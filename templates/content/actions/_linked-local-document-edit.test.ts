@@ -1,0 +1,174 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  callBrowserSession: vi.fn(),
+  listBrowserSessions: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server", () => mocks);
+
+import {
+  editLinkedLocalDocumentThroughBrowser,
+  linkedLocalDocumentEditActionName,
+} from "./_linked-local-document-edit.js";
+
+const args = {
+  ownerEmail: "alice@example.com",
+  documentId: "doc-1",
+  expectedContent: "# Original",
+  expectedTitle: "Original",
+  expectedDescription: "",
+  expectedMetadata:
+    '{"parentId":null,"icon":null,"position":0,"isFavorite":false,"hideFromSearch":false}',
+  expectedResultContent: "# Updated",
+  edits: [{ find: "Original", replace: "Updated" }],
+};
+
+describe("editLinkedLocalDocumentThroughBrowser", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("calls only the session advertising the exact document action", async () => {
+    const exactName = linkedLocalDocumentEditActionName("doc-1");
+    mocks.listBrowserSessions.mockResolvedValue([
+      {
+        sessionId: "other",
+        actions: [{ name: "content-edit-linked-document:doc-2" }],
+      },
+      { sessionId: "exact", actions: [{ name: exactName }] },
+    ]);
+    mocks.callBrowserSession.mockResolvedValue({
+      status: "persisted",
+      content: "# Updated",
+      title: "Updated",
+      path: "fixture.mdx",
+      runtime: "browser",
+    });
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({
+      status: "persisted",
+      content: "# Updated",
+    });
+    expect(mocks.callBrowserSession).toHaveBeenCalledWith(
+      "alice@example.com",
+      "exact",
+      expect.objectContaining({ type: "run-action", name: exactName }),
+      { timeoutMs: 30_000 },
+    );
+  });
+
+  it("reports unavailable instead of falling back to an unrelated tab", async () => {
+    mocks.listBrowserSessions.mockResolvedValue([
+      {
+        sessionId: "other",
+        actions: [{ name: "content-edit-linked-document:doc-2" }],
+      },
+    ]);
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({
+      status: "unavailable",
+    });
+    expect(mocks.callBrowserSession).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when more than one tab advertises the exact document", async () => {
+    const name = linkedLocalDocumentEditActionName("doc-1");
+    mocks.listBrowserSessions.mockResolvedValue([
+      { sessionId: "one", actions: [{ name }] },
+      { sessionId: "two", actions: [{ name }] },
+    ]);
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({
+      status: "conflict",
+    });
+    expect(mocks.callBrowserSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects incomplete persisted receipts", async () => {
+    const name = linkedLocalDocumentEditActionName("doc-1");
+    mocks.listBrowserSessions.mockResolvedValue([
+      { sessionId: "exact", actions: [{ name }] },
+    ]);
+    mocks.callBrowserSession.mockResolvedValue({ status: "persisted" });
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({ status: "failed" });
+  });
+
+  it("rejects a persisted receipt whose content is not the requested result", async () => {
+    const name = linkedLocalDocumentEditActionName("doc-1");
+    mocks.listBrowserSessions.mockResolvedValue([
+      { sessionId: "exact", actions: [{ name }] },
+    ]);
+    mocks.callBrowserSession.mockResolvedValue({
+      status: "persisted",
+      content: "# Different",
+      title: "Different",
+      path: "fixture.mdx",
+      runtime: "browser",
+    });
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({ status: "conflict" });
+  });
+
+  it("accepts a matching read-back-pending receipt for SQL reconciliation", async () => {
+    const name = linkedLocalDocumentEditActionName("doc-1");
+    mocks.listBrowserSessions.mockResolvedValue([
+      { sessionId: "exact", actions: [{ name }] },
+    ]);
+    mocks.callBrowserSession.mockResolvedValue({
+      status: "source-persisted/readback-pending",
+      content: "# Updated",
+      title: "Updated",
+      path: "fixture.mdx",
+      runtime: "browser",
+      revision: "sha256:updated",
+    });
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({
+      status: "source-persisted/readback-pending",
+      content: "# Updated",
+    });
+  });
+
+  it("accepts a complete divergent-source receipt for history reconciliation", async () => {
+    const name = linkedLocalDocumentEditActionName("doc-1");
+    mocks.listBrowserSessions.mockResolvedValue([
+      { sessionId: "exact", actions: [{ name }] },
+    ]);
+    mocks.callBrowserSession.mockResolvedValue({
+      status: "source-persisted/history-pending",
+      content: "# Concurrent source",
+      title: "Concurrent source",
+      description: "Changed on disk",
+      metadata: {
+        parentId: null,
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+      },
+      path: "fixture.mdx",
+      runtime: "browser",
+      revision: "sha256:concurrent",
+    });
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({
+      status: "source-persisted/history-pending",
+      content: "# Concurrent source",
+    });
+  });
+});

@@ -14,7 +14,7 @@ describe("create content database", () => {
   });
 
   it("defaults untitled database pages consistently", () => {
-    expect(databaseTitleForPage("", "")).toBe("Untitled database");
-    expect(databaseTitleForPage()).toBe("Untitled database");
+    expect(databaseTitleForPage("", "")).toBe("Untitled collection");
+    expect(databaseTitleForPage()).toBe("Untitled collection");
   });
 });

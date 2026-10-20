@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -9,7 +9,8 @@ import {
   parsePptx,
   type ParsedPresentation,
 } from "../server/handlers/import/pptx-parser.js";
-import { getGoogleDocsAccessToken } from "../server/lib/google-docs-oauth.js";
+import { getAvailableGoogleDocsAccessToken } from "../server/lib/google-docs-access.js";
+import { trackDeckCreated } from "./_deck-tracking.js";
 import {
   importPptxBufferToDeck,
   type ImportedImageFallback,
@@ -23,14 +24,22 @@ function deckDeepLink(deckId: string): string {
   });
 }
 
+function invalidSlidesReference(message: string): never {
+  return fail(message, {
+    errorCode: "invalid_google_slides_reference",
+    statusCode: 400,
+  });
+}
+
 export function extractGoogleSlidesPresentationId(value: string): string {
   const candidate = value.trim();
-  if (!candidate)
-    throw new Error("A Google Slides file ID or URL is required.");
+  if (!candidate) {
+    invalidSlidesReference("A Google Slides file ID or URL is required.");
+  }
 
   if (!/^https?:\/\//i.test(candidate)) {
     if (!/^[a-zA-Z0-9_-]+$/.test(candidate)) {
-      throw new Error(
+      invalidSlidesReference(
         "Use a Google Slides file ID or a docs.google.com presentation URL.",
       );
     }
@@ -41,16 +50,20 @@ export function extractGoogleSlidesPresentationId(value: string): string {
   try {
     url = new URL(candidate);
   } catch {
-    throw new Error("Use a valid Google Slides presentation URL.");
+    invalidSlidesReference("Use a valid Google Slides presentation URL.");
   }
   if (url.hostname !== "docs.google.com") {
-    throw new Error("Use a docs.google.com Google Slides presentation URL.");
+    invalidSlidesReference(
+      "Use a docs.google.com Google Slides presentation URL.",
+    );
   }
   const match = url.pathname.match(
-    /^\/presentation\/d\/([a-zA-Z0-9_-]+)(?:\/|$)/,
+    /^\/presentation\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)(?:\/|$)/,
   );
   if (!match) {
-    throw new Error("That URL is not a Google Slides presentation link.");
+    invalidSlidesReference(
+      "That URL is not a Google Slides presentation link.",
+    );
   }
   return match[1];
 }
@@ -64,9 +77,7 @@ async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
   );
 
   if (!response.ok) {
-    throw new Error(
-      `Google Drive returned HTTP ${response.status} while exporting the presentation.`,
-    );
+    throw googleSlidesExportError(response.status);
   }
 
   const bytes = await response.arrayBuffer();
@@ -80,14 +91,15 @@ async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
 interface GoogleSlidesImageElement {
   objectId?: string;
   size?: {
-    width?: { magnitude?: number };
-    height?: { magnitude?: number };
+    width?: { magnitude?: number; unit?: string };
+    height?: { magnitude?: number; unit?: string };
   };
   transform?: {
     scaleX?: number;
     scaleY?: number;
     translateX?: number;
     translateY?: number;
+    unit?: string;
   };
   image?: {
     contentUrl?: string;
@@ -124,18 +136,48 @@ function finiteNumber(value: number | undefined): number | undefined {
   return value != null && Number.isFinite(value) ? value : undefined;
 }
 
-/**
- * Google Drive's PPTX export can omit image page elements that remain present
- * in the native Slides document. Read those native objects as a fidelity
- * fallback so a direct Google Slides import does not silently lose artwork.
- */
+const EMU_PER_POINT = 12700;
+
+export function googleSlidesMeasurementToEmu(
+  value: number | undefined,
+  unit?: string,
+): number | undefined {
+  const finite = finiteNumber(value);
+  if (finite == null) return undefined;
+  return unit === "PT" ? finite * EMU_PER_POINT : finite;
+}
+
+export function googleSlidesExportError(
+  status: number,
+): Error & { statusCode?: number } {
+  if (status === 401) {
+    return Object.assign(
+      new Error(
+        "Google Drive connection expired. Connect Google again, then retry the import.",
+      ),
+      { statusCode: 401 },
+    );
+  }
+  if (status === 403) {
+    return Object.assign(
+      new Error(
+        "Google Drive denied access to this presentation. Connect Google again to enable pasted-link imports, or choose the deck through Google Picker.",
+      ),
+      { statusCode: 403 },
+    );
+  }
+  return new Error(
+    `Google Drive returned HTTP ${status} while exporting the presentation.`,
+  );
+}
+
 async function fetchGoogleSlidesImageFallbacks(
   fileId: string,
   accessToken: string,
   presentation: ParsedPresentation,
 ): Promise<ImportedImageFallback[]> {
   const fields =
-    "slides(pageElements(objectId,size,transform,image(contentUrl,imageProperties(cropProperties))))";
+    "slides(pageElements(objectId,size(width(magnitude,unit),height(magnitude,unit)),transform(scaleX,scaleY,translateX,translateY,unit),image(contentUrl,imageProperties(cropProperties))))";
   const response = await ssrfSafeFetch(
     `https://slides.googleapis.com/v1/presentations/${encodeURIComponent(fileId)}?fields=${encodeURIComponent(fields)}`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -156,12 +198,24 @@ async function fetchGoogleSlidesImageFallbacks(
   ).entries()) {
     for (const [imageIndex, element] of (slide.pageElements ?? []).entries()) {
       const contentUrl = element.image?.contentUrl;
-      const baseWidth = finiteNumber(element.size?.width?.magnitude);
-      const baseHeight = finiteNumber(element.size?.height?.magnitude);
+      const baseWidth = googleSlidesMeasurementToEmu(
+        element.size?.width?.magnitude,
+        element.size?.width?.unit,
+      );
+      const baseHeight = googleSlidesMeasurementToEmu(
+        element.size?.height?.magnitude,
+        element.size?.height?.unit,
+      );
       const scaleX = finiteNumber(element.transform?.scaleX) ?? 1;
       const scaleY = finiteNumber(element.transform?.scaleY) ?? 1;
-      const x = finiteNumber(element.transform?.translateX);
-      const y = finiteNumber(element.transform?.translateY);
+      const x = googleSlidesMeasurementToEmu(
+        element.transform?.translateX,
+        element.transform?.unit,
+      );
+      const y = googleSlidesMeasurementToEmu(
+        element.transform?.translateY,
+        element.transform?.unit,
+      );
       const width =
         baseWidth == null ? undefined : baseWidth * Math.abs(scaleX);
       const height =
@@ -226,7 +280,7 @@ async function fetchGoogleSlidesImageFallbacks(
     const download = downloadLimit(async () => {
       const imageResponse = await ssrfSafeFetch(
         candidate.contentUrl,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
+        {},
         { httpsOnly: true, maxRedirects: 2 },
       );
       if (!imageResponse.ok) {
@@ -288,6 +342,10 @@ export default defineAction({
         .string()
         .optional()
         .describe("Optional title for the imported reference deck"),
+      purpose: z
+        .enum(["direct", "reference"])
+        .optional()
+        .describe("Why the deck is being imported; used only for analytics"),
     })
     .refine(
       ({ fileId, presentationUrl }) => Boolean(fileId || presentationUrl),
@@ -295,14 +353,21 @@ export default defineAction({
         message: "Provide either fileId or presentationUrl.",
       },
     ),
-  run: async ({ fileId, presentationUrl, title }) => {
+  run: async ({ fileId, presentationUrl, title, purpose }, ctx) => {
     const owner = getRequestUserEmail();
     if (!owner) throw new Error("no authenticated user");
 
-    const connection = await getGoogleDocsAccessToken(owner);
+    const connection = await getAvailableGoogleDocsAccessToken(
+      owner,
+      presentationUrl ? { requireDriveExportScope: true } : undefined,
+    );
     if (!connection) {
-      throw new Error(
+      fail(
         "Google Drive is not connected. Use the Connect Google button in Slides, then try again.",
+        {
+          errorCode: "google_drive_not_connected",
+          statusCode: 412,
+        },
       );
     }
 
@@ -313,19 +378,31 @@ export default defineAction({
       presentationId,
       connection.accessToken,
     );
-    const parsedPresentation = await parsePptx(fileBuffer);
+    const parsedPresentation = await parsePptx(fileBuffer, {
+      includeHiddenSlides: true,
+    });
     const imageFallbacks = await fetchGoogleSlidesImageFallbacks(
       presentationId,
       connection.accessToken,
       parsedPresentation,
     );
-    return importPptxBufferToDeck({
+    const result = await importPptxBufferToDeck({
       fileBuffer,
       parsedPresentation,
       title,
       source: "import-google-slides-reference",
       imageFallbacks,
     });
+    trackDeckCreated(
+      result.id,
+      {
+        creationMethod: "import_gslides",
+        purpose: purpose ?? "unknown",
+        slideCount: result.slideCount,
+      },
+      ctx,
+    );
+    return result;
   },
   link: ({ result }) => {
     const id =

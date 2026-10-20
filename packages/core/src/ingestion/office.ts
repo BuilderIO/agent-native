@@ -1,4 +1,14 @@
-export type OfficeDocumentType = "pptx" | "docx" | "pdf" | "txt" | "md" | "csv";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+
+export type OfficeDocumentType =
+  | "pptx"
+  | "docx"
+  | "pdf"
+  | "txt"
+  | "md"
+  | "csv"
+  | "xlsx"
+  | "xls";
 
 export interface ParseOfficeDocumentInput {
   data: Uint8Array;
@@ -15,6 +25,7 @@ export interface ParsedOfficeDocument {
     | "structured-pptx"
     | "mammoth-docx"
     | "officeparser-pdf"
+    | "sheetjs-workbook"
     | "plain-text";
   parts: OfficeDocumentPart[];
   metadata: Record<string, unknown>;
@@ -22,7 +33,7 @@ export interface ParsedOfficeDocument {
 }
 
 export interface OfficeDocumentPart {
-  kind: "slide" | "section" | "page" | "document";
+  kind: "slide" | "section" | "page" | "sheet" | "document";
   index: number;
   title: string;
   text: string;
@@ -66,6 +77,24 @@ export async function parseOfficeDocument(
       parts: [{ kind: "document", index: 0, title: input.fileName, text }],
       metadata: {},
       warnings: [],
+    };
+  }
+  if (fileType === "xlsx" || fileType === "xls") {
+    const workbook = await parseSpreadsheetDocument(input);
+    return {
+      text: workbook.text,
+      fileType,
+      title: workbook.title,
+      parser: workbook.parser,
+      parts: workbook.parts.map((part) => ({
+        kind: "sheet" as const,
+        index: part.index,
+        title: part.title,
+        text: part.text,
+        metadata: part.metadata,
+      })),
+      metadata: workbook.metadata,
+      warnings: workbook.warnings,
     };
   }
   if (fileType === "pptx") {
@@ -131,11 +160,6 @@ export async function parseOfficeDocument(
     };
   }
   const resolvedParser = parser ?? (await loadOfficeParser());
-  if (!resolvedParser) {
-    throw new Error(
-      `Parsing ${fileType.toUpperCase()} uploads requires the optional officeparser dependency.`,
-    );
-  }
   const ast = await resolvedParser.parseOffice(input.data, {
     fileType,
     abortSignal: input.signal,
@@ -171,11 +195,13 @@ export function detectOfficeDocumentType(
   if (mime.includes("pdf")) return "pdf";
   if (mime.includes("markdown")) return "md";
   if (mime.includes("csv")) return "csv";
+  const spreadsheetType = detectSpreadsheetDocumentType(fileName, mimeType);
+  if (spreadsheetType) return spreadsheetType;
   if (mime.startsWith("text/")) return "txt";
   const extension = fileName.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
   if (isOfficeDocumentType(extension)) return extension;
   throw new Error(
-    `Unsupported upload type ${mimeType ?? extension ?? "unknown"}; supported formats are PPTX, DOCX, PDF, and text.`,
+    `Unsupported upload type ${mimeType ?? extension ?? "unknown"}; supported formats are PPTX, DOCX, PDF, XLS, XLSX, and text.`,
   );
 }
 
@@ -188,21 +214,25 @@ export function normalizeDocumentText(value: string): string {
     .trim();
 }
 
-async function loadOfficeParser(): Promise<OfficeDocumentParser | null> {
-  try {
-    const module = (await import("officeparser")) as unknown as {
-      OfficeParser?: OfficeDocumentParser;
-    };
-    return module.OfficeParser ?? null;
-  } catch {
-    return null;
+async function loadOfficeParser(): Promise<OfficeDocumentParser> {
+  const module = await loadOptionalPeer(
+    "officeparser",
+    () => import("officeparser"),
+  );
+  if (!module.OfficeParser) {
+    throw new Error(
+      "The installed officeparser package has no OfficeParser API.",
+    );
   }
+  return module.OfficeParser as unknown as OfficeDocumentParser;
 }
 
 function isOfficeDocumentType(value: unknown): value is OfficeDocumentType {
   return (
     typeof value === "string" &&
-    (["pptx", "docx", "pdf", "txt", "md", "csv"] as string[]).includes(value)
+    (
+      ["pptx", "docx", "pdf", "txt", "md", "csv", "xlsx", "xls"] as string[]
+    ).includes(value)
   );
 }
 import { parseDocxDocument, sanitizeInertDocumentHtml } from "./docx.js";
@@ -211,3 +241,7 @@ import {
   type ParsedPptxImage,
   type ParsedPptxTextRun,
 } from "./pptx.js";
+import {
+  detectSpreadsheetDocumentType,
+  parseSpreadsheetDocument,
+} from "./spreadsheet.js";

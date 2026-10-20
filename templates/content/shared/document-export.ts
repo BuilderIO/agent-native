@@ -1,5 +1,12 @@
+import type { BlocksFieldIdentity } from "./blocks-field-identity.js";
 import { matchInlineMathAt } from "./inline-math.js";
 import { KATEX_STYLESHEET_URL, renderMathToHtml } from "./math-rendering.js";
+import {
+  matchNfmExportBlock,
+  NFM_EXPORT_PRINT_STYLES,
+  NFM_EXPORT_STYLES,
+  startsNfmExportBlock,
+} from "./nfm-export-html.js";
 
 export type DocumentExportFormat = "pdf" | "markdown" | "html";
 
@@ -9,6 +16,16 @@ export interface DocumentExportInput {
   content?: string | null;
   updatedAt?: string | null;
   format: DocumentExportFormat;
+  blocksFields?: BlocksFieldExport[];
+}
+
+export interface BlocksFieldExport {
+  databaseId: string;
+  propertyId: string;
+  name: string;
+  position: number;
+  markdown: string;
+  identity: BlocksFieldIdentity;
 }
 
 export interface DocumentExportPayload {
@@ -19,6 +36,20 @@ export interface DocumentExportPayload {
   mimeType: string;
   content: string;
   print: boolean;
+  blocksFields?: BlocksFieldExport[];
+}
+
+function serializeBlocksFieldsManifest(fields: BlocksFieldExport[]): string {
+  return JSON.stringify({ version: 1, fields })
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/--/g, "\\u002d\\u002d");
+}
+
+export interface CollectionExportItem {
+  title?: string | null;
+  content?: string | null;
 }
 
 const EXTENSION_BY_FORMAT: Record<DocumentExportFormat, string> = {
@@ -101,6 +132,26 @@ export function markdownWithTitle(
   }
 
   return `${`# ${safeTitle}`}${body ? `\n\n${body}` : ""}\n`;
+}
+
+export function collectionItemsMarkdown(
+  items: readonly CollectionExportItem[],
+): string {
+  if (items.length === 0) return "_No accessible items._\n";
+
+  return `${items
+    .map((item) => {
+      const title = normalizeTitle(item.title);
+      const body = (item.content ?? "").trim();
+      const firstHeading = body.match(/^#\s+(.+?)(?:\n|$)/);
+      const content =
+        firstHeading?.[1]?.trim().toLowerCase() === title.toLowerCase()
+          ? body.slice(firstHeading[0].length).trimStart()
+          : body;
+
+      return `## ${title}${content ? `\n\n${content}` : ""}`;
+    })
+    .join("\n\n")}\n`;
 }
 
 interface InlineExportToken {
@@ -370,6 +421,38 @@ function isEmptyBlockLine(trimmed: string): boolean {
   return /^<empty-block\b[^>]*\/>$/.test(trimmed);
 }
 
+function matchHeadingToggle(
+  line: string,
+): { level: number; source: string } | null {
+  const match = line.match(/^(#{1,6})\s+(.+?)\s+\{([^{}]*)\}\s*$/);
+  if (!match || !/\btoggle\s*=\s*"true"/.test(match[3])) return null;
+  return { level: match[1].length, source: match[2] };
+}
+
+function collectIndentedChildren(
+  lines: string[],
+  start: number,
+  parentIndent: number,
+): { lines: string[]; nextIndex: number } {
+  const children: string[] = [];
+  let index = start;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line.trim() && leadingIndentWidth(line) <= parentIndent) break;
+    children.push(
+      line.trim() ? stripLeadingIndent(line, parentIndent + 1) : line,
+    );
+    index++;
+  }
+  return { lines: children, nextIndex: index };
+}
+
+const exportRenderers = {
+  renderBlocks: (markdown: string) => markdownToHtml(markdown),
+  renderInline: (text: string) => inlineMarkdownToHtml(text),
+  escapeHtml,
+};
+
 function markdownToHtml(markdown: string): string {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const blocks: string[] = [];
@@ -444,6 +527,22 @@ function markdownToHtml(markdown: string): string {
       continue;
     }
 
+    const headingToggle = matchHeadingToggle(trimmed);
+    if (headingToggle) {
+      const children = collectIndentedChildren(
+        lines,
+        index + 1,
+        leadingIndentWidth(line),
+      );
+      const headingHtml = `<h${headingToggle.level}>${inlineMarkdownToHtml(
+        headingToggle.source,
+      )}</h${headingToggle.level}>`;
+      const body = markdownToHtml(children.lines.join("\n"));
+      blocks.push(body ? `${headingHtml}\n\n${body}` : headingHtml);
+      index = children.nextIndex;
+      continue;
+    }
+
     const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
       const level = heading[1].length;
@@ -484,6 +583,13 @@ function markdownToHtml(markdown: string): string {
       continue;
     }
 
+    const nfmBlock = matchNfmExportBlock(lines, index, exportRenderers);
+    if (nfmBlock) {
+      blocks.push(nfmBlock.html);
+      index = nfmBlock.nextIndex;
+      continue;
+    }
+
     const paragraph: string[] = [line];
     index++;
     while (
@@ -495,7 +601,8 @@ function markdownToHtml(markdown: string): string {
       !/^```/.test(lines[index].trim()) &&
       !/^>\s?/.test(lines[index].trim()) &&
       !/^\s*[-*+]\s+/.test(lines[index]) &&
-      !/^\s*\d+[.)]\s+/.test(lines[index])
+      !/^\s*\d+[.)]\s+/.test(lines[index]) &&
+      !startsNfmExportBlock(lines, index)
     ) {
       paragraph.push(lines[index]);
       index++;
@@ -613,11 +720,13 @@ function buildHtmlDocument(input: {
       border-top: 1px solid #e5e5e5;
       margin: 28px 0;
     }
+${NFM_EXPORT_STYLES}
     @media print {
       @page { margin: 0.65in; }
       main { max-width: none; padding: 0; }
       a { color: inherit; text-decoration: underline; }
       pre, blockquote, img { break-inside: avoid; }
+${NFM_EXPORT_PRINT_STYLES}
     }
   </style>
 </head>
@@ -638,7 +747,10 @@ export function buildDocumentExport(
   const filename = exportFilename(title, input.format);
   const markdown = markdownWithTitle(title, input.content);
   const isHtmlLike = input.format === "html" || input.format === "pdf";
-  const content = isHtmlLike
+  const manifest = input.blocksFields?.length
+    ? serializeBlocksFieldsManifest(input.blocksFields)
+    : null;
+  let content = isHtmlLike
     ? buildHtmlDocument({
         title,
         content: input.content ?? "",
@@ -646,6 +758,14 @@ export function buildDocumentExport(
         print: input.format === "pdf",
       })
     : markdown;
+  if (manifest) {
+    content = isHtmlLike
+      ? content.replace(
+          "</body>",
+          `<script type="application/json" id="agent-native-blocks">${manifest}</script>\n</body>`,
+        )
+      : `${content.trimEnd()}\n\n<!-- agent-native-blocks:${manifest} -->\n`;
+  }
 
   return {
     id: input.id,
@@ -655,5 +775,6 @@ export function buildDocumentExport(
     mimeType: MIME_BY_FORMAT[input.format],
     content,
     print: input.format === "pdf",
+    ...(input.blocksFields?.length ? { blocksFields: input.blocksFields } : {}),
   };
 }

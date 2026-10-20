@@ -4,6 +4,10 @@ const mocks = vi.hoisted(() => ({
   knowledgeRows: [] as Array<Record<string, unknown>>,
   captures: [] as Array<Record<string, unknown>>,
   policies: new Map<string, Record<string, unknown>>(),
+  lanes: {
+    fts: { status: "ok" },
+    semantic: { status: "ok" },
+  } as Record<string, { status: string; error?: string }>,
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -52,7 +56,9 @@ vi.mock("../server/lib/search.js", () => ({
   buildFederatedSearchCoverage: vi.fn(async () => ({
     mode: "brain-index-plus-delegation-hints",
   })),
-  searchEverythingRows: vi.fn(async () => mocks.captures),
+  searchEverythingWithLanes: vi.fn(async () => {
+    return { rows: mocks.captures, lanes: mocks.lanes };
+  }),
 }));
 
 vi.mock("../server/lib/source-policy.js", async (importOriginal) => {
@@ -89,8 +95,8 @@ function knowledge(args: { id: string; sourceId: string; title: string }) {
     audienceAclHash: "acl",
     kind: "fact",
     title: args.title,
-    body: "Agent Native is a framework for building software around agents.",
-    summary: "Agent Native puts agents at the center of product workflows.",
+    body: "Agent-Native is a framework for building software around agents.",
+    summary: "Agent-Native puts agents at the center of product workflows.",
     topic: "agent-native",
     tagsJson: "[]",
     entitiesJson: "[]",
@@ -99,7 +105,7 @@ function knowledge(args: { id: string; sourceId: string; title: string }) {
         captureId: `capture-${args.id}`,
         sourceId: args.sourceId,
         captureTitle: `${args.title} source`,
-        quote: "Agent Native puts agents at the center of product workflows.",
+        quote: "Agent-Native puts agents at the center of product workflows.",
         sourceUrl: `https://docs.example.test/${args.id}`,
       },
     ],
@@ -130,11 +136,43 @@ function policy(sourceId: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+function capture(args: {
+  id: string;
+  sourceId: string;
+  title: string;
+  snippet: string;
+}) {
+  return {
+    type: "capture",
+    id: args.id,
+    title: args.title,
+    snippet: args.snippet,
+    summary: args.snippet,
+    status: "distilled",
+    provider: "slack",
+    source: {
+      id: args.sourceId,
+      title: "Slack feedback",
+      provider: "slack",
+      status: "active",
+    },
+    sourceUrl: `https://slack.example.test/${args.id}`,
+    citation: null,
+    confidence: null,
+    updatedAt: "2026-07-29T00:00:00.000Z",
+    score: 10,
+  };
+}
+
 describe("ask-brain source answer policy", () => {
   beforeEach(() => {
     mocks.knowledgeRows = [];
     mocks.captures = [];
     mocks.policies = new Map();
+    mocks.lanes = {
+      fts: { status: "ok" },
+      semantic: { status: "ok" },
+    };
   });
 
   it("prefers blessed knowledge and excludes answer-ineligible sources", async () => {
@@ -142,17 +180,17 @@ describe("ask-brain source answer policy", () => {
       knowledge({
         id: "standard",
         sourceId: "source-standard",
-        title: "Agent Native standard",
+        title: "Agent-Native standard",
       }),
       knowledge({
         id: "blessed",
         sourceId: "source-blessed",
-        title: "Agent Native blessed",
+        title: "Agent-Native blessed",
       }),
       knowledge({
         id: "untrusted",
         sourceId: "source-untrusted",
-        title: "Agent Native untrusted",
+        title: "Agent-Native untrusted",
       }),
     ];
     mocks.policies.set(
@@ -175,7 +213,7 @@ describe("ask-brain source answer policy", () => {
     );
 
     const result = await action.run({
-      question: "What is Agent Native?",
+      question: "What is Agent-Native?",
       mode: "cited",
     });
     const returnedKnowledge = result.knowledge as Array<{
@@ -209,13 +247,13 @@ describe("ask-brain source answer policy", () => {
         knowledge({
           id: `ineligible-${index}`,
           sourceId: `source-ineligible-${index}`,
-          title: `Agent Native ineligible ${index}`,
+          title: `Agent-Native ineligible ${index}`,
         }),
       ),
       knowledge({
         id: "blessed",
         sourceId: "source-blessed",
-        title: "Agent Native blessed",
+        title: "Agent-Native blessed",
       }),
     ];
     for (let index = 0; index < 7; index += 1) {
@@ -233,12 +271,224 @@ describe("ask-brain source answer policy", () => {
     );
 
     const result = await action.run({
-      question: "What is Agent Native?",
+      question: "What is Agent-Native?",
       mode: "cited",
     });
 
     expect(
       (result.knowledge as Array<{ id: string }>).map((item) => item.id),
     ).toEqual(["blessed"]);
+  });
+
+  it("cites knowledge first, then eligible Slack captures with channel and date", async () => {
+    mocks.knowledgeRows = [
+      knowledge({
+        id: "agent-native-synthesis",
+        sourceId: "source-approved",
+        title: "Approved Agent-Native synthesis",
+      }),
+    ];
+    mocks.captures = [
+      {
+        ...capture({
+          id: "raw-brent-feedback",
+          sourceId: "source-slack",
+          title: "Brent's individual feedback",
+          snippet: "Brent's individual feedback is not the product direction.",
+        }),
+        location: "#dev-fusion",
+        capturedAt: "2026-07-28T10:00:00.000Z",
+      },
+    ];
+    mocks.policies.set(
+      "source-approved",
+      policy("source-approved", { trustTier: "blessed", authority: 100 }),
+    );
+    mocks.policies.set("source-slack", policy("source-slack"));
+
+    const result = await action.run({
+      question: "What is our Agent-Native product direction?",
+      mode: "cited",
+    });
+
+    expect(result.answer).toContain("Approved Agent-Native synthesis");
+    expect(result.answer).toContain("#dev-fusion (2026-07-28)");
+    expect(result.answerSource).toBe("knowledge");
+    expect(result.citations).toEqual([
+      expect.objectContaining({ knowledgeId: "agent-native-synthesis" }),
+      expect.objectContaining({
+        captureId: "raw-brent-feedback",
+        location: "#dev-fusion",
+        capturedAt: "2026-07-28T10:00:00.000Z",
+      }),
+    ]);
+  });
+
+  it("answers from eligible captures when no knowledge matches", async () => {
+    mocks.captures = [
+      capture({
+        id: "raw-retailer-lead",
+        sourceId: "source-slack",
+        title: "Retailer demo lead",
+        snippet: "Nick is demoing to a national grocery retailer next week.",
+      }),
+    ];
+    mocks.policies.set("source-slack", policy("source-slack"));
+
+    const result = await action.run({
+      question: "What retailer is Nick Nestle demoing to?",
+      mode: "cited",
+    });
+
+    expect(result.answer).toContain("national grocery retailer");
+    expect(result.answer).not.toMatch(/need review|unreviewed|approved/i);
+    expect(result.answerSource).toBe("captures");
+    expect(result.citations).toEqual([
+      expect.objectContaining({ captureId: "raw-retailer-lead" }),
+    ]);
+  });
+
+  it("judges capture freshness by when the message was captured", async () => {
+    mocks.captures = [
+      {
+        ...capture({
+          id: "old-thread",
+          sourceId: "source-slack",
+          title: "Old retailer thread",
+          snippet: "Nick is demoing to a national grocery retailer next week.",
+        }),
+        capturedAt: "2020-01-01T00:00:00.000Z",
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    mocks.policies.set(
+      "source-slack",
+      policy("source-slack", { freshnessWindowDays: 30 }),
+    );
+
+    const result = await action.run({
+      question: "What retailer is Nick Nestle demoing to?",
+      mode: "cited",
+    });
+
+    expect(result.answerSource).toBe("none");
+    expect(result.citations).toEqual([]);
+  });
+
+  it("ignores long uncited knowledge when deciding to search captures and when answering", async () => {
+    mocks.knowledgeRows = [
+      {
+        ...knowledge({
+          id: "uncited-knowledge",
+          sourceId: "source-approved",
+          title: "Uncited retailer summary",
+        }),
+        body: "Long uncited retailer background. ".repeat(20),
+        evidence: [],
+      },
+    ];
+    mocks.captures = [
+      capture({
+        id: "raw-retailer-lead",
+        sourceId: "source-slack",
+        title: "Retailer demo lead",
+        snippet: "Nick is demoing to a national grocery retailer next week.",
+      }),
+    ];
+    mocks.policies.set("source-approved", policy("source-approved"));
+    mocks.policies.set("source-slack", policy("source-slack"));
+
+    const result = await action.run({
+      question: "What retailer is Nick Nestle demoing to?",
+      mode: "cited",
+    });
+
+    expect(result.answer).not.toContain("Uncited retailer summary");
+    expect(result.answer).toContain("national grocery retailer");
+    expect(result.answerSource).toBe("captures");
+    expect(result.citations).toEqual([
+      expect.objectContaining({ captureId: "raw-retailer-lead" }),
+    ]);
+  });
+
+  it("finds cited knowledge ranked below six uncited entries", async () => {
+    mocks.knowledgeRows = [
+      ...Array.from({ length: 6 }, (_, index) => ({
+        ...knowledge({
+          id: "uncited-" + index,
+          sourceId: "source-blessed",
+          title: "Uncited Agent-Native note " + index,
+        }),
+        evidence: [],
+      })),
+      knowledge({
+        id: "cited-synthesis",
+        sourceId: "source-standard",
+        title: "Cited Agent-Native synthesis",
+      }),
+    ];
+    mocks.policies.set(
+      "source-blessed",
+      policy("source-blessed", { trustTier: "blessed", authority: 100 }),
+    );
+    mocks.policies.set("source-standard", policy("source-standard"));
+
+    const result = await action.run({
+      question: "What is our Agent-Native product direction?",
+      mode: "cited",
+    });
+
+    expect(result.answerSource).toBe("knowledge");
+    expect(result.answer).toContain("Cited Agent-Native synthesis");
+    expect(result.answer).not.toContain("Uncited Agent-Native note");
+    expect(
+      (result.knowledge as Array<{ id: string }>).map((item) => item.id),
+    ).toEqual(["cited-synthesis"]);
+    expect(result.citations).toEqual([
+      expect.objectContaining({ knowledgeId: "cited-synthesis" }),
+    ]);
+  });
+
+  it("returns no uncited knowledge when citations are required and none are usable", async () => {
+    mocks.knowledgeRows = [
+      {
+        ...knowledge({
+          id: "uncited-only",
+          sourceId: "source-approved",
+          title: "Uncited Agent-Native note",
+        }),
+        body: "Long uncited Agent-Native background. ".repeat(20),
+        evidence: [],
+      },
+    ];
+    mocks.policies.set("source-approved", policy("source-approved"));
+
+    const result = await action.run({
+      question: "What is our Agent-Native product direction?",
+      mode: "cited",
+    });
+
+    expect(result.answer).toContain("require citations");
+    expect(result.citations).toEqual([]);
+    expect(result.knowledge).toEqual([]);
+  });
+
+  it("reports an incomplete search when a capture search lane fails", async () => {
+    mocks.lanes = {
+      fts: { status: "ok" },
+      semantic: { status: "failed", error: "openai-credential-unavailable" },
+    };
+
+    const result = await action.run({
+      question: "What retailer is Nick Nestle demoing to?",
+      mode: "cited",
+    });
+
+    expect(result.answerSource).toBe("none");
+    expect(result.answer).toContain("incomplete");
+    expect(result.captureSearchLanes).toEqual({
+      fts: { status: "ok" },
+      semantic: { status: "failed", error: "openai-credential-unavailable" },
+    });
   });
 });

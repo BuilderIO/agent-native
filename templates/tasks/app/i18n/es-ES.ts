@@ -30,12 +30,6 @@ const messages = {
     pageExtension: "Extensión",
     pageExtensions: "Extensiones",
   },
-  settings: {
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-    languageLabel: "Idioma de la interfaz",
-  },
   agent: {
     emptyState: "Pide al agente que inspeccione o modifique esta aplicación.",
     suggestionCalendar:
@@ -163,6 +157,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "Sugerir cola",
+    noQueueMatch: "Ninguna cola coincide",
+    urgentProbability: "Probabilidad de urgencia: {{percent}} %",
+    applyRoute: "Aplicar cola",
+    routingError: "No se pudo sugerir una cola.",
     panelTitle: "Campos",
     panelSubtitle: "Detalles de la tarea",
     closeLabel: "Cerrar panel de campos",

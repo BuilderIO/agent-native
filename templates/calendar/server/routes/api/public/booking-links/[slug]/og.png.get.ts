@@ -1,3 +1,4 @@
+import { stageOgImageResponseHeaders } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { eq } from "drizzle-orm";
 import {
@@ -5,7 +6,6 @@ import {
   getMethod,
   getQuery,
   getRouterParam,
-  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -35,7 +35,12 @@ function textByteLength(value: string): number {
 }
 
 function isResvgRuntimeUnavailableError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error ?? "");
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
   return (
     /@resvg\/resvg-js|resvgjs\.[\w-]+\.node|native binding/i.test(message) &&
     /cannot find|err_module_not_found|dlopen|invalid elf|wrong architecture|not a valid win32|native binding/i.test(
@@ -120,7 +125,10 @@ export default defineEventHandler(async (event: H3Event) => {
 
   if (getMethod(event) === "HEAD") {
     return new Response(null, {
-      headers: bookingOgImageResponseHeaders(),
+      headers: stageOgImageResponseHeaders(
+        event,
+        bookingOgImageResponseHeaders(),
+      ),
     });
   }
 
@@ -156,15 +164,20 @@ export default defineEventHandler(async (event: H3Event) => {
     if (!isResvgRuntimeUnavailableError(error)) throw error;
     const svg = renderBookingOgImageSvg(imageInput);
     return new Response(svg, {
-      headers: bookingOgImageResponseHeaders(
-        textByteLength(svg),
-        "image/svg+xml; charset=utf-8",
+      headers: stageOgImageResponseHeaders(
+        event,
+        bookingOgImageResponseHeaders(
+          textByteLength(svg),
+          "image/svg+xml; charset=utf-8",
+        ),
       ),
     });
   }
 
-  setResponseHeader(event, "Cross-Origin-Resource-Policy", "cross-origin");
   return new Response(pngBody(png), {
-    headers: bookingOgImageResponseHeaders(png.byteLength),
+    headers: stageOgImageResponseHeaders(
+      event,
+      bookingOgImageResponseHeaders(png.byteLength),
+    ),
   });
 });

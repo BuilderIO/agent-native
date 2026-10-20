@@ -23,7 +23,8 @@ vi.mock("../agent/engine/registry.js", () => ({
     isAgentEngineSettingConfiguredMock(...args),
 }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: (...args: unknown[]) => getSettingMock(...args),
 }));
 
@@ -75,6 +76,26 @@ describe("default onboarding steps", () => {
     expect(canUseDeployCredentialFallbackForRequestMock).toHaveBeenCalled();
   });
 
+  it("surfaces optional System one setup alongside Builder and provider keys", async () => {
+    const step = await loadLlmStep();
+
+    expect(step.methods).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "jev-key",
+          label: "Decision model (Jev)",
+          description: expect.stringContaining("Optional direct Jev API key"),
+          badge: "recommended",
+          kind: "form",
+          payload: expect.objectContaining({
+            writeScope: "user",
+            fields: [expect.objectContaining({ key: "JEV_API_KEY" })],
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("keeps local single-tenant provider env setup working when fallback is allowed", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-test-example");
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
@@ -92,6 +113,53 @@ describe("default onboarding steps", () => {
       "settings",
       "local-env",
     ]);
+  });
+
+  it("registers durable file storage with Builder and custom object-storage keys", async () => {
+    const step = await loadDefaultStep("file-storage");
+
+    expect(step.required).toBe(false);
+    expect(step.methods.map((method) => method.id)).toEqual(["builder", "s3"]);
+    expect(step.methods[0]).toMatchObject({
+      kind: "builder-cli-auth",
+      payload: { scope: "llm" },
+    });
+    // The custom path renders the shared storage form, not a generic key form.
+    expect(step.methods[1]).toMatchObject({ kind: "file-storage" });
+    expect(step.methods[1]).not.toHaveProperty("payload");
+  });
+
+  it("explains the host email variables instead of saving keys", async () => {
+    const step = await loadDefaultStep("email");
+
+    expect(step.required).toBe(false);
+    expect(step.methods).toEqual([
+      expect.objectContaining({
+        id: "host-variables",
+        kind: "link",
+        payload: expect.objectContaining({ external: true }),
+      }),
+    ]);
+    expect(step.methods.some((method) => method.kind === "form")).toBe(false);
+    expect(step.description).toContain("RESEND_API_KEY");
+    expect(step.description).toContain("EMAIL_FROM");
+    await expect(step.isAvailable?.()).resolves.toBe(true);
+  });
+
+  it("drops the email step when the deployment provides email", async () => {
+    vi.stubEnv("RESEND_API_KEY", "re_test_example");
+
+    const step = await loadDefaultStep("email");
+
+    await expect(step.isAvailable?.()).resolves.toBe(false);
+  });
+
+  it("keeps the email step while the host's SendGrid setup lacks a sender", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "SG.test-example");
+
+    const step = await loadDefaultStep("email");
+
+    await expect(step.isAvailable?.()).resolves.toBe(true);
   });
 
   it("completes GitHub repository setup from local token env when allowed", async () => {

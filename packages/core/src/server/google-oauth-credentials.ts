@@ -49,16 +49,6 @@ async function readInjectedCredentialPair(
   return { clientId, clientSecret };
 }
 
-/**
- * Resolve Google provider credentials from an app-owned credential source.
- *
- * Templates pass their scoped secret reader so Core does not choose an app's
- * secret store or request context. An optional fallback reader preserves
- * deployments that still keep the same credential pair in environment vars.
- * Each candidate pair is read atomically and de-duped by client id, which lets
- * refresh paths retry tokens minted by a previous Google OAuth client without
- * ever mixing an id and secret from different sources.
- */
 export async function resolveGoogleProviderCredentialCandidatesWithReader(options: {
   readCredential: ReadGoogleOAuthCredential;
   fallbackReadCredential?: ReadGoogleOAuthCredential;
@@ -87,22 +77,98 @@ export async function resolveGoogleProviderCredentialCandidatesWithReader(option
   return candidates;
 }
 
-/**
- * Credentials for identity-only Google sign-in. Deploys that also use Google
- * product APIs can set these separately from GOOGLE_CLIENT_ID/SECRET, which
- * remain the backwards-compatible provider OAuth credentials.
- */
 export function resolveGoogleSignInCredentials(): GoogleOAuthCredentials | null {
-  return (
-    readCredentialPair(
-      "GOOGLE_SIGN_IN_CLIENT_ID",
-      "GOOGLE_SIGN_IN_CLIENT_SECRET",
-    ) ?? readCredentialPair("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET")
+  const signIn = readCredentialPair(
+    "GOOGLE_SIGN_IN_CLIENT_ID",
+    "GOOGLE_SIGN_IN_CLIENT_SECRET",
   );
+  const provider = readCredentialPair(
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+  );
+
+  if (signIn && provider && signIn.clientId !== provider.clientId) {
+    console.warn(
+      "[agent-native][google-oauth] GOOGLE_SIGN_IN_CLIENT_ID and GOOGLE_CLIENT_ID " +
+        "are set to different Google clients. Sign-in uses GOOGLE_SIGN_IN_CLIENT_ID; " +
+        "GOOGLE_CLIENT_ID/SECRET are ignored for sign-in. Editing them will not " +
+        "change sign-in behaviour.",
+    );
+  }
+
+  return signIn ?? provider;
 }
 
 export function hasGoogleSignInCredentials(): boolean {
   return resolveGoogleSignInCredentials() !== null;
+}
+
+let activeSignInCredentials: GoogleOAuthCredentials | null = null;
+let activeSignInCredentialsRecorded = false;
+let activeSignInCredentialsVersion = 0;
+
+/**
+ * Record the pair Better Auth actually handed to the Google provider.
+ *
+ * The effective pair is not always the preferred one: a template asking for
+ * broader scopes is wired to GOOGLE_CLIENT_ID/SECRET instead. Anything testing
+ * "the credential the callback will use" must read this rather than
+ * re-deriving it, or it will verify a pair nothing reads and report healthy.
+ */
+export function recordActiveGoogleSignInCredentials(
+  credentials: GoogleOAuthCredentials | null,
+): void {
+  activeSignInCredentials = credentials;
+  activeSignInCredentialsRecorded = true;
+  activeSignInCredentialsVersion += 1;
+}
+
+export function resetActiveGoogleSignInCredentials(): void {
+  activeSignInCredentials = null;
+  activeSignInCredentialsRecorded = false;
+  activeSignInCredentialsVersion += 1;
+}
+
+export function getActiveGoogleSignInCredentials(): {
+  credentials: GoogleOAuthCredentials | null;
+  recorded: boolean;
+  version: number;
+} {
+  return {
+    credentials: activeSignInCredentials,
+    recorded: activeSignInCredentialsRecorded,
+    version: activeSignInCredentialsVersion,
+  };
+}
+
+/**
+ * Which sign-in credential pairs are configured, and whether they disagree.
+ *
+ * `mismatched` is diagnostic only. Two pairs may name different clients when
+ * identity sign-in and provider APIs intentionally have separate OAuth apps.
+ * Callers must compare the pair used by their specific flow, not delete one
+ * based on this flag alone.
+ */
+export function describeGoogleSignInCredentialPairs(): {
+  signInClientId: string | null;
+  providerClientId: string | null;
+  mismatched: boolean;
+} {
+  const signIn = readCredentialPair(
+    "GOOGLE_SIGN_IN_CLIENT_ID",
+    "GOOGLE_SIGN_IN_CLIENT_SECRET",
+  );
+  const provider = readCredentialPair(
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+  );
+  return {
+    signInClientId: signIn?.clientId ?? null,
+    providerClientId: provider?.clientId ?? null,
+    mismatched: Boolean(
+      signIn && provider && signIn.clientId !== provider.clientId,
+    ),
+  };
 }
 
 export function resolveGoogleProviderCredentials(): GoogleOAuthCredentials | null {

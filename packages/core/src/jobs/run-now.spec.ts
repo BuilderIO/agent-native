@@ -1,154 +1,254 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  fireInternalDispatch: vi.fn(),
-  listUnclaimedAutomationRuns: vi.fn(),
-  resolveAutomationAccess: vi.fn(),
-  resourceGetByPath: vi.fn(),
-  startAutomationRun: vi.fn(),
+const canQueueAutomationRunNowMock = vi.hoisted(() => vi.fn());
+const resolveAutomationAccessMock = vi.hoisted(() => vi.fn());
+const resourceGetByPathMock = vi.hoisted(() => vi.fn());
+const startAutomationRunMock = vi.hoisted(() => vi.fn());
+const listUnclaimedAutomationRunsMock = vi.hoisted(() => vi.fn());
+const fireInternalDispatchMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../automations/service.js", () => ({
+  canQueueAutomationRunNow: canQueueAutomationRunNowMock,
 }));
 
 vi.mock("../automations/access.js", () => ({
-  resolveAutomationAccess: mocks.resolveAutomationAccess,
+  resolveAutomationAccess: resolveAutomationAccessMock,
 }));
 
-vi.mock("../agent/durable-background.js", () => ({
-  AGENT_CHAT_BACKGROUND_RUN_FIELD: "backgroundRun",
-  dispatchPathTargetsNetlifyBackgroundFunction: () => false,
-  resolveAgentChatProcessRunDispatchPath: () => "/dispatch",
-}));
-
-vi.mock("../db/client.js", () => ({
-  isLocalDatabase: () => true,
-}));
-
-vi.mock("../resources/store.js", () => ({
+vi.mock("../resources/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../resources/store.js")>()),
   organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
-  resourceGetByPath: mocks.resourceGetByPath,
-}));
-
-vi.mock("../server/self-dispatch.js", () => ({
-  fireInternalDispatch: mocks.fireInternalDispatch,
+  resourceGetByPath: resourceGetByPathMock,
 }));
 
 vi.mock("./run-history.js", () => ({
-  listUnclaimedAutomationRuns: mocks.listUnclaimedAutomationRuns,
-  startAutomationRun: mocks.startAutomationRun,
+  startAutomationRun: startAutomationRunMock,
+  listUnclaimedAutomationRuns: listUnclaimedAutomationRunsMock,
+}));
+
+vi.mock("../server/self-dispatch.js", () => ({
+  fireInternalDispatch: fireInternalDispatchMock,
+}));
+
+vi.mock("../db/client.js", () => ({ isLocalDatabase: () => true }));
+
+vi.mock("../agent/durable-background.js", () => ({
+  AGENT_CHAT_BACKGROUND_RUN_FIELD: "__backgroundRun",
+  dispatchPathTargetsNetlifyBackgroundFunction: () => false,
+  resolveAgentChatProcessRunDispatchPath: () => "/_agent-native/process-run",
 }));
 
 import { queueAutomationRunNow } from "./run-now.js";
 
-const content = `---
-schedule: ""
-enabled: true
-triggerType: manual
-createdBy: creator@example.com
-orgId: org-1
-runAs: creator
----
-
-Run the report.`;
-
-function access(role: "owner" | "collaborate" | "view") {
+function resourceAt(path: string) {
   return {
-    resource: {
-      id: "automation-1",
-      owner: "__organization__:org-1",
-      path: "jobs/report.md",
-      content,
-    },
-    name: "report",
-    owningOrganizationId: "org-1",
-    capabilities: {
-      canEdit: role !== "view",
-      canOperate: role !== "view",
-      canDelete: role === "owner",
-      canManageSharing: role === "owner",
-    },
+    id: "resource-1",
+    path,
+    owner: "__organization__:org-1",
+    content: `---\ndomain: factory\n---\nObserve the channel.\n`,
   };
 }
 
+const organizationRun = {
+  userEmail: "alice@example.com",
+  orgId: "org-1",
+  appId: "factory",
+  scope: "organization" as const,
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  canQueueAutomationRunNowMock.mockResolvedValue(true);
+  listUnclaimedAutomationRunsMock.mockResolvedValue([]);
+  startAutomationRunMock.mockResolvedValue("history-1");
+  fireInternalDispatchMock.mockResolvedValue(undefined);
+});
+
 describe("queueAutomationRunNow", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.listUnclaimedAutomationRuns.mockResolvedValue([]);
-    mocks.startAutomationRun.mockResolvedValue("history-1");
-    mocks.fireInternalDispatch.mockResolvedValue(undefined);
+  it("resolves a stable resource id and binds the run to its creator", async () => {
+    const resource = {
+      ...resourceAt("jobs/report.md"),
+      content:
+        '---\nschedule: ""\nenabled: true\ntriggerType: manual\ncreatedBy: creator@example.com\norgId: "org-1"\nrunAs: creator\n---\nRun the report.\n',
+    };
+    resolveAutomationAccessMock.mockResolvedValue({
+      resource,
+      name: "report",
+      owningOrganizationId: "org-1",
+    });
+
+    await queueAutomationRunNow({
+      userEmail: "collaborator@example.com",
+      orgId: "org-1",
+      appId: "factory",
+      resourceId: "resource-1",
+    });
+
+    expect(resolveAutomationAccessMock).toHaveBeenCalledWith(
+      { userEmail: "collaborator@example.com" },
+      "resource-1",
+    );
+    expect(canQueueAutomationRunNowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userEmail: "collaborator@example.com" }),
+      resource,
+      "organization",
+    );
+    expect(startAutomationRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "__organization__:org-1",
+        automation: "report",
+        path: "jobs/report.md",
+        scope: "organization",
+        orgId: "org-1",
+        appId: "factory",
+        notificationEmail: "collaborator@example.com",
+      }),
+    );
   });
 
-  it("resolves stable resource ids and lets Collaborate queue a creator-bound run", async () => {
-    mocks.resolveAutomationAccess.mockResolvedValue(access("collaborate"));
+  it("does not disclose a missing stable resource id", async () => {
+    resolveAutomationAccessMock.mockResolvedValue(null);
 
     await expect(
       queueAutomationRunNow({
         userEmail: "collaborator@example.com",
-        resourceId: "automation-1",
+        resourceId: "missing-resource",
       }),
-    ).resolves.toEqual({
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(startAutomationRunMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a personal job's manual history personal with an active organization", async () => {
+    resourceGetByPathMock.mockResolvedValue({
+      ...resourceAt("jobs/digest.md"),
+      owner: "alice@example.com",
+      content: '---\norgId: "org-1"\n---\nSummarize my inbox.\n',
+    });
+    await queueAutomationRunNow({
+      ...organizationRun,
+      scope: "personal",
+      name: "digest",
+    });
+    expect(startAutomationRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "alice@example.com",
+        scope: "personal",
+        orgId: null,
+      }),
+    );
+  });
+
+  it("queues a nested automation by path", async () => {
+    const path = "jobs/factories/enzo-test-factory-3/factory-slack-feedback.md";
+    resourceGetByPathMock.mockResolvedValue(resourceAt(path));
+
+    const result = await queueAutomationRunNow({ ...organizationRun, path });
+
+    expect(resourceGetByPathMock).toHaveBeenCalledWith(
+      "__organization__:org-1",
+      path,
+    );
+    expect(startAutomationRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automation: "factories/enzo-test-factory-3/factory-slack-feedback",
+        path,
+      }),
+    );
+    expect(result).toEqual({
       queued: true,
       runId: "history-1",
       automationRunId: "history-1",
     });
+  });
 
-    expect(mocks.resolveAutomationAccess).toHaveBeenCalledWith(
-      { userEmail: "collaborator@example.com" },
-      "automation-1",
+  it("still resolves a flat name to its jobs/ path", async () => {
+    resourceGetByPathMock.mockResolvedValue(resourceAt("jobs/digest.md"));
+
+    await queueAutomationRunNow({ ...organizationRun, name: "digest" });
+
+    expect(resourceGetByPathMock).toHaveBeenCalledWith(
+      "__organization__:org-1",
+      "jobs/digest.md",
     );
-    expect(mocks.startAutomationRun).toHaveBeenCalledWith({
-      owner: "__organization__:org-1",
-      automation: "report",
-      path: "jobs/report.md",
-      scope: "organization",
-      orgId: "org-1",
-      dispatchPending: true,
-    });
-    expect(mocks.startAutomationRun).not.toHaveBeenCalledWith(
-      expect.objectContaining({ owner: "collaborator@example.com" }),
+    expect(startAutomationRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ automation: "digest", path: "jobs/digest.md" }),
     );
   });
 
-  it("denies View before creating run history", async () => {
-    mocks.resolveAutomationAccess.mockResolvedValue(access("view"));
-
-    await expect(
-      queueAutomationRunNow({
-        userEmail: "viewer@example.com",
-        resourceId: "automation-1",
-      }),
-    ).rejects.toMatchObject({ statusCode: 403 });
-    expect(mocks.startAutomationRun).not.toHaveBeenCalled();
-  });
-
-  it("preserves name and scope compatibility by resolving the resource before access", async () => {
-    mocks.resourceGetByPath.mockResolvedValue({ id: "automation-1" });
-    mocks.resolveAutomationAccess.mockResolvedValue(access("owner"));
+  it("dispatches new and recovered runs to the inbound local host", async () => {
+    const requestHeaders = new Headers({ host: "localhost:8080" });
+    resourceGetByPathMock.mockResolvedValue(resourceAt("jobs/digest.md"));
+    listUnclaimedAutomationRunsMock.mockResolvedValue([
+      { id: "history-stale" },
+    ]);
 
     await queueAutomationRunNow({
-      userEmail: "creator@example.com",
-      orgId: "org-1",
-      scope: "organization",
-      name: "report",
+      ...organizationRun,
+      name: "digest",
+      requestHeaders,
     });
 
-    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
-      "__organization__:org-1",
-      "jobs/report.md",
+    expect(fireInternalDispatchMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        taskId: "history-stale",
+        event: { headers: requestHeaders },
+      }),
     );
-    expect(mocks.resolveAutomationAccess).toHaveBeenCalledWith(
-      { userEmail: "creator@example.com" },
-      "automation-1",
+    expect(fireInternalDispatchMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        taskId: "history-1",
+        event: { headers: requestHeaders },
+      }),
     );
   });
 
-  it("does not disclose inaccessible or missing resource ids", async () => {
-    mocks.resolveAutomationAccess.mockResolvedValue(null);
-
+  it("rejects a name that carries a path separator", async () => {
     await expect(
       queueAutomationRunNow({
-        userEmail: "viewer@example.com",
-        resourceId: "secret-id",
+        ...organizationRun,
+        name: "factories/f3/factory-slack-channel",
       }),
-    ).rejects.toMatchObject({ statusCode: 404 });
-    expect(mocks.startAutomationRun).not.toHaveBeenCalled();
+    ).rejects.toThrow("A valid automation name is required.");
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a path that escapes the jobs/ tree", async () => {
+    await expect(
+      queueAutomationRunNow({
+        ...organizationRun,
+        path: "jobs/../secrets.md",
+      }),
+    ).rejects.toThrow("A valid automation path is required.");
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a path outside jobs/", async () => {
+    await expect(
+      queueAutomationRunNow({ ...organizationRun, path: "secrets/keys.md" }),
+    ).rejects.toThrow("A valid automation path is required.");
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses to guess when both a name and a path are given", async () => {
+    await expect(
+      queueAutomationRunNow({
+        ...organizationRun,
+        name: "digest",
+        path: "jobs/other.md",
+      }),
+    ).rejects.toThrow("Specify either an automation name or a path, not both.");
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the caller cannot queue the run", async () => {
+    canQueueAutomationRunNowMock.mockResolvedValue(false);
+    resourceGetByPathMock.mockResolvedValue(resourceAt("jobs/digest.md"));
+
+    await expect(
+      queueAutomationRunNow({ ...organizationRun, name: "digest" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(startAutomationRunMock).not.toHaveBeenCalled();
   });
 });

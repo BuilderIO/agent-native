@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { extractItemsArray } from "@agent-native/core/provider-api/staging";
 import { z } from "zod";
 
@@ -30,6 +30,7 @@ export default defineAction({
   agentTool: false,
   http: { method: "POST" },
   readOnly: true,
+  grounding: true,
   run: async ({ provider, path, query, itemsPath }) => {
     try {
       const result = (await getAnalyticsProviderApiRuntime().executeRequest({

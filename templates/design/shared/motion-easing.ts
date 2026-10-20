@@ -1,47 +1,10 @@
-/**
- * Motion easing engine — Figma Motion parity (curves + springs).
- *
- * Pure, dependency-free helpers shared by the MotionDock easing panel, the
- * shared timeline evaluator, and the motion compiler:
- *
- * - **Curve presets** matching Figma Motion's easing panel verbatim
- *   (Hold, Linear, Ease in, Ease out, Ease in and out, the three "back"
- *   overshoot curves, and Custom bezier).
- * - **Spring easing** stored in the timeline model as a compact
- *   `spring(bounce[, settle])` token (bounce ∈ [0, 1], like Figma's single
- *   normalized "Bounce" control) and compiled to pure CSS via the
- *   `linear(...)` timing function — sampled from a real damped-oscillator
- *   solution, so the persisted artifact stays plain CSS.
- * - **`linear(...)` evaluation** so scrub previews and CSS-recovered
- *   timelines replay spring easings exactly as the compiled stylesheet does.
- *
- * The canvas preview bridge (app/components/design/bridge/
- * motion-preview.bridge.ts) carries a dependency-free copy of the sampling
- * and evaluation algorithms below — keep the two in sync.
- */
-
-// ─── Curve presets (Figma Motion easing panel, Curve tab) ────────────────────
+import { isValidMotionEase as isCoreValidMotionEase } from "@agent-native/core/shared/motion-easing";
 
 export interface MotionCurvePreset {
-  /** Menu label, verbatim from the Figma Motion easing panel. */
   label: string;
-  /** CSS timing-function value stored on the keyframe. */
   value: string;
 }
 
-/**
- * Bezier-family presets exactly as labeled in Figma Motion's easing panel.
- *
- * - "Hold" jumps immediately to the segment's end value and stays
- *   (a discontinuous step) → CSS `step-start`.
- * - "Ease in and out" is the live-verified (.42, 0, .58, 1).
- * - The three "back" curves are overshoot beziers (control-point y outside
- *   [0, 1]); Figma's exact numbers are not published, so these use the
- *   canonical easeInBack / easeOutBack / easeInOutBack values.
- * - "Custom bezier" is not listed here: the easing panel switches to editable
- *   x1,y1,x2,y2 fields + a draggable curve for any unrecognised
- *   `cubic-bezier(...)` value.
- */
 export const MOTION_CURVE_PRESETS: MotionCurvePreset[] = [
   { label: "Hold", value: "step-start" },
   { label: "Linear", value: "linear" },
@@ -56,29 +19,193 @@ export const MOTION_CURVE_PRESETS: MotionCurvePreset[] = [
   },
 ];
 
-// ─── Spring model ─────────────────────────────────────────────────────────────
-
-/**
- * Editable spring parameters, matching Figma Motion's normalized spring UI:
- * a single "Bounce" value in [0, 1]. `settle` is the fraction of the segment
- * by which the spring reaches rest (1 = uses the whole segment) — it lets the
- * named presets differ in perceived speed while remaining segment-normalized.
- */
 export interface MotionSpring {
-  /** Normalized bounciness in [0, 1]. 0 = no overshoot. */
   bounce: number;
-  /** Fraction of the segment at which the spring settles, in (0, 1]. */
   settle: number;
 }
 
-/** Default bounce for "Custom spring" (matches Figma's default of 0.25). */
+export interface MotionEasingVariable {
+  id: string;
+  name: string;
+  value: string;
+  collection?: string;
+}
+
+function isConcreteMotionEase(ease: string): boolean {
+  return isCoreValidMotionEase(ease) && !isMotionEaseVariableReference(ease);
+}
+
+/** Accepts concrete easings and canonical references at editing boundaries. */
+export function isValidMotionEase(ease: string): boolean {
+  return isConcreteMotionEase(ease) || isMotionEaseVariableReference(ease);
+}
+
+export const MOTION_EASING_VARIABLE_MAX_COUNT = 256;
+const MOTION_EASING_VARIABLE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MOTION_EASING_VARIABLE_REFERENCE_RE =
+  /^var\(--an-motion-ease-([a-z0-9][a-z0-9-]{0,63})\)$/;
+
+export function createMotionEaseVariableId(
+  name: string,
+  existingIds: readonly string[] = [],
+): string {
+  const base =
+    name
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64)
+      .replace(/-+$/g, "") || "easing";
+  const used = new Set(existingIds);
+  if (!used.has(base)) return base;
+
+  for (let suffix = 2; ; suffix += 1) {
+    const ending = `-${suffix}`;
+    const candidate = `${base.slice(0, 64 - ending.length).replace(/-+$/g, "")}${ending}`;
+    if (!used.has(candidate)) return candidate;
+  }
+}
+
+export function motionEaseVariableName(id: string): string {
+  if (!MOTION_EASING_VARIABLE_ID_RE.test(id)) {
+    throw new TypeError(
+      "Motion easing variable ids must be 1 to 64 lowercase letters, digits, or hyphens and start with a letter or digit.",
+    );
+  }
+  return `--an-motion-ease-${id}`;
+}
+
+export function motionEaseVariableToken(id: string): string {
+  return `var(${motionEaseVariableName(id)})`;
+}
+
+/** Returns the id from a canonical Motion easing variable reference. */
+export function motionEaseVariableId(ease: string): string | null {
+  const match = MOTION_EASING_VARIABLE_REFERENCE_RE.exec(ease);
+  return match?.[1] ?? null;
+}
+
+export function isMotionEaseVariableReference(ease: string): boolean {
+  return motionEaseVariableId(ease) !== null;
+}
+
+/** Validates the bounded definitions stored in a versioned Motion source document. */
+export function assertValidMotionEasingVariables(
+  value: unknown,
+): asserts value is MotionEasingVariable[] {
+  if (
+    !Array.isArray(value) ||
+    value.length > MOTION_EASING_VARIABLE_MAX_COUNT
+  ) {
+    throw new TypeError(
+      `Motion easing variables must be an array of 0 to ${MOTION_EASING_VARIABLE_MAX_COUNT} entries.`,
+    );
+  }
+
+  const ids = new Set<string>();
+  for (const [index, variable] of value.entries()) {
+    if (
+      typeof variable !== "object" ||
+      variable === null ||
+      Array.isArray(variable)
+    ) {
+      throw new TypeError(`Motion easing variable ${index} must be an object.`);
+    }
+    const candidate = variable as Record<string, unknown>;
+    if (
+      Object.keys(candidate).some(
+        (key) => !["id", "name", "value", "collection"].includes(key),
+      )
+    ) {
+      throw new TypeError(
+        `Motion easing variable ${index} contains an unsupported field.`,
+      );
+    }
+    if (
+      typeof candidate.id !== "string" ||
+      !MOTION_EASING_VARIABLE_ID_RE.test(candidate.id)
+    ) {
+      throw new TypeError(`Motion easing variable ${index} has an invalid id.`);
+    }
+    if (ids.has(candidate.id)) {
+      throw new TypeError(
+        `Motion easing variable id "${candidate.id}" is duplicated.`,
+      );
+    }
+    ids.add(candidate.id);
+
+    if (!isBoundedEasingVariableText(candidate.name, 128)) {
+      throw new TypeError(
+        `Motion easing variable ${index} must have a non-empty name of at most 128 characters.`,
+      );
+    }
+    if (
+      candidate.collection !== undefined &&
+      !isBoundedEasingVariableText(candidate.collection, 128)
+    ) {
+      throw new TypeError(
+        `Motion easing variable ${index} must have a non-empty collection name of at most 128 characters.`,
+      );
+    }
+    if (
+      typeof candidate.value !== "string" ||
+      candidate.value.length > 512 ||
+      !isConcreteMotionEase(candidate.value)
+    ) {
+      throw new TypeError(
+        `Motion easing variable ${index} must contain a concrete supported easing value.`,
+      );
+    }
+  }
+}
+
+function isBoundedEasingVariableText(
+  value: unknown,
+  maxLength: number,
+): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.length <= maxLength &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  );
+}
+
+/** Resolves a named reference or returns a valid concrete easing token. */
+export function resolveMotionEase(
+  ease: string,
+  variables: readonly MotionEasingVariable[] = [],
+): string {
+  if (isConcreteMotionEase(ease)) return ease;
+  const id = motionEaseVariableId(ease);
+  if (id === null) {
+    throw new TypeError(`"${ease}" is not a supported motion easing value.`);
+  }
+  assertValidMotionEasingVariables(variables);
+  const matches = variables.filter((variable) => variable.id === id);
+  if (matches.length !== 1) {
+    throw new TypeError(
+      matches.length === 0
+        ? `Motion easing variable "${id}" is not defined.`
+        : `Motion easing variable id "${id}" is ambiguous.`,
+    );
+  }
+  const value = matches[0]!.value;
+  if (!isConcreteMotionEase(value)) {
+    throw new TypeError(
+      `Motion easing variable "${id}" does not contain a concrete supported easing value.`,
+    );
+  }
+  return value;
+}
+
 export const MOTION_SPRING_DEFAULT_BOUNCE = 0.25;
 
 export interface MotionSpringPreset {
-  /** Menu label, verbatim from the Figma Motion easing panel (Spring tab). */
   label: string;
   spring: MotionSpring;
-  /** The `spring(...)` token stored on the keyframe for this preset. */
   value: string;
 }
 
@@ -86,19 +213,12 @@ function roundParam(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
 
-/** Serialize spring params into the timeline's `spring(...)` ease token. */
 export function springToken(spring: MotionSpring): string {
   const bounce = roundParam(clamp01(spring.bounce));
   const settle = roundParam(Math.min(1, Math.max(0.05, spring.settle)));
   return settle === 1 ? `spring(${bounce})` : `spring(${bounce}, ${settle})`;
 }
 
-/**
- * Spring presets as named in Figma Motion's easing panel. "Bouncy" uses the
- * live-verified bounce of 0.69; Gentle/Quick/Slow expose no numbers in the
- * Figma UI, so their params are tuned approximations of the described feel
- * (Gentle: soft, no overshoot; Quick: fast settle; Slow: full-length glide).
- */
 export const MOTION_SPRING_PRESETS: MotionSpringPreset[] = [
   { label: "Gentle", spring: { bounce: 0, settle: 0.8 } },
   { label: "Quick", spring: { bounce: 0.2, settle: 0.5 } },
@@ -110,11 +230,6 @@ function clamp01(x: number): number {
   return x < 0 ? 0 : x > 1 ? 1 : x;
 }
 
-/**
- * Parse a `spring(bounce[, settle])` ease token (or the bare keyword
- * `spring`, which maps to the default custom spring). Returns `null` when the
- * string is not a spring token.
- */
 export function parseSpringToken(ease: string): MotionSpring | null {
   const raw = String(ease ?? "").trim();
   if (/^spring$/i.test(raw)) {
@@ -132,28 +247,15 @@ export function parseSpringToken(ease: string): MotionSpring | null {
   return { bounce: clamp01(bounce), settle };
 }
 
-/**
- * Sample a normalized spring at progress `x ∈ [0, 1]`.
- *
- * Damped-oscillator position response scaled so the spring starts at 0,
- * ends at 1, and is at rest by `x = settle`:
- * - damping ratio ζ = 1 − bounce (underdamped when bounce > 0)
- * - natural frequency ω chosen so the decay envelope ≈ 0 at the settle point
- *
- * Output may overshoot above 1 for bounce > 0 (by design — that is the
- * bounce). Values at or after `settle` are exactly 1.
- */
 export function sampleSpring(spring: MotionSpring, x: number): number {
   if (x <= 0) return 0;
   const settle = Math.min(1, Math.max(0.05, spring.settle));
   const u = x / settle;
   if (u >= 1) return 1;
   const zeta = Math.min(1, Math.max(0.02, 1 - clamp01(spring.bounce)));
-  // Envelope e^(-ζω) ≈ EPS at u = 1 so the motion is visually at rest there.
   const EPS = 0.001;
   const omega = Math.log(1 / EPS) / zeta;
   if (zeta >= 1) {
-    // Critically damped: y = 1 − e^(−ωu)(1 + ωu).
     return 1 - Math.exp(-omega * u) * (1 + omega * u);
   }
   const omegaD = omega * Math.sqrt(1 - zeta * zeta);
@@ -170,15 +272,9 @@ function formatStop(n: number): string {
   return (Math.round(n * 10000) / 10000).toString();
 }
 
-/**
- * Compile a spring into a CSS `linear(...)` timing function by sampling the
- * spring curve at evenly spaced stops. Deterministic: the same spring always
- * produces byte-identical CSS. Bouncier springs get more stops so the
- * oscillation survives the piecewise-linear approximation.
- */
 export function springToCssLinear(spring: MotionSpring): string {
   const bounce = clamp01(spring.bounce);
-  const samples = 16 + Math.round(bounce * 34); // 16 … 50 interior steps
+  const samples = 16 + Math.round(bounce * 34);
   const stops: string[] = [];
   for (let i = 0; i <= samples; i++) {
     const x = i / samples;
@@ -187,30 +283,16 @@ export function springToCssLinear(spring: MotionSpring): string {
   return `linear(${stops.join(", ")})`;
 }
 
-/**
- * Convert a timeline ease token into a CSS-valid timing function.
- * `spring(...)` tokens compile to `linear(...)`; everything else (keywords,
- * `cubic-bezier(...)`, `steps(...)`, `linear(...)`) passes through untouched.
- */
 export function motionEaseToCss(ease: string): string {
   const spring = parseSpringToken(ease);
   return spring ? springToCssLinear(spring) : ease;
 }
 
-// ─── CSS linear() evaluation ─────────────────────────────────────────────────
-
 interface LinearStop {
   value: number;
-  /** Input position in [0, 1], or null when the stop omitted a percentage. */
   position: number | null;
 }
 
-/**
- * Parse the argument list of a CSS `linear(...)` timing function. Each entry
- * is `<number> <percentage>{0,2}`; a stop with two percentages expands into
- * two stops. Returns `null` when `raw` is not a linear() function or has
- * fewer than two stops.
- */
 export function parseCssLinearStops(raw: string): LinearStop[] | null {
   const m = /^linear\(([^)]*)\)$/i.exec(String(raw ?? "").trim());
   if (!m) return null;
@@ -237,9 +319,6 @@ export function parseCssLinearStops(raw: string): LinearStop[] | null {
       for (const position of positions) stops.push({ value, position });
     }
   }
-  // Resolve omitted positions per the CSS spec: first defaults to 0, last to
-  // 1, interior stops distribute evenly between the surrounding known
-  // positions. Positions are also forced monotonic.
   if (stops[0].position === null) stops[0].position = 0;
   const last = stops[stops.length - 1];
   if (last.position === null) last.position = 1;
@@ -252,7 +331,6 @@ export function parseCssLinearStops(raw: string): LinearStop[] | null {
       runningMax = clamped;
       continue;
     }
-    // Find the next stop with a known position.
     let nextIdx = i + 1;
     while (nextIdx < stops.length && stops[nextIdx].position === null) {
       nextIdx++;
@@ -270,11 +348,6 @@ export function parseCssLinearStops(raw: string): LinearStop[] | null {
   return stops;
 }
 
-/**
- * Evaluate a CSS `linear(...)` timing function at progress `x ∈ [0, 1]`.
- * Returns `null` when `raw` is not a valid linear() function (so callers can
- * fall through to other easing forms).
- */
 export function evaluateCssLinear(raw: string, x: number): number | null {
   const stops = parseCssLinearStops(raw);
   if (!stops) return null;

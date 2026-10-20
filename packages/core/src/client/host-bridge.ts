@@ -1,3 +1,8 @@
+import type {
+  AgentNativeWebMcpClient,
+  AgentNativeWebMcpTool,
+} from "./webmcp.js";
+
 export const AGENT_NATIVE_HOST_BRIDGE_VERSION = "0.1.0";
 
 export const AGENT_NATIVE_HOST_MESSAGE_TYPES = {
@@ -10,6 +15,10 @@ export const AGENT_NATIVE_HOST_MESSAGE_TYPES = {
   ACTIONS: "agentNative.host.actions",
   RUN_ACTION: "agentNative.host.runAction",
   ACTION_RESULT: "agentNative.host.actionResult",
+  LIST_WEBMCP_TOOLS: "agentNative.host.listWebMcpTools",
+  WEBMCP_TOOLS: "agentNative.host.webMcpTools",
+  RUN_WEBMCP_TOOL: "agentNative.host.runWebMcpTool",
+  WEBMCP_TOOL_RESULT: "agentNative.host.webMcpToolResult",
   COMMAND: "agentNative.host.command",
   COMMAND_RESULT: "agentNative.host.commandResult",
   ERROR: "agentNative.host.error",
@@ -43,11 +52,10 @@ export interface AgentNativeActionManifestEntry {
   name: string;
   description: string;
   schema?: AgentNativeJsonSchema;
-  /** Alias for schema for function-calling/tooling runtimes. */
   parameters?: AgentNativeJsonSchema;
   title?: string;
-  source?: "client" | "backend" | string;
-  availability?: AgentNativeActionAvailability | string;
+  source?: "client" | "backend" | (string & {});
+  availability?: AgentNativeActionAvailability | (string & {});
   destructive?: boolean;
   requiresApproval?: boolean | AgentNativeClientActionApprovalConfig;
   approval?: AgentNativeClientActionApprovalConfig;
@@ -58,7 +66,7 @@ export interface AgentNativeClientActionApprovalConfig {
   title?: string;
   description?: string;
   confirmLabel?: string;
-  risk?: "low" | "medium" | "high" | string;
+  risk?: "low" | "medium" | "high" | (string & {});
   [key: string]: unknown;
 }
 
@@ -72,6 +80,7 @@ export interface AgentNativeHostSession {
 
 export interface AgentNativeClientActionRuntime {
   requestId?: string;
+  signal?: AbortSignal;
   origin: string;
   context: AgentNativeHostContext;
   session: AgentNativeHostSession;
@@ -200,7 +209,19 @@ export type AgentNativeHostBridgeEvent =
   | { type: "auth"; requestId?: string; origin?: string }
   | { type: "actions"; requestId?: string; count: number; origin?: string }
   | {
+      type: "webmcp-tools";
+      requestId?: string;
+      count: number;
+      origin?: string;
+    }
+  | {
       type: "action";
+      name: string;
+      requestId?: string;
+      origin: string;
+    }
+  | {
+      type: "webmcp-tool";
       name: string;
       requestId?: string;
       origin: string;
@@ -219,35 +240,16 @@ export type AgentNativeHostBridgeEvent =
   | { type: "error"; requestId?: string; error: Error; origin?: string };
 
 export interface AgentNativeHostBridgeOptions {
-  /**
-   * The iframe/content window that runs the agent sidecar. Can be set later
-   * with `bridge.setTargetWindow(iframe.contentWindow)`.
-   */
   targetWindow?: Window | null;
-  /**
-   * Exact origin allowed to talk to the host, or a full URL whose origin should
-   * be trusted. Pass "*" only for local prototypes.
-   */
+  targetPort?: MessagePort | null;
+  allowWindowMessages?: boolean;
   agentOrigin?: string;
-  /** Stable browser-session identity. Used by the sidecar to distinguish tabs. */
   session?: string | Partial<AgentNativeHostSession>;
-  /** Return current route, selected resource, user/org, and host-specific data. */
   getContext?: AgentNativeHostContextGetter;
-  /**
-   * Commands the sidecar may ask the host app to perform. If omitted, the
-   * bridge still supports safe event-dispatch defaults for navigation/refresh.
-   */
   commands?: AgentNativeHostCommandHandlers;
-  /**
-   * Optional bearer token or headers for the iframe sidecar. Only sent via
-   * postMessage to the trusted `agentOrigin`.
-   */
   auth?: AgentNativeHostAuth;
-  /**
-   * Live browser-session actions. These can change per render/page context and
-   * are only callable while this host page is connected.
-   */
   actions?: AgentNativeClientActions;
+  webmcp?: AgentNativeWebMcpClient;
   onEvent?: (event: AgentNativeHostBridgeEvent) => void;
 }
 
@@ -255,12 +257,14 @@ export interface AgentNativeHostBridge {
   start(): AgentNativeHostBridge;
   stop(): void;
   setTargetWindow(targetWindow: Window | null): void;
+  setTargetPort(targetPort: MessagePort | null): void;
   post(message: Record<string, unknown>): boolean;
   sendInit(requestId?: string): Promise<boolean>;
   sendContext(requestId?: string): Promise<boolean>;
   refreshContext(): Promise<boolean>;
   sendAuth(requestId?: string): Promise<boolean>;
   sendActions(requestId?: string): Promise<boolean>;
+  sendWebMcpTools(requestId?: string): Promise<boolean>;
 }
 
 type IncomingHostMessage =
@@ -284,6 +288,17 @@ type IncomingHostMessage =
       payload?: unknown;
     }
   | {
+      type: typeof AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS;
+      requestId?: string;
+    }
+  | {
+      type: typeof AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL;
+      requestId?: string;
+      name?: string;
+      origin?: string;
+      args?: unknown;
+    }
+  | {
       type: typeof AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND;
       requestId?: string;
       command?: string;
@@ -293,6 +308,8 @@ type IncomingHostMessage =
 type HostResponse<TValue> =
   | { ok: true; value: TValue }
   | { ok: false; error: Error };
+
+type HostBridgePost = (message: Record<string, unknown>) => boolean;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -320,9 +337,12 @@ function messageError(error: unknown): Error {
 function serializeForMessage<T>(value: T, label: string): T {
   if (value === undefined) return value;
   try {
+    structuredClone(value);
     return JSON.parse(JSON.stringify(value)) as T;
   } catch {
-    throw new Error(`${label} must be JSON-serializable`);
+    throw new Error(
+      `${label} must be JSON-serializable and structured-cloneable`,
+    );
   }
 }
 
@@ -386,17 +406,10 @@ export interface AgentNativeScreenSnapshot {
 }
 
 export interface AgentNativeScreenSnapshotOptions {
-  /**
-   * Root element to read from. Defaults to document.body, then documentElement.
-   */
   root?: Element | null | (() => Element | null | undefined);
-  /** Include textContent from the root element. Defaults to true. */
   includeVisibleText?: boolean;
-  /** Include outerHTML from the root element. Defaults to false. */
   includeDomHtml?: boolean;
-  /** Max characters of visible text to include. Defaults to 6000. */
   maxTextLength?: number;
-  /** Max characters of DOM html to include. Defaults to 20000. */
   maxHtmlLength?: number;
 }
 
@@ -543,7 +556,8 @@ function toActionManifest(
   action: AgentNativeClientAction,
 ): AgentNativeActionManifestEntry | null {
   if (!action?.name || !action.description) return null;
-  const { run: _run, ...manifest } = action;
+  const manifest = { ...action };
+  delete (manifest as Partial<AgentNativeClientAction>).run;
   return serializeForMessage(
     {
       source: "client",
@@ -553,6 +567,38 @@ function toActionManifest(
     },
     "Client action manifest",
   );
+}
+
+function toWebMcpActionManifest(
+  tool: AgentNativeWebMcpTool,
+): AgentNativeActionManifestEntry {
+  const { inputSchema, ...metadata } = tool;
+  return serializeForMessage(
+    {
+      source: "webmcp",
+      availability: "current-page",
+      requiresApproval: true,
+      ...metadata,
+      ...(inputSchema ? { schema: inputSchema, parameters: inputSchema } : {}),
+    },
+    "WebMCP tool manifest",
+  );
+}
+
+function findWebMcpTool(
+  tools: AgentNativeWebMcpTool[],
+  name: string,
+  origin?: string,
+): AgentNativeWebMcpTool | undefined {
+  const matches = tools.filter(
+    (tool) => tool.name === name && (!origin || tool.origin === origin),
+  );
+  if (matches.length > 1 && !origin) {
+    throw new Error(
+      `WebMCP tool "${name}" is exposed by multiple origins; origin is required`,
+    );
+  }
+  return matches[0];
 }
 
 async function resolveActionManifest(
@@ -585,14 +631,6 @@ function dispatchHostEvent(
   return { dispatched: true };
 }
 
-/**
- * Cooldown for host-issued `hardReload` / `hard-reload` commands. A reload is
- * already in flight after the first command, so repeats inside this window are
- * acknowledged (`{ reloading: true }` — the page IS reloading) but do not call
- * `window.location.reload()` again. Without this, an embedding host that sends
- * the command on a loop (health checks, per-edit refresh logic) can keep the
- * page permanently mid-reload.
- */
 const HARD_RELOAD_COOLDOWN_MS = 2_000;
 let lastHardReloadAt = 0;
 
@@ -637,6 +675,8 @@ function isIncomingHostMessage(value: unknown): value is IncomingHostMessage {
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT ||
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_ACTIONS ||
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION ||
+    value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS ||
+    value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL ||
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND
   );
 }
@@ -645,7 +685,10 @@ export function createAgentNativeHostBridge(
   options: AgentNativeHostBridgeOptions,
 ): AgentNativeHostBridge {
   let targetWindow = options.targetWindow ?? null;
+  let targetPort = options.targetPort ?? null;
+  let targetPortListener: ((event: MessageEvent) => void) | null = null;
   let started = false;
+  const allowWindowMessages = options.allowWindowMessages ?? true;
   const allowedOrigin = normalizeOrigin(options.agentOrigin);
   const targetOrigin =
     allowedOrigin && allowedOrigin !== "*" ? allowedOrigin : "*";
@@ -672,12 +715,44 @@ export function createAgentNativeHostBridge(
   }
 
   function post(message: Record<string, unknown>): boolean {
+    if (targetPort) {
+      try {
+        targetPort.postMessage(message);
+        return true;
+      } catch {
+        // coercion-ok: false reports an undeliverable post through the boolean contract.
+        return false;
+      }
+    }
+    if (!allowWindowMessages) return false;
     if (!targetWindow) return false;
-    targetWindow.postMessage(message, targetOrigin);
+    try {
+      targetWindow.postMessage(message, targetOrigin);
+    } catch {
+      // coercion-ok: false reports an undeliverable post through the boolean contract.
+      return false;
+    }
     return true;
   }
 
-  async function sendInit(requestId?: string): Promise<boolean> {
+  function postToTargetPort(
+    port: MessagePort,
+    message: Record<string, unknown>,
+  ): boolean {
+    if (targetPort !== port) return false;
+    try {
+      port.postMessage(message);
+      return true;
+    } catch {
+      // coercion-ok: false reports an undeliverable post through the boolean contract.
+      return false;
+    }
+  }
+
+  async function sendInit(
+    requestId?: string,
+    reply: HostBridgePost = post,
+  ): Promise<boolean> {
     const message: Record<string, unknown> = {
       type: AGENT_NATIVE_HOST_MESSAGE_TYPES.INIT,
       version: AGENT_NATIVE_HOST_BRIDGE_VERSION,
@@ -705,18 +780,29 @@ export function createAgentNativeHostBridge(
       message.actionsError = messageError(error).message;
       emit({ type: "error", requestId, error: messageError(error) });
     }
-    const sent = post(message);
+    if (options.webmcp) {
+      try {
+        message.webmcpTools = structuredClone(await options.webmcp.listTools());
+      } catch (error) {
+        message.webmcpError = messageError(error).message;
+        emit({ type: "error", requestId, error: messageError(error) });
+      }
+    }
+    const sent = reply(message);
     if (sent) emit({ type: "init", requestId });
     return sent;
   }
 
-  async function sendContext(requestId?: string): Promise<boolean> {
+  async function sendContext(
+    requestId?: string,
+    reply: HostBridgePost = post,
+  ): Promise<boolean> {
     try {
       const context = attachSession(
         await resolveHostContext(options.getContext),
         session,
       );
-      const sent = post({
+      const sent = reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
         ok: true,
         requestId,
@@ -727,7 +813,7 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err });
-      return post({
+      return reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
         ok: false,
         requestId,
@@ -736,10 +822,13 @@ export function createAgentNativeHostBridge(
     }
   }
 
-  async function sendAuth(requestId?: string): Promise<boolean> {
+  async function sendAuth(
+    requestId?: string,
+    reply: HostBridgePost = post,
+  ): Promise<boolean> {
     try {
       const auth = await resolveHostAuth(options.auth);
-      const sent = post({
+      const sent = reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.AUTH,
         ok: true,
         requestId,
@@ -750,7 +839,7 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err });
-      return post({
+      return reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.AUTH,
         ok: false,
         requestId,
@@ -759,10 +848,13 @@ export function createAgentNativeHostBridge(
     }
   }
 
-  async function sendActions(requestId?: string): Promise<boolean> {
+  async function sendActions(
+    requestId?: string,
+    reply: HostBridgePost = post,
+  ): Promise<boolean> {
     try {
       const actions = await resolveActionManifest(options.actions);
-      const sent = post({
+      const sent = reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTIONS,
         ok: true,
         requestId,
@@ -773,8 +865,42 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err });
-      return post({
+      return reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTIONS,
+        ok: false,
+        requestId,
+        error: err.message,
+      });
+    }
+  }
+
+  async function sendWebMcpTools(
+    requestId?: string,
+    reply: HostBridgePost = post,
+  ): Promise<boolean> {
+    if (!options.webmcp) {
+      return reply({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
+        ok: false,
+        requestId,
+        error: "WebMCP is not enabled for this host",
+      });
+    }
+    try {
+      const tools = structuredClone(await options.webmcp.listTools());
+      const sent = reply({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
+        ok: true,
+        requestId,
+        tools,
+      });
+      if (sent) emit({ type: "webmcp-tools", requestId, count: tools.length });
+      return sent;
+    } catch (error) {
+      const err = messageError(error);
+      emit({ type: "error", requestId, error: err });
+      return reply({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
         ok: false,
         requestId,
         error: err.message,
@@ -851,9 +977,37 @@ export function createAgentNativeHostBridge(
       throw new Error(`Client action "${action.name}" was not approved`);
   }
 
+  async function assertWebMcpApproved(
+    tool: AgentNativeWebMcpTool,
+    args: unknown,
+    context: AgentNativeHostContext,
+    requestId: string | undefined,
+    event: MessageEvent,
+  ): Promise<void> {
+    const response = await runHostCommand(
+      "requestApproval",
+      {
+        action: toWebMcpActionManifest(tool),
+        args,
+        context,
+        session,
+        webmcp: tool,
+      },
+      requestId,
+      event,
+    );
+    const approved =
+      response === true ||
+      (isRecord(response) &&
+        (response.approved === true || response.ok === true));
+    if (!approved)
+      throw new Error(`WebMCP tool "${tool.name}" was not approved`);
+  }
+
   async function handleAction(
     message: IncomingHostMessage,
     event: MessageEvent,
+    reply: HostBridgePost,
   ) {
     if (message.type !== AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION) return;
     const name = typeof message.name === "string" ? message.name : "";
@@ -882,7 +1036,7 @@ export function createAgentNativeHostBridge(
         command: (command, payload) =>
           runHostCommand(command, payload, requestId, event),
       });
-      post({
+      reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT,
         ok: true,
         requestId,
@@ -891,8 +1045,52 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err, origin: event.origin });
-      post({
+      reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT,
+        ok: false,
+        requestId,
+        error: err.message,
+      });
+    }
+  }
+
+  async function handleWebMcpTool(
+    message: IncomingHostMessage,
+    event: MessageEvent,
+    reply: HostBridgePost,
+  ) {
+    if (message.type !== AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL)
+      return;
+    const name = typeof message.name === "string" ? message.name : "";
+    const requestId = message.requestId;
+    try {
+      if (!options.webmcp) {
+        throw new Error("WebMCP is not enabled for this host");
+      }
+      if (!name) throw new Error("Missing WebMCP tool name");
+      const tools = await options.webmcp.listTools();
+      const tool = findWebMcpTool(tools, name, message.origin);
+      if (!tool) {
+        throw new Error(`WebMCP tool "${name}" is no longer available`);
+      }
+      const context = attachSession(
+        await resolveHostContext(options.getContext),
+        session,
+      );
+      await assertWebMcpApproved(tool, message.args, context, requestId, event);
+      emit({ type: "webmcp-tool", name, requestId, origin: event.origin });
+      const result = await options.webmcp.executeListedTool(tool, message.args);
+      reply({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
+        ok: true,
+        requestId,
+        result: structuredClone(result),
+      });
+    } catch (error) {
+      const err = messageError(error);
+      emit({ type: "error", requestId, error: err, origin: event.origin });
+      reply({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
         ok: false,
         requestId,
         error: err.message,
@@ -903,6 +1101,7 @@ export function createAgentNativeHostBridge(
   async function handleCommand(
     message: IncomingHostMessage,
     event: MessageEvent,
+    reply: HostBridgePost,
   ) {
     if (message.type !== AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND) return;
     const command = typeof message.command === "string" ? message.command : "";
@@ -916,7 +1115,7 @@ export function createAgentNativeHostBridge(
         requestId,
         event,
       );
-      post({
+      reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND_RESULT,
         ok: true,
         requestId,
@@ -925,7 +1124,7 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       const err = messageError(error);
       emit({ type: "error", requestId, error: err, origin: event.origin });
-      post({
+      reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND_RESULT,
         ok: false,
         requestId,
@@ -937,10 +1136,34 @@ export function createAgentNativeHostBridge(
   function onMessage(event: MessageEvent) {
     const message = event.data;
     if (!isIncomingHostMessage(message)) return;
+    if (!allowWindowMessages) return;
     if (!trusted(event)) return;
 
+    handleIncoming(message, event, post);
+  }
+
+  function attachTargetPort(port: MessagePort) {
+    const listener = (event: MessageEvent) => {
+      const message = event.data;
+      if (!isIncomingHostMessage(message)) return;
+      handleIncoming(message, event, (response) =>
+        postToTargetPort(port, response),
+      );
+    };
+    targetPortListener = listener;
+    port.addEventListener("message", listener);
+    port.start();
+  }
+
+  function handleIncoming(
+    message: IncomingHostMessage,
+    event: MessageEvent,
+    reply: HostBridgePost,
+  ) {
     const sourceWindow = getWindowFromSource(event.source);
-    if (!targetWindow && sourceWindow) targetWindow = sourceWindow;
+    if (allowWindowMessages && !targetPort && !targetWindow && sourceWindow) {
+      targetWindow = sourceWindow;
+    }
 
     if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.READY) {
       emit({
@@ -948,15 +1171,23 @@ export function createAgentNativeHostBridge(
         requestId: message.requestId,
         origin: event.origin,
       });
-      void sendInit(message.requestId);
+      void sendInit(message.requestId, reply);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT) {
-      void sendContext(message.requestId);
+      void sendContext(message.requestId, reply);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_ACTIONS) {
-      void sendActions(message.requestId);
+      void sendActions(message.requestId, reply);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION) {
-      void handleAction(message, event);
+      void handleAction(message, event, reply);
+    } else if (
+      message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS
+    ) {
+      void sendWebMcpTools(message.requestId, reply);
+    } else if (
+      message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL
+    ) {
+      void handleWebMcpTool(message, event, reply);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND) {
-      void handleCommand(message, event);
+      void handleCommand(message, event, reply);
     } else {
       emit({ type: "ignored", reason: "message", origin: event.origin });
     }
@@ -965,17 +1196,31 @@ export function createAgentNativeHostBridge(
   const bridge: AgentNativeHostBridge = {
     start() {
       if (started || typeof window === "undefined") return bridge;
-      window.addEventListener("message", onMessage);
+      if (allowWindowMessages) window.addEventListener("message", onMessage);
       started = true;
+      if (targetPort) attachTargetPort(targetPort);
       return bridge;
     },
     stop() {
       if (!started || typeof window === "undefined") return;
-      window.removeEventListener("message", onMessage);
+      if (allowWindowMessages) window.removeEventListener("message", onMessage);
+      if (targetPort && targetPortListener) {
+        targetPort.removeEventListener("message", targetPortListener);
+      }
+      targetPortListener = null;
       started = false;
     },
     setTargetWindow(nextTargetWindow) {
       targetWindow = nextTargetWindow;
+    },
+    setTargetPort(nextTargetPort) {
+      if (targetPort === nextTargetPort) return;
+      if (started && targetPort && targetPortListener) {
+        targetPort.removeEventListener("message", targetPortListener);
+      }
+      targetPortListener = null;
+      targetPort = nextTargetPort;
+      if (started && targetPort) attachTargetPort(targetPort);
     },
     post,
     sendInit,
@@ -983,15 +1228,14 @@ export function createAgentNativeHostBridge(
     refreshContext: sendContext,
     sendAuth,
     sendActions,
+    sendWebMcpTools,
   };
 
   return bridge;
 }
 
 export interface AgentNativeHostRequestOptions {
-  /** Origin to send messages to. Defaults to "*" so prototypes can start. */
   targetOrigin?: string;
-  /** Optional exact origin expected in replies from the host app. */
   hostOrigin?: string;
   timeoutMs?: number;
   targetWindow?: Window;
@@ -1053,7 +1297,6 @@ function requestFromHost<TValue>(
     }, timeoutMs);
 
     function onMessage(event: MessageEvent) {
-      // targetWindow is non-null: the null branch returned early above
       if (!isTrustedHostResponse(event, targetWindow!, options.hostOrigin)) {
         return;
       }
@@ -1061,7 +1304,13 @@ function requestFromHost<TValue>(
       if (event.data.type !== responseType) return;
       if (event.data.requestId !== id) return;
 
-      const response = pick(event.data);
+      let response: HostResponse<TValue>;
+      try {
+        response = pick(event.data);
+      } catch (error) {
+        finish(() => reject(messageError(error)));
+        return;
+      }
       if (response.ok === true) {
         finish(() => resolve(response.value));
       } else {
@@ -1176,11 +1425,71 @@ export function runAgentNativeHostAction<TArgs = unknown, TResult = unknown>(
   );
 }
 
+export function requestAgentNativeHostWebMcpTools(
+  options: AgentNativeHostRequestOptions = {},
+): Promise<AgentNativeWebMcpTool[]> {
+  return requestFromHost(
+    { type: AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS },
+    AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
+    (message) => {
+      if (message.ok === false) {
+        return {
+          ok: false,
+          error: new Error(
+            typeof message.error === "string"
+              ? message.error
+              : "Host WebMCP tools request failed",
+          ),
+        };
+      }
+      if (!Array.isArray(message.tools)) {
+        return {
+          ok: false,
+          error: new Error("Host returned an invalid WebMCP tool list"),
+        };
+      }
+      return { ok: true, value: message.tools as AgentNativeWebMcpTool[] };
+    },
+    options,
+  );
+}
+
+export function runAgentNativeHostWebMcpTool<TResult = string | null>(
+  tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
+  args?: unknown,
+  options: AgentNativeHostRequestOptions = {},
+): Promise<TResult> {
+  if (!tool.name.trim()) throw new Error("WebMCP tool name is required");
+  return requestFromHost(
+    {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL,
+      name: tool.name,
+      ...(tool.origin ? { origin: tool.origin } : {}),
+      args,
+    },
+    AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
+    (message) => {
+      if (message.ok === false) {
+        return {
+          ok: false,
+          error: new Error(
+            typeof message.error === "string"
+              ? message.error
+              : "Host WebMCP tool failed",
+          ),
+        };
+      }
+      return { ok: true, value: message.result as TResult };
+    },
+    options,
+  );
+}
+
 export function sendAgentNativeHostCommand<
   TPayload = unknown,
   TResult = unknown,
 >(
-  command: BuiltInAgentNativeHostCommand | string,
+  command: BuiltInAgentNativeHostCommand | (string & {}),
   payload?: TPayload,
   options: AgentNativeHostRequestOptions = {},
 ): Promise<TResult> {
@@ -1213,10 +1522,12 @@ export interface AgentNativeHostInit {
   context?: AgentNativeHostContext;
   auth?: AgentNativeHostAuthPayload;
   actions?: AgentNativeActionManifestEntry[];
+  webmcpTools?: AgentNativeWebMcpTool[];
   session?: AgentNativeHostSession;
   contextError?: string;
   authError?: string;
   actionsError?: string;
+  webmcpError?: string;
 }
 
 export function onAgentNativeHostInit(
@@ -1231,7 +1542,6 @@ export function onAgentNativeHostInit(
   if (!targetWindow) return () => {};
 
   function onMessage(event: MessageEvent) {
-    // targetWindow is non-null: the null branch returned early above
     if (!isTrustedHostResponse(event, targetWindow!, options.hostOrigin)) {
       return;
     }
@@ -1249,6 +1559,9 @@ export function onAgentNativeHostInit(
       actions: Array.isArray(event.data.actions)
         ? (event.data.actions as AgentNativeActionManifestEntry[])
         : undefined,
+      webmcpTools: Array.isArray(event.data.webmcpTools)
+        ? (event.data.webmcpTools as AgentNativeWebMcpTool[])
+        : undefined,
       session: isRecord(event.data.session)
         ? (event.data.session as AgentNativeHostSession)
         : undefined,
@@ -1263,6 +1576,10 @@ export function onAgentNativeHostInit(
       actionsError:
         typeof event.data.actionsError === "string"
           ? event.data.actionsError
+          : undefined,
+      webmcpError:
+        typeof event.data.webmcpError === "string"
+          ? event.data.webmcpError
           : undefined,
     });
   }

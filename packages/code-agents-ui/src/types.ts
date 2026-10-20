@@ -1,4 +1,4 @@
-import { type AgentPromptAttachment } from "@agent-native/core/client/composer";
+import type { AgentPromptAttachment } from "@agent-native/toolkit/app/chat/composer";
 
 import type { CodeAgentPermissionMode } from "./code-agents.js";
 
@@ -25,6 +25,8 @@ export interface CodeAgentModelOption {
   label: string;
   description?: string;
   configured?: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
 }
 
 export interface CodeAgentModelListResult {
@@ -37,6 +39,117 @@ export interface CodeAgentModelListResult {
 export type CodeAgentPromptAttachment = AgentPromptAttachment;
 
 export type CodeAgentFollowUpMode = "immediate" | "queued";
+
+export type CodeAgentExecutionTarget = "local" | "worktree" | "portal";
+
+export type CodeAgentScheduleScope = "global" | "thread";
+export type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
+
+export interface CodeAgentSchedule {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  prompt: string;
+  scope: CodeAgentScheduleScope;
+  targetRunId?: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  nextRunAt: string;
+  lastRunAt?: string;
+  lastStatus?: CodeAgentScheduleStatus;
+  lastError?: string;
+  lastTriggeredRunId?: string;
+  createdByRunId?: string;
+}
+
+export interface CodeAgentScheduleListResult {
+  status: "ok" | "unavailable";
+  schedules: CodeAgentSchedule[];
+  error?: string;
+}
+
+export interface CodeAgentScheduleResult {
+  ok: boolean;
+  schedule?: CodeAgentSchedule;
+  message: string;
+  error?: string;
+}
+
+export type CodeAgentWorktreeMode = "new" | "named";
+
+export interface CodeAgentWorktreeSelection {
+  mode: CodeAgentWorktreeMode;
+  name?: string;
+}
+
+export type CodeAgentWorktreeState =
+  | "available"
+  | "attached"
+  | "cleanup-pending"
+  | "recoverable"
+  | "removed"
+  | "error";
+
+export interface CodeAgentWorktreeSummary {
+  id: string;
+  name: string;
+  branch: string;
+  path: string;
+  sourcePath: string;
+  state: CodeAgentWorktreeState;
+  attached: boolean;
+  lastUsedAt: string;
+  lastCleanupError?: string;
+}
+
+export interface CodeAgentWorktreeListResult {
+  status: "ok" | "unavailable";
+  sourcePath: string;
+  worktrees: CodeAgentWorktreeSummary[];
+  error?: string;
+}
+
+export interface CodeAgentForkRunRequest {
+  goalId?: string;
+  sourceRunId: string;
+  executionTarget: "local" | "worktree";
+}
+
+export interface CodeAgentForkRunResult {
+  ok: boolean;
+  sourceRunId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentRestoreWorktreeRequest {
+  worktreeId: string;
+  runId?: string;
+}
+
+export interface CodeAgentRestoreWorktreeResult {
+  ok: boolean;
+  worktreeId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentRemoteWaitlistRequest {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+}
+
+export interface CodeAgentRemoteWaitlistResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+}
 
 export interface CodeAgentProjectCommand {
   kind: "command";
@@ -175,12 +288,6 @@ export interface CodeAgentTranscriptEvent {
   artifactPath?: string;
   artifactUrl?: string;
   metadata?: Record<string, unknown>;
-  /**
-   * Structured marker for events that need special UI handling beyond
-   * free-text matching. `"credential-gap"` marks the status event reporting
-   * that no LLM provider key (or Codex CLI login) is available. Optional so
-   * older persisted transcripts without the field keep parsing unchanged.
-   */
   signal?: "credential-gap";
 }
 
@@ -206,6 +313,8 @@ export interface CodeAgentCreateRunRequest {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
+  worktree?: CodeAgentWorktreeSelection;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -232,12 +341,51 @@ export interface CodeAgentFollowUpRequest {
   model?: string;
   effort?: CodeAgentReasoningEffort;
   attachments?: CodeAgentPromptAttachment[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface CodeAgentFollowUpResult {
   ok: boolean;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferRequest {
+  runId: string;
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferItem {
+  runId: string;
+  title?: string;
+  ok: boolean;
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferResult {
+  ok: boolean;
+  runId: string;
+  run?: CodeAgentRun;
+  host?: { id: string; label: string };
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferAllRequest {
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferAllResult {
+  ok: boolean;
+  host?: { id: string; label: string };
+  transferred: CodeAgentPortalTransferItem[];
+  skipped: CodeAgentPortalTransferItem[];
+  failed: CodeAgentPortalTransferItem[];
   message: string;
   error?: string;
 }
@@ -286,6 +434,7 @@ export interface CodeAgentRemoteConnectorStatus {
   configured: boolean;
   configPath: string;
   relayUrl?: string;
+  workspacePath?: string;
   pid?: number;
   startedAt?: string;
   lastExitAt?: string;
@@ -305,6 +454,7 @@ export interface CodeAgentRemoteConnectorControlResult {
 export interface CodeAgentRemoteConnectorPairRequest {
   relayUrl?: string;
   label?: string;
+  workspacePath?: string;
 }
 
 export interface CodeAgentRemoteConnectorPairResult {
@@ -349,6 +499,7 @@ export interface CodeAgentRetryRunRequest {
   engine?: string;
   model?: string;
   effort?: CodeAgentReasoningEffort;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CodeAgentRetryRunResult {
@@ -363,6 +514,7 @@ export interface CodeAgentRerunRequest {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;

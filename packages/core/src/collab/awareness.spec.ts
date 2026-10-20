@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// h3 in the source is only used for handler plumbing; stub it so we can drive
-// the handlers with plain fake events and inspect the response status.
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getRouterParam: (event: any, name: string) => event._params?.[name],
@@ -16,6 +14,8 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 import {
+  emitAwarenessChange,
+  getAwarenessEmitter,
   getDocAwareness,
   cleanExpired,
   postAwareness,
@@ -56,26 +56,77 @@ describe("cleanExpired", () => {
     map.set(1, { clientId: 1, state: "stale", lastSeen: 0 });
     map.set(2, { clientId: 2, state: "fresh", lastSeen: 20_000 });
 
-    vi.setSystemTime(31_000); // 31s after t=0
+    vi.setSystemTime(31_000);
     cleanExpired(map);
 
-    expect(map.has(1)).toBe(false); // 31s old > 30s timeout
-    expect(map.has(2)).toBe(true); // 11s old
+    expect(map.has(1)).toBe(false);
+    expect(map.has(2)).toBe(true);
   });
 
   it("keeps an entry exactly at the boundary (not strictly greater)", () => {
     const map = new Map<number, AwarenessEntry>();
     map.set(1, { clientId: 1, state: "edge", lastSeen: 0 });
-    vi.setSystemTime(30_000); // exactly 30s — boundary is not expired
+    vi.setSystemTime(30_000);
     cleanExpired(map);
     expect(map.has(1)).toBe(true);
+  });
+});
+
+describe("awareness scope retention", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("expires scopes that stop receiving awareness activity", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const docId = "scope-expiry";
+    const received: Array<{ owner?: string }> = [];
+    const onChange = (event: { owner?: string }) =>
+      received.push({ owner: event.owner });
+    getAwarenessEmitter().on("awareness-change", onChange);
+
+    try {
+      emitAwarenessChange(docId, [], { owner: "owner@example.com" });
+      vi.setSystemTime(35_001);
+      emitAwarenessChange(docId, []);
+    } finally {
+      getAwarenessEmitter().off("awareness-change", onChange);
+    }
+
+    expect(received).toEqual([{ owner: "owner@example.com" }, {}]);
+  });
+
+  it("keeps a scope alive for scope-less presence heartbeats", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const docId = "scope-heartbeat";
+    const received: Array<{ owner?: string }> = [];
+    const onChange = (event: { owner?: string }) =>
+      received.push({ owner: event.owner });
+    getAwarenessEmitter().on("awareness-change", onChange);
+
+    try {
+      emitAwarenessChange(docId, [], { owner: "owner@example.com" });
+      vi.setSystemTime(10_000);
+      emitAwarenessChange(docId, []);
+      vi.setSystemTime(35_001);
+      emitAwarenessChange(docId, []);
+    } finally {
+      getAwarenessEmitter().off("awareness-change", onChange);
+    }
+
+    expect(received).toEqual([
+      { owner: "owner@example.com" },
+      { owner: "owner@example.com" },
+      { owner: "owner@example.com" },
+    ]);
   });
 });
 
 describe("postAwareness handler", () => {
   afterEach(() => {
     mockReadBody.mockReset();
-    // Clear shared maps used by these tests.
     getDocAwareness("post-doc").clear();
   });
 
@@ -87,7 +138,7 @@ describe("postAwareness handler", () => {
   });
 
   it("returns 400 when clientId or state is missing", async () => {
-    mockReadBody.mockResolvedValue({ clientId: 5 }); // no state
+    mockReadBody.mockResolvedValue({ clientId: 5 });
     const ev = event({ docId: "post-doc" });
     const res = await postAwareness(ev);
     expect(ev._status).toBe(400);
@@ -104,9 +155,7 @@ describe("postAwareness handler", () => {
       states: Array<{ clientId: number; state: string }>;
     };
 
-    // Sender stored.
     expect(map.get(5)?.state).toBe("my-state");
-    // Response excludes the sender (5), includes the peer (99).
     expect(res.states).toEqual([{ clientId: 99, state: "other-state" }]);
   });
 
@@ -139,7 +188,7 @@ describe("postAwareness handler", () => {
     vi.useRealTimers();
 
     expect(map.has(7)).toBe(false);
-    expect(res.states).toEqual([]); // peer 7 expired, sender 5 excluded
+    expect(res.states).toEqual([]);
   });
 });
 
@@ -168,7 +217,6 @@ describe("getActiveUsers handler", () => {
     };
     vi.useRealTimers();
 
-    // Client 1 (40s old) pruned; client 2 (15s old) survives.
     expect(res.users).toEqual([{ clientId: 2, lastSeen: 25_000 }]);
   });
 });

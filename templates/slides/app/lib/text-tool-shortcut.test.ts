@@ -2,7 +2,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { shouldActivateTextTool } from "./text-tool-shortcut";
+import {
+  shouldActivateHandTool,
+  shouldActivateMoveTool,
+  shouldActivateRectangleTool,
+  shouldActivateScaleTool,
+  shouldActivateTextTool,
+} from "./text-tool-shortcut";
 
 function keyboardEvent(
   overrides: Partial<KeyboardEventInit> & { target?: EventTarget | null } = {},
@@ -30,6 +36,21 @@ function shouldActivate(
   }> = {},
 ) {
   return shouldActivateTextTool(event, {
+    canEdit: overrides.canEdit ?? true,
+    activeElement: overrides.activeElement ?? document.body,
+    blockingSurfaceOpen: overrides.blockingSurfaceOpen ?? false,
+  });
+}
+
+function shouldActivateRectangle(
+  event = keyboardEvent({ key: "r" }),
+  overrides: Partial<{
+    canEdit: boolean;
+    activeElement: Element | null;
+    blockingSurfaceOpen: boolean;
+  }> = {},
+) {
+  return shouldActivateRectangleTool(event, {
     canEdit: overrides.canEdit ?? true,
     activeElement: overrides.activeElement ?? document.body,
     blockingSurfaceOpen: overrides.blockingSurfaceOpen ?? false,
@@ -73,5 +94,105 @@ describe("shouldActivateTextTool", () => {
     menu.setAttribute("role", "menu");
     menu.append(menuItem);
     expect(shouldActivate(keyboardEvent({ target: menuItem }))).toBe(false);
+  });
+});
+
+describe("shouldActivateRectangleTool", () => {
+  it("activates for an unmodified R on the editor canvas", () => {
+    expect(shouldActivateRectangle()).toBe(true);
+    expect(shouldActivateRectangle(keyboardEvent())).toBe(false);
+  });
+
+  it("uses the same editing and modifier guards as the text tool", () => {
+    expect(shouldActivateRectangle(keyboardEvent({ metaKey: true }))).toBe(
+      false,
+    );
+    expect(
+      shouldActivateRectangle(keyboardEvent(), { blockingSurfaceOpen: true }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldActivateMoveTool", () => {
+  const options = {
+    canEdit: true,
+    activeElement: document.body,
+    blockingSurfaceOpen: false,
+  };
+
+  it("activates for an unmodified V on the editor canvas", () => {
+    expect(shouldActivateMoveTool(keyboardEvent({ key: "v" }), options)).toBe(
+      true,
+    );
+    expect(shouldActivateMoveTool(keyboardEvent({ key: "t" }), options)).toBe(
+      false,
+    );
+  });
+
+  it("leaves paste and typing alone", () => {
+    expect(
+      shouldActivateMoveTool(
+        keyboardEvent({ key: "v", metaKey: true }),
+        options,
+      ),
+    ).toBe(false);
+    expect(
+      shouldActivateMoveTool(
+        keyboardEvent({ key: "v", target: document.createElement("input") }),
+        options,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("shouldActivateHandTool", () => {
+  const options = {
+    canEdit: true,
+    activeElement: document.body,
+    blockingSurfaceOpen: false,
+  };
+
+  it("activates for an unmodified H and ignores typing targets", () => {
+    expect(shouldActivateHandTool(keyboardEvent({ key: "h" }), options)).toBe(
+      true,
+    );
+    expect(
+      shouldActivateHandTool(
+        keyboardEvent({ key: "h", target: document.createElement("textarea") }),
+        options,
+      ),
+    ).toBe(false);
+    expect(
+      shouldActivateHandTool(
+        keyboardEvent({ key: "h", metaKey: true }),
+        options,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("shouldActivateScaleTool", () => {
+  const options = {
+    canEdit: true,
+    activeElement: document.body,
+    blockingSurfaceOpen: false,
+  };
+
+  it("activates for an unmodified K and ignores typing targets", () => {
+    expect(shouldActivateScaleTool(keyboardEvent({ key: "k" }), options)).toBe(
+      true,
+    );
+    expect(
+      shouldActivateScaleTool(
+        keyboardEvent({ key: "k", target: document.createElement("input") }),
+        options,
+      ),
+    ).toBe(false);
+    expect(
+      shouldActivateScaleTool(
+        keyboardEvent({ key: "k", metaKey: true }),
+        options,
+      ),
+    ).toBe(false);
   });
 });

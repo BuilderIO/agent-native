@@ -2,7 +2,7 @@ import {
   defaultOrgAppLinks,
   dispatchOverviewHref,
   parseWorkspaceAppLinksJson,
-} from "@agent-native/core/client/org";
+} from "@agent-native/toolkit/app/org";
 
 type RuntimeEnv = Record<string, string | boolean | undefined>;
 
@@ -40,5 +40,5 @@ export function dispatchIntegrationsHref(
   const base = dispatchHref
     .replace(/\/(?:overview|apps)\/?$/, "")
     .replace(/\/$/, "");
-  return `${base}/integrations?${params.toString()}`;
+  return `${base}/settings/integrations?${params.toString()}`;
 }

@@ -1,0 +1,118 @@
+---
+title: "Turn Into App"
+description: "The /turn-into-app skill turns a thread, skill, spreadsheet, or Claude or ChatGPT project into a runnable Agent-Native app that opens on a populated, domain-shaped surface."
+---
+
+# Turn Into App
+
+`/turn-into-app` is a skill that turns a workflow you have already proven into an Agent-Native app. The source can be a thread, a skill, a spreadsheet, or a Claude or ChatGPT project. The app opens on your world, populated with sample data shaped like the source, with the in-app agent working behind controls on the objects it acts on. A form under a step bar is the result the skill is built to avoid.
+
+## Install {#install}
+
+```bash
+npx @agent-native/skills@latest add --skill turn-into-app
+```
+
+The same skill ships with the core CLI:
+
+```bash
+npx @agent-native/core@latest skills add turn-into-app
+```
+
+Inside a project that already has the Agent-Native CLI, `agent-native skills add turn-into-app` does the same thing. See the [Skills Guide](/docs/skills-guide) for how skills are installed and loaded.
+
+## Invoke it {#invoke}
+
+| Command                            | Source                                                      |
+| ---------------------------------- | ----------------------------------------------------------- |
+| `/turn-into-app`                   | The visible project context, otherwise the current thread   |
+| `/turn-into-app /some-skill`       | The named skill, packaged immediately, even at thread start |
+| `/turn-into-app ./forecast.xlsx`   | A spreadsheet, turned into a workbench                      |
+| `/turn-into-app ./project-export/` | A Claude or ChatGPT project export                          |
+
+Without an argument the skill builds the latest successful, repeatable job and names it. A worked example, such as one account or one deal, is evidence for the job, not its schema. If no job can be identified, it says what is missing instead of asking a generic "what app do you want?" question.
+
+## Where it runs {#hosts}
+
+| Host                                                  | What happens                                                                                                    |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Claude Code, Codex, Cursor, other local coding agents | Builds, runs, and reviews the app in your checkout.                                                             |
+| Claude or ChatGPT on the web                          | Writes a bounded brief and hands it to Builder through the Dispatch connector. It does not run anything itself. |
+
+A host counts as local when it has a real working directory, a terminal, and a workspace. Having a Builder or Dispatch connector does not make a host a browser host.
+
+On a browser host the skill requires the Agent-Native Dispatch MCP connector (`https://dispatch.agent-native.com/mcp`, OAuth) and calls its `start-workspace-app-creation` action. The host cannot run or inspect the app, so the report stays pending or unverified until the branch Dispatch returns is built. The skill reports what Dispatch actually returned and never invents a branch URL. For a ChatGPT Project, or any host that only exposes MCP, put the skill instructions in the Project instructions or knowledge files.
+
+## Sources {#sources}
+
+- **Threads.** The last concrete, repeatable job is the product.
+- **Skills.** The skill's steps, human decision points, and read-only rules become the app. If the skill keeps plan files, those files stay the source of truth through Local File Mode and the app is local-only.
+- **Spreadsheets.** Every worksheet is inventoried first. Structure decides which cells are inputs and outputs; color is only a weak hint. The workbook is never copied into a prompt, SQL, or application state. A Google Sheets link is only a source when it is readable through an authenticated Sheets or Drive connection; otherwise the skill asks for an export.
+- **Claude and ChatGPT projects.** Visible instructions, knowledge files, and supplied past runs are the source. The connector does not read hidden project chats, private URLs, or credentials, and there is no shared-link importer. Attach an export when the context is not visible.
+
+## What you get {#what-you-get}
+
+- **A shape chosen from the source.** The skill picks one of 13 archetypes, such as a triage queue, pipeline board, live workbench, schedule grid, review diff, or monitor. The archetype is the object the user looks at, not the procedure they follow, so source steps become states on objects (Draft, Checked, Approved) rather than a stepper or wizard.
+- **A named visual direction.** One of six directions (`ledger`, `control-room`, `paper-desk`, `studio-canvas`, `tidepool`, `signal-board`) with light and dark tokens, picked from the archetype and the source's domain. An existing brand or your explicit direction wins.
+- **A populated first screen.** `/` lands on a named domain route with synthetic sample data, labeled as sample, shaped like the source. An empty state, a hero, the procedure's first step, or a form is a defect unless the source itself is form-shaped.
+- **Agent moments on the objects.** Each AI-labeled control hands a bounded prompt to the agent sidebar. The object shows a working state right away, and the result lands back on it with Accept, Edit, and Retry. Follow-ups stay in the same thread.
+- **A real Agent-Native app.** Deterministic work is `defineAction` files that both the UI and the agent call. The app uses the standard Use Builder.io or Custom keys setup, writes the current view and selection to application state, and has `AGENTS.md` teaching the in-app agent about the new app.
+
+The skill saves its source brief as `docs/brief.md` and appends the surface design to `DESIGN.md`.
+
+## How a run works {#how-it-works}
+
+1. **Brief.** It reads the whole source and writes a short brief: the job, at most three agent moments, invariants, data hazards, source of truth, and assumptions.
+2. **Design.** It decides the archetype, direction, shell, first viewport and sample data, and agent moments, and posts the brief once as a checkpoint. It continues without waiting.
+3. **Scaffold.** It creates the real app with the chat template and never overwrites an existing app.
+
+   ```bash
+   npx --yes @agent-native/core@latest create <slug> --standalone --template chat
+   ```
+
+   Inside an existing Agent-Native workspace it runs `pnpm exec agent-native add-app <slug> --template chat` from the workspace root instead.
+
+4. **Build.** Actions, the domain surface, sample data, agent moments, and agent instructions are built together.
+5. **Review.** It runs the app and reviews screenshots. See below.
+6. **Verify.** It runs `pnpm typecheck`, `pnpm agent-native:doctor`, and `pnpm build`, then writes the final report.
+
+The skill aims for about 45 minutes. If 35 minutes have passed when the review starts, it runs one pass and lists the open criteria.
+
+## The screenshot review loop {#review-loop}
+
+Before handoff the skill starts the dev server and screenshots `/` at desktop and phone sizes in light and dark, plus the main agent control after a click. It scores the shots against a 12-row rubric covering first-viewport impact, domain fit, hierarchy, chrome discipline, sample data, typography, color, polish, agent and UI together, 390px layout, dark mode, and accessibility.
+
+Some findings fail the review whatever the average score: a stepper or wizard shell, `/` not opening on the domain route, an empty or form-only first viewport, scaffold default tokens, clipped text, raw markdown, sideways scroll at 390px, or a console error. It fixes every finding in one batch, resets whatever the click changed, and shoots again. The default is two passes, with a third only if the second still misses the bar and time allows. The bar is a mean of 4.0 or higher with no criterion below 3 and no automatic fail.
+
+Screenshots are saved in the app's `.tmp/ui-review/out/`, and the final report lists their paths and scores. A result landing in the UI can only be exercised with a connected AI provider; without one, the report says the result was not exercised.
+
+## Run and deploy {#run-deploy}
+
+For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. Without it, opening the app shows a "Continue as local dev" card.
+
+To run the app yourself:
+
+```bash
+pnpm dev
+```
+
+To use your own model provider locally, put a key such as `ANTHROPIC_API_KEY` in the same `.env`. Otherwise the agent sidebar shows the shared Use Builder.io or Custom keys setup.
+
+The skill deploys only when you ask or the provider is already configured. A healthy local build still prints a "production configuration errors" block with exit code 0. That is the deploy checklist: a stable `BETTER_AUTH_SECRET` and a persistent `DATABASE_URL`, plus `A2A_SECRET` for an app inside a workspace. The skill reports these as the pending step and does not create placeholder values. See [Deploy an app](/docs/deploy-an-app) and [Deploy a workspace](/docs/workspace-deployment).
+
+The final report labels evidence separately: locally running, locally verified, build-ready, deployed, and live-verified are different states, and the report never lets one stand in for another.
+
+## Known limits {#limits}
+
+- **Editing `.env` while the dev server runs.** An in-place reload after an `.env` change loops on the local database lock and serves 500s. Stop the server, edit `.env`, and start it again.
+- **Ambiguous spreadsheets.** If the candidate workflows or the input and output mapping stay materially ambiguous after a bounded review, the skill asks one compact question with its recommended interpretation. In a headless run it prints the question, records the assumption in the brief, and keeps building.
+- **Spreadsheets on a browser host.** A workbook cannot be attached; the host passes a bounded CSV rendering as text, or a URL that is intentionally public, and the handoff says what was left out. A link to a private sheet is not a source; the skill asks for an authenticated Sheets or Drive connection or an export, and never uses a public export URL to get around access controls.
+- **Cell colors.** A text preview cannot prove colors, so on a local host the skill reads both formulas and cached values, and treats color as a weak hint.
+- **Local File Mode apps.** An app whose source of truth is the host's files is local-only and is not deployed.
+- **Browser-host handoffs.** The result is unverified until Dispatch returns a built branch. The skill cannot run or screenshot the app there.
+
+## What's next {#whats-next}
+
+- [Skills Guide](/docs/skills-guide) for how skills are installed and loaded
+- [Dispatch](/docs/dispatch) for the connector used from Claude and ChatGPT on the web
+- [Deploy an app](/docs/deploy-an-app) for taking the generated app to production

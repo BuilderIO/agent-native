@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  writeAppState: vi.fn(),
+  writeAppStateForCurrentTab: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  writeAppState: mocks.writeAppState,
+  writeAppStateForCurrentTab: mocks.writeAppStateForCurrentTab,
 }));
 
 import action from "./navigate";
@@ -13,25 +13,25 @@ import action from "./navigate";
 describe("navigate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.writeAppState.mockResolvedValue(undefined);
+    mocks.writeAppStateForCurrentTab.mockResolvedValue(undefined);
   });
 
   it("requires at least a view or a path", async () => {
     await expect(action.run({})).rejects.toThrow(
       "At least --view or --path is required.",
     );
-    expect(mocks.writeAppState).not.toHaveBeenCalled();
+    expect(mocks.writeAppStateForCurrentTab).not.toHaveBeenCalled();
   });
 
   it("navigates by view and only includes provided keys", async () => {
     const result = await action.run({ view: "chat" });
 
     expect(result).toBe("Navigating to chat");
-    expect(mocks.writeAppState).toHaveBeenCalledWith(
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith(
       "navigate",
       expect.objectContaining({ view: "chat" }),
     );
-    const callArg = mocks.writeAppState.mock.calls[0][1];
+    const callArg = mocks.writeAppStateForCurrentTab.mock.calls[0][1];
     expect(callArg.path).toBeUndefined();
     expect(callArg.threadId).toBeUndefined();
     expect(Object.keys(callArg).sort()).toEqual(["_writeId", "view"]);
@@ -52,7 +52,7 @@ describe("navigate", () => {
   it("includes threadId when provided", async () => {
     await action.run({ view: "chat", threadId: "t1" });
 
-    expect(mocks.writeAppState).toHaveBeenCalledWith(
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith(
       "navigate",
       expect.objectContaining({ view: "chat", threadId: "t1" }),
     );
@@ -61,7 +61,7 @@ describe("navigate", () => {
   it("stamps a unique _writeId on every write", async () => {
     await action.run({ view: "chat" });
 
-    const callArg = mocks.writeAppState.mock.calls[0][1];
+    const callArg = mocks.writeAppStateForCurrentTab.mock.calls[0][1];
     expect(typeof callArg._writeId).toBe("string");
     expect(callArg._writeId.includes("-")).toBe(true);
   });

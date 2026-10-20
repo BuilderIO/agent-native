@@ -1,10 +1,10 @@
-export type RecordingPageAccessRole = "owner" | "admin" | "editor" | "viewer";
+export type RecordingPageAccessRole =
+  | "owner"
+  | "admin"
+  | "editor"
+  | "commenter"
+  | "viewer";
 
-/**
- * Match the public recording and video routes: only a finite expiry date can
- * expire a recording, and the expiry is strict so the exact instant remains
- * valid until time advances past it.
- */
 export function isRecordingExpired(
   expiresAt: string | null | undefined,
   now = Date.now(),
@@ -13,6 +13,14 @@ export function isRecordingExpired(
 
   const expires = new Date(expiresAt).getTime();
   return Number.isFinite(expires) && expires < now;
+}
+
+export function isRecordingExpiredForViewer(input: {
+  expiresAt: string | null | undefined;
+  viewerIsOwner: boolean;
+  now?: number;
+}): boolean {
+  return !input.viewerIsOwner && isRecordingExpired(input.expiresAt, input.now);
 }
 
 /**
@@ -32,4 +40,19 @@ export function canOpenDirectRecordingPage(input: {
   if (input.hasPassword) return false;
   if (input.visibility === "public") return input.hasExplicitShare;
   return true;
+}
+
+export function canReceiveRecordingActivity(input: {
+  ownerEmail: string;
+  recipientEmail: string;
+  hasPassword: boolean;
+  expiresAt?: string | null;
+  now?: number;
+}): boolean {
+  if (isRecordingExpired(input.expiresAt, input.now)) return false;
+  if (!input.hasPassword) return true;
+  return (
+    input.ownerEmail.trim().toLowerCase() ===
+    input.recipientEmail.trim().toLowerCase()
+  );
 }

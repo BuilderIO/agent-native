@@ -1,28 +1,58 @@
 import {
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  isHumanReadableDocumentTitle,
+  normalizeDocumentTitle,
   type SocialMetaDescriptor,
 } from "@agent-native/core/shared";
 
 export const CLIPS_DEFAULT_TITLE = "Untitled recording";
 
 export type ClipsShareMetaRecording = {
+  id?: string | null;
   title?: string | null;
   description?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  visibility?: string | null;
+  status?: string | null;
+  hasPassword?: boolean;
+  archivedAt?: string | null;
+  trashedAt?: string | null;
+  sourceAppName?: string | null;
+  videoUrl?: string | null;
+  updatedAt?: string | null;
+  isLoomEmbedBacked?: boolean;
 };
+
+export type PreferredThumbnailVariant = "still" | "animated";
+
+export function preferredThumbnailVariant(
+  recording: Pick<
+    ClipsShareMetaRecording,
+    "thumbnailUrl" | "animatedThumbnailUrl"
+  > | null,
+): PreferredThumbnailVariant | null {
+  if (recording?.thumbnailUrl?.trim()) return "still";
+  if (recording?.animatedThumbnailUrl?.trim()) return "animated";
+  return null;
+}
 
 export function hasGeneratedTitle(title: string | null | undefined): boolean {
   const trimmed = (title ?? "").trim();
-  return Boolean(trimmed && trimmed !== CLIPS_DEFAULT_TITLE);
+  return Boolean(
+    isHumanReadableDocumentTitle(trimmed) && trimmed !== CLIPS_DEFAULT_TITLE,
+  );
 }
 
 export function clipsSharePageTitle(title: string | null | undefined): string {
-  return hasGeneratedTitle(title)
-    ? `${title!.trim()} · Clips`
+  const safeTitle = normalizeDocumentTitle(title, CLIPS_DEFAULT_TITLE);
+  return hasGeneratedTitle(safeTitle)
+    ? `${safeTitle} · Clips`
     : "Clip recording · Clips";
 }
 
@@ -46,9 +76,12 @@ export function clipsShareDescription(
 export function preferredSocialImage(
   recording: ClipsShareMetaRecording | null,
 ): string | undefined {
-  return (
-    recording?.thumbnailUrl || recording?.animatedThumbnailUrl || undefined
-  );
+  const variant = preferredThumbnailVariant(recording);
+  return variant === "still"
+    ? recording?.thumbnailUrl?.trim()
+    : variant === "animated"
+      ? recording?.animatedThumbnailUrl?.trim()
+      : undefined;
 }
 
 function absoluteUrl(value: string, origin: string | null): string {
@@ -60,16 +93,75 @@ function absoluteUrl(value: string, origin: string | null): string {
   }
 }
 
+function appPath(path: string, basePath: string): string {
+  const normalizedBasePath = basePath.trim().replace(/\/+$/, "");
+  return normalizedBasePath ? `${normalizedBasePath}${path}` : path;
+}
+
+function canUseSocialImage(
+  recording: ClipsShareMetaRecording | null,
+): recording is ClipsShareMetaRecording & {
+  id: string;
+  visibility: "public";
+  status: "ready";
+} {
+  return Boolean(
+    recording?.id &&
+    recording.visibility === "public" &&
+    recording.status === "ready" &&
+    !recording.hasPassword &&
+    !recording.archivedAt &&
+    !recording.trashedAt,
+  );
+}
+
+export function resolveClipsSocialImageUrl(options: {
+  recording: ClipsShareMetaRecording | null;
+  origin?: string | null;
+  basePath?: string;
+}): string | undefined {
+  const { recording, origin = null, basePath = "" } = options;
+  if (recording?.hasPassword) return undefined;
+
+  const storedImage = preferredSocialImage(recording);
+
+  if (storedImage) {
+    if (recording?.id && recording.visibility === "public") {
+      const imageUrl = new URL(
+        appPath(`/api/thumbnail/${encodeURIComponent(recording.id)}`, basePath),
+        origin ?? "https://clips.invalid",
+      );
+      const version = recording.updatedAt?.trim();
+      if (version) imageUrl.searchParams.set("v", version);
+      return origin
+        ? imageUrl.toString()
+        : `${imageUrl.pathname}${imageUrl.search}`;
+    }
+    return absoluteUrl(storedImage, origin);
+  }
+
+  if (!canUseSocialImage(recording)) return undefined;
+  console.warn("clips.thumbnail.publish_fallback", {
+    recordingId: recording.id,
+    fallback: "default-image",
+  });
+  return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
+}
+
 export function buildClipsShareMeta(options: {
   recording: ClipsShareMetaRecording | null;
   origin?: string | null;
+  basePath?: string;
   shareUrl?: string | null;
 }): SocialMetaDescriptor[] {
-  const { recording, origin = null, shareUrl = null } = options;
+  const { recording, origin = null, basePath = "", shareUrl = null } = options;
   const title = clipsSharePageTitle(recording?.title);
   const description = clipsShareDescription(recording);
-  const image = preferredSocialImage(recording);
-  const absoluteImage = image ? absoluteUrl(image, origin) : undefined;
+  const absoluteImage = resolveClipsSocialImageUrl({
+    recording,
+    origin,
+    basePath,
+  });
   const alt = hasGeneratedTitle(recording?.title)
     ? recording!.title!.trim()
     : AGENT_NATIVE_SOCIAL_IMAGE_ALT;
@@ -87,7 +179,10 @@ export function buildClipsShareMeta(options: {
           { property: "og:image:secure_url", content: absoluteImage },
           {
             property: "og:image:type",
-            content: AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+            content:
+              absoluteImage === AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE
+                ? AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE
+                : AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
           },
           {
             property: "og:image:width",

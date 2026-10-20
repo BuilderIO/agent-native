@@ -1,7 +1,7 @@
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useSemanticNavigationState } from "@agent-native/core/client/navigation";
+import type { MailSortMode } from "@shared/ai-priority";
 import { useCallback, useState } from "react";
-
-import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
   view: string;
@@ -10,6 +10,11 @@ export interface NavigationState {
   selectedThreadIds?: string[];
   search?: string;
   label?: string;
+  filter?: string;
+  activeInboxTab?: string;
+  tab?: string;
+  activeAccounts?: string[];
+  sort?: MailSortMode;
   queuedDraftId?: string;
   queueScope?: string;
   settingsSection?: string;
@@ -17,12 +22,6 @@ export interface NavigationState {
   _ts?: number;
 }
 
-/**
- * Returns `{ sync, command, clearCommand }` — mail manages navigation state
- * imperatively (callers drive what to write) rather than deriving it from the
- * URL, so this hook exposes write + read helpers instead of auto-syncing the
- * route.
- */
 export function useNavigationState() {
   const [pendingState, setPendingState] = useState<NavigationState | null>(
     null,
@@ -31,7 +30,8 @@ export function useNavigationState() {
   const { command, clearCommand } = useSemanticNavigationState<NavigationState>(
     {
       state: pendingState,
-      requestSource: TAB_ID,
+      browserTabId: getBrowserTabId(),
+      requestSource: getBrowserTabId(),
       writeDebounceMs: 500,
       onCommand: () => {
         // Command consumption is handled by callers via the returned

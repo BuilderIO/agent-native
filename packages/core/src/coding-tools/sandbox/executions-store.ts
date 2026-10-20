@@ -1,3 +1,13 @@
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Durable storage for queued `run-code` sandbox executions.
  *
@@ -21,9 +31,8 @@
  *    attempts are exhausted `failExpiredSandboxExecution` marks it `failed`
  *    instead of leaving it "running" forever.
  *
- * Schema notes: additive-only, portable across Postgres (Neon) and SQLite —
- * same `ensureTableExists`/dialect-branched DDL pattern as
- * `resources/store.ts`. Timestamps are epoch-ms in `BIGINT`/`INTEGER` columns.
+ * Schema notes: additive-only Postgres schema. Timestamps are epoch-ms in
+ * `BIGINT` columns.
  * Reads for user-facing surfaces are always owner-scoped
  * (`getSandboxExecutionForOwner`); the unscoped internal reader exists only
  * for the trusted executor/sweep paths.
@@ -31,17 +40,13 @@
 
 import crypto from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../../db/client.js";
+import { getDbExec } from "../../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../../db/ddl-guard.js";
+import { defineStore } from "../../db/store-registry.js";
 
 export type SandboxExecutionStatus =
   | "queued"
@@ -72,6 +77,7 @@ export interface SandboxExecutionRow {
   timedOut: boolean;
   error: string | null;
   bridgeToolsUsed: string[];
+  allowedActionNames: string[] | undefined;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -87,6 +93,7 @@ export interface CreateSandboxExecutionInput {
   maxOutputChars: number;
   maxAttempts?: number;
   runtime?: string;
+  allowedActionNames?: readonly string[];
 }
 
 export interface FinalizeSandboxExecutionInput {
@@ -99,37 +106,18 @@ export interface FinalizeSandboxExecutionInput {
   bridgeToolsUsed?: string[];
 }
 
-/** Default retry budget: the initial attempt plus one lease-expiry retry. */
 export const SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS = 2;
-/**
- * Hard per-stream storage cap. The per-row `max_output_chars` (derived from
- * the caller's `maxOutputChars`) is applied first; this bounds even that.
- */
 export const SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS = 200_000;
 
 const TABLE = "sandbox_executions";
 
-let _initPromise: Promise<void> | undefined;
-
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = _doEnsureTable().catch((err) => {
-      // Don't cache the rejection — let the next caller retry a fresh init.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
-}
-
-/** Test-only: forget the memoized init so a fresh in-memory DB re-creates. */
-export function resetSandboxExecutionsStoreForTests(): void {
-  _initPromise = undefined;
-}
-
-async function _doEnsureTable(): Promise<void> {
-  const client = getDbExec();
-  const createSql = `
+export const sandboxExecutionsStore = defineStore({
+  id: "sandbox_executions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
     CREATE TABLE IF NOT EXISTS ${TABLE} (
       id TEXT PRIMARY KEY,
       owner TEXT NOT NULL,
@@ -138,54 +126,58 @@ async function _doEnsureTable(): Promise<void> {
       runtime TEXT NOT NULL DEFAULT 'node',
       code TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'queued',
-      timeout_ms ${intType()} NOT NULL,
-      max_output_chars ${intType()} NOT NULL,
-      attempt_count ${intType()} NOT NULL DEFAULT 0,
-      max_attempts ${intType()} NOT NULL DEFAULT ${SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS},
+      timeout_ms BIGINT NOT NULL,
+      max_output_chars BIGINT NOT NULL,
+      attempt_count BIGINT NOT NULL DEFAULT 0,
+      max_attempts BIGINT NOT NULL DEFAULT ${SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS},
       claim_token TEXT,
-      lease_expires_at ${intType()},
+      lease_expires_at BIGINT,
       stdout TEXT NOT NULL DEFAULT '',
       stderr TEXT NOT NULL DEFAULT '',
-      stdout_truncated ${intType()} NOT NULL DEFAULT 0,
-      stderr_truncated ${intType()} NOT NULL DEFAULT 0,
-      exit_code ${intType()},
-      timed_out ${intType()} NOT NULL DEFAULT 0,
+      stdout_truncated BIGINT NOT NULL DEFAULT 0,
+      stderr_truncated BIGINT NOT NULL DEFAULT 0,
+      exit_code BIGINT,
+      timed_out BIGINT NOT NULL DEFAULT 0,
       error TEXT,
       bridge_tools_used TEXT,
-      created_at ${intType()} NOT NULL,
-      started_at ${intType()},
-      finished_at ${intType()},
-      updated_at ${intType()} NOT NULL
+      allowed_action_names TEXT,
+      created_at BIGINT NOT NULL,
+      started_at BIGINT,
+      finished_at BIGINT,
+      updated_at BIGINT NOT NULL
     )
   `;
-  const ownerIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_owner_created_idx ON ${TABLE} (owner, created_at)`;
-  const dueIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_due_idx ON ${TABLE} (status, lease_expires_at)`;
+        const ownerIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_owner_created_idx ON ${TABLE} (owner, created_at)`;
+        const dueIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_due_idx ON ${TABLE} (status, lease_expires_at)`;
 
-  if (isPostgres()) {
-    // Probe information_schema first (no lock) and DDL only what's missing —
-    // same guarded pattern as resources/store.ts so a fresh background worker
-    // never blocks on an ACCESS EXCLUSIVE lock for schema that already exists.
-    await ensureTableExists(TABLE, createSql);
-    // Additive-column guard: keeps older deployments (created before a column
-    // was added) self-healing without destructive migrations.
-    const pgColumns: Array<[string, string]> = [["bridge_tools_used", "TEXT"]];
-    for (const [col, def] of pgColumns) {
-      await ensureColumnExists(
-        TABLE,
-        col,
-        `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS ${col} ${def}`,
-      );
-    }
-    await ensureIndexExists(
-      "sandbox_executions_owner_created_idx",
-      ownerIdxSql,
-    );
-    await ensureIndexExists("sandbox_executions_due_idx", dueIdxSql);
-  } else {
-    await retryOnDdlRace(() => client.execute(createSql));
-    await retryOnDdlRace(() => client.execute(ownerIdxSql));
-    await retryOnDdlRace(() => client.execute(dueIdxSql));
-  }
+        await ensureTableExists(TABLE, createSql);
+        const pgColumns: Array<[string, string]> = [
+          ["bridge_tools_used", "TEXT"],
+          ["allowed_action_names", "TEXT"],
+        ];
+        for (const [col, def] of pgColumns) {
+          await ensureColumnExists(
+            TABLE,
+            col,
+            `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS ${col} ${def}`,
+          );
+        }
+        await ensureIndexExists(
+          "sandbox_executions_owner_created_idx",
+          ownerIdxSql,
+        );
+        await ensureIndexExists("sandbox_executions_due_idx", dueIdxSql);
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return sandboxExecutionsStore.ready();
+}
+
+export function resetSandboxExecutionsStoreForTests(): void {
+  sandboxExecutionsStore.reset();
 }
 
 function capOutput(
@@ -225,20 +217,40 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
       bridgeToolsUsed = [];
     }
   }
+  let allowedActionNames: string[] | undefined;
+  if (
+    raw.allowed_action_names !== null &&
+    raw.allowed_action_names !== undefined
+  ) {
+    if (typeof raw.allowed_action_names !== "string") {
+      allowedActionNames = [];
+    } else {
+      try {
+        const parsed = JSON.parse(raw.allowed_action_names);
+        allowedActionNames =
+          Array.isArray(parsed) &&
+          parsed.every((item) => typeof item === "string")
+            ? [...new Set(parsed)]
+            : [];
+      } catch {
+        allowedActionNames = [];
+      }
+    }
+  }
   return {
-    id: String(raw.id),
-    owner: String(raw.owner),
+    id: stringifyValue(raw.id),
+    owner: stringifyValue(raw.owner),
     orgId:
       raw.org_id === null || raw.org_id === undefined
         ? null
-        : String(raw.org_id),
+        : stringifyValue(raw.org_id),
     threadId:
       raw.thread_id === null || raw.thread_id === undefined
         ? null
-        : String(raw.thread_id),
-    runtime: String(raw.runtime ?? "node"),
-    code: String(raw.code ?? ""),
-    status: String(raw.status ?? "queued") as SandboxExecutionStatus,
+        : stringifyValue(raw.thread_id),
+    runtime: stringifyValue(raw.runtime ?? "node"),
+    code: stringifyValue(raw.code ?? ""),
+    status: stringifyValue(raw.status ?? "queued") as SandboxExecutionStatus,
     timeoutMs: toNumberOrNull(raw.timeout_ms) ?? 0,
     maxOutputChars: toNumberOrNull(raw.max_output_chars) ?? 0,
     attemptCount: toNumberOrNull(raw.attempt_count) ?? 0,
@@ -248,17 +260,20 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
     claimToken:
       raw.claim_token === null || raw.claim_token === undefined
         ? null
-        : String(raw.claim_token),
+        : stringifyValue(raw.claim_token),
     leaseExpiresAt: toNumberOrNull(raw.lease_expires_at),
-    stdout: String(raw.stdout ?? ""),
-    stderr: String(raw.stderr ?? ""),
+    stdout: stringifyValue(raw.stdout ?? ""),
+    stderr: stringifyValue(raw.stderr ?? ""),
     stdoutTruncated: toBool(raw.stdout_truncated),
     stderrTruncated: toBool(raw.stderr_truncated),
     exitCode: toNumberOrNull(raw.exit_code),
     timedOut: toBool(raw.timed_out),
     error:
-      raw.error === null || raw.error === undefined ? null : String(raw.error),
+      raw.error === null || raw.error === undefined
+        ? null
+        : stringifyValue(raw.error),
     bridgeToolsUsed,
+    allowedActionNames,
     createdAt: toNumberOrNull(raw.created_at) ?? 0,
     startedAt: toNumberOrNull(raw.started_at),
     finishedAt: toNumberOrNull(raw.finished_at),
@@ -266,7 +281,6 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
   };
 }
 
-/** Enqueue a new execution row in `queued` state. */
 export async function createSandboxExecution(
   input: CreateSandboxExecutionInput,
 ): Promise<SandboxExecutionRow> {
@@ -280,8 +294,8 @@ export async function createSandboxExecution(
   );
   await client.execute({
     sql: `INSERT INTO ${TABLE}
-      (id, owner, org_id, thread_id, runtime, code, status, timeout_ms, max_output_chars, attempt_count, max_attempts, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?)`,
+      (id, owner, org_id, thread_id, runtime, code, status, timeout_ms, max_output_chars, attempt_count, max_attempts, allowed_action_names, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?, ?)`,
     args: [
       id,
       input.owner,
@@ -292,6 +306,9 @@ export async function createSandboxExecution(
       input.timeoutMs,
       input.maxOutputChars,
       maxAttempts,
+      input.allowedActionNames === undefined
+        ? null
+        : JSON.stringify([...new Set(input.allowedActionNames)]),
       now,
       now,
     ],
@@ -301,7 +318,6 @@ export async function createSandboxExecution(
   return row;
 }
 
-/** Owner-scoped read for user-facing status/result surfaces. */
 export async function getSandboxExecutionForOwner(
   id: string,
   owner: string,
@@ -317,10 +333,6 @@ export async function getSandboxExecutionForOwner(
   return raw ? rowFromDb(raw) : null;
 }
 
-/**
- * Unscoped read for the trusted executor/sweep paths ONLY. Never expose this
- * through a user-facing action — use `getSandboxExecutionForOwner`.
- */
 export async function getSandboxExecutionInternal(
   id: string,
 ): Promise<SandboxExecutionRow | null> {
@@ -335,12 +347,6 @@ export async function getSandboxExecutionInternal(
   return raw ? rowFromDb(raw) : null;
 }
 
-/**
- * Atomically claim an execution for a single executor. Claims a `queued` row,
- * or reclaims a `running` row whose lease expired, as long as the attempt
- * budget is not exhausted. Returns the claimed row (with the new claim token)
- * or null when another executor holds it / it is terminal / attempts ran out.
- */
 export async function claimSandboxExecution(
   id: string,
   claimToken: string,
@@ -367,13 +373,10 @@ export async function claimSandboxExecution(
   });
   if ((result.rowsAffected ?? 0) !== 1) return null;
   const row = await getSandboxExecutionInternal(id);
-  // Verify the claim token survived (paranoia against a same-ms racing UPDATE
-  // on drivers that report affected rows loosely).
   if (!row || row.claimToken !== claimToken) return null;
   return row;
 }
 
-/** Heartbeat: extend the lease while the claimed execution is still running. */
 export async function renewSandboxExecutionLease(
   id: string,
   claimToken: string,
@@ -443,11 +446,6 @@ export async function finalizeSandboxExecution(
   return (result.rowsAffected ?? 0) === 1;
 }
 
-/**
- * Reap a `running` row whose lease expired after its attempt budget was
- * exhausted, so it never sits "running" forever. Atomic: guarded on the same
- * expiry + budget conditions, so a live executor (fresh lease) is untouched.
- */
 export async function failExpiredSandboxExecution(
   id: string,
   error: string,
@@ -479,14 +477,6 @@ export interface DueSandboxExecution {
   leaseExpiresAt: number | null;
 }
 
-/**
- * List rows that need driving: `queued` rows that have sat unclaimed longer
- * than `queuedOlderThanMs` (their enqueue-time dispatch was likely lost), and
- * `running` rows whose lease expired (executor died). Used by the sweep and
- * the poll-time drain. Deliberately does NOT call `ensureTable()` — the sweep
- * must stay a zero-footprint no-op on deployments that never enqueue; callers
- * treat a missing-table error as "nothing due".
- */
 export async function listDueSandboxExecutions(options: {
   limit?: number;
   queuedOlderThanMs?: number;
@@ -506,8 +496,8 @@ export async function listDueSandboxExecutions(options: {
     args: [queuedCutoff, now, limit],
   });
   return (result.rows ?? []).map((raw: Record<string, unknown>) => ({
-    id: String(raw.id),
-    status: String(raw.status) as SandboxExecutionStatus,
+    id: stringifyValue(raw.id),
+    status: stringifyValue(raw.status) as SandboxExecutionStatus,
     attemptCount: toNumberOrNull(raw.attempt_count) ?? 0,
     maxAttempts:
       toNumberOrNull(raw.max_attempts) ??

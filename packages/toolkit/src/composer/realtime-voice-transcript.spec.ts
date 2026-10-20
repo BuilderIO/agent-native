@@ -30,9 +30,6 @@ describe("realtime voice transcript registry", () => {
     registry.register({
       threadId: "thread-1",
       active: true,
-      // Simulate the chat surface being selected but not yet ready to apply
-      // the completed transcript. The registry must retain it for the sink
-      // that mounts once the surface is ready.
       append: vi.fn(() => false),
     });
     expect(registry.activeThreadId()).toBe("thread-1");

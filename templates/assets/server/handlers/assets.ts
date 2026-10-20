@@ -1,7 +1,8 @@
 import { getSession } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { track } from "@agent-native/core/tracking";
+import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -19,9 +20,11 @@ import type { ImageCategory, ImageRole } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer, mediaTypeFromMime } from "../lib/assets.js";
 import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
+import { assertCanApprove } from "../lib/library-access.js";
 import { getObject } from "../lib/storage.js";
 import {
-  filterDuplicateAssetUploads,
+  ASSET_DEDUPE_BATCH_SIZE,
+  filterDuplicateAssetUploadsAcrossBatches,
   hashAssetBuffer,
 } from "../lib/upload-dedupe.js";
 import {
@@ -45,16 +48,6 @@ const MIME_BY_EXT: Record<string, string> = {
 
 const UPLOAD_CONCURRENCY = 3;
 
-/**
- * Decode a multipart text field as UTF-8.
- *
- * Nitro / h3 returns each part's `data` as a `Uint8Array`. Calling `.toString()`
- * directly on a `Uint8Array` inherits `Array.prototype.toString`, so a libraryId
- * like "TXHoc9..." becomes "84,88,72,..." (the bytes joined with commas), and
- * downstream code (e.g. `assertAccess("asset-library", id, ...)`) gets a
- * nonsense id and throws "No access". Wrap with `Buffer.from` so UTF-8 decoding
- * runs regardless of whether `data` is a Buffer or a Uint8Array.
- */
 function readField(
   parts: Array<{ name?: string; data?: Uint8Array | Buffer }> | undefined,
   name: string,
@@ -145,7 +138,10 @@ async function assertFolderBelongsToLibrary(
   }
 }
 
-async function withUserContext(event: any, fn: () => Promise<unknown>) {
+async function withUserContext(
+  event: any,
+  fn: (userEmail: string) => Promise<unknown>,
+) {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
     setResponseStatus(event, 401);
@@ -153,19 +149,19 @@ async function withUserContext(event: any, fn: () => Promise<unknown>) {
   }
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId ?? undefined },
-    fn,
+    () => fn(session.email),
   );
 }
 
 export const uploadAssets = defineEventHandler(async (event) =>
-  withUserContext(event, async () => {
+  withUserContext(event, async (userEmail) => {
     const parts = await readMultipartFormData(event);
     const libraryId = readField(parts, "libraryId");
     if (!libraryId) {
       setResponseStatus(event, 400);
       return { error: "libraryId is required" };
     }
-    await assertAccess("asset-library", libraryId, "editor");
+    await assertCanApprove(libraryId, "Uploading assets");
     const collectionId = readField(parts, "collectionId") || null;
     const folderId = readField(parts, "folderId") || null;
     if (collectionId) {
@@ -231,27 +227,75 @@ export const uploadAssets = defineEventHandler(async (event) =>
       });
     }
 
-    const existingReferenceAssets = await getDb()
-      .select({
-        id: schema.assets.id,
-        title: schema.assets.title,
-        mediaType: schema.assets.mediaType,
-        mimeType: schema.assets.mimeType,
-        sizeBytes: schema.assets.sizeBytes,
-        metadata: schema.assets.metadata,
-        objectKey: schema.assets.objectKey,
-      })
-      .from(schema.assets)
-      .where(
-        and(
-          eq(schema.assets.libraryId, libraryId),
-          eq(schema.assets.status, "reference"),
-          eq(schema.assets.role, role),
-        ),
-      );
-    const deduped = await filterDuplicateAssetUploads({
+    const existingContentHash = sql<
+      string | null
+    >`CASE WHEN ${schema.assets.metadata} IS JSON THEN CASE WHEN jsonb_typeof(${schema.assets.metadata}::jsonb -> 'contentHash') = 'string' THEN NULLIF(${schema.assets.metadata}::jsonb ->> 'contentHash', '') END END`;
+    const db = getDb();
+    const dedupeScope = [
+      eq(schema.assets.libraryId, libraryId),
+      eq(schema.assets.status, "reference"),
+      eq(schema.assets.role, role),
+    ];
+    const duplicateAssetColumns = {
+      id: schema.assets.id,
+      title: schema.assets.title,
+      mediaType: schema.assets.mediaType,
+      mimeType: schema.assets.mimeType,
+      sizeBytes: schema.assets.sizeBytes,
+      metadata: schema.assets.metadata,
+      objectKey: schema.assets.objectKey,
+    };
+    const deduped = await filterDuplicateAssetUploadsAcrossBatches({
       files: preparedFiles,
-      existingAssets: existingReferenceAssets,
+      existingAssets: [],
+      readExistingAssetHashes: async (files) =>
+        (
+          await Promise.all(
+            files.map(async (file) => {
+              const [asset] = await db
+                .select(duplicateAssetColumns)
+                .from(schema.assets)
+                .where(
+                  and(
+                    ...dedupeScope,
+                    eq(schema.assets.mediaType, file.mediaType),
+                    eq(existingContentHash, file.contentHash),
+                  ),
+                )
+                .limit(1);
+              return asset ? [asset] : [];
+            }),
+          )
+        ).flat(),
+      readExistingAssetBatch: (afterId, files, limit) => {
+        const duplicateCandidateConditions = [
+          ...new Map(
+            files.map((file) => [
+              `${file.mediaType}:${file.mimeType}:${file.buffer.byteLength}`,
+              file,
+            ]),
+          ).values(),
+        ].map((file) =>
+          and(
+            eq(schema.assets.mediaType, file.mediaType),
+            eq(schema.assets.mimeType, file.mimeType),
+            eq(schema.assets.sizeBytes, file.buffer.byteLength),
+            isNull(existingContentHash),
+          ),
+        );
+        return db
+          .select(duplicateAssetColumns)
+          .from(schema.assets)
+          .where(
+            and(
+              ...dedupeScope,
+              or(...duplicateCandidateConditions),
+              ...(afterId ? [gt(schema.assets.id, afterId)] : []),
+            ),
+          )
+          .orderBy(asc(schema.assets.id))
+          .limit(Math.min(ASSET_DEDUPE_BATCH_SIZE, limit));
+      },
       readExistingAssetBuffer: (asset) => getObject(asset.objectKey),
     });
 
@@ -311,6 +355,20 @@ export const uploadAssets = defineEventHandler(async (event) =>
         skippedDuplicates: deduped.skippedDuplicates,
         errors,
       };
+    }
+    if (assets.length > 0) {
+      track(
+        "brand_uploaded",
+        {
+          app_name: "assets",
+          template_name: "assets",
+          output_id: libraryId,
+          output_type: "asset_library",
+          asset_type: category,
+          asset_count: assets.length,
+        },
+        { userId: userEmail },
+      );
     }
     return {
       count: assets.length,
@@ -388,7 +446,10 @@ export async function markAssetSaved(
     .where(eq(schema.assets.id, assetId))
     .limit(1);
   if (!asset) throw new Error("Asset not found.");
-  await assertAccess("asset-library", asset.libraryId, "editor");
+  await assertCanApprove(
+    asset.libraryId,
+    "Saving a generated asset to the kit",
+  );
   if (folderId !== undefined && folderId !== null) {
     await assertFolderBelongsToLibrary(folderId, asset.libraryId);
   }

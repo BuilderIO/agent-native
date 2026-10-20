@@ -50,7 +50,7 @@ server/                        # Nitro API server
 ├── plugins/                   # Server plugins (startup logic)
 └── lib/                       # Shared server modules
 
-data/                          # Local development database fallback
+data/pglite/                   # Local PGlite data directory
 
 shared/                        # Shared between client + server + scripts
 └── api.ts                     # Types, interfaces, DEFAULT_STYLE_REFERENCE_URLS
@@ -103,16 +103,32 @@ export default defineNitroPlugin(async (nitroApp) => {
 
 ### Database (Cloud Deployment)
 
-Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
+Local development uses PGlite at `data/pglite`. For production and shared environments, set `DATABASE_URL` to a persistent hosted PostgreSQL database.
 
 Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
 
 **Environment variables:**
 
-| Variable              | Required                        | Description                                                                |
-| --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |
-| `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                              |
+| Variable       | Required                     | Description                                                                   |
+| -------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `DATABASE_URL` | Production yes, local dev no | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
+
+## Private Deck Access Recovery
+
+The editor route intentionally keeps private decks out of the content response
+when the current viewer has no grant. The `get-deck-access-status` action may
+return only existence, visibility, and the current viewer identity so the UI
+can explain the denial without exposing deck data. The private-deck pane uses
+that metadata to show the Google-Docs-style "This deck is private" state.
+
+Signed-in viewers can call `request-deck-access`. That action records a
+`deck.access_requested` event in `deck_events`, adds an owner-scoped in-app
+notification, and emails the deck owner when outbound email is configured.
+Requests are idempotent per deck and requester. In-app and email delivery are
+tracked independently, retried safely after transient failures, and claimed
+atomically so concurrent retries do not fan out duplicate notifications. It
+never grants access; the owner must use the existing Share controls. Anonymous
+viewers are sent through the normal sign-in flow first.
 
 ## Build & Dev Commands
 

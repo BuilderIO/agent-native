@@ -3,11 +3,18 @@ import { createError } from "h3";
 const RELEASES_URL_BASE =
   "https://api.github.com/repos/BuilderIO/agent-native/releases";
 const PER_PAGE = 100;
-const MAX_PAGES = 10;
+const MAX_RELEASE_PAGES = 10;
 const CACHE_FRESH_MS = 5 * 60_000;
 
 export const DESKTOP_RELEASE_CACHE_CONTROL =
-  "public, max-age=300, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400";
+  "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400";
+
+export const DESKTOP_RELEASE_CACHE_HEADERS = {
+  "cache-control": DESKTOP_RELEASE_CACHE_CONTROL,
+  "cdn-cache-control": DESKTOP_RELEASE_CACHE_CONTROL,
+  "netlify-cdn-cache-control":
+    "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
+} as const;
 
 const DESKTOP_UPDATE_METADATA = new Set([
   "latest-mac.yml",
@@ -45,6 +52,8 @@ export type DesktopAssetKind =
   | "linux-deb-arm64"
   | "unknown";
 
+export type DesktopReleaseChannel = "production" | "nightly";
+
 export interface DesktopDownloadManifest {
   version: string;
   tag: string;
@@ -57,9 +66,6 @@ export interface DesktopDownloadManifest {
     kind: DesktopAssetKind;
   }[];
 }
-
-let cache: { data: DesktopDownloadManifest; ts: number } | null = null;
-let inFlight: Promise<DesktopDownloadManifest> | null = null;
 
 class UpstreamError extends Error {
   statusCode: number;
@@ -74,7 +80,9 @@ function isAgentNativeAsset(name: string): boolean {
   const n = name.toLowerCase();
   return (
     n.startsWith("agent-native-") ||
+    n.startsWith("agent-native nightly-") ||
     n.startsWith("agent native-") ||
+    n.startsWith("agent native nightly-") ||
     n.startsWith("agent.native-")
   );
 }
@@ -155,14 +163,32 @@ function hasDesktopAssets(release: GhRelease): boolean {
   );
 }
 
-async function findLatestDesktopRelease(): Promise<GhRelease | null> {
+function belongsToChannel(
+  release: GhRelease,
+  channel: DesktopReleaseChannel,
+): boolean {
+  if (release.draft || !hasDesktopAssets(release)) return false;
+
+  const tag = release.tag_name;
+  if (channel === "production") {
+    return !release.prerelease && /^v\d+\.\d+\.\d+$/.test(tag);
+  }
+
+  return (
+    (release.prerelease || /-nightly(?:[.+-]|$)/i.test(tag)) &&
+    /^v\d+\.\d+\.\d+-nightly(?:[.+-]|$)/i.test(tag)
+  );
+}
+
+async function findLatestDesktopRelease(
+  channel: DesktopReleaseChannel,
+): Promise<GhRelease | null> {
   let best: GhRelease | null = null;
-  for (let page = 1; page <= MAX_PAGES; page++) {
+  for (let page = 1; page <= MAX_RELEASE_PAGES; page++) {
     const batch = await fetchPage(page);
     if (batch.length === 0) break;
     for (const release of batch) {
-      if (release.draft || release.prerelease) continue;
-      if (!hasDesktopAssets(release)) continue;
+      if (!belongsToChannel(release, channel)) continue;
       if (
         !best ||
         new Date(release.published_at).getTime() >
@@ -171,13 +197,16 @@ async function findLatestDesktopRelease(): Promise<GhRelease | null> {
         best = release;
       }
     }
+    if (best) return best;
     if (batch.length < PER_PAGE) break;
   }
   return best;
 }
 
-async function buildManifest(): Promise<DesktopDownloadManifest> {
-  const latest = await findLatestDesktopRelease();
+async function buildManifest(
+  channel: DesktopReleaseChannel,
+): Promise<DesktopDownloadManifest> {
+  const latest = await findLatestDesktopRelease(channel);
   if (!latest) {
     throw createError({
       statusCode: 404,
@@ -199,28 +228,46 @@ async function buildManifest(): Promise<DesktopDownloadManifest> {
   };
 }
 
-function refreshDesktopDownloadManifest(): Promise<DesktopDownloadManifest> {
-  if (inFlight) return inFlight;
-  inFlight = (async () => {
-    const data = await buildManifest();
-    cache = { data, ts: Date.now() };
+function refreshDesktopDownloadManifest(
+  channel: DesktopReleaseChannel,
+): Promise<DesktopDownloadManifest> {
+  const pending = inFlight.get(channel);
+  if (pending) return pending;
+  const request = (async () => {
+    const data = await buildManifest(channel);
+    cache.set(channel, { data, ts: Date.now() });
     return data;
   })();
-  inFlight = inFlight.finally(() => {
-    inFlight = null;
-  });
-  return inFlight;
+  inFlight.set(
+    channel,
+    request.finally(() => {
+      inFlight.delete(channel);
+    }),
+  );
+  return inFlight.get(channel)!;
 }
 
-export async function getDesktopDownloadManifest(): Promise<DesktopDownloadManifest> {
+const cache = new Map<
+  DesktopReleaseChannel,
+  { data: DesktopDownloadManifest; ts: number }
+>();
+const inFlight = new Map<
+  DesktopReleaseChannel,
+  Promise<DesktopDownloadManifest>
+>();
+
+export async function getDesktopDownloadManifest(
+  channel: DesktopReleaseChannel = "production",
+): Promise<DesktopDownloadManifest> {
   const now = Date.now();
-  if (cache) {
-    if (now - cache.ts >= CACHE_FRESH_MS) {
-      void refreshDesktopDownloadManifest().catch(() => undefined);
+  const cached = cache.get(channel);
+  if (cached) {
+    if (now - cached.ts >= CACHE_FRESH_MS) {
+      void refreshDesktopDownloadManifest(channel).catch(() => undefined);
     }
-    return cache.data;
+    return cached.data;
   }
-  return refreshDesktopDownloadManifest();
+  return refreshDesktopDownloadManifest(channel);
 }
 
 export function getDesktopReleaseError(error: unknown): {
@@ -240,6 +287,6 @@ export function getDesktopReleaseError(error: unknown): {
 }
 
 export function resetDesktopDownloadManifestCacheForTests(): void {
-  cache = null;
-  inFlight = null;
+  cache.clear();
+  inFlight.clear();
 }

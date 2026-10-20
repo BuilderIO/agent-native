@@ -1,29 +1,76 @@
-/**
- * Stop a meeting recording.
- *
- * Stamps the meeting's `actualEnd`, flips a still-`uploading` recording to
- * `ready`, writes a `recording-stop-*` app-state signal so the recorder UI
- * finalizes, and bumps the refresh signal.
- *
- * The actual MediaRecorder stop and chunked-upload finalize are UI gestures.
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import shareResource from "@agent-native/core/sharing/actions/share-resource";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { normalizeOwnerEmail } from "../server/lib/recordings.js";
+
+type ShareableResourceType = "meeting" | "recording";
+
+async function sharePublicMeetingResourcesWithParticipants(args: {
+  meetingId: string;
+  recordingId: string | null;
+  recordingVisibility: string | null | undefined;
+  ownerEmail: string;
+  participants: Array<{ email: string }>;
+}) {
+  const ownerEmail = normalizeOwnerEmail(args.ownerEmail);
+  const participantEmails = [
+    ...new Set(
+      args.participants
+        .map((participant) => normalizeOwnerEmail(participant.email))
+        .filter((email) => email && email !== ownerEmail),
+    ),
+  ];
+  if (!participantEmails.length) return;
+
+  const resources: Array<{
+    resourceType: ShareableResourceType;
+    resourceId: string;
+  }> = [
+    { resourceType: "meeting", resourceId: args.meetingId },
+    ...(args.recordingId && args.recordingVisibility === "public"
+      ? [{ resourceType: "recording" as const, resourceId: args.recordingId }]
+      : []),
+  ];
+
+  await Promise.all(
+    resources.flatMap(({ resourceType, resourceId }) =>
+      participantEmails.map((principalId) =>
+        Promise.resolve(
+          shareResource.run({
+            resourceType,
+            resourceId,
+            principalType: "user",
+            principalId,
+            role: "viewer",
+            notify: false,
+          }),
+        ),
+      ),
+    ),
+  );
+}
 
 export default defineAction({
   description:
-    "Stop a meeting recording. Stamps actualEnd on the meeting, marks the linked recording 'ready' (if still uploading), and signals the UI to finalize the underlying recording.",
+    "Stop a meeting recording. Stamps actualEnd on the meeting, marks the linked recording 'ready' (if still uploading), and signals the UI to finalize the underlying recording. Returns the persisted actualEnd as stop confirmation, so callers do not need a separate meeting read.",
   schema: z.object({
     meetingId: z.string().describe("Meeting id"),
+    reason: z
+      .string()
+      .trim()
+      .max(64)
+      .optional()
+      .describe(
+        "Why the recording stopped, e.g. 'manual' or a native detector name. Omit to leave end_reason untouched.",
+      ),
   }),
   run: async (args) => {
-    await assertAccess("meeting", args.meetingId, "editor");
+    const access = await assertAccess("meeting", args.meetingId, "editor");
     const db = getDb();
     const nowIso = new Date().toISOString();
 
@@ -34,28 +81,54 @@ export default defineAction({
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
 
-    // Only mark the transcript "ready" if a transcript actually exists —
-    // otherwise finalize-meeting has nothing to summarize and there would be
-    // no way for the UI to distinguish "notes coming" from "nothing was ever
-    // captured". Match finalize-meeting's own empty-transcript handling.
     let hasTranscript = false;
+    let recordingVisibility: string | null | undefined;
     if (meeting.recordingId) {
-      const [transcript] = await db
-        .select({ fullText: schema.recordingTranscripts.fullText })
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
-        .limit(1);
+      const [transcriptRows, recordingRows] = await Promise.all([
+        db
+          .select({ fullText: schema.recordingTranscripts.fullText })
+          .from(schema.recordingTranscripts)
+          .where(
+            eq(schema.recordingTranscripts.recordingId, meeting.recordingId),
+          )
+          .limit(1),
+        db
+          .select({ visibility: schema.recordings.visibility })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, meeting.recordingId))
+          .limit(1),
+      ]);
+      const transcript = transcriptRows[0];
+      recordingVisibility = recordingRows[0]?.visibility;
       hasTranscript = Boolean(transcript?.fullText?.trim());
     }
 
-    await db
+    // actualEnd and endReason are first-writer-wins, enforced in SQL so two
+    // concurrent stops (desktop detector and a manual click, say) cannot race
+    // the read above. The reason rides the same actual_end transition, so a
+    // retry can never attach a cause to an end it did not perform.
+    // Preserve the first stop's timestamp and transcript state: finalize-meeting
+    // uses both fields as a claim, and repeated stops must not invalidate it.
+    const [stoppedMeeting] = await db
       .update(schema.meetings)
       .set({
-        actualEnd: meeting.actualEnd ?? nowIso,
-        updatedAt: nowIso,
-        transcriptStatus: hasTranscript ? "ready" : "failed",
+        actualEnd: sql`coalesce(${schema.meetings.actualEnd}, ${nowIso})`,
+        updatedAt: sql`case when ${schema.meetings.actualEnd} is null then ${nowIso} else ${schema.meetings.updatedAt} end`,
+        transcriptStatus: sql`case when ${schema.meetings.actualEnd} is null then ${hasTranscript ? "ready" : "failed"} else ${schema.meetings.transcriptStatus} end`,
+        ...(args.reason
+          ? {
+              endReason: sql`case when ${schema.meetings.actualEnd} is null then ${args.reason} else ${schema.meetings.endReason} end`,
+            }
+          : {}),
       })
-      .where(eq(schema.meetings.id, args.meetingId));
+      .where(eq(schema.meetings.id, args.meetingId))
+      .returning({ actualEnd: schema.meetings.actualEnd });
+    if (!stoppedMeeting?.actualEnd) {
+      fail("The meeting is no longer available to stop.", {
+        errorCode: "meeting_not_found",
+        statusCode: 404,
+      });
+    }
 
     if (meeting.recordingId) {
       await db
@@ -74,8 +147,30 @@ export default defineAction({
         requestedAt: nowIso,
       });
     }
+
+    if (
+      meeting.visibility === "public" &&
+      (access.role === "owner" || access.role === "admin")
+    ) {
+      const participants = await db
+        .select({ email: schema.meetingParticipants.email })
+        .from(schema.meetingParticipants)
+        .where(eq(schema.meetingParticipants.meetingId, args.meetingId));
+      await sharePublicMeetingResourcesWithParticipants({
+        meetingId: args.meetingId,
+        recordingId: meeting.recordingId ?? null,
+        recordingVisibility,
+        ownerEmail: meeting.ownerEmail,
+        participants,
+      });
+    }
+
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { meetingId: args.meetingId, recordingId: meeting.recordingId };
+    return {
+      meetingId: args.meetingId,
+      recordingId: meeting.recordingId,
+      actualEnd: stoppedMeeting.actualEnd,
+    };
   },
 });

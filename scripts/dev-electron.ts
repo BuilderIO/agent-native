@@ -1,13 +1,5 @@
 #!/usr/bin/env node
-/**
- * dev-electron.ts — Start the Electron shell together with the template apps it loads.
- *
- * Usage:  node scripts/dev-electron.ts [--apps calendar,content] [--dry-run]
- *
- * By default starts the core template set (mail, calendar, slides, etc.).
- * Pass --apps to override, e.g.: --apps calendar,slides
- */
-import { spawn, execSync } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 
@@ -53,11 +45,6 @@ if (hasFlag("--help") || hasFlag("-h")) {
 const dryRun = hasFlag("--dry-run");
 const FRAME_PORT = 3334;
 
-// ── App port assignments ───────────────────────────────────────
-// Parsed from packages/shared-app-config/templates.ts (same approach
-// as scripts/dev-all.ts) so this script can never drift from the
-// canonical port registry. We can't `import` the .ts file directly
-// from a node-run script without compiling, hence the regex.
 const configPath = path.resolve("packages/shared-app-config/templates.ts");
 const configSrc = fs.readFileSync(configPath, "utf8");
 const PORT_MAP: Record<string, number> = {};
@@ -72,7 +59,6 @@ while ((portMatch = coreRe.exec(configSrc)) !== null) {
   CORE_APPS.push(portMatch[1]);
 }
 
-// ── Parse --apps flag ──────────────────────────────────────────
 const appsArg = flagValue("--apps");
 const requestedApps = appsArg
   ? appsArg
@@ -81,20 +67,70 @@ const requestedApps = appsArg
       .filter(Boolean)
   : CORE_APPS;
 
-// ── Ports that may need cleanup before starting ────────────────
 const portsToUse = requestedApps
   .map((a) => PORT_MAP[a])
   .filter(Boolean) as number[];
 portsToUse.push(FRAME_PORT);
 
-function tryKillPort(port: number) {
-  try {
-    const pids = execSync(`lsof -ti :${port}`, { encoding: "utf8" }).trim();
-    if (pids) {
-      execSync(`kill -9 ${pids.split("\n").join(" ")}`, { stdio: "ignore" });
+function listeningPidsForPort(port: number): number[] {
+  if (process.platform === "win32") {
+    const output = execFileSync("netstat", ["-ano", "-p", "tcp"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const pids = new Set<number>();
+    for (const line of output.split(/\r?\n/)) {
+      const fields = line.trim().split(/\s+/);
+      if (
+        fields[0]?.toUpperCase() !== "TCP" ||
+        fields[3]?.toUpperCase() !== "LISTENING"
+      ) {
+        continue;
+      }
+      const localAddress = fields[1] ?? "";
+      const localPort = localAddress.slice(localAddress.lastIndexOf(":") + 1);
+      const pid = Number(fields[4]);
+      if (localPort === String(port) && Number.isInteger(pid) && pid > 0) {
+        pids.add(pid);
+      }
     }
+    return [...pids];
+  }
+
+  const output = execFileSync("lsof", ["-ti", `:${port}`], {
+    encoding: "utf8",
+  });
+  const pids: number[] = [];
+  for (const value of output.split(/\s+/)) {
+    if (!value) continue;
+    const pid = Number(value);
+    if (Number.isInteger(pid) && pid > 0) pids.push(pid);
+  }
+  return pids;
+}
+
+function tryKillPort(port: number) {
+  let pids: number[];
+  try {
+    pids = listeningPidsForPort(port);
   } catch {
-    // Port not in use — fine
+    return;
+  }
+
+  for (const pid of pids) {
+    try {
+      if (process.platform === "win32") {
+        execFileSync("taskkill", ["/pid", String(pid), "/t", "/f"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+      } else {
+        execFileSync("kill", ["-9", String(pid)], { stdio: "ignore" });
+      }
+    } catch {
+      // coercion-ok: a raced process exit means cleanup already happened.
+      // The process may have exited between discovery and termination.
+    }
   }
 }
 
@@ -130,12 +166,13 @@ function ensureElectronBinary() {
   }
 }
 
-// ── Build concurrently command list ───────────────────────────
 const names: string[] = [];
 const commands: string[] = [];
 const colors: string[] = [];
 
 const appColors = ["blue", "green", "cyan", "magenta", "white"];
+
+const STAGGER_DELAY_S = 0.25;
 
 requestedApps.forEach((appName, i) => {
   const port = PORT_MAP[appName];
@@ -144,14 +181,9 @@ requestedApps.forEach((appName, i) => {
     return;
   }
   names.push(appName);
-  // Run the Vite dev server directly.
-  // The templates' vite.config.ts uses @agent-native/core/vite which integrates
-  // the Express API server as Vite middleware — so this single command starts
-  // both the frontend and all /api/* routes on the one port.
-  // PORT pins the dev server port (Nitro's vite plugin reads process.env.PORT
-  // first when resolving the dev server port).
+  const delayMs = Math.round(i * STAGGER_DELAY_S * 1000);
   commands.push(
-    `APP_NAME=${appName} PORT=${port} pnpm --dir templates/${appName} exec vite`,
+    `node scripts/dev-electron-template.ts ${JSON.stringify(appName)} ${port} ${delayMs}`,
   );
   colors.push(appColors[i % appColors.length]);
 });
@@ -160,7 +192,6 @@ names.push("frame");
 commands.push("pnpm --filter @agent-native/frame dev");
 colors.push("magenta");
 
-// Electron shell dev (starts electron-vite which starts renderer + main + Electron)
 names.push("electron");
 commands.push("pnpm --filter @agent-native/desktop-app dev");
 colors.push("yellow");
@@ -183,6 +214,12 @@ if (dryRun) {
 }
 
 ensureElectronBinary();
+
+console.log(`\x1b[36m[dev-electron]\x1b[0m Prebuilding workspace packages...`);
+execSync("node scripts/prebuild-workspace-packages.ts dev", {
+  stdio: "inherit",
+});
+
 portsToUse.forEach(tryKillPort);
 
 console.log(`\x1b[36m[dev-electron]\x1b[0m Starting: ${names.join(", ")}`);
@@ -214,7 +251,6 @@ const proc = spawn(
 
 proc.on("exit", (code) => process.exit(code ?? 0));
 
-// Forward signals to concurrently so Cmd+C doesn't leave zombie processes holding ports
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(sig, () => {
     proc.kill(sig);

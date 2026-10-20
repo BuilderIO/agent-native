@@ -1,14 +1,9 @@
-/**
- * Deployment identity shared by every error-reporting backend.
- *
- * These were originally Sentry-private helpers. They describe the deployment,
- * not the vendor, and a second backend that reports errors without them
- * produces issues nobody can tie to a release.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { getAppConfig } from "../app-config/index.js";
+import { isAgentNativeDeploymentEnvironment } from "../config.js";
 
 function firstNonEmpty(
   ...values: Array<string | undefined>
@@ -20,30 +15,125 @@ function firstNonEmpty(
   return undefined;
 }
 
-/** The deploy environment name, e.g. `production`, `deploy-preview`. */
+function normalizeFallbackEnvironment(
+  value: string | undefined,
+): ReturnType<typeof resolveDeployEnvironment> | undefined {
+  const normalized = firstNonEmpty(value)?.toLowerCase();
+  if (normalized === "development" || normalized === "test") return "local";
+  return isAgentNativeDeploymentEnvironment(normalized)
+    ? normalized
+    : undefined;
+}
+
 export function resolveDeployEnvironment(): string {
+  const explicit = firstNonEmpty(
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
+  )?.toLowerCase();
+  if (explicit) {
+    if (!isAgentNativeDeploymentEnvironment(explicit)) {
+      throw new Error(
+        'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+      );
+    }
+    return explicit;
+  }
+
+  const context = firstNonEmpty(
+    process.env.CONTEXT,
+    process.env.NETLIFY_CONTEXT,
+    process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT,
+  )?.toLowerCase();
+  const branch = process.env.BRANCH?.trim().toLowerCase();
+  const vercelEnv = process.env.VERCEL_ENV?.trim().toLowerCase();
+  if (branch === "beta") return "beta";
+  if (
+    branch === "production" ||
+    (context === "production" && branch !== "beta")
+  ) {
+    return "production";
+  }
+  if (context === "branch-deploy" && branch === "main") return "beta";
+  if (
+    context === "deploy-preview" ||
+    context === "branch-deploy" ||
+    branch?.startsWith("deploy-preview") ||
+    vercelEnv === "preview"
+  ) {
+    return "preview";
+  }
+
+  if (!context && !branch && !vercelEnv) {
+    return (
+      normalizeFallbackEnvironment(
+        firstNonEmpty(process.env.SENTRY_ENVIRONMENT, process.env.NODE_ENV),
+      ) ?? "production"
+    );
+  }
+
   return (
-    firstNonEmpty(
-      process.env.SENTRY_ENVIRONMENT,
-      process.env.NETLIFY_CONTEXT,
-      process.env.VERCEL_ENV,
-      process.env.NODE_ENV,
-    ) ?? "production"
+    normalizeFallbackEnvironment(firstNonEmpty(context, vercelEnv)) ??
+    normalizeFallbackEnvironment(process.env.NODE_ENV) ??
+    "production"
   );
 }
 
+export type DeployPlatform =
+  | "netlify"
+  | "vercel"
+  | "cloudflare"
+  | "render"
+  | "fly"
+  | "cloud-run"
+  | "aws-lambda"
+  | "node"
+  | "local";
+
 /**
- * Resolve the agent-native version baked into core's package.json so the
- * reported "release" reflects the running framework version. Mirrors how the
- * CLI computes `_version` — same dist layout, same fallback string. Guarded so
- * a missing/unreadable package.json never crashes server boot.
+ * The host this process runs on, from the markers each platform sets. A
+ * production process with no marker is a server someone runs themselves
+ * (`node`); anything else without one is a local dev server.
  */
+export function resolveDeployPlatform(): DeployPlatform {
+  const env = process.env;
+  if (env.NETLIFY === "true" || firstNonEmpty(env.NETLIFY_CONTEXT)) {
+    return "netlify";
+  }
+  if (env.VERCEL === "1" || firstNonEmpty(env.VERCEL_ENV)) return "vercel";
+  if (env.CF_PAGES === "1" || firstNonEmpty(env.CF_PAGES_URL)) {
+    return "cloudflare";
+  }
+  if (env.RENDER === "true" || firstNonEmpty(env.RENDER_SERVICE_ID)) {
+    return "render";
+  }
+  if (firstNonEmpty(env.FLY_APP_NAME)) return "fly";
+  if (firstNonEmpty(env.K_SERVICE)) return "cloud-run";
+  if (firstNonEmpty(env.AWS_LAMBDA_FUNCTION_NAME)) return "aws-lambda";
+  return env.NODE_ENV === "production" ? "node" : "local";
+}
+
+export function isExplicitLocalDeployEnvironment(): boolean {
+  return (
+    firstNonEmpty(
+      process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
+    )?.toLowerCase() === "local"
+  );
+}
+
 export function resolveServerRelease(): string {
-  const explicit = process.env.AGENT_NATIVE_RELEASE;
-  if (explicit) return explicit;
+  try {
+    const { release, buildId } = getAppConfig().observability;
+    if (release) return release;
+    // The build bakes "development" in when no deploy id or commit exists;
+    // that names no release.
+    if (buildId && buildId !== "development") {
+      return `agent-native-server@${buildId}`;
+    }
+  } catch {
+    // coercion-ok: release is metadata on an error report; an invalid config
+    // must not stop the report, so fall back to the package version.
+  }
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
-    // dist/server/deploy-environment.js → ../../package.json
     const pkgPath = path.resolve(here, "../../package.json");
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as {
       version?: string;

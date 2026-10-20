@@ -1,11 +1,4 @@
-/**
- * Update the text of a comment.
- *
- * Usage:
- *   pnpm action update-comment --id=<id> --content="Updated text"
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -13,13 +6,36 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
+import {
+  displayCommentMentions,
+  mentionsForCommentText,
+  parseCommentMentions,
+} from "../shared/comment-mentions.js";
+
+const mentionSchema = z.object({
+  email: z.string().email(),
+  name: z.string().trim().min(1),
+});
 
 export default defineAction({
-  description: "Update a comment's text. Only the comment author can edit it.",
+  description:
+    "Update a comment's text. Inline Markdown is supported without headings. Only the comment author can edit it.",
   schema: z.object({
     id: z.string().describe("Comment ID"),
-    content: z.string().trim().min(1).describe("Updated comment text"),
+    content: z
+      .string()
+      .trim()
+      .min(1)
+      .describe(
+        "Updated comment text; inline Markdown is supported, without headings",
+      ),
+    mentions: z
+      .union([z.string(), z.array(mentionSchema).max(20)])
+      .optional()
+      .describe("Organization members mentioned in the updated comment"),
   }),
   run: async (args) => {
     const userEmail = getRequestUserEmail();
@@ -35,7 +51,19 @@ export default defineAction({
       .limit(1);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    await assertAccess("recording", existing.recordingId, "viewer");
+    const access = await assertAccess(
+      "recording",
+      existing.recordingId,
+      "viewer",
+    );
+    if (
+      isRecordingExpiredForViewer({
+        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
+      throw new ForbiddenError("Recording has expired");
+    }
 
     if (!sameOwnerEmail(existing.authorEmail, userEmail)) {
       throw new ForbiddenError(
@@ -43,10 +71,24 @@ export default defineAction({
       );
     }
 
+    const mentions = await resolveCommentMentions(
+      args.mentions === undefined
+        ? mentionsForCommentText(
+            args.content,
+            parseCommentMentions(existing.mentionsJson),
+          )
+        : args.mentions,
+      existing.organizationId,
+    );
+
     const updatedAt = new Date().toISOString();
     const updated = await db
       .update(schema.recordingComments)
-      .set({ content: args.content, updatedAt })
+      .set({
+        content: args.content,
+        mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
+        updatedAt,
+      })
       .where(
         and(
           eq(schema.recordingComments.id, args.id),
@@ -63,6 +105,11 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { id: args.id, content: args.content, updatedAt };
+    return {
+      id: args.id,
+      content: args.content,
+      mentions: displayCommentMentions(mentions),
+      updatedAt,
+    };
   },
 });

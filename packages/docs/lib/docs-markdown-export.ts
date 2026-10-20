@@ -25,25 +25,24 @@ function boolText(value: unknown, label: string): string | undefined {
 }
 
 function escapeTableCell(value: unknown): string {
-  return String(value ?? "")
-    .replace(/\|/g, "\\|")
-    .replace(/\r?\n/g, "<br>");
+  return typeof value === "string"
+    ? value
+    : (JSON.stringify(value) ?? "")
+        .replace(/\|/g, "\\|")
+        .replace(/\r?\n/g, "<br>");
 }
 
 function fenced(language: string, code: unknown): string {
-  return [`\`\`\`${language}`, String(code ?? "").trimEnd(), "```"].join("\n");
+  return [
+    `\`\`\`${language}`,
+    (typeof code === "string" ? code : (JSON.stringify(code) ?? "")).trimEnd(),
+    "```",
+  ].join("\n");
 }
 
 const ID_START = /[A-Za-z_]/;
 const ID_PART = /[A-Za-z0-9_-]/;
 
-/**
- * Scans a quoted or brace-delimited attribute value starting at `i` (which
- * must point at `"`, `'`, or `{`) and returns the index just past it, or
- * `null` if it never closes. A single regex can't do this: quoted values can
- * contain escaped quotes (`"a \"b\" c"`), and brace values can nest braces
- * and strings arbitrarily (`{{ compact: true }}`, `{"}"}`).
- */
 function skipJsxAttrValue(value: string, i: number): number | null {
   const quote = value[i];
   if (quote === '"' || quote === "'") {
@@ -75,9 +74,6 @@ function skipJsxAttrValue(value: string, i: number): number | null {
   return null;
 }
 
-/** Scans one JSX-looking attribute (`name`, `name="value"`, `name={expr}`, or
- * a bare spread `{...expr}`) starting at `i`, returning the index just past
- * it, or `null` if `i` isn't the start of an attribute. */
 function skipJsxAttr(value: string, i: number): number | null {
   if (value[i] === "{") return skipJsxAttrValue(value, i);
   if (!ID_START.test(value[i] ?? "")) return null;
@@ -87,12 +83,6 @@ function skipJsxAttr(value: string, i: number): number | null {
   return skipJsxAttrValue(value, j + 1);
 }
 
-/**
- * Finds the JSX tag (if any) starting at `value[start]`, returning its
- * end index (exclusive) or `null`. Hand-written instead of a regex because a
- * single pattern can't track attribute-value nesting (see
- * {@link skipJsxAttrValue}); this walks the same grammar a JSX parser would.
- */
 function matchJsxTagEnd(value: string, start: number): number | null {
   if (value[start] !== "<") return null;
   let i = start + 1;
@@ -106,7 +96,7 @@ function matchJsxTagEnd(value: string, start: number): number | null {
     while (/\s/.test(value[i] ?? "")) i++;
     if (value[i] === "/" && value[i + 1] === ">") return i + 2;
     if (value[i] === ">") return i + 1;
-    if (i === beforeSpace) return null; // e.g. `<Foo bar` with no space
+    if (i === beforeSpace) return null;
     const end = skipJsxAttr(value, i);
     if (end === null) return null;
     i = end;
@@ -153,10 +143,6 @@ function formatNotice(
   segment: BlockSegment | undefined,
 ): string {
   const body = asString(data.body);
-  // A top-level Notice already gets its heading from headingForBlock via
-  // segment.title (toAttrs mirrors data.title into the MDX `title` attr).
-  // Nested Notices (inside Tabs/Columns) get no segment, so data.title is
-  // the only place their title survives — read it there instead of dropping it.
   const title = !segment ? asString(data.title) : undefined;
   return [
     title ? `#### ${protectInlineJsx(title)}` : undefined,
@@ -257,7 +243,9 @@ function formatFileTree(
 }
 
 function formatTable(data: Record<string, unknown>): string {
-  const columns = asArray(data.columns).map((column) => String(column ?? ""));
+  const columns = asArray(data.columns).map((column) =>
+    typeof column === "string" ? column : (JSON.stringify(column) ?? ""),
+  );
   const rows = asArray(data.rows).map((row) => asArray(row));
   if (columns.length === 0) return "";
   return [
@@ -499,12 +487,6 @@ function formatDiagram(data: Record<string, unknown>): string {
   return fenced("json", JSON.stringify(data, null, 2));
 }
 
-/**
- * One formatter per block `type`. Keyed lookup instead of a type===chain so
- * adding a block type is one line here, not a deeper ternary nest — the
- * chain this replaced had grown to 21 levels before Notice/Banner/Badge/
- * Cards/Steps/Comparison/Accordion were added.
- */
 const blockFormatters: Record<
   string,
   (data: Record<string, unknown>, segment: BlockSegment | undefined) => string
@@ -579,11 +561,6 @@ export function docsBodyToMarkdownMirror(body: string): string {
     splitDocSegments(body)
       .map((segment) => {
         if (segment.kind === "markdown") return segment.text.trim();
-        // A block can fail real MDX parsing for reasons a well-formed JSX
-        // tag matcher will never see (e.g. a backslash-escaped quote inside
-        // an attribute value, which isn't valid JSX either) — that raw body
-        // still gets emitted verbatim below, so protect it the same as any
-        // other title/body text rather than leaving it as live-looking tags.
         if (segment.kind === "invalid-block")
           return protectInlineJsx(segment.body.trim());
         if (segment.source === "fence") return fenceSegmentToMarkdown(segment);

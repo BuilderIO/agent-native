@@ -52,7 +52,8 @@ export function getRewindStatusPresentation({
     return {
       kind: "excluded",
       title: "Rewind is protecting a private moment",
-      detail: status.coverage || "An excluded app is being skipped.",
+      detail:
+        status.coverage || "An excluded app is in front, so capture is paused.",
       isLive: false,
       hasError: false,
     };
@@ -62,7 +63,7 @@ export function getRewindStatusPresentation({
     return {
       kind: "unavailable",
       title: "Rewind is unavailable",
-      detail: "Rewind capture is not available on this device.",
+      detail: "Capture isn't available on this device.",
       isLive: false,
       hasError: false,
     };
@@ -75,7 +76,7 @@ export function getRewindStatusPresentation({
       detail:
         status.lastError ||
         status.coverage ||
-        "Rewind is retaining local coverage.",
+        "New moments are being saved to this device.",
       isLive: true,
       hasError: Boolean(status.lastError),
     };
@@ -93,10 +94,10 @@ export function getRewindStatusPresentation({
 
   return {
     kind: "idle",
-    title: "Rewind is enabled but not currently capturing",
+    title: "Rewind is on but not capturing",
     detail: clipRecordingActive
       ? "Rewind will resume when this Clip ends."
-      : "No new local coverage is being retained right now.",
+      : "Nothing new is being saved right now.",
     isLive: false,
     hasError: false,
   };

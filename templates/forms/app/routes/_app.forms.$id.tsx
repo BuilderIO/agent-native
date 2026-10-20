@@ -1,3 +1,5 @@
+import { useParams } from "react-router";
+
 import messages from "@/i18n/en-US";
 import { FormBuilderPage } from "@/pages/FormBuilderPage";
 
@@ -6,5 +8,6 @@ export function meta() {
 }
 
 export default function FormBuilderRoute() {
-  return <FormBuilderPage />;
+  const { id } = useParams();
+  return <FormBuilderPage key={id} />;
 }

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   queries: [] as Array<string | { sql: string; args?: unknown[] }>,
@@ -19,6 +21,8 @@ function sqlOf(input: string | { sql: string }): string {
 }
 
 async function execute(input: string | { sql: string; args?: unknown[] }) {
+  const ledger = storeLedgerResult(sqlOf(input));
+  if (ledger) return ledger;
   state.queries.push(input);
   const sql = sqlOf(input);
   const args = typeof input === "string" ? [] : (input.args ?? []);
@@ -79,9 +83,9 @@ async function execute(input: string | { sql: string; args?: unknown[] }) {
       state.insertRace = null;
       throw Object.assign(
         new Error(
-          "UNIQUE constraint failed: integration_installations.platform, integration_installations.installation_key",
+          "duplicate key value violates unique constraint integration_installations_platform_installation_key",
         ),
-        { code: "SQLITE_CONSTRAINT_UNIQUE" },
+        { code: "23505" },
       );
     }
     state.rows.push(row);
@@ -168,13 +172,10 @@ async function execute(input: string | { sql: string; args?: unknown[] }) {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
-  intType: () => "INTEGER",
-  isPostgres: () => false,
   isUniqueViolation: (error: unknown) => {
     const value = error as { code?: string; message?: string } | null;
     return (
       value?.code === "23505" ||
-      value?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
       /unique constraint/i.test(String(value?.message ?? ""))
     );
   },

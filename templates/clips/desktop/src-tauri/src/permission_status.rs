@@ -19,11 +19,6 @@ pub fn check_permission_statuses() -> PermissionStatuses {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        // Windows and Linux permissions are granted through the WebView and,
-        // on Linux, the XDG desktop portal. There is no reliable synchronous
-        // preflight equivalent to macOS TCC here, so report unavailable rather
-        // than claiming permissions were granted. The non-macOS UI relies on
-        // the actual media prompt and does not render these values.
         PermissionStatuses {
             screen: false,
             camera: false,
@@ -44,9 +39,7 @@ mod macos {
 
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
-        // kIOHIDRequestTypeListenEvent = 1; returns IOHIDAccessType where
-        // kIOHIDAccessTypeGranted = 0, kIOHIDAccessTypeDenied = 1, kIOHIDAccessTypeUnknown = 2
-        fn IOHIDCheckAccess(request_type: u32) -> i32;
+        fn CGPreflightListenEventAccess() -> bool;
     }
 
     pub fn check_all() -> PermissionStatuses {
@@ -65,7 +58,6 @@ mod macos {
     }
 
     fn check_av_capture(media_type: &str) -> bool {
-        // AVAuthorizationStatus: notDetermined=0, restricted=1, denied=2, authorized=3
         unsafe {
             let cls = class!(AVCaptureDevice);
             let ns_type = NSString::from_str(media_type);
@@ -75,6 +67,9 @@ mod macos {
     }
 
     fn check_speech() -> bool {
+        if !crate::native_speech::macos::has_speech_usage_description() {
+            return false;
+        }
         unsafe {
             SFSpeechRecognizer::authorizationStatus()
                 == SFSpeechRecognizerAuthorizationStatus::Authorized
@@ -82,6 +77,6 @@ mod macos {
     }
 
     fn check_input_monitoring() -> bool {
-        unsafe { IOHIDCheckAccess(1) == 0 }
+        unsafe { CGPreflightListenEventAccess() }
     }
 }

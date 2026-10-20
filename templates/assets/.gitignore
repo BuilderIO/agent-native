@@ -1,9 +1,7 @@
-# React Router generated types
 .react-router/
 .generated/
 .agent-native/
 
-# Logs
 logs
 *.log
 npm-debug.log*
@@ -17,11 +15,9 @@ dist
 dist-ssr
 *.local
 
-# Build output
 build
 .output/
 
-# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -32,30 +28,17 @@ build
 *.sln
 *.sw?
 
-# Environment
 .config/
 .env
 .env.*
 !.env.example
 
-# Data
-data/*.db
-data/*.db-shm
-data/*.db-wal
+data/pglite/
+data/*.lock
 data/uploads/
 data/settings.json
 data/.sessions.json
-data/sync-config.json
 
-# Stray SQLite files at the template root. The real DB lives under data/.
-/app.db
-/app.db-shm
-/app.db-wal
-/local.db
-/local.db-shm
-/local.db-wal
-
-# Learnings (personal preferences and memory, use learnings.defaults.md for tracked defaults)
 learnings.md
 
 .vercel/

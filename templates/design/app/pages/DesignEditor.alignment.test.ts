@@ -1,16 +1,7 @@
-/**
- * DesignEditor.alignment.test.ts
- *
- * Figma-parity selection alignment (Alt+A/D/W/S/H/V), distribute
- * (Ctrl+Alt+H/V), Tidy up (Ctrl+Alt+T), and Shift+A auto-layout inference —
- * pure-logic coverage for the exported helpers DesignEditor.tsx uses to
- * implement those features (see EditPanel's onAlignSelection contract and
- * useDesignHotkeys' onAlignSelection/onDistributeSelection/onTidyUp/
- * onAddAutoLayout bindings).
- */
 import { describe, expect, it } from "vitest";
 
 import {
+  authoredPxLength,
   computeAlignedPositions,
   computeDistributedPositions,
   computeTidyPositions,
@@ -18,6 +9,32 @@ import {
   mergeAuthoredAndLiveRect,
   type AlignableRect,
 } from "./design-editor/layout-operations";
+
+describe("authoredPxLength", () => {
+  it("reads px lengths, and unitless zero", () => {
+    expect(authoredPxLength("800px")).toBe(800);
+    expect(authoredPxLength(" 12.5px ")).toBe(12.5);
+    expect(authoredPxLength("-4px")).toBe(-4);
+    expect(authoredPxLength("0")).toBe(0);
+    expect(authoredPxLength("0.0")).toBe(0);
+  });
+
+  it("rejects non-px and nonzero unitless lengths the browser would drop", () => {
+    for (const value of [
+      "100%",
+      "50vw",
+      "4rem",
+      "auto",
+      "calc(100% - 10px)",
+      "120",
+      "-4",
+      "",
+      undefined,
+    ]) {
+      expect(authoredPxLength(value)).toBeNull();
+    }
+  });
+});
 
 describe("computeAlignedPositions", () => {
   const bounds = { x: 0, y: 0, width: 200, height: 100 };
@@ -28,18 +45,14 @@ describe("computeAlignedPositions", () => {
     ];
     expect(computeAlignedPositions(rects, bounds, "left").get("a")).toEqual({
       x: 0,
-      y: 20,
     });
     expect(computeAlignedPositions(rects, bounds, "right").get("a")).toEqual({
       x: 170,
-      y: 20,
     });
     expect(computeAlignedPositions(rects, bounds, "top").get("a")).toEqual({
-      x: 50,
       y: 0,
     });
     expect(computeAlignedPositions(rects, bounds, "bottom").get("a")).toEqual({
-      x: 50,
       y: 90,
     });
   });
@@ -49,10 +62,10 @@ describe("computeAlignedPositions", () => {
       { id: "a", x: 0, y: 0, width: 20, height: 10 },
     ];
     expect(computeAlignedPositions(rects, bounds, "center-h").get("a")).toEqual(
-      { x: 90, y: 0 },
+      { x: 90 },
     );
     expect(computeAlignedPositions(rects, bounds, "center-v").get("a")).toEqual(
-      { x: 0, y: 45 },
+      { y: 45 },
     );
   });
 
@@ -70,8 +83,8 @@ describe("computeAlignedPositions", () => {
       { id: "b", x: 150, y: 50, width: 40, height: 10 },
     ];
     const result = computeAlignedPositions(rects, bounds, "left");
-    expect(result.get("a")).toEqual({ x: 0, y: 0 });
-    expect(result.get("b")).toEqual({ x: 0, y: 50 });
+    expect(result.get("a")).toEqual({ x: 0 });
+    expect(result.get("b")).toEqual({ x: 0 });
   });
 });
 
@@ -91,9 +104,7 @@ describe("computeDistributedPositions", () => {
       { id: "c", x: 100, y: 0, width: 10, height: 10 },
     ];
     const result = computeDistributedPositions(rects, "horizontal");
-    // total span = 110 - 0 = 110; content = 30; 2 gaps => gap = 40
-    // first ends at 10, so b starts at 10+40=50
-    expect(result.get("b")).toEqual({ x: 50, y: 0 });
+    expect(result.get("b")).toEqual({ x: 50 });
     expect(result.has("a")).toBe(false);
     expect(result.has("c")).toBe(false);
   });
@@ -105,7 +116,7 @@ describe("computeDistributedPositions", () => {
       { id: "c", x: 0, y: 100, width: 10, height: 10 },
     ];
     const result = computeDistributedPositions(rects, "vertical");
-    expect(result.get("b")).toEqual({ x: 0, y: 50 });
+    expect(result.get("b")).toEqual({ y: 50 });
   });
 
   it("sorts unsorted input by position before distributing", () => {
@@ -115,7 +126,7 @@ describe("computeDistributedPositions", () => {
       { id: "b", x: 20, y: 0, width: 10, height: 10 },
     ];
     const result = computeDistributedPositions(rects, "horizontal");
-    expect(result.get("b")).toEqual({ x: 50, y: 0 });
+    expect(result.get("b")).toEqual({ x: 50 });
   });
 });
 
@@ -132,9 +143,6 @@ describe("computeTidyPositions", () => {
       { id: "d", x: 1100, y: 800, width: 100, height: 50 },
     ];
     const result = computeTidyPositions(rects);
-    // 4 rects => 2 columns. The scattered originals should be pulled onto a
-    // compact grid — the last rect (originally far from the origin) must
-    // move onto row 1, well short of its original (1100, 800) position.
     expect(result.size).toBeGreaterThan(0);
     const dPos = result.get("d");
     expect(dPos).toBeDefined();
@@ -147,7 +155,6 @@ describe("computeTidyPositions", () => {
       { id: "a", x: 0, y: 0, width: 100, height: 100 },
       { id: "b", x: 124, y: 0, width: 100, height: 100 },
     ];
-    // 2 rects => 2 columns, 1 row. Gap between a/b is 24 (matches fallback).
     const result = computeTidyPositions(rects);
     expect(result.size).toBe(0);
   });
@@ -180,13 +187,36 @@ describe("inferAutoLayoutFromChildren", () => {
     expect(result.padding).toBe(10);
   });
 
-  it("matches Figma's vertical default with no children", () => {
+  it("keeps a stack of rows wider than the stack is tall in column flow", () => {
+    const container = { x: 0, y: 0, width: 424, height: 176 };
+    const children: AlignableRect[] = [
+      { id: "a", x: 12, y: 12, width: 400, height: 40 },
+      { id: "b", x: 12, y: 64, width: 400, height: 40 },
+      { id: "c", x: 12, y: 116, width: 400, height: 40 },
+    ];
+    const result = inferAutoLayoutFromChildren(container, children);
+    expect(result.direction).toBe("column");
+    expect(result.gap).toBe(12);
+  });
+
+  it("keeps a right-aligned stack of unequal rows in column flow", () => {
+    const container = { x: 0, y: 0, width: 400, height: 140 };
+    const children: AlignableRect[] = [
+      { id: "a", x: 0, y: 0, width: 400, height: 40 },
+      { id: "b", x: 360, y: 60, width: 40, height: 40 },
+    ];
+    expect(inferAutoLayoutFromChildren(container, children).direction).toBe(
+      "column",
+    );
+  });
+
+  it("uses the vertical default with no children", () => {
     const container = { x: 0, y: 0, width: 100, height: 100 };
     const result = inferAutoLayoutFromChildren(container, []);
     expect(result).toEqual({ direction: "column", gap: 10, padding: 0 });
   });
 
-  it("matches Figma's vertical default for one child regardless of aspect ratio", () => {
+  it("uses the vertical default for one child regardless of aspect ratio", () => {
     const container = { x: 0, y: 0, width: 300, height: 40 };
     const result = inferAutoLayoutFromChildren(container, [
       { id: "wide", x: 0, y: 0, width: 300, height: 40 },
@@ -203,7 +233,6 @@ describe("inferAutoLayoutFromChildren", () => {
       { id: "d", x: 220, y: 0, width: 50, height: 50 }, // gap 40
     ];
     const result = inferAutoLayoutFromChildren(container, children);
-    // gaps: [10, 20, 40] -> median 20
     expect(result.gap).toBe(20);
   });
 });

@@ -29,6 +29,8 @@ describe("plan detail route meta", () => {
           brief: "Keep the hosted and local plan surfaces aligned.",
           kind: "plan",
         },
+        origin: "https://workspace.example.test",
+        basePath: "/",
       },
     } as Parameters<typeof planMeta>[0]) as MetaEntry[];
 
@@ -46,6 +48,8 @@ describe("plan detail route meta", () => {
           brief: "Summarize the provider API cursor changes.",
           kind: "recap",
         },
+        origin: "https://workspace.example.test",
+        basePath: "/",
       },
     } as Parameters<typeof recapMeta>[0]) as MetaEntry[];
 
@@ -53,5 +57,22 @@ describe("plan detail route meta", () => {
     expect(propertyFrom(entries, "og:title")).toBe(
       "Provider API Body Cursors Recap",
     );
+  });
+
+  it("falls back when a plan name is a serialized payload", () => {
+    const entries = planMeta({
+      loaderData: {
+        planMeta: {
+          title: '[{"id":"automation-1","status":"success"}]',
+          brief: "Keep the tab title human-readable.",
+          kind: "plan",
+        },
+        origin: "https://workspace.example.test",
+        basePath: "/",
+      },
+    } as Parameters<typeof planMeta>[0]) as MetaEntry[];
+
+    expect(titleFrom(entries)).toBe("Plan");
+    expect(propertyFrom(entries, "og:title")).toBe("Plan");
   });
 });

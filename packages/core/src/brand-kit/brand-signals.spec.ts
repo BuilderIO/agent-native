@@ -9,10 +9,32 @@ vi.mock("../extensions/url-safety.js", () => ({
 }));
 
 import {
+  buildBrandAnalysisResult,
   normalizeBrandWebsiteUrl,
   extractBrandSignalsFromHtml,
   fetchBrandWebsiteSignals,
 } from "./brand-signals.js";
+
+describe("buildBrandAnalysisResult", () => {
+  it("assembles only supplied analysis data without changing falsey metadata", () => {
+    expect(
+      buildBrandAnalysisResult({
+        companyName: "Acme",
+        brandNotes: "bold",
+        existingDesignSystem: { id: "ds_1" },
+        websiteAnalysis: { status: "complete" },
+      }),
+    ).toEqual({
+      companyName: "Acme",
+      brandNotes: "bold",
+      existingDesignSystem: { id: "ds_1" },
+      websiteAnalysis: { status: "complete" },
+    });
+    expect(
+      buildBrandAnalysisResult({ companyName: "", brandNotes: "" }),
+    ).toEqual({});
+  });
+});
 
 describe("normalizeBrandWebsiteUrl", () => {
   it("normalizes schemeless website URLs to https", () => {

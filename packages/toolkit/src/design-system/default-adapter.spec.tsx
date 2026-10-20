@@ -43,6 +43,31 @@ function renderComponent(
 }
 
 describe("default design system adapter", () => {
+  it("preserves native click handlers for composed ActionButtons", () => {
+    const onPress = vi.fn();
+    const onClick = vi.fn();
+    const button = renderComponent(defaultDesignSystemComponents.ActionButton, {
+      children: "Share",
+      onPress,
+      onClick,
+    });
+
+    (button.props.onClick as ((event: unknown) => void) | undefined)?.({});
+
+    expect(onPress).toHaveBeenCalledOnce();
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it("preserves inset focus semantics for ActionButtons", () => {
+    const button = renderComponent(defaultDesignSystemComponents.ActionButton, {
+      children: "Sort",
+      emphasis: "ghost",
+      inset: true,
+    });
+
+    expect(button.props.variant).toBe("ghost-inset");
+  });
+
   it("maps visual size and shape props to default styles", () => {
     const iconButton = renderComponent(
       defaultDesignSystemComponents.IconButton,
@@ -94,6 +119,29 @@ describe("default design system adapter", () => {
     )?.({ preventDefault });
 
     expect(preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it("keeps outside dismissal enabled when the close control is hidden", () => {
+    const dialog = renderComponent(defaultDesignSystemComponents.Dialog, {
+      open: true,
+      onOpenChange: vi.fn(),
+      title: "Preview",
+      children: <p>Preview content</p>,
+      hideClose: true,
+    });
+    const content = findElement(
+      dialog,
+      (element) => typeof element.props.onInteractOutside === "function",
+    );
+    const preventDefault = vi.fn();
+
+    (
+      content?.props.onInteractOutside as
+        | ((event: { preventDefault: () => void }) => void)
+        | undefined
+    )?.({ preventDefault });
+
+    expect(preventDefault).not.toHaveBeenCalled();
   });
 
   it("honors menu selection state and closeOnAction", () => {

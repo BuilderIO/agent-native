@@ -1,9 +1,8 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { dispatchActions } from "@agent-native/dispatch/actions";
 import { z } from "zod";
 
-import { listDispatchUsageMetricsScoped } from "../server/lib/usage-metrics.js";
 import listWorkspaceConnections from "./list-workspace-connections.js";
 
 async function runDispatchAction(name: string, args: Record<string, unknown>) {
@@ -37,7 +36,7 @@ function optionalTimestamp(source: object, key: string) {
   const value = (source as Record<string, unknown>)[key];
   if (value == null) return null;
   if (value instanceof Date) return value.toISOString();
-  return String(value);
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
 export default defineAction({
@@ -101,14 +100,22 @@ export default defineAction({
     }
     if (navigation?.view === "metrics") {
       try {
-        const metrics = await listDispatchUsageMetricsScoped({ sinceDays: 30 });
+        const usageScope =
+          navigation.usageScope === "workspace" ? "workspace" : "me";
+        const metrics = await runDispatchAction("list-dispatch-usage-metrics", {
+          sinceDays: 30,
+          scope: usageScope,
+          userEmail: navigation.usageUserEmail,
+        });
         screen.usageMetrics = {
           billing: metrics.billing,
+          viewScope: metrics.viewScope,
+          selectedUserEmail: metrics.selectedUserEmail,
           totals: metrics.totals,
           byApp: metrics.byApp.slice(0, 8),
           byUser: metrics.byUser.slice(0, 8),
           appAccess: metrics.appAccess
-            .filter((app) => !app.isDispatch)
+            .filter((app: { isDispatch?: boolean }) => !app.isDispatch)
             .slice(0, 8),
         };
       } catch (error) {

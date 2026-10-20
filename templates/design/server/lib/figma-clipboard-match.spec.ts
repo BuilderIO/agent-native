@@ -133,7 +133,11 @@ describe("matchFigmaClipboardNodes", () => {
       [candidate("1:1", "Frame 12", ["Welcome back"])],
       ["Welcome back"],
     );
-    expect(result).toEqual({ status: "none", matches: [] });
+    expect(result).toEqual({
+      status: "none",
+      matches: [],
+      reason: "no-text-overlap",
+    });
   });
 
   it("is ambiguous when two candidates both clear the text-match bar", () => {
@@ -144,7 +148,12 @@ describe("matchFigmaClipboardNodes", () => {
       ],
       ["Welcome back", "Sign in"],
     );
-    expect(result).toEqual({ status: "ambiguous", matches: [] });
+    expect(result).toMatchObject({
+      status: "ambiguous",
+      matches: [],
+      reason: "tied-text-matches",
+    });
+    expect(result.candidateNames?.length).toBeGreaterThan(1);
   });
 
   it("is ambiguous (not matched) when name matches exceed the multi-match cap", () => {
@@ -155,7 +164,11 @@ describe("matchFigmaClipboardNodes", () => {
       many,
       many.map((c) => c.name),
     );
-    expect(result).toEqual({ status: "ambiguous", matches: [] });
+    expect(result).toMatchObject({
+      status: "ambiguous",
+      matches: [],
+      reason: "too-many-name-matches",
+    });
   });
 
   it("returns none when nothing overlaps at all", () => {
@@ -163,12 +176,17 @@ describe("matchFigmaClipboardNodes", () => {
       [candidate("1:1", "Hero", ["Welcome"])],
       ["Totally unrelated copy", "Nothing matches"],
     );
-    expect(result).toEqual({ status: "none", matches: [] });
+    expect(result).toEqual({
+      status: "none",
+      matches: [],
+      reason: "no-text-overlap",
+    });
   });
 
   it("returns none for an empty candidate list", () => {
     expect(matchFigmaClipboardNodes([], ["Hero"])).toEqual({
       status: "none",
+      reason: "no-candidates",
       matches: [],
     });
   });

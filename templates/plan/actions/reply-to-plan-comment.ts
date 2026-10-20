@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -7,6 +7,7 @@ import {
   ForbiddenError,
   currentAccess,
   resolveAccess,
+  roleSatisfies,
 } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -32,7 +33,7 @@ import {
 
 export default defineAction({
   description:
-    "Append a reply to an existing comment thread on an Agent-Native Plan. Call this when you want to respond to reviewer feedback in-thread, acknowledge a comment, or answer a question pinned to the plan. Requires an authenticated account; anonymous viewers cannot reply.",
+    "Append a reply to an existing comment thread on an Agent-Native Plan. Reply text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. Call this when you want to respond to reviewer feedback in-thread, acknowledge a comment, or answer a question pinned to the plan. Requires an authenticated account; anonymous viewers cannot reply.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     commentId: z
@@ -40,7 +41,12 @@ export default defineAction({
       .describe(
         "ID of the parent (thread-root) comment to reply to. Use get-plan-feedback to obtain comment IDs.",
       ),
-    body: z.string().min(1).describe("Reply message text"),
+    body: z
+      .string()
+      .min(1)
+      .describe(
+        "Reply message text with optional inline Markdown; no headings",
+      ),
     resolutionTarget: planCommentResolutionTargetSchema
       .optional()
       .describe(
@@ -64,6 +70,8 @@ export default defineAction({
   mcpApp: {
     compactCatalog: true,
   },
+  changeResource: (input) =>
+    input.planId ? { resourceType: "plan", resourceId: input.planId } : null,
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();
     const requesterName = getRequestUserName();
@@ -71,7 +79,6 @@ export default defineAction({
       ? resolvePlanOwnerEmailForWrite(requesterEmail)
       : requesterEmail;
 
-    // Commenting requires a real account — same identity checks as update-visual-plan.
     if (isAnonymousPublicViewer(requesterEmail)) {
       throw new ForbiddenError(
         "Replying to a comment requires an agent-native account. Sign in to reply.",
@@ -88,7 +95,6 @@ export default defineAction({
       );
     }
 
-    // Viewer-level access is sufficient for commenting (mirrors update-visual-plan).
     const access = await resolveAccess(
       "plan",
       args.planId,
@@ -98,11 +104,15 @@ export default defineAction({
     if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
       throw new ForbiddenError(`Plan ${args.planId} not found`);
     }
+    if (!roleSatisfies(access.role, "commenter")) {
+      throw new ForbiddenError(
+        "Commenting on this plan requires commenter access or higher.",
+      );
+    }
 
     const db = getDb();
     const now = nowIso();
 
-    // Verify the parent comment exists on this plan.
     const [parentComment] = await db
       .select({
         id: schema.planComments.id,
@@ -129,8 +139,6 @@ export default defineAction({
       );
     }
 
-    // Replies must target the thread root (not a nested reply's id).
-    // If the supplied commentId is itself a reply, walk to the root.
     const threadRootId = parentComment.parentCommentId
       ? parentComment.parentCommentId
       : parentComment.id;

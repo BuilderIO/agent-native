@@ -1,16 +1,14 @@
-/**
- * Translation helpers between AgentEngine normalized types and
- * Vercel AI SDK (`ai` package, v6+) types.
- *
- * The framework keeps a provider-neutral content/event model (see ./types.ts).
- * These helpers convert in both directions against the v6 `TextStreamPart` and
- * `ModelMessage` shapes.
- */
-
 import {
   classifyProviderError,
   describeErrorWithCauses,
 } from "./error-detail.js";
+import { flattenComposedRootSchema } from "./flatten-composed-root-schema.js";
+import {
+  createProviderToolNameMap,
+  toEngineToolName,
+  toProviderToolName,
+  type ProviderToolNameMap,
+} from "./tool-name.js";
 import { backfillEngineMessagesToolResults } from "./translate-anthropic.js";
 import type {
   EngineTool,
@@ -19,65 +17,36 @@ import type {
   EngineEvent,
 } from "./types.js";
 
-// ---------------------------------------------------------------------------
-// EngineTool → AI SDK tool definition
-// ---------------------------------------------------------------------------
-
-/**
- * Convert EngineTool[] into the record shape that AI SDK's `streamText` expects
- * under the `tools` option.
- *
- * Pass the `jsonSchema` helper from the `ai` package when available so the
- * schema is wrapped in the SDK's runtime validator; fall back to the raw JSON
- * Schema object otherwise (mostly for unit tests that don't import `ai`).
- */
 export function engineToolsToAISDK(
   tools: EngineTool[],
   jsonSchema?: (schema: Record<string, unknown>) => unknown,
+  toolNameMap = createProviderToolNameMap(tools),
 ): Record<string, any> {
   const result: Record<string, any> = {};
   for (const tool of tools) {
+    const inputSchema = flattenComposedRootSchema(tool.inputSchema);
     const rawSchema: Record<string, unknown> = {
-      ...tool.inputSchema,
+      ...inputSchema,
       type: "object",
-      properties: tool.inputSchema.properties ?? {},
-      required: tool.inputSchema.required ?? [],
+      properties: inputSchema.properties ?? {},
+      required: inputSchema.required ?? [],
     };
-    result[tool.name] = {
+    const providerName = toProviderToolName(tool.name, toolNameMap);
+    result[providerName] = {
       description: tool.description,
       inputSchema: jsonSchema ? jsonSchema(rawSchema) : rawSchema,
+      // Gateways may normalize an omitted flag into required optional fields.
+      strict: false,
     };
   }
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// EngineMessage → AI SDK ModelMessage
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a single EngineMessage into **one or more** AI SDK ModelMessages.
- *
- * v6 puts tool-results in a dedicated `role: "tool"` message rather than
- * embedding them in user content. When an EngineMessage's user content mixes
- * text/images with tool-results, we emit the tool-result parts first as a
- * `{role: "tool"}` message, followed by the remaining text/image parts as a
- * `{role: "user"}` message.
- */
 export interface EngineToAISDKOptions {
-  /**
-   * Emit tool-result images as AI SDK `content` output (`image-url` /
-   * `image-data` parts). Only enable for providers whose translators support
-   * image content parts (gate on the engine's `capabilities.vision`) —
-   * providers like groq JSON.stringify the whole content array, which would
-   * flood the prompt with base64. When off, images degrade to the text
-   * content alone; the `[image: …]` notes runToolCall appends to the content
-   * string keep the model informed of what it cannot see.
-   */
   toolResultImages?: boolean;
+  toolNameMap?: ProviderToolNameMap;
 }
 
-/** AI SDK tool-result `output` for one engine tool-result part. */
 function toolResultOutputToAISDK(
   part: Extract<EngineContentPart, { type: "tool-result" }>,
   opts?: EngineToAISDKOptions,
@@ -113,7 +82,6 @@ export function engineMessageToAISDK(
   msg: EngineMessage,
   opts?: EngineToAISDKOptions,
 ): any[] {
-  // EngineMessage is `user | assistant` — both branches return below.
   if (msg.role === "user") {
     const userParts: any[] = [];
     const toolResultParts: any[] = [];
@@ -137,7 +105,7 @@ export function engineMessageToAISDK(
         toolResultParts.push({
           type: "tool-result",
           toolCallId: part.toolCallId,
-          toolName: part.toolName,
+          toolName: toProviderToolName(part.toolName, opts?.toolNameMap),
           output: toolResultOutputToAISDK(part, opts),
         });
       }
@@ -168,7 +136,7 @@ export function engineMessageToAISDK(
         content.push({
           type: "tool-call",
           toolCallId: part.id,
-          toolName: part.name,
+          toolName: toProviderToolName(part.name, opts?.toolNameMap),
           input: part.input,
         });
       } else if (part.type === "thinking") {
@@ -177,8 +145,6 @@ export function engineMessageToAISDK(
           text: part.text,
         };
         if (part.signature) {
-          // Round-trip the Anthropic extended-thinking signature through
-          // providerOptions so the model can continue its chain of thought.
           reasoning.providerOptions = {
             anthropic: { signature: part.signature },
           };
@@ -204,25 +170,17 @@ export function engineMessagesToAISDK(
   messages: EngineMessage[],
   opts?: EngineToAISDKOptions,
 ): any[] {
+  const toolNameMap =
+    opts?.toolNameMap ?? createProviderToolNameMap([], messages);
   return backfillEngineMessagesToolResults(messages).flatMap((msg) =>
-    engineMessageToAISDK(msg, opts),
+    engineMessageToAISDK(msg, { ...opts, toolNameMap }),
   );
 }
 
-// ---------------------------------------------------------------------------
-// AI SDK TextStreamPart → EngineEvent
-// ---------------------------------------------------------------------------
-
-/**
- * Translate a single part from AI SDK's `result.fullStream` into the flat
- * sequence of EngineEvent items the framework works with.
- *
- * v6 emits lifecycle events (`text-start` / `text-delta` / `text-end`,
- * `reasoning-start` / `reasoning-delta` / `reasoning-end`, `tool-input-*`).
- * We absorb text/reasoning boundaries, forward text/reasoning/tool-input
- * deltas, and keep the terminal `tool-call`, `finish-step`, and `finish` parts.
- */
-export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
+export function aiSdkPartToEngineEvents(
+  part: any,
+  toolNameMap?: ProviderToolNameMap,
+): EngineEvent[] {
   const events: EngineEvent[] = [];
 
   switch (part?.type) {
@@ -244,14 +202,14 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
       events.push({
         type: "tool-input-start",
         id: part.id ?? part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
       });
       break;
     case "tool-input-delta":
       events.push({
         type: "tool-input-delta",
         id: part.id ?? part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
         text:
           typeof part.delta === "string"
             ? part.delta
@@ -261,14 +219,13 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
       });
       break;
     case "tool-input-end":
-      // Ignored: the terminal `tool-call` part carries the full input.
       break;
 
     case "tool-call":
       events.push({
         type: "tool-call",
         id: part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
         input: part.input ?? {},
       });
       break;
@@ -278,7 +235,7 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
       events.push({
         type: "tool-call-error",
         id: part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
         input: part.input ?? {},
         error:
           part.errorText ??
@@ -291,8 +248,6 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
       break;
 
     case "tool-result":
-      // Only fired when the SDK itself executes a tool. Our runAgentLoop
-      // dispatches tools on the outside, so these don't appear in our flow.
       break;
 
     case "error": {
@@ -302,12 +257,6 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
           : typeof part.error === "string"
             ? part.error
             : JSON.stringify(part.error);
-      // `streamText` reports a failed provider request as a stream part rather
-      // than a throw, so this is the arrival path for most provider HTTP
-      // failures. It used to emit the message alone, discarding the
-      // APICallError's statusCode/isRetryable — which is why they all landed as
-      // `unknown` and were retried only if their prose happened to match a
-      // keyword. Same classifier as the thrown path in ai-sdk-engine.ts.
       events.push({
         type: "stop",
         reason: "error",
@@ -318,11 +267,6 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
     }
 
     case "finish-step":
-      // Usage is intentionally NOT emitted here. AI SDK's fullStream emits both
-      // a per-step `finish-step` (part.usage) and a terminal `finish`
-      // (part.totalUsage) for every step. runAgentLoop runs one model step per
-      // stream() call, so totalUsage already covers it; emitting here too would
-      // double-count tokens into recordUsage / cost tracking.
       break;
 
     case "finish":
@@ -360,14 +304,11 @@ function finishReasonToStopReason(
     case "error":
       return "error";
     default:
-      // Maps "stop", "other", "unknown", and anything we don't recognise.
       return "end_turn";
   }
 }
 
 function usageEventFromLanguageModelUsage(usage: any): EngineEvent {
-  // v6 exposes cache/reasoning tokens via detail objects; older providers
-  // put them at the top level (deprecated but still read as a fallback).
   return {
     type: "usage",
     inputTokens: usage.inputTokens ?? 0,
@@ -381,15 +322,10 @@ function usageEventFromLanguageModelUsage(usage: any): EngineEvent {
   };
 }
 
-// ---------------------------------------------------------------------------
-// AI SDK StepResult → EngineContentPart[] (assistant content reconstruction)
-// ---------------------------------------------------------------------------
-
-/**
- * Reconstruct the assistant message content from an AI SDK v6 `StepResult`.
- * `step.content` is the canonical structured form — iterate it.
- */
-export function aiSdkStepToAssistantContent(step: any): EngineContentPart[] {
+export function aiSdkStepToAssistantContent(
+  step: any,
+  toolNameMap?: ProviderToolNameMap,
+): EngineContentPart[] {
   const parts: EngineContentPart[] = [];
   for (const part of step?.content ?? []) {
     if (part.type === "text" && part.text) {
@@ -406,14 +342,14 @@ export function aiSdkStepToAssistantContent(step: any): EngineContentPart[] {
       parts.push({
         type: "tool-call",
         id: part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
         input: part.input,
       });
     } else if (part.type === "tool-input-error" || part.type === "tool-error") {
       parts.push({
         type: "tool-call",
         id: part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
         input: part.input ?? {},
       });
     }

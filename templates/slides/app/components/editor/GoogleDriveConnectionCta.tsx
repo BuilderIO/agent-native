@@ -1,10 +1,11 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
   IconBrandGoogleDrive,
   IconLoader2,
   IconPlugConnected,
+  IconX,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -13,14 +14,14 @@ import { Button } from "../ui/button";
 interface GoogleDocsStatus {
   configured: boolean;
   connected: boolean;
+  googleSlidesUrlImportReady?: boolean;
+  googleSlidesUrlImportError?: string;
   error?: string;
   message?: string;
 }
 
-interface GoogleDocsAuthResponse {
-  url?: string;
-  error?: string;
-  message?: string;
+interface GoogleDriveConnectionCtaProps {
+  active?: boolean;
 }
 
 type JsonReadResult<T> = { ok: true; data: T } | { ok: false; error: Error };
@@ -33,11 +34,11 @@ async function readJson<T>(response: Response): Promise<JsonReadResult<T>> {
   try {
     return { ok: true, data: (await response.json()) as T };
   } catch (caught) {
+    const error = new Error("The server returned an unreadable response.");
+    (error as Error & { cause?: unknown }).cause = caught;
     return {
       ok: false,
-      error: new Error("The server returned an unreadable response.", {
-        cause: caught,
-      }),
+      error,
     };
   }
 }
@@ -52,18 +53,15 @@ function responseError(
   );
 }
 
-export interface GoogleDriveConnectionCtaProps {
-  onConnected?: () => void;
-}
-
 export function GoogleDriveConnectionCta({
-  onConnected,
+  active = true,
 }: GoogleDriveConnectionCtaProps) {
   const t = useT();
   const [status, setStatus] = useState<GoogleDocsStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
 
   const refreshStatus =
     useCallback(async (): Promise<GoogleDocsStatus | null> => {
@@ -94,67 +92,40 @@ export function GoogleDriveConnectionCta({
     }, []);
 
   useEffect(() => {
+    if (!active) {
+      setStatus(null);
+      setError(null);
+      setDismissed(false);
+      setConnecting(false);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setDismissed(false);
     void refreshStatus();
-  }, [refreshStatus]);
+  }, [active, refreshStatus]);
 
-  const connect = useCallback(async () => {
+  const needsReconnect =
+    status?.connected === true && status.googleSlidesUrlImportReady === false;
+  const connect = useCallback(() => {
     if (connecting) return;
     setConnecting(true);
     setError(null);
-    const popup = window.open(
-      "about:blank",
-      "google-docs-oauth",
-      "popup,width=520,height=720",
-    );
-    try {
-      const authUrl = new URL(endpoint("/_agent-native/google-docs/auth-url"));
-      authUrl.searchParams.set(
-        "redirect_uri",
-        oauthRedirectUri("/_agent-native/google-docs/callback"),
-      );
-      authUrl.searchParams.set(
-        "return",
-        window.location.pathname + window.location.search,
-      );
-      const response = await fetch(authUrl.toString(), {
-        credentials: "same-origin",
-      });
-      const result = await readJson<GoogleDocsAuthResponse>(response);
-      if (!result.ok) throw result.error;
-      if (!response.ok || !result.data.url) {
-        throw responseError(
-          response,
-          result.data,
-          "Could not start Google OAuth",
-        );
-      }
-      if (!popup) {
-        window.location.href = result.data.url;
-        return;
-      }
-      popup.location.href = result.data.url;
+    startWorkspaceProviderOAuth("google_drive", {
+      appId: "slides",
+      returnPath: `${window.location.pathname}${window.location.search}`,
+      scope: "user",
+    });
+  }, [connecting]);
 
-      const deadline = Date.now() + 90_000;
-      while (Date.now() < deadline && !popup.closed) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1_200));
-        const next = await refreshStatus();
-        if (next?.connected) {
-          popup.close();
-          onConnected?.();
-          return;
-        }
-      }
-      const next = await refreshStatus();
-      if (next?.connected) onConnected?.();
-    } catch (caught) {
-      popup?.close();
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setConnecting(false);
-    }
-  }, [connecting, onConnected, refreshStatus]);
-
-  if (loading || status?.connected) return null;
+  if (
+    !active ||
+    dismissed ||
+    loading ||
+    (status?.connected && !needsReconnect)
+  ) {
+    return null;
+  }
 
   const displayStatus = status ?? { configured: false, connected: false };
 
@@ -176,13 +147,18 @@ export function GoogleDriveConnectionCta({
             ? t("home.googleSlidesReferenceConnect")
             : t("raw.googleOAuthNotConfigured")}
         </p>
+        {displayStatus.googleSlidesUrlImportError && (
+          <p className="mt-1 text-[11px] text-destructive">
+            {displayStatus.googleSlidesUrlImportError}
+          </p>
+        )}
         {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
       </div>
       {displayStatus.configured && (
         <Button
           type="button"
           size="sm"
-          onClick={() => void connect()}
+          onClick={() => connect()}
           disabled={connecting}
           aria-busy={connecting}
           className="h-7 shrink-0 gap-1.5 rounded-md px-2.5 text-[11px] disabled:cursor-wait"
@@ -197,6 +173,14 @@ export function GoogleDriveConnectionCta({
             : t("editorExport.connectGoogle")}
         </Button>
       )}
+      <button
+        type="button"
+        onClick={() => setDismissed(true)}
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={t("comments.close")}
+      >
+        <IconX className="size-3.5" />
+      </button>
     </div>
   );
 }

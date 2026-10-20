@@ -1,15 +1,3 @@
-/**
- * scanDrizzlePush — ported from `scripts/guard-no-drizzle-push.mjs`.
- *
- * Refuse to let `drizzle-kit push` (or `drizzle push`) get wired into any
- * build/deploy path (`netlify.toml`, or a `package.json` build/deploy
- * script). Generic guard — no monorepo-specific path assumption in the
- * original, ported as-is.
- *
- * Standalone `db:push` / `db:push:*` npm scripts are intentionally NOT
- * flagged — those are explicit, human-invoked commands, not build hooks.
- */
-
 import {
   lineColForOffset,
   readFileSafe,
@@ -103,7 +91,6 @@ function scanPackageJson(
   for (const [name, cmd] of Object.entries(scripts)) {
     if (!DANGEROUS_SCRIPT_HOOKS.has(name)) continue;
     if (matchesForbidden(cmd)) {
-      // Locate the line for a readable finding; fall back to line 1.
       const idx = contents.indexOf(`"${name}"`);
       const line = idx >= 0 ? lineColForOffset(contents, idx).line : 1;
       findings.push({

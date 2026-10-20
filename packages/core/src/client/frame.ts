@@ -1,20 +1,8 @@
+import { toPublicFrameworkPath } from "../shared/framework-route-prefix.js";
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
+import { frameworkRoutePrefix, isFrameworkRoutePath } from "./api-path.js";
 import { agentNativePath } from "./api-path.js";
 
-/**
- * Frame Communication (browser)
- *
- * Utilities for communicating with the parent frame via postMessage.
- * Provides typed request/response patterns and message sending.
- */
-
-// ---------------------------------------------------------------------------
-// Low-level parent messaging
-// ---------------------------------------------------------------------------
-
-/**
- * Send a typed message to the parent frame.
- * No-op if running at top level (no parent frame).
- */
 export function sendToFrame(type: string, data?: any): void {
   if (typeof window === "undefined") return;
   const target = window.parent !== window ? window.parent : window;
@@ -23,10 +11,6 @@ export function sendToFrame(type: string, data?: any): void {
   target.postMessage({ type, data }, targetOrigin);
 }
 
-/**
- * Listen for a specific message type from the parent frame.
- * Returns a cleanup function.
- */
 export function onFrameMessage(
   type: string,
   handler: (data: any) => void,
@@ -42,10 +26,6 @@ export function onFrameMessage(
   window.addEventListener("message", listener);
   return () => window.removeEventListener("message", listener);
 }
-
-// ---------------------------------------------------------------------------
-// Frame Origin
-// ---------------------------------------------------------------------------
 
 let _frameOrigin: string | null = null;
 
@@ -83,15 +63,6 @@ export function isTrustedFrameMessage(event: MessageEvent): boolean {
   return event.source === window.parent || event.source === window;
 }
 
-// ---------------------------------------------------------------------------
-// Content-height reporting (for MCP App embeds)
-// ---------------------------------------------------------------------------
-//
-// The embed shell renders this app in a cross-origin iframe and can't measure
-// its content, so we post the real content height for the shell to size to.
-// Only shrinks when the document flows to its natural height — embed layouts
-// must not force `100vh`/`h-screen` on the root, or scrollHeight just equals
-// the iframe height.
 let _contentHeightReportingStarted = false;
 let _lastReportedContentHeight = 0;
 
@@ -118,10 +89,12 @@ function startContentHeightReporting(): void {
   _contentHeightReportingStarted = true;
   let scheduled = false;
   const schedule = () => {
+    if (typeof window === "undefined") return;
     if (scheduled) return;
     scheduled = true;
     window.requestAnimationFrame(() => {
       scheduled = false;
+      if (typeof window === "undefined") return;
       reportContentHeight();
     });
   };
@@ -137,8 +110,6 @@ function startContentHeightReporting(): void {
   window.addEventListener("load", schedule, { passive: true });
 }
 
-// Listen for frame origin message and cache it.
-// Only accept from the direct parent frame, and only set once.
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event: MessageEvent) => {
     const eventOrigin = normalizeOrigin(event.origin);
@@ -161,36 +132,20 @@ if (typeof window !== "undefined") {
   });
 }
 
-/**
- * Get the frame origin (e.g. "http://localhost:3334").
- * Returns null if not running inside a frame iframe.
- */
 export function getFrameOrigin(): string | null {
   return _frameOrigin;
 }
 
-/**
- * Returns true if the app is running inside a frame iframe
- * (local dev frame, Builder.io, or any compatible frame).
- */
 export function isInFrame(): boolean {
   return _frameOrigin !== null;
 }
 
-/**
- * Get the origin for OAuth callbacks.
- * Always uses the app's own origin (window.location.origin), NOT the frame
- * origin. The redirect URI registered in Google Cloud Console (or any OAuth
- * provider) must match the template app's direct URL, not the dev frame's
- * proxy URL, so this must be consistent regardless of how the app is accessed.
- */
 export function getCallbackOrigin(): string {
   return typeof window !== "undefined" ? window.location.origin : "";
 }
 
 function envFlag(name: string): boolean {
-  const value = runtimeEnvValue(name);
-  return value === "1" || value === "true" || value === true;
+  return isTruthyRuntimeValue(runtimeEnvValue(name));
 }
 
 function runtimeEnvValue(name: string): string | boolean | undefined {
@@ -206,7 +161,25 @@ function runtimeEnvValue(name: string): string | boolean | undefined {
 }
 
 function workspaceOAuthOrigin(): string | null {
+  const shell =
+    typeof window !== "undefined" ? window.__AGENT_NATIVE_CONFIG__ : undefined;
+  const projectedRaw =
+    shell?.workspaceOAuthOrigin || shell?.appUrl || shell?.workspaceGatewayUrl;
+  if (shell?.workspaceRuntime === true) {
+    if (typeof projectedRaw === "string" && projectedRaw.trim()) {
+      try {
+        return new URL(projectedRaw).origin;
+      } catch {
+        // coercion-ok: a stale projected origin intentionally falls back below.
+        // Fall through to the current origin when the projected value is stale.
+      }
+    }
+    const currentOrigin = getCallbackOrigin();
+    return currentOrigin || null;
+  }
+
   const raw =
+    projectedRaw ||
     runtimeEnvValue("VITE_WORKSPACE_OAUTH_ORIGIN") ||
     runtimeEnvValue("WORKSPACE_OAUTH_ORIGIN") ||
     runtimeEnvValue("VITE_APP_URL") ||
@@ -224,26 +197,24 @@ function workspaceOAuthOrigin(): string | null {
 }
 
 function shouldUseWorkspaceCallbackRelay(path: string): boolean {
+  const projectedWorkspaceRuntime =
+    typeof window !== "undefined" &&
+    window.__AGENT_NATIVE_CONFIG__?.workspaceRuntime === true;
   return (
-    envFlag("VITE_AGENT_NATIVE_WORKSPACE") &&
-    path.startsWith("/_agent-native/") &&
+    (projectedWorkspaceRuntime || envFlag("VITE_AGENT_NATIVE_WORKSPACE")) &&
+    isFrameworkRoutePath(path) &&
     (path.endsWith("/callback") || path.includes("/callback/"))
   );
 }
 
-/**
- * Build an OAuth redirect URI for a framework callback route.
- *
- * Workspace deploys use one provider-registered root callback URL and then
- * relay to the app-specific callback based on OAuth state. Standalone apps
- * keep using their mounted app callback path.
- */
 export function oauthRedirectUri(callbackPath: string): string {
   const normalized = callbackPath.startsWith("/")
     ? callbackPath
     : `/${callbackPath}`;
   const path = shouldUseWorkspaceCallbackRelay(normalized)
-    ? normalized
+    ? toPublicFrameworkPath(normalized, {
+        publicPrefix: frameworkRoutePrefix(),
+      })
     : agentNativePath(normalized);
   const oauthOrigin = shouldUseWorkspaceCallbackRelay(normalized)
     ? workspaceOAuthOrigin()
@@ -252,19 +223,11 @@ export function oauthRedirectUri(callbackPath: string): string {
   return `${origin}${path}`;
 }
 
-// ---------------------------------------------------------------------------
-// User Info
-// ---------------------------------------------------------------------------
-
 export interface UserInfo {
   name?: string;
   email?: string;
 }
 
-/**
- * Request user info (name + email) from the parent frame.
- * Falls back to empty object if frame doesn't respond within timeout.
- */
 export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
   return new Promise((resolve) => {
     if (typeof window === "undefined" || window.parent === window) {
@@ -303,27 +266,14 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Selection Mode (visual editing)
-// ---------------------------------------------------------------------------
-
-/**
- * Enter visual editing selection mode for a specific element.
- */
 export function enterStyleEditing(selector: string): void {
   sendToFrame("agentNative.enterStyleEditing", { selector });
 }
 
-/**
- * Enter text editing mode for a specific element.
- */
 export function enterTextEditing(selector: string): void {
   sendToFrame("agentNative.enterTextEditing", { selector });
 }
 
-/**
- * Exit selection mode.
- */
 export function exitSelectionMode(): void {
   sendToFrame("agentNative.exitSelectionMode");
 }

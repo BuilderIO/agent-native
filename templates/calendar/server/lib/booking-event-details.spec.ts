@@ -81,4 +81,35 @@ describe("booking event details", () => {
       },
     ]);
   });
+
+  it("adds distinct booking guests without duplicating the booker or organizer", () => {
+    expect(
+      buildBookingEventAttendees({
+        organizerEmail: "steve@example.com",
+        attendeeEmail: "rakesh.rachamalla@walmart.com",
+        attendeeName: "Rakesh Rachamalla",
+        additionalGuestEmails: [
+          "teammate@example.com",
+          "TEAMMATE@example.com",
+          "steve@example.com",
+          "rakesh.rachamalla@walmart.com",
+        ],
+      }),
+    ).toEqual([
+      {
+        email: "steve@example.com",
+        organizer: true,
+        self: true,
+        responseStatus: "accepted",
+      },
+      {
+        email: "rakesh.rachamalla@walmart.com",
+        displayName: "Rakesh Rachamalla",
+      },
+      {
+        email: "teammate@example.com",
+        displayName: "Teammate",
+      },
+    ]);
+  });
 });

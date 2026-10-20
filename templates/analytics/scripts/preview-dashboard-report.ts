@@ -1,25 +1,8 @@
 #!/usr/bin/env tsx
 
-/**
- * Render a real dashboard email report to local files without sending anything.
- *
- * This is the proof-of-delivery check for the server-rendered report pipeline:
- * it runs the same panel queries and the same email renderer the scheduler
- * uses, then writes the HTML plus every inline chart PNG to disk with the
- * `cid:` references rewritten to local paths so the result opens in a browser
- * exactly as a mail client would compose it.
- *
- * Read-only: it never calls sendEmail and never runs migrations.
- *
- *   pnpm --filter analytics exec tsx --env-file=.env scripts/preview-dashboard-report.ts
- *   pnpm --filter analytics exec tsx --env-file=.env scripts/preview-dashboard-report.ts --subscription <id> --out /tmp/report
- *   pnpm --filter analytics exec tsx --env-file=.env scripts/preview-dashboard-report.ts --dashboard <id> --out /tmp/report
- *
- * Exits non-zero when any panel degraded, so it works as a check.
- */
-
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import path, { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { eq } from "drizzle-orm";
@@ -40,12 +23,6 @@ function arg(name: string): string | undefined {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-/**
- * Renders any dashboard, not just a subscribed one, so panel types and sources
- * the single real subscription never exercises can still be verified. Scoped to
- * the dashboard's own owner so `getReportDashboard`'s access check is the same
- * one the scheduler goes through.
- */
 async function subscriptionForDashboard(
   dashboardId: string,
 ): Promise<DashboardReportSubscription> {
@@ -122,8 +99,6 @@ async function main() {
       `Subscription ${wantedId} not found. Available: ${rows.map((r: any) => r.id).join(", ")}`,
     );
   }
-  // Load through the access-checked reader so JSON columns (recipients,
-  // filters) arrive parsed exactly as the scheduler sees them.
   const sub = await getDashboardReportSubscription(target.id, {
     email: target.ownerEmail,
     orgId: target.orgId,
@@ -202,7 +177,9 @@ async function renderPreview(
     0,
   );
   console.log(`\n[preview] summary`);
-  for (const [status, count] of [...counts].sort()) {
+  for (const [status, count] of [...counts].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
     console.log(`  ${status}: ${count}`);
   }
   console.log(`  images: ${rendered.attachments.length} (${totalBytes} bytes)`);
@@ -215,7 +192,17 @@ async function renderPreview(
   if (rendered.degradedPanelIds.length) process.exitCode = 1;
 }
 
-main().catch((err) => {
-  console.error("[preview] failed:", err);
-  process.exit(1);
-});
+function isDirectRun(): boolean {
+  const entrypoint = process.argv[1];
+  return Boolean(
+    entrypoint &&
+    import.meta.url === pathToFileURL(path.resolve(entrypoint)).href,
+  );
+}
+
+if (isDirectRun()) {
+  main().catch((err) => {
+    console.error("[preview] failed:", err);
+    process.exit(1);
+  });
+}

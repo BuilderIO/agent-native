@@ -1,29 +1,3 @@
-/**
- * RecentEditHighlights — lingering, fading highlights over regions another
- * participant (human or agent) just edited, with their name/avatar flag.
- *
- * The Google-Docs/Figma feel: when a collaborator or the AI edits something,
- * the changed region glows in their color and the flag identifies them; the
- * highlight fades out over the last portion of its lifetime instead of
- * vanishing.
- *
- * Feed it `useRecentEdits(others)` (which reads participants' `recentEdits`
- * awareness rings) and a `resolveRect` that maps an edit descriptor to a
- * viewport DOMRect for your surface:
- *
- *   const others = usePresence(awareness, ydoc?.clientID).others;
- *   const edits = useRecentEdits(others);
- *   <RecentEditHighlights
- *     edits={edits}
- *     resolveRect={(edit) =>
- *       edit.descriptor.kind === "selector"
- *         ? container.querySelector(edit.descriptor.selector)?.getBoundingClientRect() ?? null
- *         : null
- *     }
- *     containerRef={containerRef}
- *   />
- */
-
 import {
   memo,
   useEffect,
@@ -36,18 +10,11 @@ import {
 import { RECENT_EDIT_TTL_MS, type AttributedRecentEdit } from "./types.js";
 
 export interface RecentEditHighlightsProps {
-  /** Attributed recent edits (from `useRecentEdits`). */
   edits: AttributedRecentEdit[];
-  /**
-   * Resolver: maps an edit to a viewport-relative DOMRect, or null when the
-   * region can't be located (the edit is skipped).
-   */
   resolveRect: (edit: AttributedRecentEdit) => DOMRect | null;
-  /** Container the highlights are positioned within (position: relative). */
   containerRef: RefObject<HTMLElement | null>;
-  /** Highlight lifetime; should match useRecentEdits ttlMs. Default 6000. */
   ttlMs?: number;
-  /** Additional CSS class for the overlay div. */
+  outlineOnly?: boolean;
   className?: string;
 }
 
@@ -57,6 +24,7 @@ interface Highlight {
   label: string;
   avatarUrl?: string;
   isAgent: boolean;
+  outlineOnly: boolean;
   opacity: number;
   rect: { top: number; left: number; width: number; height: number };
 }
@@ -64,7 +32,9 @@ interface Highlight {
 const HighlightItem = memo(function HighlightItem({ h }: { h: Highlight }) {
   return (
     <div
-      aria-label={`${h.label} edited this`}
+      aria-label={
+        h.isAgent && h.outlineOnly ? h.label : `${h.label} edited this`
+      }
       style={{
         position: "absolute",
         top: h.rect.top,
@@ -78,8 +48,12 @@ const HighlightItem = memo(function HighlightItem({ h }: { h: Highlight }) {
         transition: "opacity 400ms ease-out",
         outline: `2px solid ${h.color}`,
         outlineOffset: 2,
-        backgroundColor: `${h.color}1A`,
-        boxShadow: `0 0 0 1px ${h.color}33, 0 0 12px ${h.color}40`,
+        ...(h.outlineOnly
+          ? {}
+          : {
+              backgroundColor: `${h.color}1A`,
+              boxShadow: `0 0 0 1px ${h.color}33, 0 0 12px ${h.color}40`,
+            }),
       }}
     >
       <div
@@ -90,8 +64,9 @@ const HighlightItem = memo(function HighlightItem({ h }: { h: Highlight }) {
           display: "flex",
           alignItems: "center",
           gap: 4,
-          backgroundColor: h.color,
-          color: "#fff",
+          backgroundColor: h.outlineOnly ? "transparent" : h.color,
+          border: h.outlineOnly ? `1px solid ${h.color}` : undefined,
+          color: h.outlineOnly ? h.color : "hsl(var(--background))",
           fontSize: 10,
           fontWeight: 600,
           padding: "2px 6px",
@@ -125,6 +100,7 @@ export function RecentEditHighlights({
   resolveRect,
   containerRef,
   ttlMs = RECENT_EDIT_TTL_MS,
+  outlineOnly = false,
   className,
 }: RecentEditHighlightsProps) {
   const [highlights, setHighlights] = useState<Highlight[]>([]);
@@ -158,7 +134,6 @@ export function RecentEditHighlights({
         continue;
       }
 
-      // Fade over the final 40% of the lifetime.
       const age = now - edit.at;
       const fadeStart = ttlMs * 0.6;
       const opacity =
@@ -170,14 +145,17 @@ export function RecentEditHighlights({
         key: `${edit.clientId}:${edit.at}`,
         color: edit.user.color || "#94a3b8",
         label: edit.isAgent
-          ? edit.label
-            ? `AI — ${edit.label}`
-            : "AI edited"
+          ? outlineOnly
+            ? "AI editing"
+            : edit.label
+              ? `AI — ${edit.label}`
+              : "AI edited"
           : edit.label
             ? `${edit.user.name} — ${edit.label}`
             : edit.user.name,
         avatarUrl: (edit.user as { avatarUrl?: string }).avatarUrl,
         isAgent: edit.isAgent,
+        outlineOnly,
         opacity,
         rect: { top, left, width: domRect.width, height: domRect.height },
       });

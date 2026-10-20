@@ -1,17 +1,18 @@
 import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useDbSync } from "@agent-native/core/client/hooks";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
+  useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   CommandMenu,
   useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
-import { getThemeInitScript } from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
+import { PLAN_KIND_ROUTE_SEGMENT } from "@shared/plan-routes";
 import {
   IconHierarchy2,
   IconMoon,
@@ -40,11 +41,12 @@ import {
 } from "@/components/plan/wireframe/use-wireframe-style";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { useNavigationState } from "@/hooks/use-navigation-state";
 // Side effect: register Plan's native chat renderers so visual answers render
 // their diagram/wireframe/api-spec blocks inline in the agent chat.
 import "@/lib/register-chat-renderers";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import { APP_TITLE } from "@/lib/app-config";
+import { isPlanChatPath } from "@/lib/chat-route";
 import { shouldCapturePlanContent } from "@/lib/plan-tracking";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -52,8 +54,16 @@ import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
-// Keep standard pageviews, explicit analytics, and Sentry on local-plan routes,
-// but disable DOM/session capture so rendered plan contents stay on-device.
+
+/**
+ * Routes that render the impersonal public shell. A plan kind missing here
+ * bounces an anonymous reader through the session gate before the SSR shell can
+ * render, so the list is derived from the route-segment map.
+ */
+const PUBLIC_SHELL_ROUTE_PREFIXES = [
+  ...Object.values(PLAN_KIND_ROUTE_SEGMENT),
+  "local-plans",
+].map((segment) => `/${segment}`);
 configureTracking({
   contentCaptureForPath: shouldCapturePlanContent,
   getDefaultProps: (_name, properties) => ({
@@ -111,7 +121,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#71717A" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -133,12 +142,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function isPrivatePlanEditorPath(pathname: string): boolean {
+  return /^\/(?:plans|recaps)\/[^/]+\/?$/.test(pathname);
+}
+
 function DbSyncSetup() {
   const qc = useQueryClient();
+  const location = useLocation();
   useNavigationState();
   useDbSync({
     queryClient: qc,
     ignoreSource: TAB_ID,
+    realtime: isPrivatePlanEditorPath(location.pathname)
+      ? { reason: "collaborators can edit and comment on this open plan" }
+      : undefined,
   });
   return null;
 }
@@ -165,9 +182,10 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="plan"
+        chatStorageKey="plans"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => go("/")}>
+          <CommandMenu.Item onSelect={() => go("/chat")}>
             {t("root.askPlan")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => go("/plans")}>
@@ -177,7 +195,7 @@ function AppContent() {
             {t("root.openRecaps")}
           </CommandMenu.Item>
           <CommandMenu.Item
-            onSelect={() => go("/agent")}
+            onSelect={() => go("/settings/agent")}
             keywords={["agent", "context", "connections", "jobs", "access"]}
           >
             <IconHierarchy2 size={16} />
@@ -224,23 +242,20 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
+  const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const sessionBypass =
-    location.pathname === "/" ||
-    location.pathname === "/plans" ||
-    location.pathname.startsWith("/plans/") ||
-    location.pathname === "/recaps" ||
-    location.pathname.startsWith("/recaps/") ||
-    location.pathname === "/local-plans" ||
-    location.pathname.startsWith("/local-plans/");
+    isPlanChatPath(pathname) ||
+    PUBLIC_SHELL_ROUTE_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    );
   const localPlanPrivacyRoute = !shouldCapturePlanContent(location.pathname);
   return (
-    // Pass the plan-specific styled Toaster via `toaster` so only one sonner
-    // instance renders (avoids the duplicate that would appear if AppProviders'
-    // built-in Toaster AND a children-rendered Toaster both mounted).
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="list"
         sessionBypass={sessionBypass}
+        documentTitleFallback={APP_TITLE}
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >
@@ -256,4 +271,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

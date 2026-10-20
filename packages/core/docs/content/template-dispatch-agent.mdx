@@ -1,0 +1,109 @@
+---
+title: "Dispatch: Talk to the Agent"
+description: "What the agent sees when you're in Dispatch, prompts organized by task, and when it reaches for a provider's raw API instead of a canned action."
+---
+
+# Talk to the Agent
+
+Everything in Dispatch is available to the agent through the same actions the UI uses, so anything you can click, you can also ask for in plain English. This page covers how the agent sees your screen, useful prompts by task, and where it escalates beyond the built-in actions. See [Dispatch](/docs/template-dispatch) for the overview.
+
+## How the agent sees your screen
+
+The agent always knows which Dispatch view you're on, since every navigation writes that view to shared application state. It reads the same state back, plus a compact operational summary, so it can answer "what's pending?" or "who has access to this?" without you naming the page you're looking at. Open Vault and it already knows which secrets exist and which requests are pending. Open the Dreams app and it already knows which candidates and proposals are on screen.
+
+<Image
+  src="/diagrams/dispatch_dreams_use_case.svg"
+  alt="Diagram showing Dispatch's Dreams workflow in five steps across two rows: opening Dreams updates shared state with candidates and proposals; asking 'Who's pending?' doesn't require naming the page; the agent reads the state and answers directly by listing which proposals are pending. A legend at top shows gray for user actions, purple for automatic system updates, and teal for agent actions."
+  caption="How Dispatch answers 'who's pending?' in Dreams without ever being told what page you're on."
+/>
+
+Open any app from the **Apps** page and Dispatch docks a chat panel right beside it. The agent reports exactly which app is open, including a case that never gets silently dropped: if the app is open but its identity genuinely can't be read, the agent says so instead of guessing or staying quiet.
+
+That docked chat panel isn't Dispatch's own chat, either. Dispatch forwards the whole conversation to the opened app's own agent, the same one you'd get by opening the app directly, with its tools and its instructions instead of Dispatch's. Open Mail from the Apps page and ask its chat panel to draft a reply: Mail's agent drafts it, not Dispatch's, because Dispatch handed the conversation off the moment Mail opened.
+
+## Useful prompts by task
+
+Every prompt below becomes a real action against your actual workspace, the same one the UI reads and writes. Here's one worked example:
+
+<Comparison>
+
+### :blue: You ask
+
+"Build me an app for tracking customer onboarding."
+
+### :green: What happens
+
+Dispatch doesn't just answer. It starts a real, independent app under `apps/`, the same hand-off you'd get from the Apps page's **New app** flow. The new app shows up in **Apps** once it's ready, and nothing about an existing app changed to make room for it.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Delegate to an app
+
+- **"Summarize last week's signups."** Dispatch recognizes this as an analytics question and calls the analytics agent over A2A, then returns its answer in chat.
+- **"Draft a reply to Alice."** Routed to the mail agent instead. Dispatch doesn't try to draft the email itself.
+- **"What apps can you see?"** Lists workspace apps and A2A peers, useful for confirming a connection actually works.
+
+### Vault and secrets
+
+- **"Add a new OpenAI key to the vault."** The secret appears on the Vault page immediately.
+- **"Who has access to the Slack token?"** A read-only question, answered from the current grants.
+- **"Request access to the Stripe key for Analytics."** Creates a pending request an admin can approve from Approvals.
+
+### Dreams
+
+- **"What did agents keep getting wrong this week?"** Runs a dream pass and summarizes the findings.
+- **"Show me the latest dream proposals."** Lists what's waiting for review, without applying anything.
+
+### Approvals
+
+- **"What's waiting for my approval?"** Lists pending requests with a summary and requester.
+- **"Approve the pending destination request."** Resolves it inline, in the same conversation.
+
+### Build a new app
+
+- **"Build me an app for tracking customer onboarding."** Starts a real, independent app, not another screen bolted onto an existing one. See [creating a new app](/docs/template-dispatch-features#app-launcher).
+
+</Cards>
+
+## When the agent goes straight to a provider's API
+
+Most requests are handled by Dispatch's built-in actions: connecting a channel, saving a secret, delegating to another app. Sometimes a request is more specific than any of those cover, like an unusual search or a scan across a lot of data. For those, the agent can skip the built-in actions and ask the connected service directly.
+
+### When this comes up
+
+A concrete example: "Find every Slack message that mentions 'renewal' from the last quarter." No built-in action does that exact search. Rather than saying it can't help, the agent reaches out to Slack directly for the answer, using the same connection you already set up under [Reusable integrations](/docs/template-dispatch-features#reusable-integrations).
+
+### Why it helps
+
+You don't have to wait for a specific feature to be built for every kind of request. As long as a provider is connected, the agent can go get real data directly from it instead of being limited to what a built-in action was designed to do.
+
+### What you need to do
+
+Nothing extra. This happens automatically, as long as the provider is already connected. For a very large search, the agent sets the full results aside and answers from a short summary, rather than pasting thousands of rows into the conversation.
+
+<Comparison>
+
+### :blue: You ask
+
+"Find every Slack message that mentions 'renewal' from the last quarter."
+
+### :green: What happens
+
+No built-in search covers a request this specific, so Dispatch asks Slack directly, using the connection already set up under Reusable integrations. Since a quarter's worth of messages is a lot, Dispatch sets the full results aside and answers from a short summary instead of pasting everything into the chat.
+
+</Comparison>
+
+## Extensions
+
+Dispatch has its own Extensions catalog: small sandboxed widgets you or the agent can build and open from the **Apps** page, alongside the rest of the workspace's apps. Unlike a per-screen embed slot, a Dispatch extension is its own page rather than something that renders inside another view. See [Extensions](/docs/extensions) for how to build one.
+
+## What's next
+
+- [**Dispatch**](/docs/template-dispatch) — the overview and getting-started steps
+- [**Features**](/docs/template-dispatch-features) — every feature area, with setup steps for each
+- [**Dispatch in a Multi-App Workspace**](/docs/template-dispatch-integrations) — how other apps connect to Dispatch, and how Dispatch discovers them
+- [**Dispatch developer guide**](/docs/template-dispatch-developers) — how to extend the app
+- [**Dispatch action and data reference**](/docs/template-dispatch-reference) — every action and the data model
+- [**Extensions**](/docs/extensions) — building a widget for the Apps page

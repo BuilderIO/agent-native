@@ -11,7 +11,7 @@ Verbinden Sie Ihren Agenten mit Slack, Microsoft Teams, Discord-Interaktionen, E
 >
 > Teams benötigt `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD` und `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`. Discord benötigt `DISCORD_APPLICATION_ID` und `DISCORD_PUBLIC_KEY`. Telegram benötigt zusätzlich `TELEGRAM_WEBHOOK_SECRET`, WhatsApp zusätzlich `WHATSAPP_APP_SECRET`.
 
-> **Verwenden Sie die Dispatch-Vorlage?** All dies ist für Sie unter **Einstellungen → Nachrichten** eingerichtet. Klicken Sie, um jede Plattform zu verbinden – Sie müssen den Rest dieser Seite nicht lesen, es sei denn, Sie passen Ihre eigene Vorlage an oder erstellen sie. Siehe [Dispatch](/docs/dispatch) oder [Dispatch template reference](/docs/template-dispatch).
+> **Verwenden Sie die Dispatch-Vorlage?** All dies ist für Sie unter **Verwaltung → Nachrichten** eingerichtet. Klicken Sie, um jede Plattform zu verbinden – Sie müssen den Rest dieser Seite nicht lesen, es sei denn, Sie passen Ihre eigene Vorlage an oder erstellen sie. Siehe [Dispatch](/docs/dispatch) oder [Dispatch template reference](/docs/template-dispatch).
 
 ## Was Sie tun können {#what-you-can-do}
 
@@ -127,7 +127,7 @@ und `link_shared`-Ereignisse an den Clips-Unfurl-Handler.
 
 ### Tipps
 
-- **Kanalerwähnungen** – Starten Sie Arbeit mit einer @Erwähnung. Antworten ohne Erwähnung gelten nur, solange genau dieser Thread aktive Arbeit enthält.
+- **Kanalerwähnungen** – Starten Sie Arbeit mit einer @Erwähnung. Jede Kanalnachricht, die der Agent verarbeiten soll, muss ihn ausdrücklich erwähnen; gewöhnliche Thread-Antworten und allgemeiner Kanalverkehr rufen ihn nicht auf.
 - **DMs** – akzeptierte persönliche DMs sind private Unterhaltungen und erfordern ein verifiziertes Organisationsmitglied oder eine verknüpfte Slack-Identität.
 - **Identität** – DMs können eine verifizierte Slack-E-Mail demselben App-Benutzer zuordnen; verwaltete Kanäle verwenden ihre Dienstidentität und Richtlinie.
 - **Produktionszulassungslisten** – Legen Sie `SLACK_ALLOWED_TEAM_IDS` und für freigegebene Slack-Apps `SLACK_ALLOWED_API_APP_IDS` fest, damit ein gültiges Signaturgeheimnis nicht von einem unerwarteten Arbeitsbereich wiederverwendet werden kann.
@@ -136,7 +136,7 @@ und `link_shared`-Ereignisse an den Clips-Unfurl-Handler.
 ### Verwaltetes Add to Slack
 
 Verwaltetes OAuth ist die empfohlene Einrichtung. Wählen Sie unter
-**Einstellungen → Messaging** die Option **Agent manifest**, laden Sie die
+**Verwaltung → Messaging** die Option **Agent manifest**, laden Sie die
 hostspezifische Datei `agent-native-slack-manifest.json` herunter und importieren
 Sie sie in Slack unter **App Manifest**. Das Manifest aktiviert die aktuelle
 `agent_view`-Oberfläche und einen beschreibbaren **Messages**-Tab für DMs.
@@ -174,9 +174,9 @@ die Event Subscriptions Request URL auf
 Interactivity Request URL auf
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`.
 Abonnieren Sie `app_home_opened`, `app_context_changed`, `app_mention`,
-`message.channels`, `message.groups`, `message.im` und `message.mpim`.
+`message.im`.
 Konfigurieren Sie `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`
-und `SLACK_SIGNING_SECRET`; klicken Sie dann unter **Einstellungen → Messaging**
+und `SLACK_SIGNING_SECRET`; klicken Sie dann unter **Verwaltung → Messaging**
 auf **Add to Slack**. Jede Installation besitzt einen verschlüsselten Token und
 team-, app-, kanal- und threadbezogene Konversationsschlüssel.
 
@@ -194,8 +194,8 @@ Agent-Native-Organisation oder von bereits verknüpften Slack-Identitäten
 angenommen. Richtlinien und Budgets des Dienstprinzipals eines Kanals sind davon
 getrennt.
 
-Antworten ohne Erwähnung steuern nur einen gerade aktiven Thread weiter; sonstiger
-Kanalverkehr wird ignoriert. Der Agent lädt begrenzten Thread-Kontext samt
+Jede Kanalnachricht muss den Agenten ausdrücklich erwähnen; gewöhnliche
+Thread-Antworten und sonstiger Kanalverkehr werden ignoriert. Der Agent lädt begrenzten Thread-Kontext samt
 Reaktionen und Dateiverweisen und zeigt einen nativen Live-Arbeitsplan mit
 Abbrechen sowie Genehmigen/Ablehnen. DMs verwenden die persönliche Identität,
 verwaltete Kanäle eine ausdrückliche Dienstidentität mit Gast-, Slack-Connect-
@@ -216,7 +216,7 @@ Alles in `<ANGLE_BRACKETS>` ist ein Platzhalter. Fügen Sie niemals ein echtes N
 Schließen Sie [Slack einrichten](#slack) ab und prüfen Sie, dass eine `@mention` in einem Kanal eine Antwort erhält, bevor Sie Notion anfassen. Zwei Verhaltensweisen sind für den Rest wichtig:
 
 - Die Nachricht mit der `@mention` ist der Auslöser, und ihr Text ist das, was der Agent sieht.
-- Eine gewöhnliche spätere Antwort im selben Thread erreicht den Agenten **nur, solange dieser Thread noch laufende Arbeit hat**. Ist der Lauf beendet, wird Ihre Nachfrage ignoriert — erwähnen Sie den Agenten erneut, statt anzunehmen, dass er weiter zuhört.
+- Jede spätere Nachricht im selben Thread muss den Agenten ausdrücklich erwähnen; eine gewöhnliche Antwort erreicht ihn nicht. Erwähnen Sie den Agenten für jede neue Anfrage erneut.
 
 #### 2. Die Provider-API-Aktionen freischalten
 
@@ -376,7 +376,7 @@ Wenn nicht:
 | `notion credential not configured. Tried: NOTION_API_KEY`                  | Schritt 3. Der Schlüssel liegt in `.env` oder wurde als **Personal** für ein anderes Konto gespeichert als das, unter dem der Lauf ausgeführt wird. Speichern Sie ihn als **Workspace**. |
 | Notion antwortet mit `404`                                                 | Schritt 4. Die Datenbank wurde nie für die Integration freigegeben.                                                                                                                      |
 | Notion antwortet mit `400` wegen der Eigenschaften                         | Die Eigenschaftsnamen oder -typen in der Aktion passen nicht zu den Spalten der Datenbank.                                                                                               |
-| Es hat einmal funktioniert, eine spätere Antwort im Thread wurde ignoriert | Das ist erwartet. Thread-Antworten ohne Erwähnung erreichen den Agenten nur, solange der Thread aktive Arbeit hat — erwähnen Sie ihn erneut.                                             |
+| Es hat einmal funktioniert, eine spätere Antwort im Thread wurde ignoriert | Das ist erwartet. Jede Nachricht, die der Agent verarbeiten soll, muss ihn ausdrücklich erwähnen — erwähnen Sie ihn erneut.                                                              |
 
 ## Telegramm einrichten {#telegram}
 
@@ -500,7 +500,7 @@ Warum das schön ist:
 
 - **Ein Agent, ein Posteingang.** Alle Ihre Kanäle (Slack, E-Mail, Telegram, WhatsApp) fließen in Dispatch ein. Sie richten Integrationen nur einmal ein.
 - **Dispatch-Delegierte.** Fragen Sie „Anmeldungen der letzten Woche zusammenfassen“ – Dispatch ruft den Analyseagenten an. Fragen Sie „Antwort an Alice verfassen“ – Dispatch ruft den E-Mail-Agenten an.
-- **Klicks, nicht config.** Die Dispatch-Seite **Einstellungen → Nachrichten** verfügt über Verbindungsschaltflächen für jede Plattform mit integrierten env-var-Feldern.
+- **Klicks, nicht config.** Die Dispatch-Seite **Verwaltung → Nachrichten** verfügt über Verbindungsschaltflächen für jede Plattform mit integrierten env-var-Feldern.
 
 Wenn Sie keinen Orchestrator benötigen, kann jede einzelne Vorlage Messaging direkt mithilfe der Umgebungsvariablen auf dieser Seite verknüpfen.
 
@@ -657,6 +657,20 @@ export default createIntegrationsPlugin({
   systemPrompt: "You are a helpful assistant...",
 });
 ```
+
+`createIntegrationsPlugin()` akzeptiert ein optionales `IntegrationsPluginOptions`-Objekt. Die Option `initialToolNames?: readonly string[]` wählt die Schemas lokaler Aktionen für die erste Modellanfrage aus. Ohne diese Option enthält die anfängliche Auswahl alle lokalen Aktionen. Ein übergebenes Array wird kopiert, ohne das Array des Aufrufers zu ändern.
+
+Eine ausdrücklich leere Liste lädt lokale Aktionen erst, wenn `tool-search` sie findet. Erforderliche Framework-Tools bleiben von Anfang an verfügbar. Diese Konfiguration deaktiviert außerdem die appübergreifende Delegation, wenn das Deployment keinen A2A-Partner hat:
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+Dieselbe anfängliche Tool-Auswahl gilt für die Webhook-Verarbeitung, Aufgaben in der Warteschlange und das Google-Docs-Polling. Das vollständige Aktionsregister bleibt durchsuchbar. `callAgent: false` deaktiviert unabhängig davon die Registrierung der integrierten Aktion `call-agent`, selbst wenn sie in `initialToolNames` enthalten ist.
 
 Welche Plattformen aktiv sind, hängt davon ab, welche Umgebungsvariablen festgelegt sind. Das Plugin registriert Webhook-Routen für jede einzelne unter `/_agent-native/integrations/`.
 

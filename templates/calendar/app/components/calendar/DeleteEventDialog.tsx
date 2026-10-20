@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent, DeleteEventScope } from "@shared/api";
+import { isCalendarEventOrganizer } from "@shared/event-permissions";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getGuestAttendeeCount } from "@/components/calendar/GuestNotificationDialog";
@@ -115,8 +116,6 @@ export function DeleteEventDialog({
         onKeyDown={handleKeyDown}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
-          // For events with guests, Enter should default to the reversible,
-          // no-email path instead of immediately sending a cancellation.
           (canNotifyGuests
             ? dontNotifyButtonRef.current
             : confirmButtonRef.current
@@ -209,18 +208,8 @@ export function DeleteEventDialog({
 }
 
 function getIsRemoveOnly(event: CalendarEvent): boolean {
-  const isOrganizer = getIsOrganizer(event);
+  const isOrganizer = isCalendarEventOrganizer(event);
   const hasOtherAttendees =
     event.attendees && event.attendees.filter((a) => !a.self).length > 0;
   return !isOrganizer && !!hasOtherAttendees;
-}
-
-function getIsOrganizer(event: CalendarEvent): boolean {
-  if (event.organizer?.self) return true;
-  if (event.attendees) {
-    const selfAttendee = event.attendees.find((a) => a.self);
-    if (selfAttendee?.organizer) return true;
-  }
-  if (!event.attendees || event.attendees.length === 0) return true;
-  return false;
 }

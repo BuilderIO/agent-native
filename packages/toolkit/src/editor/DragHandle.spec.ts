@@ -5,6 +5,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DRAG_HANDLE_UI_EVENT,
   DragHandle,
   dragPreviewTransform,
   type DragHandleOptions,
@@ -185,6 +186,99 @@ afterEach(() => {
     .forEach((node) => node.remove());
 });
 
+function getMenu(): HTMLElement {
+  const menu = document.querySelector<HTMLElement>(".an-rich-md-drag-menu");
+  if (!menu) throw new Error("Expected the drag menu to be open");
+  return menu;
+}
+
+const ZERO_RECT = makeRect({ left: 0, top: 0, width: 0, height: 0 });
+
+describe("DragHandle menu position", () => {
+  const blockRect = makeRect({ left: 24, top: 200, width: 640, height: 400 });
+
+  it("anchors the menu beside the grip", () => {
+    const { editor, handle } = mountEditor(
+      "<p>First</p><p>Second</p>",
+      {},
+      blockRect,
+    );
+
+    try {
+      clickHandle(handle);
+
+      const menu = getMenu();
+      expect(menu.style.left).toBe("30px");
+      expect(menu.style.top).toBe("198px");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("falls back to the block when the grip reports a zero rect", () => {
+    const { editor, handle } = mountEditor(
+      "<p>First</p><p>Second</p>",
+      {},
+      blockRect,
+    );
+
+    try {
+      setRect(handle, ZERO_RECT);
+      clickHandle(handle);
+
+      const menu = getMenu();
+      expect(menu.style.left).not.toBe("8px");
+      expect(menu.style.top).not.toBe("8px");
+      expect(Number.parseFloat(menu.style.top)).toBeCloseTo(196, 0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("falls back to the block when the grip has been detached", () => {
+    const { editor, handle } = mountEditor(
+      "<p>First</p><p>Second</p>",
+      {},
+      blockRect,
+    );
+
+    try {
+      const originalParent = handle.parentElement!;
+      handle.addEventListener("mousedown", () => handle.remove(), {
+        once: true,
+      });
+      clickHandle(handle);
+      originalParent.appendChild(handle);
+
+      const menu = getMenu();
+      expect(menu.style.top).not.toBe("8px");
+      expect(Number.parseFloat(menu.style.top)).toBeCloseTo(196, 0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("still opens the menu when every anchor candidate is degenerate", () => {
+    const { editor, handle, wrapper } = mountEditor(
+      "<p>First</p><p>Second</p>",
+      {},
+      blockRect,
+    );
+
+    try {
+      setRect(handle, ZERO_RECT);
+      wrapper.querySelectorAll("p").forEach((node) => setRect(node, ZERO_RECT));
+      setRect(editor.view.dom, ZERO_RECT);
+
+      clickHandle(handle);
+
+      expect(document.querySelector(".an-rich-md-drag-menu")).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
 describe("DragHandle menu", () => {
   it("opens the block menu on a single click", () => {
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
@@ -247,6 +341,50 @@ describe("DragHandle menu", () => {
       expect(editor.state.doc.childCount).toBe(2);
       expect(childText(editor, 0)).toBe("First");
       expect(childText(editor, 1)).toBe("Second");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("marks menu and drag edits as user actions", () => {
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
+    const uiEvents: unknown[] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) uiEvents.push(transaction.getMeta("uiEvent"));
+    });
+
+    try {
+      for (const label of ["Insert block below", "Duplicate", "Delete"]) {
+        hoverAt(32, 12);
+        clickHandle(handle);
+        clickMenuItem(label);
+      }
+      hoverAt(32, 12);
+      handle.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          clientX: 12,
+          clientY: 12,
+        }),
+      );
+      document.dispatchEvent(
+        new MouseEvent("mousemove", {
+          bubbles: true,
+          clientX: 12,
+          clientY: 56,
+        }),
+      );
+      document.dispatchEvent(
+        new MouseEvent("mouseup", {
+          bubbles: true,
+          button: 0,
+          clientX: 12,
+          clientY: 56,
+        }),
+      );
+
+      expect(uiEvents).toEqual(Array(4).fill(DRAG_HANDLE_UI_EVENT));
     } finally {
       editor.destroy();
     }
@@ -526,11 +664,6 @@ describe("DragHandle menu", () => {
   });
 
   it("shows the outer container grip when hovering the shared left gutter", () => {
-    // A flush-left nested region (like the first column of a `columns` block)
-    // shares its container's left-margin gutter. Hovering that gutter — where the
-    // grip lives — must select the CONTAINER so it can be dragged to reorder,
-    // even though the nested editor is the smaller area. (Regression: nested
-    // column editors used to win everywhere, leaving the columns block ungrabbable.)
     const outer = mountEditor(
       "<p>Outer container</p>",
       {},
@@ -543,8 +676,6 @@ describe("DragHandle menu", () => {
         makeRect({ left: 24, top: 0, width: 640, height: 280 }),
       );
     }
-    // Inner region mounted flush-left (block left === container left), mirroring a
-    // column that starts at the container's left edge.
     const inner = mountEditor(
       "<p>Inner block</p>",
       {},
@@ -554,23 +685,14 @@ describe("DragHandle menu", () => {
     );
 
     try {
-      // Over the inner body, the innermost (smallest) editor still wins.
       hoverAt(60, 172);
       expect(inner.handle.style.display).toBe("flex");
       expect(outer.handle.style.display).toBe("none");
 
-      // In the shared left-margin gutter AT THE NESTED BLOCK'S ROW, the inner
-      // block owns the grip band — so a block inside a flush-left column stays
-      // grabbable there to drag OUT of / BETWEEN columns. Its grip glyph renders
-      // in this exact gutter, so flipping to the container here would make the
-      // block's own grip unclickable (the whole point of column drag handles).
       hoverAt(10, 172);
       expect(inner.handle.style.display).toBe("flex");
       expect(outer.handle.style.display).toBe("none");
 
-      // In the gutter ABOVE the nested region (a row the container alone
-      // occupies), the container still wins, so the columns block itself remains
-      // grabbable — it just yields the rows where a nested block's grip lives.
       hoverAt(10, 40);
       expect(outer.handle.style.display).toBe("flex");
       expect(inner.handle.style.display).toBe("none");
@@ -639,14 +761,6 @@ describe("DragHandle menu", () => {
   });
 
   it("keeps a non-left-aligned block's grip alive while the cursor approaches it", () => {
-    // A right column / tab body renders its grip in a gap, NOT the page-left
-    // gutter. Moving the cursor from that block's body toward its grip crosses
-    // into the neighbour's wide forgiving zone (and even its content), so the
-    // plain picker flips hover to the neighbour and the grip vanishes before the
-    // cursor reaches it. The keepalive must hold the grip across that approach.
-    // Here the right grip glyph sits at x:320–344 — LEFT of the 28px gutter band
-    // and inside the left region's content [24,336], so without keepalive the
-    // left region wins at x=330 and the right grip disappears.
     const left = mountEditor(
       "<p>Left region</p>",
       {},
@@ -669,20 +783,15 @@ describe("DragHandle menu", () => {
       right.editor.view.nodeDOM(0) as HTMLElement,
       makeRect({ left: 360, top: 160, width: 300, height: 24 }),
     );
-    // The right block's grip glyph, rendered in the inter-region gap.
     setRect(
       right.handle,
       makeRect({ left: 320, top: 162, width: 24, height: 24 }),
     );
 
     try {
-      // Over the right block's body → its grip shows.
       hoverAt(500, 172);
       expect(right.handle.style.display).toBe("flex");
 
-      // Cursor moved left onto the right block's grip glyph (x=330). This is
-      // inside the LEFT region's content, so the plain picker would hand hover to
-      // the left region — the keepalive must keep the RIGHT grip visible.
       hoverAt(330, 172);
       expect(right.handle.style.display).toBe("flex");
       expect(left.handle.style.display).toBe("none");

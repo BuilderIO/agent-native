@@ -1,20 +1,11 @@
 import { readBody, getSession } from "@agent-native/core/server";
-import {
-  getSetting,
-  getUserSetting,
-  putUserSetting,
-  putSetting,
-} from "@agent-native/core/settings";
 import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 
-import type { Settings } from "../../shared/api.js";
-
-const DEFAULT_SETTINGS: Settings = {
-  timezone: "America/New_York",
-  bookingPageTitle: "Book a Meeting",
-  bookingPageDescription: "Select a time that works for you.",
-  defaultEventDuration: 30,
-};
+import {
+  readCalendarSettings,
+  readPublicCalendarSettings,
+  saveCalendarSettings,
+} from "../lib/calendar-settings.js";
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
@@ -27,10 +18,9 @@ async function uEmail(event: H3Event): Promise<string> {
 
 export const getSettings = defineEventHandler(async (event: H3Event) => {
   try {
-    const email = await uEmail(event);
-    const settings =
-      (await getUserSetting(email, "calendar-settings")) || DEFAULT_SETTINGS;
-    return settings;
+    return await readCalendarSettings(await uEmail(event), {
+      persistDetected: true,
+    });
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };
@@ -38,21 +28,13 @@ export const getSettings = defineEventHandler(async (event: H3Event) => {
 });
 
 export const getPublicSettings = defineEventHandler(async (_event: H3Event) => {
-  const settings =
-    ((await getSetting("calendar-settings")) as unknown as Settings | null) ||
-    DEFAULT_SETTINGS;
-  return settings;
+  return readPublicCalendarSettings();
 });
 
 export const updateSettings = defineEventHandler(async (event: H3Event) => {
   try {
     const email = await uEmail(event);
-    const settings: Settings = await readBody(event);
-    const settingsRecord = settings as unknown as Record<string, unknown>;
-    await putUserSetting(email, "calendar-settings", settingsRecord);
-    // Also write to global key so the public booking/settings page can read it
-    await putSetting("calendar-settings", settingsRecord);
-    return settings;
+    return await saveCalendarSettings(email, await readBody<unknown>(event));
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };

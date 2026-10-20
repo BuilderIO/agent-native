@@ -1,7 +1,3 @@
-// DataForSEO Labs API helper
-// Uses relevant_pages endpoint for per-page SEO metrics
-// and ranked_keywords for keyword-level data
-
 import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
@@ -10,9 +6,8 @@ import {
 
 const API_BASE = "https://api.dataforseo.com/v3";
 
-// In-memory cache (same pattern as bigquery.ts)
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_CACHE = 50;
 
 async function getAuth(): Promise<string> {
@@ -51,7 +46,6 @@ async function apiPost<T>(path: string, body: unknown[]): Promise<T> {
 
   const data = await res.json();
 
-  // Manage cache size
   if (cache.size >= MAX_CACHE) {
     const oldest = cache.keys().next().value;
     if (oldest) cache.delete(oldest);
@@ -90,7 +84,6 @@ interface RelevantPagesResponse {
   }[];
 }
 
-// Get SEO data for all your-domain.com/blog/ pages
 export async function getRelevantBlogPages(
   limit = 100,
   offset = 0,
@@ -131,7 +124,6 @@ export async function getRelevantBlogPages(
   });
 }
 
-// Get ALL blog page SEO data (paginated)
 export async function getAllBlogPagesSeo(): Promise<
   Record<string, BlogPageSeo>
 > {
@@ -178,7 +170,6 @@ interface RankedKeywordsResponse {
   }[];
 }
 
-// Bulk fetch: top ranked keywords across ALL blog pages, with rank changes
 export interface BlogKeywordRanking {
   keyword: string;
   search_volume: number;
@@ -268,7 +259,6 @@ export async function getTopBlogKeywords(
   });
 }
 
-// Paginated: get all top blog keywords (up to maxPages * 100)
 export async function getAllTopBlogKeywords(
   maxResults = 500,
 ): Promise<BlogKeywordRanking[]> {
@@ -282,7 +272,6 @@ export async function getAllTopBlogKeywords(
   return all;
 }
 
-// Get top ranked keywords for a specific blog page slug
 export async function getRankedKeywordsForPage(
   blogSlug: string,
   limit = 10,

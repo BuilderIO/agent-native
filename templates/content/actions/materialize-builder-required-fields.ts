@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -25,6 +25,7 @@ import {
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import { createAppendPositionAllocator } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
 import {
   propertyTypeForSourceField,
@@ -101,12 +102,6 @@ export function propertyTypeForRequiredBuilderField(
   return propertyTypeForSourceField(field.sourceFieldType, metadata);
 }
 
-/**
- * Builder's model schema is authoritative for provider-native value shape.
- * The projected source field type can be `select` because Content renders
- * references with a select editor, including on sources created before raw
- * reference metadata was available.
- */
 export function isBuilderReferenceModelField(
   field: BuilderCmsModelFieldSummary,
 ) {
@@ -182,10 +177,6 @@ export async function readBuilderReferenceSnapshot(args: {
         `Builder reference field ${args.field.label ?? args.field.name} has no target model. No fields were added.`,
       );
     }
-    // The raw reference read is authoritative for the Builder-native id, but
-    // its projected display value can be absent or reduced to `model:id`.
-    // Prefer the already-synced row label so the local select option and the
-    // source baseline normalize to the same id immediately after setup.
     const storedVisible = args.visibleValueBySourceRowId?.get(entry.id);
     const visible =
       typeof storedVisible === "string" && storedVisible.trim()
@@ -315,9 +306,6 @@ export default defineAction({
       fieldRows.map((field) => [field.sourceFieldKey, field]),
     );
     const referenceSnapshots = new Map<string, ReferenceSnapshot>();
-    // Reference snapshots also repair already-materialized mappings. Existing
-    // property values are canonical Builder ids and must never be overwritten;
-    // reruns only correct option labels and seed rows that still have no value.
     for (const metadata of requiredModelFields) {
       const field = fieldByKey.get(requiredFieldKey(metadata));
       if (!field || !isBuilderReferenceModelField(metadata)) continue;
@@ -360,7 +348,7 @@ export default defineAction({
           .filter((itemId) => itemId.length > 0),
       );
       const [maxPosition] = await tx
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
         .from(schema.documentPropertyDefinitions)
         .where(
           and(
@@ -371,7 +359,7 @@ export default defineAction({
             eq(schema.documentPropertyDefinitions.databaseId, database.id),
           ),
         );
-      let position = maxPosition?.max ?? -1;
+      const allocatePosition = createAppendPositionAllocator(maxPosition?.max);
       const now = new Date().toISOString();
       const canonicalSourceRows = currentSourceRows.flatMap((row) => {
         const sourceValues = parseSourceValues(row.sourceValuesJson);
@@ -482,7 +470,6 @@ export default defineAction({
               sourceFieldKey: field.sourceFieldKey,
             });
         const propertyId = nanoid();
-        position += 1;
         await tx.insert(schema.documentPropertyDefinitions).values({
           id: propertyId,
           ownerEmail: database.ownerEmail,
@@ -492,7 +479,7 @@ export default defineAction({
           type,
           visibility: normalizePropertyVisibility(undefined),
           optionsJson: serializePropertyOptions(options),
-          position,
+          position: allocatePosition(),
           createdAt: now,
           updatedAt: now,
         });

@@ -9,11 +9,41 @@ vi.mock("./first-party-analytics", () => ({
 }));
 
 import { runDashboardPanelQuery } from "./dashboard-panel-query";
+import { FirstPartyAnalyticsUnsupportedSqlError } from "./first-party-analytics-backend";
+
+const ctx = { userEmail: "alice@example.com", orgId: "org-1" };
 
 describe("dashboard-panel-query: first-party source", () => {
   beforeEach(() => {
     mocks.queryFirstPartyAnalytics.mockReset();
   });
+
+  it.each([false, true])(
+    "returns first-party execution metadata unchanged on cache hit %s",
+    async (cached) => {
+      const response = {
+        rows: [{ count: 1 }],
+        schema: [{ name: "count", type: "INTEGER" }],
+        bytesProcessed: 4096,
+        cached,
+        providerCacheHit: false,
+        fetchedAt: "2026-10-14T12:00:00.000Z",
+        truncated: false,
+      };
+      mocks.queryFirstPartyAnalytics.mockResolvedValueOnce(response);
+      await expect(
+        runDashboardPanelQuery({
+          source: "first-party",
+          query: "SELECT COUNT(*) AS count FROM analytics_events",
+          ctx,
+        }),
+      ).resolves.toEqual(response);
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(1);
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[0]?.[2]).toEqual({
+        cache: true,
+      });
+    },
+  );
 
   it("uses the report panel timeout for the scoped cached query", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({
@@ -39,5 +69,68 @@ describe("dashboard-panel-query: first-party source", () => {
         timeoutMs: 147,
       },
     );
+  });
+
+  it("does not mix the reviewer identity into a cross-org first-party query", async () => {
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: [{ count: 1 }],
+      schema: [{ name: "count", type: "number" }],
+    });
+
+    await runDashboardPanelQuery({
+      source: "first-party",
+      query: "SELECT COUNT(*) AS count FROM analytics_events",
+      ctx: {
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+    });
+
+    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledWith(
+      "SELECT COUNT(*) AS count FROM analytics_events",
+      {
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+      { cache: true },
+    );
+  });
+
+  it("returns a typed unsupported-backend state that is not an empty result", async () => {
+    mocks.queryFirstPartyAnalytics.mockRejectedValue(
+      new FirstPartyAnalyticsUnsupportedSqlError(
+        "date_trunc('month', ...)",
+        "First-party BigQuery query only supports PostgreSQL date_trunc('week', ...) expressions",
+      ),
+    );
+
+    const result = (await runDashboardPanelQuery({
+      source: "first-party",
+      query:
+        "SELECT date_trunc('month', event_date) AS d FROM analytics_events",
+      ctx,
+    })) as unknown as Record<string, unknown>;
+
+    expect(result.error).toBe("unsupported_by_backend");
+    expect(result.backend).toBe("bigquery");
+    expect(result.construct).toBe("date_trunc('month', ...)");
+    expect(result.message).toContain("date_trunc('month', ...)");
+    expect(result).not.toHaveProperty("rows");
+  });
+
+  it("still throws every other first-party query failure", async () => {
+    mocks.queryFirstPartyAnalytics.mockRejectedValue(
+      new Error("statement timeout"),
+    );
+
+    await expect(
+      runDashboardPanelQuery({
+        source: "first-party",
+        query: "SELECT COUNT(*) AS count FROM analytics_events",
+        ctx,
+      }),
+    ).rejects.toThrow("statement timeout");
   });
 });

@@ -7,7 +7,28 @@ const TooltipProvider = TooltipPrimitive.Provider;
 
 const Tooltip = TooltipPrimitive.Root;
 
-const TooltipTrigger = TooltipPrimitive.Trigger;
+/**
+ * Opens on keyboard focus, but not when a closing menu, popover or dialog
+ * hands focus back to the trigger after a click: Radix opens on any focus,
+ * so the tooltip would pop up after every such close.
+ */
+const TooltipTrigger = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger>
+>(({ onFocus, ...props }, ref) => (
+  <TooltipPrimitive.Trigger
+    ref={ref}
+    onFocus={(event) => {
+      onFocus?.(event);
+      // Radix skips its own open-on-focus for a default-prevented event.
+      if (!event.currentTarget.matches(":focus-visible")) {
+        event.preventDefault();
+      }
+    }}
+    {...props}
+  />
+));
+TooltipTrigger.displayName = TooltipPrimitive.Trigger.displayName;
 
 function normalizeTooltipText(text: string): string {
   const decoded = text.replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex) =>
@@ -36,7 +57,7 @@ const TooltipContent = React.forwardRef<
         sideOffset={sideOffset}
         data-agent-native-tooltip="true"
         className={cn(
-          "z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md origin-[var(--radix-tooltip-content-transform-origin)] data-[state=delayed-open]:animate-in data-[state=closed]:animate-out data-[state=delayed-open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=delayed-open]:zoom-in-95 data-[state=closed]:zoom-out-95 data-[state=delayed-open]:duration-150 data-[state=closed]:duration-100 motion-reduce:data-[state=delayed-open]:zoom-in-100 motion-reduce:data-[state=closed]:zoom-out-100",
+          "z-[500] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md origin-[var(--radix-tooltip-content-transform-origin)] data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95 data-[state=delayed-open]:duration-150 motion-reduce:data-[state=delayed-open]:zoom-in-100",
           className,
         )}
         {...props}

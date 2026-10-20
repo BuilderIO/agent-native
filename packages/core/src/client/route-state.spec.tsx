@@ -3,13 +3,20 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   useAgentRouteState,
   useSemanticNavigationState,
 } from "./route-state.js";
+import { AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE } from "./workspace-app-navigation.js";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -92,6 +99,9 @@ function renderWithQueryClient(element: React.ReactElement) {
 describe("route-state client helpers", () => {
   const roots: Root[] = [];
   const containers: HTMLDivElement[] = [];
+  const originalWorkspaceEnv = process.env.VITE_AGENT_NATIVE_WORKSPACE;
+  const originalWorkspaceAppsEnv =
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -105,7 +115,70 @@ describe("route-state client helpers", () => {
       container.remove();
     }
     Reflect.deleteProperty(document, "startViewTransition");
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: window,
+    });
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    expect(process.env.VITE_AGENT_NATIVE_WORKSPACE).toBe(originalWorkspaceEnv);
+    expect(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON).toBe(
+      originalWorkspaceAppsEnv,
+    );
+  });
+
+  it("reports child route changes to an embedding parent", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    const parentWindow = { postMessage: vi.fn() };
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parentWindow,
+    });
+    let navigate: ReturnType<typeof useNavigate> | undefined;
+
+    function Harness() {
+      navigate = useNavigate();
+      useAgentRouteState({
+        refetchInterval: false,
+        getNavigationState: () => ({ view: "home" }),
+        getCommandPath: () => null,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+
+    expect(parentWindow.postMessage).toHaveBeenCalledWith(
+      {
+        type: AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE,
+        path: "/",
+      },
+      "*",
+    );
+
+    parentWindow.postMessage.mockClear();
+    await act(async () => {
+      void navigate?.("/foobar?mode=edit#canvas");
+      await flush();
+    });
+
+    expect(parentWindow.postMessage).toHaveBeenCalledWith(
+      {
+        type: AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE,
+        path: "/foobar?mode=edit#canvas",
+      },
+      "*",
+    );
   });
 
   it("writes semantic navigation state with request-source metadata", async () => {
@@ -146,6 +219,172 @@ describe("route-state client helpers", () => {
     });
   });
 
+  it("does not stringify unchanged route state on unrelated rerenders", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    const stringify = vi.spyOn(JSON, "stringify");
+
+    let bump: (() => void) | undefined;
+
+    function Harness() {
+      const [, setTick] = React.useState(0);
+      bump = () => setTick((tick) => tick + 1);
+      useAgentRouteState({
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({
+          view: pathname === "/" ? "home" : pathname.slice(1),
+        }),
+        getCommandPath: () => null,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    const navigationDedupCallCount = () =>
+      stringify.mock.calls.filter(([value]) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return false;
+        }
+        return "keys" in value && "state" in value;
+      }).length;
+    const afterInitialRender = navigationDedupCallCount();
+
+    await act(async () => {
+      bump?.();
+      await Promise.resolve();
+    });
+
+    expect(navigationDedupCallCount()).toBe(afterInitialRender);
+  });
+
+  it("updates semantic route state when its callback captures app state", async () => {
+    const { fetchMock, writes } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    let setView: React.Dispatch<React.SetStateAction<string>> | undefined;
+
+    function Harness() {
+      const [view, updateView] = React.useState("home");
+      setView = updateView;
+      useAgentRouteState({
+        refetchInterval: false,
+        getNavigationState: () => ({ view }),
+        getCommandPath: () => null,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(writes.map((write) => write.body)).toEqual([{ view: "home" }]);
+
+    await act(async () => {
+      setView?.("details");
+      await Promise.resolve();
+    });
+    await act(flush);
+
+    expect(writes.map((write) => write.body)).toEqual([
+      { view: "home" },
+      { view: "details" },
+    ]);
+  });
+
+  it("does not permanently deduplicate unserializable navigation states", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    const onError = vi.fn();
+    const firstState: { self?: unknown } = {};
+    firstState.self = firstState;
+    const secondState: { self?: unknown } = {};
+    secondState.self = secondState;
+    let setState:
+      | React.Dispatch<React.SetStateAction<{ self?: unknown }>>
+      | undefined;
+
+    function Harness() {
+      const [state, updateState] = React.useState(firstState);
+      setState = updateState;
+      useSemanticNavigationState({
+        state,
+        navigationKeys: ["navigation"],
+        commandKeys: ["navigate"],
+        commandRefetchInterval: false,
+        onCommand: () => {},
+        onError,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      setState?.(secondState);
+      await Promise.resolve();
+    });
+    await act(flush);
+
+    expect(onError).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports an unserializable state once per state, not once per render", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    const onError = vi.fn();
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+    let rerender: (() => void) | undefined;
+
+    function Harness() {
+      const [, bump] = React.useState(0);
+      rerender = () => bump((count) => count + 1);
+      useSemanticNavigationState({
+        state: circular,
+        navigationKeys: ["navigation"],
+        commandKeys: ["navigate"],
+        commandRefetchInterval: false,
+        onCommand: () => {},
+        onError,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        rerender?.();
+        await Promise.resolve();
+      });
+      await act(flush);
+    }
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   it("reads the first available command key and deletes the consumed command", async () => {
     const { deletes, fetchMock } = makeAppStateFetch({
       "navigate:tab-1": { view: "thread", threadId: "thread-2", _writeId: "a" },
@@ -182,6 +421,7 @@ describe("route-state client helpers", () => {
           method: "DELETE",
           headers: {
             "X-Agent-Native-CSRF": "1",
+            "X-Agent-Native-Browser-Tab": expect.any(String),
             "X-Request-Source": "tab-1",
           },
           keepalive: undefined,
@@ -189,8 +429,6 @@ describe("route-state client helpers", () => {
         },
       },
     ]);
-    // Reads are batched, so which keys share a request is not a behavioural
-    // contract — that only the tab-scoped command was consumed is (above).
     expect(
       fetchMock.mock.calls.some(([url]) => appStateKey(url) === "navigate"),
     ).toBe(false);
@@ -243,22 +481,47 @@ describe("route-state client helpers", () => {
     await act(flush);
 
     expect(rendered.container.textContent).toBe("/detail/123");
-    expect(writes.slice(0, 2).map((write) => write.key)).toEqual([
+    expect(writes.map((write) => write.key)).toEqual([
       "navigation:tab-1",
-      "navigation",
+      "navigation:tab-1",
     ]);
     expect(writes[0].body).toEqual({
       view: "home",
       label: "important",
     });
-    expect(writes.slice(2).map((write) => write.key)).toEqual([
-      "navigation:tab-1",
-      "navigation",
-    ]);
-    expect(writes[2].body).toEqual({
+    expect(writes[1].body).toEqual({
       view: "detail/123",
       label: null,
     });
+  });
+
+  it("places the browser tab before the command key in the default cache key", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    let commandQueryKey: readonly unknown[] | undefined;
+
+    function Harness() {
+      commandQueryKey = useAgentRouteState({
+        browserTabId: "tab-1",
+        refetchInterval: false,
+        getNavigationState: () => ({ view: "home" }),
+        getCommandPath: () => null,
+      }).commandQueryKey;
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+
+    expect(commandQueryKey).toEqual(["navigate-command", "tab-1", "navigate"]);
   });
 
   it("uses the workspace gateway when a command targets a sibling app", async () => {
@@ -293,7 +556,10 @@ describe("route-state client helpers", () => {
         requestSource: "tab-1",
         refetchInterval: false,
         getNavigationState: ({ pathname }) => ({ view: pathname }),
-        getCommandPath: (command: { path?: string }) => command.path,
+        getCommandPath: (command: { path?: string }) =>
+          command.path
+            ? { type: "workspace-app" as const, path: command.path }
+            : null,
       });
       return null;
     }
@@ -314,9 +580,120 @@ describe("route-state client helpers", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("uses the workspace gateway when its target matches the current local route", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      "navigate:tab-1": {
+        path: "/chat/thread-1",
+        _writeId: "cmd-workspace-chat-route",
+      },
+    });
+    const assign = vi.fn();
+    const replace = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "risk", path: "/risk" },
+        { id: "chat", path: "/chat" },
+      ]),
+    );
+    vi.stubGlobal("window", {
+      location: {
+        pathname: "/risk/chat/thread-1",
+        assign,
+        replace,
+      },
+    });
+
+    function Harness() {
+      useAgentRouteState({
+        browserTabId: "tab-1",
+        requestSource: "tab-1",
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({ view: pathname }),
+        getCommandPath: (command: { path?: string }) =>
+          command.path
+            ? { type: "workspace-app" as const, path: command.path }
+            : null,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter basename="/risk" initialEntries={["/risk/chat/thread-1"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+
+    expect(assign).toHaveBeenCalledWith("/chat/thread-1");
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps app-local chat routes local when a sibling app mounts at /chat", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      "navigate:tab-1": {
+        path: "/chat/thread-1",
+        _writeId: "cmd-local-chat-route",
+      },
+    });
+    const assign = vi.fn();
+    const replace = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "risk", path: "/risk" },
+        { id: "chat", path: "/chat" },
+      ]),
+    );
+    vi.stubGlobal("window", {
+      location: {
+        pathname: "/risk/register",
+        assign,
+        replace,
+      },
+    });
+
+    function Harness() {
+      const location = useLocation();
+      useAgentRouteState({
+        browserTabId: "tab-1",
+        requestSource: "tab-1",
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({ view: pathname }),
+        getCommandPath: (command: { path?: string }) => command.path,
+      });
+      return <div>{location.pathname}</div>;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/register"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+
+    expect(rendered.container.textContent).toBe("/chat/thread-1");
+    expect(assign).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("prepares shared chat view transitions before navigate commands", async () => {
     const { fetchMock } = makeAppStateFetch({
-      navigate: { view: "detail", id: "123", _writeId: "cmd-1" },
+      "navigate:tab-1": { view: "detail", id: "123", _writeId: "cmd-1" },
     });
     vi.stubGlobal("fetch", fetchMock);
     const prepare = vi.fn();
@@ -328,6 +705,8 @@ describe("route-state client helpers", () => {
         { view: string },
         { view: string; id?: string; _writeId?: string }
       >({
+        browserTabId: "tab-1",
+        requestSource: "tab-1",
         refetchInterval: false,
         getNavigationState: ({ pathname }) => ({
           view: pathname === "/" ? "home" : pathname.slice(1),

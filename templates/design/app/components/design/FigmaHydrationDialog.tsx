@@ -1,10 +1,3 @@
-/**
- * FigmaHydrationDialog — shown after a no-token local-kiwi clipboard import
- * when IMAGE fills couldn't be resolved. Collects a Figma access token, saves
- * it, then calls `hydrate-figma-paste-images` for each imported file to
- * replace the `url("about:blank")` placeholders with real durable images.
- */
-
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useRef, useState } from "react";
@@ -14,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -23,20 +15,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   hydrateImagesFromFig,
+  MAX_FIG_UPLOAD_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
+import { figmaHydrationErrorMessage } from "@/lib/design-import";
 import {
+  FigmaFileUrlUsedAsTokenError,
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
-import { MAX_UPLOAD_MB } from "@/lib/upload-limits";
 
 interface FigmaHydrationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   designId: string;
   fileIds: string[];
-  imageCount: number;
   onHydrated: () => void;
 }
 
@@ -45,7 +38,6 @@ export function FigmaHydrationDialog({
   onOpenChange,
   designId,
   fileIds,
-  imageCount,
   onHydrated,
 }: FigmaHydrationDialogProps) {
   const t = useT();
@@ -54,9 +46,6 @@ export function FigmaHydrationDialog({
   const [error, setError] = useState<string | null>(null);
   const [docsUrl, setDocsUrl] = useState<string | null>(null);
   const figInputRef = useRef<HTMLInputElement>(null);
-
-  const screensPlural = fileIds.length === 1 ? "" : "s";
-  const imagePlural = imageCount === 1 ? "" : "s";
 
   useEffect(() => {
     if (!open) return;
@@ -78,7 +67,7 @@ export function FigmaHydrationDialog({
           validationError === "too-large"
             ? "designEditor.import.errors.figFileTooLarge"
             : "designEditor.import.figmaHydrationInvalidFig",
-          { max: MAX_UPLOAD_MB },
+          { max: MAX_FIG_UPLOAD_MB },
         ),
       );
       return;
@@ -107,6 +96,10 @@ export function FigmaHydrationDialog({
         ),
       });
     } catch (err) {
+      if (err instanceof FigmaFileUrlUsedAsTokenError) {
+        setError(t("designEditor.import.errors.figmaTokenMustBeToken"));
+        return;
+      }
       setError(
         err instanceof Error
           ? err.message
@@ -145,17 +138,13 @@ export function FigmaHydrationDialog({
         }),
       });
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : t("common.genericError");
-      const is403 =
-        message.includes("403") || message.toLowerCase().includes("forbidden");
-      const isServerError = /internal server error/i.test(message);
       setError(
-        is403
-          ? 'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.'
-          : isServerError
-            ? "Server error — Figma's API may be rate-limited. Wait ~1 minute then try again; repeated retries extend the cooldown."
-            : message,
+        figmaHydrationErrorMessage(
+          err,
+          t("common.genericError"),
+          'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.',
+          t("designEditor.import.errors.figmaTokenMustBeToken"),
+        ),
       );
     } finally {
       setBusy(false);
@@ -174,51 +163,17 @@ export function FigmaHydrationDialog({
             <DialogTitle>
               {t("designEditor.import.figmaHydrationDialogTitle")}
             </DialogTitle>
-            <DialogDescription>
-              {t("designEditor.import.figmaHydrationDialogDescription", {
-                count: imageCount,
-                plural: imagePlural,
-                screensPlural,
-              })}
-            </DialogDescription>
           </DialogHeader>
 
-          <div className="mt-4 rounded-md border border-border bg-muted/30 p-3">
-            <div className="flex items-center gap-2">
-              <p className="text-xs font-medium text-foreground">
-                {t("designEditor.import.figmaHydrationFigTitle")}
-              </p>
-              <span className="rounded-full bg-primary/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-primary">
-                {t("designEditor.import.figmaHydrationRecommended")}
-              </span>
-            </div>
-            <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
-              {t("designEditor.import.figmaHydrationFigOption")}
-            </p>
-            <input
-              ref={figInputRef}
-              type="file"
-              accept=".fig"
-              className="hidden"
-              onChange={(e) => void handleFigSelected(e)}
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="mt-2 w-full"
-              disabled={busy}
-              onClick={() => figInputRef.current?.click()}
-            >
-              {t("designEditor.import.figmaHydrationChooseFig")}
-            </Button>
-          </div>
+          <input
+            ref={figInputRef}
+            type="file"
+            accept=".fig"
+            className="hidden"
+            onChange={(e) => void handleFigSelected(e)}
+          />
 
-          <div className="mt-3 text-center text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {t("designEditor.import.figmaHydrationOrToken")}
-          </div>
-
-          <div className="mt-2 space-y-2">
+          <div className="mt-4 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <Label htmlFor="figma-hydration-token" className="text-xs">
                 {t("designEditor.import.figmaTokenLabel")}
@@ -235,6 +190,7 @@ export function FigmaHydrationDialog({
               ) : null}
             </div>
             <Input
+              size="sm"
               id="figma-hydration-token"
               type="password"
               value={token}
@@ -242,34 +198,25 @@ export function FigmaHydrationDialog({
               placeholder={t("designEditor.import.figmaTokenPlaceholder")}
               autoComplete="new-password"
               aria-invalid={error ? true : undefined}
-              className="h-8 text-xs"
+              className="text-xs"
               disabled={busy}
             />
             {error ? (
               <p className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[10px] leading-snug text-destructive">
                 {error}
               </p>
-            ) : (
-              <div className="space-y-1">
-                <p className="text-[10px] leading-snug text-muted-foreground">
-                  {t("designEditor.import.figmaHydrationTokenDescription")}
-                </p>
-                <p className="text-[10px] leading-snug text-muted-foreground/70">
-                  {t("designEditor.import.figmaHydrationRateLimit")}
-                </p>
-              </div>
-            )}
+            ) : null}
           </div>
 
-          <DialogFooter className="mt-4">
+          <DialogFooter className="mt-4 sm:justify-between">
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => onOpenChange(false)}
               disabled={busy}
+              onClick={() => figInputRef.current?.click()}
             >
-              {t("home.cancel")}
+              {t("designEditor.import.figmaHydrationChooseFig")}
             </Button>
             <Button type="submit" size="sm" disabled={busy || !token.trim()}>
               {t("designEditor.import.figmaHydrationConnectAndLoad")}

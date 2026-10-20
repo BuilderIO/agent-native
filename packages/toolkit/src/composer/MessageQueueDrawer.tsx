@@ -1,0 +1,287 @@
+import { IconCornerDownRight, IconDots, IconTrash } from "@tabler/icons-react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+
+import { Button } from "../ui/button.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip.js";
+import { cn } from "../utils.js";
+
+export interface MessageQueueItem {
+  id: string;
+  text: string;
+  images?: readonly string[];
+}
+
+export interface MessageQueueItemAction {
+  id: string;
+  label: ReactNode;
+  hint?: string;
+  icon?: ReactNode;
+  destructive?: boolean;
+  disabled?: boolean;
+  onSelect: (item: MessageQueueItem) => void;
+}
+
+export interface MessageQueueDrawerLabels {
+  region: string;
+  /** @deprecated Use sendNow. */
+  steer: string;
+  /** @deprecated Use sendNowHint. */
+  steerHint: string;
+  sendNow?: string;
+  sendNowHint?: string;
+  remove: string;
+  moreActions: string;
+}
+
+export type MessageQueueDrawerVariant = "default" | "recessed";
+
+export interface MessageQueueDrawerProps {
+  items: readonly MessageQueueItem[];
+  onSteer?: (item: MessageQueueItem) => void;
+  onRemove: (item: MessageQueueItem) => void;
+  getItemActions?: (
+    item: MessageQueueItem,
+  ) => readonly MessageQueueItemAction[];
+  renderText?: (item: MessageQueueItem) => ReactNode;
+  labels: MessageQueueDrawerLabels;
+  variant?: MessageQueueDrawerVariant;
+  disabled?: boolean;
+  className?: string;
+}
+
+const RECESSED_QUEUE_VERTICAL_CHROME_PX = 10;
+
+function recessedQueueHeight(items: readonly MessageQueueItem[]): number {
+  if (items.length === 0) return 0;
+
+  const contentHeight = items.reduce(
+    (height, item) =>
+      height + (item.images && item.images.length > 0 ? 56 : 36),
+    RECESSED_QUEUE_VERTICAL_CHROME_PX,
+  );
+  return contentHeight;
+}
+
+export function MessageQueueDrawer({
+  items,
+  onSteer,
+  onRemove,
+  getItemActions,
+  renderText,
+  labels,
+  variant = "default",
+  disabled = false,
+  className,
+}: MessageQueueDrawerProps) {
+  const recessed = variant === "recessed";
+  const empty = items.length === 0;
+  const sendNow = labels.sendNow ?? labels.steer;
+  const sendNowHint = labels.sendNowHint ?? labels.steerHint;
+  const [openActionsItemId, setOpenActionsItemId] = useState<string | null>(
+    null,
+  );
+  useEffect(() => {
+    const hasOpenActionsItem =
+      items.length > 1 &&
+      items.some(
+        (item) =>
+          item.id === openActionsItemId &&
+          (getItemActions?.(item).length ?? 0) > 0,
+      );
+    if (!hasOpenActionsItem) setOpenActionsItemId(null);
+  }, [items, getItemActions, openActionsItemId]);
+  if (empty && !recessed) return null;
+
+  const recessedStyle = recessed
+    ? ({
+        "--agent-message-queue-height": `${recessedQueueHeight(items)}px`,
+      } as CSSProperties)
+    : undefined;
+
+  return (
+    <TooltipProvider delayDuration={450}>
+      <section
+        aria-label={labels.region}
+        data-agent-message-queue="true"
+        data-agent-message-queue-variant={variant}
+        data-empty={empty ? "true" : "false"}
+        aria-hidden={empty ? true : undefined}
+        style={recessedStyle}
+        className={cn(
+          recessed
+            ? "relative z-0 mx-auto mb-0 h-[var(--agent-message-queue-height)] w-[calc(100%_-_4rem)] overflow-hidden rounded-xl rounded-b-none border-0 bg-muted/55 pb-2.5 opacity-100 shadow-none transition-[height,margin,opacity,transform,box-shadow] duration-200 ease-[var(--ease-collapse)] data-[empty=true]:pointer-events-none data-[empty=true]:translate-y-2 data-[empty=true]:pb-0 data-[empty=true]:opacity-0 motion-reduce:transition-none"
+            : "w-full overflow-hidden rounded-xl border border-border/80 bg-background shadow-sm animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-[var(--ease-drawer)] motion-reduce:animate-none",
+          className,
+        )}
+      >
+        <ul
+          className={cn(
+            "flex flex-col",
+            recessed
+              ? "h-full gap-0 overflow-y-hidden py-0"
+              : "max-h-40 gap-0.5 overflow-y-auto py-1",
+          )}
+        >
+          {items.map((item) => {
+            const actions = getItemActions?.(item) ?? [];
+
+            return (
+              <li
+                key={item.id}
+                className={cn(
+                  "group flex min-h-9 min-w-0 items-center gap-2 px-4 text-[13px] leading-4 animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-[var(--ease-collapse)] motion-reduce:animate-none",
+                  recessed ? "py-0.5" : "py-1.5",
+                )}
+              >
+                <IconCornerDownRight
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-muted-foreground/50"
+                  strokeWidth={1.7}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-foreground">
+                    {renderText ? renderText(item) : item.text}
+                  </div>
+                  {item.images && item.images.length > 0 ? (
+                    <div className="mt-1 flex gap-1">
+                      {item.images.map((src, index) => (
+                        <img
+                          key={`${item.id}-image-${index}`}
+                          src={src}
+                          alt=""
+                          className="size-8 rounded-md border border-border/60 object-cover"
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
+                  {onSteer ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={disabled}
+                          onClick={() => onSteer(item)}
+                          className="h-7 gap-1 px-1.5 text-xs font-normal text-muted-foreground hover:text-foreground"
+                        >
+                          <IconCornerDownRight
+                            aria-hidden="true"
+                            className="size-3.5"
+                            strokeWidth={1.7}
+                          />
+                          <span>{sendNow}</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{sendNowHint}</TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={disabled}
+                        onClick={() => onRemove(item)}
+                        aria-label={labels.remove}
+                        className="size-7 text-muted-foreground hover:text-foreground"
+                      >
+                        <IconTrash
+                          aria-hidden="true"
+                          className="size-3.5"
+                          strokeWidth={1.7}
+                        />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{labels.remove}</TooltipContent>
+                  </Tooltip>
+                  {items.length > 1 && actions.length > 0 ? (
+                    <DropdownMenu
+                      open={openActionsItemId === item.id}
+                      onOpenChange={(open) =>
+                        setOpenActionsItemId((current) =>
+                          open ? item.id : current === item.id ? null : current,
+                        )
+                      }
+                    >
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              disabled={disabled}
+                              aria-label={labels.moreActions}
+                              className="size-7 text-muted-foreground hover:text-foreground"
+                            >
+                              <IconDots
+                                aria-hidden="true"
+                                className="size-3.5"
+                                strokeWidth={1.7}
+                              />
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>{labels.moreActions}</TooltipContent>
+                      </Tooltip>
+                      <DropdownMenuContent
+                        align="end"
+                        side="top"
+                        sideOffset={4}
+                      >
+                        {actions.map((action) => {
+                          const menuItem = (
+                            <DropdownMenuItem
+                              key={action.id}
+                              disabled={disabled || action.disabled}
+                              onSelect={() => action.onSelect(item)}
+                              className={cn(
+                                action.destructive &&
+                                  "text-destructive focus:text-destructive",
+                              )}
+                            >
+                              {action.icon}
+                              {action.label}
+                            </DropdownMenuItem>
+                          );
+
+                          return action.hint ? (
+                            <Tooltip key={action.id}>
+                              <TooltipTrigger asChild>
+                                {menuItem}
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                {action.hint}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            menuItem
+                          );
+                        })}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    </TooltipProvider>
+  );
+}

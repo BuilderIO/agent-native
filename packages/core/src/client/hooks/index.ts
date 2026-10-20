@@ -2,8 +2,10 @@ export { getBrowserTabId } from "../browser-tab-id.js";
 export {
   deleteClientAppState,
   readClientAppState,
+  readClientAppStateMany,
   setClientAppState,
   writeClientAppState,
+  type ClientAppStateBatch,
   type ClientAppStateReadOptions,
   type ClientAppStateWriteOptions,
 } from "../application-state.js";
@@ -23,22 +25,59 @@ export {
   type DemoModeStatus,
 } from "../use-demo-mode-status.js";
 export { useReconciledState } from "../use-external-value.js";
-export { useSession, type AuthSession } from "../use-session.js";
+export {
+  beginSignOut,
+  isSigningOut,
+  notifySessionInvalidated,
+  useSession,
+  type AuthSession,
+} from "../use-session.js";
+export { signOut, type SignOutOptions } from "../sign-out.js";
 export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
+  actionErrorMessage,
   callAction,
+  callActionBlob,
+  callActionWithRetry,
+  currentActionQueryCacheBinding,
+  recordActionQueryBrowserPersist,
   tryCallActionKeepalive,
   useActionQuery,
   useActionMutation,
   type ActionRegistry,
   type ClientActionCallOptions,
   type ClientActionMethod,
+  type RetriedActionCallOptions,
   type KeepaliveActionCallRejectionReason,
   type KeepaliveActionCallResult,
 } from "../use-action.js";
+export {
+  actionErrorCode,
+  isTerminalActionError,
+} from "../action-failure-circuit.js";
 export { createAgentNativeQueryClient } from "../create-query-client.js";
-export { AppProviders, type AppProvidersProps } from "../app-providers.js";
+export {
+  APP_CHAT_SIDEBAR_STATE_EVENT,
+  APP_CHAT_SIDEBAR_STATE_MESSAGE,
+  APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
+  buildAppChatSidebarStateMessage,
+  buildAppChatSidebarStateRequest,
+  isPerAppChatStorageKey,
+  requestPerAppChatCommand,
+  usePerAppChatState,
+  usePerAppChatOpen,
+  type AppChatSidebarCommand,
+  type AppChatSidebarState,
+} from "../app-chat-sidebar.js";
 export { usePinchZoom, type UsePinchZoomOptions } from "../use-pinch-zoom.js";
+export {
+  isPinchZoomDelta,
+  normalizeWheelDeltaPx,
+  resolveZoomGestureDevice,
+  MAX_PINCH_DELTA_PX,
+  ZOOM_GESTURE_IDLE_RESET_MS,
+  type ZoomGestureDevice,
+} from "../zoom-gesture.js";
 export {
   useAvatarUrl,
   uploadAvatar,
@@ -49,3 +88,4 @@ export {
   type UsePollLoopOptions,
   type UsePollLoopHandle,
 } from "../use-poll-loop.js";
+export { useAfterPaint, scheduleAfterPaint } from "../use-after-paint.js";

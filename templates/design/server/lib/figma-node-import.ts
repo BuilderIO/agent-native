@@ -1,21 +1,14 @@
-/**
- * Shared Figma REST fetch -> map -> screen-file core.
- *
- * Extracted from `import-figma-frame.ts` so a second import path (paste-driven
- * node resolution, see `figma-clipboard-match.ts` / `import-figma-clipboard.ts`)
- * can reuse the exact same fetch/map logic instead of re-implementing it.
- * `import-figma-frame.ts` still owns the action interface and result shape; this
- * module only owns the parts that talk to the Figma REST API and turn node JSON
- * into `ImportedDesignFile` records.
- *
- * Pure/network-boundary split mirrors `figma-node-to-html.ts`'s own doc comment:
- * this module fetches, `figma-node-to-html.ts` maps (pure, synchronous).
- */
-
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
+import {
+  FIGMA_IMPORT_ERROR_CODES,
+  failFigmaImport,
+  isFigmaImportFailure,
+  isFigmaPayloadTooLargeError,
+  readFigmaProviderJson,
+} from "./figma-import-errors.js";
 import {
   collectFallbackNodeIds,
   collectFontUsage,
@@ -36,8 +29,6 @@ const MAX_FIGMA_IMAGE_BYTES = 15 * 1024 * 1024;
 const MAX_TOTAL_FIGMA_IMAGE_BYTES = 64 * 1024 * 1024;
 const MAX_FIGMA_IMAGE_REFERENCES = 256;
 const MAX_FIGMA_IMAGE_IDS_PER_REQUEST = 50;
-// Figma's `/images` endpoint takes ids in the query string; cap the batch by
-// both count and URL length so a complex frame's ids are fetched in full.
 const MAX_FIGMA_IMAGE_IDS_QUERY_CHARS = 1_800;
 const MAX_CONCURRENT_FIGMA_IMAGE_UPLOADS = 4;
 const FIGMA_IMAGE_FETCH_TIMEOUT_MS = 20_000;
@@ -62,8 +53,10 @@ class FigmaImageByteBudget {
       this.downloadedBytes + this.reservedBytes + bytes >
       MAX_TOTAL_FIGMA_IMAGE_BYTES
     ) {
-      throw new Error(
+      failFigmaImport(
         "Figma images exceeded the 64 MB total import limit. Import a smaller frame or selection.",
+        FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+        { statusCode: 413 },
       );
     }
   }
@@ -139,7 +132,11 @@ async function readCappedImageBytes(
     declaredLength > MAX_FIGMA_IMAGE_BYTES
   ) {
     await discardResponseBody(response);
-    throw new Error("image exceeded the 15 MB per-asset limit");
+    failFigmaImport(
+      "A Figma image exceeded the 15 MB per-asset limit.",
+      FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+      { statusCode: 413 },
+    );
   }
   let reservedBytes = 0;
   if (Number.isFinite(declaredLength) && declaredLength > 0) {
@@ -167,7 +164,11 @@ async function readCappedImageBytes(
   if (!reader) {
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength > MAX_FIGMA_IMAGE_BYTES) {
-      throw new Error("image exceeded the 15 MB per-asset limit");
+      failFigmaImport(
+        "A Figma image exceeded the 15 MB per-asset limit.",
+        FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+        { statusCode: 413 },
+      );
     }
     accountDownloadedBytes(buffer.byteLength);
     aggregateBudget.releaseReservation(reservedBytes);
@@ -183,7 +184,11 @@ async function readCappedImageBytes(
     total += value.byteLength;
     if (total > MAX_FIGMA_IMAGE_BYTES) {
       await reader.cancel().catch(() => undefined);
-      throw new Error("image exceeded the 15 MB per-asset limit");
+      failFigmaImport(
+        "A Figma image exceeded the 15 MB per-asset limit.",
+        FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+        { statusCode: 413 },
+      );
     }
     try {
       accountDownloadedBytes(value.byteLength);
@@ -216,26 +221,67 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+function intrinsicImageSize(
+  bytes: Buffer,
+): { width: number; height: number } | null {
+  if (
+    bytes.length >= 24 &&
+    bytes.readUInt32BE(0) === 0x89504e47 &&
+    bytes.toString("ascii", 12, 16) === "IHDR"
+  ) {
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const marker = bytes[offset + 1]!;
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc
+      ) {
+        return {
+          height: bytes.readUInt16BE(offset + 5),
+          width: bytes.readUInt16BE(offset + 7),
+        };
+      }
+      offset += 2 + bytes.readUInt16BE(offset + 2);
+    }
+  }
+  return null;
+}
+
 async function mirrorFigmaImageUrls(
   urls: string[],
   options: {
     ownerEmail?: string;
     fetcher?: FigmaImageFetcher;
     uploader?: FigmaImageUploader;
+    sizes?: Map<string, { width: number; height: number }>;
   } = {},
 ): Promise<Map<string, string>> {
   const uniqueUrls = Array.from(new Set(urls));
   if (uniqueUrls.length === 0) return new Map();
   if (uniqueUrls.length > MAX_FIGMA_IMAGE_REFERENCES) {
-    throw new Error(
+    failFigmaImport(
       `Figma import referenced too many images (${uniqueUrls.length}; max ${MAX_FIGMA_IMAGE_REFERENCES}). Import a smaller frame or selection.`,
+      FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+      { statusCode: 413 },
     );
   }
 
   const ownerEmail = options.ownerEmail ?? getRequestUserEmail();
   if (!ownerEmail) {
-    throw new Error(
+    failFigmaImport(
       "Figma image import requires an authenticated user so assets can be stored durably.",
+      FIGMA_IMPORT_ERROR_CODES.authRequired,
+      { statusCode: 401 },
     );
   }
   const fetcher = options.fetcher ?? ssrfSafeFetch;
@@ -254,14 +300,19 @@ async function mirrorFigmaImageUrls(
           { maxRedirects: 3, httpsOnly: true },
         );
       } catch (error) {
-        throw new Error(
-          `Could not securely fetch a Figma image: ${error instanceof Error ? error.message : String(error)}`,
+        console.error("[figma-import] Figma image fetch was blocked:", error);
+        failFigmaImport(
+          "Could not fetch an image from Figma. Try importing again; Figma render URLs expire.",
+          FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
+          { statusCode: 502 },
         );
       }
       if (!response.ok) {
         await discardResponseBody(response);
-        throw new Error(
+        failFigmaImport(
           `Could not fetch a Figma image (HTTP ${response.status}). Try importing again; Figma render URLs expire.`,
+          FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
+          { statusCode: 502, details: { figmaStatus: response.status } },
         );
       }
 
@@ -269,8 +320,10 @@ async function mirrorFigmaImageUrls(
       const extension = FIGMA_IMAGE_MIME_TYPES.get(mimeType);
       if (!extension) {
         await discardResponseBody(response);
-        throw new Error(
+        failFigmaImport(
           `Figma returned an unsupported image type (${mimeType || "missing content type"}).`,
+          FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
+          { statusCode: 502 },
         );
       }
 
@@ -278,15 +331,23 @@ async function mirrorFigmaImageUrls(
       try {
         data = await readCappedImageBytes(response, aggregateBudget);
       } catch (error) {
-        throw new Error(
-          `Could not import a Figma image: ${error instanceof Error ? error.message : String(error)}.`,
+        if (isFigmaImportFailure(error)) throw error;
+        console.error("[figma-import] Figma image download failed:", error);
+        failFigmaImport(
+          "Could not finish downloading an image from Figma. Try importing again.",
+          FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
+          { statusCode: 502 },
         );
       }
       if (!hasMatchingImageSignature(mimeType, data)) {
-        throw new Error(
+        failFigmaImport(
           "Figma image bytes did not match the advertised image type.",
+          FIGMA_IMPORT_ERROR_CODES.assetUnavailable,
+          { statusCode: 502 },
         );
       }
+      const intrinsic = intrinsicImageSize(data);
+      if (intrinsic) options.sizes?.set(url, intrinsic);
       let uploaded: Awaited<ReturnType<FigmaImageUploader>>;
       try {
         uploaded = await uploader({
@@ -298,13 +359,16 @@ async function mirrorFigmaImageUrls(
           stableUrl: true,
         });
       } catch (error) {
-        throw new Error(
-          `Could not store a Figma image durably. Check Settings > File uploads and try again. ${error instanceof Error ? error.message : String(error)}`,
+        console.error("[figma-import] Figma image upload failed:", error);
+        failFigmaImport(
+          "Could not store a Figma image durably. Check Settings > File uploads and try again.",
+          FIGMA_IMPORT_ERROR_CODES.storageUnavailable,
         );
       }
       if (!uploaded?.url || /^(?:data|blob):/i.test(uploaded.url)) {
-        throw new Error(
-          "Figma import needs durable file storage for rendered images. Connect Builder.io (free tier available) in Settings > File uploads, or configure S3, R2, GCS, or another file upload provider, then try again. No image bytes were stored in SQL.",
+        failFigmaImport(
+          "Figma import needs durable file storage for rendered images. Use Builder.io (free tier available) in Settings > File uploads, or configure S3, R2, GCS, or another file upload provider, then try again. No image bytes were stored in SQL.",
+          FIGMA_IMPORT_ERROR_CODES.storageUnavailable,
         );
       }
       return [url, uploaded.url] as const;
@@ -314,30 +378,26 @@ async function mirrorFigmaImageUrls(
 }
 
 /**
- * Figma's box model treats a frame's declared width/height as the OUTER
- * (border-box-equivalent) size: padding eats into the interior without
+ * Imported frame width and height represent the OUTER
+ * (border-box-equivalent) size: padding uses interior space without
  * growing the frame's footprint. The browser default is `box-sizing:
  * content-box`, so `figma-node-to-html.ts`'s per-node inline `width`/`height`
  * (mapped 1:1 from `absoluteBoundingBox`) plus any padding on the same node
- * renders LARGER than Figma intends by exactly the padding amount, and the
+ * grows the rendered frame by exactly the padding amount, and the
  * default UA `body { margin: 8px }` additionally offsets the whole imported
  * screen away from (0,0). Both together produce visible horizontal/vertical
- * overflow and a diagonal pixel offset relative to Figma's own render for any
- * auto-layout frame with padding (i.e. most real designs). Scope the reset to
+ * overflow and a diagonal pixel offset for any
+ * auto-layout frame with padding. Scope the reset to
  * this Figma-import pipeline only — the shared `normalizeImportedHtmlDocument`
  * is also used by non-Figma import paths that must not be affected.
  */
 export function withFigmaBoxModelReset(html: string): string {
-  return `<style>*,*::before,*::after{box-sizing:border-box;}body{margin:0;}</style>\n${html}`;
+  return (
+    `<style>*,*::before,*::after{box-sizing:border-box;}body{margin:0;}` +
+    `*{text-rendering:geometricPrecision;}</style>\n${html}`
+  );
 }
 
-/**
- * Build a Google Fonts CSS2 URL from the font usage collected for one
- * imported node (mirrors the equivalent helper in `fig-file-to-html.ts` for
- * `.fig` imports, kept separate here to avoid coupling the REST-node and
- * `.fig`-binary import pipelines). Returns null when no custom fonts were
- * used (nothing to request).
- */
 export function buildGoogleFontsUrl(
   fontUsage: FigmaFontUsage[],
 ): string | null {
@@ -391,17 +451,6 @@ export function buildGoogleFontsUrl(
   return `https://fonts.googleapis.com/css2?${families.join("&")}&display=swap`;
 }
 
-/**
- * Prepend `<link>` tags requesting the imported node's real fonts from Google
- * Fonts. `normalizeImportedHtmlDocument` wraps content with no `<html>` tag
- * into a fresh document whose `<body>` is exactly this string -- so, like
- * `withFigmaBoxModelReset` above, these tags land in `<body>`, which browsers
- * still apply `rel="stylesheet"` links from. This is the same fallback-font
- * substitution problem `code-layer-state.ts` and `fig-file-to-html.ts`
- * already solve for other design-generation/import paths; the REST-node
- * Figma importer had no equivalent, so every imported font silently
- * substituted the browser default sans-serif.
- */
 export function withFigmaFontLoading(
   html: string,
   fontUsage: FigmaFontUsage[],
@@ -412,106 +461,7 @@ export function withFigmaFontLoading(
   return `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${escapedUrl}">\n${html}`;
 }
 
-type FigmaProviderEnvelope = {
-  response?: {
-    ok?: boolean;
-    status?: number;
-    statusText?: string;
-    headers?: Record<string, string>;
-    json?: unknown;
-    text?: string;
-    truncated?: boolean;
-    size?: number;
-  };
-};
-
-export type FigmaRateLimitError = Error & {
-  statusCode: 429;
-  retryAfterSeconds?: number;
-  figmaPlanTier?: string;
-  figmaRateLimitType?: "low" | "high";
-  figmaUpgradeUrl?: string;
-};
-
-const FIGMA_PLAN_TIERS = new Set([
-  "enterprise",
-  "org",
-  "pro",
-  "starter",
-  "student",
-]);
-
-export function isFigmaRateLimitError(
-  err: unknown,
-): err is FigmaRateLimitError {
-  return (
-    err instanceof Error && (err as { statusCode?: unknown }).statusCode === 429
-  );
-}
-
-function figmaUpgradeUrl(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    const url = new URL(value);
-    if (
-      url.protocol === "https:" &&
-      (url.hostname === "figma.com" || url.hostname.endsWith(".figma.com"))
-    ) {
-      return value;
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
-
-export function providerJson(envelope: unknown, label: string): unknown {
-  const response = (envelope as FigmaProviderEnvelope | null)?.response;
-  if (!response) throw new Error(`Figma ${label} response was empty.`);
-  if (response.truncated) {
-    throw new Error(
-      `Figma ${label} response exceeded the safe 4 MB import limit${response.size ? ` (${response.size} bytes)` : ""}. Import a smaller frame or selection.`,
-    );
-  }
-  if (response.ok === false) {
-    const jsonBody = response.json as {
-      message?: string;
-      error?: string;
-    } | null;
-    const detail =
-      (typeof response.text === "string" && response.text.trim()) ||
-      (typeof jsonBody?.message === "string" && jsonBody.message) ||
-      response.statusText ||
-      `HTTP ${response.status ?? "error"}`;
-    const err = new Error(`Figma ${label} request failed: ${detail}`);
-    if (response.status === 429) {
-      const rateLimitError = err as FigmaRateLimitError;
-      rateLimitError.statusCode = 429;
-
-      const retryAfterHeader = response.headers?.["retry-after"];
-      if (retryAfterHeader) {
-        rateLimitError.retryAfterSeconds = parseInt(retryAfterHeader, 10);
-      }
-
-      const planTier = response.headers?.["x-figma-plan-tier"];
-      if (planTier && FIGMA_PLAN_TIERS.has(planTier)) {
-        rateLimitError.figmaPlanTier = planTier;
-      }
-
-      const rateLimitType = response.headers?.["x-figma-rate-limit-type"];
-      if (rateLimitType === "low" || rateLimitType === "high") {
-        rateLimitError.figmaRateLimitType = rateLimitType;
-      }
-
-      const upgradeUrl = figmaUpgradeUrl(
-        response.headers?.["x-figma-upgrade-link"],
-      );
-      if (upgradeUrl) rateLimitError.figmaUpgradeUrl = upgradeUrl;
-    }
-    throw err;
-  }
-  return response.json;
-}
+export const providerJson = readFigmaProviderJson;
 
 export async function figmaGet(path: string, query?: Record<string, unknown>) {
   return executeProviderApiRequest({
@@ -531,14 +481,6 @@ export interface FigmaFileDepthNode {
   characters?: string;
 }
 
-/**
- * Fetches the file's page/frame structure at a given `depth` (cheap: no
- * geometry, just ids/names/types/children/characters). `depth=2` returns
- * pages + their direct children (top-level frames) — used to find a default
- * frame when no node-id is given. `depth=3` additionally returns each top
- * frame's direct children — used by the clipboard matcher to read visible
- * text for heuristic matching.
- */
 export async function fetchFileStructure(
   fileKey: string,
   depth: number,
@@ -556,30 +498,25 @@ export async function resolveTargetNodeId(
 ): Promise<string> {
   if (nodeId) return nodeId;
 
-  // No node-id given: find the file's first top-level frame under its first
-  // page. depth=2 keeps this cheap (pages + their direct children only, no
-  // deep geometry) instead of pulling the entire document tree.
   const document = await fetchFileStructure(fileKey, 2);
   const firstPage = document.children?.[0];
-  const firstFrame = firstPage?.children?.find((child) => Boolean(child?.id));
+  const firstFrame = firstPage?.children?.find(
+    (child) => child?.type === "FRAME" && Boolean(child.id),
+  );
   if (!firstFrame?.id) {
-    throw new Error(
+    failFigmaImport(
       "Could not find a frame to import. Pass a specific node-id or a Figma frame URL with ?node-id=.",
+      FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
+      { statusCode: 404 },
     );
   }
   return firstFrame.id;
 }
 
-/**
- * Fetches one or more nodes' full document JSON. Vector `geometry=paths` is
- * intentionally omitted: structural vectors already use rendered-image
- * fallback, while requesting every raw path frequently pushes ordinary frames
- * past the provider response limit. If a multi-selection is still too large,
- * retry it as smaller batches before failing a single oversized node.
- */
 export async function fetchFigmaNodes(
   fileKey: string,
   nodeIds: string[],
+  withGeometry = true,
 ): Promise<Record<string, FigmaNode>> {
   if (nodeIds.length === 0) return {};
   let json: {
@@ -588,21 +525,24 @@ export async function fetchFigmaNodes(
   try {
     const envelope = await figmaGet(`/files/${fileKey}/nodes`, {
       ids: nodeIds.join(","),
+      ...(withGeometry ? { geometry: "paths" } : {}),
     });
     json = providerJson(envelope, "nodes") as typeof json;
   } catch (error) {
-    if (
-      nodeIds.length > 1 &&
-      /exceeded the safe 4 MB import limit/i.test(
-        error instanceof Error ? error.message : String(error),
-      )
-    ) {
+    const isOversize = isFigmaPayloadTooLargeError(error);
+    if (isOversize && nodeIds.length > 1) {
       const midpoint = Math.ceil(nodeIds.length / 2);
       const [left, right] = await Promise.all([
-        fetchFigmaNodes(fileKey, nodeIds.slice(0, midpoint)),
-        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint)),
+        fetchFigmaNodes(fileKey, nodeIds.slice(0, midpoint), withGeometry),
+        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint), withGeometry),
       ]);
       return { ...left, ...right };
+    }
+    if (isOversize && withGeometry) {
+      console.warn(
+        `[figma-import] Node ${nodeIds.join(",")} exceeded the provider response limit with geometry=paths; retrying without it (vectors will import as rendered PNGs).`,
+      );
+      return fetchFigmaNodes(fileKey, nodeIds, false);
     }
     throw error;
   }
@@ -610,17 +550,25 @@ export async function fetchFigmaNodes(
   for (const nodeId of nodeIds) {
     const entry = json.nodes?.[nodeId];
     if (!entry) {
-      throw new Error(
+      failFigmaImport(
         `Figma node ${nodeId} was not found in file ${fileKey}. Check the node-id and that the token has access to this file.`,
+        FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
+        { statusCode: 404, details: { fileKey, nodeId } },
       );
     }
     if (entry.err) {
-      throw new Error(
+      failFigmaImport(
         `Figma returned an error for node ${nodeId}: ${entry.err}`,
+        FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
+        { statusCode: 404, details: { fileKey, nodeId } },
       );
     }
     if (!entry.document) {
-      throw new Error(`Figma node ${nodeId} had no document payload.`);
+      failFigmaImport(
+        `Figma node ${nodeId} had no document payload.`,
+        FIGMA_IMPORT_ERROR_CODES.requestFailed,
+        { statusCode: 502, details: { fileKey, nodeId } },
+      );
     }
     result[nodeId] = entry.document;
   }
@@ -655,8 +603,6 @@ async function fetchFallbackImageUrls(
       if (typeof url === "string" && url) result[id] = url;
     }
   };
-  // Batch over the full ID list by count and query length so complex frames
-  // don't silently drop layers beyond the first request.
   let batch: string[] = [];
   let queryChars = 0;
   for (const nodeId of nodeIds) {
@@ -683,11 +629,13 @@ async function fetchImageFillUrls(
   if (imageRefs.length === 0) return {};
   const envelope = await figmaGet(`/files/${fileKey}/images`);
   const json = providerJson(envelope, "image fills") as {
+    meta?: { images?: Record<string, string | null | undefined> };
     images?: Record<string, string | null | undefined>;
   };
+  const images = json.meta?.images ?? json.images;
   const result: Record<string, string> = {};
   for (const ref of imageRefs) {
-    const url = json.images?.[ref];
+    const url = images?.[ref];
     if (typeof url === "string" && url) result[ref] = url;
   }
   return result;
@@ -752,13 +700,6 @@ export function summarizeFidelity(entries: FidelityEntry[]) {
   };
 }
 
-/**
- * Fetches whatever PNG fallback / image-fill URLs the given nodes need (union
- * across all of them, one request each instead of one per node) and maps
- * every node to an `ImportedDesignFile`. Cascading x-offset placement mirrors
- * `saveImportedDesignFiles`' own frame layout so multiple imported nodes don't
- * land stacked on top of each other before the canvas placement pass runs.
- */
 export async function buildScreenFilesFromFigmaNodes(
   fileKey: string,
   nodesById: Record<string, FigmaNode>,
@@ -770,6 +711,7 @@ export async function buildScreenFilesFromFigmaNodes(
   files: ImportedDesignFile[];
   fidelityEntries: FidelityEntry[];
   missingImageFillCount: number;
+  omissionWarnings: string[];
 }> {
   const entries = Object.entries(nodesById);
   const fallbackNodeIds = new Set<string>();
@@ -780,8 +722,10 @@ export async function buildScreenFilesFromFigmaNodes(
   }
   const imageReferenceCount = fallbackNodeIds.size + imageFillRefs.size;
   if (imageReferenceCount > MAX_FIGMA_IMAGE_REFERENCES) {
-    throw new Error(
+    failFigmaImport(
       `Figma import referenced too many images (${imageReferenceCount}; max ${MAX_FIGMA_IMAGE_REFERENCES}). Import a smaller frame or selection.`,
+      FIGMA_IMPORT_ERROR_CODES.payloadTooLarge,
+      { statusCode: 413 },
     );
   }
 
@@ -792,9 +736,13 @@ export async function buildScreenFilesFromFigmaNodes(
   const missingFallbackNodeIds = Array.from(fallbackNodeIds).filter(
     (nodeId) => !fallbackImageUrls[nodeId],
   );
+  const omissionWarnings: string[] = [];
   if (missingFallbackNodeIds.length > 0) {
     console.warn(
       `[figma-import] ${missingFallbackNodeIds.length} fallback layer(s) could not be rendered and will be omitted (${missingFallbackNodeIds.slice(0, 5).join(", ")}${missingFallbackNodeIds.length > 5 ? ", …" : ""}).`,
+    );
+    omissionWarnings.push(
+      `${missingFallbackNodeIds.length} layer${missingFallbackNodeIds.length === 1 ? "" : "s"} could not be rendered by Figma and ${missingFallbackNodeIds.length === 1 ? "was" : "were"} left out — usually a logo, icon or illustration. Re-run the import, or flatten those layers in Figma first.`,
     );
   }
   const missingImageFillRefs = Array.from(imageFillRefs).filter(
@@ -805,10 +753,16 @@ export async function buildScreenFilesFromFigmaNodes(
       `[figma-import] ${missingImageFillRefs.length} image fill ref(s) could not be resolved (likely from a component library file); those fills will be omitted.`,
     );
   }
-  const durableUrls = await mirrorFigmaImageUrls([
-    ...Object.values(fallbackImageUrls),
-    ...Object.values(imageFillUrls),
-  ]);
+  const sourceImageSizes = new Map<string, { width: number; height: number }>();
+  const durableUrls = await mirrorFigmaImageUrls(
+    [...Object.values(fallbackImageUrls), ...Object.values(imageFillUrls)],
+    { sizes: sourceImageSizes },
+  );
+  const imageFillSizes: Record<string, { width: number; height: number }> = {};
+  for (const [imageRef, url] of Object.entries(imageFillUrls)) {
+    const size = sourceImageSizes.get(url);
+    if (size) imageFillSizes[imageRef] = size;
+  }
   for (const [nodeId, url] of Object.entries(fallbackImageUrls)) {
     fallbackImageUrls[nodeId] = durableUrls.get(url)!;
   }
@@ -823,6 +777,7 @@ export async function buildScreenFilesFromFigmaNodes(
     const { html, fidelity } = mapFigmaNodeToHtml(node, {
       fallbackImageUrls,
       imageFillUrls,
+      imageFillSizes,
     });
     fidelityEntries.push(...fidelity.entries);
 
@@ -863,5 +818,15 @@ export async function buildScreenFilesFromFigmaNodes(
   const finalMissingCount = missingImageFillRefs.filter(
     (r) => !imageFillUrls[r],
   ).length;
-  return { files, fidelityEntries, missingImageFillCount: finalMissingCount };
+  if (finalMissingCount > 0) {
+    omissionWarnings.push(
+      `${finalMissingCount} image fill${finalMissingCount === 1 ? "" : "s"} could not be fetched from Figma and ${finalMissingCount === 1 ? "was" : "were"} omitted. This can happen for deleted images or very large assets.`,
+    );
+  }
+  return {
+    files,
+    fidelityEntries,
+    missingImageFillCount: finalMissingCount,
+    omissionWarnings,
+  };
 }

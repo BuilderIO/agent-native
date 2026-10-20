@@ -32,6 +32,7 @@ const CONTROL_ACTIONS = new Set([
   "type",
   "key",
   "navigate",
+  "open-tab",
   "scroll",
 ]);
 const BROWSER_KEYS = new Set([
@@ -148,8 +149,8 @@ async function resolveBrowserDevice(
   if (matches.length === 0) {
     throw new Error(
       sessionHandle
-        ? "That browser session is no longer connected. Re-open the Agent Native side panel on the page."
-        : `No online browser device advertises browser.${mode}. Open Agent Native for Chrome and grant page access first.`,
+        ? "That browser session is no longer connected. Re-open the Agent-Native side panel on the page."
+        : `No online browser device advertises browser.${mode}. Open Agent-Native for Chrome and grant page access first.`,
     );
   }
   throw new Error(
@@ -228,7 +229,7 @@ function buildControlAction(
   const action = readString(args, "action");
   if (!action || (!CONTROL_ACTIONS.has(action) && action !== "stop")) {
     throw new Error(
-      "Control action must be attach, click, type, key, navigate, scroll, or stop",
+      "Control action must be attach, click, type, key, navigate, open-tab, scroll, or stop",
     );
   }
   if (action === "attach") {
@@ -289,6 +290,15 @@ function buildControlAction(
     if (!url) throw new Error("url is required");
     return {
       type: "browser.navigate",
+      target: null,
+      input: { url },
+    };
+  }
+  if (action === "open-tab") {
+    const url = readString(args, "url");
+    if (!url) throw new Error("url is required");
+    return {
+      type: "browser.open-tab",
       target: null,
       input: { url },
     };
@@ -467,7 +477,7 @@ export function createRemoteBrowserActionEntries(
       readOnly: true,
       tool: {
         description:
-          "List online Agent Native Chrome sessions. Use the opaque sessionHandle to read or control the page; never ask the user for a Chrome tab id.",
+          "List online Agent-Native Chrome sessions. Use the opaque sessionHandle to read or control the page; never ask the user for a Chrome tab id.",
         parameters: {
           type: "object",
           properties: {},
@@ -525,7 +535,7 @@ export function createRemoteBrowserActionEntries(
       needsApproval: (args) => args.action !== "stop",
       tool: {
         description:
-          "Attach to and control a user-granted Chrome page. Attach once per conversation before observing or acting. Targets must come from the latest observation. Control actions require inline user approval.",
+          "Attach to and control a user-granted Chrome page. Attach once per conversation before observing or acting. Targets must come from the latest observation. The approved open-tab action creates an inactive same-origin tab and moves the lease without focusing Chrome. Control actions require inline user approval.",
         parameters: {
           type: "object",
           properties: {
@@ -538,6 +548,7 @@ export function createRemoteBrowserActionEntries(
                 "type",
                 "key",
                 "navigate",
+                "open-tab",
                 "scroll",
                 "stop",
               ],

@@ -1,0 +1,200 @@
+import {
+  resolveDesktopChildComputerMcpServer,
+  type McpConfig,
+  type McpServerConfig,
+} from "../mcp-client/config.js";
+
+const DESKTOP_MCP_ALLOWLIST_ENV =
+  "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST";
+
+function parseServerAllowlist(raw: string | undefined): Set<string> | null {
+  if (raw === undefined) return null;
+  return new Set(
+    raw
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+}
+
+export function restrictCodeAgentMcpConfig(
+  config: McpConfig | null,
+  environment: NodeJS.ProcessEnv = process.env,
+): McpConfig | null {
+  const allowlist = parseServerAllowlist(
+    environment[DESKTOP_MCP_ALLOWLIST_ENV],
+  );
+  if (!allowlist || !config) return config;
+
+  const desktopServer = findDesktopChildComputerMcpServer(config, environment);
+  if (desktopServer) allowlist.add(desktopServer.id);
+
+  const servers = Object.fromEntries(
+    Object.entries(config.servers).filter(([id]) => allowlist.has(id)),
+  );
+  return { ...config, servers };
+}
+
+function codexConfigKey(serverId: string): string {
+  const normalized = serverId.replace(/[^A-Za-z0-9_-]/g, "_");
+  return normalized || "workspace";
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function tomlInlineTable(headers: Record<string, string>): string {
+  return `{${Object.entries(headers)
+    .map(([key, value]) => `${tomlString(key)}=${tomlString(value)}`)
+    .join(",")}}`;
+}
+
+function parseMcpServers(
+  environment: NodeJS.ProcessEnv,
+): Record<string, McpServerConfig> {
+  const raw = environment.MCP_SERVERS?.trim();
+  if (!raw) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    throw new Error("MCP_SERVERS is not valid JSON.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("MCP_SERVERS must contain a servers object.");
+  }
+  const serverMap =
+    "servers" in parsed &&
+    parsed.servers &&
+    typeof parsed.servers === "object" &&
+    !Array.isArray(parsed.servers)
+      ? (parsed.servers as Record<string, unknown>)
+      : (parsed as Record<string, unknown>);
+  return Object.fromEntries(
+    Object.entries(serverMap).map(([id, value]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error(`MCP_SERVERS entry ${id} is invalid.`);
+      }
+      return [id, value];
+    }),
+  ) as Record<string, McpServerConfig>;
+}
+
+function desktopChildComputerServerConfig(
+  environment: NodeJS.ProcessEnv,
+): McpServerConfig | null {
+  return resolveDesktopChildComputerMcpServer({}, environment)?.config ?? null;
+}
+
+function findDesktopChildComputerMcpServer(
+  config: McpConfig,
+  environment: NodeJS.ProcessEnv,
+): { id: string; config: McpServerConfig } | null {
+  const expected = desktopChildComputerServerConfig(environment);
+  if (!expected || expected.type !== "http") return null;
+  const match = Object.entries(config.servers).find(
+    ([, server]) =>
+      server.type === "http" &&
+      server.url === expected.url &&
+      server.headers?.Authorization === expected.headers?.Authorization,
+  );
+  return match ? { id: match[0], config: match[1] } : null;
+}
+
+export function mergeCodeAgentMcpConfig(
+  config: McpConfig | null,
+  environment: NodeJS.ProcessEnv = process.env,
+): McpConfig | null {
+  const environmentServers = parseMcpServers(environment);
+  const servers = {
+    ...(config?.servers ?? {}),
+    ...environmentServers,
+  };
+  const existingDesktopServer = config
+    ? findDesktopChildComputerMcpServer(config, environment)
+    : null;
+  const desktopServer = existingDesktopServer
+    ? null
+    : resolveDesktopChildComputerMcpServer(servers, environment);
+  if (desktopServer) servers[desktopServer.id] = desktopServer.config;
+  if (Object.keys(servers).length === 0) return config;
+  return {
+    ...(config ?? { servers: {} }),
+    servers,
+    source: config?.source
+      ? `${config.source}+desktop-environment`
+      : "env:MCP_SERVERS",
+  };
+}
+
+export function codexMcpConfigArgs(
+  config: McpConfig | null = null,
+  environment: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const args: string[] = [];
+  for (const [key, server] of codeAgentHttpMcpServers(config, environment)) {
+    args.push("-c", `mcp_servers.${key}.url=${tomlString(server.url)}`);
+    if (server.headers && Object.keys(server.headers).length > 0) {
+      args.push(
+        "-c",
+        `mcp_servers.${key}.http_headers=${tomlInlineTable(server.headers)}`,
+      );
+    }
+  }
+  return args;
+}
+
+/**
+ * Callers must also pass `--strict-mcp-config` (Claude's equivalent of
+ * `--ignore-user-config`), or user-level MCP servers join this scoped set.
+ */
+export function claudeMcpConfig(
+  config: McpConfig | null = null,
+  environment: NodeJS.ProcessEnv = process.env,
+): {
+  mcpServers: Record<
+    string,
+    { type: "http"; url: string; headers?: Record<string, string> }
+  >;
+} | null {
+  const mcpServers = Object.fromEntries(
+    codeAgentHttpMcpServers(config, environment).map(([key, server]) => [
+      key,
+      {
+        type: "http" as const,
+        url: server.url,
+        ...(server.headers && Object.keys(server.headers).length > 0
+          ? { headers: server.headers }
+          : {}),
+      },
+    ]),
+  );
+  return Object.keys(mcpServers).length > 0 ? { mcpServers } : null;
+}
+
+function codeAgentHttpMcpServers(
+  config: McpConfig | null,
+  environment: NodeJS.ProcessEnv,
+): Array<[string, { url: string; headers?: Record<string, string> }]> {
+  const servers =
+    restrictCodeAgentMcpConfig(
+      mergeCodeAgentMcpConfig(config, environment),
+      environment,
+    )?.servers ?? {};
+  // Both CLIs need a sanitized key, and a lossy key would let one server (and
+  // its credential headers) silently replace another. Reject that instead.
+  const idsByKey = new Map<string, string>();
+  return Object.entries(servers).flatMap(([serverId, server]) => {
+    if (server.type !== "http" || !server.url) return [];
+    const key = codexConfigKey(serverId);
+    const existing = idsByKey.get(key);
+    if (existing !== undefined) {
+      throw new Error(
+        `MCP server IDs "${existing}" and "${serverId}" both map to "${key}". Rename one of them.`,
+      );
+    }
+    idsByKey.set(key, serverId);
+    return [[key, { url: server.url, headers: server.headers }]];
+  });
+}

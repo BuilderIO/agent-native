@@ -1,14 +1,4 @@
-/**
- * Update Clips AI preferences for the current user.
- *
- * Merges into the shared `clips-user-prefs` object so playback/transcript
- * preferences from Settings are preserved.
- *
- * Usage:
- *   pnpm action update-clips-ai-prefs --includeFullVideoInAi=true
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
+  assertCreativeContextLabEnabled: vi.fn(),
   readAppState: vi.fn(),
   nativeCreativeArtifactFromMetadata: vi.fn(),
   reassembleNativeCreativeArtifact: vi.fn(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+  registerShareableResource: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -27,6 +29,7 @@ vi.mock("@agent-native/creative-context", () => ({
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
+  assertCreativeContextLabEnabled: mocks.assertCreativeContextLabEnabled,
   recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
 }));
 
@@ -46,6 +49,7 @@ import action from "./clone-creative-context-design.js";
 describe("clone-creative-context-design", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.assertCreativeContextLabEnabled.mockResolvedValue(undefined);
     mocks.readAppState.mockResolvedValue({ contextMode: "auto" });
     mocks.resolveImportDesignId.mockResolvedValue("design-1");
     mocks.assertAccess.mockResolvedValue({ role: "editor" });
@@ -181,6 +185,22 @@ describe("clone-creative-context-design", () => {
       }),
     ).rejects.toThrow("Creative Context is off");
     expect(mocks.resolveImportDesignId).not.toHaveBeenCalled();
+    expect(mocks.getCreativeContextItem).not.toHaveBeenCalled();
+  });
+
+  it("checks the Labs gate before reading Creative Context state or items", async () => {
+    mocks.assertCreativeContextLabEnabled.mockRejectedValue(
+      new Error("Creative Context is disabled in Labs"),
+    );
+
+    await expect(
+      action.run({
+        itemId: "item-root",
+        itemVersionId: "version-root",
+        designId: "design-1",
+      }),
+    ).rejects.toThrow("Creative Context is disabled in Labs");
+    expect(mocks.readAppState).not.toHaveBeenCalled();
     expect(mocks.getCreativeContextItem).not.toHaveBeenCalled();
   });
 

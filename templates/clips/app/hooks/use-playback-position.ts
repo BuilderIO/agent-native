@@ -13,20 +13,17 @@ export interface UsePlaybackPositionOptions {
   recordingId: string;
   videoEl: HTMLVideoElement | null;
   durationMs: number;
+  enabled?: boolean;
   explicitStartMs?: number;
   allowRestoreWhilePlaying?: boolean;
   onRestore?: (positionMs: number) => void;
 }
 
-/**
- * Persists the latest native-video position for the current viewer. This is
- * separate from view analytics so the recording owner can resume without
- * becoming one of the clip's counted viewers.
- */
 export function usePlaybackPosition({
   recordingId,
   videoEl,
   durationMs,
+  enabled = true,
   explicitStartMs,
   allowRestoreWhilePlaying = false,
   onRestore,
@@ -38,7 +35,7 @@ export function usePlaybackPosition({
   onRestoreRef.current = onRestore;
 
   useEffect(() => {
-    if (!videoEl || !recordingId) return;
+    if (!enabled || !videoEl || !recordingId) return;
 
     const controller = new AbortController();
     let cancelled = false;
@@ -46,7 +43,6 @@ export function usePlaybackPosition({
     let restoreApplied = false;
     let saveInFlight = false;
     let pendingSave: { positionMs: number; keepalive: boolean } | null = null;
-    let lastSavedPositionMs = -1;
     let lastSavedAt = -SAVE_INTERVAL_MS;
     let removePendingRestoreListeners: (() => void) | null = null;
 
@@ -78,7 +74,6 @@ export function usePlaybackPosition({
       }
 
       saveInFlight = true;
-      lastSavedPositionMs = positionMs;
       lastSavedAt = now;
       void savePlaybackPosition(recordingId, positionMs, { keepalive })
         .catch((error) => {
@@ -184,5 +179,11 @@ export function usePlaybackPosition({
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [allowRestoreWhilePlaying, explicitStartMs, recordingId, videoEl]);
+  }, [
+    allowRestoreWhilePlaying,
+    enabled,
+    explicitStartMs,
+    recordingId,
+    videoEl,
+  ]);
 }

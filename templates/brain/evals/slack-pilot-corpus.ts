@@ -169,12 +169,12 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
   },
   {
     id: "dev-fusion-tanstack-compromise",
-    title: "Agent Native TanStack compromise review found no affected packages",
+    title: "Agent-Native TanStack compromise review found no affected packages",
     summary:
-      "Agent Native uses TanStack, but the TanStack compromise review concluded Agent Native did not use the affected packages; PR #673 added minimum package age and CI package pinning hardening.",
-    body: "The #dev-fusion Agent Native TanStack compromise review concluded that Agent Native does use TanStack, but it did not depend on the affected packages from the compromise. Follow-up hardening in PR #673 added minimum package age checks and CI package pinning so future installs are less exposed to dependency compromise windows.",
+      "Agent-Native uses TanStack, but the TanStack compromise review concluded Agent-Native did not use the affected packages; PR #673 added minimum package age and CI package pinning hardening.", // guard:allow-raw-color - #673 is a PR reference, not a color.
+    body: "The #dev-fusion Agent-Native TanStack compromise review concluded that Agent-Native does use TanStack, but it did not depend on the affected packages from the compromise. Follow-up hardening in PR #673 added minimum package age checks and CI package pinning so future installs are less exposed to dependency compromise windows.", // guard:allow-raw-color - #673 is a PR reference, not a color.
     quote:
-      "Agent Native uses TanStack but not the affected packages; PR #673 hardened installs with minimum package age and CI package pinning.",
+      "Agent-Native uses TanStack but not the affected packages; PR #673 hardened installs with minimum package age and CI package pinning.", // guard:allow-raw-color - #673 is a PR reference, not a color.
     captureTitle: "#dev-fusion TanStack compromise review",
     sourceUrl:
       "https://slack.example.com/archives/CDEVFUSION/p1778874000001000",
@@ -195,25 +195,25 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
   },
   {
     id: "import-review-policy",
-    title: "Brain imports stay review-gated before company knowledge",
+    title: "Brain import policy allows direct publishing of company knowledge",
     summary:
-      "Raw imports can enter Brain as captures, but company-tier knowledge stays reviewed, cited, or explicitly proposed; low-confidence policy items stay in proposals.",
-    body: "Process policy for Brain imports: Slack messages, transcripts, and generic documents may enter as raw captures, but company-tier knowledge should be reviewed, cited, or explicitly proposed before it becomes durable knowledge. Low-confidence policy items stay in proposals instead of search-visible knowledge.",
+      "Raw imports can enter Brain as captures, and cited company-tier knowledge publishes directly with no review step; low-confidence policy items stay search-visible.",
+    body: "Process policy for Brain imports: Slack messages, transcripts, and generic documents may enter as raw captures, and cited company-tier knowledge publishes directly as durable knowledge with no review step. Low-confidence policy items publish with their confidence score and stay search-visible.",
     quote:
-      "Raw imports may enter as captures, but company-tier knowledge should be reviewed, cited, or explicitly proposed before it becomes durable knowledge.",
-    captureTitle: "#brain-pilot import review policy",
+      "Raw imports may enter as captures, and cited company-tier knowledge publishes directly as durable knowledge with no review step.",
+    captureTitle: "#brain-pilot import publishing policy",
     sourceUrl:
       "https://slack.example.com/archives/CBRAINPILOT/p1778884800001300",
-    tags: ["process", "policy", "review-queue"],
+    tags: ["process", "policy", "direct-publishing"],
   },
   {
     id: "architecture-sql-retrieval",
-    title: "Brain retrieval uses portable SQL before connector breadth",
+    title: "Brain retrieval uses Postgres SQL before connector breadth",
     summary:
-      "Brain retrieval starts with portable SQL over approved knowledge, uses raw-capture fallback only when policy allows, and does not require a vector database in V1.",
-    body: "Engineering architecture for Brain retrieval: start with portable SQL over brain_knowledge, then use raw capture fallback only when source policy allows. Citations come from evidence quotes and metadata source URLs. V1 has no vector database requirement, which keeps connector pilots deterministic and portable.",
+      "Brain retrieval starts with Postgres SQL over approved knowledge, uses raw-capture fallback only when policy allows, and does not require a vector database in V1.",
+    body: "Engineering architecture for Brain retrieval: start with Postgres SQL over brain_knowledge, then use raw capture fallback only when source policy allows. Citations come from evidence quotes and metadata source URLs. V1 has no vector database requirement, which keeps connector pilots deterministic.",
     quote:
-      "Start with portable SQL over brain_knowledge, then use raw capture fallback only when source policy allows; V1 has no vector database requirement.",
+      "Start with Postgres SQL over brain_knowledge, then use raw capture fallback only when source policy allows; V1 has no vector database requirement.",
     captureTitle: "#brain-pilot retrieval architecture",
     sourceUrl:
       "https://slack.example.com/archives/CBRAINPILOT/p1778888400001400",
@@ -360,9 +360,9 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
   {
     id: "dev-fusion-tanstack-compromise",
     kind: "answer",
-    question: "Was Agent Native affected by the TanStack compromise?",
+    question: "Was Agent-Native affected by the TanStack compromise?",
     expectedTitle:
-      "Agent Native TanStack compromise review found no affected packages",
+      "Agent-Native TanStack compromise review found no affected packages",
     requiredTerms: [
       "uses TanStack",
       "not the affected packages",
@@ -390,13 +390,14 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
   {
     id: "import-review-policy",
     kind: "answer",
-    question: "What process policy keeps Brain imports review gated?",
-    expectedTitle: "Brain imports stay review-gated before company knowledge",
+    question: "What process policy governs Brain imports and publishing?",
+    expectedTitle:
+      "Brain import policy allows direct publishing of company knowledge",
     requiredTerms: [
       "captures",
       "company-tier knowledge",
-      "reviewed",
-      "low-confidence policy items stay in proposals",
+      "publishes directly",
+      "low-confidence policy items",
     ],
     notes: "Covers process and policy knowledge retrieval.",
   },
@@ -404,9 +405,9 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
     id: "architecture-sql-retrieval",
     kind: "answer",
     question: "How does Brain retrieval work architecturally?",
-    expectedTitle: "Brain retrieval uses portable SQL before connector breadth",
+    expectedTitle: "Brain retrieval uses Postgres SQL before connector breadth",
     requiredTerms: [
-      "portable SQL",
+      "Postgres SQL",
       "brain_knowledge",
       "raw capture fallback",
       "no vector database requirement",

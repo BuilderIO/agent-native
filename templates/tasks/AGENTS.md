@@ -4,29 +4,34 @@ Tasks is a task-list-first agent-native app: the task list at `/tasks` is home, 
 
 ## Skills
 
-Read the matching skill before acting. This file is the always-on layer; the skills hold the detail it no longer repeats.
+Read relevant guides before deeper work:
+- `.agents/skills/task-inbox-workflow/SKILL.md` — for capture, selection, reordering, and deletion.
+- `.agents/skills/custom-fields/SKILL.md` — for field definitions and visibility.
+- `.agents/skills/action-reference/SKILL.md` — for action methods, arguments, and defaults.
 
-- `task-inbox-workflow` — capture, `view-screen` context and selection, the inline task widget, reordering, deletes, the task-detail extension slot.
-- `custom-fields` — field definitions, types and config, per-task values, task-card visibility.
-- `action-reference` — the full action table with HTTP methods, arguments, and defaults.
-- `store-conventions` — `server/**/store.ts` CRUD naming and the shared transaction handle.
-- `change-summary` — the Change summary table for code-change responses, plus commit message conventions.
-- Before building common workspace or agent UI, read `agent-native-toolkit` to inventory existing public kits and installed package seams; use `customizing-agent-native` for the configure → compose → eject → propose seam ladder.
-- Root skills to read before implementation: `adding-a-feature`, `actions`, `agent-native-docs`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`, `frontend-design`, `shadcn-ui`, `self-modifying-code`.
+`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
+`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
+`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
+`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
+`.agents/skills/performance/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`,
+`.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
+
+## Framework Docs
+
+Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Follow the root framework contract: data in SQL, actions first, application state for navigation/selection, and shared agent chat for AI work.
-- Use actions for app operations and keep frontend/API parity.
-- Prefer improving the action surface before adding new pages. The task list is the primary durable UI for MVP.
-- Keep the action surface deliberate: it already covers task and inbox-item CRUD/bulk operations, custom field definitions and visibility prefs, reordering, `view-screen`, `navigate`, and `render-task-list-inline` (25 actions total). Extend it thoughtfully rather than adding new pages.
 - Do not use `db-query` for normal task operations.
 - Call `view-screen` first when the user's visible task context matters (especially on `/tasks`).
 - Capture in chat with `create-inbox-item` by default; use `create-task` only when the user asks to add directly to the task list.
 - Delete actions run only after explicit user confirmation in chat.
 - Tasks are private to each user. Preserve `ownerEmail` scoping unless intentionally implementing sharing.
-- After code changes, include the **Change summary** from the `change-summary` skill (Code / Tests / Config / Docs with line counts).
+- Never fabricate. If an action fails or a task is not found, say so and recover instead of inventing a result.
 
 ## Application State
 
@@ -45,7 +50,8 @@ Default navigation shape on `/tasks`:
 - `includeDone` mirrors the task-list filter toggle (incomplete only vs show all).
 - `taskId` highlights a row when opened from a deep link; MVP has no detail page.
 - `fieldId` highlights a custom field when opened from a deep link; the Fields page manages definitions.
-- Chat lives at `/chat`. Root `/` redirects to `/tasks`.
+- Chat lives at `/chat`. The public root `/` redirects to shared sign-in/signup, while
+  private app entry `/home` redirects to `/tasks`.
 
 ## Actions
 
@@ -56,6 +62,8 @@ Methods, arguments, and defaults are in the `action-reference` skill.
 | `list-tasks` | List the user's tasks |
 | `create-task` | Create a task |
 | `update-task` | Patch title, done, or field values |
+| `suggest-task-route` | Suggest a queue and urgency for one task without changing it |
+| `apply-task-route` | Apply an accepted queue, creating the Queue field on first use |
 | `delete-task` | Delete a task |
 | `bulk-update-tasks` | Patch title or done on many tasks |
 | `bulk-delete-tasks` | Delete many tasks |
@@ -79,16 +87,8 @@ Methods, arguments, and defaults are in the `action-reference` skill.
 | `navigate` | Move the UI to a view |
 | `render-task-list-inline` | Render the task list inline in chat |
 
-## Authoritative References
+## Source Changes
 
-- [Feature docs](./docs/features/README.md) define product behavior and feature status.
-- [Action definitions](./actions/) contain the canonical tool descriptions, input schemas, and implementations.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI.
 
-<!-- BEGIN @agent-native/skills -->
-
-When operating as Claude Fable, use the /efficient-fable skill always.
-When using a high-cost frontier model for codebase-heavy work, use the /efficient-frontier skill always.
-When writing final response status indicators, use the /quick-recap skill always.
-When long-running or parallel work needs usage-limit checks, use the /stay-within-limits skill always.
-
-<!-- END @agent-native/skills -->
+Search with `rg --hidden --follow`; read the exact linked guide before deeper work.

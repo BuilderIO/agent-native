@@ -17,21 +17,6 @@ import {
 } from "./context-tools.js";
 import { lazyFs } from "./lazy-fs.js";
 
-// ---------------------------------------------------------------------------
-// Framework-level system prompt assembly (production/dev, full/compact),
-// the "Available Actions" and corpus-tools prompt sections, the SQL schema
-// block, and the codebase file-tree walker used by a few dev-mode tools.
-// ---------------------------------------------------------------------------
-
-/**
- * Framework-level instructions injected into every agent's system prompt.
- * Prompt text lives in packages/core/src/server/prompts/ so this file stays
- * focused on routing and assembly logic.
- *
- * buildFrameworkPrompts() is called once per plugin instantiation (not per
- * request) with the template's promptExamples, producing the four assembled
- * prompt strings used at request time.
- */
 export function buildFrameworkPrompts(
   examples?: PromptExamples,
   options?: {
@@ -49,6 +34,12 @@ export function buildFrameworkPrompts(
 } {
   const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
   const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
+  const devCoreOptions = { ...options, canEditSource: true };
+  const DEV_FRAMEWORK_CORE = buildFrameworkCore(examples, devCoreOptions);
+  const DEV_FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(
+    examples,
+    devCoreOptions,
+  );
   const extensionToolsEnabled = options?.extensionTools === true;
   const planModeArtifactList = extensionToolsEnabled
     ? "source-code handoffs and app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos"
@@ -133,10 +124,10 @@ When no dedicated tool/action exists for what you need, reach for \`bash\`.
 
 When editing code, follow the agent-native architecture:
 - Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
-- All SQL must be dialect-agnostic (works on SQLite and Postgres)
+- All SQL must target Postgres
 - No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
 - Use shadcn/ui components and Tabler Icons for all UI work
-${FRAMEWORK_CORE}`;
+${DEV_FRAMEWORK_CORE}`;
 
   const PROD_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Production Mode
 
@@ -169,10 +160,10 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 When editing code, follow the agent-native architecture:
 - Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
-- All SQL must be dialect-agnostic (works on SQLite and Postgres)
+- All SQL must target Postgres
 - No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
 - Use shadcn/ui components and Tabler Icons for all UI work
-${FRAMEWORK_CORE_COMPACT}`;
+${DEV_FRAMEWORK_CORE_COMPACT}`;
 
   return {
     FRAMEWORK_CORE,
@@ -185,7 +176,6 @@ ${FRAMEWORK_CORE_COMPACT}`;
 }
 
 export const _agentChatPromptSectionsForTests = (() => {
-  // Built with default (no template-specific) examples for test stability.
   const {
     FRAMEWORK_CORE: frameworkCore,
     FRAMEWORK_CORE_COMPACT: frameworkCoreCompact,
@@ -201,11 +191,6 @@ export const _agentChatPromptSectionsForTests = (() => {
   };
 })();
 
-/**
- * Build the per-request SQL-schema context block. Reads AGENT_ORG_ID live
- * from the environment so scheduler/A2A/HTTP call sites all see whatever
- * org was just resolved for this request.
- */
 export async function buildSchemaBlock(
   owner: string,
   databaseTools: DatabaseToolsOption = "read",
@@ -221,23 +206,6 @@ export async function buildSchemaBlock(
   }
 }
 
-/**
- * Generates a system prompt section describing registered template actions.
- *
- * Two output modes:
- *
- *   - `"tool"` — used in production, where template actions are registered
- *     as native Anthropic tools. The native tool schema already carries each
- *     action's name, full description, and parameters, so this mode does NOT
- *     re-list every action — it only surfaces what the tool list can't:
- *     native-chat-widget annotations and a `tool-search` pointer for actions
- *     omitted from the initial tool set.
- *   - `"cli"` — used in dev, where template actions are NOT registered as
- *     native tools and must be invoked via `bash(command="pnpm action ...")`.
- *     This listing is load-bearing here (there is no tool schema to fall
- *     back on), so it still emits the full
- *     `pnpm action name --arg <type> [--opt <type>] — desc` line per action.
- */
 export function generateActionsPrompt(
   registry: Record<string, ActionEntry>,
   mode: "cli" | "tool" = "tool",
@@ -250,17 +218,12 @@ export function generateActionsPrompt(
   const actionEntries = initialNames
     ? allActionEntries.filter(([name]) => initialNames.has(name))
     : allActionEntries;
-  const omittedActionCount = allActionEntries.length - actionEntries.length;
   const nativeWidgetNote = (entry: ActionEntry) =>
     entry.chatUI && typeof entry.chatUI.renderer === "string"
       ? ` Native chat widget: \`${entry.chatUI.renderer}\`.`
       : "";
 
   if (mode === "tool") {
-    // Native tool schemas already carry name + full description + params
-    // for every action, so this section only needs to surface what the tool
-    // list itself can't: which actions render a native chat widget, and
-    // which actions exist but aren't loaded as initial tools yet.
     const widgetLines = actionEntries
       .filter(([, entry]) => typeof entry.chatUI?.renderer === "string")
       .map(
@@ -268,20 +231,9 @@ export function generateActionsPrompt(
           `- \`${name}\` — Native chat widget: \`${entry.chatUI?.renderer ?? ""}\`.`,
       );
 
-    const sections: string[] = [];
-    if (widgetLines.length > 0) {
-      sections.push(
-        `**Actions that render a native chat widget** — call these directly for their table/chart/insights view instead of recreating it in prose:\n\n${widgetLines.join("\n")}`,
-      );
-    }
-    if (omittedActionCount > 0) {
-      sections.push(
-        `${omittedActionCount} less-common app action${omittedActionCount === 1 ? " is" : "s are"} available on demand. Use \`tool-search\` with a specific capability query to load the matching schemas when needed.`,
-      );
-    }
-    if (sections.length === 0) return "";
+    if (widgetLines.length === 0) return "";
 
-    return `\n\n## Available Actions\n\n${sections.join("\n\n")}`;
+    return `\n\n## Available Actions\n\n**Actions that render a native chat widget** — call these directly for their table/chart/insights view instead of recreating it in prose:\n\n${widgetLines.join("\n")}`;
   }
 
   const lines = actionEntries.map(([name, entry]) => {
@@ -289,12 +241,10 @@ export function generateActionsPrompt(
     const params = entry.tool.parameters?.properties;
     const requiredFields = new Set(entry.tool.parameters?.required ?? []);
 
-    // CLI mode: emit `pnpm action <name> --required <type> [--optional <type>]`
     if (!params || Object.keys(params).length === 0) {
       return `- \`pnpm action ${name}\` — ${desc}${nativeWidgetNote(entry)}`;
     }
     const entries = Object.entries(params);
-    // Required first (alphabetical), then optional (alphabetical)
     entries.sort(([a], [b]) => {
       const ar = requiredFields.has(a) ? 0 : 1;
       const br = requiredFields.has(b) ? 0 : 1;
@@ -329,15 +279,6 @@ Do NOT try to call these by name as if they were tools — they will not exist i
 ${lines.join("\n")}`;
 }
 
-/**
- * Tool names `generateCorpusToolsPrompt` teaches BY NAME, in the same order
- * it lists them. Exported so callers that build a request's initial
- * engine-tool set can fold in exactly the subset present in a given
- * registry — keeping "what the prompt just told the model exists" and
- * "what tools are actually callable on the first request" in sync. See the
- * corpus-prompt/initial-tools note at this function's call site in
- * agent-chat-plugin.ts.
- */
 const CORPUS_TOOL_NAMES = [
   "provider-api-catalog",
   "provider-api-docs",
@@ -386,15 +327,15 @@ Available corpus-capable tools: ${available.join(", ")}.
 
 This workflow does not apply to ordinary structured lookups, bounded aggregates, or counts grouped over one known source. For those requests, use the single most directly authoritative source, run one bounded query, and answer as soon as it succeeds. Do not cross-check or expand into a corpus workflow unless the user asks for multiple sources, exhaustive unstructured-record coverage, or an absence claim.
 
-For broad provider searches, raw API access, multi-page cohorts, cross-source joins, classification over unstructured records, or absence-sensitive answers, do not stop at a bounded shortcut action. Use the provider's broad API/search/list surface, fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the corpus with durable corpus jobs, staged-dataset queries, or code execution.
+Retrieval ladder. Take the first rung that answers the question:
+1. A tool shaped like the question: the provider's native search, semantic, or MCP tool, or an owning app via \`call-agent\`. It searches provider-side in one request but reports no coverage, so absence claims and exact counts start at rung 3 or carry a coverage caveat.
+2. A server-side filter or query parameter on a bounded window.
+3. A staged or durable scan (\`stageAs\`, \`provider-corpus-job\`) over an explicit cohort, only for exhaustive coverage, exact counts, absence claims, classification, or cross-source joins: fetch every relevant page or the bounded cohort, stage large responses, and reduce them with corpus jobs, staged-dataset queries, or code over the staged data.
+Pulling a collection into context or a run-code loop to filter it locally is not a rung; it means rung 1 or 2 is missing, so say so.
 
-When \`provider-corpus-job\` is available, prefer it for transcript/message/ticket/issue/document scans that may exceed one turn, need provider-side backoff, or need a defensible "not found" conclusion. Use operation="start" with mode="paginated-search" for any paginated provider endpoint, or mode="batch-search" when a prior cohort of ids/records must feed a second provider endpoint. Continue paused jobs with operation="continue" until status is completed or quota_wait, then read operation="results". In run-code, prefer providerFetchAll() for short cursor/page/offset pagination and providerRequest() when response status, headers, or truncation metadata matters. Report source, filters, row counts, pagination/truncation, failed pages, quota_wait times, and remaining gaps.`;
+When \`provider-corpus-job\` is available, prefer it for transcript/message/ticket/issue/document scans that may exceed one turn, need provider-side backoff, or need a defensible "not found" conclusion. Use operation="start" with mode="paginated-search" for any paginated provider endpoint, or mode="batch-search" when a prior cohort of ids/records must feed a second provider endpoint. Continue paused jobs with operation="continue" until status is completed or quota_wait, then read operation="results". In run-code, use providerFetchAll() only for short cursor/page/offset pagination over a cohort you already narrowed, and providerRequest() when response status, headers, or truncation metadata matters. Report source, filters, row counts, pagination/truncation, failed pages, quota_wait times, and remaining gaps.`;
 }
 
-/**
- * Walks the local filesystem (dev mode only) to build a bounded file/folder
- * tree, used by a couple of dev-mode workspace-inspection tools.
- */
 export async function collectFiles(
   dir: string,
   prefix: string,

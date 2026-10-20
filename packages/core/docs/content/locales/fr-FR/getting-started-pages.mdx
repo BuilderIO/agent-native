@@ -7,14 +7,16 @@ description: "Créez une route React qui appelle votre action et affiche son ré
 
 Cette page constitue la troisième partie de la série Premiers pas. Dans [Ajouter une action](/docs/getting-started-actions),
 vous avez créé `analyze-text`. Ici, vous allez appeler cette même action depuis
-une route. Aucune base de données n’est encore nécessaire : Chat inclut déjà
-l’environnement SQL lorsque vous devez conserver des données métier.
+une route. Cet exemple ne nécessite pas de nouvelle table de base de données. Chat
+stocke déjà l’historique des conversations dans SQL ; ajoutez vos propres tables
+lorsque vous devez conserver des données métier.
 
 ## Créer la route {#add-a-page}
 
-Les fichiers de route dans `app/routes/` sont détectés automatiquement. Créez
-`app/routes/text-analyses.tsx` ; elle sera disponible à l’adresse
-`http://localhost:8080/text-analyses`.
+Le serveur de développement lit les fichiers de route au démarrage. Créez
+`app/routes/text-analyses.tsx`, puis redémarrez `pnpm dev` s’il est déjà en cours
+d’exécution. Ouvrez l’URL locale affichée par `pnpm dev` et ajoutez
+`/text-analyses` ; le port peut changer si 8080 est déjà utilisé.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -61,7 +63,7 @@ export default function TextAnalysesRoute() {
 n’a pas encore besoin d’une route API personnalisée, d’une deuxième couche de
 données ou de SQL.
 
-Ouvrez `http://localhost:8080/text-analyses` ou demandez à l’agent :
+Ouvrez l’URL locale affichée avec `/text-analyses` ajouté, ou demandez à l’agent :
 
 > Navigate to `/text-analyses`.
 

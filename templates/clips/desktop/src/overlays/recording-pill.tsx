@@ -1,32 +1,102 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconArrowUp,
+  AgentKitAssistantChat,
+  type AssistantChatHandle,
+} from "@agent-native/toolkit/app/chat";
+import {
   IconCheck,
   IconChevronDown,
   IconChevronUp,
   IconCopy,
-  IconExternalLink,
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
-  IconPlayerStopFilled,
+  IconShare,
   IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
+import { PhysicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { LiveWaveform } from "../components/live-waveform";
+import { Button } from "../components/ui/button";
+import { Spinner } from "../components/ui/spinner";
+import {
+  ASK_SHEET_DEFAULT,
+  ASK_SHEET_DISMISS_AT,
+  clampAskSheetHeight,
+  isSheetGripTap,
+} from "../lib/ask-sheet-layout";
+import {
+  buildMeetingAskContext,
+  buildMeetingAskSuggestionsPrompt,
+  latestMeetingAskMessageRole,
+  parseMeetingAskSuggestions,
+  type MeetingAskChip,
+} from "../lib/meeting-ask";
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
+import { writeClipboardText } from "../lib/recording-link";
 import { speakerFor, type TranscriptLine } from "../lib/transcription-engine";
-import { LiveAudioBars } from "./live-audio-bars";
+import { loadStoredServerUrl } from "../lib/url";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
+
+/** Cap height as a fraction of font size, for the system faces this stack
+ *  resolves to. Used to find a line of text's optical centre. */
+const CAP_HEIGHT_RATIO = 0.72;
+
+/** A cursor crossing the capsule should not open it. Matches the recorder. */
+const HOVER_INTENT_MS = 150;
+
+/** The capsule's one spacing step, matched in styles.css. */
+const TRANSPORT_GAP_PX = 8;
+
+/** Longer than any reveal transition. Past this the browser is not advancing
+ *  the animation, so the reveal has to finish itself. */
+const TRANSITION_STALL_MS = 400;
+
+/** Matches `pill-ask-sheet-out` in styles.css. */
+const ASK_SHEET_EXIT_MS = 200;
+
+const FALLBACK_ASK_CHIPS: MeetingAskChip[] = [
+  { label: "What did I miss?", ask: "What did I miss?" },
+  {
+    label: "Summarize decisions",
+    ask: "Summarize the decisions made so far",
+  },
+  {
+    label: "Suggest questions",
+    ask: "Suggest questions I should ask next",
+  },
+];
+
+const MEETING_CONTEXT_KEY = "clips-live-meeting";
+const MEETING_CONTEXT_NAMESPACE = "clips-meeting-pill";
+
+function meetingAgentChatApiUrl(): string {
+  return `${loadStoredServerUrl().replace(/\/+$/, "")}/_agent-native/agent-chat`;
+}
+
+function stopAgentKitChat(container: HTMLElement | null): void {
+  container
+    ?.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="stop-button"]',
+    )
+    ?.click();
+}
 
 type PillMode = "meeting" | "clip";
 
 interface PillContext {
   meetingId?: string | null;
   mode?: PillMode;
+  title?: string | null;
+  /** On screen, but capture has not attached yet. Never claim "recording". */
+  starting?: boolean;
 }
 
 /**
@@ -40,9 +110,15 @@ interface PillContext {
  * and capture-excluded — see `recording_indicator.rs`. We only deal with
  * sizing the window when the user toggles the chevron.
  */
-export function RecordingPill() {
+const pillDemoMode = import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
+
+export function MeetingPill() {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
+  /** Demo harness only: the meter reads capture events in the real app. */
+  const [demoLevel, setDemoLevel] = useState<number | null>(null);
+  const demoLevelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [ctx, setCtx] = useState<PillContext>({ mode: "clip" });
   const ctxRef = useRef<PillContext>({ mode: "clip" });
@@ -56,10 +132,119 @@ export function RecordingPill() {
   const [hasTranscriptLines, setHasTranscriptLines] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
-  const [ask, setAsk] = useState("");
+  const [providerStatus, setProviderStatus] = useState<
+    "unknown" | "eligible" | "missing" | "unavailable"
+  >(pillDemoMode ? "eligible" : "unknown");
+  const providerStatusAbortRef = useRef<AbortController | null>(null);
+  // The flex column the transcript and the answer sheet divide between them.
+  const pillInnerRef = useRef<HTMLDivElement | null>(null);
+  const [askSheetOpen, setAskSheetOpen] = useState(false);
+  /** Held open for the exit animation. A drawer that vanishes on close reads
+   *  as a bug even when the entrance is right. */
+  const [askSheetClosing, setAskSheetClosing] = useState(false);
+  const askSheetExitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [askSheetHeight, setAskSheetHeight] = useState(ASK_SHEET_DEFAULT);
+  const [askThreadId, setAskThreadId] = useState(generateTabId);
+  const [chipsThreadId, setChipsThreadId] = useState(generateTabId);
+  const askChatRef = useRef<AssistantChatHandle | null>(null);
+  const chipsChatRef = useRef<AssistantChatHandle | null>(null);
+  const askChatContainerRef = useRef<HTMLDivElement | null>(null);
+  const chipsChatContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastAskChatStateRef = useRef({ count: 0, isRunning: false });
+  const lastChipsChatStateRef = useRef({ count: 0, isRunning: false });
+  const [transcriptRevision, setTranscriptRevision] = useState(0);
+  const [askChatRevision, setAskChatRevision] = useState(0);
+  const [chipsChatRevision, setChipsChatRevision] = useState(0);
+  const chipsFetchedAtRef = useRef(0);
+  const chipsRequestRef = useRef(0);
+  const expectedChipsPromptRef = useRef<string | null>(null);
+  const [pendingChipsPrompt, setPendingChipsPrompt] = useState<{
+    id: number;
+    prompt: string;
+  } | null>(null);
+  const [askChips, setAskChips] = useState<MeetingAskChip[]>([]);
+
+  const checkProviderStatus = useCallback(async () => {
+    if (pillDemoMode) {
+      setProviderStatus("eligible");
+      return;
+    }
+    providerStatusAbortRef.current?.abort();
+    const controller = new AbortController();
+    providerStatusAbortRef.current = controller;
+    setProviderStatus("unknown");
+    try {
+      const response = await fetch(
+        `${loadStoredServerUrl()}/_agent-native/agent-engine/status`,
+        { credentials: "include", signal: controller.signal },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = (await response.json()) as { chatEligible?: unknown };
+      if (typeof body.chatEligible !== "boolean") {
+        throw new Error("Provider status response was incomplete");
+      }
+      if (!controller.signal.aborted) {
+        setProviderStatus(body.chatEligible ? "eligible" : "missing");
+      }
+    } catch {
+      if (!controller.signal.aborted) setProviderStatus("unavailable");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (ctx.mode !== "meeting" || !ctx.meetingId) {
+      setProviderStatus("eligible");
+      return;
+    }
+    void checkProviderStatus();
+    return () => providerStatusAbortRef.current?.abort();
+  }, [checkProviderStatus, ctx.meetingId, ctx.mode]);
+
+  useEffect(() => {
+    if (
+      pillDemoMode ||
+      ctx.mode !== "meeting" ||
+      !ctx.meetingId ||
+      (providerStatus !== "missing" && providerStatus !== "unavailable")
+    ) {
+      return;
+    }
+    const onFocus = () => void checkProviderStatus();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [checkProviderStatus, ctx.meetingId, ctx.mode, providerStatus]);
+
+  /** The last ~2 minutes of transcript, capped, most recent last. */
+  const recentTranscriptText = useCallback(() => {
+    const lines = transcriptLinesRef.current;
+    const latest = lines[lines.length - 1]?.startMs ?? null;
+    const windowed =
+      latest === null
+        ? lines.slice(-20)
+        : lines.filter(
+            (l) => l.startMs === null || latest - l.startMs <= 120_000,
+          );
+    let out = windowed
+      .map((l) => `${speakerFor(l.source)}: ${l.text}`)
+      .join("\n");
+    if (out.length > 2_400) out = out.slice(-2_400);
+    return out;
+  }, []);
+  const sheetDragRef = useRef<{
+    startY: number;
+    startHeight: number;
+  } | null>(null);
+  /**
+   * Whether the last grip gesture travelled far enough to be a resize.
+   *
+   * `click` fires after `pointerup`, so the drag state is always already
+   * cleared by the time the click handler runs — testing it there let every
+   * resize, including one that grew the sheet, dismiss it on release.
+   */
+  const sheetDragMovedRef = useRef(false);
   const activeMeetingIdRef = useRef<string | null>(null);
-  // Detached / "floating" mode — Wispr-style pill that auto-moves to the
-  // top-right when the main app loses focus, with a drag handle. Driven by
+  // Detached / "floating" mode moves the pill to the top-right when the main
+  // app loses focus, with a drag handle. Driven by
   // the `clips:pill-detached` event from Rust (toggled by JS via
   // `recording_pill_set_detached`).
   const [detached, setDetached] = useState(false);
@@ -93,13 +278,31 @@ export function RecordingPill() {
     };
     trackListen(
       listen<PillContext>("clips:pill-context", (ev) => {
-        const next: PillContext = {
-          meetingId: ev.payload?.meetingId ?? null,
-          mode: ev.payload?.mode ?? "clip",
-        };
         const prev = ctxRef.current;
+        const meetingId = ev.payload?.meetingId ?? null;
+        const mode = ev.payload?.mode ?? "clip";
         const isSameSession =
-          prev.meetingId === next.meetingId && prev.mode === next.mode;
+          prev.meetingId === meetingId && prev.mode === mode;
+        const next: PillContext = {
+          meetingId,
+          mode,
+          // Rust re-emits this event on every `recording_pill_show` without a
+          // `title` or a `starting` field, so within one session absent means
+          // "no opinion" and the previous value stands — coercing `starting`
+          // to false there would race the flag to a live-looking pill.
+          //
+          // Across a session it means the opposite. A meeting's first context
+          // carries no title (the fetch that finds it has not returned yet),
+          // so carrying the old one opened the new meeting under the previous
+          // meeting's name — and scaffolded any ask made in that window with
+          // it, which is a wrong answer rather than a wrong label.
+          title:
+            ev.payload?.title ?? (isSameSession ? prev.title : null) ?? null,
+          starting:
+            ev.payload?.starting ??
+            (isSameSession ? prev.starting : false) ??
+            false,
+        };
         ctxRef.current = next;
         setCtx(next);
         // The Rust side re-shows (and re-emits this event for) the same pill
@@ -123,6 +326,23 @@ export function RecordingPill() {
         setExpanded(false);
         // Reset transcript state for the new session.
         setPreloadedLines([]);
+        transcriptLinesRef.current = [];
+        setHasTranscriptLines(false);
+        // A new session is a new meeting: stop both AgentKit-owned threads so
+        // an old answer or suggestion cannot land in the new recording.
+        stopAgentKitChat(askChatContainerRef.current);
+        stopAgentKitChat(chipsChatContainerRef.current);
+        askChatRef.current?.clearComposerContextItems();
+        setAskThreadId(generateTabId());
+        setChipsThreadId(generateTabId());
+        lastAskChatStateRef.current = { count: 0, isRunning: false };
+        lastChipsChatStateRef.current = { count: 0, isRunning: false };
+        chipsFetchedAtRef.current = 0;
+        chipsRequestRef.current += 1;
+        expectedChipsPromptRef.current = null;
+        setPendingChipsPrompt(null);
+        setAskChips([]);
+        setAskSheetOpen(false);
         activeMeetingIdRef.current =
           ev.payload?.mode === "meeting" ? (next.meetingId ?? null) : null;
         if (stopFallbackRef.current) {
@@ -131,10 +351,18 @@ export function RecordingPill() {
         }
       }),
     );
+    // Capture emits levels continuously once it attaches, including through
+    // silence — the first one means the engine is live.
+    trackListen(
+      listen("voice:audio-level", () => {
+        clearStartingRef.current();
+      }),
+    );
     trackListen(
       listen<{ paused: boolean; elapsedMs: number }>(
         "clips:recorder-state",
         (ev) => {
+          clearStartingRef.current();
           // Meeting capture has its own optimistic pause state. Ordinary clips
           // follow the recorder's authoritative broadcast so this reused pill
           // cannot drift or emit an inverted command.
@@ -188,6 +416,67 @@ export function RecordingPill() {
     // Signal that all listeners are registered. app.tsx listens for this and
     // re-emits the pill context and transcript preload for a fresh window.
     emit("clips:pill-ready", {}).catch(() => {});
+    // Recovery: the context event is push-only, so a pill window that mounts
+    // after it fired (webview reload, popover restart) would strand in clip
+    // mode with no ask bar. Rust owns the active meeting id — ask it.
+    invoke<string | null>("get_active_meeting_id")
+      .then((meetingId) => {
+        if (!meetingId || stopped) return;
+        // Recovery only covers "no context ever arrived". This lookup is
+        // asynchronous, so by the time it answers a real `clips:pill-context`
+        // may have landed — and that event is authoritative where this is a
+        // guess. Applying it anyway replaced the live context with one carrying
+        // `title: null` and no `starting` flag, which is how a starting pill
+        // lost its spinner and a titled meeting lost its name.
+        if (ctxRef.current.meetingId !== null) return;
+        const next: PillContext = { meetingId, mode: "meeting", title: null };
+        ctxRef.current = next;
+        setCtx(next);
+        activeMeetingIdRef.current = meetingId;
+      })
+      .catch(() => {});
+    if (pillDemoMode) {
+      // Open in the starting state the real pill now shows, so the spinner is
+      // reviewable in the harness rather than only during a live start.
+      ctxRef.current = {
+        mode: "meeting",
+        meetingId: "demo",
+        title: "Promotion readiness review",
+        starting: true,
+      };
+      setCtx(ctxRef.current);
+      setTimeout(() => {
+        ctxRef.current = { ...ctxRef.current, starting: false };
+        setCtx(ctxRef.current);
+      }, 4_000);
+      activeMeetingIdRef.current = "demo";
+      setExpanded(true);
+      setPreloadedLines([
+        {
+          source: "system",
+          text: "So XIE went through a bunch of different questions and we've settled on three. Yesterday we just swapped one completely out because it used to be a design system question.",
+          startMs: 406_000,
+        },
+        {
+          source: "system",
+          text: "but the design system indexing can take up to an hour. And so.",
+          startMs: 417_000,
+        },
+        {
+          source: "mic",
+          text: "Alright, that makes sense. Do we have a fallback if the indexing is still running when the review starts?",
+          startMs: 431_000,
+        },
+        {
+          source: "system",
+          text: "We can pin the previous index and swap when the fresh one lands.",
+          startMs: 449_000,
+        },
+      ] as FinalLine[]);
+      demoLevelTimerRef.current = setInterval(() => {
+        setDemoLevel(0.04 + Math.random() * 0.28);
+      }, 90);
+    }
     return () => {
       stopped = true;
       unlistens.forEach((u) => {
@@ -200,6 +489,16 @@ export function RecordingPill() {
       if (stopFallbackRef.current) {
         clearTimeout(stopFallbackRef.current);
         stopFallbackRef.current = null;
+      }
+      stopAgentKitChat(askChatContainerRef.current);
+      stopAgentKitChat(chipsChatContainerRef.current);
+      if (askSheetExitRef.current) {
+        clearTimeout(askSheetExitRef.current);
+        askSheetExitRef.current = null;
+      }
+      if (demoLevelTimerRef.current) {
+        clearInterval(demoLevelTimerRef.current);
+        demoLevelTimerRef.current = null;
       }
     };
   }, []);
@@ -269,10 +568,233 @@ export function RecordingPill() {
 
   // Stable callback for LiveTranscript to push locked-in lines up. Stable
   // identity matters — it's a dep of an effect inside LiveTranscript.
-  const handleTranscriptLines = useCallback((lines: TranscriptLine[]) => {
-    transcriptLinesRef.current = lines;
-    setHasTranscriptLines(lines.length > 0);
+  /**
+   * Leave the starting state on evidence, not only on being told.
+   *
+   * `clips:pill-context` with `starting: false` is the intended signal, but it
+   * is a single push event: one dropped emit and the pill claims it is still
+   * starting a session that is already recording. Audio arriving IS the
+   * session, so anything that could only happen after capture attached also
+   * clears it.
+   */
+  /** The capsule and the transport segment inside it, for measured growth. */
+  const capsuleRef = useRef<HTMLDivElement | null>(null);
+  const transportRef = useRef<HTMLDivElement | null>(null);
+  const windowOpChainRef = useRef<Promise<void>>(Promise.resolve());
+  const clearStartingRef = useRef<() => void>(() => {});
+
+  const clearStarting = useCallback(() => {
+    if (!ctxRef.current.starting) return;
+    ctxRef.current = { ...ctxRef.current, starting: false };
+    setCtx(ctxRef.current);
   }, []);
+
+  clearStartingRef.current = clearStarting;
+
+  /**
+   * Serialize window ops. Two resizes in flight read each other's stale
+   * geometry and the capsule ends up the wrong size — the same queue the
+   * recorder pill runs its segment growth through.
+   */
+  const queueWindowOp = (op: () => Promise<void>) => {
+    windowOpChainRef.current = windowOpChainRef.current
+      .then(op)
+      .catch((err) => {
+        console.warn("[clips-pill] window op failed", err);
+      });
+  };
+
+  /**
+   * Size the window around the capsule's own layout, keeping the top edge
+   * fixed so growth extends downward — away from the cursor that is sitting
+   * on the logo at the top.
+   */
+  const syncCapsuleWindow = useCallback((extraLogicalHeight: number) => {
+    const el = capsuleRef.current;
+    if (!el || pillDemoMode) return;
+    // offsetHeight is a layout metric, immune to a transition in flight; a
+    // rect read mid-animation locks the window to a half-open size.
+    const contentH = el.offsetHeight + extraLogicalHeight;
+    const contentW = el.offsetWidth;
+    queueWindowOp(async () => {
+      const win = getCurrentWindow();
+      const [size, scale] = await Promise.all([
+        win.outerSize(),
+        win.scaleFactor(),
+      ]);
+      const w = Math.ceil(contentW * scale);
+      const h = Math.ceil(contentH * scale);
+      if (size.width === w && size.height === h) return;
+      await win.setSize(new PhysicalSize(w, h));
+    });
+  }, []);
+
+  /**
+   * Grow the capsule to reveal pause and stop, then let the segment animate
+   * its own height open — window first so there is room to grow into, and on
+   * the way out the window shrinks only once the segment has closed.
+   */
+  useEffect(() => {
+    if (expanded || detached || ctx.mode !== "meeting" || finished) return;
+    const seg = transportRef.current;
+    if (!seg) return;
+    // Nothing to pause or end until capture has attached.
+    const open = hovered && !ctx.starting;
+
+    let release: (() => void) | null = null;
+
+    /**
+     * The segment's own content height. `scrollHeight` cannot be used: the
+     * transport buttons carry hit-target overlays that extend past their box,
+     * and scrollHeight counts that overflow — which showed up as dead space
+     * under the last control.
+     */
+    const contentHeight = () => {
+      const kids = Array.from(seg.children).filter(
+        (kid): kid is HTMLElement =>
+          kid instanceof HTMLElement &&
+          window.getComputedStyle(kid).display !== "none",
+      );
+      const gap = parseFloat(window.getComputedStyle(seg).rowGap) || 0;
+      const stacked = kids.reduce((total, kid) => total + kid.offsetHeight, 0);
+      return stacked + gap * Math.max(0, kids.length - 1);
+    };
+
+    const apply = () => {
+      const target = open ? contentHeight() : 0;
+      if (open) seg.dataset.open = "true";
+      else delete seg.dataset.open;
+      seg.style.transition = "";
+      seg.style.height = `${target}px`;
+      seg.style.marginTop = open ? `${TRANSPORT_GAP_PX}px` : "0px";
+      seg.style.opacity = open ? "1" : "0";
+      // Grow the window first so the capsule has somewhere to open into. It
+      // is transparent below the capsule, so the extra frame is invisible
+      // until the segment fills it.
+      if (open) syncCapsuleWindow(target + TRANSPORT_GAP_PX);
+
+      // This window is never the key window, and the browser can stop
+      // advancing animations in one — the transition then never progresses
+      // and the capsule stays at the size it started from. Wait for the real
+      // transition, and if it never arrives, drop it and snap to the end.
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        if (!open) syncCapsuleWindow(0);
+      };
+      const forceSnap = () => {
+        if (settled) return;
+        seg.style.transition = "none";
+        seg.style.height = `${target}px`;
+        seg.style.marginTop = open ? `${TRANSPORT_GAP_PX}px` : "0px";
+        seg.style.opacity = open ? "1" : "0";
+        // Read back so the snapped value commits before the transition is
+        // restored, or the restore just re-animates from the old value.
+        void seg.offsetHeight;
+        seg.style.transition = "";
+        settle();
+      };
+      seg.addEventListener("transitionend", settle, { once: true });
+      const stalled = setTimeout(forceSnap, TRANSITION_STALL_MS);
+      release = () => {
+        seg.removeEventListener("transitionend", settle);
+        clearTimeout(stalled);
+      };
+    };
+
+    // Opening waits out a cursor that is only passing over. Closing does not,
+    // so the capsule never lingers open under a cursor that has left.
+    let intent: ReturnType<typeof setTimeout> | null = null;
+    if (open && !seg.dataset.open) intent = setTimeout(apply, HOVER_INTENT_MS);
+    else apply();
+
+    return () => {
+      if (intent) clearTimeout(intent);
+      release?.();
+    };
+  }, [
+    hovered,
+    expanded,
+    detached,
+    ctx.mode,
+    ctx.starting,
+    finished,
+    syncCapsuleWindow,
+  ]);
+
+  /**
+   * Put the header's glyphs on the title's optical centre line.
+   *
+   * Flexbox centres boxes, and a text box is not centred on its own ink: the
+   * ink sits wherever the font's ascent, descent and half-leading put it.
+   * Chrome and this app's webview do not resolve `-apple-system` to the same
+   * metrics — measured in the shipped webview, the controls sat 3.68px below
+   * the title's cap centre while Chrome put them within 0.15px. So the row is
+   * aligned by measurement rather than by construction: the shift is computed
+   * from the real rendered text and applied to everything that is not text.
+   */
+  useEffect(() => {
+    if (!expanded || pillDemoMode) return;
+    let frame = 0;
+    const align = () => {
+      const header = pillInnerRef.current?.querySelector(".pill-header");
+      const title = header?.querySelector(".pill-title");
+      const controls = header?.querySelector<HTMLElement>(".pill-controls");
+      if (!header || !title || !controls) return;
+      const marker = document.createElement("span");
+      marker.style.cssText = "display:inline-block;width:0;height:0;";
+      title.appendChild(marker);
+      const baseline = marker.getBoundingClientRect().top;
+      title.removeChild(marker);
+      if (!baseline) return;
+      const fontSize = parseFloat(window.getComputedStyle(title).fontSize);
+      // Cap centre: half a cap-height above the baseline. 0.72em is the cap
+      // ratio for the system faces this stack resolves to, and a few
+      // hundredths of an em either way is invisible at 13px.
+      const capCentre = baseline - (fontSize * CAP_HEIGHT_RATIO) / 2;
+      const rect = controls.getBoundingClientRect();
+      const shift = capCentre - (rect.top + rect.bottom) / 2;
+      const style = (header as HTMLElement).style;
+      style.setProperty("--header-ink-shift", `${shift.toFixed(2)}px`);
+
+      // The meter is measured from its own bars rather than sharing the
+      // controls' shift: its band is what the eye lines up against the text,
+      // and its box does not necessarily sit where their boxes do.
+      const bars = Array.from(
+        header.querySelectorAll<HTMLElement>(".pill-wave-meter i"),
+      );
+      if (bars.length) {
+        const rects = bars.map((bar) => bar.getBoundingClientRect());
+        const band =
+          (Math.min(...rects.map((r) => r.top)) +
+            Math.max(...rects.map((r) => r.bottom))) /
+          2;
+        style.setProperty(
+          "--header-meter-shift",
+          `${(capCentre - band).toFixed(2)}px`,
+        );
+      }
+    };
+    // After layout, and again on the next frame so a late font swap lands.
+    align();
+    frame = requestAnimationFrame(align);
+    const timer = setTimeout(align, 400);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [expanded, ctx.title, ctx.starting, finished]);
+
+  const handleTranscriptLines = useCallback(
+    (lines: TranscriptLine[]) => {
+      transcriptLinesRef.current = lines;
+      setHasTranscriptLines(lines.length > 0);
+      setTranscriptRevision((revision) => revision + 1);
+      if (lines.length) clearStarting();
+    },
+    [clearStarting],
+  );
 
   const handleCopyTranscript = async () => {
     const lines = transcriptLinesRef.current;
@@ -281,7 +803,7 @@ export function RecordingPill() {
       .map((l) => `${speakerFor(l.source)}: ${l.text}`)
       .join("\n");
     try {
-      await navigator.clipboard.writeText(text);
+      if (!(await writeClipboardText(text))) return;
       setTranscriptCopied(true);
       setTimeout(() => setTranscriptCopied(false), 1500);
     } catch {
@@ -289,18 +811,234 @@ export function RecordingPill() {
     }
   };
 
-  const handleAskSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const question = ask.trim();
-    const mid = activeMeetingIdRef.current;
-    if (!question || !mid) return;
-    setAsk("");
-    emit("clips:open-meeting", {
-      meetingId: mid,
-      openChat: true,
-      prompt: question,
-    }).catch(() => {});
+  const openAskSheet = () => {
+    if (askSheetExitRef.current) {
+      clearTimeout(askSheetExitRef.current);
+      askSheetExitRef.current = null;
+    }
+    setAskSheetClosing(false);
+    setAskSheetOpen(true);
   };
+
+  const submitAsk = (question: string) => {
+    const mid = activeMeetingIdRef.current;
+    const chat = askChatRef.current;
+    if (
+      !question.trim() ||
+      !mid ||
+      !chat ||
+      (!pillDemoMode && providerStatus !== "eligible")
+    ) {
+      return;
+    }
+    refreshAskChips();
+    openAskSheet();
+    chat.sendMessage(question, undefined, {
+      requestMode: "act",
+      usageLabel: "meeting-pill",
+    });
+  };
+
+  /** Chips are proposed by an AgentKit-owned read-only thread from the recent
+   * transcript. A chip only stages a request; its action runs after the user
+   * selects it in the visible meeting chat. */
+  const refreshAskChips = () => {
+    if (pillDemoMode || providerStatus !== "eligible") return;
+    const mid = activeMeetingIdRef.current;
+    if (!mid) return;
+    const now = Date.now();
+    if (now - chipsFetchedAtRef.current < 60_000) return;
+    const transcript = recentTranscriptText();
+    if (!transcript.trim()) return;
+    chipsFetchedAtRef.current = now;
+    expectedChipsPromptRef.current = null;
+    stopAgentKitChat(chipsChatContainerRef.current);
+    const id = ++chipsRequestRef.current;
+    setPendingChipsPrompt({
+      id,
+      prompt: buildMeetingAskSuggestionsPrompt(transcript),
+    });
+  };
+
+  const handleAskMessageCountChange = (count: number) => {
+    const isRunning = askChatRef.current?.isRunning() ?? false;
+    const previous = lastAskChatStateRef.current;
+    if (count === previous.count && isRunning === previous.isRunning) return;
+    lastAskChatStateRef.current = { count, isRunning };
+    setAskChatRevision((revision) => revision + 1);
+    if (count > 0) openAskSheet();
+    if (count > previous.count) {
+      const snapshot = askChatRef.current?.exportThreadSnapshot();
+      if (
+        snapshot &&
+        latestMeetingAskMessageRole(snapshot.threadData) === "user"
+      ) {
+        refreshAskChips();
+      }
+    }
+  };
+
+  const handleChipsMessageCountChange = (count: number) => {
+    const isRunning = chipsChatRef.current?.isRunning() ?? false;
+    const previous = lastChipsChatStateRef.current;
+    if (count === previous.count && isRunning === previous.isRunning) return;
+    lastChipsChatStateRef.current = { count, isRunning };
+    setChipsChatRevision((revision) => revision + 1);
+  };
+
+  useEffect(() => {
+    const mid = ctx.mode === "meeting" ? ctx.meetingId : null;
+    const chat = askChatRef.current;
+    if (!mid || !chat) return;
+    chat.setComposerContextItem(
+      {
+        key: MEETING_CONTEXT_KEY,
+        title: ctx.title?.trim() || "Meeting context",
+        context: buildMeetingAskContext(mid, ctx.title, recentTranscriptText()),
+        contextNamespace: `${MEETING_CONTEXT_NAMESPACE}:${askThreadId}`,
+      },
+      { focus: false },
+    );
+  }, [
+    askChatRevision,
+    askThreadId,
+    ctx.meetingId,
+    ctx.mode,
+    ctx.title,
+    recentTranscriptText,
+    transcriptRevision,
+  ]);
+
+  useEffect(() => {
+    if (!pillDemoMode && providerStatus !== "eligible") {
+      setPendingChipsPrompt(null);
+      expectedChipsPromptRef.current = null;
+      stopAgentKitChat(chipsChatContainerRef.current);
+      return;
+    }
+    const request = pendingChipsPrompt;
+    const chat = chipsChatRef.current;
+    if (!request || !chat || chat.isRunning()) return;
+    expectedChipsPromptRef.current = request.prompt;
+    chat.sendMessage(request.prompt, undefined, {
+      requestMode: "plan",
+      usageLabel: "meeting-pill-suggestions",
+      hideUserMessage: true,
+    });
+    setPendingChipsPrompt((current) =>
+      current?.id === request.id ? null : current,
+    );
+  }, [chipsChatRevision, chipsThreadId, pendingChipsPrompt, providerStatus]);
+
+  useEffect(() => {
+    const expectedPrompt = expectedChipsPromptRef.current;
+    const chat = chipsChatRef.current;
+    if (!expectedPrompt || !chat || chat.isRunning()) return;
+    const snapshot = chat.exportThreadSnapshot();
+    if (!snapshot) return;
+    const chips = parseMeetingAskSuggestions(
+      snapshot.threadData,
+      expectedPrompt,
+    );
+    if (chips?.length) setAskChips(chips);
+    if (chips) expectedChipsPromptRef.current = null;
+  }, [chipsChatRevision]);
+
+  const closeAskSheet = () => {
+    // Dismissing the sheet stops the active AgentKit run while preserving its
+    // partial response in the thread for the next time it opens.
+    stopAgentKitChat(askChatContainerRef.current);
+    setAskSheetClosing(true);
+    if (askSheetExitRef.current) clearTimeout(askSheetExitRef.current);
+    askSheetExitRef.current = setTimeout(() => {
+      askSheetExitRef.current = null;
+      setAskSheetClosing(false);
+      setAskSheetOpen(false);
+    }, ASK_SHEET_EXIT_MS);
+  };
+
+  // A split that leaves the transcript room on a tall window can starve it on a
+  // short one, so the ratio is re-clamped against the panel's real height
+  // whenever that height changes.
+  useEffect(() => {
+    const host = pillInnerRef.current;
+    if (!host || !askSheetOpen || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const total = host.clientHeight;
+      if (total <= 0) return;
+      setAskSheetHeight((current) => clampAskSheetHeight(current, total));
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [askSheetOpen]);
+
+  // The sheet's grab handle: drag to resize, pull down far enough to dismiss.
+  const handleSheetHandlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    sheetDragRef.current = { startY: e.clientY, startHeight: askSheetHeight };
+    sheetDragMovedRef.current = false;
+  };
+  const handleSheetHandlePointerMove = (e: React.PointerEvent) => {
+    const drag = sheetDragRef.current;
+    if (!drag) return;
+    if (!isSheetGripTap(e.clientY - drag.startY)) {
+      sheetDragMovedRef.current = true;
+    }
+    const total = pillInnerRef.current?.clientHeight ?? 340;
+    const next = drag.startHeight + (drag.startY - e.clientY) / total;
+    setAskSheetHeight(clampAskSheetHeight(next, total));
+  };
+  const handleSheetHandlePointerUp = () => {
+    if (!sheetDragRef.current) return;
+    sheetDragRef.current = null;
+    if (askSheetHeight <= ASK_SHEET_DISMISS_AT) {
+      setAskSheetHeight(ASK_SHEET_DEFAULT);
+      closeAskSheet();
+    }
+  };
+  // A cancelled pointer never delivers `pointerup`. Without this the drag stays
+  // live and a later hover over the grip resizes the sheet with no button held.
+  const handleSheetHandlePointerCancel = () => {
+    sheetDragRef.current = null;
+  };
+
+  // Persist the user's expanded-panel size while they drag the native edge
+  // grips (the window is resizable only while expanded).
+  useEffect(() => {
+    if (pillDemoMode || !expanded) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let unlisten: (() => void) | null = null;
+    void getCurrentWindow()
+      .onResized(({ payload }) => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          void invoke("recording_pill_save_expanded_size", {
+            w: payload.width,
+            h: payload.height,
+          }).catch(() => {});
+        }, 500);
+      })
+      .then((u) => {
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      if (timer) clearTimeout(timer);
+      unlisten?.();
+    };
+  }, [expanded]);
+
+  // Escape closes the ask sheet before anything else.
+  useEffect(() => {
+    if (!askSheetOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAskSheet();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askSheetOpen]);
 
   const handlePillMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -338,14 +1076,25 @@ export function RecordingPill() {
     invoke("recording_pill_hide").catch(() => {});
   };
 
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const mm = String(Math.floor(elapsed / 60));
   const ss = String(elapsed % 60).padStart(2, "0");
   const stopLabel =
     ctx.mode === "meeting" ? "Stop transcription" : "Stop recording";
 
   return (
-    <div className="pill-outer">
+    <div
+      className="pill-outer"
+      style={
+        pillDemoMode
+          ? { width: 480, height: 340, margin: 40, position: "relative" }
+          : undefined
+      }
+    >
       <div
+        ref={(node) => {
+          pillInnerRef.current = node;
+          capsuleRef.current = node;
+        }}
         className={`pill-inner${expanded ? "" : " pill-inner-compact"}${
           hovered ? " pill-hovered" : ""
         }`}
@@ -363,17 +1112,37 @@ export function RecordingPill() {
           onClick={!expanded && !detached ? handlePillMediaClick : undefined}
         >
           <div className="pill-media">
-            <PillLogo className="pill-logo" />
-            <LiveAudioBars
-              compact={!expanded && !detached}
-              className="pill-wave-meter"
-            />
+            {expanded && !detached ? null : <PillLogo className="pill-logo" />}
+            {expanded && !detached && ctx.mode === "meeting" ? (
+              <span className="pill-title" title={ctx.title ?? undefined}>
+                {ctx.title || "Meeting notes"}
+              </span>
+            ) : null}
+            {ctx.starting ? (
+              <Spinner className="pill-media-spinner size-3.5" />
+            ) : (
+              <LiveWaveform
+                className="pill-wave-meter"
+                bars={expanded && !detached ? 5 : 4}
+                dimmed={paused || finished}
+                level={pillDemoMode ? demoLevel : null}
+              />
+            )}
           </div>
-          <div className="pill-controls">
-            <span className="pill-timer">
-              {mm}:{ss}
-            </span>
-            {expanded && !finished ? (
+          <div className="pill-controls" ref={transportRef}>
+            {ctx.starting ? (
+              <span className="pill-timer pill-timer-starting">
+                <Spinner className="size-3" />
+                Starting
+              </span>
+            ) : expanded && !detached && ctx.mode === "meeting" ? null : (
+              <span
+                className={`pill-timer${!paused && !finished ? " pill-timer-live" : ""}`}
+              >
+                {mm}:{ss}
+              </span>
+            )}
+            {!finished ? (
               <button
                 type="button"
                 onClick={onPauseClick}
@@ -393,7 +1162,7 @@ export function RecordingPill() {
               <button
                 type="button"
                 onClick={onStopClick}
-                disabled={stopping}
+                disabled={stopping || ctx.starting === true}
                 data-no-drag
                 className="pill-stop-btn"
                 aria-label={stopping ? "Stopping" : stopLabel}
@@ -402,9 +1171,55 @@ export function RecordingPill() {
                 {stopping ? (
                   <IconLoader2 className="pill-spinner" size={14} />
                 ) : (
-                  <IconPlayerStopFilled size={14} />
+                  <span aria-hidden className="pill-stop-square" />
                 )}
               </button>
+            ) : null}
+            {expanded && !finished ? (
+              <button
+                type="button"
+                data-no-drag
+                className="pill-copy-btn"
+                onClick={handleCopyTranscript}
+                disabled={!hasTranscriptLines}
+                aria-label="Copy transcript"
+                title="Copy transcript"
+              >
+                {transcriptCopied ? (
+                  <IconCheck size={14} />
+                ) : (
+                  <IconCopy size={14} />
+                )}
+              </button>
+            ) : null}
+            {finished ? (
+              <>
+                <button
+                  type="button"
+                  data-no-drag
+                  className="pill-copy-btn"
+                  onClick={handleCopyTranscript}
+                  disabled={!hasTranscriptLines}
+                  aria-label="Copy transcript"
+                  title="Copy transcript"
+                >
+                  {transcriptCopied ? (
+                    <IconCheck size={14} />
+                  ) : (
+                    <IconCopy size={14} />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => closeFinished(true)}
+                  data-no-drag
+                  className="pill-copy-btn"
+                  aria-label="Share meeting"
+                  title="Share meeting"
+                >
+                  <IconShare size={15} />
+                </button>
+              </>
             ) : null}
             {finished ? (
               <button
@@ -470,67 +1285,208 @@ export function RecordingPill() {
             </div>
           ) : null}
           <div className="pill-transcript-area">
-            <div className="pill-pane-label pill-pane-label-row">
-              <span>Transcript</span>
-              <button
-                type="button"
-                data-no-drag
-                className="pill-copy-btn"
-                onClick={handleCopyTranscript}
-                disabled={!hasTranscriptLines}
-                aria-label="Copy transcript"
-                title="Copy transcript"
-              >
-                {transcriptCopied ? (
-                  <IconCheck size={12} />
-                ) : (
-                  <IconCopy size={12} />
-                )}
-              </button>
-            </div>
             <LiveTranscript
               onLinesChange={handleTranscriptLines}
               initialLines={preloadedLines}
             />
           </div>
           {ctx.mode === "meeting" ? (
-            <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
-              <input
-                data-no-drag
-                className="pill-ask-input"
-                value={ask}
-                onChange={(e) => setAsk(e.target.value)}
-                placeholder="Ask anything"
-                aria-label="Ask anything about this meeting"
-                disabled={!ctx.meetingId}
-              />
-              <button
-                type="submit"
-                data-no-drag
-                className="pill-ask-send"
-                disabled={!ask.trim() || !ctx.meetingId}
-                aria-label="Ask"
-                title="Ask"
-              >
-                <IconArrowUp size={13} />
-              </button>
-              <button
-                type="button"
-                data-no-drag
-                className="pill-ask-open"
-                onClick={() => {
-                  const mid = activeMeetingIdRef.current;
-                  if (mid)
-                    emit("clips:open-meeting", { meetingId: mid }).catch(
-                      () => {},
-                    );
+            <>
+              <div
+                ref={askChatContainerRef}
+                className="pill-ask-sheet"
+                data-state={
+                  askSheetClosing ? "closing" : askSheetOpen ? "open" : "closed"
+                }
+                style={{
+                  height: askSheetOpen
+                    ? `${Math.round(askSheetHeight * 100)}%`
+                    : "72px",
+                  animation:
+                    !askSheetOpen && !askSheetClosing ? "none" : undefined,
                 }}
-                aria-label="Open in browser"
-                title="Open this meeting in the browser"
+                data-no-drag
               >
-                <IconExternalLink size={13} />
-              </button>
-            </form>
+                {askSheetOpen ? (
+                  <div
+                    className="pill-ask-sheet-grip"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={t("meetingAsk.resizeOrDismissAnswers")}
+                    data-no-drag
+                    onPointerDown={handleSheetHandlePointerDown}
+                    onPointerMove={handleSheetHandlePointerMove}
+                    onPointerUp={handleSheetHandlePointerUp}
+                    onPointerCancel={handleSheetHandlePointerCancel}
+                    onLostPointerCapture={handleSheetHandlePointerCancel}
+                    onClick={(e) => {
+                      if (e.detail > 0 && !sheetDragMovedRef.current) {
+                        closeAskSheet();
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") closeAskSheet();
+                    }}
+                  >
+                    <span className="pill-ask-sheet-handle" aria-hidden />
+                  </div>
+                ) : null}
+                <AgentKitAssistantChat
+                  ref={askChatRef}
+                  apiUrl={meetingAgentChatApiUrl()}
+                  threadId={askThreadId}
+                  contextNamespace={`${MEETING_CONTEXT_NAMESPACE}:${askThreadId}`}
+                  contextScope={
+                    ctx.meetingId
+                      ? {
+                          type: "meeting",
+                          id: ctx.meetingId,
+                          ...(ctx.title ? { label: ctx.title } : {}),
+                        }
+                      : null
+                  }
+                  className="pill-agentkit-chat h-full min-h-0"
+                  composerAreaClassName="pill-agentkit-composer"
+                  composerLayoutVariant="compact"
+                  composerPlaceholder={
+                    !pillDemoMode &&
+                    providerStatus !== "eligible" &&
+                    providerStatus !== "unknown"
+                      ? t("agentChat.setup.connectToChat")
+                      : t("agentNativeClips.meetingAsk.placeholder")
+                  }
+                  composerSlot={
+                    <>
+                      {!pillDemoMode &&
+                      providerStatus !== "eligible" &&
+                      providerStatus !== "unknown" ? (
+                        <div
+                          className="pill-ask-provider-status"
+                          data-no-drag
+                          role="status"
+                        >
+                          <span>
+                            {providerStatus === "unavailable"
+                              ? t("agentChat.setup.providerStatusUnavailable")
+                              : t("agentChat.setup.connectToStart")}
+                          </span>
+                          {providerStatus === "missing" ? (
+                            <div className="pill-ask-provider-actions">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openExternal(
+                                    new URL(
+                                      "/settings/integrations/builder?builderConnect=1",
+                                      loadStoredServerUrl(),
+                                    ).toString(),
+                                  )
+                                }
+                              >
+                                {t("agentChat.setup.connectBuilder")}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openExternal(
+                                    new URL(
+                                      "/settings/keys",
+                                      loadStoredServerUrl(),
+                                    ).toString(),
+                                  )
+                                }
+                              >
+                                {t("agentChat.setup.addOwnKeys")}
+                              </button>
+                            </div>
+                          ) : providerStatus === "unavailable" ? (
+                            <button
+                              type="button"
+                              onClick={() => void checkProviderStatus()}
+                            >
+                              {t("agentChat.common.retry")}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {askSheetOpen ? (
+                        <div className="pill-ask-suggestions" data-no-drag>
+                          {(askChips.length
+                            ? askChips
+                            : FALLBACK_ASK_CHIPS
+                          ).map((chip) => (
+                            <Button
+                              key={chip.label}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              data-no-drag
+                              className="h-7 shrink-0 rounded-full px-3 text-xs font-normal"
+                              disabled={
+                                !pillDemoMode && providerStatus !== "eligible"
+                              }
+                              onClick={() => submitAsk(chip.ask)}
+                            >
+                              {chip.label}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  }
+                  dynamicSuggestions={false}
+                  emptyStateDisplay="hidden"
+                  isActiveComposer
+                  composerDisabled={
+                    !ctx.meetingId ||
+                    (!pillDemoMode &&
+                      providerStatus !== "eligible" &&
+                      providerStatus !== "unknown")
+                  }
+                  composerSubmissionDisabled={
+                    !pillDemoMode && providerStatus !== "eligible"
+                  }
+                  onMessageCountChange={handleAskMessageCountChange}
+                  plusMenuMode="hidden"
+                  showHeader={false}
+                  showModelSelector={false}
+                  suggestionPlacement="hidden"
+                />
+              </div>
+              <div
+                ref={chipsChatContainerRef}
+                aria-hidden="true"
+                style={{
+                  position: "fixed",
+                  insetInlineStart: "-10000px",
+                  top: 0,
+                  width: 360,
+                  height: 240,
+                  overflow: "hidden",
+                  pointerEvents: "none",
+                  visibility: "hidden",
+                }}
+              >
+                <AgentKitAssistantChat
+                  ref={chipsChatRef}
+                  apiUrl={meetingAgentChatApiUrl()}
+                  threadId={chipsThreadId}
+                  contextNamespace={`${MEETING_CONTEXT_NAMESPACE}:suggestions`}
+                  className="h-full min-h-0"
+                  composerPlaceholder="Generating suggestions"
+                  dynamicSuggestions={false}
+                  emptyStateDisplay="hidden"
+                  execMode="plan"
+                  isActiveComposer={false}
+                  onMessageCountChange={handleChipsMessageCountChange}
+                  plusMenuMode="hidden"
+                  showHeader={false}
+                  showModelSelector={false}
+                  suggestionPlacement="hidden"
+                  composerDisabled
+                />
+              </div>
+            </>
           ) : null}
         </div>
       </div>

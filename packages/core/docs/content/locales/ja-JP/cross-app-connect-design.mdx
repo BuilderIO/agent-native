@@ -1,0 +1,15 @@
+---
+title: "Cross-App Connect と Agent-Native マーケットプレイス"
+description: "Agent-Native アプリ間の接続、プロビジョニング、サインインの設計方針。"
+---
+
+# Cross-App Connect と Agent-Native マーケットプレイス
+
+ワンクリックでアプリを接続する設計方針です。Dispatch を ID の権威、既存の PKCE フローを利用し、ワイルドカード Cookie は追加しません。
+
+- Dispatch が ID の権威であり、組織メンバーシップは署名付き assertion で渡します。
+- `/_agent-native/open` がディープリンクを処理し、ローカルログインをフォールバックにします。
+- 動的登録、Client ID メタデータ、同意、取り消しがマーケットプレイスの次の段階です。
+- `labs.connectApps` を有効にすると `/connect` にキャッシュ済みの `/apps.json` カタログが表示され、既存の ID ハンドオフの前にエージェントカードを検証します。ハブ側の動的登録と取り消しは次の段階です。
+- この版では接続状態や切断操作は表示しません。先にハブのアプリ登録簿が必要です。
+- [Cross-App SSO](/docs/cross-app-sso)を参照してください。

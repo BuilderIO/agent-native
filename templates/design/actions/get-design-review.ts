@@ -1,25 +1,11 @@
-/**
- * get-design-review — read-only action returning the latest cached review for
- * a design, optionally including a visual diff between two `design_versions`.
- *
- * The review combines:
- *  - A11yFindings from the most recent `design_review_snapshot` row (or empty
- *    if no audit has been run yet).
- *  - A structural visual diff between `baseVersionId` and `compareVersionId`
- *    when both are provided: each design_versions snapshot is parsed as JSON
- *    and compared for layer/style deltas using the existing `design_versions`
- *    table — no new tables needed.
- *
- * See DESIGN-STUDIO-PLAN.md §6.5 + §7 (Review surface).
- */
-
-import { defineAction } from "@agent-native/core";
-import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
+import { readDesignVersionSnapshot } from "../server/lib/design-versions.js";
 import type {
   A11yFinding,
   DesignReviewSnapshot,
@@ -28,49 +14,17 @@ import type {
   VisualDiffEntry,
 } from "../shared/design-review.js";
 
-// ---------------------------------------------------------------------------
-// Visual diff helpers (operate on stored JSON snapshots)
-// ---------------------------------------------------------------------------
-
-/**
- * Parse a design_versions snapshot JSON into a flat map of
- * `{ nodeId: { ... style properties ... } }` for diff comparison.
- *
- * The snapshot format is whatever `generate-design` / `create-design-version`
- * stores — typically an object with a `files` array.  We extract a lightweight
- * set of each file's token/style references for structural comparison.
- */
-function parseSnapshotNodes(
-  snapshotRaw: string,
+function snapshotNodes(
+  files: ReadonlyArray<{ filename: string; content: string }>,
 ): Record<string, Record<string, unknown>> {
-  try {
-    const obj = JSON.parse(snapshotRaw) as unknown;
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
-    const record = obj as Record<string, unknown>;
-
-    // Flatten files → content strings into a map keyed by filename.
-    const files = record["files"];
-    if (!Array.isArray(files)) return {};
-
-    const out: Record<string, Record<string, unknown>> = {};
-    for (const file of files) {
-      if (!file || typeof file !== "object") continue;
-      const f = file as Record<string, unknown>;
-      const name = typeof f["filename"] === "string" ? f["filename"] : "?";
-      const content =
-        typeof f["content"] === "string" ? f["content"] : undefined;
-      out[name] = {
-        content,
-        bytes: typeof content === "string" ? content.length : 0,
-      };
-    }
-    return out;
-  } catch {
-    return {};
-  }
+  return Object.fromEntries(
+    files.map((file) => [
+      file.filename,
+      { content: file.content, bytes: file.content.length },
+    ]),
+  );
 }
 
-/** Produce a visual diff entry list by comparing two snapshot node maps. */
 function diffSnapshotNodes(
   baseNodes: Record<string, Record<string, unknown>>,
   compareNodes: Record<string, Record<string, unknown>>,
@@ -79,7 +33,6 @@ function diffSnapshotNodes(
   const baseKeys = new Set(Object.keys(baseNodes));
   const compareKeys = new Set(Object.keys(compareNodes));
 
-  // Added files
   for (const key of compareKeys) {
     if (!baseKeys.has(key)) {
       entries.push({
@@ -90,7 +43,6 @@ function diffSnapshotNodes(
     }
   }
 
-  // Removed files
   for (const key of baseKeys) {
     if (!compareKeys.has(key)) {
       entries.push({
@@ -101,7 +53,6 @@ function diffSnapshotNodes(
     }
   }
 
-  // Modified files (byte-length change as the cheapest proxy for content diff)
   for (const key of compareKeys) {
     if (baseKeys.has(key)) {
       const baseBytes = baseNodes[key]?.["bytes"] ?? 0;
@@ -112,7 +63,7 @@ function diffSnapshotNodes(
         entries.push({
           id: `modified:${key}`,
           kind: "modified" as VisualDiffChangeKind,
-          description: `File modified: ${key} (${baseBytes}B → ${compareBytes}B)`,
+          description: `File modified: ${key} (${JSON.stringify(baseBytes)}B → ${JSON.stringify(compareBytes)}B)`,
         });
       }
     }
@@ -120,10 +71,6 @@ function diffSnapshotNodes(
 
   return entries;
 }
-
-// ---------------------------------------------------------------------------
-// Action
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
@@ -160,31 +107,9 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designId, sourceRef, baseVersionId, compareVersionId }) => {
+    await assertAccess("design", designId, "editor");
     const db = getDb();
 
-    // Verify access to the design.
-    const [design] = await db
-      .select({ id: schema.designs.id })
-      .from(schema.designs)
-      .where(
-        and(
-          accessFilter(schema.designs, schema.designShares),
-          eq(schema.designs.id, designId),
-        ),
-      )
-      .limit(1);
-
-    if (!design) {
-      const err = new Error("Design not found") as Error & {
-        statusCode: number;
-      };
-      err.statusCode = 404;
-      throw err;
-    }
-
-    // -----------------------------------------------------------------------
-    // Load the latest review snapshot for this design (+ optional sourceRef).
-    // -----------------------------------------------------------------------
     const snapshotConditions = [
       eq(schema.designReviewSnapshot.designId, designId),
     ];
@@ -222,9 +147,6 @@ export default defineAction({
       }
     }
 
-    // -----------------------------------------------------------------------
-    // Visual diff between two design_versions (optional).
-    // -----------------------------------------------------------------------
     let visualDiff: VisualDiffEntry[] = [];
     let resolvedBaseVersionId: string | null = null;
     let resolvedCompareVersionId: string | null = null;
@@ -232,7 +154,6 @@ export default defineAction({
     const wantDiff = !!(baseVersionId || compareVersionId);
 
     if (wantDiff) {
-      // Resolve compare version (most recent if not specified).
       let effectiveCompareId = compareVersionId;
       if (!effectiveCompareId) {
         const [latestVersion] = await db
@@ -251,7 +172,15 @@ export default defineAction({
             snapshot: schema.designVersions.snapshot,
           })
           .from(schema.designVersions)
-          .where(and(eq(schema.designVersions.designId, designId)));
+          .where(
+            and(
+              eq(schema.designVersions.designId, designId),
+              inArray(schema.designVersions.id, [
+                baseVersionId,
+                effectiveCompareId,
+              ]),
+            ),
+          );
 
         const byId = Object.fromEntries(
           versionRows.map((r) => [r.id, r.snapshot]),
@@ -261,8 +190,12 @@ export default defineAction({
         const compareSnapshot = byId[effectiveCompareId];
 
         if (baseSnapshot && compareSnapshot) {
-          const baseNodes = parseSnapshotNodes(baseSnapshot);
-          const compareNodes = parseSnapshotNodes(compareSnapshot);
+          const [baseVersion, compareVersion] = await Promise.all([
+            readDesignVersionSnapshot(baseSnapshot, designId),
+            readDesignVersionSnapshot(compareSnapshot, designId),
+          ]);
+          const baseNodes = snapshotNodes(baseVersion.files);
+          const compareNodes = snapshotNodes(compareVersion.files);
           visualDiff = diffSnapshotNodes(baseNodes, compareNodes);
           resolvedBaseVersionId = baseVersionId;
           resolvedCompareVersionId = effectiveCompareId;
@@ -270,9 +203,6 @@ export default defineAction({
       }
     }
 
-    // -----------------------------------------------------------------------
-    // Build the response shape matching DesignReviewSnapshot.
-    // -----------------------------------------------------------------------
     const review: DesignReviewSnapshot = {
       id: snapshotId ?? "",
       designId,

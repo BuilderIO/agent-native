@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -38,11 +38,6 @@ export default defineAction({
   run: async ({ planId, versionId }) => {
     const access = await assertPlanEditor(planId);
     const ownerEmail = access.resource.ownerEmail as string;
-    // Optimistic-concurrency fence, mirroring the versionAtLoad/updatedAt
-    // pattern in update-visual-plan.ts: captured before any restore work
-    // starts, then used to guard the leading `plans` UPDATE below so a
-    // restore racing a concurrent edit fails cleanly instead of silently
-    // clobbering it or interleaving writes.
     const versionAtLoad = (access.resource as typeof schema.plans.$inferSelect)
       .updatedAt;
     const db = getDb();
@@ -70,15 +65,6 @@ export default defineAction({
     const snapshot = parsePlanVersionSnapshot(version.snapshotJson);
     const now = nowIso();
 
-    // The destructive part of the restore (plans update, comment sectionId
-    // nulling, section delete/re-insert, comment re-anchor, and the restore
-    // event) runs as a single atomic transaction. Without this, a
-    // mid-sequence failure could leave the plan with zero sections and
-    // permanently detached comments. better-sqlite3's normally-sync-only
-    // transaction() is patched to support async callbacks in
-    // packages/core/src/db/create-get-db.ts (patchBetterSqliteTransactions,
-    // wired into createGetDb for local sqlite urls), so this is safe on the
-    // local driver as well as libsql/Postgres.
     await db.transaction(async (tx) => {
       const updatedRows = await tx
         .update(schema.plans)
@@ -111,12 +97,8 @@ export default defineAction({
         );
       }
 
-      // Preserve comment anchors for sections whose ids survive in the snapshot.
-      // Strategy: capture comment→sectionId pairs for surviving sections first,
-      // then null ALL sectionIds (required to satisfy FK before section deletion),
-      // delete and re-insert sections, then re-anchor the surviving comments.
       const survivingSectionIds = new Set(snapshot.sections.map((s) => s.id));
-      const commentAnchorMap = new Map<string, string>(); // commentId → sectionId
+      const commentAnchorMap = new Map<string, string>();
       if (survivingSectionIds.size > 0) {
         const anchored = await tx
           .select({
@@ -138,7 +120,6 @@ export default defineAction({
         }
       }
 
-      // Null ALL comment anchors so the section delete below doesn't violate FK.
       await tx
         .update(schema.planComments)
         .set({ sectionId: null, updatedAt: now })
@@ -165,12 +146,8 @@ export default defineAction({
         );
       }
 
-      // Re-anchor comments that were pointing to sections present in the snapshot.
-      // These sections now exist again, so the FK is satisfied and the comment
-      // threads remain navigable. Comments on sections that did not survive stay
-      // detached (sectionId = null).
       if (commentAnchorMap.size > 0) {
-        const anchorGroups = new Map<string, string[]>(); // sectionId → commentIds
+        const anchorGroups = new Map<string, string[]>();
         for (const [commentId, sectionId] of commentAnchorMap) {
           const ids = anchorGroups.get(sectionId) ?? [];
           ids.push(commentId);

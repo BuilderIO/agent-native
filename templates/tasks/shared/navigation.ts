@@ -1,4 +1,3 @@
-/** Agent-facing view names for navigate + view-screen parity. */
 import { INCLUDE_DONE_QUERY_VALUE } from "./boolean-param.js";
 
 export const NAV_VIEWS = [
@@ -55,13 +54,11 @@ export interface NavigateCommand {
   fieldId?: string;
 }
 
-/** UI bulk-selection state synced from list views for view-screen. */
 export interface ListSelectionAppState {
   selectionMode: boolean;
   selectedIds: string[];
 }
 
-/** UI-selected custom field columns shown on task cards. */
 export interface TaskCardFieldsState {
   fieldIds: string[];
 }

@@ -1,11 +1,11 @@
-import { defineAction } from "@agent-native/core";
-import { assertAccess } from "@agent-native/core/sharing";
+import { defineAction } from "@agent-native/core/action";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { getGeminiApiKey } from "../server/lib/generation.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import { assertCanApprove } from "../server/lib/library-access.js";
 import { getObject } from "../server/lib/storage.js";
 import { getAssetOrThrow, serializeAsset } from "./_helpers.js";
 
@@ -20,12 +20,10 @@ export default defineAction({
   }),
   run: async ({ id, overwrite }) => {
     const asset = await getAssetOrThrow(id);
-    await assertAccess("asset-library", asset.libraryId, "editor");
+    await assertCanApprove(asset.libraryId, "Saving a description on an asset");
     if (!overwrite && (asset.description || asset.altText)) {
       return serializeAsset(asset);
     }
-    // Cost guard: this downloads media and calls Gemini, so default to cached
-    // descriptions unless the caller explicitly passes overwrite=true.
     const bytes = await getObject(asset.objectKey);
     if (bytes.byteLength > MAX_INLINE_MEDIA_BYTES) {
       throw new Error(

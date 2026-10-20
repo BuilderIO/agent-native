@@ -1,6 +1,6 @@
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat/AgentPanel";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -70,7 +70,6 @@ export default function BrowserChatRoute() {
           storageKey="dispatch"
           showHeader={false}
           showTabBar={false}
-          allowSettingsMode={false}
           dynamicSuggestions={false}
           suggestions={[]}
           emptyStateDisplay="hidden"

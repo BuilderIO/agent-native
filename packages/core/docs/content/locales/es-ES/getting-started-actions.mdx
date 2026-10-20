@@ -73,7 +73,7 @@ export default defineAction({
 });
 ```
 
-Ejecútala desde el terminal:
+Ejecútala desde el directorio de la aplicación:
 
 ```bash
 pnpm action analyze-text --text "Hello world. How are you today?"
@@ -83,8 +83,9 @@ O pídele al agente en el chat:
 
 > Run the analyze-text action on "Hello world. How are you today?"
 
-El renderizador integrado `data-chart` convierte el resultado estructurado en un
-gráfico dentro de la transcripción. No necesitas añadir un archivo de renderizador
+Cuando el agente ejecuta esta acción en el chat, el renderizador integrado
+`data-chart` convierte el resultado estructurado en un gráfico dentro de la
+transcripción. No necesitas añadir un archivo de renderizador
 ni un import en `app/root.tsx`. Para componentes nativos personalizados, consulta
 [IU de chat nativa](/docs/native-chat-ui).
 

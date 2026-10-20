@@ -1,8 +1,13 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
-export default createAuthPlugin({
+import { DECK_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
+
+export default createToolkitAuthPlugin({
+  workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Slides",
+    learnMoreUrl:
+      "https://agent-native.com/apps/slides?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent builds, edits, and refines presentations alongside you.",
     features: [
@@ -12,12 +17,15 @@ export default createAuthPlugin({
     ],
   },
   publicPaths: [
+    // Agent-readable context link: fetched with no session cookie, so the
+    // gate must not 401 before the handler verifies its scoped token.
+    DECK_AGENT_CONTEXT_ENDPOINT,
     "/share",
     "/p",
     "/api/share",
+    // The handler still requires either a session or a live share token.
+    "/api/image-proxy",
     "/_agent-native/google-docs/callback",
-    // React Router's lazy route-discovery endpoint must stay public so
-    // unauthenticated viewers can open shared presentation links directly.
     "/__manifest",
   ],
 });

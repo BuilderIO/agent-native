@@ -7,6 +7,14 @@ import {
   hasUnrenderedPlaceholder,
   packageScriptViolationMessage,
 } from "./checks.ts";
+import { isRetiredCompatibilityTemplate, listTemplates } from "./manifest.ts";
+
+describe("retired template compatibility packages", () => {
+  it("keeps retired host shims out of the live template standard", () => {
+    assert.equal(isRetiredCompatibilityTemplate("videos"), true);
+    assert.equal(listTemplates().includes("videos"), false);
+  });
+});
 
 describe("packageScriptViolationMessage", () => {
   it("flags a missing script", () => {
@@ -26,7 +34,7 @@ describe("packageScriptViolationMessage", () => {
       packageScriptViolationMessage(
         "analytics",
         "dev",
-        "DATABASE_URL=${ANALYTICS_DATABASE_URL:-file:./data/app.db} agent-native dev",
+        "DATABASE_URL=${ANALYTICS_DATABASE_URL:-pglite:./data/pglite} agent-native dev",
       ),
       null,
     );

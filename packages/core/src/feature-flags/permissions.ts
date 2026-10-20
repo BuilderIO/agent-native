@@ -19,7 +19,11 @@ function productionAdminAllowlist(): Set<string> {
   );
 }
 
-/** Require an org admin/owner, or an explicit production no-org allowlist entry. */
+export function isFeatureFlagAdminEmail(email: string | undefined): boolean {
+  const normalized = email?.trim().toLowerCase();
+  return Boolean(normalized && productionAdminAllowlist().has(normalized));
+}
+
 export async function requireFeatureFlagManager(scope: {
   userEmail?: string;
   orgId?: string | null;
@@ -43,7 +47,7 @@ export async function requireFeatureFlagManager(scope: {
     return { email, orgId };
   }
   if (process.env.NODE_ENV !== "production") return { email, orgId: null };
-  if (!productionAdminAllowlist().has(email)) {
+  if (!isFeatureFlagAdminEmail(email)) {
     throw new FeatureFlagPermissionError(
       "Feature flag management without an organization requires an explicit admin allowlist entry.",
       403,

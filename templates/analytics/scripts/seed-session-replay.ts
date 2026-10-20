@@ -131,7 +131,7 @@ async function main() {
       app: "clips",
       path: "/record",
       title: "Record a Clip",
-      body: "A local seeded session replay representing another Agent Native app.",
+      body: "A local seeded session replay representing another Agent-Native app.",
       action: "Start recording",
     },
   ];
@@ -171,6 +171,9 @@ async function main() {
         requestBytes: JSON.stringify(payload).length,
       },
     );
+    if ("skipped" in result) {
+      throw new Error(`Seed user ${payload.userId} is a test identity`);
+    }
     recordings.push(result);
   }
 

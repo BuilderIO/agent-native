@@ -3,15 +3,19 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
+  FIRST_RUN_ONBOARDING_ENV_OVERRIDE_KEY,
   mergeAgentNativeConfigs,
   normalizeAgentNativeConfig,
+  readAgentNativeConfigEnv,
   resolveAgentNativeConfig,
+  resolveEffectiveFirstRunOnboardingMode,
   type AgentNativeConfig,
   type AgentNativeConfigContext,
   type AgentNativeConfigInput,
+  type AgentNativeFirstRunOnboardingMode,
 } from "../config.js";
+import { parseHostedHarnessBuildValue } from "../server/hosted-harness-build-mode.js";
 
-/** The canonical filename comes first; the remaining names stay compatible. */
 export const AGENT_NATIVE_CONFIG_FILE_CANDIDATES = [
   "agent-native.config.ts",
   "agent-native.ts",
@@ -51,13 +55,40 @@ export function readAgentNativeJsonConfig(cwd: string): AgentNativeConfig {
 export async function loadAgentNativeConfigFile(
   cwd: string,
 ): Promise<AgentNativeConfigInput | undefined> {
-  const configPath = AGENT_NATIVE_CONFIG_FILE_CANDIDATES.map((filename) =>
-    path.join(cwd, filename),
-  ).find((candidate) => fs.existsSync(candidate));
+  const configPath = findConfigPath(cwd);
   if (!configPath) return undefined;
 
   try {
-    const module = (await import(pathToFileURL(configPath).href)) as {
+    const module = (await import(
+      /* @vite-ignore */ pathToFileURL(configPath).href
+    )) as {
+      default?: unknown;
+      agentNativeConfig?: unknown;
+    };
+    const config = module.default ?? module.agentNativeConfig;
+    if (typeof config !== "object" && typeof config !== "function") {
+      throw new Error("the default export must be an object or function");
+    }
+    return config as AgentNativeConfigInput;
+  } catch (error) {
+    throw new Error(
+      `Could not load ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+export async function loadWorkspaceAgentNativeConfigFile(
+  cwd: string,
+): Promise<AgentNativeConfigInput | undefined> {
+  const workspaceRoot = findWorkspaceRoot(cwd);
+  if (!workspaceRoot || workspaceRoot === path.resolve(cwd)) return undefined;
+  const configPath = findConfigPath(workspaceRoot);
+  if (!configPath) return undefined;
+
+  try {
+    const module = (await import(
+      /* @vite-ignore */ pathToFileURL(configPath).href
+    )) as {
       default?: unknown;
       agentNativeConfig?: unknown;
     };
@@ -77,10 +108,15 @@ export async function loadResolvedAgentNativeConfig(
   cwd: string,
   context: AgentNativeConfigContext,
   options: {
+    environment?: Record<string, string | undefined>;
     loadProjectConfig?: boolean;
     projectConfig?: AgentNativeConfigInput;
   } = {},
 ): Promise<AgentNativeConfig> {
+  const workspaceConfig =
+    options.loadProjectConfig === false
+      ? undefined
+      : await loadWorkspaceAgentNativeConfigFile(cwd);
   const projectConfig =
     options.projectConfig ??
     (options.loadProjectConfig === false
@@ -89,9 +125,140 @@ export async function loadResolvedAgentNativeConfig(
 
   return resolveAgentNativeConfig(
     mergeAgentNativeConfigs(
-      readAgentNativeJsonConfig(cwd),
-      projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
+      mergeAgentNativeConfigs(
+        mergeAgentNativeConfigs(
+          workspaceConfig
+            ? resolveAgentNativeConfig(workspaceConfig, context)
+            : {},
+          readAgentNativeJsonConfig(cwd),
+        ),
+        projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
+      ),
+      readAgentNativeConfigEnv(options.environment ?? process.env),
+      { arrayStrategy: "replace" },
     ),
     context,
   );
+}
+
+export function resolveFirstRunOnboardingBuildReplacement(
+  config: AgentNativeConfig,
+  env: Record<string, string | undefined>,
+): AgentNativeFirstRunOnboardingMode | "" {
+  const envOverride = env[FIRST_RUN_ONBOARDING_ENV_OVERRIDE_KEY];
+  const configured = config.onboarding?.firstRun as
+    | AgentNativeFirstRunOnboardingMode
+    | undefined;
+  if (envOverride === undefined && configured === undefined) return "";
+  return resolveEffectiveFirstRunOnboardingMode(envOverride, configured);
+}
+
+export function resolveHarnessBuildReplacement(
+  config: AgentNativeConfig,
+): string {
+  return JSON.stringify(config.harness ?? null);
+}
+
+const AGENT_NATIVE_BUILD_CONFIG_MARKER = path.join(
+  ".agent-native",
+  "build-config.json",
+);
+
+export interface AgentNativeBuildConfigMarker {
+  firstRunOnboarding: AgentNativeFirstRunOnboardingMode | "";
+  harness: string;
+}
+
+const FIRST_RUN_ONBOARDING_MARKER_VALUES = new Set<string>([
+  "",
+  "off",
+  "connect",
+  "connect-and-integrations",
+]);
+
+export function writeAgentNativeBuildConfigMarker(
+  cwd: string,
+  marker: AgentNativeBuildConfigMarker,
+): void {
+  const filePath = path.join(cwd, AGENT_NATIVE_BUILD_CONFIG_MARKER);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(marker));
+}
+
+export function clearAgentNativeBuildConfigMarker(cwd: string): void {
+  fs.rmSync(path.join(cwd, AGENT_NATIVE_BUILD_CONFIG_MARKER), {
+    force: true,
+  });
+}
+
+export function readAgentNativeBuildConfigMarker(
+  cwd: string,
+): AgentNativeBuildConfigMarker | undefined {
+  const filePath = path.join(cwd, AGENT_NATIVE_BUILD_CONFIG_MARKER);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Invalid agent-native build config marker: ${filePath}`, {
+      cause: error,
+    });
+  }
+  const record = parsed as Partial<AgentNativeBuildConfigMarker> | null;
+  if (
+    !record ||
+    typeof record !== "object" ||
+    !FIRST_RUN_ONBOARDING_MARKER_VALUES.has(
+      record.firstRunOnboarding as string,
+    ) ||
+    typeof record.harness !== "string"
+  ) {
+    throw new Error(`Invalid agent-native build config marker: ${filePath}`);
+  }
+  try {
+    parseHostedHarnessBuildValue(record.harness);
+  } catch (error) {
+    throw new Error(`Invalid agent-native build config marker: ${filePath}`, {
+      cause: error,
+    });
+  }
+  return {
+    firstRunOnboarding: record.firstRunOnboarding!,
+    harness: record.harness,
+  };
+}
+
+function findConfigPath(cwd: string): string | undefined {
+  return AGENT_NATIVE_CONFIG_FILE_CANDIDATES.map((filename) =>
+    path.join(cwd, filename),
+  ).find((candidate) => fs.existsSync(candidate));
+}
+
+function findWorkspaceRoot(cwd: string): string | undefined {
+  let current = path.resolve(cwd);
+  while (true) {
+    const packagePath = path.join(current, "package.json");
+    if (fs.existsSync(packagePath)) {
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+        if (packageJson["agent-native"]?.workspaceCore) return current;
+      } catch (error) {
+        throw new Error(
+          `Could not read workspace manifest ${packagePath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { cause: error },
+        );
+      }
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
 }

@@ -1,4 +1,4 @@
-import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconArrowLeft } from "@tabler/icons-react";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -10,7 +10,6 @@ import {
   callAppAction,
   fetchAppEmailCatalog,
   type AppEmailCatalog,
-  type AppTransactionalEmail,
   type LocalTransactionalEmailCatalog,
 } from "../../client/transactional-emails";
 import { ActionQueryError } from "../../components/action-query-error";
@@ -45,11 +44,6 @@ interface WorkspaceAppRef {
   status?: "ready" | "pending";
 }
 
-/**
- * Resolves the one email this page shows, plus the app name/path to display.
- * The "core" appId is Dispatch's own registry, not a cross-app fetch — see
- * the same split in transactional-email.tsx.
- */
 function useEmailDetail(appId: string, id: string) {
   const isCore = appId === "core";
   const t = useT();

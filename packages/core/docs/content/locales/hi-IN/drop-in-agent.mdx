@@ -9,7 +9,7 @@ description: "एजेंट चैट + एजेंट संसाधन क
 
 आपको शुरुआत से एजेंट-नेटिव बनाने की आवश्यकता नहीं है। एजेंट चैट, एजेंट संसाधन टैब, CLI टर्मिनल, वॉयस इनपुट, और सभी संबंधित बुनियादी ढांचे को मुट्ठी भर React घटकों के रूप में शिप किया जाता है जिन्हें आप किसी भी ऐप में डालते हैं।
 
-> **पूर्वावश्यकता:** सर्वर को `agent-chat-plugin` चलाना होगा (यह प्रत्येक टेम्पलेट में स्वचालित रूप से माउंट होता है)। यदि आप शून्य से शुरू कर रहे हैं, तो [Server](/docs/server) देखें।
+> **पूर्वावश्यकता:** सर्वर को `agent-chat-plugin` चलाना होगा (यह प्रत्येक टेम्पलेट में स्वचालित रूप से माउंट होता है)। यदि आप शून्य से शुरू कर रहे हैं, तो [Server](/docs/server-overview) देखें।
 >
 > ट्यूटोरियल के बजाय सार्वजनिक API मानचित्र की आवश्यकता है? [Component API](/docs/components) देखें.
 
@@ -178,7 +178,7 @@ export default function AgentRoute() {
 
 ## प्रोग्रामेटिक संदेश: `sendToAgentChat()` {#send}
 
-एक बटन जो एजेंट को काम सौंपता है (इनलाइन `llm()` कॉल चलाने के बजाय - [ladder](/docs/what-is-agent-native#the-ladder) से एंटी-पैटर्न):
+एक बटन जो inline `llm()` call से अलग AI path बनाने के बजाय agent को काम सौंपता है। यह अंतर क्यों महत्वपूर्ण है, इसके लिए [ऐप्स इस तरह क्यों बनाएं](/docs/what-is-agent-native#why-build-apps-this-way) देखें:
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -205,7 +205,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`background`** - `newTab` के साथ, नए थ्रेड पर ध्यान केंद्रित किए बिना चलाएं। छिपे हुए रन को `RunsTray` में ट्रैक किया जाता है।
 - **`openSidebar`** - पृष्ठभूमि/मूक प्रेषण के लिए `false` पर सेट करें। डिफ़ॉल्ट रूप से साइडबार खुलता है ताकि उपयोगकर्ता प्रतिक्रिया देख सके।
 - **उपयोगकर्ता द्वारा शुरू किए गए दिखाई देने वाले AI कार्य** के लिए `openSidebar: true` का उपयोग करें। `false` का उपयोग केवल स्पष्ट रूप से शांत बैकग्राउंड या सिस्टम-आरंभित कार्य के लिए करें, और follow-up को उसी AgentSidebar thread में रखें।
-- **`type`** — `"content"` (डिफ़ॉल्ट) कार्य को embedded app agent में रखता है, जो app tools का उपयोग करता है। `"code"` repository source changes के लिए अलग code-capable frame तक route करता है; write access केवल तभी उपलब्ध है जब host जानबूझकर repository/workspace tooling दे। [Frames](/docs/frames) देखें।
+- **`type`** — `"content"` (डिफ़ॉल्ट) कार्य को embedded app agent में रखता है, जो app tools का उपयोग करता है। `"code"` repository source changes के लिए अलग code-capable host तक route करता है; write access केवल तभी उपलब्ध है जब host जानबूझकर repository/workspace tooling दे। [Agent-Native कोड UI](/docs/code-agents-ui) देखें।
 
 `sendToAgentChat` एक स्थिर `tabId` लौटाता है जिसका उपयोग आप चैट रन को ट्रैक करने के लिए कर सकते हैं।
 
@@ -228,7 +228,7 @@ Follow-up और revision prompts को मौजूदा AgentSidebar thread 
 
 जब उसी रूट को MCP ऐप के रूप में एम्बेड किया जाता है, सबमिट किया जाता है
 `sendToAgentChat()` कॉल होस्ट चैट पर अग्रेषित की जाती हैं जहां समर्थित है; देखें
-MCP ऐप ब्रिज व्यवहार के लिए [Client](/docs/client#sendtoagentchat)।
+MCP ऐप ब्रिज व्यवहार के लिए [एजेंट चैट](/docs/client-agent-chat#sendtoagentchat)।
 
 यदि आप लोडिंग स्थिति चाहते हैं, तो `useSendToAgentChat()` हुक का उपयोग करें - यह `send` और `isGenerating` दोनों लौटाता है:
 
@@ -268,7 +268,7 @@ CRUD, validation, provider reads और persistence जैसे deterministic l
 
 ## UI से टाइपसेफ actions: `useActionMutation()` {#use-action-mutation}
 
-जब UI को समान ऑपरेशन चलाने की आवश्यकता होती है तो एक एजेंट टूल चलेगा - [ladder](/docs/what-is-agent-native#rung-three) का क्रमांक 3 - `useActionMutation` का उपयोग करें:
+जब UI को वही operation चलाने की आवश्यकता हो जो agent tool चलाएगा, तो [`useActionMutation`](/docs/client-data#use-action-mutation) का उपयोग करें:
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -279,11 +279,11 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-टाइप-सुरक्षित तर्क आपके `defineAction()` में ज़ोड स्कीमा से आते हैं। संपूर्ण कार्य प्रणाली के लिए [Actions](/docs/actions) देखें।
+टाइप-सुरक्षित तर्क आपके `defineAction()` में ज़ोड स्कीमा से आते हैं। संपूर्ण कार्य प्रणाली के लिए [Actions](/docs/actions-overview) देखें।
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` बनाम `sendToAgentChat`.** User ने deterministic button ("Send reply") click किया हो, तो operation सीधे `useActionMutation` से चलाएं। काम को agent के reasoning, tools या multi-step planning की जरूरत हो, तो `sendToAgentChat` को दें। UI से inline `llm()` कभी call न करें; इससे shared agent loop का उपयोग करने के बजाय अलग AI path बनता है।
 
 </Callout>
 
@@ -337,7 +337,7 @@ export default function Root() {
 
 ## आगे क्या
 
-- [**Actions**](/docs/actions) - `defineAction()` और `useActionMutation()`
+- [**Actions**](/docs/actions-overview) - `defineAction()` और `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) - चयन, नेविगेशन, व्यू-स्क्रीन
 - [**एजेंट संसाधन**](/docs/agent-resources) - एजेंट संसाधन टैब में क्या शामिल है (skills, मेमोरी, MCP सर्वर, शेड्यूल किए गए कार्य)
 - [**Voice Input**](/docs/voice-input) - चैट कंपोजर में माइक्रोफोन

@@ -11,6 +11,8 @@ import type {
   ProviderApiRequestArgs,
   ProviderApiRuntime,
 } from "../index.js";
+import { isReadOnlyProviderPost } from "../read-only-requests.js";
+import { rejectFailedProviderResult } from "../result-outcome.js";
 import { stagingExecuteRequest, type StagingRequestArgs } from "../staging.js";
 import {
   createCustomProviderRegistrationAction,
@@ -291,6 +293,30 @@ type ProviderRequestActionArgs = StagingRequestArgs & {
   fetchAllPages?: ProviderApiRequestArgs["fetchAllPages"];
 };
 
+function readsProviderOnly(request: ProviderRequestActionArgs): boolean {
+  const method = String(request.method ?? "GET").toUpperCase();
+  return (
+    method === "GET" || method === "HEAD" || isReadOnlyProviderPost(request)
+  );
+}
+
+const STAGED_DATASET_CAP_ERROR = /Staged dataset (?:byte )?cap exceeded/i;
+
+function rethrowStagingError(error: unknown): never {
+  if (
+    error instanceof Error &&
+    STAGED_DATASET_CAP_ERROR.test(error.message) &&
+    // A single dataset over the whole cap is not fixed by deleting others.
+    !/this dataset alone/i.test(error.message)
+  ) {
+    throw new Error(
+      `${error.message} Recover by deleting older staged datasets with list-staged-datasets/delete-staged-dataset, or switch this request to saveToFile / a smaller staged result before trying again.`,
+      { cause: error },
+    );
+  }
+  throw error;
+}
+
 interface ProviderApiActionBaseOptions<TSchema extends ZodTypeAny> {
   schema?: TSchema;
   description?: string;
@@ -311,6 +337,11 @@ export interface CreateProviderApiRequestActionOptions<
         args: z.output<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * `false` keeps a per-tool "always allow" from standing in for the
+   * `needsApproval` decision, for gates that decide per request.
+   */
+  allowPersistentApproval?: boolean;
 }
 
 export function createProviderApiRequestAction<
@@ -341,11 +372,13 @@ export function createProviderApiRequestAction<
                 ctx?: ActionRunContext,
               ) => boolean | Promise<boolean>),
         }),
+    ...(options.allowPersistentApproval === undefined
+      ? {}
+      : { allowPersistentApproval: options.allowPersistentApproval }),
     planMode: {
       effect: (args) => {
         const request = args as ProviderRequestActionArgs;
-        const method = String(request.method ?? "GET").toUpperCase();
-        if (method !== "GET" && method !== "HEAD") return "write";
+        if (!readsProviderOnly(request)) return "write";
         if (request.stageAs || request.saveToFile) return "write";
         return "read";
       },
@@ -353,6 +386,15 @@ export function createProviderApiRequestAction<
       omittedProperties: ["stageAs", "saveToFile"],
       description:
         "Plan mode allows GET and HEAD provider reads that do not stage data or save files.",
+    },
+    // A GET, HEAD, or listed read-only POST only reads the provider, and
+    // re-staging under the same name replaces the result. A cap or validation
+    // error from stageAs must not stop the run for every later provider call.
+    // saveToFile writes a workspace file with no version fence, so a replay
+    // could overwrite an edit made since.
+    retrySafe: (args) => {
+      const request = args as ProviderRequestActionArgs;
+      return readsProviderOnly(request) && !request.saveToFile;
     },
     audit: {
       recordInputs: false,
@@ -364,6 +406,7 @@ export function createProviderApiRequestAction<
       summary: (args) =>
         buildProviderApiAuditSummary(args as ProviderRequestActionArgs),
     },
+    grounding: true,
     run: async (rawArgs) => {
       const args = rawArgs as ProviderRequestActionArgs;
       if (args.stageAs) {
@@ -378,12 +421,19 @@ export function createProviderApiRequestAction<
         if (!ownerEmail) {
           throw new Error("No authenticated context for provider API staging.");
         }
-        return stagingExecuteRequest(args, runtime.executeRequest, {
-          appId: options.appId,
-          ownerEmail,
-        });
+        try {
+          return await stagingExecuteRequest(args, runtime.executeRequest, {
+            appId: options.appId,
+            ownerEmail,
+          });
+        } catch (error) {
+          rethrowStagingError(error);
+        }
       }
-      return runtime.executeRequest(args);
+      return rejectFailedProviderResult(
+        args.provider,
+        await runtime.executeRequest(args),
+      );
     },
   });
 }
@@ -442,8 +492,13 @@ export function createProviderApiDocsAction<
     schema,
     http: options.http ?? { method: "GET" },
     readOnly: true,
-    run: async (rawArgs) =>
-      runtime.fetchDocs(rawArgs as ProviderApiDocsOptions),
+    run: async (rawArgs) => {
+      const args = rawArgs as ProviderApiDocsOptions;
+      return rejectFailedProviderResult(
+        args.provider,
+        await runtime.fetchDocs(args),
+      );
+    },
   });
 }
 

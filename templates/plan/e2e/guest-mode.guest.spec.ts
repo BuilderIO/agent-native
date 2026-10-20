@@ -32,17 +32,14 @@ function makeE2ePassword(label: string): string {
   return ["example", label, Date.now().toString(36), "pw"].join("-");
 }
 
-/** Authed helper context (the plan owner) — used only to mint fixtures. */
 async function createOwnerContext(page: Page): Promise<{
   request: APIRequestContext;
   email: string;
 }> {
-  const email = `guestspec-owner-${Date.now()}-${Math.floor(
+  const email = `guestspec-owner+autoz-${Date.now()}-${Math.floor(
     Math.random() * 1e6,
   )}@plan.test`;
   const password = makeE2ePassword("guest-owner");
-  // Same-origin register+login via the page's request context (shares cookies,
-  // passes Better Auth origin check). Mirrors e2e/global-setup.ts.
   const reg = await page.request.post("/_agent-native/auth/register", {
     data: { email, password, name: "Guest Spec Owner", callbackURL: "/plans" },
   });
@@ -57,7 +54,6 @@ async function createOwnerContext(page: Page): Promise<{
   return { request: page.request, email };
 }
 
-/** Create a plan as the currently-authed request context, return its id. */
 async function createPlanAs(
   request: APIRequestContext,
   title: string,
@@ -75,12 +71,15 @@ async function createPlanAs(
   return id as string;
 }
 
-/** Make a plan public so anonymous viewers can read it. */
 async function makePublic(request: APIRequestContext, planId: string) {
+  // Making a plan public needs approval, which over HTTP only the signed-in
+  // app UI gives: a frontend call holding the UI capability.
+  await request.get("/_agent-native/ui-capability");
   const res = await request.post(
     "/_agent-native/actions/set-resource-visibility",
     {
       data: { resourceType: "plan", resourceId: planId, visibility: "public" },
+      headers: { "X-Agent-Native-Frontend": "1" },
     },
   );
   expect(
@@ -89,7 +88,6 @@ async function makePublic(request: APIRequestContext, planId: string) {
   ).toBeTruthy();
 }
 
-/** Wipe any auth cookies from a context so it is truly anonymous. */
 async function clearAuth(page: Page) {
   await page.context().clearCookies();
 }
@@ -101,11 +99,11 @@ test.describe("guest mode + claim", () => {
     await page.waitForLoadState("domcontentloaded");
 
     await expect(page.getByText(/viewing as a guest/i)).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: /^sign in$/i }).first(),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^plan$/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^sign in$/i })).toHaveCount(
+      0,
+    );
 
-    // Create must NOT be offered as a real create to a guest.
     await expect(
       page.getByRole("button", { name: /sign in to create/i }),
     ).toHaveCount(0);
@@ -114,6 +112,7 @@ test.describe("guest mode + claim", () => {
     );
 
     await expect(page.getByText("Start with /visual-plan")).toBeVisible();
+    await expect(page.locator("[data-onboarding-screen]")).toHaveCount(0);
     await expect(
       page.getByText(PLAN_SKILL_INSTALL_COMMAND, { exact: true }),
     ).toBeVisible();
@@ -129,25 +128,76 @@ test.describe("guest mode + claim", () => {
     await expect(page.getByText(/no cli yet/i)).toHaveCount(0);
   });
 
-  test("guest clicking the header sign-in action is sent to sign-in", async ({
-    page,
-  }) => {
+  test("logged-out plans page omits the app header", async ({ page }) => {
     await clearAuth(page);
     await page.goto("/plans");
     await page.waitForLoadState("domcontentloaded");
 
-    const signInButton = page.getByRole("button", { name: /^sign in$/i });
-    await expect(signInButton).toBeVisible({ timeout: 15_000 });
-    await signInButton.click();
+    await expect(page.locator("header")).toHaveCount(0);
+    await expect(page.getByText("Start with /visual-plan")).toBeVisible();
+  });
 
-    // Must land on the framework sign-in surface.
-    await page.waitForURL(/\/sign-in\?c=/i, { timeout: 15_000 });
-    expect(page.url()).toMatch(/sign-in/i);
-    expect(new URL(page.url()).searchParams.get("c")).toBeTruthy();
-    // The sign-in page offers account creation (the only way to author plans).
-    await expect(page.getByText(/create account/i).first()).toBeVisible({
-      timeout: 15_000,
+  test("logged-out mobile plans keeps navigation available", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await clearAuth(page);
+    await page.goto("/plans");
+
+    await page.getByRole("button", { name: /open navigation/i }).click();
+    await page.getByRole("link", { name: /^ask$/i }).click();
+    await expect(page).toHaveURL(/\/chat\/?$/);
+  });
+
+  test("logged-out chat route loads directly", async ({ page }) => {
+    await clearAuth(page);
+    const response = await page.goto("/chat");
+
+    expect(response?.ok(), `guest /chat response ${response?.status()}`).toBe(
+      true,
+    );
+    await expect(page).toHaveURL(/\/chat\/?$/);
+    await expect(
+      page.getByRole("heading", { name: /ask plan/i }),
+    ).toBeVisible();
+  });
+
+  test("trailing-slash public routes keep their shells", async ({ page }) => {
+    await clearAuth(page);
+
+    await page.goto("/chat/");
+    await expect(
+      page.getByRole("heading", { name: /ask plan/i }),
+    ).toBeVisible();
+
+    await page.evaluate(() => {
+      sessionStorage.setItem(
+        "agent-native.plans.chat-home-handoff",
+        String(Date.now()),
+      );
+      (
+        window as typeof window & { handoffTransitions?: number }
+      ).handoffTransitions = 0;
+      window.addEventListener("agentNative.chatViewTransitionPrepare", () => {
+        window.handoffTransitions = (window.handoffTransitions ?? 0) + 1;
+      });
     });
+    await page
+      .getByRole("link", { name: /^plan$/i })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/plans\/?$/);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as typeof window & { handoffTransitions?: number })
+            .handoffTransitions,
+      ),
+    ).toBe(1);
+
+    await page.goto("/plans/");
+    await expect(page.locator("header")).toHaveCount(0);
+    await expect(page.getByText("Start with /visual-plan")).toBeVisible();
   });
 
   test("anonymous create-visual-plan is rejected with a clean message (no plan minted)", async ({
@@ -159,8 +209,6 @@ test.describe("guest mode + claim", () => {
       "/_agent-native/actions/create-visual-plan",
       { data: { title: `guest-illegal-create-${Date.now()}`, brief: "nope" } },
     );
-    // A guest must NOT be able to create. Expect an auth rejection (401/403),
-    // NOT a 500 and NOT a 200 that silently created an orphan plan.
     expect(
       res.status(),
       `anonymous create should be auth-rejected, got ${res.status()}`,
@@ -177,8 +225,6 @@ test.describe("guest mode + claim", () => {
     page,
     browser,
   }) => {
-    // Mint a public fixture in a SEPARATE authed context (owner), then read it
-    // back from a fresh, truly-anonymous context.
     const ownerCtx = await browser.newContext();
     const ownerPage = await ownerCtx.newPage();
     await ownerPage.goto("/");
@@ -188,9 +234,8 @@ test.describe("guest mode + claim", () => {
     await makePublic(owner.request, planId);
     await ownerCtx.close();
 
-    // Anonymous guest reads the public plan through the action surface (GET).
     await clearAuth(page);
-    await page.goto("/plans"); // establish app origin for same-origin request
+    await page.goto("/plans");
     const read = await page.request.get(
       `/_agent-native/actions/get-visual-plan?id=${encodeURIComponent(planId)}`,
     );
@@ -204,11 +249,9 @@ test.describe("guest mode + claim", () => {
       "anonymous viewer receives the public plan content",
     ).toBe(title);
 
-    // And the plan page renders for the anonymous viewer (CSR shell at minimum).
     await page.goto(`/plans/${planId}`);
     await page.waitForLoadState("domcontentloaded");
     await expect(page).toHaveTitle(/Plan|Agent-Native/i, { timeout: 15_000 });
-    // Viewing a specific plan, the guest banner must NOT cover the reader.
     await expect(page.getByText(/viewing as a guest/i)).toHaveCount(0);
   });
 
@@ -233,7 +276,6 @@ test.describe("guest mode + claim", () => {
     await clearAuth(page);
     await page.goto("/plans");
 
-    // Anonymous read of a PRIVATE plan must be denied and must not echo content.
     const priv = await page.request.get(
       `/_agent-native/actions/get-visual-plan?id=${encodeURIComponent(privId)}`,
     );
@@ -247,13 +289,11 @@ test.describe("guest mode + claim", () => {
       "private brief must never appear in an anonymous error body",
     ).not.toContain(secret);
 
-    // A clean access response is expected (401/403/404), NOT a leaky 500.
     expect(
       priv.status(),
       `denied private read should be a 4xx access error, not a 500; got ${priv.status()}`,
     ).toBeLessThan(500);
 
-    // Unknown id: same contract — a clean 4xx, never a 500 stack.
     const unknown = await page.request.get(
       "/_agent-native/actions/get-visual-plan?id=plan_does_not_exist_guest_spec",
     );
@@ -269,12 +309,6 @@ test.describe("guest mode + claim", () => {
   }) => {
     await clearAuth(page);
     await page.goto("/plans");
-    // The current build gates all guest creation behind sign-in, so a guest can
-    // never accrue plans to a guest identity. The friendly-limit contract still
-    // applies to whatever rejection a guest hits at the create chokepoint: it
-    // must be a human-readable message (sign-in / limit), never a bare 500 or a
-    // stack trace. (If a guest-author path ever returns the cap message
-    // "Guest plan limit reached", that is also accepted here.)
     const res = await page.request.post(
       "/_agent-native/actions/create-visual-plan",
       { data: { title: `guest-cap-probe-${Date.now()}`, brief: "cap probe" } },
@@ -284,7 +318,6 @@ test.describe("guest mode + claim", () => {
       `guest create rejection status ${res.status()}`,
     ).toBeGreaterThanOrEqual(400);
     const body = await res.text();
-    // Friendly: mentions signing in OR the explicit guest plan limit copy.
     expect(
       /sign in|unauthorized|guest plan limit|try again shortly|limit reached/i.test(
         body,
@@ -294,7 +327,6 @@ test.describe("guest mode + claim", () => {
         200,
       )}`,
     ).toBeTruthy();
-    // Never a server-error stack / generic 500 wording on a *known* guest reject.
     expect(body).not.toMatch(
       /internal server error|cannot read propert|undefined is not/i,
     );
@@ -303,22 +335,14 @@ test.describe("guest mode + claim", () => {
   test("signing in from guest mode lands signed-in: banner gone, account plans listed (claim path)", async ({
     page,
   }) => {
-    // Start as a guest on the plans list.
     await clearAuth(page);
     await page.goto("/plans");
     await expect(page.getByText("Start with /visual-plan")).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByText(/viewing as a guest/i)).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: /^sign in$/i }).first(),
-    ).toBeVisible();
 
-    // Register + login same-origin (verification-free path the framework uses
-    // for programmatic auth), exactly as global-setup does. This is the moment a
-    // guest "signs in to keep their work"; the claim middleware runs on the next
-    // authenticated request.
-    const email = `guest-claim-${Date.now()}-${Math.floor(
+    const email = `guest-claim+autoz-${Date.now()}-${Math.floor(
       Math.random() * 1e6,
     )}@plan.test`;
     const password = makeE2ePassword("guest-claim");
@@ -331,28 +355,23 @@ test.describe("guest mode + claim", () => {
     });
     expect(login.ok(), `login status ${login.status()}`).toBeTruthy();
 
-    // As this freshly-authed account, create a plan (proves the account is live
-    // and that, post-sign-in, the create path is no longer gated).
     const claimedTitle = `Claimed-after-signin ${Date.now()}`;
     const planId = await createPlanAs(page.request, claimedTitle);
 
-    // Reload the app as the now-authenticated user.
     await page.goto("/plans");
     await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("[data-onboarding-screen]")).toHaveCount(0);
 
-    // Banner must be GONE once signed in.
     await expect(
       page.getByText(/viewing as a guest/i),
       "guest banner disappears after sign-in",
     ).toHaveCount(0, { timeout: 15_000 });
 
-    // The account's plan appears in the list (no data loss across the sign-in).
     await expect(
       page.getByText(claimedTitle).first(),
       "the signed-in account's plan is listed after sign-in",
     ).toBeVisible({ timeout: 15_000 });
 
-    // A real create CTA ("New Plan") is now offered (not "Sign in to create").
     await expect(
       page.getByRole("button", { name: /^new plan$/i }).first(),
     ).toBeVisible({ timeout: 15_000 });
@@ -360,9 +379,6 @@ test.describe("guest mode + claim", () => {
       page.getByRole("button", { name: /sign in to create/i }),
     ).toHaveCount(0);
 
-    // Claim is idempotent: a second authenticated request must not lose the plan
-    // or error. Re-read the list via the action surface and assert it's intact.
-    // list-visual-plans is a read-only (GET) action.
     const list = await page.request.get(
       "/_agent-native/actions/list-visual-plans",
     );
@@ -378,8 +394,6 @@ test.describe("guest mode + claim", () => {
     page,
     browser,
   }) => {
-    // Owner mints a public plan, then signs into a different fresh account in
-    // its own context (simulating account churn around the shared plan).
     const ownerCtx = await browser.newContext();
     const ownerPage = await ownerCtx.newPage();
     await ownerPage.goto("/");
@@ -388,8 +402,7 @@ test.describe("guest mode + claim", () => {
     const planId = await createPlanAs(owner.request, title);
     await makePublic(owner.request, planId);
 
-    // Owner re-authenticates as a different account in the same context.
-    const owner2Email = `guestspec-owner2-${Date.now()}@plan.test`;
+    const owner2Email = `guestspec-owner2+autoz-${Date.now()}@plan.test`;
     const owner2Password = makeE2ePassword("guest-owner-two");
     await ownerPage.request.post("/_agent-native/auth/register", {
       data: {
@@ -406,7 +419,7 @@ test.describe("guest mode + claim", () => {
 
     // The PUBLIC review link must still resolve for a brand-new anonymous viewer
     // (separate logged-out context) — no data loss, no auth wall.
-    const anonCtx = await browser.newContext(); // empty storage => anonymous
+    const anonCtx = await browser.newContext();
     const anonPage = await anonCtx.newPage();
     await anonPage.goto("/plans");
     const read = await anonPage.request.get(

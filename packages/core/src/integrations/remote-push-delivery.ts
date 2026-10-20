@@ -252,7 +252,7 @@ async function readExpoPushReceipt(
 
 function buildExpoMessage(delivery: ClaimedRemotePushDelivery) {
   const payload = readRecord(delivery.payload);
-  const title = boundedString(payload?.title, 120) ?? "Agent Native update";
+  const title = boundedString(payload?.title, 120) ?? "Agent-Native update";
   const body = boundedString(payload?.body, 300);
   const data = compactData(payload);
   return {

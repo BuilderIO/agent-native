@@ -257,7 +257,7 @@ not expose a general IPC primitive to the remote page.
 4. Compositor E2E on macOS, Windows, and Linux: resize, tab/app switching,
    fullscreen, multiple displays, 1x/2x DPI, sleep/wake, crash/reload, and
    detached DevTools.
-5. Design parity: all Figma-like selection, drag, text edit, draw, comment,
+5. Design interactions: selection, drag, text edit, draw, comment,
    context-menu, keyboard, undo/redo, and panel interactions over the native
    surface.
 

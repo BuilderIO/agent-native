@@ -1,17 +1,27 @@
-import { defineAction } from "@agent-native/core";
+import { ActionContractError } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
   isComputedPropertyType,
   normalizePropertyValue,
   parsePropertyOptions,
+  parsePropertyValue,
+  serializePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
+import {
+  lockPrimaryBlocksFields,
+  persistBlocksFieldIdentity,
+} from "./_blocks-field-identity.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
@@ -21,21 +31,84 @@ import {
   nanoid,
   normalizedValueJson,
 } from "./_property-utils.js";
+import { validateRelationWrite } from "./_relation-values.js";
+
+async function assertPropertyWritableByRowMutation(
+  db: ReturnType<typeof getDb>,
+  databaseId: string,
+  definition: typeof schema.documentPropertyDefinitions.$inferSelect,
+) {
+  const sourceFields = await db
+    .select({
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceFields.sourceId,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, databaseId),
+        eq(schema.contentDatabaseSourceFields.propertyId, definition.id),
+      ),
+    );
+  if (contentDatabaseSourceFieldsAllowLocalWrite(sourceFields)) return;
+  throw new ActionContractError(
+    `Property "${definition.name}" is not writable by database row mutations.`,
+    {
+      errorCode: "PROPERTY_NOT_WRITABLE",
+      details: { propertyId: definition.id, propertyType: definition.type },
+      statusCode: 400,
+    },
+  );
+}
 
 export default defineAction({
-  description: "Set a Notion-style property value on a document.",
+  description:
+    "Set one property value on a Content collection document, including an additional Blocks field. Blocks values are NFM: each line is a block, <br> inserts a hard break, and <empty-block/> preserves an empty paragraph. Plain CommonMark blank lines are not preserved.",
+  mcpTool: true,
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Set Content Document Property",
+    description:
+      "Delegate one property update on an existing Content collection document.",
+  },
   schema: z.object({
     documentId: z.string().describe("Document ID (required)"),
     databaseId: z
       .string()
       .optional()
       .describe(
-        "Database ID that owns the property; omit only for context-free entry points",
+        "Collection ID that owns the property; omit only for context-free entry points",
       ),
     propertyId: z.string().describe("Property definition ID"),
-    value: z.unknown().describe("Value for the property type"),
+    value: z
+      .unknown()
+      .describe(
+        "Value for the property type; Blocks fields take an NFM string (one block per line, <br> for hard breaks, <empty-block/> for empty paragraphs)",
+      ),
+    expectedBlocksFieldRevision: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Expected Blocks field revision from list-content-database-blocks; required for Blocks field writes from anything other than the app's own UI (agents, CLI, automations, HTTP)",
+      ),
   }),
-  run: async ({ documentId, databaseId, propertyId, value }) => {
+  changeResource: (input) => documentChangeResource(input.documentId),
+  run: async (
+    { documentId, databaseId, propertyId, value, expectedBlocksFieldRevision },
+    ctx,
+  ) => {
     const db = getDb();
     const [definition] = await db
       .select()
@@ -74,10 +147,29 @@ export default defineAction({
 
     const now = new Date().toISOString();
 
-    // Blocks fields store rich-text content, not a property-values row. The
-    // primary "Content" field writes to the document body; additional Blocks
-    // fields write to their own independent store.
     if (isBlocksPropertyType(type)) {
+      // A whole-field write must name the revision it read, so a stale copy
+      // can't replace newer text. Only the app's own UI (in the browser or an
+      // MCP widget) and internal server calls without a caller are exempt;
+      // agents, CLI runs, automations and HTTP requests are not.
+      const isAppUiCaller =
+        ctx?.caller === "frontend" ||
+        ctx?.caller === "mcp-widget" ||
+        ctx?.caller === "mcp-widget-write";
+      if (
+        ctx !== undefined &&
+        !isAppUiCaller &&
+        expectedBlocksFieldRevision === undefined
+      ) {
+        throw new ActionContractError(
+          "Blocks field writes from outside the app require expectedBlocksFieldRevision from list-content-database-blocks.",
+          {
+            errorCode: "BLOCKS_FIELD_REVISION_REQUIRED",
+            details: { propertyId },
+            statusCode: 400,
+          },
+        );
+      }
       await assertAccess("document", documentId, "editor");
       const normalized = normalizePropertyValue(type, value);
       const content = typeof normalized === "string" ? normalized : "";
@@ -85,7 +177,14 @@ export default defineAction({
         parsePropertyOptions(definition.optionsJson),
       );
       await db.transaction(async (tx) => {
-        await lockDatabaseMemberships(tx, [membership.id]);
+        await lockContentDatabaseMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        );
+        const primaryBlocksFields = await lockPrimaryBlocksFields(
+          tx as unknown as ReturnType<typeof getDb>,
+          documentId,
+        );
         const [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)
@@ -113,15 +212,43 @@ export default defineAction({
             "Property type changed before the operation completed.",
           );
         }
+        await assertPropertyWritableByRowMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+          lockedDefinition,
+        );
         target = blocksStorageTarget(
           parsePropertyOptions(lockedDefinition.optionsJson),
         );
+        let previousContent = "";
         if (target === "document_body") {
+          const [currentDocument] = await tx
+            .select({ content: schema.documents.content })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, documentId));
+          if (!currentDocument) {
+            throw new Error(`Document "${documentId}" not found`);
+          }
+          previousContent = currentDocument.content;
           await tx
             .update(schema.documents)
-            .set({ content, updatedAt: now })
+            .set({
+              content,
+              bodyRevision: bodyRevisionForContent(content),
+              updatedAt: now,
+            })
             .where(eq(schema.documents.id, documentId));
         } else {
+          const [currentField] = await tx
+            .select({ content: schema.documentBlockFieldContents.content })
+            .from(schema.documentBlockFieldContents)
+            .where(
+              and(
+                eq(schema.documentBlockFieldContents.documentId, documentId),
+                eq(schema.documentBlockFieldContents.propertyId, propertyId),
+              ),
+            );
+          previousContent = currentField?.content ?? "";
           await tx
             .insert(schema.documentBlockFieldContents)
             .values({
@@ -141,32 +268,66 @@ export default defineAction({
               set: { content, updatedAt: now },
             });
         }
+        const identityFields =
+          target === "document_body"
+            ? primaryBlocksFields
+            : [{ propertyId, ownerEmail: database.ownerEmail }];
+        if (
+          target === "document_body" &&
+          !identityFields.some((field) => field.propertyId === propertyId)
+        ) {
+          throw new Error(
+            "Primary Blocks membership changed before the operation completed.",
+          );
+        }
+        for (const field of identityFields) {
+          await persistBlocksFieldIdentity({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            ownerEmail: field.ownerEmail,
+            documentId,
+            propertyId: field.propertyId,
+            previousMarkdown: previousContent,
+            markdown: content,
+            expectedRevision:
+              field.propertyId === propertyId
+                ? expectedBlocksFieldRevision
+                : undefined,
+            now,
+          });
+        }
       });
       return {
         documentId,
         databaseId: database.id,
         properties:
           (
-            await listPropertiesForDatabaseDocuments(database.id, [
-              {
-                ...document,
-                content:
-                  target === "document_body" ? content : document.content,
-                updatedAt: now,
-              },
-            ])
+            await listPropertiesForDatabaseDocuments(
+              database.id,
+              [
+                {
+                  ...document,
+                  content:
+                    target === "document_body" ? content : document.content,
+                  updatedAt: now,
+                },
+              ],
+              { includeBlocksFieldIdentity: true },
+            )
           ).get(documentId) ?? [],
       };
     }
 
-    const valueJson = normalizedValueJson(type, value);
+    let valueJson = normalizedValueJson(type, value);
     await db.transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as ReturnType<typeof getDb>,
         database.id,
       );
       const [lockedDatabase] = await tx
-        .select({ id: schema.contentDatabases.id })
+        .select({
+          id: schema.contentDatabases.id,
+          naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
+        })
         .from(schema.contentDatabases)
         .where(
           and(
@@ -212,6 +373,65 @@ export default defineAction({
       if (isComputedPropertyType(lockedType)) {
         throw new Error("Computed properties cannot be edited.");
       }
+      await assertPropertyWritableByRowMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+        lockedDefinition,
+      );
+      if (lockedType === "relation") {
+        const [stored] = await tx
+          .select({ valueJson: schema.documentPropertyValues.valueJson })
+          .from(schema.documentPropertyValues)
+          .where(
+            and(
+              eq(schema.documentPropertyValues.documentId, documentId),
+              eq(schema.documentPropertyValues.propertyId, propertyId),
+            ),
+          );
+        const ids = await validateRelationWrite(tx, {
+          definition: lockedDefinition,
+          nextValue: value,
+          previousValue: parsePropertyValue(stored?.valueJson),
+        });
+        valueJson = serializePropertyValue(ids);
+      }
+      const isNaturalKey = lockedDatabase.naturalKeyPropertyId === propertyId;
+      if (isNaturalKey) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(valueJson);
+        } catch {
+          parsed = null;
+        }
+        if (typeof parsed !== "string" || !parsed.trim()) {
+          throw new ActionContractError(
+            "A database natural key must remain a non-empty string.",
+            { errorCode: "INVALID_NATURAL_KEY", statusCode: 400 },
+          );
+        }
+        const [existingNaturalKeyClaim] = await tx
+          .select({
+            keyValueJson: schema.contentDatabaseItemKeyClaims.keyValueJson,
+          })
+          .from(schema.contentDatabaseItemKeyClaims)
+          .where(
+            and(
+              eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+              eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+              eq(schema.contentDatabaseItemKeyClaims.documentId, documentId),
+            ),
+          )
+          .limit(1);
+        if (
+          existingNaturalKeyClaim &&
+          existingNaturalKeyClaim.keyValueJson !== valueJson
+        ) {
+          throw new ActionContractError(
+            "A claimed database natural key cannot be changed. Create a new row instead.",
+            { errorCode: "NATURAL_KEY_IMMUTABLE", statusCode: 409 },
+          );
+        }
+      }
       const [conflictingClaim] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)
@@ -254,6 +474,45 @@ export default defineAction({
           updatedAt: now,
         });
       }
+      if (isNaturalKey) {
+        await tx
+          .insert(schema.contentDatabaseItemKeyClaims)
+          .values({
+            id: nanoid(),
+            ownerEmail: database.ownerEmail,
+            orgId: database.orgId,
+            databaseId: database.id,
+            propertyId,
+            keyValueJson: valueJson,
+            itemId: membership.id,
+            documentId,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing();
+        const [claim] = await tx
+          .select({
+            itemId: schema.contentDatabaseItemKeyClaims.itemId,
+            documentId: schema.contentDatabaseItemKeyClaims.documentId,
+          })
+          .from(schema.contentDatabaseItemKeyClaims)
+          .where(
+            and(
+              eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+              eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+              eq(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
+            ),
+          );
+        if (
+          !claim ||
+          claim.itemId !== membership.id ||
+          claim.documentId !== documentId
+        ) {
+          throw new Error(
+            "This natural key is already claimed by another database row.",
+          );
+        }
+      }
       await tx
         .delete(schema.contentDatabaseItemKeyClaims)
         .where(
@@ -270,9 +529,11 @@ export default defineAction({
       documentId,
       databaseId: database.id,
       properties:
-        (await listPropertiesForDatabaseDocuments(database.id, [document])).get(
-          documentId,
-        ) ?? [],
+        (
+          await listPropertiesForDatabaseDocuments(database.id, [document], {
+            includeBlocksFieldIdentity: true,
+          })
+        ).get(documentId) ?? [],
     };
   },
 });

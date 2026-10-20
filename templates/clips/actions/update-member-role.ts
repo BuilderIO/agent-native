@@ -1,15 +1,4 @@
-/**
- * Update an organization member's role.
- *
- * Admin-only. Clips role mapping collapses to two invitable roles:
- *   admin → admin, anything else → member.
- * Refuses to change the owner's role.
- *
- * Usage:
- *   pnpm action update-member-role --email=alice@example.com --role=admin
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { orgMembers } from "@agent-native/core/org";
 import { and, eq, sql } from "drizzle-orm";
@@ -41,6 +30,8 @@ export default defineAction({
     email: z.string().email().describe("Member email"),
     role: ClipsRoleEnum.describe("New role"),
   }),
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => {
     const db = getDb();
     const { organizationId } = await requireOrganizationAccess(

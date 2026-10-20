@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 export const SESSION_TOKEN_KEY = "agent-native:session-token";
 
@@ -19,6 +20,10 @@ function clean(value: string | null | undefined): string | null {
 export async function getSessionToken(
   logicalKey = SESSION_TOKEN_KEY,
 ): Promise<string | null> {
+  if (Platform.OS === "web") {
+    return clean(await AsyncStorage.getItem(logicalKey));
+  }
+
   const key = secureStoreKey(logicalKey);
   const secured = clean(await SecureStore.getItemAsync(key));
   if (secured) return secured;
@@ -39,6 +44,12 @@ export async function saveSessionToken(
 ): Promise<void> {
   const value = clean(token);
   if (!value) throw new Error("Session token is missing");
+
+  if (Platform.OS === "web") {
+    await AsyncStorage.setItem(logicalKey, value);
+    return;
+  }
+
   await SecureStore.setItemAsync(secureStoreKey(logicalKey), value, {
     keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
   });
@@ -48,6 +59,11 @@ export async function saveSessionToken(
 export async function clearSessionToken(
   logicalKey = SESSION_TOKEN_KEY,
 ): Promise<void> {
+  if (Platform.OS === "web") {
+    await AsyncStorage.removeItem(logicalKey);
+    return;
+  }
+
   await Promise.all([
     SecureStore.deleteItemAsync(secureStoreKey(logicalKey)),
     AsyncStorage.removeItem(logicalKey),

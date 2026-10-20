@@ -11,12 +11,7 @@ export const REASONING_EFFORTS = [
 
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
-/**
- * Shared chat always chooses an explicit reasoning tier. Keep `auto` in the
- * accepted type only so older persisted selections and external callers can
- * migrate cleanly; new UI and engine defaults resolve it to Medium.
- */
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
 
 export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   auto: "Auto",
@@ -95,11 +90,6 @@ export function normalizeReasoningEffortForModel(
   return normalized;
 }
 
-/**
- * Normalize a chat request before it reaches an engine. Explicit off/minimal
- * sentinels must survive this layer so the engine can distinguish them from a
- * missing selection, which now means the Medium default.
- */
 export function normalizeReasoningEffortForRequest(
   model: string | undefined,
   effort: ReasoningEffort | undefined,
@@ -114,13 +104,6 @@ export function reasoningEffortLabel(effort: ReasoningEffort | undefined) {
   ];
 }
 
-/**
- * Resolve a user-facing selection for a model. Legacy `auto`, missing values,
- * and tiers unsupported by the newly selected model all become Medium.
- * Non-reasoning models still retain Medium in persisted chat state so moving
- * back to a reasoning model has a predictable default; their engines omit the
- * effort through `normalizeReasoningEffortForModel`.
- */
 export function resolveReasoningEffortSelection(
   model: string | undefined,
   effort: ReasoningEffort | undefined,
@@ -133,12 +116,6 @@ export function resolveReasoningEffortSelection(
     : DEFAULT_REASONING_EFFORT;
 }
 
-/**
- * One tier down from each effort, stopping at "minimal" — legacy `auto`,
- * "none", and "minimal" itself are left unchanged. Used by the
- * empty-final-response retry so a retried turn asks for meaningfully less
- * reasoning instead of repeating the exact request that came back empty.
- */
 const REASONING_EFFORT_STEP_DOWN: Partial<
   Record<ReasoningEffort, ReasoningEffort>
 > = {
@@ -158,36 +135,46 @@ export function stepDownReasoningEffort(
 
 export function isGPTReasoningModel(model: string) {
   const id = model.toLowerCase().replace(/^openai\//, "");
-  return /^gpt-5/.test(id) || /^o\d/.test(id);
+  return /^gpt-[56]/.test(id) || /^o\d/.test(id);
+}
+
+function claudeOpusAtLeast(
+  modelId: string,
+  minimumMajor: number,
+  minimumMinor: number,
+) {
+  const match = modelId.match(/opus-(\d+)(?:[-.](\d+))?/);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2] ?? 0);
+  return (
+    major > minimumMajor || (major === minimumMajor && minor >= minimumMinor)
+  );
 }
 
 function isClaudeReasoningModel(model: string) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5") || id.includes("mythos-5")) return true;
   if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
-  if (id.includes("haiku-4-5")) return true;
-  const opusMatch = id.match(/opus-4[-.](\d+)/);
-  return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
+  if (
+    id.includes("haiku-5-5") ||
+    id.includes("haiku-5.5") ||
+    id.includes("haiku-4-5")
+  ) {
+    return true;
+  }
+  return claudeOpusAtLeast(id, 4, 6);
 }
 
-/**
- * Anthropic's adaptive-thinking API is only available on the newer Claude
- * model families. Claude Haiku 4.5 is reasoning-capable, but it still
- * requires the legacy manual `budget_tokens` configuration.
- */
 export function supportsClaudeAdaptiveThinking(model: string | undefined) {
   if (!model) return false;
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return true;
   if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
-  const opusMatch = id.match(/opus-4[-.](\d+)/);
-  return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
+  return claudeOpusAtLeast(id, 4, 6);
 }
 
-/**
- * Map the shared reasoning ladder to Anthropic's manual thinking budgets for
- * models that do not support adaptive thinking (currently Claude Haiku 4.5).
- */
 export function anthropicManualThinkingBudget(effort: ReasoningEffort) {
   switch (effort) {
     case "low":
@@ -207,22 +194,29 @@ export function anthropicManualThinkingBudget(effort: ReasoningEffort) {
 
 function supportsClaudeXHigh(model: string) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
-  // Models that support the xhigh effort tier (built-in extended thinking via
-  // output_config.effort). Keep this version-aware so any future Claude model
-  // with a higher patch/minor number is automatically included rather than
-  // silently falling back to the lower "high" tier.
-  // claude-fable-5 is a Mythos-class model and also supports xhigh.
   if (id.includes("fable-5")) return true;
-  // Sonnet 5 supports the expanded effort ladder through Builder/Anthropic.
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return true;
   if (id.includes("sonnet-5")) return true;
-  // opus-4-7 introduced xhigh; all opus-4.x successors (4-8, 4-9…) should too.
-  const opusMatch = id.match(/opus-4[-.](\d+)/);
-  if (opusMatch) {
-    return parseInt(opusMatch[1], 10) >= 7;
-  }
-  return false;
+  return claudeOpusAtLeast(id, 4, 7);
 }
 
 function isGeminiReasoningModel(model: string) {
   return /^gemini-/.test(model.toLowerCase().replace(/^google\//, ""));
+}
+
+function claudeAcceptsSamplingParams(model: string) {
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return false;
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return false;
+  if (id.includes("sonnet-5")) return false;
+  return !claudeOpusAtLeast(id, 4, 7);
+}
+
+export function allowsSamplingParams(args: {
+  model: string | undefined;
+  thinkingEnabled: boolean;
+}): boolean {
+  if (!args.model) return true;
+  if (args.thinkingEnabled) return false;
+  return claudeAcceptsSamplingParams(args.model);
 }

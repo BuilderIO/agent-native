@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   useActionMutation,
   useActionQuery,
@@ -230,6 +231,11 @@ function StatusPageRow({
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(publicUrl);
+      trackEvent("share_link_copied", {
+        resource_type: "status_page",
+        resource_id: page.id,
+        link_type: "share",
+      });
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -279,8 +285,8 @@ function StatusPageRow({
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
+              size="icon-sm"
+              className="text-muted-foreground"
               onClick={copyLink}
               aria-label={t.copyLink}
             >
@@ -298,8 +304,8 @@ function StatusPageRow({
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                size="icon"
-                className="size-8 text-muted-foreground"
+                size="icon-sm"
+                className="text-muted-foreground"
                 asChild
               >
                 <a
@@ -319,8 +325,8 @@ function StatusPageRow({
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
+              size="icon-sm"
+              className="text-muted-foreground"
               onClick={onEdit}
               aria-label={t.edit}
             >
@@ -333,8 +339,8 @@ function StatusPageRow({
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-destructive"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-destructive"
               onClick={onDelete}
               aria-label={t.delete}
             >

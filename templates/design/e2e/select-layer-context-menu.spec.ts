@@ -1,18 +1,8 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type FrameLocator,
-  type Page,
-} from "@playwright/test";
+import { type Page } from "@playwright/test";
 
-import {
-  designFrame,
-  enterDirectMode,
-  gotoEditor,
-  installBridge,
-  waitForBridge,
-} from "./helpers";
+import { buildCodeLayerProjection } from "../shared/code-layer";
+import { enterDirectMode, installBridge, waitForBridge } from "./helpers";
+import { expect, test, type App } from "./rails";
 
 const STACK_HTML = `<!doctype html>
 <html>
@@ -30,83 +20,39 @@ const STACK_HTML = `<!doctype html>
   </body>
 </html>`;
 
-async function postAction(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
-  const response = await request.post(
-    `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}`,
-    { data: input },
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
-}
-
-async function getAction(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
-  const params = new URLSearchParams(
-    Object.entries(input).map(([key, value]) => [key, String(value)]),
-  );
-  const response = await request.get(
-    `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}?${params}`,
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
-}
-
 async function openLayerStack(
-  page: Page,
-  frame: FrameLocator = designFrame(page),
+  app: App,
+  screen?: string,
+  openSelectLayer = true,
 ) {
+  const page = app.page;
   await installBridge(page);
   await page.evaluate(() => ((window as any).__bridge = []));
-  const stage = frame.locator('[data-agent-native-node-id="stage"]');
-  const box = await stage.boundingBox();
-  if (!box) throw new Error("stage has no browser geometry");
-  const frameOffset = await stage.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    return { x: rect.left + 165, y: rect.top + 165 };
-  });
-  // Dispatch on the real bridge shield inside Chromium. A top-level
-  // page.mouse right-click is consumed by Chromium's iframe context-menu
-  // boundary in headless mode before the srcdoc listener sees it; this still
-  // exercises the actual contextmenu event, elementsFromPoint stack, iframe
-  // postMessage bridge, host menu, and selection path end-to-end.
-  await stage.evaluate((_element, point) => {
-    document.dispatchEvent(
-      new MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        button: 2,
-        buttons: 2,
-        clientX: point.x,
-        clientY: point.y,
-      }),
-    );
-  }, frameOffset);
+  const stage = await app.designRect("stage", screen);
+  const point = await app.pagePoint(stage.x + 165, stage.y + 165, screen);
+  await page.mouse.click(point.x, point.y, { button: "right" });
   await waitForBridge(page, "element-contextmenu");
   const trigger = page.getByText("Select layer", { exact: true });
   await expect(trigger).toBeVisible();
+  if (!openSelectLayer) return page.getByRole("menu").last();
   await trigger.hover();
   const submenu = page.getByRole("menu").last();
   await expect(
     submenu.getByText("Front sibling", { exact: true }),
   ).toBeVisible();
   return submenu;
+}
+
+/** The e2e server has no AI provider, so the composer renders but stays disabled. */
+async function openAgentFromMenu(page: Page) {
+  await expect(page.locator("[data-design-agent-panel]")).toBeHidden();
+  await page
+    .getByRole("menuitem", { name: "Edit with Agent", exact: true })
+    .click();
+  await expect(page.getByText("Select layer", { exact: true })).toBeHidden();
+  await expect(
+    page.locator("[data-design-agent-panel] .ProseMirror"),
+  ).toBeVisible();
 }
 
 async function selectedTreeLabel(page: Page) {
@@ -119,152 +65,164 @@ async function selectedTreeLabel(page: Page) {
 }
 
 test("Select layer lists the exact visible unlocked hit stack and dismisses without mutation", async ({
+  app,
   page,
-  request,
 }) => {
-  const created = await postAction(request, "create-design", {
-    title: `Select layer ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
+  const designId = await app.seed(STACK_HTML);
+  await app.open(designId);
+  await enterDirectMode(page);
+  const baselineContent = await app.savedHtml(designId);
 
-  try {
-    await postAction(request, "create-file", {
-      designId,
-      filename: "index.html",
-      content: STACK_HTML,
-      fileType: "html",
-    });
-    await gotoEditor(page, designId);
-    await enterDirectMode(page);
-    const baselineDesign = await getAction(request, "get-design", {
-      id: designId,
-    });
-    const baselineContent = baselineDesign.files?.find(
-      (file: { filename?: string }) => file.filename === "index.html",
-    )?.content;
-
-    const submenu = await openLayerStack(page);
-    const visibleLabels = [
-      "Front sibling",
-      "Nested child",
-      "Nested parent",
-      "Back sibling",
-      "Stage frame",
-    ];
-    for (const label of visibleLabels) {
-      await expect(submenu.getByText(label, { exact: true })).toBeVisible();
-    }
-    await expect(
-      submenu.getByText("Locked cover", { exact: true }),
-    ).toHaveCount(0);
-    await expect(
-      submenu.getByText("Hidden cover", { exact: true }),
-    ).toHaveCount(0);
-
-    const submenuItems = submenu
-      .getByRole("menuitem")
-      .filter({ has: page.locator("svg") });
-    const labelsInOrder = await submenuItems.allTextContents();
-    const orderedHits = labelsInOrder.filter((label) =>
-      visibleLabels.includes(label.trim()),
-    );
-    expect(orderedHits).toEqual(visibleLabels);
-
-    // Escape dismisses the submenu/menu and leaves the right-click top hit
-    // selected; it must not accidentally pick a different candidate.
-    await page.keyboard.press("Escape");
-    await expect(page.getByText("Select layer", { exact: true })).toBeHidden();
-    await expect.poll(() => selectedTreeLabel(page)).toContain("Front sibling");
-
-    const childMenu = await openLayerStack(page);
-    await childMenu.getByText("Nested child", { exact: true }).click();
-    await expect.poll(() => selectedTreeLabel(page)).toContain("Nested child");
-
-    const parentMenu = await openLayerStack(page);
-    await parentMenu.getByText("Nested parent", { exact: true }).click();
-    await expect.poll(() => selectedTreeLabel(page)).toContain("Nested parent");
-
-    const backMenu = await openLayerStack(page);
-    await backMenu.getByText("Back sibling", { exact: true }).click();
-    await expect.poll(() => selectedTreeLabel(page)).toContain("Back sibling");
-
-    const design = await getAction(request, "get-design", { id: designId });
-    const content = design.files?.find(
-      (file: { filename?: string }) => file.filename === "index.html",
-    )?.content;
-    expect(content).toBe(baselineContent);
-  } finally {
-    await postAction(request, "delete-design", { id: designId }).catch(
-      () => {},
-    );
+  const submenu = await openLayerStack(app);
+  const visibleLabels = [
+    "Front sibling",
+    "Nested child",
+    "Nested parent",
+    "Back sibling",
+    "Stage frame",
+  ];
+  for (const label of visibleLabels) {
+    await expect(submenu.getByText(label, { exact: true })).toBeVisible();
   }
+  await expect(submenu.getByText("Locked cover", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(submenu.getByText("Hidden cover", { exact: true })).toHaveCount(
+    0,
+  );
+
+  const submenuItems = submenu
+    .getByRole("menuitem")
+    .filter({ has: page.locator("svg") });
+  const labelsInOrder = await submenuItems.allTextContents();
+  const orderedHits = labelsInOrder.filter((label) =>
+    visibleLabels.includes(label.trim()),
+  );
+  expect(orderedHits).toEqual(visibleLabels);
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Select layer", { exact: true })).toBeHidden();
+  await expect.poll(() => selectedTreeLabel(page)).toContain("Front sibling");
+
+  const childMenu = await openLayerStack(app);
+  await childMenu.getByText("Nested child", { exact: true }).click();
+  await expect.poll(() => selectedTreeLabel(page)).toContain("Nested child");
+
+  const parentMenu = await openLayerStack(app);
+  await parentMenu.getByText("Nested parent", { exact: true }).click();
+  await expect.poll(() => selectedTreeLabel(page)).toContain("Nested parent");
+
+  const backMenu = await openLayerStack(app);
+  await backMenu.getByText("Back sibling", { exact: true }).click();
+  await expect.poll(() => selectedTreeLabel(page)).toContain("Back sibling");
+
+  await app.settled();
+  expect(await app.savedHtml(designId)).toBe(baselineContent);
+});
+
+test("Select layer on a non-active overview screen preserves exact screen and layer identity", async ({
+  app,
+  page,
+}) => {
+  const designId = await app.seed(STACK_HTML, {
+    files: { "about.html": STACK_HTML },
+  });
+  const { files } = await app.savedRecord(designId);
+  const homeId = files.find((file) => file.filename === "index.html")!.id;
+  const aboutId = files.find((file) => file.filename === "about.html")!.id;
+
+  await app.open(designId);
+  await expect(
+    page.getByRole("button", { name: "Interact" }).first(),
+  ).toBeVisible();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("screen"))
+    .toBe(homeId);
+
+  const homeBaseline = await app.savedHtml(designId, "index.html");
+  const aboutBaseline = await app.savedHtml(designId, "about.html");
+  const nestedChild = buildCodeLayerProjection(aboutBaseline, {
+    source: { kind: "design-file", fileId: aboutId },
+  }).nodes.find(
+    (node) =>
+      node.dataAttributes["data-agent-native-node-id"] === "nested-child",
+  );
+  if (!nestedChild) {
+    throw new Error("The saved About screen does not project its nested child");
+  }
+
+  const menu = await openLayerStack(app, "about.html");
+  await menu.getByText("Nested child", { exact: true }).click();
+
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("screen"))
+    .toBe(aboutId);
+  const selectedRow = page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("treeitem", { selected: true });
+  await expect(selectedRow).toHaveCount(1);
+  await expect(selectedRow.locator("[data-layer-row-button]")).toHaveAttribute(
+    "data-layer-node-id",
+    nestedChild.id,
+  );
+  await expect(selectedRow.locator("[data-layer-row-name]")).toHaveText(
+    "Nested child",
+  );
+
+  await app.settled();
+  expect(await app.savedHtml(designId, "index.html")).toBe(homeBaseline);
+  expect(await app.savedHtml(designId, "about.html")).toBe(aboutBaseline);
 });
 
 test("Select layer on a non-active overview screen routes selection to that exact screen", async ({
+  app,
   page,
-  request,
 }) => {
-  const created = await postAction(request, "create-design", {
-    title: `Overview select layer ${Date.now()}`,
-    projectType: "prototype",
+  const designId = await app.seed(STACK_HTML, {
+    files: { "about.html": STACK_HTML },
   });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
+  const { files } = await app.savedRecord(designId);
+  const homeId = files.find((file) => file.filename === "index.html")!.id;
+  const aboutId = files.find((file) => file.filename === "about.html")!.id;
+  await app.open(designId);
+  await expect(
+    page.getByRole("button", { name: "Interact" }).first(),
+  ).toBeVisible();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("screen"))
+    .toBe(homeId);
 
-  try {
-    const home = await postAction(request, "create-file", {
-      designId,
-      filename: "index.html",
-      content: STACK_HTML,
-      fileType: "html",
-    });
-    const about = await postAction(request, "create-file", {
-      designId,
-      filename: "about.html",
-      content: STACK_HTML,
-      fileType: "html",
-    });
-    const homeId = home.id ?? home.data?.id ?? home.file?.id;
-    const aboutId = about.id ?? about.data?.id ?? about.file?.id;
-    if (!homeId || !aboutId) throw new Error("create-file returned no id");
+  const aboutBaseline = await app.savedHtml(designId, "about.html");
+  const menu = await openLayerStack(app, "about.html");
+  await menu.getByText("Nested child", { exact: true }).click();
 
-    await gotoEditor(page, designId);
-    await expect(
-      page.getByRole("button", { name: "Interact" }).first(),
-    ).toBeVisible();
-    await expect
-      .poll(() => new URL(page.url()).searchParams.get("screen"))
-      .toBe(homeId);
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("screen"))
+    .toBe(aboutId);
+  await expect.poll(() => selectedTreeLabel(page)).toContain("Nested child");
 
-    const baseline = await getAction(request, "get-design", { id: designId });
-    const aboutBaseline = baseline.files?.find(
-      (file: { id?: string }) => file.id === aboutId,
-    )?.content;
-    const aboutShell = page
-      .locator("[data-screen-shell]")
-      .filter({ hasText: "About" });
-    await expect(aboutShell).toBeVisible();
-    const aboutFrame = aboutShell
-      .locator("iframe[data-design-preview-iframe]")
-      .contentFrame();
+  await openLayerStack(app, "about.html", false);
+  await openAgentFromMenu(page);
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("screen"))
+    .toBe(aboutId);
 
-    const menu = await openLayerStack(page, aboutFrame);
-    await menu.getByText("Nested child", { exact: true }).click();
+  await app.settled();
+  expect(await app.savedHtml(designId, "about.html")).toBe(aboutBaseline);
+});
 
-    await expect
-      .poll(() => new URL(page.url()).searchParams.get("screen"))
-      .toBe(aboutId);
-    await expect.poll(() => selectedTreeLabel(page)).toContain("Nested child");
-    const after = await getAction(request, "get-design", { id: designId });
-    expect(
-      after.files?.find((file: { id?: string }) => file.id === aboutId)
-        ?.content,
-    ).toBe(aboutBaseline);
-  } finally {
-    await postAction(request, "delete-design", { id: designId }).catch(
-      () => {},
-    );
-  }
+test("Edit with Agent opened from direct mode opens the Agent panel and leaves the design unchanged", async ({
+  app,
+  page,
+}) => {
+  const designId = await app.seed(STACK_HTML);
+  await app.open(designId);
+  await enterDirectMode(page);
+  const baselineContent = await app.savedHtml(designId);
+
+  await openLayerStack(app, undefined, false);
+  await openAgentFromMenu(page);
+
+  await app.settled();
+  expect(await app.savedHtml(designId)).toBe(baselineContent);
 });

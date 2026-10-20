@@ -1,9 +1,17 @@
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { describe, expect, it } from "vitest";
 
 import {
+  TAB_ID,
   createEditorSaveOperationSource,
   shouldCheckpointAgentContent,
 } from "./editor-session";
+
+describe("TAB_ID", () => {
+  it("uses the same browser source as shared sync activity detection", () => {
+    expect(TAB_ID).toBe(getBrowserTabId());
+  });
+});
 
 describe("createEditorSaveOperationSource", () => {
   it("changes across editor remounts while retaining the browser-tab prefix", () => {
@@ -16,15 +24,6 @@ describe("createEditorSaveOperationSource", () => {
   });
 });
 
-/**
- * Regression coverage for the undo gap in the field report: "pressed cmd+z
- * but unable to change it back" after an agent-driven design replacement.
- * Two call sites in DesignEditor.tsx share this predicate — the Yjs
- * `ytext.observe` handler and the DB-content reconcile effect (the fallback
- * path used when a collab poll is missed/paused, or no collab session was
- * ever established). Both must agree on exactly when a content swap counts
- * as one undoable agent operation.
- */
 describe("shouldCheckpointAgentContent", () => {
   it("checkpoints a genuine agent-driven content change", () => {
     expect(

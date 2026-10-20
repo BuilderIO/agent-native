@@ -4,20 +4,30 @@ description: >-
   How to keep each app's user-facing changelog. Use when you ship a change a
   user would notice (a new feature, a visible improvement, a bug fix), when
   wiring the in-app "What's new" surface into a template, or when releasing
-  pending changelog entries.
+  pending changelog entries. Apps opt in with
+  `changelog.enabled: true` in `agent-native.config.ts`.
 scope: dev
 metadata:
   internal: true
 ---
 
-# Changelog — user-facing "What's new"
+# Changelog — optional user-facing "What's new"
 
-Every template app keeps a `CHANGELOG.md` of **user-facing** changes that
-renders in-app via the command menu (Cmd+K → "What's new") and on the settings
-page. The flow mirrors changesets so it survives many agents working in
-parallel: each change drops a small **pending entry file**, the in-app surface
-reads pending files plus `CHANGELOG.md`, and a later **release** can roll those
-pending files into dated `CHANGELOG.md` sections.
+Changelog generation is off by default. Read this skill only when the app's
+`agent-native.config.ts` enables `changelog.enabled`; otherwise do not create
+pending entries for ordinary app changes.
+
+Every template app keeps a `CHANGELOG.md` of the 100 most recent
+**user-facing** release sections and a `changelog/` folder of dated entry files
+for the complete history. The top-level file links to that folder for older
+updates at the end of the file. The in-app command menu (Cmd+K → "What's new")
+and settings page read both surfaces together, so folder-backed history remains
+visible without making the top-level file grow forever.
+
+Package release histories follow the same compact shape: the 100 newest
+package release sections stay in the root `CHANGELOG.md`, while older sections
+live in `changelog/archive/CHANGELOG.md`. The package archive is nested so it
+cannot be mistaken for a new app entry by the Vite changelog loader.
 
 ## When to add an entry
 
@@ -62,18 +72,25 @@ Recordings can be trimmed before sharing.
 
 ## Releasing
 
-`release` stamps every pending entry into `CHANGELOG.md` under a dated
-`## <date>` section (grouped by type) and deletes the pending files:
+`release` refreshes the recent 100-section window in `CHANGELOG.md` from every
+dated entry in `changelog/`. It deliberately keeps the folder files as the
+canonical history, so rerunning the command is safe and older updates remain
+available to the app and to repository readers:
 
 ```bash
-agent-native changelog release            # uses today's date
+agent-native changelog release            # refreshes today's recent window
 agent-native changelog list               # preview pending + released
 ```
 
-Releasing is usually done at deploy/merge time to keep the source tree tidy.
-The in-app surface imports `CHANGELOG.md?raw`, and the core Vite plugin merges
-adjacent `changelog/*.md` pending entries into that raw markdown at dev/build
-time, so product notes become visible without waiting for a manual rollup.
+Releasing is usually done at deploy/merge time to keep the top-level summary
+current. The in-app surface imports `CHANGELOG.md?raw`, and the core Vite
+plugin merges adjacent `changelog/*.md` entries into that raw markdown at
+dev/build time, so new app notes appear in What's new automatically. Refreshing
+the committed app-facing 100-entry window still happens when
+`agent-native changelog release` or `pnpm changelog:compact` runs. Package Changesets are
+wired to run `pnpm changelog:compact` automatically in the Version Packages
+workflow, which also moves older package releases into
+`changelog/archive/CHANGELOG.md`.
 
 ## Wiring the in-app surface (once per template)
 
@@ -107,8 +124,9 @@ host with no server route or runtime file access.
 
 ## Checklist
 
-- [ ] Shipped a user-visible change? Run `agent-native changelog add "…"`.
+- [ ] `changelog.enabled` is true and the change is user-visible? Run
+      `agent-native changelog add "…"`.
 - [ ] New template UI? Pass `changelog` to its `CommandMenu` and seed a
       `CHANGELOG.md`.
-- [ ] Releasing/deploying? Optional: `agent-native changelog release` rolls
-      pending → dated sections and deletes the pending files.
+- [ ] Releasing/deploying? Optional: `agent-native changelog release` refreshes
+      the recent top-level window while retaining the folder history.

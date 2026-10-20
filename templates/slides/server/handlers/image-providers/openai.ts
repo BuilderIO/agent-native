@@ -1,4 +1,7 @@
-import { resolveSecret } from "@agent-native/core/server";
+import {
+  readDeployCredentialEnv,
+  resolveSecret,
+} from "@agent-native/core/server";
 
 import type {
   ImageProvider,
@@ -11,7 +14,7 @@ export class OpenAIProvider implements ImageProvider {
   name = "openai";
 
   isConfigured(): boolean {
-    return !!process.env.OPENAI_API_KEY;
+    return !!readDeployCredentialEnv("OPENAI_API_KEY");
   }
 
   async isConfiguredForRequest(): Promise<boolean> {
@@ -27,37 +30,62 @@ export class OpenAIProvider implements ImageProvider {
     const apiKey = await resolveSecret("OPENAI_API_KEY");
     if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 
-    // OpenAI doesn't support reference images natively — fold style description into prompt
     const fullPrompt = buildOpenAIPrompt(prompt, referenceImages, context);
 
-    // Map config to OpenAI parameters
     const size = mapSize(config?.aspectRatio, config?.size);
     const quality = mapQuality(config?.quality);
 
-    const body = {
-      model: "gpt-image-2",
-      prompt: fullPrompt,
-      n: 1,
-      size,
-      quality,
-      output_format: config?.outputFormat || "png",
+    const endpoint =
+      referenceImages.length > 0
+        ? "https://api.openai.com/v1/images/edits"
+        : "https://api.openai.com/v1/images/generations";
+    let body: BodyInit;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
     };
+    if (referenceImages.length > 0) {
+      const formData = new FormData();
+      formData.append("model", "gpt-image-2");
+      formData.append("prompt", fullPrompt);
+      formData.append("n", "1");
+      formData.append("size", size);
+      formData.append("quality", quality);
+      formData.append("output_format", config?.outputFormat || "png");
+
+      for (const [index, reference] of referenceImages.entries()) {
+        const { extension, mimeType } = normalizeReferenceImageType(
+          reference.mimeType,
+        );
+        const image = Buffer.from(reference.data, "base64");
+        formData.append(
+          "image[]",
+          new Blob([new Uint8Array(image)], { type: mimeType }),
+          `reference-${index + 1}.${extension}`,
+        );
+      }
+
+      body = formData;
+    } else {
+      headers["Content-Type"] = "application/json";
+      body = JSON.stringify({
+        model: "gpt-image-2",
+        prompt: fullPrompt,
+        n: 1,
+        size,
+        quality,
+        output_format: config?.outputFormat || "png",
+      });
+    }
 
     console.log(
       `[OpenAI] Generating with gpt-image-2 (size=${size}, quality=${quality})`,
     );
 
-    const result = await fetchWithRetry(
-      "https://api.openai.com/v1/images/generations",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      },
-    );
+    const result = await fetchWithRetry(endpoint, {
+      method: "POST",
+      headers,
+      body,
+    });
 
     const json = await result.json();
 
@@ -74,7 +102,11 @@ export class OpenAIProvider implements ImageProvider {
 
     const buffer = Buffer.from(imageB64, "base64");
     const mimeType =
-      config?.outputFormat === "webp" ? "image/webp" : "image/png";
+      config?.outputFormat === "webp"
+        ? "image/webp"
+        : config?.outputFormat === "jpeg"
+          ? "image/jpeg"
+          : "image/png";
 
     console.log(
       `[OpenAI] Success — ${Math.round(buffer.length / 1024)}KB ${mimeType}`,
@@ -85,6 +117,7 @@ export class OpenAIProvider implements ImageProvider {
       mimeType,
       model: "gpt-image-2",
       provider: "openai",
+      referenceImagesSubmitted: referenceImages.length,
     };
   }
 
@@ -99,7 +132,6 @@ export class OpenAIProvider implements ImageProvider {
     const size = mapSize(config?.aspectRatio, config?.size);
     const quality = mapQuality(config?.quality);
 
-    // Use FormData for the edits endpoint (multipart)
     const formData = new FormData();
     formData.append(
       "image",
@@ -155,11 +187,27 @@ export class OpenAIProvider implements ImageProvider {
   }
 }
 
+function normalizeReferenceImageType(mimeType: string): {
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  extension: string;
+} {
+  switch (mimeType) {
+    case "image/png":
+      return { mimeType, extension: "png" };
+    case "image/jpg":
+    case "image/jpeg":
+      return { mimeType: "image/jpeg", extension: "jpg" };
+    case "image/webp":
+      return { mimeType, extension: "webp" };
+    default:
+      throw new Error(`Unsupported OpenAI reference image type: ${mimeType}`);
+  }
+}
+
 function mapSize(
   aspectRatio?: string,
   size?: string,
 ): "1024x1024" | "1536x1024" | "1024x1536" | "auto" {
-  // If explicit size is provided, try to use it
   if (size) {
     const sizeMap: Record<string, "1024x1024" | "1536x1024" | "1024x1536"> = {
       square: "1024x1024",
@@ -173,7 +221,6 @@ function mapSize(
     if (mapped) return mapped;
   }
 
-  // Map aspect ratio
   if (aspectRatio) {
     if (aspectRatio === "1:1" || aspectRatio === "square") return "1024x1024";
     if (
@@ -192,7 +239,6 @@ function mapSize(
       return "1024x1536";
   }
 
-  // Default to landscape for slides
   return "1536x1024";
 }
 
@@ -210,9 +256,8 @@ function buildOpenAIPrompt(
 ): string {
   let fullPrompt = prompt;
 
-  // Since OpenAI doesn't support reference images, add style guidance in text
   if (referenceImages.length > 0) {
-    fullPrompt = `Create a professional, modern illustration for a presentation slide. The style should be: dark background with clean, minimal design. Use a sophisticated color palette with dark tones and subtle accent colors. No glow effects, no neon, no bloom — keep lighting flat and subtle. Match a premium tech brand aesthetic.
+    fullPrompt = `Create a professional, modern illustration for a presentation slide. Use the provided reference images as visual style guidance. The style should be: dark background with clean, minimal design. Use a sophisticated color palette with dark tones and subtle accent colors. No glow effects, no neon, no bloom — keep lighting flat and subtle. Match a premium tech brand aesthetic.
 
 Subject: ${prompt}`;
   }
@@ -232,7 +277,6 @@ Subject: ${prompt}`;
     fullPrompt += `\n\nNon-renderable background context. Use only to understand topic and mood; do not copy or display any of these words, HTML, labels, specs, or prompt text in the image:\n${nonRenderable.join("\n")}`;
   }
 
-  // Ensure output is just the image, not a slide mockup
   fullPrompt +=
     "\n\nIMPORTANT: Generate ONLY the illustration/graphic — NOT a slide mockup. No presentation borders, no title overlays. Do not render visible words, letters, UI labels, captions, specs, or prompt text unless the user's prompt explicitly asks for exact text.";
 
@@ -270,7 +314,6 @@ async function fetchWithRetry(
     try {
       const res = await fetch(url, init);
 
-      // Retry on rate limit
       if (res.status === 429) {
         const retryAfter = res.headers.get("retry-after");
         const waitMs = retryAfter

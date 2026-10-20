@@ -1,8 +1,11 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -64,14 +67,14 @@ export default defineAction({
     color: z.string().optional().describe("Display color"),
     isActive: z.boolean().optional().describe("Whether the link is active"),
   }),
-  run: async (args) => {
+  run: async (args, actionContext?: ActionRunContext) => {
     const body = args as Record<string, any>;
     const durationInput = normalizeBookingDurationInput({
       duration: body.duration,
       durations: body.durations,
     });
     if ("error" in durationInput) {
-      throw new Error(durationInput.error);
+      fail(durationInput.error);
     }
     const slug = String(body.slug).trim().toLowerCase();
     const [existingLink, existingRedirect] = await Promise.all([
@@ -86,14 +89,22 @@ export default defineAction({
     ]);
 
     if (existingLink.length > 0 || existingRedirect.length > 0) {
-      throw new Error("A booking link with this slug already exists");
+      fail("A booking link with this slug already exists", {
+        errorCode: "booking_link_slug_taken",
+        statusCode: 409,
+      });
     }
 
     const now = new Date().toISOString();
     const id = nanoid();
     const ownerEmail = (() => {
       const e = getRequestUserEmail();
-      if (!e) throw new Error("no authenticated user");
+      if (!e) {
+        fail("You must be signed in to create a booking link.", {
+          errorCode: "unauthenticated",
+          statusCode: 401,
+        });
+      }
       return e;
     })();
     await getDb()
@@ -118,6 +129,7 @@ export default defineAction({
         isActive: body.isActive ?? true,
         ownerEmail,
         orgId: getRequestOrgId(),
+        visibility: "private",
         createdAt: now,
         updatedAt: now,
       });
@@ -126,6 +138,35 @@ export default defineAction({
       .select()
       .from(schema.bookingLinks)
       .where(eq(schema.bookingLinks.id, id));
-    return rowToBookingLink(created[0]);
+    track(
+      "booking_link_created",
+      {
+        app_name: "calendar",
+        template_name: "calendar",
+        output_id: id,
+        output_type: "booking_link",
+        booking_type_id: id,
+        duration: durationInput.duration,
+        host_count: 1,
+      },
+      actionContext,
+    );
+    const bookingLink = rowToBookingLink(created[0]);
+    const title = bookingLink.title.trim().slice(0, 180);
+    return {
+      ...bookingLink,
+      change: {
+        verb: "created",
+        kind: "booking-link",
+        title: title || "Booking link",
+        ...(title ? {} : { titleIsFallback: true }),
+        detail: String(durationInput.duration),
+        url: buildDeepLink({
+          app: "calendar",
+          view: "booking-links",
+          params: { bookingLinkId: id },
+        }),
+      },
+    };
   },
 });

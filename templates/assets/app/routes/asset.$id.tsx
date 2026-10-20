@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconArrowLeft,
   IconClipboard,
@@ -41,7 +42,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
-import { assetMediaUrl } from "@/lib/asset-urls";
+import { assetMediaUrl, triggerAssetDownload } from "@/lib/asset-urls";
 import { cn } from "@/lib/utils";
 
 export default function AssetDetailPage() {
@@ -52,6 +53,16 @@ export default function AssetDetailPage() {
   const exportAsset = useActionMutation("export-asset");
   const deleteAsset = useActionMutation("delete-asset");
   const asset = assetQuery.data;
+
+  useEffect(() => {
+    if (!asset) return;
+    const nextTitle = `${normalizeDocumentTitle(asset.title, "Asset")} — Assets`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [asset?.title]);
 
   if (!asset) {
     if (assetQuery.isLoading || assetQuery.isPending || assetQuery.isFetching) {
@@ -217,19 +228,29 @@ export default function AssetDetailPage() {
               label={t("assetDetail.download")}
               disabled={exportAsset.isPending}
               onClick={() => {
+                const downloadUrl = assetMediaUrl(asset.downloadUrl);
+                if (triggerAssetDownload(downloadUrl)) return;
                 if (isStarterAsset) {
-                  const downloadUrl =
-                    assetMediaUrl(asset.downloadUrl) ?? previewUrl;
-                  if (downloadUrl) window.location.href = downloadUrl;
+                  const starterUrl = assetMediaUrl(previewUrl) ?? previewUrl;
+                  if (!triggerAssetDownload(starterUrl)) {
+                    toast.error(t("assetDetail.downloadFailed"));
+                  }
                   return;
                 }
                 exportAsset.mutate(
                   { assetId: asset.id },
                   {
                     onSuccess: (result: any) => {
-                      window.location.href =
-                        assetMediaUrl(result.downloadUrl) ?? result.downloadUrl;
+                      if (
+                        !triggerAssetDownload(
+                          assetMediaUrl(result.downloadUrl) ??
+                            result.downloadUrl,
+                        )
+                      ) {
+                        toast.error(t("assetDetail.downloadFailed"));
+                      }
                     },
+                    onError: () => toast.error(t("assetDetail.downloadFailed")),
                   },
                 );
               }}
@@ -259,7 +280,7 @@ export default function AssetDetailPage() {
                         variant="ghost"
                         size="icon"
                         aria-label={t("assetDetail.delete")}
-                        className="size-9 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        className="shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         disabled={deleteAsset.isPending}
                       >
                         <IconTrash className="h-4 w-4" />

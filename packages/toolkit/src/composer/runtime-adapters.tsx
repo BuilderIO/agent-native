@@ -3,8 +3,25 @@ import {
   useContext,
   useMemo,
   type ComponentType,
+  type MouseEventHandler,
+  type ReactElement,
   type ReactNode,
 } from "react";
+
+import type { MentionItemMedia } from "./types.js";
+
+const referenceEventTargets = new WeakMap<Event, HTMLElement>();
+
+export function setComposerReferenceEventTarget(
+  event: Event,
+  target: HTMLElement,
+) {
+  referenceEventTargets.set(event, target);
+}
+
+export function getComposerReferenceEventTarget(event: Event) {
+  return referenceEventTargets.get(event);
+}
 
 export type ComposerTranslate = (
   key: string,
@@ -21,11 +38,20 @@ export type ReasoningEffort =
   | "xhigh"
   | "max";
 
+export type ComposerAgentEngineState =
+  | "unknown"
+  | "unavailable"
+  | "missing"
+  | "configured";
+
 export interface EngineModelGroup {
   engine: string;
   label: string;
   models: string[];
+  modelDisplayNames?: Readonly<Record<string, string>>;
   configured: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
 }
 
 export interface ComposerModelState {
@@ -44,19 +70,37 @@ export interface ComposerBuilderConnectFlow {
   envManaged: boolean;
   connecting: boolean;
   statusResolved: boolean;
+  statusReadSettledCount?: number;
   error: string | null;
-  start: () => void;
+  agentNativeProvisioningEnabled?: boolean;
+  accountExists?: boolean;
+  start: (options?: { provisionAccount?: boolean }) => void;
+  retry?: () => boolean | void;
+}
+
+export interface ComposerBuilderConnectPopoverProps {
+  flow: ComposerBuilderConnectFlow;
+  children: ReactElement<{
+    onClick?: MouseEventHandler<HTMLElement>;
+  }>;
+  onConnect?: (provisionAccount: boolean) => void;
+  onTriggerClick?: MouseEventHandler<HTMLElement>;
 }
 
 export interface AgentChatContextItem {
   key: string;
   title: string;
   context: string;
+  status?: "ready" | "pending" | "error";
+  statusMessage?: string;
+  removable?: boolean;
+  blocksSubmission?: boolean;
 }
 
 export interface ComposerAgentChatMessage {
   message: string;
   context?: string;
+  contextItems?: readonly Readonly<AgentChatContextItem>[];
   mode?: "plan" | "act";
   submit?: boolean;
 }
@@ -74,6 +118,7 @@ export interface ComposerAgentChatOpenThreadRequest {
 export interface ComposerBuilderConnectFlowOptions {
   enabled?: boolean;
   popupUrl?: string;
+  provisionAccount?: boolean;
   trackingSource?: string;
   trackingFlow?: string;
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
@@ -82,6 +127,7 @@ export interface ComposerBuilderConnectFlowOptions {
 export interface AgentComposerReference {
   label: string;
   icon?: string;
+  media?: MentionItemMedia;
   source?: string;
   refType: string;
   refId?: string | null;
@@ -106,16 +152,17 @@ export interface VoiceContextPack {
 export interface ComposerRuntimeAdapters {
   resolvePath?: (path: string) => string;
   translate?: ComposerTranslate;
+  formatNumber?: (value: number, options?: Intl.NumberFormatOptions) => string;
   models?: {
     useChatModels?: (options: { enabled: boolean }) => ComposerModelState;
     useAgentEngineConfigured?: (enabled: boolean) => {
       missing: boolean;
-      state: string;
+      state: ComposerAgentEngineState;
     };
     fetchAgentEngineConfiguredState?: (
       enabled: boolean,
-      options: { timeoutMs: number },
-    ) => Promise<"missing" | "configured" | string>;
+      options: { fresh?: boolean; timeoutMs?: number },
+    ) => Promise<ComposerAgentEngineState>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
     reasoning?: {
@@ -139,6 +186,7 @@ export interface ComposerRuntimeAdapters {
     useConnectFlow?: (
       options: ComposerBuilderConnectFlowOptions,
     ) => ComposerBuilderConnectFlow;
+    BuilderConnectPopover?: ComponentType<ComposerBuilderConnectPopoverProps>;
     tryDelegateBuildRequest?: (text: string) => boolean;
     isTrustedFrameMessage?: (event: MessageEvent) => boolean;
     isTrustedBuilderMessage?: (event: MessageEvent) => boolean;
@@ -174,20 +222,38 @@ export interface ComposerRuntimeAdapters {
 }
 
 const identityPath = (path: string) => path;
-const fallbackTranslate: ComposerTranslate = (key, options) =>
-  typeof options?.defaultValue === "string" ? options.defaultValue : key;
+const fallbackTranslate: ComposerTranslate = (key, options) => {
+  const template =
+    typeof options?.defaultValue === "string" ? options.defaultValue : key;
+
+  return template.replace(/{{\s*([\w$.-]+)\s*}}/g, (match, name: string) => {
+    const value = options?.[name];
+    return value == null
+      ? match
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : typeof value === "string" ||
+            typeof value === "number" ||
+            typeof value === "boolean"
+          ? String(value)
+          : JSON.stringify(value);
+  });
+};
 const fallbackModels = {
   useChatModels: () => ({
     selectedModel: "auto",
     selectedEngine: "auto",
-    selectedEffort: "medium" as ReasoningEffort,
+    selectedEffort: "high" as ReasoningEffort,
     availableModels: [],
     isLoading: false,
     onModelChange: () => {},
     onEffortChange: () => {},
   }),
-  useAgentEngineConfigured: () => ({ missing: false, state: "configured" }),
-  fetchAgentEngineConfiguredState: async () => "configured",
+  useAgentEngineConfigured: () => ({
+    missing: false,
+    state: "unknown" as const,
+  }),
+  fetchAgentEngineConfiguredState: async () => "unavailable" as const,
 };
 const FragmentBoundary: ComponentType<{ children?: ReactNode }> = ({
   children,
@@ -198,14 +264,20 @@ const fallbackBuilderFlow = {
   envManaged: false,
   connecting: false,
   statusResolved: false,
+  statusReadSettledCount: 0,
   error: null,
+  agentNativeProvisioningEnabled: false,
+  accountExists: false,
   start: () => {},
+  retry: () => false,
 };
 
 const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &
   ComposerRuntimeAdapters = {
   resolvePath: identityPath,
   translate: fallbackTranslate,
+  formatNumber: (value, options) =>
+    new Intl.NumberFormat("en-US", options).format(value),
   models: fallbackModels,
   agentChat: {
     sendToAgentChat: () => {},
@@ -252,8 +324,6 @@ export function ComposerRuntimeAdaptersProvider({
   adapters: ComposerRuntimeAdapters;
   children: ReactNode;
 }) {
-  // Consumers key effects off this value; a fresh identity per render re-runs
-  // every one of them (app-state reads, event subscriptions) on each render.
   const value = useMemo(
     () => ({
       ...fallbackAdapters,
@@ -277,7 +347,7 @@ export function useComposerRuntimeAdapters() {
   return useContext(ComposerRuntimeAdaptersContext);
 }
 
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
 export function getReasoningEffortOptionsForModel(
   _model?: string,
 ): ReasoningEffort[] {
@@ -296,12 +366,12 @@ export function resolveReasoningEffortSelection(
 }
 
 export const AGENT_CHAT_INSERT_REFERENCE_EVENT =
-  "agent-native:insert-composer-reference";
+  "agentNative:insert-composer-reference";
 export const AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE =
-  "agent-native:insert-composer-reference";
+  "agentNative.insertComposerReference";
 
 export function formatPromptContextItems(
-  items: AgentChatContextItem[] | undefined,
+  items: readonly AgentChatContextItem[] | undefined,
 ): string {
   return (
     items

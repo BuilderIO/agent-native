@@ -1,4 +1,7 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 
 export function useFormResponses(formId: string, limit = 100) {
   return useActionQuery(
@@ -8,6 +11,10 @@ export function useFormResponses(formId: string, limit = 100) {
       enabled: !!formId,
     },
   );
+}
+
+export function usePromoteCommunitySubmission() {
+  return useActionMutation("promote-community-submission");
 }
 
 export function useResponseInsights(formId?: string, limit = 300, days = 30) {

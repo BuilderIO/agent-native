@@ -1,0 +1,3430 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, it } from "node:test";
+import { runInNewContext } from "node:vm";
+
+import { parse } from "yaml";
+
+import {
+  PUBLISHED_CACHE_PURGE_CONDITION,
+  PRODUCTION_FLEET_CHILD_GROUP,
+  PRODUCTION_MAPPED_SITE_GROUP,
+  PRODUCTION_SITE_GROUP,
+  validateGoogleCallbackVerificationWorkflow,
+  validateNetlifyApiRateLimitHandling,
+  validateNetlifyPrPreviewWorkflow,
+  validatePublishedCachePurgeCondition,
+  validateReusableCallerPermissions,
+  validateReusablePreviewRecordPlacement,
+  validateReusableWorkflowConcurrency,
+  validateReusableWorkflowPermissions,
+  validateProductionSiteConcurrency,
+} from "./guard-netlify-prebuilt-workflow.ts";
+import { resolveNetlifyMigrationUrl } from "./netlify-migration-url.ts";
+import { previewEligibleSiteNames } from "./netlify-pr-preview-targets.ts";
+
+type Workflow = Record<string, unknown>;
+
+const readWorkflow = (path: string): Workflow =>
+  parse(readFileSync(path, "utf8")) as Workflow;
+
+const workflows = () => ({
+  production: readWorkflow(
+    ".github/workflows/deploy-production-sites-prebuilt.yml",
+  ),
+  manage: readWorkflow(".github/workflows/manage-production-sites.yml"),
+  promote: readWorkflow(".github/workflows/promote-netlify-deploy.yml"),
+});
+
+const manageJob = (workflows().manage.jobs as Record<string, Workflow>).manage;
+const manageScript = String(
+  (
+    (manageJob.steps as Array<Workflow>).find(
+      (step) => typeof (step.with as Workflow | undefined)?.script === "string",
+    )?.with as Workflow
+  ).script,
+);
+
+const reusableSource = readFileSync(
+  ".github/workflows/deploy-netlify-prebuilt.yml",
+  "utf8",
+).replace(/\r\n/g, "\n");
+const nodeHeredocs = [
+  ...reusableSource.matchAll(
+    /node(?: --experimental-strip-types)? <<'NODE'\n([\s\S]*?)\n\s*NODE/g,
+  ),
+].map((match) => match[1]);
+
+const pullRequestPreviewSource = readFileSync(
+  ".github/workflows/deploy-netlify-pr-previews.yml",
+  "utf8",
+);
+const trustedPreviewBuildStart = reusableSource.indexOf(
+  "      - name: Build trusted preview Functions for the PR artifact",
+);
+const trustedPreviewBuildEnd = reusableSource.indexOf(
+  "      - name: Run Plan release migrations",
+  trustedPreviewBuildStart,
+);
+const trustedPreviewBuildSource = reusableSource.slice(
+  trustedPreviewBuildStart,
+  trustedPreviewBuildEnd,
+);
+
+describe("Google callback deploy verification guard", () => {
+  it("requires direct probe execution and rolls back only definitive mismatches", () => {
+    assert.deepEqual(
+      validateGoogleCallbackVerificationWorkflow(reusableSource),
+      [],
+    );
+    assert.match(reusableSource, /id: google_callback_rollback/);
+    assert.match(reusableSource, /restored_deploy_id=\$\{restoredDeployId\}/);
+    assert.match(
+      validateGoogleCallbackVerificationWorkflow(
+        reusableSource
+          .replace(
+            "node --experimental-strip-types scripts/check-google-redirect-uris.ts",
+            "pnpm check:google-redirect-uris --",
+          )
+          .replace(
+            "steps.google_redirect.outputs.exit_code == '1'",
+            "steps.google_redirect.outputs.exit_code == '2'",
+          ),
+      ).join("\n"),
+      /directly with the supported Node loader|only definitive/,
+    );
+  });
+
+  it("accepts a pinned beta source while main advances during the queue", () => {
+    assert.match(
+      reusableSource,
+      /async function compareCommitsWithRetry\(base, head\)[\s\S]*?github\.rest\.repos\.compareCommits\([\s\S]*?base,[\s\S]*?head,[\s\S]*?status < 500[\s\S]*?status >= 600[\s\S]*?attempt === 3[\s\S]*?const comparison = await compareCommitsWithRetry\(sourceSha, mainSha\)[\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+    );
+    assert.doesNotMatch(
+      reusableSource,
+      /Beta source_ref must equal current main/,
+    );
+  });
+
+  it("checks the published beta runtime context for the relay secret", () => {
+    const relayStep =
+      "      - name: Verify Netlify Google OAuth relay metadata";
+    const packageStep = "      - name: Package the prebuilt artifact";
+    const uploadStep = "      - name: Upload the prebuilt artifact";
+    const smokeStep = "      - name: Smoke-test the uploaded deploy";
+    assert.equal(reusableSource.split(relayStep).length, 2);
+    assert.equal(reusableSource.split(packageStep).length, 2);
+    assert.equal(reusableSource.split(uploadStep).length, 2);
+    assert.equal(reusableSource.split(smokeStep).length, 2);
+    const start = reusableSource.indexOf(relayStep);
+    const end = reusableSource.indexOf(smokeStep, start);
+    assert.ok(start >= 0 && end > start);
+    const step = reusableSource.slice(start, end);
+
+    assert.match(step, /\(inputs\.deploy \|\| inputs\.target == 'beta'\)/);
+    assert.match(step, /DEPLOY_MODE: \$\{\{ inputs\.deploy_mode \}\}/);
+    assert.match(step, /TARGET: \$\{\{ inputs\.target \}\}/);
+    assert.match(
+      step,
+      /if \[\[ \"\$TARGET\" == \"beta\" && \"\$DEPLOY_MODE\" == \"production\" \]\]/,
+    );
+    assert.match(step, /relay_context=production/);
+    assert.match(step, /context === "deploy-preview"/);
+    assert.match(step, /preview relay configuration is optional/);
+    assert.match(step, /throw new Error/);
+    assert.match(step, /!value/);
+    assert.match(step, /Netlify masks secret values/);
+    assert.match(step, /Verified Google OAuth relay metadata/);
+    assert.doesNotMatch(step, /netlify env:get/);
+    const metadataScript = step.match(
+      /printf '%s' "\$env_json" \|\n\s*node -e '\n([\s\S]*?)\n\s*' "\$relay_context"/,
+    )?.[1];
+    assert.ok(metadataScript);
+    const runMetadataCheck = (variables: unknown[], context: string) =>
+      execFileSync(process.execPath, ["-e", metadataScript, context], {
+        encoding: "utf8",
+        input: JSON.stringify(variables),
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    const allContextRelay = {
+      key: "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
+      is_secret: true,
+      scopes: ["runtime"],
+      values: [{ context: "all" }],
+    };
+    assert.doesNotThrow(() =>
+      runMetadataCheck([allContextRelay], "branch-deploy"),
+    );
+    assert.throws(() =>
+      runMetadataCheck([{ ...allContextRelay, values: [] }], "branch-deploy"),
+    );
+    assert.match(
+      step,
+      /node -e[\s\S]*process\.argv\[1\][\s\S]*' \"\$relay_context\"/,
+    );
+    const relayIndex = reusableSource.indexOf(relayStep);
+    const packageIndex = reusableSource.indexOf(packageStep);
+    const uploadIndex = reusableSource.indexOf(uploadStep);
+    assert.ok(
+      relayIndex >= 0 && relayIndex < packageIndex && relayIndex < uploadIndex,
+    );
+  });
+});
+
+describe("Netlify PR preview workflow guard", () => {
+  it("requires an internal PR comment to manually deploy one secret-free prebuilt app", () => {
+    assert.deepEqual(
+      validateNetlifyPrPreviewWorkflow(
+        readWorkflow(".github/workflows/deploy-netlify-pr-previews.yml"),
+        pullRequestPreviewSource,
+      ),
+      [],
+    );
+    const preview = readWorkflow(
+      ".github/workflows/deploy-netlify-pr-previews.yml",
+    );
+    const previewJobs = preview.jobs as Record<string, Workflow>;
+    const previewDeploy = previewJobs.deploy;
+    const previewRevalidate = previewJobs.revalidate;
+    assert.equal(
+      (previewDeploy.with as Workflow).checkout_ref,
+      "${{ needs.authorize.outputs.checkout_ref }}",
+    );
+    assert.equal(
+      (previewJobs.build.with as Workflow).source_ref,
+      "${{ needs.authorize.outputs.source_ref }}",
+    );
+    assert.equal(
+      (previewDeploy.with as Workflow).pull_request_number,
+      "${{ fromJSON(needs.authorize.outputs.pull_request_number) }}",
+    );
+    assert.equal(previewJobs.discover, undefined);
+    assert.equal(previewJobs.fork, undefined);
+    assert.equal(previewJobs.comment, undefined);
+    assert.deepEqual(
+      (preview.on as Workflow).pull_request_target &&
+        ((preview.on as Workflow).pull_request_target as Workflow).types,
+      ["closed"],
+    );
+    assert.deepEqual(
+      ((preview.on as Workflow).issue_comment as Workflow).types,
+      ["created"],
+    );
+    assert.equal((preview.on as Workflow).workflow_dispatch, undefined);
+    assert.equal(
+      (preview.concurrency as Workflow)["cancel-in-progress"],
+      false,
+    );
+    const previewConcurrencyGroup = String(
+      (preview.concurrency as Workflow).group,
+    );
+    for (const site of previewEligibleSiteNames()) {
+      assert.ok(
+        previewConcurrencyGroup.includes(
+          `github.event.comment.body == '/preview ${site}' && 'authorized-${site}'`,
+        ),
+      );
+    }
+    assert.equal(previewDeploy.concurrency, undefined);
+    assert.deepEqual(previewDeploy.permissions, { contents: "read" });
+    assert.deepEqual(previewRevalidate.permissions, {
+      "pull-requests": "read",
+    });
+    assert.deepEqual(previewRevalidate.needs, ["authorize", "build"]);
+    const revalidateStart = pullRequestPreviewSource.indexOf(
+      "name: Confirm the authorized PR head is still current",
+    );
+    const invertedHeadRepositoryCheck =
+      pullRequestPreviewSource.slice(0, revalidateStart) +
+      pullRequestPreviewSource
+        .slice(revalidateStart)
+        .replace(
+          "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
+          "pullRequest.head.repo?.full_name?.toLowerCase() === fullName",
+        );
+    assert.match(
+      validateNetlifyPrPreviewWorkflow(
+        parse(invertedHeadRepositoryCheck) as Workflow,
+        invertedHeadRepositoryCheck,
+      ).join("\n"),
+      /revalidate the pinned internal PR/,
+    );
+    assert.deepEqual(
+      ((previewJobs.cleanup.strategy as Workflow).matrix as Workflow).site,
+      previewEligibleSiteNames(),
+    );
+    assert.deepEqual(previewJobs.cleanup.concurrency, {
+      group:
+        "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}",
+      "cancel-in-progress": true,
+    });
+    const authorize = previewJobs.authorize;
+    assert.equal(
+      (authorize.outputs as Workflow).requester_login,
+      "${{ steps.authorize.outputs.requester_login }}",
+    );
+    assert.match(
+      String(authorize.if),
+      /github\.event\.comment\.author_association/,
+    );
+    assert.match(
+      String(authorize.if),
+      /startsWith\(github\.event\.comment\.body, '\/preview '\)/,
+    );
+    const command = (authorize.steps as Array<Workflow>).find(
+      (step) => step.name === "Parse the selected app",
+    );
+    assert.match(String(command?.run), /GITHUB_EVENT_PATH/);
+    assert.match(
+      String(command?.run),
+      /previewSiteFromCommand\(event\.comment\.body\)/,
+    );
+    assert.match(String(command?.run), /process\.env\.GITHUB_OUTPUT/);
+    assert.match(
+      reusableSource,
+      /supplies static files; arbitrary PR Functions never reach Netlify\./,
+    );
+    assert.match(reusableSource, /verify-netlify-prebuilt-client\.ts/);
+    assert.match(trustedPreviewBuildSource, /AGENT_NATIVE_PREBUILT_CLIENT_DIR/);
+    assert.match(reusableSource, /artifact_root\/client/);
+    assert(
+      reusableSource.indexOf("Verify paired client and publish artifacts") <
+        trustedPreviewBuildStart,
+    );
+    assert.match(
+      pullRequestPreviewSource,
+      /needs\.deploy\.result != 'cancelled'/,
+    );
+    assert.match(pullRequestPreviewSource, /No successful deploy record/);
+    assert.match(pullRequestPreviewSource, /auto_merge: false/);
+    assert.match(pullRequestPreviewSource, /required_contexts: \[\]/);
+    assert.match(pullRequestPreviewSource, /createDeploymentStatus/);
+    assert.doesNotMatch(
+      pullRequestPreviewSource,
+      /issues: write|pull-requests: write|createComment/,
+    );
+    assert.deepEqual(previewJobs.deployment?.permissions, {
+      actions: "read",
+      contents: "read",
+      deployments: "write",
+      "pull-requests": "read",
+    });
+    const deploymentStep = (
+      previewJobs.deployment.steps as Array<Workflow>
+    ).find((step) =>
+      String((step.with as Workflow | undefined)?.script ?? "").includes(
+        "createDeploymentStatus",
+      ),
+    );
+    assert.equal(
+      (deploymentStep?.env as Workflow).REQUESTER_LOGIN,
+      "${{ needs.authorize.outputs.requester_login }}",
+    );
+    assert.match(
+      String((deploymentStep?.with as Workflow).script),
+      /createDeploymentStatus/,
+    );
+    assert.match(
+      String((deploymentStep?.with as Workflow).script),
+      /isCurrentInternalPullRequest/,
+    );
+    assert.match(
+      String((deploymentStep?.with as Workflow).script),
+      /state: 'inactive'/,
+    );
+    assert.match(reusableSource, /build_args\+=\(--offline\)/);
+    assert.match(
+      trustedPreviewBuildSource,
+      /netlify build --context "\$BUILD_CONTEXT" --filter "\$SOURCE_TEMPLATE" --offline/,
+    );
+  });
+
+  it("fails when deployment options are missing or calls are swapped", () => {
+    const mutate = (needle: string, replacement: string) => {
+      const source = pullRequestPreviewSource.replace(needle, replacement);
+      return validateNetlifyPrPreviewWorkflow(
+        parse(source) as Workflow,
+        source,
+      );
+    };
+    for (const [needle, replacement] of [
+      ["ref: process.env.SOURCE_REF", "ref: process.env.OTHER_REF"],
+      ["auto_merge: false", "auto_merge: true"],
+      ["state: 'success'", "state: 'failure'"],
+      ["pullRequest.state === 'open'", "pullRequest.state === 'closed'"],
+      ["state: 'inactive'", "state: 'success'"],
+      ["createDeployment(", "createDeploymentStatus("],
+      [
+        "!['OWNER', 'MEMBER'].includes(pullRequest.author_association)",
+        "false",
+      ],
+      [
+        "pullRequest.user.login?.toLowerCase() !==\n                  context.payload.comment.user.login.toLowerCase()",
+        "false",
+      ],
+      [
+        "pullRequest.user.login?.toLowerCase() !==\n                  process.env.REQUESTER_LOGIN.toLowerCase()",
+        "false",
+      ],
+      [
+        "pullRequest.user.login?.toLowerCase() ===\n                    process.env.REQUESTER_LOGIN.toLowerCase()",
+        "false",
+      ],
+      [
+        "          SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}\n          REQUESTER_LOGIN: ${{ needs.authorize.outputs.requester_login }}",
+        "          SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}",
+      ],
+      [
+        "!['OWNER', 'MEMBER'].includes(context.payload.comment.author_association)",
+        "false",
+      ],
+      ["issue_comment:", "workflow_dispatch:"],
+      [
+        "github.event.comment.body == '/preview analytics' && 'authorized-analytics'",
+        "github.event.comment.body == '/preview analytics' && 'authorized-assets'",
+      ],
+      [
+        "github.event.comment.author_association == 'MEMBER'",
+        "github.event.comment.author_association == 'CONTRIBUTOR'",
+      ],
+      [
+        "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}",
+        "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}",
+      ],
+      ["cancel-in-progress: false", "cancel-in-progress: true"],
+      ["cancel-in-progress: true", "cancel-in-progress: false"],
+      ["          - fw", "          - unknown"],
+      ["types: [closed]", "types: [opened]"],
+      [
+        "      pull-requests: read\n    steps:\n      - name: Confirm the authorized PR head is still current",
+        "      pull-requests: write\n    steps:\n      - name: Confirm the authorized PR head is still current",
+      ],
+    ]) {
+      assert.notDeepEqual(mutate(needle, replacement), [], needle);
+    }
+  });
+});
+
+describe("Reusable workflow permission guard", () => {
+  it("keeps shared deploy permissions compatible with every caller", () => {
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.deepEqual(validateReusableWorkflowPermissions(reusable), []);
+    assert.deepEqual(validateReusablePreviewRecordPlacement(reusable), []);
+    assert.match(
+      validateReusablePreviewRecordPlacement(
+        parse(
+          reusableSource.replace(
+            "const requested = process.env.SOURCE_REF.trim();",
+            "await github.rest.pulls.get({});\n            const requested = process.env.SOURCE_REF.trim();",
+          ),
+        ) as Workflow,
+      ).join("\n"),
+      /keep PR API reads in the caller/,
+    );
+    assert.match(
+      validateReusableWorkflowPermissions({
+        ...reusable,
+        permissions: { contents: "read", issues: "write" },
+      }).join("\n"),
+      /must declare only contents: read/,
+    );
+    assert.deepEqual(
+      validateReusableWorkflowPermissions({
+        ...reusable,
+        permissions: { contents: "read" },
+      }),
+      [],
+    );
+    const beta = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    assert.deepEqual(
+      validateReusableCallerPermissions(
+        beta,
+        ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      ),
+      [],
+    );
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          ...beta,
+          jobs: {
+            ...(beta.jobs as Workflow),
+            deploy: {
+              ...(beta.jobs as Workflow).deploy,
+              permissions: { issues: "write" },
+            },
+          },
+        },
+        ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      ).join("\n"),
+      /deploy reusable deploy job must explicitly retain contents access/,
+    );
+    assert.deepEqual(
+      validateReusableCallerPermissions(
+        {
+          permissions: { contents: "read" },
+          jobs: {
+            future_caller: {
+              uses: "./.github/workflows/deploy-netlify-prebuilt.yml",
+            },
+            unrelated: { "runs-on": "ubuntu-latest" },
+          },
+        },
+        ".github/workflows/future-caller.yml",
+      ),
+      [],
+    );
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          permissions: { contents: "read" },
+          jobs: {
+            future_caller: {
+              uses: "./.github/workflows/deploy-netlify-prebuilt.yml",
+              permissions: { issues: "write" },
+            },
+          },
+        },
+        ".github/workflows/future-caller.yml",
+      ).join("\n"),
+      /future_caller reusable deploy job must explicitly retain contents access/,
+    );
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          jobs: {
+            future_caller: {
+              uses: "./.github/workflows/deploy-netlify-prebuilt.yml",
+            },
+          },
+        },
+        ".github/workflows/future-caller.yml",
+      ).join("\n"),
+      /future_caller reusable deploy job must explicitly retain contents access/,
+    );
+    const betaJobs = beta.jobs as Workflow;
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          ...beta,
+          jobs: {
+            ...betaJobs,
+            deploy: {
+              ...(betaJobs.deploy as Workflow),
+              with: { target: "preview" },
+            },
+          },
+        },
+        ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      ).join("\n"),
+      /must not call the PR preview target/,
+    );
+  });
+
+  it("normalizes quoted reusable caller paths before validating them", () => {
+    const quotedCaller = parse(`
+permissions:
+  contents: read
+jobs:
+  quoted_caller:
+    uses: "./.github/workflows/deploy-netlify-prebuilt.yml"
+`) as Workflow;
+    assert.deepEqual(
+      validateReusableCallerPermissions(
+        quotedCaller,
+        ".github/workflows/quoted-caller.yml",
+      ),
+      [],
+    );
+  });
+});
+
+describe("Netlify API rate-limit guard", () => {
+  it("routes all reusable-workflow API calls through the bounded helper", () => {
+    assert.deepEqual(validateNetlifyApiRateLimitHandling(reusableSource), []);
+    assert.match(
+      validateNetlifyApiRateLimitHandling(
+        reusableSource.replace(
+          "requestNetlifyApi(`https://api.netlify.com/api/v1/sites/${siteId}`",
+          "fetch(`https://api.netlify.com/api/v1/sites/${siteId}`",
+        ),
+      ).join("\n"),
+      /raw Netlify fetch calls/,
+    );
+  });
+
+  it("uses the docs retry backoff when Retry-After is absent or invalid", () => {
+    const docsProductionSource = readFileSync(
+      ".github/workflows/deploy-docs-production.yml",
+      "utf8",
+    );
+    assert.match(
+      docsProductionSource,
+      /retryAfterHeader === null \|\| !retryAfterHeader\.trim\(\)[\s\S]*?Number\.NaN/,
+    );
+    assert.match(
+      docsProductionSource,
+      /Number\.isFinite\(retryAfter\) && retryAfter >= 0[\s\S]*?: attempt \* 1_000/,
+    );
+    assert.doesNotMatch(
+      docsProductionSource,
+      /Number\(response\.headers\.get\(['"]retry-after['"]\)\)/,
+    );
+  });
+});
+
+describe("production Netlify site concurrency guard", () => {
+  it("supports previous, N-back, and exact Netlify deploy rollbacks", () => {
+    const helperStart = manageScript.indexOf("function publishedAtTimestamp");
+    const helperEnd = manageScript.indexOf(
+      "async function rollback",
+      helperStart,
+    );
+    assert(helperStart >= 0 && helperEnd > helperStart);
+    const {
+      isRestorableProductionDeploy,
+      parseRollbackTarget,
+      selectRollbackDeploy,
+    } = new Function(
+      `${manageScript.slice(helperStart, helperEnd)}; return { isRestorableProductionDeploy, parseRollbackTarget, selectRollbackDeploy };`,
+    )() as {
+      isRestorableProductionDeploy: (deploy: Workflow) => boolean;
+      parseRollbackTarget: (
+        depth: string,
+        deployId: string,
+      ) => { depth: number | null; deployId: string | null };
+      selectRollbackDeploy: (
+        deploys: Array<Workflow>,
+        currentId: string,
+        currentPublishedAt: number,
+        depth: number,
+      ) => Workflow | null;
+    };
+
+    assert.deepEqual(parseRollbackTarget("1", ""), {
+      depth: 1,
+      deployId: null,
+    });
+    assert.deepEqual(parseRollbackTarget("3", ""), {
+      depth: 3,
+      deployId: null,
+    });
+    assert.deepEqual(parseRollbackTarget("1", "52465f435803544542000001"), {
+      depth: null,
+      deployId: "52465f435803544542000001",
+    });
+    assert.throws(() => parseRollbackTarget("0", ""), /positive safe integer/);
+    assert.throws(
+      () => parseRollbackTarget("1", "not-a-deploy"),
+      /Netlify deploy ID/,
+    );
+
+    assert.equal(
+      isRestorableProductionDeploy({ context: "production", state: "old" }),
+      true,
+    );
+    assert.equal(
+      isRestorableProductionDeploy({ context: "production", state: "ready" }),
+      true,
+    );
+    assert.equal(
+      isRestorableProductionDeploy({ context: "production", state: "error" }),
+      false,
+    );
+
+    const deploys = [
+      {
+        id: "current",
+        context: "production",
+        state: "ready",
+        published_at: "2026-08-23T03:00:00Z",
+      },
+      {
+        id: "previous",
+        context: "production",
+        state: "old",
+        published_at: "2026-08-23T02:00:00Z",
+      },
+      {
+        id: "two-back",
+        context: "production",
+        state: "ready",
+        published_at: "2026-08-23T01:00:00Z",
+      },
+      {
+        id: "preview",
+        context: "deploy-preview",
+        state: "ready",
+        published_at: "2026-08-23T00:00:00Z",
+      },
+    ];
+    assert.equal(
+      selectRollbackDeploy(
+        deploys,
+        "current",
+        Date.parse("2026-08-23T03:00:00Z"),
+        1,
+      )?.id,
+      "previous",
+    );
+    assert.equal(
+      selectRollbackDeploy(
+        deploys,
+        "current",
+        Date.parse("2026-08-23T03:00:00Z"),
+        2,
+      )?.id,
+      "two-back",
+    );
+  });
+
+  it("requires distinct preview and beta child queues", () => {
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.deepEqual(validateReusableWorkflowConcurrency(reusable), []);
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.target == 'preview'[\s\S]*netlify-prebuilt-preview-\{0\}-\{1\}/,
+    );
+  });
+
+  it("publishes beta runs through the migration-aware lane", () => {
+    const beta = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    const betaConcurrency = beta.concurrency as Workflow;
+    assert.equal(betaConcurrency["cancel-in-progress"], false);
+    assert.match(
+      String(betaConcurrency.group),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String(betaConcurrency.group),
+      /format\('deploy-agent-native-beta-manual-\{0\}', github\.run_id\)/,
+    );
+    assert.match(String(betaConcurrency.group), /!inputs\.handoff/);
+    assert.match(
+      String(betaConcurrency.group),
+      /'deploy-agent-native-beta-sites-prebuilt'/,
+    );
+    assert.deepEqual(
+      (((beta.on as Workflow).workflow_dispatch as Workflow).inputs as Workflow)
+        .handoff,
+      {
+        description:
+          "Requeue the latest main source after a production operation",
+        required: false,
+        type: "boolean",
+        default: false,
+      },
+    );
+    assert.equal((beta.permissions as Workflow).contents, "read");
+    const betaBuild = (beta.jobs as Workflow).build as Workflow;
+    assert.equal(
+      betaBuild.uses,
+      "./.github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.deepEqual(betaBuild.needs, ["resolve-source", "discover-sites"]);
+    assert.equal(
+      betaBuild.if,
+      "needs.discover-sites.outputs.has_sites == 'true'",
+    );
+    const betaDiscover = (beta.jobs as Workflow)["discover-sites"] as Workflow;
+    const betaDiscoverSteps = betaDiscover.steps as Array<Workflow>;
+    const betaBasesIndex = betaDiscoverSteps.findIndex(
+      (step) => step.id === "bases",
+    );
+    const betaBases = betaDiscoverSteps[betaBasesIndex];
+    assert.equal(betaBases?.if, "github.event_name == 'push'");
+    assert.equal(
+      (betaBases?.env as Workflow)?.NETLIFY_AUTH_TOKEN,
+      "${{ secrets.NETLIFY_AUTH_TOKEN }}",
+    );
+    assert.ok(
+      betaBasesIndex <
+        betaDiscoverSteps.findIndex((step) =>
+          String(step.uses ?? "").startsWith("actions/checkout@"),
+        ),
+      "the Netlify token step must run before repository code is checked out",
+    );
+    assert.match(
+      String((betaBases?.with as Workflow)?.script),
+      /published_deploy\?\.title/,
+    );
+    assert.equal(
+      betaDiscoverSteps.some((step) =>
+        String(step.uses ?? "").startsWith("actions/checkout@"),
+      ) && betaDiscover.permissions === undefined,
+      true,
+      "discover-sites checks out code and must keep the read-only workflow permissions",
+    );
+    assert.match(
+      String(betaDiscoverSteps.find((step) => step.id === "matrix")?.run ?? ""),
+      /scripts\/netlify-beta-targets\.ts/,
+    );
+    assert.equal((betaBuild.with as Workflow).target, "beta");
+    assert.equal((betaBuild.with as Workflow).deploy, false);
+    assert.equal((betaBuild.with as Workflow).deploy_mode, "draft");
+    assert.equal((betaBuild.with as Workflow).artifact_upload, true);
+    assert.match(
+      String((betaBuild.with as Workflow).artifact_name),
+      /github\.run_id/,
+    );
+    assert.equal((betaBuild.strategy as Workflow)["max-parallel"], 8);
+    assert.equal(
+      ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
+      8,
+    );
+    assert.equal(
+      ((beta.jobs as Workflow)["discover-sites"] as Workflow).outputs
+        ?.migration_matrix,
+      undefined,
+    );
+    assert.equal((beta.jobs as Workflow).migrate, undefined);
+    assert.deepEqual((beta.jobs as Workflow).deploy.needs, [
+      "resolve-source",
+      "discover-sites",
+      "build",
+      "confirm-current-source",
+    ]);
+    assert.equal((beta.jobs as Workflow).deploy.with.artifact_download, true);
+    assert.match(
+      String((beta.jobs as Workflow).deploy.with.artifact_name),
+      /github\.run_id/,
+    );
+    assert.equal((beta.jobs as Workflow)["schema-gate"], undefined);
+    const betaSource = readFileSync(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      "utf8",
+    );
+    assert.doesNotMatch(betaSource, /needs\.build\.result == 'success'/);
+    assert.match(
+      betaSource,
+      /contains\(fromJSON\('\["success","failure"\]'\), needs\.build\.result\)/,
+    );
+    const production = readWorkflow(
+      ".github/workflows/deploy-production-sites-prebuilt.yml",
+    );
+    const productionDiscover = (production.jobs as Workflow)[
+      "discover-sites"
+    ] as Workflow;
+    assert.equal(
+      productionDiscover.outputs?.matrix,
+      "${{ steps.matrix.outputs.matrix }}",
+    );
+    assert.equal(
+      (production.jobs as Workflow)["record-beta-migration"],
+      undefined,
+    );
+    assert.doesNotMatch(
+      readFileSync(
+        ".github/workflows/deploy-production-sites-prebuilt.yml",
+        "utf8",
+      ),
+      /complete_fleet|agent-native-beta-migrated/,
+    );
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const reusableSteps = ((reusable.jobs as Workflow).deploy as Workflow)
+      .steps as Array<Workflow>;
+    const betaMigration = reusableSteps.find(
+      (step) =>
+        step.name ===
+        "Run the beta release migration against the site database",
+    );
+    const betaMigrationIndex = reusableSteps.findIndex(
+      (step) =>
+        step.name ===
+        "Run the beta release migration against the site database",
+    );
+    const betaPreMigrationFreshnessIndex = reusableSteps.findIndex(
+      (step) =>
+        step.name === "Verify beta source is current before beta migration",
+    );
+    const betaFreshnessIndex = reusableSteps.findIndex(
+      (step) =>
+        step.name === "Verify beta source is current immediately before upload",
+    );
+    const betaFreshness = reusableSteps[betaFreshnessIndex];
+    const betaPreMigrationFreshness =
+      reusableSteps[betaPreMigrationFreshnessIndex];
+    const betaFirstPublishFreshness = reusableSteps.find(
+      (step) =>
+        step.name ===
+        "Verify first beta deploy source immediately before publish",
+    );
+    const betaPostFreshness = reusableSteps.find(
+      (step) => step.name === "Verify beta source is current after publish",
+    );
+    const previousStep = reusableSteps.find((step) => step.id === "previous");
+    const buildIndex = reusableSteps.findIndex(
+      (step) => step.name === "Build with the Netlify project configuration",
+    );
+    const uploadIndex = reusableSteps.findIndex(
+      (step) => step.name === "Upload the prebuilt deploy",
+    );
+    assert.ok(betaMigration);
+    assert.ok(betaPreMigrationFreshnessIndex < betaMigrationIndex);
+    assert.ok(betaMigrationIndex < betaFreshnessIndex);
+    assert.ok(betaFreshnessIndex < uploadIndex);
+    assert.ok(betaMigrationIndex > buildIndex);
+    assert.ok(betaMigrationIndex < uploadIndex);
+    assert.match(String(betaMigration?.if), /inputs\.target == 'beta'/);
+    assert.doesNotMatch(
+      String(betaMigration?.if),
+      /source_template != '@agent-native\/docs'/,
+    );
+    assert.match(
+      String(betaMigration?.if),
+      /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(betaFreshness?.if),
+      /steps\.beta_pre_migration_freshness\.outcome == 'success'/,
+    );
+    assert.doesNotMatch(
+      String(betaFreshness?.if),
+      /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
+    );
+    for (const freshnessStep of [betaPreMigrationFreshness, betaFreshness]) {
+      const script = String(freshnessStep?.with?.script ?? "");
+      assert.match(script, /compareCommits/);
+      assert.match(script, /\['ahead', 'identical'\]\.includes/);
+      assert.doesNotMatch(script, /mainSha\.toLowerCase\(\) === sourceRef/);
+      assert.match(script, /not on main/);
+      assert.match(
+        script,
+        /published deploy \$\{publishedSha\} is already newer/,
+      );
+      assert.equal(
+        freshnessStep?.env?.PUBLISHED_SOURCE_REF,
+        "${{ steps.previous.outputs.published_deploy_source_ref }}",
+      );
+    }
+    assert.match(String(previousStep?.run), /published_deploy_source_ref/);
+    assert.equal(betaMigration?.env?.BUILD_CONTEXT, "production");
+    assert.equal(
+      betaMigration?.env?.NETLIFY_MIGRATION_SITE_ID,
+      "${{ steps.target.outputs.migration_site_id }}",
+    );
+    assert.equal(
+      betaMigration?.env?.BETA_DATABASE_URL_SECRET,
+      "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}",
+    );
+    assert.match(String(betaMigration?.run), /netlify api getEnvVars/);
+    assert.match(String(betaMigration?.run), /netlify api getSiteDatabase/);
+    assert.match(String(betaMigration?.run), /BETA_DATABASE_URL_SECRET/);
+    assert.match(String(betaMigration?.run), /brain\|factory/);
+    assert.match(String(betaMigration?.run), /@agent-native\/docs/);
+    assert.match(String(betaMigration?.run), /migrate:production/);
+    const validation = (
+      ((reusable.jobs as Workflow).deploy as Workflow).steps as Array<Workflow>
+    ).find((step) => step.name === "Validate rollout mode");
+    assert.match(
+      String(validation?.run),
+      /BUILD_CONTEXT.*MIGRATION_ONLY.*production/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.target == 'beta'[\s\S]*agent-native-production-site-\{0\}/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /netlify-prebuilt-beta-build-\{0\}-\{1\}/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.site == 'design'\s+\|\|\s+inputs\.site == 'slides'/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /agent-native-production-site-design-slides/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.site == 'chat'\s+&&\s+'starter'/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.target == 'production'[\s\S]*format\(\s*'agent-native-production-site-\{0\}', inputs\.site\)/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /github\.event_name == 'workflow_dispatch'\s+&&\s+!inputs\.caller/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /format\('netlify-prebuilt-beta-direct-\{0\}-\{1\}', inputs\.site, github\.run_id\)/,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /!inputs\.deploy\s+\|\|\s+inputs\.deploy_mode != 'production'/,
+    );
+    assert.equal(
+      (reusable.concurrency as Workflow)["cancel-in-progress"],
+      false,
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.caller == 'release-migration'/,
+    );
+    assert.equal(
+      ((reusable.jobs as Workflow).deploy as Workflow)["timeout-minutes"],
+      150,
+    );
+    assert.match(
+      reusableSource,
+      /Verify beta source is current immediately before upload/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_freshness\.outputs\.current == 'true'/,
+    );
+    assert.doesNotMatch(reusableSource, /allowPinnedRecovery/);
+    // The post-publish freshness checks must also be monotonic
+    // (ancestor-of-main), not exact equality — otherwise a source that
+    // legitimately cleared the pre-publish gate gets reverted the moment
+    // main advances during migration/upload, and the livelock just moves
+    // here. Unlike the pre-publish checks, these apply check 1 only: there
+    // is either no previous published deploy yet (first publish) or the
+    // published deploy IS this source (post-publish), so there is nothing
+    // to regress against.
+    for (const freshnessStep of [
+      betaFirstPublishFreshness,
+      betaPostFreshness,
+    ]) {
+      const script = String(freshnessStep?.with?.script ?? "");
+      assert.match(script, /compareCommits/);
+      assert.match(script, /\['ahead', 'identical'\]\.includes/);
+      assert.doesNotMatch(script, /sourceRef === mainSha/);
+      assert.match(script, /is no longer on main \(main is \$\{mainSha\}\)/);
+    }
+    assert.match(
+      String(betaFirstPublishFreshness?.with?.script),
+      /skipping\.`/,
+    );
+    assert.match(String(betaPostFreshness?.with?.script), /reverting\.`/);
+    assert.match(reusableSource, /Verify beta source is current after publish/);
+    assert.match(
+      reusableSource,
+      /always\(\) && inputs\.target == 'beta' && inputs\.deploy/,
+    );
+    assert.match(reusableSource, /steps\.deploy\.outputs\.deploy_id != ''/);
+    assert.match(
+      reusableSource,
+      /steps\.beta_post_freshness\.outputs\.current == 'false'/,
+    );
+    assert.match(reusableSource, /Revert stale beta deploy/);
+    assert.match(
+      reusableSource,
+      /sites\/\$\{siteId\}\/deploys\/\$\{previousId\}\/restore/,
+    );
+    assert.match(reusableSource, /deploys\/\$\{deployId\}\/cancel/);
+    assert.match(reusableSource, /cancellationRequested/);
+    assert.match(reusableSource, /PREVIOUS_DEPLOY_ID/);
+    assert.match(reusableSource, /const publishedDeployId/);
+    assert.match(
+      reusableSource,
+      /keeping the beta queue occupied until the stale deploy is non-publishable/,
+    );
+    assert.match(reusableSource, /Netlify beta freshness restore precondition/);
+    assert.match(reusableSource, /const restoredDeployId = restored\?\.id/);
+    assert.match(
+      reusableSource,
+      /current\.published_deploy\?\.id === restoredDeployId/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.previous\.outputs\.published_deploy_id != ''/,
+    );
+    assert.match(
+      reusableSource,
+      /Keep this job in the per-site concurrency group until Netlify/,
+    );
+    assert.match(reusableSource, /cancellationRejected/);
+    assert.match(reusableSource, /deletionRequested/);
+    assert.match(reusableSource, /method: "DELETE"/);
+    assert.match(
+      reusableSource,
+      /Netlify stale beta deploy \$\{deployId\} deletion/,
+    );
+    assert.doesNotMatch(
+      reusableSource,
+      /did not settle before the five-minute cleanup deadline/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_post_freshness\.outcome == 'failure'/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish_freshness\.outcome == 'failure'/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish_freshness\.outputs\.current == 'false'/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish_wait\.outcome == 'failure'/,
+    );
+    assert.match(reusableSource, /id: deploy_wait/);
+    assert.match(
+      reusableSource,
+      /Netlify beta deploy \$\{process\.env\.DEPLOY_ID\} was superseded by unrelated published deploy/,
+    );
+    assert.match(reusableSource, /steps\.deploy_wait\.outcome == 'failure'/);
+    assert.match(reusableSource, /TARGET: \$\{\{ inputs\.target \}\}/);
+    assert.match(reusableSource, /PUBLISH_STARTED_AT/);
+    assert.match(reusableSource, /DEPLOY_MESSAGE/);
+    assert.match(reusableSource, /first beta production deploy reconciliation/);
+    assert.match(reusableSource, /Could not parse Netlify CLI output/);
+    assert.match(reusableSource, /deploy\.commit_ref/);
+    assert.match(reusableSource, /Fail after beta freshness verification/);
+    assert.match(
+      reusableSource,
+      /inputs\.target == 'beta' \|\| \(inputs\.smoke && steps\.target\.outputs\.source_template != '@agent-native\/docs'\)/,
+    );
+    assert.match(reusableSource, /inputs\.caller/);
+    const betaResolveSource = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    const betaResolveStep = (
+      ((betaResolveSource.jobs as Workflow)["resolve-source"] as Workflow)
+        .steps as Array<Workflow>
+    ).find((step) => step.id === "source");
+    assert.equal(
+      ((betaResolveSource.jobs as Workflow).deploy as Workflow).with?.caller,
+      "${{ github.event_name == 'workflow_dispatch' && inputs.handoff && 'automatic' || github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}",
+    );
+    assert.match(
+      String(betaResolveStep?.with?.script),
+      /context\.eventName === 'push'/,
+    );
+    assert.match(
+      String(betaResolveStep?.with?.script),
+      /const comparison = await github\.rest\.repos\.compareCommits\(/,
+    );
+    assert.doesNotMatch(
+      String(betaResolveStep?.with?.script),
+      /sourceSha\.toLowerCase\(\) !== mainSha\.toLowerCase\(\)/,
+    );
+    assert.doesNotMatch(
+      String(betaResolveStep?.with?.script),
+      /Manual beta source_ref must equal current main/,
+    );
+    const betaResolveJob = (betaResolveSource.jobs as Workflow)[
+      "resolve-source"
+    ] as Workflow;
+    assert.deepEqual(betaResolveJob.permissions, { contents: "write" });
+    const betaMirrorStep = (betaResolveJob.steps as Array<Workflow>).find(
+      (step) => step.id === "mirror-beta",
+    );
+    assert(betaMirrorStep, "resolve-source must mirror main to beta");
+    assert.equal(betaMirrorStep["continue-on-error"], true);
+    assert.equal(
+      (betaResolveJob.steps as Array<Workflow>).some((step) =>
+        String(step.uses ?? "").startsWith("actions/checkout@"),
+      ),
+      false,
+      "resolve-source holds contents: write and must not check out code",
+    );
+    const betaMirrorScript = String(betaMirrorStep.with?.script);
+    assert.match(betaMirrorScript, /ref: 'heads\/beta'/);
+    assert.match(betaMirrorScript, /status === 'behind'/);
+    assert.match(betaMirrorScript, /force: status === 'diverged'/);
+    assert.match(betaMirrorScript, /updateRefs\(/);
+    assert.match(betaMirrorScript, /beforeOid: betaSha/);
+    const confirmCurrentSourceStep = (
+      (
+        (betaResolveSource.jobs as Workflow)[
+          "confirm-current-source"
+        ] as Workflow
+      ).steps as Array<Workflow>
+    ).find((step) => step.id === "source");
+    const confirmCurrentSourceScript = String(
+      confirmCurrentSourceStep?.with?.script,
+    );
+    assert.match(confirmCurrentSourceScript, /compareCommits/);
+    assert.match(
+      confirmCurrentSourceScript,
+      /\['ahead', 'identical'\]\.includes/,
+    );
+    assert.doesNotMatch(
+      confirmCurrentSourceScript,
+      /process\.env\.SOURCE_SHA\.toLowerCase\(\) === mainSha\.toLowerCase\(\)/,
+    );
+    assert.match(
+      reusableSource,
+      /Beta source_ref must be a full 40-character commit SHA/,
+    );
+    assert.match(
+      reusableSource,
+      /Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+    );
+    assert.match(
+      reusableSource,
+      /Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt\.yml\./,
+    );
+    assert.match(reusableSource, /process\.env\.CALLER\.trim\(\)/);
+    assert.match(reusableSource, /Netlify beta site has no published deploy/);
+    assert.match(
+      reusableSource,
+      /Uploading the first beta deploy as a draft until its source is revalidated\./,
+    );
+    assert.match(
+      reusableSource,
+      /Verify first beta deploy source immediately before publish/,
+    );
+    assert.match(
+      reusableSource,
+      /Publish first beta deploy after freshness verification/,
+    );
+    assert.match(reusableSource, /id: beta_first_publish/);
+    assert.match(reusableSource, /--prod/);
+    assert.match(
+      reusableSource,
+      /Wait for first beta production deploy to publish/,
+    );
+    assert.match(reusableSource, /id: beta_first_publish_wait/);
+    assert.match(reusableSource, /Netlify first beta production deploy status/);
+    assert.match(
+      reusableSource,
+      /did not become ready and published within 30 minutes/,
+    );
+    assert.match(reusableSource, /compare_status/);
+    assert.doesNotMatch(
+      reusableSource,
+      /"\$\{main_sha,,\}" != "\$\{SOURCE_REF,,\}"/,
+    );
+    assert.doesNotMatch(
+      reusableSource.slice(
+        reusableSource.indexOf(
+          "name: Publish first beta deploy after freshness verification",
+        ),
+        reusableSource.indexOf(
+          "name: Verify beta source is current after publish",
+        ),
+      ),
+      /\/restore/,
+    );
+    assert.match(reusableSource, /id: beta_first_publish_reconcile/);
+    assert.match(
+      reusableSource,
+      /steps\.beta_first_publish\.outputs\.deploy_id \|\| steps\.beta_first_publish_reconcile\.outputs\.deploy_id/,
+    );
+    assert.match(reusableSource, /Recovered first beta production deploy/);
+    assert.match(reusableSource, /Netlify published unrelated deploy/);
+    assert.doesNotMatch(
+      reusableSource,
+      /DEPLOY_ID: \$\{\{ steps\.beta_first_publish\.outputs\.deploy_id \|\| steps\.deploy\.outputs\.deploy_id \}\}/,
+    );
+    assert.match(reusableSource, /Delete staged first beta draft/);
+    assert.match(reusableSource, /id: beta_draft_cleanup/);
+    assert.match(reusableSource, /DRAFT_DEPLOY_ID/);
+    assert.match(
+      reusableSource,
+      /Netlify staged beta draft \$\{draftId\} deletion/,
+    );
+    assert.match(
+      reusableSource,
+      /Refusing to delete staged beta draft \$\{draftId\} because Netlify published it\./,
+    );
+    assert.match(reusableSource, /cancellationDeadline/);
+    assert.match(
+      reusableSource,
+      /staged beta draft \$\{draftId\} cancellation status/,
+    );
+    assert.match(
+      reusableSource,
+      /Canceled and deleted staged beta draft \$\{draftId\}\./,
+    );
+    assert.match(reusableSource, /did not become terminal after cancellation/);
+    assert.match(
+      reusableSource,
+      /DEPLOY_URL: \$\{\{ steps\.beta_first_publish\.outputs\.deploy_url \|\| steps\.beta_first_publish_reconcile\.outputs\.deploy_url \|\| \(steps\.previous\.outputs\.published_deploy_id != '' && steps\.deploy\.outputs\.deploy_url\) \}\}/,
+    );
+    assert.match(
+      reusableSource,
+      /First publishes are staged as drafts and only published after a current-main check/,
+    );
+    assert.doesNotMatch(reusableSource, /requested \|\| 'beta'/);
+    assert.match(
+      reusableSource,
+      /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,
+    );
+    assert.match(reusableSource, /netlify api getEnvVars/);
+    assert.match(reusableSource, /account_id.*builder-io/);
+    assert.match(
+      reusableSource,
+      /BUILD_CONTEXT="\$BUILD_CONTEXT" node --experimental-strip-types scripts\/netlify-migration-url\.ts/,
+    );
+  });
+
+  it("publishes every beta site when the published-source lookup fails", async () => {
+    const beta = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    const discover = (beta.jobs as Workflow)["discover-sites"] as Workflow;
+    const script = String(
+      (
+        (discover.steps as Array<Workflow>).find((step) => step.id === "bases")
+          ?.with as Workflow
+      )?.script,
+    );
+    const runnerTemp = mkdtempSync(join(tmpdir(), "beta-site-bases-"));
+    const run = async (
+      getContent: () => Promise<unknown>,
+      fetchSite: (url: string) => Promise<unknown>,
+    ) => {
+      const warnings: string[] = [];
+      const outputs: Record<string, string> = {};
+      await new Function(
+        "require",
+        "github",
+        "context",
+        "core",
+        "process",
+        "fetch",
+        `return (async () => {\n${script}\n})();`,
+      )(
+        (id: string) =>
+          id === "node:fs"
+            ? { writeFileSync }
+            : { join: (...parts: string[]) => join(...parts) },
+        { rest: { repos: { getContent } } },
+        { repo: { owner: "BuilderIO", repo: "agent-native" } },
+        {
+          warning: (message: string) => warnings.push(message),
+          setOutput: (name: string, value: string) => {
+            outputs[name] = value;
+          },
+        },
+        {
+          env: {
+            NETLIFY_AUTH_TOKEN: "fake-token",
+            SOURCE_SHA: "a".repeat(40),
+            RUNNER_TEMP: runnerTemp,
+          },
+        },
+        fetchSite,
+      );
+      return { warnings, outputs };
+    };
+    const encoded = (value: string) => ({
+      data: { content: Buffer.from(value).toString("base64") },
+    });
+    try {
+      for (const getContent of [
+        async () => {
+          throw new Error("HTTP 502");
+        },
+        async () => encoded("not json"),
+        async () => encoded('{"id":"docs"}'),
+      ]) {
+        const { warnings, outputs } = await run(getContent, async () => {
+          throw new Error("unexpected Netlify lookup");
+        });
+        assert.equal(outputs.bases_file, undefined);
+        assert.equal(warnings.length, 1);
+        assert.match(warnings[0], /publishing every beta site/);
+      }
+
+      const { warnings, outputs } = await run(
+        async () =>
+          encoded(
+            JSON.stringify([
+              { id: "docs", siteId: "docs-site" },
+              { id: "mail", siteId: "mail-site" },
+            ]),
+          ),
+        async (url: string) => {
+          if (url.endsWith("/mail-site")) throw new Error("timeout");
+          return {
+            ok: true,
+            json: async () => ({
+              published_deploy: { title: `beta ${"B".repeat(40)}` },
+            }),
+          };
+        },
+      );
+      assert.equal(warnings.length, 1);
+      assert.match(warnings[0], /beta mail: timeout/);
+      assert.deepEqual(JSON.parse(readFileSync(outputs.bases_file, "utf8")), {
+        docs: "b".repeat(40),
+        mail: null,
+      });
+    } finally {
+      rmSync(runnerTemp, { recursive: true, force: true });
+    }
+  });
+
+  it("requeues the latest beta source after every production operation", () => {
+    const cases = [
+      [
+        readWorkflow(".github/workflows/deploy-production-sites-prebuilt.yml"),
+        "deploy",
+      ],
+      [readWorkflow(".github/workflows/manage-production-sites.yml"), "manage"],
+      [readWorkflow(".github/workflows/promote-netlify-deploy.yml"), "promote"],
+      [
+        readWorkflow(".github/workflows/deploy-docs-production.yml"),
+        "restore-netlify-builds",
+      ],
+    ] as const;
+
+    for (const [workflow, needs] of cases) {
+      const handoff = (workflow.jobs as Workflow)["handoff-beta"] as Workflow;
+      assert.equal(handoff.needs, needs);
+      assert.match(String(handoff.if), /!cancelled\(\)/);
+      assert.match(
+        String(handoff.if),
+        new RegExp(`needs\\.${needs}\\.result == 'success'`),
+      );
+      assert.deepEqual(handoff.permissions, {
+        actions: "write",
+        contents: "read",
+      });
+      const script = String(
+        (
+          (handoff.steps as Array<Workflow>).find(
+            (step) => step.uses,
+          ) as Workflow
+        ).with?.script,
+      );
+      assert.match(script, /createWorkflowDispatch/);
+      assert.match(script, /deploy-beta-sites-prebuilt\.yml/);
+      assert.match(script, /source_ref/);
+      assert.match(script, /handoff/);
+    }
+  });
+
+  it("resolves migration URLs by context, then preserves key priority", () => {
+    const variables = [
+      {
+        key: "DATABASE_URL",
+        values: [
+          { context: "production", value: "postgresql://test.invalid/pooled" },
+        ],
+      },
+      {
+        key: "NETLIFY_DATABASE_URL_UNPOOLED",
+        values: [
+          { context: "unexpected", value: "postgresql://test.invalid/unknown" },
+          { context: "all", value: "postgresql://test.invalid/unpooled" },
+        ],
+      },
+    ];
+
+    assert.equal(
+      resolveNetlifyMigrationUrl(variables, "production"),
+      "postgresql://test.invalid/unpooled",
+    );
+    assert.equal(
+      resolveNetlifyMigrationUrl(
+        [
+          {
+            key: "NETLIFY_DATABASE_URL_UNPOOLED",
+            values: [{ context: "production", value: "not-a-database-url" }],
+          },
+          ...variables,
+        ],
+        "production",
+      ),
+      "postgresql://test.invalid/pooled",
+    );
+    assert.equal(
+      resolveNetlifyMigrationUrl(
+        {
+          connection_string: "postgresql://test.invalid/netlify-db",
+          connection_strings: {
+            netlifydb_readonly: "postgresql://test.invalid/readonly",
+          },
+        },
+        "production",
+      ),
+      "postgresql://test.invalid/netlify-db",
+    );
+  });
+
+  it("rejects the dead workflow_call event check", () => {
+    const mutated = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const concurrency = mutated.concurrency as Record<string, unknown>;
+    concurrency.group = String(concurrency.group).replaceAll(
+      "inputs.caller",
+      "github.event_name",
+    );
+
+    assert.notDeepEqual(validateReusableWorkflowConcurrency(mutated), []);
+  });
+
+  it("executes every reusable workflow heredoc under the pinned Node loader", () => {
+    assert.equal(nodeHeredocs.length, 19);
+    assert.equal(
+      (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
+        .length,
+      19,
+    );
+    const directory = mkdtempSync(
+      join(tmpdir(), "agent-native-netlify-heredocs-"),
+    );
+    try {
+      for (const [index, body] of nodeHeredocs.entries()) {
+        const scriptPath = join(directory, `heredoc-${index}.js`);
+        writeFileSync(scriptPath, `process.exit(0);\n${body}\n`);
+        assert.doesNotThrow(
+          () =>
+            execFileSync(process.execPath, [scriptPath], {
+              cwd: directory,
+              stdio: "pipe",
+            }),
+          `heredoc ${index + 1} must parse and execute under Node`,
+        );
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("places beta and production Functions near the database before upload and verifies the deployed region", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const steps = (
+      (workflow.jobs as Record<string, Workflow>).deploy
+        .steps as Array<Workflow>
+    ).filter(Boolean);
+    const placeIndex = steps.findIndex(
+      (step) => step.name === "Place Functions near the database",
+    );
+    const uploadIndex = steps.findIndex(
+      (step) => step.name === "Upload the prebuilt deploy",
+    );
+    const waitIndex = steps.findIndex(
+      (step) => step.name === "Wait for the Netlify deploy to publish",
+    );
+    const verifyIndex = steps.findIndex(
+      (step) => step.name === "Verify Functions deployed near the database",
+    );
+    assert(placeIndex >= 0 && placeIndex < uploadIndex);
+    assert(waitIndex >= 0 && waitIndex < verifyIndex);
+
+    const place = steps[placeIndex];
+    const placeIf = String(place?.if);
+    assert.match(placeIf, /inputs\.deploy/);
+    assert.match(placeIf, /source_template != '@agent-native\/docs'/);
+    assert.match(placeIf, /target == 'beta'/);
+    assert.match(placeIf, /target == 'production'/);
+    assert.match(placeIf, /beta_freshness\.outputs\.current/);
+    assert.doesNotMatch(placeIf, /source_template == 'content'/);
+
+    const placeEnv = JSON.stringify(place?.env ?? {});
+    assert.match(
+      placeEnv,
+      /NETLIFY_PREVIEW_DATABASE_URL_\{0\}.*source_template/,
+    );
+
+    const placeRun = String(place?.run);
+    assert.match(placeRun, /parseNeonDatabaseRegion/);
+    assert.match(placeRun, /site\.account_slug !== "builder-io"/);
+    assert.doesNotMatch(placeRun, /site\.name !== expectedName/);
+    assert.match(placeRun, /siteRequest\("PATCH"/);
+    assert.match(placeRun, /verified\.functions_region !== region/);
+    assert.match(placeRun, /region=\\n/);
+    assert.match(placeRun, /region=\$\{region\}/);
+    // The database URL must never reach a log line; only the derived region
+    // (a short AWS region code) is safe to print.
+    for (const line of placeRun.split("\n")) {
+      if (
+        /console\.(log|error|warn)|::notice::|::warning::|::error::/.test(line)
+      ) {
+        assert.doesNotMatch(line, /DATABASE_URL_SECRET|databaseUrl/);
+      }
+    }
+    assert.doesNotMatch(placeRun, /echo.*DATABASE_URL_SECRET/);
+
+    const verifyIf = String(steps[verifyIndex]?.if);
+    assert.match(verifyIf, /inputs\.deploy/);
+    assert.match(verifyIf, /functions_region\.outputs\.region != ''/);
+    assert.match(verifyIf, /deploy\.outputs\.deploy_id != ''/);
+
+    const verifyRun = String(steps[verifyIndex]?.run);
+    assert.match(verifyRun, /deploy\.available_functions/);
+    assert.match(verifyRun, /=== "server"/);
+    assert.match(verifyRun, /endsWith\("-background"\)/);
+    assert.doesNotMatch(verifyRun, /"server-agent-background"/);
+  });
+
+  it("purges the published cache after smoke and before relocking the deploy", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const smokeIndex = steps.findIndex(
+      (step) => step.name === "Smoke-test the uploaded deploy",
+    );
+    const purgeIndex = steps.findIndex(
+      (step) => step.name === "Purge the published Netlify cache",
+    );
+    const lockIndex = steps.findIndex(
+      (step) => step.name === "Lock the published production deploy",
+    );
+    assert(
+      smokeIndex >= 0 && smokeIndex < purgeIndex && purgeIndex < lockIndex,
+    );
+
+    const purge = steps[purgeIndex];
+    assert.match(String(purge.if), /inputs.target == 'production'/);
+    assert.match(String(purge.if), /inputs.target == 'beta'/);
+    assert.match(String(purge.if), /inputs.deploy_mode == 'production'/);
+    assert.match(String(purge.if), /success\(\)/);
+    assert.match(
+      String(purge.run),
+      /const api = "https:\/\/api\.netlify\.com\/api\/v1"/,
+    );
+    assert.match(String(purge.run), /requestNetlifyApi\(`\$\{api\}\/purge`/);
+    assert.match(String(purge.run), /method: "POST"/);
+    assert.match(
+      String(purge.run),
+      /JSON\.stringify\(\{ site_id: process\.env\.NETLIFY_SITE_ID \}\)/,
+    );
+    assert.match(String(purge.run), /if \(!response\.ok\)/);
+  });
+
+  it("keeps Clips prebuilt assembly independent of masked runtime secrets", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const clipsNetlify = readFileSync("templates/clips/netlify.toml", "utf8");
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+    assert.match(
+      build,
+      /\[\[ \"\$SOURCE_TEMPLATE\" == \"clips\" \|\| \"\$SOURCE_TEMPLATE\" == \"plan\" \]\]/,
+    );
+    assert.match(build, /\[\[ \"\$SOURCE_TEMPLATE\" == \"crm\" \]\]/);
+    assert.match(build, /agentNativePrebuiltBuild=true/);
+    assert.match(build, /agentNativePrebuiltDatabaseUrl=/);
+    assert.match(build, /agentNativePrebuiltAuthSecret=/);
+    assert.match(clipsNetlify, /agentNativePrebuiltDatabaseUrl/);
+    assert.match(clipsNetlify, /agentNativePrebuiltAuthSecret/);
+    assert.match(
+      clipsNetlify,
+      /agentNativePrebuiltBuild:-\}.*migrate:production/,
+    );
+  });
+
+  it("keeps Analytics migrations on its app-scoped database URL", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const analyticsNetlify = readFileSync(
+      "templates/analytics/netlify.toml",
+      "utf8",
+    );
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+
+    assert.match(
+      workflow,
+      /ANALYTICS_DATABASE_URL_SECRET: \$\{\{ inputs\.target == 'production' && steps\.target\.outputs\.source_template == 'analytics' && secrets\.ANALYTICS_DATABASE_URL \|\| '' \}\}/,
+    );
+    assert.match(build, /export ANALYTICS_DATABASE_URL_SECRET/);
+    assert.match(analyticsNetlify, /ANALYTICS_DATABASE_URL_SECRET/);
+    assert.match(
+      analyticsNetlify,
+      /unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED/,
+    );
+    assert.doesNotMatch(analyticsNetlify, /NETLIFY_DATABASE_URL:-/);
+
+    const rebind = analyticsNetlify.indexOf(
+      'export ANALYTICS_DATABASE_URL=\\"$ANALYTICS_DATABASE_URL_SECRET\\"',
+    );
+    const clearMaskedUrls = analyticsNetlify.indexOf(
+      "unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED",
+    );
+    const exportDatabaseUrl = analyticsNetlify.indexOf(
+      'export DATABASE_URL=\\"${ANALYTICS_DATABASE_URL:-$DATABASE_URL}\\"',
+    );
+    assert.ok(rebind >= 0 && rebind < clearMaskedUrls);
+    assert.ok(clearMaskedUrls < exportDatabaseUrl);
+
+    const rebindScript = [
+      'if [ -n "${ANALYTICS_DATABASE_URL_SECRET:-}" ]; then export ANALYTICS_DATABASE_URL="$ANALYTICS_DATABASE_URL_SECRET"; fi',
+      "unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED",
+      'export DATABASE_URL="${ANALYTICS_DATABASE_URL:-$DATABASE_URL}"',
+      'printf "%s\\n%s\\n" "$ANALYTICS_DATABASE_URL" "$DATABASE_URL"',
+    ].join("\n");
+    const runRebind = (env: NodeJS.ProcessEnv): string[] =>
+      execFileSync("bash", ["-c", rebindScript], {
+        env,
+        encoding: "utf8",
+      })
+        .trim()
+        .split("\n");
+
+    assert.deepEqual(
+      runRebind({
+        ANALYTICS_DATABASE_URL_SECRET: "",
+        ANALYTICS_DATABASE_URL: "postgres://beta.example/analytics",
+        DATABASE_URL: "postgres://beta.example/analytics",
+        NETLIFY_DATABASE_URL: "masked",
+        NETLIFY_DATABASE_URL_UNPOOLED: "masked",
+        DATABASE_URL_UNPOOLED: "masked",
+      }),
+      [
+        "postgres://beta.example/analytics",
+        "postgres://beta.example/analytics",
+      ],
+    );
+    assert.deepEqual(
+      runRebind({
+        ANALYTICS_DATABASE_URL_SECRET:
+          "postgres://production.example/analytics",
+        ANALYTICS_DATABASE_URL: "masked",
+        DATABASE_URL: "postgres://crm.example/database",
+        NETLIFY_DATABASE_URL: "masked",
+        NETLIFY_DATABASE_URL_UNPOOLED: "masked",
+        DATABASE_URL_UNPOOLED: "masked",
+      }),
+      [
+        "postgres://production.example/analytics",
+        "postgres://production.example/analytics",
+      ],
+    );
+  });
+
+  it("runs Plan migrations after masked prebuilt assembly", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const planNetlify = readFileSync("templates/plan/netlify.toml", "utf8");
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const migrationStart = workflow.indexOf(
+      "name: Run Plan release migrations",
+    );
+    const verifyStart = workflow.indexOf("name: Verify deploy directories");
+    const uploadStart = workflow.indexOf("name: Upload the prebuilt deploy");
+
+    assert.ok(buildStart >= 0);
+    assert.ok(migrationStart > buildStart && migrationStart < verifyStart);
+    assert.ok(uploadStart > migrationStart);
+    assert.match(
+      workflow,
+      /if: >-\s+inputs\.deploy && inputs\.deploy_mode == 'production'/,
+    );
+    assert.match(workflow, /SOURCE_TEMPLATE.*clips.*plan/s);
+    assert.match(workflow, /SOURCE_TEMPLATE.*crm/s);
+    assert.match(workflow, /agentNativePrebuiltDatabaseUrl=/);
+    assert.match(
+      workflow,
+      /DATABASE_URL: \$\{\{ secrets\.PLAN_DATABASE_URL \}\}/,
+    );
+    assert.match(planNetlify, /agentNativePrebuiltDatabaseUrl/);
+    assert.match(
+      planNetlify,
+      /export DATABASE_URL=\$\{NETLIFY_DATABASE_URL:-\$DATABASE_URL\}.*&& unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED/,
+    );
+    assert.match(
+      planNetlify,
+      /agentNativePrebuiltBuild:-\}.*migrate:production/,
+    );
+
+    const clearMaskedUrls = planNetlify.indexOf(
+      "unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED",
+    );
+    const normalDatabaseUrl = planNetlify.indexOf(
+      "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}",
+    );
+    assert.ok(normalDatabaseUrl >= 0 && normalDatabaseUrl < clearMaskedUrls);
+
+    const planDatabaseScript = [
+      'if [ "${agentNativePrebuiltBuild:-}" = "true" ]; then export DATABASE_URL="${agentNativePrebuiltDatabaseUrl:?}" BETTER_AUTH_SECRET="${agentNativePrebuiltAuthSecret:?}"; else export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}; fi',
+      "unset NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED DATABASE_URL_UNPOOLED",
+      'printf "%s\\n" "$DATABASE_URL"',
+    ].join("\n");
+    const runPlanDatabaseSelection = (env: NodeJS.ProcessEnv): string =>
+      execFileSync("bash", ["-c", planDatabaseScript], {
+        env,
+        encoding: "utf8",
+      }).trim();
+
+    assert.equal(
+      runPlanDatabaseSelection({
+        agentNativePrebuiltBuild: "true",
+        agentNativePrebuiltDatabaseUrl: "postgres://build.example/plan",
+        agentNativePrebuiltAuthSecret: "fake",
+        DATABASE_URL: "masked",
+        NETLIFY_DATABASE_URL: "masked",
+        NETLIFY_DATABASE_URL_UNPOOLED: "masked",
+        DATABASE_URL_UNPOOLED: "masked",
+      }),
+      "postgres://build.example/plan",
+    );
+    assert.equal(
+      runPlanDatabaseSelection({
+        agentNativePrebuiltBuild: "",
+        DATABASE_URL: "postgres://fallback.example/plan",
+        NETLIFY_DATABASE_URL: "postgres://beta.example/plan",
+        NETLIFY_DATABASE_URL_UNPOOLED: "masked",
+        DATABASE_URL_UNPOOLED: "masked",
+      }),
+      "postgres://beta.example/plan",
+    );
+  });
+
+  it("runs Clips migrations against the production database", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const migrationStart = workflow.indexOf(
+      "name: Run Clips release migrations",
+    );
+    const verifyStart = workflow.indexOf("name: Verify deploy directories");
+    assert.ok(migrationStart >= 0 && migrationStart < verifyStart);
+    const migration = workflow.slice(migrationStart, verifyStart);
+    assert.match(migration, /inputs\.target == 'production'/);
+    assert.match(migration, /inputs\.deploy_mode == 'production'/);
+    assert.match(migration, /source_template == 'clips'/);
+    assert.match(migration, /CLIPS_DATABASE_URL/);
+    assert.match(migration, /pnpm --filter clips migrate:production/);
+  });
+
+  it("runs CRM migrations against the Netlify-managed database", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const migrationStart = workflow.indexOf("name: Run CRM release migrations");
+    const pauseStart = workflow.indexOf(
+      "name: Pause automatic Netlify builds for production cutover",
+    );
+    const unlockStart = workflow.indexOf(
+      "name: Unlock the published production deploy",
+    );
+    assert.ok(migrationStart > pauseStart && migrationStart < unlockStart);
+    const migration = workflow.slice(migrationStart, unlockStart);
+    assert.match(migration, /inputs\.target == 'production'/);
+    assert.match(migration, /inputs\.deploy_mode == 'production'/);
+    assert.match(migration, /source_template == 'crm'/);
+    assert.match(migration, /getSiteDatabase/);
+    assert.match(migration, /role.*netlifydb_owner/);
+    assert.match(migration, /netlify-migration-url\.ts/);
+    assert.match(migration, /pnpm --filter crm migrate:production/);
+  });
+
+  it("falls back to scoped Netlify environment variables for Mail migrations", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const migrationStart = workflow.indexOf(
+      "name: Run Mail release migrations",
+    );
+    const nextStep = workflow.indexOf(
+      "name: Unlock the published production deploy",
+      migrationStart,
+    );
+    assert.ok(migrationStart >= 0 && nextStep > migrationStart);
+    const migration = workflow.slice(migrationStart, nextStep);
+    assert.match(migration, /netlify api getSiteDatabase/);
+    assert.match(migration, /netlify api getEnvVars/);
+    assert.match(migration, /account_id.*builder-io/);
+    assert.match(migration, /site_id.*NETLIFY_SITE_ID/);
+    assert.match(migration, /if \[\[ -z "\$migration_database_url" \]\]/);
+    assert.match(migration, /pnpm --filter mail migrate:production/);
+  });
+
+  it("runs Chat release migrations on the production prebuilt path", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const migrationStart = workflow.indexOf(
+      "name: Run Chat release migrations",
+    );
+    const pauseStart = workflow.indexOf(
+      "name: Pause automatic Netlify builds for production cutover",
+    );
+    const unlockStart = workflow.indexOf(
+      "name: Unlock the published production deploy",
+    );
+    assert.ok(migrationStart > pauseStart && migrationStart < unlockStart);
+    const migration = workflow.slice(migrationStart, unlockStart);
+    assert.match(migration, /inputs\.target == 'production'/);
+    assert.match(migration, /inputs\.deploy/);
+    assert.match(migration, /inputs\.deploy_mode == 'production'/);
+    assert.match(migration, /source_template == 'chat'/);
+    assert.match(migration, /netlify api getSiteDatabase/);
+    assert.match(migration, /netlify api getEnvVars/);
+    assert.match(migration, /role.*netlifydb_owner/);
+    assert.match(migration, /netlify-migration-url\.ts/);
+    assert.match(migration, /pnpm --filter chat migrate:production/);
+  });
+
+  it("keeps Chat assembly independent of masked runtime secrets", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const chatNetlify = readFileSync("templates/chat/netlify.toml", "utf8");
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+
+    assert.match(
+      build,
+      /if \[\[ \( \"\$TARGET\" == \"beta\" \|\| \"\$TARGET\" == \"production\" \|\| \"\$TARGET\" == \"preview\" \) && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
+    );
+    assert.match(chatNetlify, /agentNativePrebuiltDatabaseUrl/);
+    assert.match(chatNetlify, /agentNativePrebuiltAuthSecret/);
+    assert.match(
+      chatNetlify,
+      /agentNativePrebuiltBuild:-\}.*!= \\\"true\\\".*migrate:production/,
+    );
+  });
+
+  it("only verifies static cache artifacts for prerendered prebuilt targets", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const artifact = steps.find(
+      (step) => step.name === "Verify static SSR cache artifact",
+    );
+
+    assert(artifact);
+    assert.equal(
+      artifact.if,
+      "inputs.migration_only != true && inputs.artifact_download != true && (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')",
+    );
+    assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
+  });
+
+  it("checks the built docs cold-start budget before publishing", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const index = steps.findIndex(
+      (step) => step.name === "Verify docs cold-start budget",
+    );
+    assert(index >= 0);
+    assert.equal(
+      steps[index].if,
+      "inputs.migration_only != true && inputs.artifact_download != true && steps.target.outputs.source_template == '@agent-native/docs'",
+    );
+    assert.match(
+      String(steps[index].run),
+      /NODE_ENV=production NETLIFY=true timeout 180 node scripts\/ssr-boot-smoke\.mjs packages\/docs/,
+    );
+    assert(index < steps.findIndex((step) => step.id === "deploy"));
+  });
+
+  it("guards stale queued and dispatched docs deploys", async () => {
+    const docsWorkflow = readWorkflow(
+      ".github/workflows/deploy-docs-production.yml",
+    );
+    const jobs = docsWorkflow.jobs as Record<string, Workflow>;
+    const freshnessJob = jobs["docs-source-freshness"];
+    assert(freshnessJob);
+    const freshnessSteps = (freshnessJob.steps as Array<Workflow>).filter(
+      Boolean,
+    );
+    const freshness = freshnessSteps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current before production side effects",
+    );
+    const needsSourceFreshness = (jobName: string) => {
+      const job = jobs[jobName];
+      assert(job);
+      assert((job.needs as string[]).includes("docs-source-freshness"));
+      assert.match(
+        String(job.if),
+        /needs\.docs-source-freshness\.result == 'success'/,
+      );
+      assert.match(
+        String(job.if),
+        /needs\.docs-source-freshness\.outputs\.current == 'true'/,
+      );
+    };
+    needsSourceFreshness("pause-netlify-builds");
+    needsSourceFreshness("migrate");
+    needsSourceFreshness("deploy");
+
+    assert(freshness);
+    const initialFreshnessScript = String((freshness.with as Workflow).script);
+    const runInitialFreshness = async (files: unknown[]) => {
+      const failures: string[] = [];
+      const outputs: Record<string, string> = {};
+      const context = {
+        repo: { owner: "BuilderIO", repo: "agent-native" },
+        eventName: "workflow_dispatch",
+      };
+      const github = {
+        rest: {
+          git: {
+            getRef: async () => ({
+              data: { object: { sha: "a".repeat(40) } },
+            }),
+          },
+          repos: {
+            compareCommits: async () => ({
+              data: {
+                status: "ahead",
+                total_commits: 0,
+                commits: [],
+                files,
+              },
+            }),
+          },
+        },
+      };
+      const core = {
+        setFailed: (message: string) => failures.push(message),
+        setOutput: (name: string, value: string) => {
+          outputs[name] = value;
+        },
+        notice: () => undefined,
+      };
+      await runInNewContext(`(async () => {\n${initialFreshnessScript}\n})()`, {
+        context,
+        github,
+        core,
+        process: {
+          env: {
+            SOURCE_REF: "b".repeat(40),
+            FAIL_ON_STALE: "false",
+          },
+        },
+      });
+      return { failures, outputs };
+    };
+
+    for (const files of [
+      [{ filename: undefined }],
+      [{ filename: "packages/core/file.ts", previous_filename: null }],
+    ]) {
+      const result = await runInitialFreshness(files);
+      assert.match(result.failures[0] ?? "", /Cannot verify all newer docs/);
+      assert.equal(result.outputs.current, "false");
+    }
+
+    const pauseJob = jobs["pause-netlify-builds"]!;
+    const pauseJobSteps = (pauseJob.steps as Array<Workflow>).filter(Boolean);
+    const postQueueFreshness = pauseJobSteps.find(
+      (step) => step.id === "docs_post_queue_freshness",
+    );
+    const postQueueActionCheckout = pauseJobSteps.find(
+      (step) =>
+        (step.with as Workflow | undefined)?.path === ".docs-freshness-action",
+    );
+    const pauseMutation = pauseJobSteps.find((step) => step.id === "pause");
+    assert(postQueueFreshness);
+    assert(postQueueActionCheckout);
+    assert(pauseMutation);
+    assert.equal(
+      (pauseJob.outputs as Workflow).freshness_current,
+      "${{ steps.docs_post_queue_freshness.outputs.current }}",
+    );
+    assert.equal(
+      pauseJobSteps.indexOf(postQueueFreshness),
+      pauseJobSteps.indexOf(pauseMutation) - 1,
+    );
+    assert.equal(
+      postQueueFreshness.uses,
+      "./.docs-freshness-action/.github/actions/docs-source-freshness",
+    );
+    assert.equal((postQueueActionCheckout.with as Workflow).ref, "main");
+    assert.match(
+      String(pauseMutation.if),
+      /steps\.docs_post_queue_freshness\.outputs\.current == 'true'/,
+    );
+    for (const jobName of ["migrate", "deploy"]) {
+      assert.match(
+        String(jobs[jobName]!.if),
+        /needs\.pause-netlify-builds\.outputs\.freshness_current == 'true'/,
+      );
+    }
+
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const reusableSource = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const reusableJobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (reusableJobs.deploy.steps as Array<Workflow>).filter(
+      Boolean,
+    );
+    const reusableActionCheckout = steps.find(
+      (step) =>
+        (step.with as Workflow | undefined)?.path === ".docs-freshness-action",
+    );
+    const pause = steps.find(
+      (step) =>
+        step.name === "Pause automatic Netlify builds for production cutover",
+    );
+    const unlock = steps.find(
+      (step) => step.name === "Unlock the published production deploy",
+    );
+    const prePauseFreshness = steps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current immediately before Netlify pause",
+    );
+    const preUnlockFreshness = steps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current immediately before Netlify unlock",
+    );
+    const upload = steps.find(
+      (step) => step.name === "Upload the prebuilt deploy",
+    );
+    const preUploadFreshness = steps.find(
+      (step) =>
+        step.name === "Verify docs source is current immediately before upload",
+    );
+
+    assert(freshness);
+    assert(reusableActionCheckout);
+    assert(prePauseFreshness);
+    assert(pause);
+    assert(preUnlockFreshness);
+    assert(unlock);
+    assert(upload);
+    assert(preUploadFreshness);
+    assert.equal(preUploadFreshness.id, "docs_freshness");
+    assert.equal(steps.indexOf(preUploadFreshness), steps.indexOf(upload) - 1);
+    assert.equal(steps.indexOf(prePauseFreshness), steps.indexOf(pause) - 1);
+    assert.equal(steps.indexOf(preUnlockFreshness), steps.indexOf(unlock) - 1);
+    assert.equal(
+      prePauseFreshness.uses,
+      "./.docs-freshness-action/.github/actions/docs-source-freshness",
+    );
+    assert.equal((reusableActionCheckout.with as Workflow).ref, "main");
+    assert.equal(
+      preUnlockFreshness.uses,
+      "./.docs-freshness-action/.github/actions/docs-source-freshness",
+    );
+    assert.match(
+      String(pause.if),
+      /steps\.docs_pre_pause_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(unlock.if),
+      /steps\.docs_pre_unlock_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(String(unlock.if), /inputs\.target != 'production' \|\|/);
+    assert.match(
+      String(preUploadFreshness.if),
+      /inputs\.target == 'production'[\s\S]*steps\.target\.outputs\.source_template == '@agent-native\/docs'[\s\S]*inputs\.deploy/,
+    );
+    assert.doesNotMatch(
+      String(preUploadFreshness.if),
+      /inputs\.caller == 'docs'/,
+    );
+    assert.match(
+      String(preUploadFreshness.if),
+      /inputs\.migration_only != true/,
+    );
+    assert.match(
+      String(upload.if),
+      /steps\.docs_freshness\.outcome == 'success'/,
+    );
+    assert.match(
+      String(upload.if),
+      /steps\.docs_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(upload.if),
+      /steps\.target\.outputs\.source_template != '@agent-native\/docs'/,
+    );
+    assert.equal(freshness.id, "freshness");
+    assert.doesNotMatch(
+      reusableSource,
+      /docs_source_freshness|DOCS_DEPLOY_PATHS/,
+    );
+
+    const installMigrationDependencies = steps.find(
+      (step) =>
+        step.name === "Install workspace dependencies before release migration",
+    );
+    const preMigrationFreshness = steps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current immediately before migration",
+    );
+    const releaseMigration = steps.find(
+      (step) =>
+        step.name === "Run the release migration from the Netlify environment",
+    );
+    const netlifyBuild = steps.find(
+      (step) => step.name === "Build with the Netlify project configuration",
+    );
+    assert(installMigrationDependencies);
+    assert(preMigrationFreshness);
+    assert(releaseMigration);
+    assert(netlifyBuild);
+    assert.equal(preMigrationFreshness.id, "docs_pre_migration_freshness");
+    assert.equal(
+      steps.indexOf(preMigrationFreshness),
+      steps.indexOf(releaseMigration) - 1,
+    );
+    assert.equal(
+      steps.indexOf(installMigrationDependencies),
+      steps.indexOf(preMigrationFreshness) - 1,
+    );
+    assert.match(
+      String(installMigrationDependencies.run),
+      /pnpm install --frozen-lockfile/,
+    );
+    assert.doesNotMatch(String(releaseMigration.run), /pnpm install/);
+    assert.match(
+      String(preMigrationFreshness.if),
+      /inputs\.target == 'production'[\s\S]*inputs\.migration_only \|\|[\s\S]*inputs\.deploy && inputs\.deploy_mode == 'production' &&\s*inputs\.caller != 'docs'/,
+    );
+    assert.match(
+      String(releaseMigration.if),
+      /steps\.docs_pre_migration_freshness\.outcome == 'success'/,
+    );
+    assert.match(
+      String(releaseMigration.if),
+      /steps\.docs_pre_migration_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(releaseMigration.if),
+      /inputs\.deploy && inputs\.deploy_mode == 'production' &&\s*inputs\.caller != 'docs'/,
+    );
+    assert(
+      steps.indexOf(releaseMigration) < steps.indexOf(netlifyBuild),
+      "docs production migration must run before the Netlify build",
+    );
+    const netlifyBuildEnv = netlifyBuild.env as Workflow;
+    assert.match(
+      String(netlifyBuildEnv.SKIP_BUILD_MIGRATIONS),
+      /inputs\.target == 'production'[\s\S]*source_template == 'mail'[\s\S]*source_template == '@agent-native\/docs'/,
+    );
+    assert.match(
+      String(netlifyBuild.run),
+      /SKIP_BUILD_MIGRATIONS.*SOURCE_TEMPLATE.*@agent-native\/docs[\s\S]*AGENT_NATIVE_PREBUILT_SKIP_RELEASE_MIGRATIONS=1/,
+    );
+    const migrationFreshnessScript = String(
+      (preMigrationFreshness.with as Workflow).script,
+    );
+    assert.match(
+      migrationFreshnessScript,
+      /github\.rest\.repos\.compareCommits/,
+    );
+    assert.match(migrationFreshnessScript, /!files\.every\(/);
+    assert.match(migrationFreshnessScript, /file\?\.filename === "string"/);
+    assert.match(migrationFreshnessScript, /files\.some\(\(file\)/);
+
+    const on = docsWorkflow.on as Workflow;
+    const push = on.push as Workflow;
+    const script = String((freshness.with as Workflow).script);
+    const docsPathList = script.match(/const docsPaths = \[([\s\S]*?)\];/)?.[1];
+    assert(docsPathList);
+    const docsPaths = [...docsPathList.matchAll(/"([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    assert.deepEqual(docsPaths, push.paths);
+    const freshnessAction = readWorkflow(
+      ".github/actions/docs-source-freshness/action.yml",
+    );
+    const actionRuns = freshnessAction.runs as Workflow;
+    const actionSteps = actionRuns.steps as Array<Workflow>;
+    const actionScript = String((actionSteps[0]!.with as Workflow).script);
+    const actionDocsPathList = actionScript.match(
+      /const docsPaths = \[([\s\S]*?)\];/,
+    )?.[1];
+    assert(actionDocsPathList);
+    assert.deepEqual(
+      [...actionDocsPathList.matchAll(/"([^"]+)"/g)].map((match) => match[1]),
+      push.paths,
+    );
+    const reusableDocsPathLists = [
+      ...reusableSource.matchAll(/const docsPaths = \[([\s\S]*?)\];/g),
+    ];
+    assert.equal(reusableDocsPathLists.length, 2);
+    for (const [, list] of reusableDocsPathLists) {
+      assert(list);
+      assert.deepEqual(
+        [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]),
+        push.paths,
+      );
+    }
+    type WorkspacePackageManifest = {
+      name?: string;
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+    };
+    const workspacePackages = new Map<
+      string,
+      { directory: string; manifest: WorkspacePackageManifest }
+    >(
+      readdirSync("packages", { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .flatMap((entry) => {
+          const manifestPath = join("packages", entry.name, "package.json");
+          if (!existsSync(manifestPath)) return [];
+          const manifest = JSON.parse(
+            readFileSync(manifestPath, "utf8"),
+          ) as WorkspacePackageManifest;
+          assert.ok(
+            manifest.name,
+            `${manifestPath} must declare a package name`,
+          );
+          return [
+            [manifest.name, { directory: entry.name, manifest }],
+          ] as const;
+        }),
+    );
+    assert.ok(workspacePackages.has("@agent-native/docs"));
+    const docsDependencyDirectories = new Set<string>();
+    const pendingWorkspacePackages = ["@agent-native/docs"];
+    while (pendingWorkspacePackages.length) {
+      const packageName = pendingWorkspacePackages.pop()!;
+      const workspacePackage = workspacePackages.get(packageName);
+      if (
+        !workspacePackage ||
+        docsDependencyDirectories.has(workspacePackage.directory)
+      ) {
+        continue;
+      }
+      docsDependencyDirectories.add(workspacePackage.directory);
+      for (const dependencyField of [
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+      ] as const) {
+        const dependencies = workspacePackage.manifest[dependencyField] as
+          | Record<string, string>
+          | undefined;
+        pendingWorkspacePackages.push(
+          ...Object.keys(dependencies ?? {}).filter((dependency) =>
+            workspacePackages.has(dependency),
+          ),
+        );
+      }
+    }
+    for (const directory of docsDependencyDirectories) {
+      assert.ok(
+        docsPaths.includes(`packages/${directory}/**`),
+        `docs deployment inputs must include workspace dependency packages/${directory}`,
+      );
+    }
+    assert.match(script, /github\.rest\.git\.getRef/);
+    assert.match(script, /github\.rest\.repos\.compareCommits/);
+    assert.match(script, /per_page: 100/);
+    assert.match(script, /for \(let page = 1; page <= pageCount; page \+= 1\)/);
+    assert.match(script, /data\.commits\.length !== expectedPageCommits/);
+    assert.match(script, /files\.length >= 300/);
+    assert.match(script, /file\.previous_filename/);
+    assert.match(script, /core\.setOutput\("current", "false"\)/);
+    assert.doesNotMatch(script, /context\.eventName !== "push"/);
+    assert.match(script, /context\.eventName === "workflow_dispatch"/);
+    const preUploadScript = String(
+      (preUploadFreshness.with as Workflow).script,
+    );
+    const preUploadDocsPathList = preUploadScript.match(
+      /const docsPaths = \[([\s\S]*?)\];/,
+    )?.[1];
+    assert(preUploadDocsPathList);
+    const preUploadDocsPaths = [
+      ...preUploadDocsPathList.matchAll(/"([^"]+)"/g),
+    ].map((match) => match[1]);
+    assert.deepEqual(preUploadDocsPaths, push.paths);
+    assert.match(preUploadScript, /github\.rest\.git\.getRef/);
+    assert.match(preUploadScript, /github\.rest\.repos\.compareCommits/);
+    assert.match(preUploadScript, /per_page: 100/);
+    assert.match(
+      preUploadScript,
+      /for \(let page = 1; page <= pageCount; page \+= 1\)/,
+    );
+    assert.match(
+      preUploadScript,
+      /data\.commits\.length !== expectedPageCommits/,
+    );
+    assert.match(preUploadScript, /files\.length >= 300/);
+    assert.match(preUploadScript, /file\.previous_filename/);
+    assert.match(preUploadScript, /core\.setOutput\("current", "false"\)/);
+
+    const runFreshnessScript = async (
+      freshnessScript: string,
+      files: Array<{ filename: string; previous_filename?: string }>,
+      page2Commits: Array<{ sha: string }>,
+      eventName = "push",
+      failOnStale = false,
+    ) => {
+      const outputs: Record<string, string> = {};
+      const failures: string[] = [];
+      const notices: string[] = [];
+      const pagesRequested: number[] = [];
+      const allCommits = Array.from({ length: 101 }, (_, index) => ({
+        sha: `commit-${index}`,
+      }));
+      const pageData = [
+        {
+          status: "ahead",
+          total_commits: 101,
+          commits: allCommits.slice(0, 100),
+          files,
+        },
+        {
+          status: "ahead",
+          total_commits: 101,
+          commits: page2Commits,
+        },
+      ];
+      const github = {
+        rest: {
+          git: {
+            getRef: async () => ({ data: { object: { sha: "b".repeat(40) } } }),
+          },
+          repos: {
+            compareCommits: async (args: { page: number }) => {
+              pagesRequested.push(args.page);
+              return { data: pageData[args.page - 1] };
+            },
+          },
+        },
+      };
+      const context = {
+        eventName,
+        repo: { owner: "BuilderIO", repo: "agent-native" },
+      };
+      const core = {
+        setOutput: (name: string, value: string) => {
+          outputs[name] = value;
+        },
+        setFailed: (message: string) => failures.push(message),
+        notice: (message: string) => notices.push(message),
+      };
+      const process = {
+        env: {
+          SOURCE_REF: "a".repeat(40),
+          FAIL_ON_STALE: failOnStale ? "true" : "false",
+        },
+      };
+      const run = new Function(
+        "github",
+        "context",
+        "core",
+        "process",
+        `return (async () => {\n${freshnessScript}\n})();`,
+      ) as (
+        github: typeof github,
+        context: typeof context,
+        core: typeof core,
+        process: typeof process,
+      ) => Promise<void>;
+      await run(github, context, core, process);
+      return { outputs, failures, notices, pagesRequested };
+    };
+
+    const fresh = await runFreshnessScript(
+      script,
+      [{ filename: "README.md" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.deepEqual(fresh.pagesRequested, [1, 2]);
+    assert.equal(fresh.outputs.current, "true");
+    assert.deepEqual(fresh.failures, []);
+
+    const stale = await runFreshnessScript(
+      script,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.equal(stale.outputs.current, "false");
+    assert.match(stale.notices[0] ?? "", /newer docs deployment inputs/);
+    assert.deepEqual(stale.failures, []);
+
+    const staleBeforeProductionPause = await runFreshnessScript(
+      actionScript,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+      "push",
+      true,
+    );
+    assert.equal(staleBeforeProductionPause.outputs.current, "false");
+    assert.match(
+      staleBeforeProductionPause.failures[0] ?? "",
+      /Refusing to publish .* is stale/,
+    );
+
+    const staleDispatch = await runFreshnessScript(
+      script,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+      "workflow_dispatch",
+    );
+    assert.equal(staleDispatch.outputs.current, "false");
+    assert.match(
+      staleDispatch.failures[0] ?? "",
+      /Requested Docs source .* is stale/,
+    );
+    assert.deepEqual(staleDispatch.notices, []);
+
+    const incomplete = await runFreshnessScript(
+      script,
+      [{ filename: "README.md" }],
+      [],
+    );
+    assert.equal(incomplete.outputs.current, "false");
+    assert.match(
+      incomplete.failures[0] ?? "",
+      /Cannot verify every newer commit/,
+    );
+
+    const sourceWasFreshBeforeBuild = await runFreshnessScript(
+      script,
+      [{ filename: "README.md" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.equal(sourceWasFreshBeforeBuild.outputs.current, "true");
+    const docsChangedDuringBuild = await runFreshnessScript(
+      preUploadScript,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.deepEqual(docsChangedDuringBuild.pagesRequested, [1, 2]);
+    assert.equal(docsChangedDuringBuild.outputs.current, "false");
+    assert.match(
+      docsChangedDuringBuild.failures[0] ?? "",
+      /Refusing to publish docs source .* newer docs deployment inputs/,
+    );
+    assert.deepEqual(docsChangedDuringBuild.notices, []);
+
+    const incompletePreUpload = await runFreshnessScript(
+      preUploadScript,
+      [{ filename: "README.md" }],
+      [],
+    );
+    assert.equal(incompletePreUpload.outputs.current, "false");
+    assert.match(
+      incompletePreUpload.failures[0] ?? "",
+      /Cannot verify every newer commit/,
+    );
+
+    const failureCleanup = steps.find(
+      (step) =>
+        step.name ===
+        "Restore the production deploy lock after a failed cutover",
+    );
+    const resumeBuilds = steps.find(
+      (step) =>
+        step.name ===
+        "Resume automatic Netlify builds after production cutover",
+    );
+    assert(failureCleanup);
+    assert(resumeBuilds);
+    assert.match(String(failureCleanup.if), /failure\(\)/);
+    assert.match(String(failureCleanup.run), /restoreLockState\(/);
+    assert.match(
+      String(failureCleanup.run),
+      /Published production deploy \$\{originalDeployId\}/,
+    );
+    assert.match(
+      String(resumeBuilds.if),
+      /steps\.failure_cleanup\.outcome == 'success'/,
+    );
+
+    const wait = steps.find(
+      (step) => step.name === "Wait for the Netlify deploy to publish",
+    );
+    const purge = steps.find(
+      (step) => step.name === "Purge the published Netlify cache",
+    );
+    const lock = steps.find(
+      (step) => step.name === "Lock the published production deploy",
+    );
+    assert.match(String(wait?.if), /steps\.deploy\.outputs\.deploy_id != ''/);
+    assert.match(String(purge?.if), /steps\.deploy\.outputs\.deploy_id != ''/);
+    assert.match(String(lock?.if), /steps\.deploy\.outputs\.deploy_id != ''/);
+  });
+
+  it("smoke-tests app health while keeping static docs on a shell-only probe", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const appSmoke = steps.find(
+      (step) => step.name === "Smoke-test the uploaded deploy",
+    );
+    const docsSmoke = steps.find(
+      (step) => step.name === "Smoke-test the static docs deploy",
+    );
+    const previewSmoke = steps.find(
+      (step) => step.name === "Smoke-test the uploaded PR preview",
+    );
+    const previewDatabaseMirror = steps.find(
+      (step) =>
+        step.name ===
+        "Mirror production database variables into the PR preview context",
+    );
+
+    assert(appSmoke);
+    assert.equal(
+      appSmoke.if,
+      "inputs.target != 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs' && (inputs.target != 'beta' || steps.beta_first_publish.outputs.deploy_id != '' || steps.beta_first_publish_reconcile.outputs.deploy_id != '' || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id != ''))",
+    );
+    assert.match(String(appSmoke.run), /scripts\/smoke-check-health\.ts/);
+    assert.match(String(appSmoke.run), /--auth-routes/);
+    assert.match(String(appSmoke.run), /--check-assets/);
+    assert.match(String(appSmoke.run), /SOURCE_TEMPLATE/);
+    assert.match(String(appSmoke.run), /--asset-path \/overview/);
+    assert.match(String(appSmoke.run), /--canonical-host/);
+    assert.equal(appSmoke.id, "beta_smoke");
+    const betaSmokeRollback = steps.find(
+      (step) =>
+        step.name === "Roll back beta deploy after smoke verification failure",
+    );
+    assert(betaSmokeRollback);
+    assert.equal(betaSmokeRollback?.id, "beta_smoke_rollback");
+    assert.match(String(betaSmokeRollback?.if), /always\(\)/);
+    assert.match(
+      String(betaSmokeRollback?.if),
+      /steps\.beta_smoke\.outcome == 'failure'/,
+    );
+    assert.match(String(betaSmokeRollback?.run), /PREVIOUS_DEPLOY_ID/);
+    assert.match(String(betaSmokeRollback?.run), /const beforeRestore =/);
+    assert.match(
+      String(betaSmokeRollback?.run),
+      /Netlify beta smoke rollback precondition/,
+    );
+    assert.match(String(betaSmokeRollback?.run), /\/lock/);
+    assert.match(String(betaSmokeRollback?.run), /finally/);
+    assert.match(String(betaSmokeRollback?.run), /failure cleanup/);
+    assert.doesNotMatch(String(betaSmokeRollback?.run), /\/unlock/);
+    assert.match(String(betaSmokeRollback?.run), /Left published beta deploy/);
+    assert.match(
+      String(betaSmokeRollback?.run),
+      /pinned it until the next beta publish/,
+    );
+    assert.match(String(betaSmokeRollback?.run), /\/restore/);
+    const betaFailureCleanup = steps.find(
+      (step) => step.name === "Pin the beta site after a failed cutover",
+    );
+    assert(betaFailureCleanup);
+    assert.equal(betaFailureCleanup?.id, "beta_failure_cleanup");
+    assert.match(String(betaFailureCleanup?.if), /always\(\)/);
+    assert.match(String(betaFailureCleanup?.if), /inputs.target == 'beta'/);
+    assert.match(String(betaFailureCleanup?.if), /failure\(\)/);
+    assert.match(String(betaFailureCleanup?.run), /baselineDeployId/);
+    assert.match(String(betaFailureCleanup?.run), /baselineWasLocked/);
+    assert.match(String(betaFailureCleanup?.run), /\/lock/);
+    assert.match(
+      String(betaFailureCleanup?.run),
+      /current\.published_deploy\?\.id/,
+    );
+    const cacheVerification = steps.find(
+      (step) => step.name === "Verify the deployed site still caches a miss",
+    );
+    assert(cacheVerification);
+    assert(
+      steps.indexOf(betaFailureCleanup as Workflow) >
+        steps.indexOf(cacheVerification as Workflow),
+    );
+
+    assert(previewSmoke);
+    assert.equal(
+      previewSmoke.if,
+      "inputs.target == 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+    );
+    assert.match(String(previewSmoke.run), /scripts\/smoke-check-health\.ts/);
+    assert.match(String(previewSmoke.run), /--canonical-host/);
+    assert.match(String(previewSmoke.run), /--auth-routes/);
+    assert.match(String(previewSmoke.run), /--check-assets/);
+    assert.match(String(previewSmoke.run), /--asset-path \/overview/);
+    assert.match(String(previewSmoke.run), /--preview/);
+    assert.match(String(previewSmoke.run), /immutable_url/);
+    assert.match(String(previewSmoke.run), /preview alias/);
+    assert.match(String(previewSmoke.run), /resolveNetlifyImmutableDeployUrl/);
+    assert.match(String(previewSmoke.run), /deploy\?\.id/);
+    assert.match(String(previewSmoke.run), /NETLIFY_SITE_ID/);
+    assert.match(String(previewSmoke.run), /PREVIEW_ALIAS/);
+    assert.match(String(previewSmoke.run), /resolveNetlifyPreviewAliasUrl/);
+    assert.match(
+      String(previewSmoke.run),
+      /if \[\[ "\$alias_url" == "\$immutable_url" \]\]/,
+    );
+    const previewSmokeNodeHeredocs = [
+      ...String(previewSmoke.run).matchAll(
+        /node(?: --experimental-strip-types)? <<'NODE'\n([\s\S]*?)\n\s*NODE/g,
+      ),
+    ].map((match) => match[1]);
+    assert(previewSmokeNodeHeredocs.length > 0);
+    for (const body of previewSmokeNodeHeredocs) {
+      assert.doesNotMatch(body, /\bimmutable_url\b/);
+    }
+    assert.match(
+      String(previewSmoke.run),
+      /IMMUTABLE_URL="\$immutable_url" node[\s\S]*process\.env\.IMMUTABLE_URL/,
+    );
+    assert.match(
+      String(previewSmoke.run),
+      /aliasUrl === process\.env\.IMMUTABLE_URL/,
+    );
+    assert.doesNotMatch(String(previewSmoke.run), /--allow-missing-health/);
+
+    assert(previewDatabaseMirror);
+    assert.equal(
+      previewDatabaseMirror.if,
+      "inputs.target == 'preview' && inputs.deploy && inputs.migration_only != true && steps.target.outputs.source_template != '@agent-native/docs'",
+    );
+    assert.match(
+      String(previewDatabaseMirror.run),
+      /sync-netlify-preview-database\.ts/,
+    );
+    assert.equal(previewDatabaseMirror.env?.NETLIFY_ACCOUNT_ID, "builder-io");
+    assert.equal(
+      previewDatabaseMirror.env?.NETLIFY_PREVIEW_DATABASE_URL,
+      "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}",
+    );
+    assert.equal(
+      previewDatabaseMirror.env?.NETLIFY_SOURCE_TEMPLATE,
+      "${{ steps.target.outputs.source_template }}",
+    );
+    assert(
+      steps.findIndex((step) => step === previewDatabaseMirror) <
+        steps.findIndex((step) => step.id === "deploy"),
+    );
+    const previewDatabaseScript = readFileSync(
+      "scripts/sync-netlify-preview-database.ts",
+      "utf8",
+    );
+    assert.doesNotMatch(previewDatabaseScript, /productionDatabaseVariables/);
+    assert.doesNotMatch(previewDatabaseScript, /candidate\.value\b/);
+    assert.doesNotMatch(
+      readFileSync("scripts/smoke-check-health.ts", "utf8"),
+      /previewDatabaseGap/,
+    );
+
+    assert(docsSmoke);
+    assert.equal(
+      docsSmoke.if,
+      "inputs.deploy && steps.deploy.outputs.deploy_id != '' && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
+    );
+    assert.doesNotMatch(String(docsSmoke.run), /\/_agent-native\/health/);
+  });
+
+  it("keeps beta keep-warm opt-in while preserving beta runtime ownership", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+    const betaStart = build.indexOf('if [[ "$TARGET" == "beta" ]]');
+    const clipsStart = build.indexOf(
+      'if [[ "$SOURCE_TEMPLATE" == "clips" ]]',
+      betaStart,
+    );
+    const beta = build.slice(betaStart, clipsStart);
+    const nonClipsStart = beta.indexOf(
+      'if [[ "$SOURCE_TEMPLATE" != "clips" ]]',
+    );
+    const nonClipsEnd = beta.indexOf("\n          fi", nonClipsStart);
+    const nonClips = beta.slice(nonClipsStart, nonClipsEnd);
+
+    for (const flag of [
+      "AGENT_NATIVE_RELEASE_MIGRATIONS=1",
+      "AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1",
+    ]) {
+      assert.match(
+        nonClips,
+        new RegExp(`export ${flag.replace(/[=]/g, "\\=")}`),
+      );
+    }
+    for (const flag of [
+      "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1",
+      "AGENT_NATIVE_HOSTED_HARNESS=true",
+    ]) {
+      assert.match(beta, new RegExp(`export ${flag.replace(/[=]/g, "\\=")}`));
+    }
+    assert.doesNotMatch(beta, /export AGENT_NATIVE_ENABLE_KEEP_WARM\b/);
+  });
+
+  it("does not opt starter Netlify configs into keep-warm", () => {
+    for (const templateRoot of ["templates", "community-templates"]) {
+      for (const entry of readdirSync(templateRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const netlifyConfig = join(templateRoot, entry.name, "netlify.toml");
+        if (!existsSync(netlifyConfig)) continue;
+        assert.doesNotMatch(
+          readFileSync(netlifyConfig, "utf8"),
+          /^\s*AGENT_NATIVE_ENABLE_KEEP_WARM\s*=/m,
+          netlifyConfig,
+        );
+      }
+    }
+  });
+
+  it("rejects a purge step that is not beta/production-only and success-gated", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const purge = steps.find(
+      (step) => step.name === "Purge the published Netlify cache",
+    );
+
+    assert(purge);
+    assert.equal(String(purge.if), PUBLISHED_CACHE_PURGE_CONDITION);
+    assert.deepEqual(
+      validatePublishedCachePurgeCondition(PUBLISHED_CACHE_PURGE_CONDITION),
+      [],
+    );
+    assert.match(
+      String(purge.if),
+      /steps\.beta_freshness\.outputs\.current == 'true'/,
+    );
+    for (const mutatedIf of [
+      "inputs.target == 'production' && inputs.deploy_mode == 'production' && success()",
+      "inputs.target == 'beta' && inputs.deploy && inputs.deploy_mode == 'production' && success()",
+      "inputs.target == 'production' && !inputs.deploy && inputs.deploy_mode == 'production' && success()",
+      "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && !success()",
+      "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' || success()",
+    ]) {
+      assert.notDeepEqual(validatePublishedCachePurgeCondition(mutatedIf), []);
+    }
+  });
+
+  it("allows Netlify-observed ready deploys but blocks newly observed ready deploys", () => {
+    const unlock = nodeHeredocs[1];
+    const pendingStart = unlock.indexOf("function pendingProductionDeploys");
+    const drainStart = unlock.indexOf(
+      "async function drainPendingDeploys",
+      pendingStart,
+    );
+    assert(pendingStart >= 0 && drainStart > pendingStart);
+    const pendingProductionDeploys = new Function(
+      `${unlock.slice(pendingStart, drainStart)}; return pendingProductionDeploys;`,
+    )() as (
+      deploys: Array<Record<string, unknown>>,
+      publishedId: string,
+      preexistingDeployIds: Set<unknown>,
+    ) => Array<Record<string, unknown>>;
+    const deploys = [
+      {
+        id: "published",
+        context: "production",
+        published_at: "now",
+        state: "ready",
+      },
+      {
+        id: "stale-ready",
+        context: "production",
+        state: "ready",
+        created_at: "2026-08-20T01:59:59Z",
+      },
+      {
+        id: "preexisting-unreadable-ready",
+        context: "production",
+        state: "ready",
+        created_at: "not-a-date",
+      },
+      {
+        id: "new-ready",
+        context: "production",
+        state: "ready",
+        created_at: "2026-08-20T02:00:01Z",
+      },
+      {
+        id: "new-unreadable-ready",
+        context: "production",
+        state: "ready",
+        created_at: "not-a-date",
+      },
+      { id: "queued", context: "production", state: "enqueued" },
+      { id: "failed", context: "production", state: "error" },
+      { id: "rejected", context: "production", state: "rejected" },
+    ];
+
+    assert.deepEqual(
+      pendingProductionDeploys(
+        deploys,
+        "published",
+        new Set(["published", "stale-ready", "preexisting-unreadable-ready"]),
+      ).map((deploy) => deploy.id),
+      ["new-ready", "new-unreadable-ready", "queued"],
+    );
+  });
+
+  it("captures the Netlify deploy baseline before draining production deploys", () => {
+    const unlock = nodeHeredocs[1];
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const steps = (workflow.jobs as Record<string, Workflow>).deploy
+      .steps as Array<Workflow>;
+    const previous = steps.find(
+      (step) =>
+        step.name ===
+        "Capture the current published deploy for callback rollback",
+    );
+    assert.doesNotMatch(unlock, /readyIsBlocking/);
+    const baselineIndex = unlock.indexOf(
+      "const preexistingDeployIds = new Set",
+    );
+    const siteLookupIndex = unlock.indexOf("const site = await readJson(");
+    assert(baselineIndex >= 0 && siteLookupIndex > baselineIndex);
+    assert.match(
+      unlock,
+      /const preexistingDeployIds = new Set\([\s\S]*?Netlify pre-existing production ready deploy lookup[\s\S]*?\["ready"\][\s\S]*?\);\s*const site = await readJson\(/,
+    );
+    assert.match(unlock, /published_deploy_source_ref/);
+    assert.equal(
+      (previous?.env as Record<string, unknown>).UNLOCKED_PUBLISHED_DEPLOY_ID,
+      "${{ steps.unlock.outputs.published_deploy_id }}",
+    );
+    assert.equal(
+      (previous?.env as Record<string, unknown>).UNLOCKED_PUBLISHED_SOURCE_REF,
+      "${{ steps.unlock.outputs.published_deploy_source_ref }}",
+    );
+    assert.match(String(previous?.run), /TARGET === "beta"/);
+    assert.match(
+      String(previous?.run),
+      /Captured beta rollback baseline .* before unlock/,
+    );
+  });
+
+  it("rechecks the production queue immediately before unlocking", () => {
+    const unlock = nodeHeredocs[1];
+    const finalDrain = unlock.lastIndexOf(
+      "await drainPendingDeploys(deployId, preexistingDeployIds);",
+    );
+    const unlockRequest = unlock.lastIndexOf(
+      "await request(`${api}/deploys/${deployId}/unlock`",
+    );
+    assert(finalDrain >= 0 && unlockRequest > finalDrain);
+    assert.match(
+      unlock.slice(finalDrain, unlockRequest),
+      /finalBeforeUnlock[\s\S]*published_deploy\?\.id !== deployId/,
+    );
+  });
+
+  it("uses production state filters without an age cutoff", async () => {
+    const unlock = nodeHeredocs[1];
+    const listStart = unlock.indexOf("async function listDeploys");
+    const pendingStart = unlock.indexOf(
+      "function pendingProductionDeploys",
+      listStart,
+    );
+    assert(listStart >= 0 && pendingStart > listStart);
+    const listDeploys = new Function(
+      "request",
+      "readJson",
+      "nextPageUrl",
+      "api",
+      "siteId",
+      `${unlock.slice(listStart, pendingStart)}; return listDeploys;`,
+    )(
+      async (url: string) => {
+        requests.push(url);
+        const page = pages.get(url);
+        assert(page, `unexpected deploy page ${url}`);
+        return {
+          headers: {
+            get: () => page.next,
+          },
+          page: page.deploys,
+        };
+      },
+      async (response: { page: Array<Record<string, unknown>> }) =>
+        response.page,
+      (link: string | null) => link,
+      "https://netlify.test/api",
+      "site-id",
+    ) as (
+      label: string,
+      states: string[],
+    ) => Promise<Array<Record<string, unknown>>>;
+    const requests: string[] = [];
+    const pages = new Map([
+      [
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
+        {
+          deploys: [{ id: "old-active", state: "processing" }],
+          next: null,
+        },
+      ],
+    ]);
+
+    const deploys = await listDeploys("test deploy lookup", ["processing"]);
+    assert.deepEqual(
+      deploys.map((deploy) => deploy.id),
+      ["old-active"],
+    );
+    assert.deepEqual(requests, [
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
+    ]);
+  });
+
+  it("does not treat rejected production deploys as active cutover blockers", () => {
+    const unlock = nodeHeredocs[1];
+    const statesStart = unlock.indexOf(
+      "const ACTIVE_PRODUCTION_DEPLOY_STATES = [",
+    );
+    const statesEnd = unlock.indexOf("];", statesStart);
+    assert(statesStart >= 0 && statesEnd > statesStart);
+    assert.doesNotMatch(unlock.slice(statesStart, statesEnd), /"rejected"/);
+    assert.match(unlock.slice(statesStart, statesEnd), /"pending"/);
+    assert.match(
+      unlock,
+      /\["error", "canceled", "rejected"\]\.includes\(candidate\.state\)/,
+    );
+  });
+
+  it("finds old active production deploys through filtered state requests", async () => {
+    const unlock = nodeHeredocs[1];
+    const statesStart = unlock.indexOf(
+      "const ACTIVE_PRODUCTION_DEPLOY_STATES = [",
+    );
+    const statesEnd = unlock.indexOf("];", statesStart);
+    assert(statesStart >= 0 && statesEnd > statesStart);
+    assert.deepEqual(
+      [
+        ...unlock.slice(statesStart, statesEnd).matchAll(/\n\s+"([^"]+)",/g),
+      ].map((match) => match[1]),
+      [
+        "new",
+        "pending",
+        "enqueued",
+        "building",
+        "uploading",
+        "uploaded",
+        "preparing",
+        "prepared",
+        "processing",
+        "processed",
+        "retrying",
+        "pending_review",
+        "accepted",
+      ],
+    );
+    const listStart = unlock.indexOf("async function listDeploys");
+    const pendingStart = unlock.indexOf(
+      "function pendingProductionDeploys",
+      listStart,
+    );
+    assert(listStart >= 0 && pendingStart > listStart);
+    const listDeploys = new Function(
+      "request",
+      "readJson",
+      "nextPageUrl",
+      "api",
+      "siteId",
+      `${unlock.slice(listStart, pendingStart)}; return listDeploys;`,
+    )(
+      async (url: string) => {
+        requests.push(url);
+        const page = pages.get(url);
+        assert(page, `unexpected deploy page ${url}`);
+        return {
+          headers: {
+            get: () => page.next,
+          },
+          page: page.deploys,
+        };
+      },
+      async (response: { page: Array<Record<string, unknown>> }) =>
+        response.page,
+      (link: string | null) => link,
+      "https://netlify.test/api",
+      "site-id",
+    ) as (
+      label: string,
+      states: string[],
+    ) => Promise<Array<Record<string, unknown>>>;
+    const requests: string[] = [];
+    const pages = new Map([
+      [
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=pending",
+        {
+          deploys: [
+            { id: "old-pending", context: "production", state: "pending" },
+          ],
+          next: null,
+        },
+      ],
+      [
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
+        {
+          deploys: [
+            {
+              id: "old-active",
+              context: "production",
+              state: "processing",
+              created_at: "2026-08-19T00:00:00Z",
+            },
+          ],
+          next: null,
+        },
+      ],
+    ]);
+
+    const deploys = await listDeploys("test deploy lookup", [
+      "processing",
+      "pending",
+    ]);
+    assert.deepEqual(deploys.map((deploy) => deploy.id).sort(), [
+      "old-active",
+      "old-pending",
+    ]);
+    assert.deepEqual(requests.sort(), [
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=pending",
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
+    ]);
+    assert(
+      requests.every((url) =>
+        /production=true&state=(pending|processing)$/.test(url),
+      ),
+    );
+  });
+
+  it("rolls back before resuming builds and preserves cleanup errors", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const resume = steps.find(
+      (step) =>
+        step.name ===
+        "Resume automatic Netlify builds after production cutover",
+    );
+    const cleanup = steps.find(
+      (step) =>
+        step.name ===
+        "Restore the production deploy lock after a failed cutover",
+    );
+    assert.equal(typeof resume?.if, "string");
+    assert.match(resume?.if as string, /always\(\)/);
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverWasPaused !== "true"/,
+    );
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverWasStopped === "true"/,
+    );
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverHasGitConnectedBuild !== "true"/,
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverWasStopped,
+      "${{ steps.pause.outputs.was_stopped }}",
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverWasPaused,
+      "${{ steps.pause.outputs.cutover_acquired }}",
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverHasGitConnectedBuild,
+      "${{ steps.pause.outputs.has_git_connected_build }}",
+    );
+    assert.equal(typeof cleanup?.if, "string");
+    assert.match(cleanup?.if as string, /failure\(\)/);
+    assert.equal(cleanup?.id, "failure_cleanup");
+    const resumeIndex = steps.indexOf(resume as Workflow);
+    const cleanupIndex = steps.indexOf(cleanup as Workflow);
+    assert(resumeIndex > cleanupIndex);
+    assert.match(
+      resume?.if as string,
+      /steps\.failure_cleanup\.outcome == 'success'/,
+    );
+    assert.match(
+      resume?.if as string,
+      /steps\.failure_cleanup\.outcome == 'skipped'/,
+    );
+    assert.doesNotMatch(
+      resume?.if as string,
+      /steps\.failure_cleanup\.outcome != 'failure'/,
+    );
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverPublishedDeployId,
+      "${{ steps.unlock.outputs.published_deploy_id }}",
+    );
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverNewDeployId,
+      "${{ steps.deploy.outputs.deploy_id }}",
+    );
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverWasLocked,
+      "${{ steps.unlock.outputs.was_locked }}",
+    );
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverWasPaused,
+      "${{ steps.pause.outputs.cutover_acquired }}",
+    );
+    assert.doesNotMatch(String(cleanup?.run), /stop_builds/);
+    assert.match(
+      String(cleanup?.run),
+      /process\.env\.cutoverWasPaused !== "true"/,
+    );
+    assert.match(
+      String(cleanup?.run),
+      /!process\.env\.cutoverPublishedDeployId/,
+    );
+    assert.match(String(cleanup?.run), /currentDeployId === newDeployId/);
+    assert.match(
+      String(cleanup?.run),
+      /sites\/\$\{process\.env\.NETLIFY_SITE_ID\}\/deploys\/\$\{originalDeployId\}\/restore/,
+    );
+    assert.match(String(cleanup?.run), /restoredDeployId = restored\?\.id/);
+    assert.match(String(cleanup?.run), /waitForPublished\(restoredDeployId\)/);
+    assert.match(
+      String(cleanup?.run),
+      /restoreLockState\(\s*restoredDeployId,/,
+    );
+    assert.doesNotMatch(
+      String(cleanup?.run),
+      /waitForPublished\(originalDeployId\)/,
+    );
+    assert.match(String(cleanup?.run), /catch \(error\)/);
+    assert.match(String(cleanup?.run), /let rollbackError/);
+    assert.match(String(cleanup?.run), /let failedDeployLockError/);
+    assert.match(String(cleanup?.run), /callbackRestoredDeployId/);
+    assert.match(
+      String(cleanup?.run),
+      /currentDeployId !== callbackRestoredDeployId/,
+    );
+    assert.match(String(cleanup?.run), /rollbackError = error/);
+    assert.match(String(cleanup?.run), /failedDeployLockError = error/);
+    assert.match(String(cleanup?.run), /throw new AggregateError/);
+    assert.match(
+      String(cleanup?.run),
+      /rollbackError && failedDeployLockError/,
+    );
+    assert.match(String(cleanup?.run), /newDeployId !== originalDeployId/);
+    assert.match(String(cleanup?.run), /fallbackErrors/);
+    assert.match(String(cleanup?.run), /quarantined failed deploy/);
+    assert.match(
+      String(cleanup?.run),
+      /restoreLockState\(\s*newDeployId,\s*"true"/,
+    );
+    assert.match(String(cleanup?.run), /Restored previous production deploy/);
+    assert.match(
+      String(cleanup?.run),
+      /Preserved Google callback rollback deploy/,
+    );
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverGoogleRollbackDeployId,
+      "${{ steps.google_callback_rollback.outputs.restored_deploy_id }}",
+    );
+  });
+
+  it("records cutover acquisition before pause verification", () => {
+    const pause = nodeHeredocs[0];
+    assert.match(pause, /hasGitConnectedBuild/);
+    assert.match(pause, /has_git_connected_build/);
+    assert.match(pause, /No Git-connected Netlify build is configured/);
+    const acquiredIndex = pause.indexOf(
+      'fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\\n")',
+    );
+    const verificationIndex = pause.indexOf("await waitForBuildSetting");
+    assert(acquiredIndex >= 0);
+    assert(verificationIndex > acquiredIndex);
+  });
+
+  it("pauses the docs site before the prebuilt publisher runs", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-docs-production.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const deploy = jobs.deploy;
+    const ownership = jobs["pause-netlify-builds"];
+    assert.deepEqual(deploy?.needs, [
+      "verify-stable-release",
+      "docs-source-freshness",
+      "pause-netlify-builds",
+      "migrate",
+    ]);
+    assert.deepEqual(jobs.migrate.needs, [
+      "verify-stable-release",
+      "docs-source-freshness",
+      "pause-netlify-builds",
+    ]);
+    assert.deepEqual(ownership.needs, [
+      "verify-stable-release",
+      "docs-source-freshness",
+    ]);
+    assert.match(String(deploy?.if), /always\(\)/);
+    assert.match(String(deploy?.if), /needs\.migrate\.result == 'success'/);
+    assert.equal((jobs.migrate.with as Workflow).migration_only, true);
+    const steps = (ownership?.steps as Array<Workflow>).filter(Boolean);
+    const disable = steps.find(
+      (step) =>
+        step.name === "Disable the docs site's Git-connected Netlify builds",
+    );
+    assert(disable);
+    const run = String(disable.run);
+    assert.match(run, /'Content-Type': 'application\/json'/);
+    assert.match(run, /returned an invalid JSON response/);
+    assert.match(run, /returned an invalid JSON object/);
+    assert.doesNotMatch(run, /body = text;/);
+    assert.match(run, /hasGitConnectedBuild/);
+    assert.match(run, /current\.git_provider/);
+    assert.match(run, /current\.repo\?\.repo_path/);
+    assert.match(run, /stop_builds: true/);
+    assert.match(run, /for \(let attempt = 1; attempt <= 15; attempt \+= 1\)/);
+    assert.match(run, /stop_builds=\$\{expected\}/);
+    assert.match(run, /changedStopBuilds/);
+    assert.match(run, /verificationError/);
+    assert.match(run, /Netlify docs build pause rollback/);
+    assert.equal(
+      (ownership?.concurrency as Workflow)?.group,
+      "agent-native-production-site-fw",
+    );
+    assert.equal(
+      (ownership?.outputs as Workflow)?.cutover_acquired,
+      "${{ steps.pause.outputs.cutover_acquired }}",
+    );
+    const restore = jobs["restore-netlify-builds"];
+    assert.deepEqual(restore?.needs, [
+      "verify-stable-release",
+      "pause-netlify-builds",
+      "migrate",
+      "deploy",
+    ]);
+    assert.match(String(restore?.if), /always\(\)/);
+    assert.match(String(restore?.if), /!cancelled\(\)/);
+    assert.equal(
+      (restore?.concurrency as Workflow)?.group,
+      "agent-native-production-site-fw",
+    );
+    const restoreStep = (restore?.steps as Array<Workflow>).find(
+      (step) => step.name === "Restore the prior docs build setting",
+    );
+    assert(restoreStep);
+    assert.match(String(restoreStep.if), /cutover_acquired/);
+    assert.match(String(restoreStep.run), /stop_builds: false/);
+  });
+
+  it("keeps the fleet caller queue distinct from the shared site queues", () => {
+    assert.deepEqual(validateProductionSiteConcurrency(workflows()), []);
+  });
+
+  it("rejects the shared site queue on the fleet caller", () => {
+    const mutated = workflows();
+    const productionJobs = mutated.production.jobs as Record<string, Workflow>;
+    const deploy = productionJobs.deploy;
+    const concurrency = deploy.concurrency as Record<string, unknown>;
+    concurrency.group = PRODUCTION_SITE_GROUP;
+
+    const issues = validateProductionSiteConcurrency(mutated);
+    assert(
+      issues.some((issue) =>
+        issue.includes(
+          `deploy-production-sites-prebuilt.yml deploy job concurrency.group must equal ${PRODUCTION_FLEET_CHILD_GROUP}`,
+        ),
+      ),
+    );
+  });
+
+  it("rejects a renamed promote queue even when it still mentions matrix.site", () => {
+    const mutated = workflows();
+    const promoteJobs = mutated.promote.jobs as Record<string, Workflow>;
+    const promote = promoteJobs.promote;
+    const concurrency = promote.concurrency as Record<string, unknown>;
+    concurrency.group =
+      "agent-native-production-promote-job-${{ matrix.site }}";
+
+    const issues = validateProductionSiteConcurrency(mutated);
+    assert(
+      issues.some((issue) =>
+        issue.includes(
+          `promote-netlify-deploy.yml promote job concurrency.group must equal ${PRODUCTION_MAPPED_SITE_GROUP}`,
+        ),
+      ),
+    );
+  });
+
+  it("rejects a manager job with no per-site concurrency block", () => {
+    const mutated = workflows();
+    const manageJobs = mutated.manage.jobs as Record<string, Workflow>;
+    const manage = manageJobs.manage;
+    delete manage.concurrency;
+
+    const issues = validateProductionSiteConcurrency(mutated);
+    assert(
+      issues.some((issue) =>
+        issue.includes(
+          `manage-production-sites.yml manage job concurrency.group must equal ${PRODUCTION_MAPPED_SITE_GROUP}`,
+        ),
+      ),
+    );
+  });
+
+  it("rejects a production site queue that allows cancellation", () => {
+    const mutated = workflows();
+    const promoteJobs = mutated.promote.jobs as Record<string, Workflow>;
+    const promote = promoteJobs.promote;
+    const concurrency = promote.concurrency as Record<string, unknown>;
+    concurrency["cancel-in-progress"] = true;
+
+    const issues = validateProductionSiteConcurrency(mutated);
+    assert(
+      issues.some((issue) =>
+        issue.includes(
+          "promote-netlify-deploy.yml promote job concurrency.cancel-in-progress must be false",
+        ),
+      ),
+    );
+  });
+});

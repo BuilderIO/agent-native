@@ -29,7 +29,9 @@ function outOfOfficeEvent(): CalendarEvent {
   };
 }
 
-function renderEvent() {
+function renderEvent(
+  props: Partial<Parameters<typeof OutOfOfficeEvent>[0]> = {},
+) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root: Root = createRoot(container);
@@ -44,6 +46,7 @@ function renderEvent() {
         onDelete={vi.fn()}
         isDraft={false}
         defaultOpen={false}
+        {...props}
       />,
     );
   });
@@ -68,6 +71,28 @@ describe("OutOfOfficeEvent", () => {
     expect(trigger?.getAttribute("aria-label")).toBe(
       "Out of office: Out of office",
     );
+
+    act(() => root.unmount());
+  });
+
+  it("nests the drag resize handles inside the click trigger button", () => {
+    const { container, root } = renderEvent({ canDrag: true });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-out-of-office-trigger="ooo-1"]',
+    );
+    const topHandle = container.querySelector<HTMLElement>(
+      '[data-out-of-office-resize="top"]',
+    );
+    const bottomHandle = container.querySelector<HTMLElement>(
+      '[data-out-of-office-resize="bottom"]',
+    );
+
+    expect(trigger).not.toBeNull();
+    expect(topHandle).not.toBeNull();
+    expect(bottomHandle).not.toBeNull();
+    expect(topHandle?.closest("button")).toBe(trigger);
+    expect(bottomHandle?.closest("button")).toBe(trigger);
 
     act(() => root.unmount());
   });

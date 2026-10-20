@@ -1,0 +1,74 @@
+---
+title: "Clips : Parler à l'agent"
+description: "Ce que l'agent voit quand vous êtes dans Clips, les invites organisées par tâche, et comment il fait appel à des actions moins courantes comme la mémoire d'écran de Rewind."
+search: "Clips agent invites parler à l'agent contexte conscience de l'écran"
+---
+
+# Parler à l'agent
+
+Tout dans Clips est accessible à l'agent via les mêmes actions que celles utilisées par l'interface, si bien que tout ce que vous pouvez cliquer, vous pouvez aussi le demander en langage courant. Cette page couvre comment l'agent voit votre écran, des invites utiles par tâche, et où il fait appel à des actions moins courantes. Consultez [Clips](/docs/template-clips) pour la vue d'ensemble.
+
+## Comment l'agent voit votre écran
+
+Avec un enregistrement ouvert, l'agent sait exactement lequel, jusqu'au panneau latéral que vous regardez (commentaires, transcription, ou statistiques) et l'horodatage sur lequel vous êtes en pause. C'est pourquoi « ajoute un commentaire ici » ou « coupe ceci pour ne garder que la bonne partie » se résout correctement sans que vous ayez à nommer l'enregistrement ou le moment.
+
+En parcourant la bibliothèque à la place, l'agent sait aussi ce que vous y regardez : le dossier actuel, votre recherche, et quels enregistrements vous avez sélectionnés si vous êtes en mode sélection.
+
+Une chose que l'agent ne peut pas faire à votre place : démarrer un enregistrement. Les navigateurs n'accordent l'accès au microphone et à l'écran qu'après qu'une personne ait cliqué sur quelque chose, donc « enregistre mon écran » vous emmène directement à l'enregistreur plutôt que de démarrer la capture invisiblement en arrière-plan.
+
+## Invites utiles par tâche
+
+Chaque invite ci-dessous devient une véritable action sur votre bibliothèque réelle, la même que celle que l'interface lit et écrit. Voici un exemple détaillé :
+
+<Comparison>
+
+### :blue: Vous demandez
+
+« Résume ce clip pour une mise à jour produit. »
+
+### :green: Ce qui se passe
+
+C'est une question en lecture seule. L'agent lit la transcription de l'enregistrement que vous avez ouvert et répond directement dans le chat. Rien sur votre écran ne change, puisque rien n'a été créé ou déplacé.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Capture et import
+
+- **« Enregistre mon écran. »** L'agent ouvre l'enregistreur pour vous. Démarrer la capture elle-même reste votre clic, puisque le navigateur l'exige.
+- **« Importe ce lien Loom. »** Collez l'URL et l'enregistrement rejoint votre bibliothèque une fois l'import terminé.
+
+### Nettoyer et organiser
+
+- **« Régénère le titre et le résumé. »** L'agent réécrit les deux à partir de la transcription actuelle.
+- **« Ajoute des chapitres. Celui-ci est long. »** Les marqueurs de chapitre apparaissent immédiatement sur la timeline.
+- **« Corrige le mot mal transcrit à 1:42. »** L'agent corrige la transcription sur place.
+- **« Trouve le clip où nous avons discuté du plan de déploiement. »** Une question en lecture seule. L'agent cherche dans chaque transcription de votre bibliothèque et répond dans le chat.
+
+### Modifier
+
+_Avec un enregistrement ouvert, « ceci » se résout au clip que vous regardez._
+
+- **« Coupe les 10 premières secondes. »** La coupe apparaît immédiatement sur la timeline, et rien n'est réencodé jusqu'à ce que vous exportiez.
+- **« Retire les euh et les hum et recolle. »** L'agent trouve les mots de remplissage dans la transcription et applique le même type de coupe.
+- **« Combine ces trois clips en un seul, dans cet ordre. »** L'agent les assemble, en préservant la transcription et les chapitres.
+
+### Partager et examiner
+
+- **« Qui regarde ce clip ? »** Une question en lecture seule. L'agent répond avec les compteurs de vues, séparés entre les personnes et les autres agents qui lisent la transcription.
+- **« Partage ceci avec l'équipe design, en lecture seule. »** La visibilité et l'accès de l'enregistrement se mettent à jour immédiatement.
+
+</Cards>
+
+## Actions moins courantes
+
+Toutes les capacités de Clips ne sont pas des actions de premier ordre préchargées par l'agent. Les actions de mémoire d'écran de Rewind en sont un bon exemple, puisqu'elles n'importent qu'une fois que vous avez activé Rewind. Quand une demande a besoin de l'une d'elles, l'agent cherche l'outil approprié par son nom avant de l'appeler, de la même façon que vous pourriez chercher dans une palette de commandes plutôt que de mémoriser chaque raccourci. Vous le remarquerez généralement sous la forme d'une brève pause sur les demandes qui vont au-delà des tâches quotidiennes de bibliothèque et d'édition.
+
+## Et ensuite
+
+- [**Clips**](/docs/template-clips) — la vue d'ensemble et ce qu'elle remplace
+- [**Fonctionnalités**](/docs/template-clips-features) — chaque domaine de fonctionnalité, avec les étapes de configuration pour chacun
+- [**Clips dans un espace de travail multi-apps**](/docs/template-clips-integrations) — les clips lisibles par un agent, l'export vers Brain, et la preuve d'appel CRM
+- [**Guide développeur**](/docs/template-clips-developers) — chaque action, le modèle de données, et comment étendre l'application
+- [**Connaissance du contexte**](/docs/context-awareness) — comment l'agent connaît le clip actuel et la position de lecture

@@ -1,12 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-/**
- * Unit tests for the privacy-gated plan meta helper.
- *
- * Mirrors the mock style used in public-plans-viewer.spec.ts: stub getDb and
- * drizzle-orm so no real DB is needed and the server-only import chain is safe.
- */
-
 vi.mock("drizzle-orm", () => ({
   eq: (col: unknown, val: unknown) => ({ col, val }),
 }));
@@ -108,7 +101,6 @@ describe("buildPlanMetaDescription", () => {
   });
 
   it("truncates to ≤160 chars with an ellipsis when brief is long", () => {
-    // 200-char string
     const brief = "A".repeat(100) + " " + "B".repeat(99);
     const result = buildPlanMetaDescription(brief);
     expect(result.length).toBeLessThanOrEqual(160);

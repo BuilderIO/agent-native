@@ -38,13 +38,11 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
 
   const knownSet = useMemo(() => new Set(KNOWN_EVENTS.map((e) => e.value)), []);
 
-  // Dynamic events not in the known list
   const extraEvents = useMemo(
     () => dynamicEvents.filter((e) => !knownSet.has(e.value)),
     [dynamicEvents, knownSet],
   );
 
-  // Event names (the `name` column, different from `event` column)
   const extraNames = useMemo(
     () =>
       eventNames.filter(

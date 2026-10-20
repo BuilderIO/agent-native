@@ -22,6 +22,7 @@ const OWNER = "synthetic-postgres-migration-owner@example.test";
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let action: typeof import("./migrate-content-database-rows.js").default;
+let terminalAction: typeof import("./manage-content-database-migration.js").default;
 let setDocumentProperty: typeof import("./set-document-property.js").default;
 let configureDocumentProperty: typeof import("./configure-document-property.js").default;
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
@@ -30,6 +31,8 @@ let deleteContentDatabase: typeof import("./delete-content-database.js").default
 let restoreDocument: typeof import("./restore-document.js").default;
 let restoreContentDatabase: typeof import("./restore-content-database.js").default;
 let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js").default;
+let planContentTrashPurge: typeof import("./plan-content-trash-purge.js").default;
+let blocksFieldIdentity: typeof import("./_blocks-field-identity.js");
 
 beforeAll(async () => {
   if (!POSTGRES_URL) return;
@@ -44,6 +47,8 @@ beforeAll(async () => {
   getDb = database.getDb;
   schema = database.schema;
   action = (await import("./migrate-content-database-rows.js")).default;
+  terminalAction = (await import("./manage-content-database-migration.js"))
+    .default;
   setDocumentProperty = (await import("./set-document-property.js")).default;
   configureDocumentProperty = (await import("./configure-document-property.js"))
     .default;
@@ -58,13 +63,36 @@ beforeAll(async () => {
     .default;
   permanentlyDeleteDocument = (await import("./permanently-delete-document.js"))
     .default;
+  planContentTrashPurge = (await import("./plan-content-trash-purge.js"))
+    .default;
+  blocksFieldIdentity = await import("./_blocks-field-identity.js");
   await (await import("../server/plugins/db.js")).default(undefined as any);
+  const now = new Date().toISOString();
+  await getDb()
+    .insert(schema.contentSpaces)
+    .values({
+      id: "synthetic_space",
+      name: "Synthetic PostgreSQL migration space",
+      kind: "personal",
+      ownerEmail: OWNER,
+      orgId: null,
+      filesDatabaseId: "synthetic_postgres_migration_files",
+      createdBy: OWNER,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
 }, 60_000);
 
 beforeEach(() => {
   flushOpenDocumentEditorToSql.mockReset();
   flushOpenDocumentEditorToSql.mockResolvedValue(undefined);
 });
+
+const planPermanentDeletion = (id: string) =>
+  runWithRequestContext({ userEmail: OWNER }, () =>
+    planContentTrashPurge.run({ mode: "selection", documentIds: [id] }),
+  );
 
 afterAll(() => {
   delete process.env.DATABASE_URL;
@@ -196,6 +224,10 @@ async function fixture() {
 
 async function cleanupFixture(seed: Awaited<ReturnType<typeof fixture>>) {
   await getDb().transaction(async (tx: any) => {
+    await blocksFieldIdentity.deleteBlocksFieldIdentity({
+      db: tx,
+      documentId: seed.documentId,
+    });
     await tx
       .delete(schema.contentDatabaseMigrationReceipts)
       .where(
@@ -246,6 +278,85 @@ async function waitForPostgresLockWait(minimum: number) {
 const postgresSuite = POSTGRES_URL ? describe : describe.skip;
 
 postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
+  it("persists the same field identity and revision contract on PostgreSQL", async () => {
+    const seed = await fixture();
+    const propertyId = `blocks_${seed.documentId}`;
+    const now = new Date().toISOString();
+    try {
+      const first = await getDb().transaction((tx: any) =>
+        blocksFieldIdentity.persistBlocksFieldIdentity({
+          db: tx,
+          ownerEmail: OWNER,
+          documentId: seed.documentId,
+          propertyId,
+          previousMarkdown: "# Before",
+          markdown: "Alpha\nBeta",
+          expectedRevision: 0,
+          now,
+        }),
+      );
+      const second = await getDb().transaction((tx: any) =>
+        blocksFieldIdentity.persistBlocksFieldIdentity({
+          db: tx,
+          ownerEmail: OWNER,
+          documentId: seed.documentId,
+          propertyId,
+          previousMarkdown: "Alpha\nBeta",
+          markdown: "Beta\nAlpha edited",
+          expectedRevision: 1,
+          now: new Date().toISOString(),
+        }),
+      );
+
+      expect(second.revision).toBe(2);
+      expect(
+        second.blocks
+          .filter((block) => block.state === "live")
+          .map((block) => block.id),
+      ).toEqual([
+        first.blocks.find((block) => block.markdown === "Beta")?.id,
+        first.blocks.find((block) => block.markdown === "Alpha")?.id,
+      ]);
+      const reloaded = await blocksFieldIdentity.readBlocksFieldIdentity({
+        documentId: seed.documentId,
+        propertyId,
+        markdown: "Beta\nAlpha edited",
+      });
+      expect(reloaded.identityStatus).toBe("materialized");
+      expect(reloaded.revision).toBe(2);
+    } finally {
+      await cleanupFixture(seed);
+    }
+  });
+
+  it("materializes distinct fields concurrently without global block-ID contention", async () => {
+    const seed = await fixture();
+    const markdown = '<registry-block blockId="shared-preferred-id" />';
+    try {
+      const states = await Promise.all(
+        ["first", "second"].map((suffix) =>
+          getDb().transaction((tx: any) =>
+            blocksFieldIdentity.persistBlocksFieldIdentity({
+              db: tx,
+              ownerEmail: OWNER,
+              documentId: seed.documentId,
+              propertyId: `${suffix}_${seed.documentId}`,
+              previousMarkdown: "",
+              markdown,
+              expectedRevision: 0,
+              now: new Date().toISOString(),
+            }),
+          ),
+        ),
+      );
+
+      expect(states).toHaveLength(2);
+      expect(states[0]?.blocks[0]?.id).not.toBe(states[1]?.blocks[0]?.id);
+    } finally {
+      await cleanupFixture(seed);
+    }
+  });
+
   it("rejects stale plans before requesting an editor flush", async () => {
     const seed = await fixture();
     try {
@@ -331,7 +442,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
         operation = runWithRequestContext({ userEmail: OWNER }, () =>
           phase === "apply"
             ? action.run({ phase: "apply", plan: seed.plan })
-            : action.run({
+            : terminalAction.run({
                 phase: "rollback",
                 databaseId: seed.databaseId,
                 idempotencyKey: seed.plan.idempotencyKey,
@@ -455,7 +566,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
   }, 60_000);
 
   it.each(["same-trash-root", "active"] as const)(
-    "rebuilds permanent-delete scope after a concurrent %s row insertion",
+    "rejects a stale permanent-delete plan after a concurrent %s row insertion",
     async (rowState) => {
       const seed = await fixture();
       const stamp = "2026-01-01T00:00:00.000Z";
@@ -464,6 +575,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       await runWithRequestContext({ userEmail: OWNER }, () =>
         deleteContentDatabase.run({ databaseId: seed.databaseId }),
       );
+      const purgePlan = await planPermanentDeletion(seed.databaseDocumentId);
 
       let requestInsertion = () => {};
       let releaseHolder = () => {};
@@ -518,49 +630,34 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
         await holderStarted;
 
         deletion = runWithRequestContext({ userEmail: OWNER }, () =>
-          permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
+          permanentlyDeleteDocument.run({
+            id: seed.databaseDocumentId,
+            planId: purgePlan.planId,
+            scopeToken: purgePlan.scopeToken,
+          }),
         );
-        const deletionExpectation =
-          rowState === "active"
-            ? expect(deletion).rejects.toThrow(
-                "Database contains an active row outside this Trash item",
-              )
-            : null;
+        const deletionExpectation = expect(deletion).rejects.toThrow(
+          "Trash changed after review; create and inspect a new plan",
+        );
         await waitForPostgresLockWait(1);
         requestInsertion();
         await insertionCompleted;
         releaseHolder();
         await holder;
 
-        if (deletionExpectation) {
-          await deletionExpectation;
-          expect(
-            await getDb()
-              .select()
-              .from(schema.contentDatabases)
-              .where(eq(schema.contentDatabases.id, seed.databaseId)),
-          ).toHaveLength(1);
-          expect(
-            await getDb()
-              .select()
-              .from(schema.documents)
-              .where(eq(schema.documents.id, extraDocumentId)),
-          ).toHaveLength(1);
-        } else {
-          await deletion;
-          expect(
-            await getDb()
-              .select()
-              .from(schema.contentDatabaseItems)
-              .where(eq(schema.contentDatabaseItems.id, extraItemId)),
-          ).toHaveLength(0);
-          expect(
-            await getDb()
-              .select()
-              .from(schema.documents)
-              .where(eq(schema.documents.id, extraDocumentId)),
-          ).toHaveLength(0);
-        }
+        await deletionExpectation;
+        expect(
+          await getDb()
+            .select()
+            .from(schema.contentDatabases)
+            .where(eq(schema.contentDatabases.id, seed.databaseId)),
+        ).toHaveLength(1);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, extraDocumentId)),
+        ).toHaveLength(1);
       } finally {
         requestInsertion();
         releaseHolder();
@@ -578,7 +675,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
     60_000,
   );
 
-  it("retries permanent deletion when a new external membership expands the lock set", async () => {
+  it("rejects a stale permanent-delete plan when a new external membership expands the lock set", async () => {
     const seed = await fixture();
     const stamp = "2026-01-01T00:00:00.000Z";
     const externalDatabaseId = `aaa_external_${seed.databaseId}`;
@@ -606,6 +703,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocument.run({ id: seed.documentId }),
     );
+    const purgePlan = await planPermanentDeletion(seed.documentId);
 
     let releaseHolder = () => {};
     let holder: Promise<unknown> | undefined;
@@ -626,7 +724,11 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       await holderStarted;
 
       deletion = runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocument.run({ id: seed.documentId }),
+        permanentlyDeleteDocument.run({
+          id: seed.documentId,
+          planId: purgePlan.planId,
+          scopeToken: purgePlan.scopeToken,
+        }),
       );
       await waitForPostgresLockWait(1);
       await getDb().transaction(async (tx: any) => {
@@ -643,20 +745,22 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       });
       releaseHolder();
       await holder;
-      await deletion;
+      await expect(deletion).rejects.toThrow(
+        "Trash changed after review; create and inspect a new plan",
+      );
 
       expect(
         await getDb()
           .select()
           .from(schema.documents)
           .where(eq(schema.documents.id, seed.documentId)),
-      ).toHaveLength(0);
+      ).toHaveLength(1);
       expect(
         await getDb()
           .select()
           .from(schema.contentDatabaseItems)
           .where(eq(schema.contentDatabaseItems.id, externalItemId)),
-      ).toHaveLength(0);
+      ).toHaveLength(1);
       expect(
         await getDb()
           .select()
@@ -688,6 +792,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteContentDatabase.run({ databaseId: seed.databaseId }),
     );
+    const purgePlan = await planPermanentDeletion(seed.databaseDocumentId);
     let releaseHolder = () => {};
     let holder: Promise<unknown> | undefined;
     let restore: Promise<any> | undefined;
@@ -712,13 +817,23 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       );
       await waitForPostgresLockWait(1);
       deletion = runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
+        permanentlyDeleteDocument.run({
+          id: seed.databaseDocumentId,
+          planId: purgePlan.planId,
+          scopeToken: purgePlan.scopeToken,
+        }),
+      );
+      const deletionOutcome = deletion.then(
+        () => null,
+        (error: unknown) => error,
       );
       await new Promise((resolve) => setTimeout(resolve, 100));
       releaseHolder();
       await holder;
       await restore;
-      await expect(deletion).rejects.toThrow(
+      const deletionError = await deletionOutcome;
+      expect(deletionError).toBeInstanceOf(Error);
+      expect((deletionError as Error).message).toContain(
         "Document must be in Trash and be a Trash root before permanent deletion",
       );
 
@@ -794,8 +909,13 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       releaseFlush();
       await migration;
       await trash;
+      const purgePlan = await planPermanentDeletion(rootId);
       await runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocument.run({ id: rootId }),
+        permanentlyDeleteDocument.run({
+          id: rootId,
+          planId: purgePlan.planId,
+          scopeToken: purgePlan.scopeToken,
+        }),
       );
 
       expect(
@@ -884,8 +1004,13 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       releaseGate();
       await gateHolder;
       await trash;
+      const purgePlan = await planPermanentDeletion(seed.databaseDocumentId);
       permanentDelete = runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
+        permanentlyDeleteDocument.run({
+          id: seed.databaseDocumentId,
+          planId: purgePlan.planId,
+          scopeToken: purgePlan.scopeToken,
+        }),
       );
       await Promise.all([migrationExpectation, permanentDelete]);
 

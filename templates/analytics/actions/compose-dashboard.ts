@@ -1,19 +1,33 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import {
+  dashboardWriteReceipt,
+  requireEditableDashboard,
+} from "../server/lib/dashboard-agent-write";
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
+import {
+  annotateSummary,
+  isAgentCaller,
+  verdictFields,
+  verifyPanelWrite,
+  type PanelVerification,
+  type PanelWriteVerdict,
+} from "../server/lib/dashboard-panel-verification";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   getDashboard,
   upsertDashboard,
-  upsertDashboardWithRetry,
+  upsertDashboardWithRetryOutcome,
 } from "../server/lib/dashboards-store";
-import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
+import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
 import {
   buildFirstPartyDashboardFilters,
   buildPanel,
@@ -31,7 +45,6 @@ function normalizeWindow(raw: unknown): MetricWindow | undefined {
   return WINDOWS.has(v) ? v : undefined;
 }
 
-/** One requested metric, normalized to a key plus optional overrides. */
 interface NormalizedRequest {
   metric: string;
   id?: string;
@@ -111,8 +124,8 @@ export default defineAction({
     "Build a large first-party analytics dashboard in ONE fast call: name the metrics you want and the SERVER generates the validated SQL + chart config for every panel. " +
     "Do NOT hand-author large `update-dashboard` configs panel-by-panel — producing/streaming a big multi-panel config inside the ~40s run budget fails and thrashes. " +
     "Each metric expands into a complete first-party panel from the shipped, already-validated metric catalog. Unknown metric keys are skipped and reported (not fatal); each panel's SQL is validated independently (valid panels are saved, invalid ones reported), and the dashboard is assembled and saved in a single atomic store write. " +
-    "If the dashboard already exists and `overwrite` is false (default), the new panels are APPENDED (panels whose id is already present are skipped); with `overwrite: true` the config is replaced. " +
-    "Returns { dashboardId, panelCount, createdMetrics, unknownMetrics, invalidMetrics, urlPath, deepLink, message } — use panelCount as proof-of-done. " +
+    "If the dashboard already exists and `overwrite` is false (default), the new panels are APPENDED (panels whose id is already present are skipped). Set `refreshExisting: true` to atomically replace matching catalog panels in place while preserving unrelated panels. With `overwrite: true` the config is replaced. " +
+    "Returns { dashboardId, panelCount, createdMetrics, refreshedExistingIds, unknownMetrics, invalidMetrics, verified, urlPath, deepLink, message } — use panelCount as proof-of-done, and `verified:true` as proof the panels render. Agent calls run the composed panels the way the dashboard page does before saving and refuse a panel that would show 'No data' or drop its columns; on `verified:false` call `inspect-dashboard-panel`. " +
     `Available metric keys: ${METRIC_KEYS.join(", ")}. ` +
     "Each metric accepts an optional per-metric `window` of '30d' | '90d' | 'all' (only affects windowed virality/time metrics). Catalog panels are time-scoped by construction; custom first-party SQL added later must use `{{timeRange}}` or declare `config.timeScope`.",
   schema: z.object({
@@ -142,6 +155,18 @@ export default defineAction({
       .describe(
         "If true, replace the whole dashboard config. If false (default) and the dashboard exists, APPEND the new panels (skipping ids already present).",
       ),
+    refreshExisting: z
+      .boolean()
+      .optional()
+      .describe(
+        "When appending to an existing dashboard, replace panels whose ids match the requested catalog metrics in place, preserving unrelated panels and layout order. Use this to refresh a catalog-backed dashboard without sending SQL through the prompt.",
+      ),
+    allowEmptyResult: z
+      .boolean()
+      .optional()
+      .describe(
+        "Agent calls only. Set true only when the user expects a composed panel to have no rows right now (for example a brand-new workspace); the save then reports verified:false.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -153,18 +178,29 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async (args) => {
+  // Append skips ids already present and merges onto the latest row, so a replay
+  // adds nothing. Overwrite and refreshExisting replace panels with no revision
+  // fence, so a replay could erase an edit made between calls.
+  retrySafe: (input) => !input.overwrite && !input.refreshExisting,
+  run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const ctx = { email, orgId: getRequestOrgId() || null };
+    const agentCaller = isAgentCaller(actionContext?.caller);
+    const verificationMemo = new Map<string, PanelVerification>();
+    let verdict: PanelWriteVerdict | null = null;
 
-    // The CLI/gateway may hand `metrics` over as a JSON string; the schema
-    // preprocess handles that, but normalize defensively here too.
     const rawMetrics: unknown[] = Array.isArray(args.metrics)
       ? (args.metrics as unknown[])
       : typeof args.metrics === "string"
         ? (JSON.parse(args.metrics) as unknown[])
         : [];
+
+    // Composing into an existing dashboard needs edit rights before any SQL
+    // is validated or run for it.
+    const existing = await getDashboard(args.dashboardId, ctx);
+    if (existing)
+      await requireEditableDashboard(args.dashboardId, ctx, existing);
 
     const requests: NormalizedRequest[] = [];
     for (const raw of rawMetrics) {
@@ -187,15 +223,11 @@ export default defineAction({
         window: req.window,
       });
       if (!panel) {
-        // Unknown key — report, never throw.
         if (!unknownMetrics.includes(req.metric)) {
           unknownMetrics.push(req.metric);
         }
         continue;
       }
-      // Per-panel graceful validation: a bad panel is dropped + reported, the
-      // rest of the dashboard still builds. (Catalog SQL is known-good, so this
-      // is a defensive net, e.g. if a future window/override produces bad SQL.)
       try {
         const timeScopeError = validateFirstPartyDashboardTimeScope(
           panel,
@@ -206,7 +238,10 @@ export default defineAction({
           invalidMetrics.push({ metric: req.metric, reason: timeScopeError });
           continue;
         }
-        validateFirstPartyAnalyticsSql(panel.sql);
+        await validateFirstPartyAnalyticsSqlForScope(panel.sql, {
+          userEmail: ctx.email,
+          orgId: ctx.orgId,
+        });
       } catch (e: any) {
         invalidMetrics.push({
           metric: req.metric,
@@ -218,7 +253,6 @@ export default defineAction({
       createdMetrics.push(req.metric);
     }
 
-    const existing = await getDashboard(args.dashboardId, ctx);
     const dashboardName =
       args.title?.trim() ||
       (existing && typeof existing.config?.name === "string"
@@ -235,19 +269,22 @@ export default defineAction({
         : config;
     }
 
-    let finalConfig: Record<string, unknown>;
+    let finalConfig!: Record<string, unknown>;
+    let updatedAt!: string;
     let appendedCount = composedPanels.length;
     let skippedExistingIds: string[] = [];
+    let refreshedExistingIds: string[] = [];
+    // Whether the store persisted anything; the counters miss filter-only and
+    // identical-config saves.
+    let changed = true;
+    let appended = existing !== null && !args.overwrite;
 
-    if (existing && !args.overwrite) {
-      // Append: preserve existing panels + order, add only new panel ids.
-      // Recomputed on every retry attempt from the freshest existing config —
-      // via upsertDashboardWithRetry — so a panel a concurrent writer just
-      // added is never silently dropped by this merge.
-      const saved = await upsertDashboardWithRetry(
+    const appendToExisting = async () => {
+      appended = true;
+      const saved = await upsertDashboardWithRetryOutcome(
         args.dashboardId,
         ctx,
-        (freshExisting) => {
+        async (freshExisting) => {
           const existingConfig = freshExisting.config as Record<
             string,
             unknown
@@ -260,18 +297,36 @@ export default defineAction({
               .map((p) => (typeof p?.id === "string" ? p.id : null))
               .filter((id): id is string => !!id),
           );
+          const composedById = new Map(
+            composedPanels.map((panel) => [panel.id, panel]),
+          );
+          const refreshed = new Set<string>();
+          const mergedExistingPanels = existingPanels.map((panel) => {
+            const id = typeof panel?.id === "string" ? panel.id : "";
+            const replacement = args.refreshExisting
+              ? composedById.get(id)
+              : undefined;
+            if (!replacement) return panel;
+            refreshed.add(id);
+            return replacement;
+          });
           const toAppend: ComposedPanel[] = [];
           const skipped: string[] = [];
+          const appendedIds = new Set<string>();
           for (const panel of composedPanels) {
+            if (refreshed.has(panel.id)) continue;
             if (existingIds.has(panel.id)) {
               skipped.push(panel.id);
               continue;
             }
+            if (appendedIds.has(panel.id)) continue;
             toAppend.push(panel);
+            appendedIds.add(panel.id);
             existingIds.add(panel.id);
           }
           appendedCount = toAppend.length;
-          skippedExistingIds = skipped;
+          skippedExistingIds = Array.from(new Set(skipped));
+          refreshedExistingIds = Array.from(refreshed);
           const merged = withFilters({
             ...existingConfig,
             name:
@@ -279,43 +334,118 @@ export default defineAction({
               existingConfig.name.trim()
                 ? existingConfig.name
                 : dashboardName,
-            panels: [...existingPanels, ...toAppend],
+            panels: [...mergedExistingPanels, ...toAppend],
           });
+          if (agentCaller) {
+            verdict = await verifyPanelWrite({
+              base: existingConfig,
+              next: merged,
+              signal: actionContext?.signal,
+              allowEmptyResult: args.allowEmptyResult,
+              memo: verificationMemo,
+              dashboardId: args.dashboardId,
+              serverAuthoredPanelIds: new Set([...refreshed, ...appendedIds]),
+            });
+          }
           return { kind: "sql" as const, body: merged };
         },
       );
-      finalConfig = saved.config as Record<string, unknown>;
+      finalConfig = saved.dashboard.config as Record<string, unknown>;
+      updatedAt = saved.dashboard.updatedAt;
+      changed = saved.didWrite;
+    };
+
+    if (existing && !args.overwrite) {
+      await appendToExisting();
     } else {
-      // Create or overwrite: a fresh config with exactly the composed panels.
-      // No prior state can be lost here — create has none, and
-      // `overwrite: true` is an explicit full-replace request rather than a
-      // read-modify-write, so it saves unconditionally like update-dashboard's
-      // full-config replace mode.
       finalConfig = withFilters({
         name: dashboardName,
         description:
           "First-party analytics dashboard composed from the metric catalog.",
         panels: composedPanels,
       });
-      await upsertDashboard(args.dashboardId, "sql", finalConfig, ctx);
+      if (agentCaller) {
+        verdict = await verifyPanelWrite({
+          base: existing ? (existing.config as Record<string, unknown>) : null,
+          next: finalConfig,
+          signal: actionContext?.signal,
+          allowEmptyResult: args.allowEmptyResult,
+          memo: verificationMemo,
+          dashboardId: args.dashboardId,
+          serverAuthoredPanelIds: new Set(composedPanels.map(({ id }) => id)),
+        });
+      }
+      // Validation and verification take seconds, so another call may have
+      // created this dashboard since `existing` was read.
+      const latest = await getDashboard(args.dashboardId, ctx);
+      if (latest) await requireEditableDashboard(args.dashboardId, ctx, latest);
+      if (latest && !args.overwrite) {
+        await appendToExisting();
+      } else if (latest) {
+        const composed = finalConfig;
+        const saved = await upsertDashboardWithRetryOutcome(
+          args.dashboardId,
+          ctx,
+          () => ({ kind: "sql" as const, body: composed }),
+        );
+        finalConfig = saved.dashboard.config as Record<string, unknown>;
+        updatedAt = saved.dashboard.updatedAt;
+        changed = saved.didWrite;
+      } else {
+        const saved = await upsertDashboard(
+          args.dashboardId,
+          "sql",
+          finalConfig,
+          ctx,
+        );
+        updatedAt = saved.updatedAt;
+      }
     }
 
     const panelCount = Array.isArray(finalConfig.panels)
       ? (finalConfig.panels as unknown[]).length
       : 0;
 
-    queueDashboardCollabSync(args.dashboardId, finalConfig, "agent");
+    if (changed) {
+      void queueDashboardCollabSync(
+        args.dashboardId,
+        updatedAt,
+        () => getDashboard(args.dashboardId, ctx),
+        "agent",
+      );
+      track(
+        "dashboard_saved",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          output_id: args.dashboardId,
+          output_type: "dashboard",
+          dashboard_id: args.dashboardId,
+          panel_count: panelCount,
+          created_panel_count: createdMetrics.length,
+          refreshed_panel_count: refreshedExistingIds.length,
+        },
+        actionContext,
+      );
+    }
 
     const parts: string[] = [];
-    if (existing && !args.overwrite) {
-      parts.push(`Appended ${appendedCount} panel(s) to "${args.dashboardId}"`);
-      if (skippedExistingIds.length > 0) {
-        parts.push(`${skippedExistingIds.length} already present`);
+    if (!changed) {
+      parts.push(`No changes were needed for "${args.dashboardId}"`);
+    } else if (appended) {
+      if (refreshedExistingIds.length > 0) {
+        parts.push(
+          `Refreshed ${refreshedExistingIds.length} existing panel(s)`,
+        );
       }
+      parts.push(`Appended ${appendedCount} panel(s) to "${args.dashboardId}"`);
     } else {
       parts.push(
         `${existing ? "Replaced" : "Created"} "${args.dashboardId}" with ${createdMetrics.length} panel(s)`,
       );
+    }
+    if (appended && skippedExistingIds.length > 0) {
+      parts.push(`${skippedExistingIds.length} already present`);
     }
     if (unknownMetrics.length > 0) {
       parts.push(
@@ -330,21 +460,34 @@ export default defineAction({
     parts.push(`Dashboard now has ${panelCount} panel(s).`);
 
     return {
+      saved: true,
+      changed,
       id: args.dashboardId,
       dashboardId: args.dashboardId,
       name: dashboardName,
       panelCount,
       createdMetrics,
+      refreshedExistingIds,
       unknownMetrics,
       invalidMetrics,
       skippedExistingIds,
+      ...verdictFields(verdict),
+      ...(agentCaller && changed
+        ? {
+            _receipt: dashboardWriteReceipt(
+              args.dashboardId,
+              `Saved "${args.dashboardId}" with ${panelCount} panel(s)`,
+              verdict,
+            ),
+          }
+        : {}),
       urlPath: `/dashboards/${args.dashboardId}`,
       deepLink: buildDeepLink({
         app: "analytics",
         view: "adhoc",
         params: { dashboardId: args.dashboardId },
       }),
-      message: parts.join("; ") + ".",
+      message: annotateSummary(parts.join("; ") + ".", verdict),
     };
   },
   link: ({ result }) => {

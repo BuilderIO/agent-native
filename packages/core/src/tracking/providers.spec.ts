@@ -19,7 +19,7 @@ describe("tracking providers", () => {
     vi.restoreAllMocks();
   });
 
-  it("does not register Agent Native Analytics without a public key", async () => {
+  it("does not register Agent-Native Analytics without a public key", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "");
     const { listTrackingProviders, registerBuiltinProviders } =
       await freshTrackingModules();
@@ -29,7 +29,7 @@ describe("tracking providers", () => {
     expect(listTrackingProviders()).not.toContain("agent-native-analytics");
   });
 
-  it("sends track events to Agent Native Analytics when configured", async () => {
+  it("sends track events to Agent-Native Analytics when configured", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
@@ -61,6 +61,67 @@ describe("tracking providers", () => {
       properties: { app: "qa", signed_in: true },
       userId: "u1",
       anonymousId: "anon_1",
+    });
+  });
+
+  it("sends a beta app's server events to beta Analytics", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.agent-native.com/track",
+    );
+    vi.stubEnv("APP_URL", "https://beta.clips.agent-native.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track("qa_event", { app: "clips" }, { userId: "u1" });
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://beta.analytics.agent-native.com/track",
+    );
+  });
+
+  it("sends server exception events to Agent-Native Analytics when configured", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    const { flushTracking, registerBuiltinProviders } =
+      await freshTrackingModules();
+    const { captureException } = await import("./error-capture.js");
+
+    registerBuiltinProviders();
+    captureException(new Error("server boom"), {
+      handled: false,
+      runtime: "node",
+      source: "server",
+      environment: "production",
+    });
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://analytics.example.test/track");
+    expect(JSON.parse(init.body)).toMatchObject({
+      publicKey: "anpk_test",
+      event: "$exception",
+      properties: {
+        exceptionType: "Error",
+        exceptionMessage: "server boom",
+        handled: false,
+        runtime: "node",
+        source: "server",
+        environment: "production",
+      },
     });
   });
 
@@ -100,7 +161,39 @@ describe("tracking providers", () => {
     ).toMatchObject({ session_id: "session-1" });
   });
 
-  it("falls back to the public Vite key for server-side Agent Native Analytics", async () => {
+  it("keeps nested exception context out of Amplitude event properties", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AMPLITUDE_API_KEY", "amp_test");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track(
+      "$exception",
+      {
+        exceptionType: "TypeError",
+        exceptionMessage: "boom",
+        exceptionTags: { route: "/api/run", status_code: 500 },
+        exceptionExtra: { request_id: "request-1", runId: "run-1" },
+      },
+      { userId: "u1", sessionId: "session-1" },
+    );
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    const properties = JSON.parse(init.body).events[0].event_properties;
+    expect(properties).toMatchObject({
+      exceptionType: "TypeError",
+      exceptionMessage: "boom",
+      session_id: "session-1",
+    });
+    expect(properties).not.toHaveProperty("exceptionTags");
+    expect(properties).not.toHaveProperty("exceptionExtra");
+  });
+
+  it("falls back to the public Vite key for server-side Agent-Native Analytics", async () => {
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_vite_test");
     const { listTrackingProviders, registerBuiltinProviders } =
       await freshTrackingModules();
@@ -110,7 +203,7 @@ describe("tracking providers", () => {
     expect(listTrackingProviders()).toContain("agent-native-analytics");
   });
 
-  it("flushes Agent Native Analytics events immediately in serverless runtimes", async () => {
+  it("flushes Agent-Native Analytics events immediately in serverless runtimes", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
@@ -193,6 +286,77 @@ describe("tracking providers", () => {
     });
   });
 
+  it("sends a buffered event's own time to PostHog, not the flush time", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    const toolStartedAt = Date.parse("2026-08-24T17:53:18.793Z");
+    track(
+      "$ai_span",
+      { $ai_trace_id: "run-1", $ai_span_name: "run-query" },
+      { userId: "u1", occurredAt: toolStartedAt },
+    );
+    track(
+      "page_viewed",
+      { path: "/" },
+      { userId: "u1", occurredAt: toolStartedAt },
+    );
+    await flushTracking();
+
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse(init.body);
+      expect(body.timestamp).toBe("2026-08-24T17:53:18.793Z");
+      expect(body.properties).not.toHaveProperty("timestamp");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("shifts AI event times to the operation's end for PostHog only", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const {
+      flushTracking,
+      registerBuiltinProviders,
+      registerTrackingProvider,
+      track,
+    } = await freshTrackingModules();
+
+    const fanOut: TrackingEvent[] = [];
+    registerBuiltinProviders();
+    registerTrackingProvider({
+      name: "qa-fan-out",
+      track: (e) => fanOut.push(e),
+    });
+
+    const startedAt = Date.parse("2026-08-24T21:55:59.154Z");
+    track(
+      "$ai_generation",
+      { $ai_trace_id: "run-1", $ai_latency: 6.52 },
+      { userId: "u1", occurredAt: startedAt },
+    );
+    track(
+      "$ai_trace",
+      { $ai_trace_id: "run-1" },
+      { userId: "u1", occurredAt: startedAt },
+    );
+    await flushTracking();
+
+    const posted = fetchMock.mock.calls.map((call) => JSON.parse(call[1].body));
+    expect(posted[0].timestamp).toBe("2026-08-24T21:56:05.674Z");
+    expect(posted[1].timestamp).toBe("2026-08-24T21:55:59.154Z");
+    expect(fanOut.map((e) => e.timestamp)).toEqual([
+      "2026-08-24T21:55:59.154Z",
+      "2026-08-24T21:55:59.154Z",
+    ]);
+  });
+
   it("reshapes tracked exceptions into PostHog's $exception_list", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
@@ -224,8 +388,6 @@ describe("tracking providers", () => {
     expect(body.properties.distinct_id).toBe("u1");
     expect(body.properties.app).toBe("content");
     expect(body.properties.$exception_level).toBe("error");
-    // The reshaped exception path is a separate branch from /capture/ — a
-    // server error still has to join the visit that triggered it.
     expect(body.properties.$session_id).toBe("session-1");
     expect(body.properties.$exception_list[0]).toMatchObject({
       type: "TypeError",
@@ -299,7 +461,7 @@ describe("tracking providers", () => {
     expect(flushed).toBe(true);
   });
 
-  it("does not register Agent Native Analytics for localhost app URLs", async () => {
+  it("does not register Agent-Native Analytics for localhost app URLs", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv("APP_URL", "http://localhost:3000");
     const { listTrackingProviders, registerBuiltinProviders } =
@@ -310,7 +472,7 @@ describe("tracking providers", () => {
     expect(listTrackingProviders()).not.toContain("agent-native-analytics");
   });
 
-  it("allows an explicit localhost override for Agent Native Analytics", async () => {
+  it("allows an explicit localhost override for Agent-Native Analytics", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv("APP_URL", "http://localhost:3000");
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST", "true");

@@ -1,13 +1,3 @@
-/**
- * The bitemporal history of one attribute value.
- *
- * `crm_record_fields` keeps every superseded value as its own row stamped with
- * when it stopped being current, so "changed from X to Y, by Z" is a read, not
- * an audit-log join. An attribute with `history_tracked = false` is updated in
- * place and therefore genuinely HAS no history — that is reported as
- * `historyTracked: false`, which is a different answer from "nothing changed".
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -142,8 +132,8 @@ export default defineAction({
       // not order the chain. The current row is first, then closed rows by when
       // they were closed — a row's `activeUntil` is the next row's `activeFrom`,
       // which is what actually orders same-instant edits. `(x is null) desc`
-      // puts the current row first in both SQLite (1 > 0) and PostgreSQL
-      // (true > false); NULLS FIRST/LAST defaults differ and cannot be relied on.
+      // puts the current row first in PostgreSQL; NULLS FIRST/LAST defaults
+      // cannot be relied on.
       .orderBy(
         desc(sql`(${schema.crmRecordFields.activeUntil} is null)`),
         desc(schema.crmRecordFields.activeUntil),

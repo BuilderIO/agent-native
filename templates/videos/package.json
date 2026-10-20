@@ -1,0 +1,9 @@
+{
+  "name": "videos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/build-retired-netlify-site.ts videos"
+  },
+  "agentNativeRetiredCompatibility": true
+}

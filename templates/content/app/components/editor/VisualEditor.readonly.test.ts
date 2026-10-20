@@ -12,14 +12,11 @@ describe("VisualEditor read-only mode", () => {
 
     expect(source).toContain("const isEditable = editor.isEditable");
     expect(source).toMatch(
-      /\{isEditable \? \(\s*<input[\s\S]*className="notion-toggle__summary"[\s\S]*\) : \(\s*<span className="notion-toggle__summary" contentEditable=\{false\}>/,
+      /\{isEditable \? \(\s*<input[\s\S]*className="content-toggle__summary"[\s\S]*\) : \(\s*<span className="content-toggle__summary" contentEditable=\{false\}>/,
     );
   });
 
   it("gates the custom drag handle behind editor editability", () => {
-    // Content's DragHandle is a thin re-export of the shared Toolkit extension
-    // (configured with Content's wrapper selector); the implementation — and the
-    // editability gate — lives in Toolkit, so assert it against that source.
     const reexport = readEditorSource("./extensions/DragHandle.tsx");
     expect(reexport).toContain(
       'import { DragHandle as ToolkitDragHandle } from "@agent-native/toolkit/editor"',
@@ -58,6 +55,8 @@ describe("VisualEditor read-only mode", () => {
     expect(source).toContain(
       'session.sourceBlock.classList.add("notion-block--dragging");',
     );
-    expect(source).toContain("session.view.dispatch(tr.scrollIntoView());");
+    expect(source).toContain(
+      "session.view.dispatch(markUserAction(tr).scrollIntoView());",
+    );
   });
 });

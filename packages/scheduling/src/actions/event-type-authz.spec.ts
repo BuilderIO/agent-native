@@ -1,15 +1,8 @@
-/**
- * Cross-tenant write (IDOR) regression tests for event-type-scoped actions
- * that mutate a resource owned by another tenant: revoking a private hashed
- * link and duplicating an event type. Mirrors the `assertAccess("event-type",
- * ..., <role>)` guard already used by `add-private-link.ts` /
- * `delete-event-type.ts`.
- */
-import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { closeDbExec, createGetDb, getDbExec } from "@agent-native/core/db";
 import {
   getRequestUserEmail,
   runWithRequestContext,
@@ -18,27 +11,43 @@ import {
   ForbiddenError,
   registerShareableResource,
 } from "@agent-native/core/sharing";
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import * as schema from "../schema/index.js";
 import { setSchedulingContext } from "../server/context.js";
 import duplicateEventType from "./duplicate-event-type.js";
+import getEventType from "./get-event-type.js";
+import listRoutingFormResponses from "./list-routing-form-responses.js";
 import revokePrivateLink from "./revoke-private-link.js";
+import submitRoutingFormResponse from "./submit-routing-form-response.js";
 
 const OWNER_EMAIL = "owner@example.com";
+
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string")
+    return getDbExec().execute(postgresSql(statement));
+  return getDbExec().execute({
+    ...statement,
+    sql: postgresSql(statement.sql),
+  });
+}
 const OUTSIDER_EMAIL = "outsider@example.com";
 const EVENT_TYPE_ID = "event-type-1";
 const HASH = "private-link-hash-1";
 
-let client: Client;
 let dbDir: string;
 
 beforeEach(async () => {
   dbDir = mkdtempSync(join(tmpdir(), "scheduling-eventtype-authz-test-"));
-  client = createClient({ url: `file:${join(dbDir, `${randomUUID()}.db`)}` });
-  await client.execute(`
+  process.env.DATABASE_URL = `pglite:${dbDir}`;
+  await execute(`
     CREATE TABLE event_types (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -47,7 +56,7 @@ beforeEach(async () => {
       length INTEGER NOT NULL DEFAULT 30,
       durations TEXT,
       position INTEGER NOT NULL DEFAULT 0,
-      hidden INTEGER NOT NULL DEFAULT 0,
+      hidden BOOLEAN NOT NULL DEFAULT false,
       color TEXT,
       scheduling_type TEXT NOT NULL DEFAULT 'personal',
       team_id TEXT,
@@ -63,12 +72,12 @@ beforeEach(async () => {
       period_start_date TEXT,
       period_end_date TEXT,
       seats_per_time_slot INTEGER,
-      requires_confirmation INTEGER NOT NULL DEFAULT 0,
-      disable_guests INTEGER NOT NULL DEFAULT 0,
-      hide_calendar_notes INTEGER NOT NULL DEFAULT 0,
+      requires_confirmation BOOLEAN NOT NULL DEFAULT false,
+      disable_guests BOOLEAN NOT NULL DEFAULT false,
+      hide_calendar_notes BOOLEAN NOT NULL DEFAULT false,
       success_redirect_url TEXT,
       booking_limits TEXT,
-      lock_time_zone_toggle INTEGER NOT NULL DEFAULT 0,
+      lock_time_zone_toggle BOOLEAN NOT NULL DEFAULT false,
       recurring_event TEXT,
       event_name TEXT,
       metadata TEXT,
@@ -79,18 +88,18 @@ beforeEach(async () => {
       visibility TEXT NOT NULL DEFAULT 'private'
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE hashed_links (
       id TEXT PRIMARY KEY,
       hash TEXT NOT NULL UNIQUE,
       event_type_id TEXT NOT NULL,
       expires_at TEXT,
-      is_single_use INTEGER NOT NULL DEFAULT 0,
+      is_single_use BOOLEAN NOT NULL DEFAULT false,
       used_at TEXT,
       created_at TEXT NOT NULL
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE event_type_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
@@ -98,18 +107,57 @@ beforeEach(async () => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      notified_at TEXT
+    );
+  `);
+  await execute(`
+    CREATE TABLE routing_forms (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      team_id TEXT,
+      disabled BOOLEAN NOT NULL DEFAULT false,
+      fields TEXT NOT NULL DEFAULT '[]',
+      rules TEXT NOT NULL DEFAULT '[]',
+      fallback TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    );
+  `);
+  await execute(`
+    CREATE TABLE routing_form_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      notified_at TEXT
+    );
+  `);
+  await execute(`
+    CREATE TABLE routing_form_responses (
+      id TEXT PRIMARY KEY,
+      form_id TEXT NOT NULL,
+      response TEXT NOT NULL,
+      booking_id TEXT,
+      matched_rule_id TEXT,
+      routed_to TEXT,
+      submitter_email TEXT,
+      submitter_ip TEXT,
       created_at TEXT NOT NULL
     );
   `);
 
-  const db = drizzle(client, { schema });
+  const db = createGetDb(schema)();
   setSchedulingContext({
     getDb: () => db,
     schema,
-    // Mirrors real app wiring (templates/scheduling's server plugin): the
-    // scheduling package's own "current user" and the framework's
-    // request-context ALS (used by `assertAccess`) both resolve to the same
-    // identity.
     getCurrentUserEmail: () => getRequestUserEmail(),
   });
   registerShareableResource({
@@ -119,9 +167,16 @@ beforeEach(async () => {
     displayName: "Event Type",
     getDb: () => db,
   });
+  registerShareableResource({
+    type: "routing-form",
+    resourceTable: schema.routingForms,
+    sharesTable: schema.routingFormShares,
+    displayName: "Routing Form",
+    getDb: () => db,
+  });
 
   const now = new Date().toISOString();
-  await client.execute({
+  await execute({
     sql: `INSERT INTO event_types (
       id, title, slug, length, created_at, updated_at, owner_email, visibility
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -136,19 +191,36 @@ beforeEach(async () => {
       "private",
     ],
   });
-  await client.execute({
+  await execute({
+    sql: `INSERT INTO routing_forms (
+      id, name, created_at, updated_at, owner_email, visibility
+    ) VALUES (?, ?, ?, ?, ?, ?)`,
+    args: ["form-1", "Test Form", now, now, OWNER_EMAIL, "private"],
+  });
+  await execute({
+    sql: `INSERT INTO routing_form_responses (
+      id, form_id, response, created_at
+    ) VALUES (?, ?, ?, ?)`,
+    args: [
+      "resp-1",
+      "form-1",
+      JSON.stringify({ email: "lead@example.com" }),
+      now,
+    ],
+  });
+  await execute({
     sql: `INSERT INTO hashed_links (id, hash, event_type_id, created_at) VALUES (?, ?, ?, ?)`,
     args: ["link-1", HASH, EVENT_TYPE_ID, now],
   });
 });
 
-afterEach(() => {
-  client.close();
+afterEach(async () => {
+  await closeDbExec();
   rmSync(dbDir, { recursive: true, force: true });
 });
 
 async function hashedLinkExists(): Promise<boolean> {
-  const { rows } = await client.execute({
+  const { rows } = await execute({
     sql: "SELECT 1 FROM hashed_links WHERE hash = ?",
     args: [HASH],
   });
@@ -156,7 +228,12 @@ async function hashedLinkExists(): Promise<boolean> {
 }
 
 async function eventTypeCount(): Promise<number> {
-  const { rows } = await client.execute("SELECT * FROM event_types");
+  const { rows } = await execute("SELECT * FROM event_types");
+  return rows.length;
+}
+
+async function routingFormResponseCount(): Promise<number> {
+  const { rows } = await execute("SELECT * FROM routing_form_responses");
   return rows.length;
 }
 
@@ -205,5 +282,72 @@ describe("duplicate-event-type authorization", () => {
     );
     expect(result.eventType?.slug).toBe("copy");
     expect(await eventTypeCount()).toBe(2);
+  });
+});
+
+describe("get-event-type authorization", () => {
+  it("rejects an outsider querying by id without access", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OUTSIDER_EMAIL }, () =>
+        getEventType.run({ id: EVENT_TYPE_ID }),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("allows the owner to get an event type by id", async () => {
+    const result: any = await runWithRequestContext(
+      { userEmail: OWNER_EMAIL },
+      () => getEventType.run({ id: EVENT_TYPE_ID }),
+    );
+    expect(result.eventType?.id).toBe(EVENT_TYPE_ID);
+    expect(result.eventType?.title).toBe("30 Min Meeting");
+  });
+});
+
+describe("list-routing-form-responses authorization", () => {
+  it("rejects an outsider with no access to the routing form", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OUTSIDER_EMAIL }, () =>
+        listRoutingFormResponses.run({ formId: "form-1" }),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("allows the owner to list form responses", async () => {
+    const result: any = await runWithRequestContext(
+      { userEmail: OWNER_EMAIL },
+      () => listRoutingFormResponses.run({ formId: "form-1" }),
+    );
+    expect(result.responses).toHaveLength(1);
+    expect(result.responses[0].id).toBe("resp-1");
+  });
+});
+
+describe("submit-routing-form-response public boundary", () => {
+  it("rejects private and disabled forms before storing a response", async () => {
+    await expect(
+      submitRoutingFormResponse.run({ formId: "form-1", response: {} }),
+    ).rejects.toThrow(/Routing form not found/);
+    await execute({
+      sql: "UPDATE routing_forms SET visibility = 'public', disabled = true WHERE id = ?",
+      args: ["form-1"],
+    });
+    await expect(
+      submitRoutingFormResponse.run({ formId: "form-1", response: {} }),
+    ).rejects.toThrow(/Routing form not found/);
+    expect(await routingFormResponseCount()).toBe(1);
+  });
+
+  it("accepts a public enabled form", async () => {
+    await execute({
+      sql: "UPDATE routing_forms SET visibility = 'public', disabled = false WHERE id = ?",
+      args: ["form-1"],
+    });
+    const result = await submitRoutingFormResponse.run({
+      formId: "form-1",
+      response: { email: "lead@example.com" },
+    });
+    expect(result.id).toBeTruthy();
+    expect(await routingFormResponseCount()).toBe(2);
   });
 });

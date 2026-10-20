@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export type Workspace = "primary" | "secondary";
 
 export type SlackTokenResolver = (workspace: Workspace) => Promise<string>;
@@ -12,12 +14,27 @@ export interface SlackMessage {
   thread_ts?: string;
   reply_count?: number;
   permalink?: string;
+  reactions?: Array<{ name: string; count?: number; users?: string[] }>;
+}
+
+export interface SlackAuthTestResult {
+  userId: string;
+  userName: string;
+  teamId: string;
+  teamName: string;
+  botId?: string;
 }
 
 export interface SlackTeamInfo {
   id: string;
   name: string;
   domain: string;
+}
+
+export interface SlackUserInfo {
+  id: string;
+  name: string | null;
+  displayName: string | null;
 }
 
 export interface ChannelHistoryResult {
@@ -37,12 +54,27 @@ export interface SlackReactionResult {
   already_present: boolean;
 }
 
+export interface SlackReactionState {
+  present: boolean;
+}
+
 export interface SlackPostMessageResult {
   ok?: boolean;
   error?: string;
   channel: string;
   ts: string;
   message?: SlackMessage;
+}
+
+export class SlackWriteError extends Error {
+  constructor(
+    message: string,
+    readonly delivery: "rejected" | "unknown",
+    readonly retryAfterSeconds: number | null = null,
+  ) {
+    super(message);
+    this.name = "SlackWriteError";
+  }
 }
 
 const cache = new Map<string, { value: unknown; expiresAt: number }>();
@@ -65,16 +97,20 @@ async function getToken(
   );
 }
 
+function slackCacheScope(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
+
 async function slackApi<T>(
   workspace: Workspace,
   method: string,
   params: Record<string, string> | undefined,
   tokenResolver?: SlackTokenResolver,
 ): Promise<T> {
-  const cacheKey = `${workspace}:${method}:${JSON.stringify(params ?? {})}`;
+  const token = await getToken(workspace, tokenResolver);
+  const cacheKey = `${workspace}:${slackCacheScope(token)}:${method}:${JSON.stringify(params ?? {})}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value as T;
-  const token = await getToken(workspace, tokenResolver);
   const url = new URL(`https://slack.com/api/${method}`);
   for (const [key, value] of Object.entries(params ?? {}))
     url.searchParams.set(key, value);
@@ -99,25 +135,46 @@ async function slackWrite<T extends { ok?: boolean; error?: string }>(
   tokenResolver?: SlackTokenResolver,
 ): Promise<T> {
   const token = await getToken(workspace, tokenResolver);
-  const response = await fetch(`https://slack.com/api/${method}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok)
-    throw new Error(
-      `Slack API error ${response.status}: ${await response.text()}`,
-    );
-  const data = (await response.json()) as T;
-  if (data.ok !== true)
-    throw new Error(`Slack API error: ${data.error ?? "unknown_error"}`);
-  // A successful reaction or message write makes cached reads stale. This is
-  // especially important when a retry follows a partially recorded handoff.
-  invalidateWorkspaceCache(workspace);
-  return data;
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`https://slack.com/api/${method}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new SlackWriteError(`Slack transport error: ${message}`, "unknown");
+    }
+    if (!response.ok) {
+      const retryAfterHeader = response.headers.get("retry-after");
+      const retryAfterSeconds =
+        retryAfterHeader && /^\d+$/.test(retryAfterHeader)
+          ? Number(retryAfterHeader)
+          : null;
+      throw new SlackWriteError(
+        `Slack API error ${response.status}: ${await response.text()}`,
+        response.status >= 400 && response.status < 500
+          ? "rejected"
+          : "unknown",
+        response.status === 429 ? retryAfterSeconds : null,
+      );
+    }
+    const data = (await response.json()) as T;
+    if (data.ok !== true) {
+      throw new SlackWriteError(
+        `Slack API error: ${data.error ?? "unknown_error"}`,
+        "rejected",
+      );
+    }
+    return data;
+  } finally {
+    invalidateWorkspaceCache(workspace);
+  }
 }
 
 export async function getChannelHistory(
@@ -207,17 +264,71 @@ export async function getThread(
   };
 }
 
-export async function addEyesReaction(
+export async function authTest(
+  workspace: Workspace,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackAuthTestResult> {
+  const data = await slackApi<{
+    user_id?: string;
+    user?: string;
+    team_id?: string;
+    team?: string;
+    bot_id?: string;
+  }>(workspace, "auth.test", undefined, tokenResolver);
+  if (
+    typeof data.user_id !== "string" ||
+    typeof data.user !== "string" ||
+    typeof data.team_id !== "string" ||
+    typeof data.team !== "string"
+  ) {
+    throw new Error("Slack auth.test response is missing bot identity.");
+  }
+  return {
+    userId: data.user_id,
+    userName: data.user,
+    teamId: data.team_id,
+    teamName: data.team,
+    ...(typeof data.bot_id === "string" ? { botId: data.bot_id } : {}),
+  };
+}
+
+export async function hasReaction(
   workspace: Workspace,
   channelId: string,
   timestamp: string,
+  name: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackReactionState> {
+  const data = await slackApi<{
+    message?: { reactions?: Array<{ name?: string; count?: number }> };
+  }>(
+    workspace,
+    "reactions.get",
+    { channel: channelId, timestamp },
+    tokenResolver,
+  );
+  if (!data.message) {
+    throw new Error("Slack reaction response is missing the message.");
+  }
+  return {
+    present: (data.message.reactions ?? []).some(
+      (reaction) => reaction.name === name && (reaction.count ?? 0) > 0,
+    ),
+  };
+}
+
+export async function addReaction(
+  workspace: Workspace,
+  channelId: string,
+  timestamp: string,
+  name: string,
   tokenResolver?: SlackTokenResolver,
 ): Promise<SlackReactionResult> {
   try {
     await slackWrite(
       workspace,
       "reactions.add",
-      { channel: channelId, timestamp, name: "eyes" },
+      { channel: channelId, timestamp, name },
       tokenResolver,
     );
     return { added: true, already_present: false };
@@ -243,6 +354,20 @@ export async function postThreadReply(
   return data;
 }
 
+export async function postChannelMessage(
+  workspace: Workspace,
+  channelId: string,
+  text: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackPostMessageResult> {
+  return slackWrite<SlackPostMessageResult>(
+    workspace,
+    "chat.postMessage",
+    { channel: channelId, text },
+    tokenResolver,
+  );
+}
+
 export async function getTeamInfo(
   workspace: Workspace,
   tokenResolver?: SlackTokenResolver,
@@ -254,4 +379,34 @@ export async function getTeamInfo(
     tokenResolver,
   );
   return data.team ?? { id: data.team_id ?? "", name: workspace, domain: "" };
+}
+
+export async function getUserInfo(
+  workspace: Workspace,
+  userId: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackUserInfo> {
+  const id = userId.trim();
+  if (!id) throw new Error("A Slack user id is required.");
+  const data = await slackApi<{
+    user?: {
+      id?: string;
+      name?: string;
+      profile?: { display_name?: string };
+    };
+  }>(workspace, "users.info", { user: id }, tokenResolver);
+  const user = data.user;
+  if (!user || typeof user.id !== "string" || !user.id.trim()) {
+    throw new Error("Slack user response is missing a user id.");
+  }
+  const displayName =
+    typeof user.profile?.display_name === "string"
+      ? user.profile.display_name.trim()
+      : "";
+  const name = typeof user.name === "string" ? user.name.trim() : "";
+  return {
+    id: user.id.trim(),
+    name: name || null,
+    displayName: displayName || null,
+  };
 }

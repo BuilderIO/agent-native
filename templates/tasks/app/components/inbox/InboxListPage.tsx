@@ -18,7 +18,6 @@ export function InboxListPage() {
         <>
           <ListViewHeader
             title={t("inbox.pageTitle")}
-            description={t("inbox.pageDescription")}
             isPending={false}
             showSelectToggle={false}
             selection={null}

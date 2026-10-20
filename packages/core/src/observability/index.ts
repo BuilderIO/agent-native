@@ -1,10 +1,18 @@
 export type {
   SpanType,
   SpanStatus,
+  SpanErrorDetail,
   TraceSpan,
   TraceSummary,
   FeedbackType,
   FeedbackEntry,
+  InstructionUpdateStatus,
+  InstructionUpdate,
+  HumanReviewArtifactRef,
+  HumanReviewSummaryPayload,
+  HumanReviewSummary,
+  OutputReviewListRow,
+  OutputReviewRow,
   SatisfactionScore,
   EvalType,
   EvalResult,
@@ -17,10 +25,7 @@ export type {
   ExperimentAssignment,
   ExperimentMetricResult,
   ObservabilityConfig,
-  ObservabilityExporterConfig,
 } from "./types.js";
-
-export { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
 
 export {
   ensureObservabilityTables,
@@ -33,6 +38,8 @@ export {
   insertFeedback,
   getFeedback,
   getFeedbackStats,
+  insertInstructionUpdate,
+  getInstructionUpdates,
   upsertSatisfactionScore,
   getSatisfactionScores,
   insertEvalResult,
@@ -40,11 +47,14 @@ export {
   getEvalStats,
   insertEvalDataset,
   listEvalDatasets,
+  listEvalDatasetsPage,
   getEvalDataset,
+  getEvalDatasetByName,
   updateEvalDataset,
   insertExperiment,
   updateExperiment,
   listExperiments,
+  listExperimentsPage,
   getExperiment,
   upsertAssignment,
   getAssignment,
@@ -52,6 +62,9 @@ export {
   getExperimentResults,
   getObservabilityOverview,
 } from "./store.js";
+
+export { buildFailureContext, withFailureContext } from "./failure-context.js";
+export type { FailureContext } from "../shared/failure-report.js";
 
 export { createObservabilityPlugin } from "./plugin.js";
 export { createObservabilityHandler } from "./routes.js";

@@ -33,7 +33,6 @@ describe("normalizeAppPath", () => {
       expect(normalizeAppPath("http://evil.com/path")).toBeNull();
       expect(normalizeAppPath("javascript:alert(1)")).toBeNull();
       expect(normalizeAppPath("data:text/html,<x>")).toBeNull();
-      // The sentinel origin itself must not be a bypass.
       expect(normalizeAppPath("http://an.invalid/foo")).toBeNull();
     });
 
@@ -47,11 +46,9 @@ describe("normalizeAppPath", () => {
     it("rejects a path escaping the app base path", () => {
       expect(normalizeAppPath("/mail/inbox", "/mail")).toBe("/mail/inbox");
       expect(normalizeAppPath("/mail", "/mail")).toBe("/mail");
-      // Same-origin sibling app on a multi-app workspace host.
       expect(normalizeAppPath("/otherapp/admin", "/mail")).toBeNull();
       expect(normalizeAppPath("/mailicious/admin", "/mail")).toBeNull();
       expect(normalizeAppPath("/", "/mail")).toBeNull();
-      // Traversal that WHATWG normalises out of the base path.
       expect(normalizeAppPath("/mail/../otherapp/admin", "/mail")).toBeNull();
     });
 
@@ -70,9 +67,6 @@ describe("normalizeAppPath", () => {
     expect(normalizeAppPath(SIGN_IN_LEGACY_ENTRY_PATH)).toBeNull();
     expect(normalizeAppPath("/login")).toBeNull();
     expect(normalizeAppPath("/signup")).toBeNull();
-    // The live base-path loop: `/myapp/login` has no `/_agent-native` marker,
-    // so the old marker-only base resolver failed to recognise it as an auth
-    // entry path and the already-signed-in bounce looped forever.
     expect(normalizeAppPath("/myapp/login", "/myapp")).toBeNull();
     expect(normalizeAppPath("/myapp/signup", "/myapp")).toBeNull();
     expect(
@@ -123,7 +117,6 @@ describe("continuation tokens", () => {
   });
 
   it("re-validates on decode — encode-time validation is never trusted", () => {
-    // A hand-crafted token, as a user pasting a URL could supply.
     const forge = (p: string) =>
       btoa(encodeURIComponent(p))
         .replace(/\+/g, "-")
@@ -152,7 +145,6 @@ describe("nesting is structurally impossible", () => {
   it("decoding a continuation yields a path, never another continuation", () => {
     const inner = encodeContinuation("/inbox");
     const outer = encodeContinuation(`${SIGN_IN_ENTRY_PATH}?c=${inner}`);
-    // The only producer refuses: an auth entry path is not returnable.
     expect(outer).toBe("");
   });
 
@@ -161,9 +153,6 @@ describe("nesting is structurally impossible", () => {
     expect(first.signInHref).toBe(
       `${SIGN_IN_ENTRY_PATH}?${SIGN_IN_CONTINUATION_PARAM}=${encodeContinuation("/inbox")}`,
     );
-    // Now the browser is on that URL and something asks for a journey again.
-    // Old behaviour re-encoded the sign-in URL as a fresh `?return=`; here the
-    // re-encoding step has no input at all.
     const second = signInJourney({
       at: first.signInHref!,
       continuation: encodeContinuation("/inbox"),
@@ -171,7 +160,6 @@ describe("nesting is structurally impossible", () => {
     expect(second.signInHref).toBeNull();
     expect(second.resumeHref).toBe("/inbox");
 
-    // And again, to prove it cannot grow.
     const third = signInJourney({
       at: `${SIGN_IN_ENTRY_PATH}?c=${encodeContinuation("/inbox")}`,
       continuation: encodeContinuation("/inbox"),
@@ -200,7 +188,6 @@ describe("signInJourney", () => {
   });
 
   it("keeps accepting the legacy ?return= grammar forever", () => {
-    // Generated apps in the wild hand-write this and are not upgradeable.
     const journey = signInJourney({
       at: "/_agent-native/sign-in?return=%2Finbox",
       legacyReturn: "/inbox",
@@ -221,7 +208,7 @@ describe("signInJourney", () => {
         legacyReturn,
       });
       expect(journey.resumeHref.startsWith("//")).toBe(false);
-      expect(journey.resumeHref).toBe("/");
+      expect(journey.resumeHref).toBe("/home");
     },
   );
 
@@ -243,21 +230,17 @@ describe("signInJourney", () => {
     ]) {
       const journey = signInJourney({ at });
       expect(journey.signInHref).toBeNull();
-      expect(journey.resumeHref).toBe("/");
+      expect(journey.resumeHref).toBe("/home");
     }
   });
 
   it("does not loop on an auth entry path under a base path", () => {
-    // The reproducible base-path loop: `/myapp/login` was not recognised as an
-    // auth entry path, so the resume target was the login page itself.
     const journey = signInJourney({ at: "/myapp/login", basePath: "/myapp" });
     expect(journey.signInHref).toBeNull();
-    expect(journey.resumeHref).toBe("/myapp");
+    expect(journey.resumeHref).toBe("/myapp/home");
   });
 
   it("signInHref is null — not a fallback — when already at sign-in", () => {
-    // Load-bearing: RequireSession has no self-redirect guard left, so a
-    // non-null fallback here would `location.replace` the same URL forever.
     expect(signInJourney({ at: SIGN_IN_ENTRY_PATH }).signInHref).toBeNull();
     expect(signInJourney({ at: SIGN_IN_LEGACY_ENTRY_PATH }).signInHref).toBe(
       null,
@@ -279,12 +262,50 @@ describe("signInJourney", () => {
       at: SIGN_IN_ENTRY_PATH,
       continuation: "not-a-real-token-%%%",
     });
-    expect(journey.resumeHref).toBe("/");
+    expect(journey.resumeHref).toBe("/home");
+  });
+
+  it("uses the configured app home for an invalid continuation", () => {
+    expect(
+      signInJourney({
+        at: SIGN_IN_ENTRY_PATH,
+        continuation: "not-a-real-token-%%%",
+        homePath: "/inbox",
+      }).resumeHref,
+    ).toBe("/inbox");
+    expect(
+      signInJourney({
+        at: "/mail/sign-in",
+        basePath: "/mail",
+        continuation: "not-a-real-token-%%%",
+        homePath: "/inbox",
+      }).resumeHref,
+    ).toBe("/mail/inbox");
+  });
+
+  it("rejects unsafe configured home paths", () => {
+    for (const homePath of [
+      "https://evil.example",
+      "//evil.example",
+      "/inbox?next=/evil",
+      "/inbox#evil",
+      "/inbox/../evil",
+      "/sign-in",
+      "/workspace/sign-in",
+      "/workspace/_agent-native/sign-in",
+      "/workspace/login",
+      "/workspace/signup",
+    ]) {
+      expect(
+        signInJourney({ at: SIGN_IN_ENTRY_PATH, homePath }).resumeHref,
+      ).toBe("/home");
+    }
+    expect(
+      signInJourney({ at: SIGN_IN_ENTRY_PATH, homePath: "/" }).resumeHref,
+    ).toBe("/");
   });
 
   it("preserves search params for login-form-at-this-URL routes", () => {
-    // `/_agent-native/open`, the MCP authorize page, and `agent-native connect`
-    // serve the login form AT their own URL; client_id/state/PKCE must survive.
     const at =
       "/_agent-native/mcp/authorize?client_id=abc&state=xyz&code_challenge=pkce";
     const journey = signInJourney({ at });
@@ -314,7 +335,7 @@ describe("signInJourneyInlineScript", () => {
       encodeContinuation: (p: string | null) => string;
       homeHref: () => string;
     };
-    expect(evaluated.homeHref()).toBe("/mail");
+    expect(evaluated.homeHref()).toBe("/mail/home");
     expect(evaluated.encodeContinuation("/mail/inbox")).toBe(
       encodeContinuation("/mail/inbox", "/mail"),
     );
@@ -324,5 +345,10 @@ describe("signInJourneyInlineScript", () => {
     expect(evaluated.signInJourney({ at: "/mail/login" })).toEqual(
       signInJourney({ at: "/mail/login", basePath: "/mail" }),
     );
+
+    const configured = new Function(
+      `${script}; return __anCreateSignInJourney("/mail", "/inbox");`,
+    )() as { homeHref: () => string };
+    expect(configured.homeHref()).toBe("/mail/inbox");
   });
 });

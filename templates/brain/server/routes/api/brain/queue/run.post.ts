@@ -10,7 +10,8 @@ declare global {
   var __AGENT_NATIVE_BRAIN_SCHEDULED_RUNTIME__: boolean | undefined;
 }
 
-export const BRAIN_QUEUE_SWEEP_LIMIT = 10;
+export const BRAIN_QUEUE_SWEEP_LIMIT = 25;
+export const BRAIN_MAX_DISTILLATIONS_PER_SWEEP = 2;
 
 function productionLike() {
   return (
@@ -53,7 +54,7 @@ export default defineEventHandler(async (event) => {
     processBrainIngestQueueOnce({
       limit: BRAIN_QUEUE_SWEEP_LIMIT,
       runDistillation: true,
-      maxDistillations: 1,
+      maxDistillations: BRAIN_MAX_DISTILLATIONS_PER_SWEEP,
     }),
     expireSensitivityQuarantines(),
   ]);

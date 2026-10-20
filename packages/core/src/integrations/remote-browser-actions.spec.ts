@@ -34,7 +34,7 @@ const device = {
   id: "device-1",
   ownerEmail: "owner@example.com",
   orgId: "org-1",
-  label: "Agent Native for Chrome",
+  label: "Agent-Native for Chrome",
   platform: "chrome-extension",
   appVersion: "0.1.0",
   hostName: null,
@@ -192,5 +192,29 @@ describe("remote browser agent actions", () => {
     expect(mocks.createApproval).not.toHaveBeenCalled();
     expect(mocks.decideApproval).not.toHaveBeenCalled();
     expect(mocks.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("queues approved background tab creation on the current origin", async () => {
+    mocks.createApproval.mockResolvedValue({ id: "approval-2" });
+    mocks.decideApproval.mockResolvedValue({ id: "approval-2" });
+    const actions = await loadActions();
+
+    await actions["control-remote-browser"]!.run(
+      { action: "open-tab", url: "https://example.com/next" },
+      {
+        caller: "tool",
+        threadId: "thread-1",
+        runId: "run-1",
+        approvedToolCallKey: "control-remote-browser:approved",
+      },
+    );
+
+    expect(mocks.enqueue.mock.calls[0]![0].envelope).toMatchObject({
+      operationClass: "browser.control",
+      action: {
+        type: "browser.open-tab",
+        input: { url: "https://example.com/next" },
+      },
+    });
   });
 });

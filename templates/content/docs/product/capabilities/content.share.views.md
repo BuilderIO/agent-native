@@ -12,7 +12,7 @@ availability: "universal"
 dependencies: ["content.view.query", "content.access.page-database"]
 related_features: ["content.feature.make-the-workspace-yours"]
 roadmap_boundary: "feature"
-acceptance_summary: "Shared named Views preserve one reusable presentation over a Database or Query; every viewer sees only their authorized intersection, may retain one automatic personal arrangement, and can create explicit named alternatives without forking data or granting source rows."
+acceptance_summary: "Shared named Views preserve one reusable presentation over a Collection or Query; every viewer sees only their authorized intersection, may retain one automatic personal arrangement, and can create explicit named alternatives without forking data or granting source rows."
 proof_requirements:
   [
     "Stable shared and Only-me View identity, links, embeds, defaults, revisions, deletion, and personal-arrangement lifecycle",
@@ -35,7 +35,7 @@ the records behind it; a polished View is not a diplomatic passport.
 
 ## Example workflow
 
-A team shares a Board over a Database. One person privately filters it to work
+A team shares a Board over a Collection. One person privately filters it to work
 assigned to them and changes column widths. Content remembers that one personal
 arrangement and marks **Viewing with personal changes**. They can reset to the
 shared View, save an explicit Only-me alternative, or—if authorized—update the
@@ -47,7 +47,7 @@ only rows they can already access.
 
 ### One shared definition, personal exploration
 
-- A shared saved View owns its Database or Query input, renderer, visible
+- A shared saved View owns its Collection or Query input, renderer, visible
   fields, downstream filters, sorts, groups, layout, formatting, and permitted
   creation behavior. It never owns the input records or Query output contract.
 - Each person has at most one unnamed automatically remembered personal
@@ -67,21 +67,21 @@ only rows they can already access.
 ### Sharing narrows or intersects; it never grants rows
 
 - A named View may be shared or **Only me** and may narrow access below its
-  owning Database or Query, never widen it.
-- Effective visibility is the intersection of View access, Database/Query
+  owning Collection or Query, never widen it.
+- Effective visibility is the intersection of View access, Collection/Query
   access, Source and row access, field access, and the current viewer's
   authorization. The View never runs with its creator's authority.
 - Counts, groups, aggregates, search, source state, field visibility, embeds,
   agents, exports, and creation choices use that same intersection. A View does
   not reveal inaccessible rows by their count or failure shape.
 - Restricting a View protects its configuration and surface. It does not revoke
-  independent access to the underlying Database, Query, or records elsewhere.
+  independent access to the underlying Collection, Query, or records elsewhere.
 - A fixed output for recipients is a separate explicitly published or
   materialized snapshot capability, not a shared View that grants access.
 
 ## Boundaries and non-goals
 
-- Database and Query Views owns generic View identity and presentation;
+- Collection and Query Views owns generic View identity and presentation;
   Personal View State owns detailed local persistence; this Capability owns the
   shared/personal collaboration policy over that primitive.
 - Queries derive collections and output contracts; Views refine and render
@@ -114,7 +114,7 @@ and source authority are not copied or widened.
 
 ## Current evidence
 
-Saved Database Views, filters, sorting, grouping, several renderers, and
+Saved Collection Views, filters, sorting, grouping, several renderers, and
 ordinary access checks are useful substrate. They do not yet prove the complete
 one-person arrangement lifecycle, View-configuration narrowing, shared Action
 parity, or access-safe outputs across every consumer. This Capability remains

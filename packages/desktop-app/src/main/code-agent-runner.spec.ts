@@ -7,8 +7,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { dispatchCodeAgentRunnerCommand } from "./code-agent-runner-dispatch.js";
 import {
+  isCodeAgentRunnerInFlight,
+  resolveExecutable,
   resolveCodeAgentRunnerInvocation,
   runCodeAgentRunnerWithSignal,
+  withResolvedExecutablePaths,
 } from "./code-agent-runner.js";
 
 const tempRoots: string[] = [];
@@ -19,6 +22,25 @@ afterEach(() => {
   }
 });
 
+describe("isCodeAgentRunnerInFlight", () => {
+  it("keeps a run live while its child process is still starting", () => {
+    const activeRunIds = new Set<string>();
+    const startingRunIds = new Set(["task-1"]);
+
+    expect(
+      isCodeAgentRunnerInFlight("task-1", activeRunIds, startingRunIds),
+    ).toBe(true);
+    expect(
+      isCodeAgentRunnerInFlight("task-2", activeRunIds, startingRunIds),
+    ).toBe(false);
+
+    activeRunIds.add("task-2");
+    expect(
+      isCodeAgentRunnerInFlight("task-2", activeRunIds, startingRunIds),
+    ).toBe(true);
+  });
+});
+
 describe("resolveCodeAgentRunnerInvocation", () => {
   it.each(["run", "approve", "approve-always", "deny"] as const)(
     "uses the bundled runtime for a packaged %s command",
@@ -26,17 +48,17 @@ describe("resolveCodeAgentRunnerInvocation", () => {
       const root = createTempRoot();
       const resourcesPath = path.join(
         root,
-        "Agent Native.app",
+        "Agent-Native.app",
         "Contents",
         "Resources",
       );
       const repoRoot = path.join(root, "source-checkout");
       const electronPath = path.join(
         root,
-        "Agent Native.app",
+        "Agent-Native.app",
         "Contents",
         "MacOS",
-        "Agent Native",
+        "Agent-Native",
       );
       const runId = "task-20260719-abcdef01";
 
@@ -75,6 +97,7 @@ describe("resolveCodeAgentRunnerInvocation", () => {
 
   it("uses the built core CLI when development artifacts are available", () => {
     const repoRoot = createTempRoot();
+    const worktreePath = createTempRoot();
     const localCli = path.join(repoRoot, "packages/core/dist/cli/index.js");
     fs.mkdirSync(path.dirname(localCli), { recursive: true });
     fs.writeFileSync(localCli, "");
@@ -86,20 +109,43 @@ describe("resolveCodeAgentRunnerInvocation", () => {
           resourcesPath: "/ignored/resources",
           electronPath: "/ignored/electron",
           repoRoot,
+          cwd: worktreePath,
         },
         "run",
         "task-1",
       ),
     ).toEqual({
       command: "node",
-      args: ["packages/core/dist/cli/index.js", "code", "run", "task-1"],
-      cwd: repoRoot,
+      args: [localCli, "code", "run", "task-1"],
+      cwd: worktreePath,
       env: { AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT: "1" },
     });
   });
 
+  it("uses the packaged resource directory unless a run worktree is provided", () => {
+    const root = createTempRoot();
+    const resourcesPath = path.join(root, "resources");
+    const repoRoot = path.join(root, "source-checkout");
+    const worktreePath = path.join(root, "worktree");
+
+    const invocation = resolveCodeAgentRunnerInvocation(
+      {
+        appIsPackaged: true,
+        resourcesPath,
+        electronPath: path.join(root, "electron"),
+        repoRoot,
+        cwd: worktreePath,
+      },
+      "run",
+      "task-worktree",
+    );
+
+    expect(invocation.cwd).toBe(worktreePath);
+  });
+
   it("preserves the pnpm development fallback when core has not been built", () => {
     const repoRoot = createTempRoot();
+    const worktreePath = createTempRoot();
 
     expect(
       resolveCodeAgentRunnerInvocation(
@@ -108,6 +154,7 @@ describe("resolveCodeAgentRunnerInvocation", () => {
           resourcesPath: "/ignored/resources",
           electronPath: "/ignored/electron",
           repoRoot,
+          cwd: worktreePath,
         },
         "approve-always",
         "task-2",
@@ -115,6 +162,8 @@ describe("resolveCodeAgentRunnerInvocation", () => {
     ).toEqual({
       command: "pnpm",
       args: [
+        "--dir",
+        repoRoot,
         "--filter",
         "@agent-native/core",
         "exec",
@@ -124,7 +173,7 @@ describe("resolveCodeAgentRunnerInvocation", () => {
         "approve-always",
         "task-2",
       ],
-      cwd: repoRoot,
+      cwd: worktreePath,
       env: { AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT: "1" },
     });
   });
@@ -152,10 +201,146 @@ describe("resolveCodeAgentRunnerInvocation", () => {
     expect(invocation.command).toBe(pnpm);
     expect(invocation.cwd).toBe(repoRoot);
     expect(invocation.args.slice(0, 3)).toEqual([
+      "--dir",
+      repoRoot,
       "--filter",
-      "@agent-native/core",
-      "exec",
     ]);
+  });
+});
+
+describe("resolveExecutable", () => {
+  it("finds CLIs in the standard desktop user-bin directory", () => {
+    const root = createTempRoot();
+    const bin = path.join(root, ".local", "bin");
+    const executable = path.join(bin, "codex");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(executable, "#!/bin/sh\n", { mode: 0o755 });
+
+    expect(resolveExecutable("codex", { HOME: root, PATH: "/usr/bin" })).toBe(
+      executable,
+    );
+  });
+
+  it("skips extensionless and .cmd shims on Windows and finds the .exe", () => {
+    const root = createTempRoot();
+    const npmBin = path.join(root, "npm");
+    const localBin = path.join(root, ".local", "bin");
+    fs.mkdirSync(npmBin, { recursive: true });
+    fs.mkdirSync(localBin, { recursive: true });
+    fs.writeFileSync(path.join(npmBin, "claude"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(path.join(npmBin, "claude.cmd"), "@ECHO off\n", {
+      mode: 0o755,
+    });
+    const environment = { HOME: root, PATH: npmBin };
+
+    expect(resolveExecutable("claude", environment, "win32")).toBeNull();
+
+    const nativeExecutable = path.join(localBin, "claude.exe");
+    fs.writeFileSync(nativeExecutable, "", { mode: 0o755 });
+    expect(resolveExecutable("claude", environment, "win32")).toBe(
+      nativeExecutable,
+    );
+    expect(resolveExecutable("claude", environment, "linux")).toBe(
+      path.join(npmBin, "claude"),
+    );
+  });
+
+  it("propagates GUI-only CLI directories into child PATH", () => {
+    const root = createTempRoot();
+    const bin = path.join(root, ".local", "bin");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, "codex"), "#!/bin/sh\n", { mode: 0o755 });
+    fs.writeFileSync(path.join(bin, "node"), "#!/bin/sh\n", { mode: 0o755 });
+
+    expect(
+      withResolvedExecutablePaths({ HOME: root, PATH: "/usr/bin" }, [
+        "codex",
+        "claude",
+      ]).PATH?.split(path.delimiter),
+    ).toEqual([bin, "/usr/bin"]);
+  });
+
+  it("propagates the Node runtime directory for package-manager shims", () => {
+    const root = createTempRoot();
+    const pnpmHome = path.join(root, ".local", "share", "pnpm");
+    const nodeBin = path.join(
+      root,
+      ".nvm",
+      "versions",
+      "node",
+      "v24.0.0",
+      "bin",
+    );
+    fs.mkdirSync(pnpmHome, { recursive: true });
+    fs.mkdirSync(nodeBin, { recursive: true });
+    fs.writeFileSync(path.join(pnpmHome, "pi"), "#!/usr/bin/env node\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(path.join(nodeBin, "node"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+
+    expect(
+      withResolvedExecutablePaths(
+        { HOME: root, PATH: "/usr/bin", PNPM_HOME: pnpmHome },
+        ["pi"],
+      ).PATH?.split(path.delimiter),
+    ).toEqual([pnpmHome, nodeBin, "/usr/bin"]);
+  });
+
+  it("keeps an NVM CLI ahead of another Node version already on PATH", () => {
+    const root = createTempRoot();
+    const oldNodeBin = path.join(
+      root,
+      ".nvm",
+      "versions",
+      "node",
+      "v20.0.0",
+      "bin",
+    );
+    const selectedNodeBin = path.join(
+      root,
+      ".nvm",
+      "versions",
+      "node",
+      "v24.0.0",
+      "bin",
+    );
+    fs.mkdirSync(oldNodeBin, { recursive: true });
+    fs.mkdirSync(selectedNodeBin, { recursive: true });
+    fs.writeFileSync(path.join(oldNodeBin, "node"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(path.join(selectedNodeBin, "node"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(
+      path.join(selectedNodeBin, "pi"),
+      "#!/usr/bin/env node\n",
+      {
+        mode: 0o755,
+      },
+    );
+
+    expect(
+      withResolvedExecutablePaths({ HOME: root, PATH: oldNodeBin }, [
+        "pi",
+      ]).PATH?.split(path.delimiter),
+    ).toEqual([selectedNodeBin, oldNodeBin]);
+  });
+
+  it("finds CLIs installed under an NVM-managed Node version", () => {
+    const root = createTempRoot();
+    const bin = path.join(root, ".nvm", "versions", "node", "v24.0.0", "bin");
+    const executable = path.join(bin, "codex");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(executable, "#!/bin/sh\n", { mode: 0o755 });
+
+    expect(resolveExecutable("codex", { HOME: root, PATH: "/usr/bin" })).toBe(
+      executable,
+    );
   });
 });
 

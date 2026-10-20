@@ -63,12 +63,6 @@ function knownCode(value: unknown): AgentFailureTaxonomyCode | undefined {
   return undefined;
 }
 
-/**
- * Classify the production failure families used by the Factory triage queue.
- * The regime is deliberately derived from the durable run id, not inferred
- * from prose: scheduled runs use the `job-` namespace and interactive runs do
- * not. This keeps a healthy chat sample from hiding a scheduled outage.
- */
 export function classifyAgentFailure(input: {
   runId?: unknown;
   errorCode?: unknown;
@@ -99,10 +93,9 @@ export function classifyAgentFailure(input: {
     input.terminalEvent,
   ].filter((value) => value !== undefined && value !== null);
   for (const value of evidence) {
-    const text =
-      typeof value === "string"
-        ? value
-        : (JSON.stringify(value) ?? String(value));
+    const serialized =
+      typeof value === "string" ? value : JSON.stringify(value);
+    const text = typeof serialized === "string" ? serialized : "";
     const classified = knownCode(classifyTerminalErrorCode(text));
     if (classified) {
       return {

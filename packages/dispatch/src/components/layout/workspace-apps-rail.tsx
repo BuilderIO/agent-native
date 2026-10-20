@@ -1,10 +1,19 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconApps } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 import { Link, useLocation } from "react-router";
 
+import {
+  filterBuiltInApps,
+  type ConnectedAppSummary,
+} from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
 import {
+  isWorkspaceAppVisibleInDefaultLaunchers,
+  navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
+  workspaceAppIdFromRoute,
   workspaceAppRoute,
   workspaceAppHref,
   type WorkspaceAppSummary,
@@ -12,37 +21,15 @@ import {
 import { AppIcon } from "../app-icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
-function pathFromValue(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-
-  try {
-    const pathname = new URL(trimmed, "https://dispatch.local").pathname;
-    return pathname.replace(/\/+$/, "") || "/";
-  } catch {
-    // coercion-ok: malformed app URLs cannot match a workspace route.
-    return null;
-  }
-}
-
 function appMatchesPath(app: WorkspaceAppSummary, pathname: string): boolean {
-  const appRoute = workspaceAppRoute(app.id);
-  if (pathname === appRoute || pathname.startsWith(`${appRoute}/`)) {
-    return true;
-  }
-
-  const candidatePaths = [app.path, app.url]
-    .map(pathFromValue)
-    .filter((path): path is string => !!path);
-
-  return candidatePaths.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`),
-  );
+  return workspaceAppIdFromRoute(pathname) === app.id;
 }
 
 function appLabel(app: WorkspaceAppSummary): string {
   return app.name.trim() || app.id;
 }
+
+type RailApp = WorkspaceAppSummary & { external?: boolean };
 
 export function WorkspaceAppsRail({
   collapsed = false,
@@ -59,40 +46,71 @@ export function WorkspaceAppsRail({
       includeAgentCards: false,
     },
   );
+  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
+    "list-connected-agents",
+    {},
+  );
   if (appsQuery.isError || !appsQuery.data) return null;
 
-  const apps = appsQuery.data
-    .filter(
+  const workspaceApps = appsQuery.data;
+  const apps: RailApp[] = [
+    ...workspaceApps.filter(
       (app) =>
-        !app.isDispatch &&
+        isWorkspaceAppVisibleInDefaultLaunchers(app) &&
         !app.archived &&
         app.status !== "pending" &&
         !!workspaceAppHref(app),
-    )
-    .sort((a, b) => appLabel(a).localeCompare(appLabel(b)));
+    ),
+    ...filterBuiltInApps(connectedAppsQuery.data ?? [], workspaceApps).map(
+      (app) => ({
+        id: app.id,
+        name: app.name,
+        description: app.description,
+        path: "",
+        url: app.homeUrl?.trim() || app.url,
+        status: "ready" as const,
+        source: "builtin" as const,
+        external: true,
+      }),
+    ),
+  ].sort((a, b) => appLabel(a).localeCompare(appLabel(b)));
 
   if (apps.length === 0) return null;
 
-  const renderAppLink = (app: WorkspaceAppSummary) => {
+  const renderAppLink = (app: RailApp) => {
     const href = workspaceAppHref(app);
     if (!href) return null;
 
     const label = appLabel(app);
     const active = appMatchesPath(app, location.pathname);
-    const link = (
-      <Link
-        to={workspaceAppRoute(app.id)}
-        aria-current={active ? "page" : undefined}
-        aria-label={collapsed ? label : undefined}
-        onClick={onNavigate}
-        className={cn(
-          "flex h-9 items-center rounded-md text-sm transition-colors",
-          collapsed ? "w-9 justify-center" : "w-full gap-2 px-2 text-start",
-          active
-            ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-            : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        )}
-      >
+    const linkProps = {
+      "aria-current": active ? ("page" as const) : undefined,
+      "aria-label": collapsed ? label : undefined,
+      onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+        onNavigate?.();
+        if (
+          !app.external ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey ||
+          !shouldOpenWorkspaceAppInTopWindow()
+        ) {
+          return;
+        }
+        if (navigateToWorkspaceApp(href)) event.preventDefault();
+      },
+      className: cn(
+        "flex h-9 items-center rounded-md text-sm transition-colors",
+        collapsed ? "w-9 justify-center" : "w-full gap-2 px-2 text-start",
+        active
+          ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+          : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+      ),
+    };
+    const linkContent = (
+      <>
         <AppIcon
           id={app.id}
           name={label}
@@ -100,6 +118,15 @@ export function WorkspaceAppsRail({
           className={cn("size-5 rounded-md", active && "ring-1 ring-ring/30")}
         />
         {!collapsed ? <span className="truncate">{label}</span> : null}
+      </>
+    );
+    const link = app.external ? (
+      <a href={href} {...linkProps}>
+        {linkContent}
+      </a>
+    ) : (
+      <Link to={workspaceAppRoute(app.id)} {...linkProps}>
+        {linkContent}
       </Link>
     );
 

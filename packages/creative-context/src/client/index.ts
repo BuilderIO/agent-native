@@ -88,6 +88,10 @@ export {
 } from "./CreativeContextShareTab.js";
 export { CreativeContextSettingsLink } from "./CreativeContextSettingsLink.js";
 export {
+  useCreativeContextLab,
+  useCreativeContextLabState,
+} from "./useCreativeContextLab.js";
+export {
   createCreativeContextAgentTab,
   type CreativeContextAgentTabFactory,
 } from "./agent-tab.js";
@@ -95,3 +99,8 @@ export {
   creativeContextMessagesByLocale,
   type CreativeContextMessages,
 } from "./messages.js";
+export {
+  delimitUntrustedReference,
+  sanitizeUntrustedReference,
+  UNTRUSTED_REFERENCE_ROLE,
+} from "../untrusted-reference.js";

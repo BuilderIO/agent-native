@@ -1,0 +1,81 @@
+---
+title: "Chat: Mit dem Agent sprechen"
+description: "Was der Agent darüber weiß, wo Sie sich in Chat befinden, und Eingabeaufforderungen nach Aufgabe organisiert."
+---
+
+# Mit dem Agent sprechen
+
+In Chat ist die Konversation der wichtigste Weg, die App zu nutzen. Der Agent kann die Aktionen der App ausführen, Dinge nachschlagen, sich merken, was Sie ihm sagen, und Sie zu anderen Seiten bringen. Diese Seite behandelt, was der Agent über Ihren Bildschirm weiß, nützliche Eingabeaufforderungen nach Aufgabe und wo er über die integrierten Aktionen hinausgeht. Einen Überblick finden Sie unter [Chat](/docs/template-chat).
+
+## Wie der Agent Ihren Bildschirm sieht
+
+Der Agent weiß immer, auf welcher Seite Sie sich befinden und welche Konversation geöffnet ist. Deshalb funktioniert „bring mich zurück zur Startseite“ oder „auf welcher Seite bin ich?“ ohne weitere Erklärung. Die App teilt dem Agenten jeden Seitenwechsel in dem Moment mit, in dem er passiert, sodass der Agent nie raten muss.
+
+Chat hat keine Geschäftsdaten, auf die man zeigen könnte, wie einen ausgewählten Termin oder ein geöffnetes Dokument. Alles andere, was der Agent weiß, stammt aus dem, was Sie in der Konversation sagen.
+
+## Nützliche Eingabeaufforderungen nach Aufgabe
+
+Jede Eingabeaufforderung unten läuft gegen die echte App. Hier ist ein durchgerechnetes Beispiel:
+
+<Comparison>
+
+### :blue: Sie fragen
+
+„Rufe die Aktion hello für Alex auf.“
+
+### :green: Was passiert
+
+Der Agent führt die Beispielaktion **hello** mit dem Namen Alex aus. Die Aktion
+gibt „Hello, Alex!“ zurück, und der Agent zeigt es im Chat an. Sonst ändert sich
+in der App nichts.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Erfahren, was die App kann
+
+- **„Was kann diese App?“** Der Agent listet die Aktionen auf, die er hat, und was jede einzelne tut.
+- **„Zeig mir die verfügbaren Aktionen.“** Dasselbe, als einfache Liste von Namen.
+- **„Hilf mir beim Einstieg.“** Der Agent schlägt etwas vor, das Sie zuerst ausprobieren können.
+
+### Sich zurechtfinden
+
+- **„Bring mich zu den Einstellungen.“** Die App öffnet die Seite für Sie.
+- **„Öffne die Datenbankseite.“** Der Agent öffnet `/database`, die nicht in der Seitenleiste verlinkt ist.
+- **„Geh zurück zur Startseite.“** Die Loslegen-Seite wird geöffnet.
+
+### Dem Agenten etwas beibringen
+
+- **„Merke dir, dass ich kurze Antworten bevorzuge.“** Der Agent speichert es in seinem Gedächtnis und nutzt es in späteren Chats.
+- **„Erkläre ab jetzt immer zuerst deine Überlegungen, bevor du antwortest.“** Der Agent kann dies als dauerhafte Anweisung speichern.
+- **„Was weißt du über mich?“** Der Agent liest Ihnen sein Gedächtnis vor.
+
+### Ihre Daten ansehen
+
+- **„Welche Tabellen gibt es in der Datenbank dieser App?“** Der Agent liest die Datenbankstruktur und listet die Tabellen auf.
+- **„Wie viele Chats habe ich?“** Der Agent führt eine reine Leseabfrage gegen die Datenbank aus und antwortet im Chat.
+
+### Das Framework kennenlernen
+
+- **„Wie füge ich dieser App eine neue Aktion hinzu?“** Der Agent durchsucht die Agent-Native-Dokumentation und erklärt die Schritte.
+- **„Was ist der Unterschied zwischen einer Aktion und einem Skill?“** Dasselbe, beantwortet aus der Dokumentation.
+
+</Cards>
+
+<Callout tone="info">
+
+Der Agent liest die Datenbank, ändert sie aber nicht direkt. Um neue
+Informationen zu speichern, nutzt er eine Aktion. So läuft jede Änderung über
+denselben Weg wie die eigenen Bildschirme der App. Ein Entwickler kann dies in
+der Einrichtung der App ändern.
+
+</Callout>
+
+## Wie geht es weiter?
+
+- [**Chat**](/docs/template-chat) — der Überblick
+- [**Funktionen**](/docs/template-chat-features) — Konversationen, die Beispielaktion, Teams und Admin-Seiten
+- [**Chat in einem Multi-App-Arbeitsbereich**](/docs/template-chat-integrations) — Chat mit Dispatch und anderen Apps verbinden
+- [**Entwicklerhandbuch**](/docs/template-chat-developers) — Schnellstart, Aktionen, die Chat-Route und das Hinzufügen Ihrer ersten Funktion
+- [**Kontextbewusstsein**](/docs/context-awareness) — wie der Agent weiß, was auf Ihrem Bildschirm ist

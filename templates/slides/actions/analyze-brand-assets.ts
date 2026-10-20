@@ -1,12 +1,14 @@
-import { defineAction } from "@agent-native/core";
-import { normalizeBrandWebsiteUrl } from "@agent-native/core/brand-kit";
+import { defineAction } from "@agent-native/core/action";
+import {
+  buildBrandAnalysisResult,
+  normalizeBrandWebsiteUrl,
+} from "@agent-native/core/brand-kit";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/server";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
-// Re-exported for back-compat with existing imports/tests.
 export { normalizeBrandWebsiteUrl };
 
 export default defineAction({
@@ -35,21 +37,13 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designSystemId, companyName, brandNotes, websiteUrl }) => {
-    const result: Record<string, unknown> = {};
+    let existingDesignSystem: unknown;
 
-    if (companyName) {
-      result.companyName = companyName;
-    }
-    if (brandNotes) {
-      result.brandNotes = brandNotes;
-    }
-
-    // Include existing design system data if provided
     if (designSystemId) {
       const access = await resolveAccess("design-system", designSystemId);
       if (access) {
         const row = access.resource;
-        result.existingDesignSystem = {
+        existingDesignSystem = {
           id: row.id,
           title: row.title,
           data: row.data ? JSON.parse(row.data) : null,
@@ -58,12 +52,15 @@ export default defineAction({
       }
     }
 
-    // Fetch and analyze website if URL provided
-    if (websiteUrl) {
-      result.websiteAnalysis =
-        await extractRenderedDesignSystemFromUrl(websiteUrl);
-    }
+    const websiteAnalysis = websiteUrl
+      ? await extractRenderedDesignSystemFromUrl(websiteUrl)
+      : undefined;
 
-    return result;
+    return buildBrandAnalysisResult({
+      companyName,
+      brandNotes,
+      existingDesignSystem,
+      websiteAnalysis,
+    });
   },
 });

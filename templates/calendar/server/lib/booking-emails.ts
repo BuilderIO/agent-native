@@ -51,6 +51,19 @@ function bookingTitle(booking: Booking) {
   return stripCrlf(booking.eventTitle) || "Meeting";
 }
 
+function bookingAttendeeEmails(booking: Booking): string[] {
+  const seen = new Set<string>();
+  return [
+    stripCrlf(booking.email),
+    ...(booking.additionalGuestEmails ?? []).map(stripCrlf),
+  ].filter((email) => {
+    const key = email.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function sendBestEffort(
   label: string,
   args: Parameters<typeof sendEmail>[0],
@@ -69,12 +82,14 @@ export function renderBookingConfirmedEmail({
   host,
   manageUrl,
   meetingLink,
+  meetingLinkPending = false,
 }: {
   title: string;
   when: string;
   host: string;
   manageUrl: string;
   meetingLink?: string | null;
+  meetingLinkPending?: boolean;
 }) {
   const paragraphs = [
     `You're booked for ${emailStrong(title)} with ${emailStrong(host)}.`,
@@ -82,12 +97,18 @@ export function renderBookingConfirmedEmail({
   ];
   if (meetingLink) {
     paragraphs.push(`Meeting link: ${emailLink("Join meeting", meetingLink)}.`);
+  } else if (meetingLinkPending) {
+    paragraphs.push(
+      "Your time is reserved, but the meeting link could not be confirmed. The host will follow up with meeting details.",
+    );
   }
 
   return {
     subject: `Confirmed: ${title}`,
     ...renderEmail({
-      preheader: `You're booked for ${title} on ${when}.`,
+      preheader: meetingLinkPending
+        ? `Your time for ${title} is reserved; meeting details will follow.`
+        : `You're booked for ${title} on ${when}.`,
       heading: "Your meeting is booked",
       paragraphs,
       cta: { label: "Manage booking", url: manageUrl },
@@ -104,6 +125,7 @@ export function renderBookingReceivedEmail({
   attendee,
   manageUrl,
   meetingLink,
+  meetingLinkPending = false,
 }: {
   title: string;
   when: string;
@@ -111,6 +133,7 @@ export function renderBookingReceivedEmail({
   attendee: string;
   manageUrl: string;
   meetingLink?: string | null;
+  meetingLinkPending?: boolean;
 }) {
   return {
     subject: `New booking: ${title}`,
@@ -123,7 +146,11 @@ export function renderBookingReceivedEmail({
         `Guest: ${emailStrong(attendee)}.`,
         ...(meetingLink
           ? [`Meeting link: ${emailLink("Join meeting", meetingLink)}.`]
-          : []),
+          : meetingLinkPending
+            ? [
+                "The booking is reserved, but the meeting link could not be confirmed. Please follow up with the guest about meeting details.",
+              ]
+            : []),
       ],
       cta: { label: "View booking", url: manageUrl },
       footer: "This booking was created from your calendar booking link.",
@@ -202,18 +229,24 @@ export async function sendBookingConfirmationEmails({
   const attendee = stripCrlf(booking.email);
   const attendeeName = stripCrlf(booking.name) || "there";
 
-  await sendBestEffort("attendee confirmation", {
-    to: attendee,
-    ...renderBookingConfirmedEmail({
-      title,
-      when,
-      host,
-      manageUrl,
-      meetingLink: booking.meetingLink,
-    }),
-    replyTo: host,
-    templateId: CALENDAR_BOOKING_CONFIRMED_EMAIL_ID,
-  });
+  for (const [index, recipient] of bookingAttendeeEmails(booking).entries()) {
+    await sendBestEffort(
+      index === 0 ? "attendee confirmation" : "additional guest confirmation",
+      {
+        to: recipient,
+        ...renderBookingConfirmedEmail({
+          title,
+          when,
+          host,
+          manageUrl,
+          meetingLink: booking.meetingLink,
+          meetingLinkPending: booking.meetingLinkPending,
+        }),
+        replyTo: host,
+        templateId: CALENDAR_BOOKING_CONFIRMED_EMAIL_ID,
+      },
+    );
+  }
 
   await sendBestEffort("host notification", {
     to: host,
@@ -224,6 +257,7 @@ export async function sendBookingConfirmationEmails({
       attendee,
       manageUrl,
       meetingLink: booking.meetingLink,
+      meetingLinkPending: booking.meetingLinkPending,
     }),
     replyTo: attendee,
     templateId: CALENDAR_BOOKING_RECEIVED_EMAIL_ID,
@@ -247,12 +281,17 @@ export async function sendBookingCancellationEmails({
   const attendee = stripCrlf(booking.email);
   const attendeeName = stripCrlf(booking.name) || "The guest";
 
-  await sendBestEffort("attendee cancellation", {
-    to: attendee,
-    ...renderBookingCancelledEmail({ title, when, host, bookAgainUrl }),
-    replyTo: host || undefined,
-    templateId: CALENDAR_BOOKING_CANCELLED_EMAIL_ID,
-  });
+  for (const [index, recipient] of bookingAttendeeEmails(booking).entries()) {
+    await sendBestEffort(
+      index === 0 ? "attendee cancellation" : "additional guest cancellation",
+      {
+        to: recipient,
+        ...renderBookingCancelledEmail({ title, when, host, bookAgainUrl }),
+        replyTo: host || undefined,
+        templateId: CALENDAR_BOOKING_CANCELLED_EMAIL_ID,
+      },
+    );
+  }
 
   if (!host) return;
 

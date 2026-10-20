@@ -41,11 +41,8 @@ export interface GitHubOAuthStatus {
 }
 
 function getGitHubOAuthConfig() {
-  const clientId =
-    process.env.GITHUB_INTEGRATION_CLIENT_ID || process.env.GITHUB_CLIENT_ID;
-  const clientSecret =
-    process.env.GITHUB_INTEGRATION_CLIENT_SECRET ||
-    process.env.GITHUB_CLIENT_SECRET;
+  const clientId = process.env.GITHUB_INTEGRATION_CLIENT_ID;
+  const clientSecret = process.env.GITHUB_INTEGRATION_CLIENT_SECRET;
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
 }

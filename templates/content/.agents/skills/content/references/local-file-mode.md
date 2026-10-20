@@ -7,12 +7,12 @@ section is the short version.
 
 ## Local folder sources
 
-The `/local-files` view links one or more browser or Agent Native Desktop
+The `/local-files` view links one or more browser or Agent-Native Desktop
 folders to SQL-backed documents. The UI uses folder rows: **Pull** calls
 `sync-local-folder-source`, **Check** runs the same action with
 `dryRun: true`, and **Push** uses the source-scoped `export-content-source`.
 Imported files become ordinary SQL documents in the target space's canonical
-Files database. Preserve frontmatter `id` across renames; missing files and
+Files collection. Preserve frontmatter `id` across renames; missing files and
 concurrent changes become reviewable incoming change sets instead of
 silently deleting or overwriting a page. SQL stores only opaque connection
 identity, relative paths, and hashes. Disconnecting a folder keeps both the
@@ -101,7 +101,7 @@ unless a dedicated Builder retargeting workflow is added.
 
 ## Builder source components
 
-Builder CMS database body hydration renders unsupported provider-native body
+Builder CMS collection body hydration renders unsupported provider-native body
 blocks as `<SourceComponent ... />` markers. These markers include
 `mappingStatus` and `sourceEditState`: `mapped` / `safe-to-edit` content has
 an explicit Markdown/NFM mapper, `preserved` / `needs-review` content keeps a
@@ -121,7 +121,7 @@ structure changes.
 
 Browser-picked folders can be the source of truth for `.md`/`.mdx` files, but
 the browser does not expose an absolute path that Vite can compile. Component
-previews from a picked `components/` folder require Agent Native Desktop or a
+previews from a picked `components/` folder require Agent-Native Desktop or a
 local Content dev server. Desktop-selected folders register their workspace
 path with the local dev server so Vite can import and hot reload
 `components/*.tsx`.

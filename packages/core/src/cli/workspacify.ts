@@ -1,29 +1,18 @@
-/**
- * Transform a standalone template directory into a workspace app in place.
- *
- * Called after copying any template under `apps/<name>/` inside an enterprise
- * workspace. The transform:
- *
- *   1. Rewrites package.json:
- *      - Published framework packages stay as regular npm deps
- *      - Adds @<workspace-scope>/shared as a workspace:* dep so the app
- *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
- *   2. Removes files that only make sense in standalone apps
- *      (`learnings.defaults.md`, etc.).
- *   3. Replaces chat's stock auth/chat wrappers with inherited wrappers so
- *      the workspace core can own those plugin slots while framework defaults
- *      still mount when the workspace core is empty.
- *   4. Leaves app source code untouched. The three-layer framework
- *      auto-discovers workspace-core via `agent-native.workspaceCore` in the
- *      workspace root package.json — no per-app wiring needed.
- *
- * This means any first-party template under templates/* is usable as a
- * workspace app without maintaining a parallel copy.
- */
 import fs from "fs";
 import path from "path";
 
+import { isMap, parseDocument } from "yaml";
+
+import {
+  BUILDER_CODE_STARTER_LOCAL_SKILLS,
+  FACTORY_TEMPLATE_LOCAL_SKILLS,
+  FRAMEWORK_TEMPLATE_SHARED_SKILLS,
+  WORKSPACE_SKILLS,
+} from "./workspace-skill-policy.js";
+
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+const NODE_PTY_BUILD_DEPENDENCY = "^12.4.0";
+const NODE_PTY_PACKAGE_SELECTOR = "node-pty@*";
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
   "@react-router/fs-routes",
@@ -32,22 +21,68 @@ const REACT_ROUTER_BUILD_DEPENDENCIES = [
 ] as const;
 
 export interface WorkspacifyOptions {
-  /** Target app directory (already populated with the copied template) */
   appDir: string;
-  /** App name (e.g. "mail") */
   appName: string;
-  /** Source template name (e.g. "chat" when appName is "crm") */
   templateName?: string;
-  /** Workspace root directory */
   workspaceRoot: string;
-  /** Shared workspace package name (e.g. "@my-company/shared") */
   workspaceCoreName: string;
-  /** Version range to use for the published @agent-native/core package */
   coreDependencyVersion?: string;
-  /** Version range to use for the package-backed Dispatch app */
   dispatchDependencyVersion?: string;
-  /** Version range to use for the published @agent-native/toolkit package */
   toolkitDependencyVersion?: string;
+  agentKitDependencyVersion?: string;
+  otelDependencyVersion?: string;
+}
+
+export function ensureNodePtyBuildDependency(workspaceRoot: string): void {
+  const workspacePath = path.join(workspaceRoot, "pnpm-workspace.yaml");
+  if (!fs.existsSync(workspacePath)) {
+    throw new Error(
+      `Cannot add the node-pty build dependency: ${workspacePath} does not exist`,
+    );
+  }
+
+  const current = fs.readFileSync(workspacePath, "utf-8");
+  const document = parseDocument(current);
+  if (document.errors.length > 0) {
+    throw new Error(
+      `Cannot update ${workspacePath}: ${document.errors
+        .map((error) => error.message)
+        .join("; ")}`,
+    );
+  }
+
+  const packageExtensions = document.getIn(["packageExtensions"]);
+  if (document.has("packageExtensions") && packageExtensions === null) {
+    document.set("packageExtensions", {});
+  } else if (packageExtensions !== undefined && !isMap(packageExtensions)) {
+    throw new Error(
+      `Cannot update ${workspacePath}: packageExtensions must be a mapping`,
+    );
+  }
+
+  if (
+    document.getIn([
+      "packageExtensions",
+      NODE_PTY_PACKAGE_SELECTOR,
+      "dependencies",
+      "node-gyp",
+    ]) === NODE_PTY_BUILD_DEPENDENCY
+  ) {
+    return;
+  }
+
+  document.setIn(
+    [
+      "packageExtensions",
+      NODE_PTY_PACKAGE_SELECTOR,
+      "dependencies",
+      "node-gyp",
+    ],
+    NODE_PTY_BUILD_DEPENDENCY,
+  );
+  const updated = document.toString({ lineWidth: 0 });
+
+  if (updated !== current) fs.writeFileSync(workspacePath, updated);
 }
 
 export function workspacifyApp(opts: WorkspacifyOptions): void {
@@ -66,13 +101,17 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     "@agent-native/toolkit",
     opts.toolkitDependencyVersion,
   );
+  const agentKitDependencyVersion = pinnedByWorkspace(
+    "@agent-native/agentkit",
+    opts.agentKitDependencyVersion,
+  );
+  const otelDependencyVersion = pinnedByWorkspace(
+    "@agent-native/otel",
+    opts.otelDependencyVersion,
+  );
 
-  // 1) Rewrite package.json to add the workspace core dep and resolve
-  //    published framework-package workspace:* refs to package ranges.
-  //    Other workspace:* deps (e.g. @agent-native/scheduling) stay as-is —
-  //    they resolve within the
-  //    workspace because the required package is scaffolded alongside the app.
   const pkgPath = path.join(appDir, "package.json");
+  let hasNodePty = false;
   if (fs.existsSync(pkgPath)) {
     try {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
@@ -94,29 +133,31 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
             if (key === "@agent-native/toolkit") {
               deps[key] = toolkitDependencyVersion;
             }
+            if (key === "@agent-native/agentkit") {
+              deps[key] = agentKitDependencyVersion;
+            }
+            if (key === "@agent-native/otel") {
+              deps[key] = otelDependencyVersion;
+            }
           }
         }
       }
-      // Ensure the dependency on the workspace shared package is present.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies[workspaceCoreName] = "workspace:*";
-      // Core loads postgres-js lazily when DATABASE_URL points at Postgres.
-      // Add the runtime package to workspace apps so production bundles do
-      // not fail only after a hosted Postgres database is configured.
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
-      // pnpm build-script approvals belong at the workspace root. Leaving the
-      // template's per-app setting in place makes pnpm warn on every install.
+      hasNodePty = [
+        pkg.dependencies,
+        pkg.devDependencies,
+        pkg.peerDependencies,
+        pkg.optionalDependencies,
+      ].some((deps) => Boolean(deps?.["node-pty"]));
       if (pkg.pnpm && typeof pkg.pnpm === "object") {
         delete pkg.pnpm.onlyBuiltDependencies;
         if (Object.keys(pkg.pnpm).length === 0) {
           delete pkg.pnpm;
         }
       }
-      // Pin @assistant-ui/store and @assistant-ui/tap so pre-existing workspaces
-      // whose root pnpm-workspace.yaml pre-dates this fix are still protected.
-      // The constraints exclude the breaking store@0.2.14/tap@0.6.0 combination
-      // that causes Vite pre-bundling failures via a missing ./react-shim export.
       pkg.devDependencies = pkg.devDependencies ?? {};
       pkg.devDependencies["@assistant-ui/store"] ??= ">=0.2.9 <0.2.14";
       pkg.devDependencies["@assistant-ui/tap"] ??= "^0.5.14";
@@ -125,16 +166,9 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       // Non-fatal: leave package.json unchanged.
     }
   }
+  if (hasNodePty) ensureNodePtyBuildDependency(opts.workspaceRoot);
 
-  // 2) Remove standalone-only files that would confuse the workspace layout.
-  for (const f of [
-    "learnings.defaults.md",
-    // pnpm-workspace.yaml marks a directory as a pnpm workspace root.
-    // Leaving it in an app directory nested under a parent workspace causes
-    // ERR_PNPM_WORKSPACE_PKG_NOT_FOUND when the app depends on workspace:*
-    // packages (e.g. @<scope>/shared). Overrides belong at the workspace root.
-    "pnpm-workspace.yaml",
-  ]) {
+  for (const f of ["learnings.defaults.md", "pnpm-workspace.yaml"]) {
     const p = path.join(appDir, f);
     try {
       if (fs.existsSync(p)) fs.unlinkSync(p);
@@ -143,9 +177,8 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     }
   }
 
-  // 3) Templates document action commands from the framework repo layout.
-  //    Workspace apps live under apps/<name>, so point every agent at the
-  //    generated app directory instead.
+  linkInheritedWorkspaceSkills(opts);
+
   const agentsPath = path.join(appDir, "AGENTS.md");
   if (fs.existsSync(agentsPath)) {
     try {
@@ -171,26 +204,164 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       exportName: "defaultAuthPlugin",
     });
     writeInheritedChatAgentChatPlugin(appDir, workspaceCoreName, opts.appName);
+  } else if (opts.templateName === "builder-code-starter") {
+    // The starter keeps its own agent-chat plugin (guard, prompt), but the
+    // appId it inherits from Chat must become this app's.
+    renameInheritedChatAppId(appDir, opts.appName);
   }
 }
 
-/**
- * The version an existing workspace already pins for a framework package.
- *
- * Apps added months apart otherwise carry whatever version the CLI that
- * scaffolded them happened to be, and pnpm keeps one physical copy of core per
- * distinct spec — roughly 175 MB each. The workspace root manifest is the one
- * anchor; `agent-native upgrade` is what moves every manifest together.
- * Local (`file:`/`link:`/`workspace:`) and floating (`latest`, `catalog:`)
- * values are not pins, so they fall through to the caller's version.
- */
+function renameInheritedChatAppId(appDir: string, appId: string): void {
+  const pluginPath = path.join(appDir, "server", "plugins", "agent-chat.ts");
+  if (!fs.existsSync(pluginPath)) return;
+  const content = fs.readFileSync(pluginPath, "utf-8");
+  const next = content.replace(
+    /(\bappId:\s*)(["'])chat\2/,
+    (_match, prefix: string, quote: string) =>
+      `${prefix}${quote}${appId}${quote}`,
+  );
+  if (next !== content) fs.writeFileSync(pluginPath, next);
+}
+
+// Skills a template ships as its own; workspace linking must not prune them.
+const TEMPLATE_LOCAL_SKILLS: Record<string, readonly string[]> = {
+  factory: FACTORY_TEMPLATE_LOCAL_SKILLS,
+  "builder-code-starter": BUILDER_CODE_STARTER_LOCAL_SKILLS,
+};
+
+function linkInheritedWorkspaceSkills(opts: WorkspacifyOptions): void {
+  const workspaceSkillsDir = path.join(opts.workspaceRoot, ".agents", "skills");
+  if (!fs.existsSync(workspaceSkillsDir)) return;
+
+  removeCopiedFrameworkSkills(opts.appDir, {
+    allowUnverified: true,
+    preserveLocalSkills: TEMPLATE_LOCAL_SKILLS[opts.templateName ?? ""] ?? [],
+  });
+  linkWorkspaceSkills(opts.appDir, opts.workspaceRoot);
+}
+
+function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
+  const sourceStat = fs.lstatSync(sourceDir, { throwIfNoEntry: false });
+  const targetStat = fs.lstatSync(targetDir, { throwIfNoEntry: false });
+  if (!sourceStat?.isDirectory() || !targetStat?.isDirectory()) return false;
+
+  const sourceEntries = fs.readdirSync(sourceDir, { withFileTypes: true });
+  const targetEntries = fs.readdirSync(targetDir, { withFileTypes: true });
+  if (sourceEntries.length !== targetEntries.length) return false;
+
+  return sourceEntries.every((sourceEntry) => {
+    const sourcePath = path.join(sourceDir, sourceEntry.name);
+    const targetPath = path.join(targetDir, sourceEntry.name);
+    const targetEntry = targetEntries.find(
+      (entry) => entry.name === sourceEntry.name,
+    );
+    if (!targetEntry) return false;
+
+    if (sourceEntry.isSymbolicLink()) {
+      return (
+        targetEntry.isSymbolicLink() &&
+        fs.readlinkSync(sourcePath) === fs.readlinkSync(targetPath)
+      );
+    }
+    if (sourceEntry.isDirectory()) {
+      return (
+        targetEntry.isDirectory() &&
+        skillDirContentsMatch(sourcePath, targetPath)
+      );
+    }
+    return (
+      sourceEntry.isFile() &&
+      targetEntry.isFile() &&
+      fs.readFileSync(sourcePath).equals(fs.readFileSync(targetPath))
+    );
+  });
+}
+
+export function removeCopiedFrameworkSkills(
+  appDir: string,
+  options: {
+    workspaceRoot?: string;
+    allowUnverified?: boolean;
+    preserveLocalSkills?: readonly string[];
+  } = {},
+): string[] {
+  const appSkillsDir = path.join(appDir, ".agents", "skills");
+  const workspaceSkillsDir = options.workspaceRoot
+    ? path.join(options.workspaceRoot, ".agents", "skills")
+    : undefined;
+  const preserved: string[] = [];
+  const preserveLocalSkills = new Set(options.preserveLocalSkills ?? []);
+  for (const skill of FRAMEWORK_TEMPLATE_SHARED_SKILLS) {
+    if (preserveLocalSkills.has(skill)) continue;
+    const localPath = path.join(appSkillsDir, skill);
+    const stat = fs.lstatSync(localPath, { throwIfNoEntry: false });
+    if (!stat || stat.isSymbolicLink()) continue;
+
+    const workspacePath = workspaceSkillsDir
+      ? path.join(workspaceSkillsDir, skill)
+      : undefined;
+    if (
+      !options.allowUnverified &&
+      (!workspacePath || !skillDirContentsMatch(workspacePath, localPath))
+    ) {
+      preserved.push(skill);
+      continue;
+    }
+    fs.rmSync(localPath, { recursive: true, force: true });
+  }
+  return preserved;
+}
+
+export function linkWorkspaceSkills(
+  appDir: string,
+  workspaceRoot: string,
+  selectedSkills: readonly string[] = WORKSPACE_SKILLS,
+): string[] {
+  const appSkillsDir = path.join(appDir, ".agents", "skills");
+  const workspaceSkillsDir = path.join(workspaceRoot, ".agents", "skills");
+  if (!fs.existsSync(workspaceSkillsDir)) return [];
+
+  fs.mkdirSync(appSkillsDir, { recursive: true });
+  const preserved: string[] = [];
+  for (const skill of selectedSkills) {
+    const inheritedPath = path.join(workspaceSkillsDir, skill);
+    if (!fs.existsSync(inheritedPath)) continue;
+
+    const linkPath = path.join(appSkillsDir, skill);
+    const existing = fs.lstatSync(linkPath, { throwIfNoEntry: false });
+    if (
+      existing &&
+      !existing.isSymbolicLink() &&
+      !skillDirContentsMatch(inheritedPath, linkPath)
+    ) {
+      preserved.push(skill);
+      continue;
+    }
+    fs.rmSync(linkPath, { recursive: true, force: true });
+
+    try {
+      fs.symlinkSync(
+        path.relative(appSkillsDir, inheritedPath),
+        linkPath,
+        "dir",
+      );
+    } catch (error) {
+      throw new Error(
+        `Could not link inherited workspace skill ${skill} into ${appSkillsDir}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        { cause: error },
+      );
+    }
+  }
+  return preserved;
+}
+
 function workspacePinnedVersion(
   workspaceRoot: string,
   name: string,
 ): string | null {
   const pkgPath = path.join(workspaceRoot, "package.json");
-  // A malformed root manifest is left to throw: silently scaffolding an app
-  // against an unreadable workspace is how the versions drift apart again.
   if (!fs.existsSync(pkgPath)) return null;
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
   for (const depType of ["dependencies", "devDependencies"] as const) {
@@ -289,11 +460,6 @@ function writeInheritedChatAgentChatPlugin(
   );
 }
 
-/**
- * Parse a workspace core package name into its npm scope.
- *   "@my-company/shared" → "my-company"
- *   "shared"             → ""  (no scope — shouldn't happen)
- */
 export function parseWorkspaceScope(workspaceCoreName: string): string {
   const m = workspaceCoreName.match(/^@([^/]+)\//);
   return m ? m[1] : "";

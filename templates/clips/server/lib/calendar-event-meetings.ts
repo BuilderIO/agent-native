@@ -17,10 +17,13 @@ import {
 import {
   getActiveOrganizationId,
   getCurrentOwnerEmail,
+  getDefaultRecordingVisibility,
   nanoid,
 } from "./recordings.js";
 
 export const CALENDAR_MEETING_ID_PREFIX = "gcal";
+
+const CALENDAR_REQUEST_SAFETY_MARGIN_MS = 60 * 1000;
 
 export interface CalendarAccountForEvents {
   id: string;
@@ -73,8 +76,7 @@ export function shouldMarkNeedsReauth(message: string): boolean {
     lower.includes("google calendar event failed (401)") ||
     lower.includes("invalid_grant") ||
     lower.includes("invalid_token") ||
-    lower.includes("insufficient_scope") ||
-    lower.includes("token refresh failed")
+    lower.includes("insufficient_scope")
   );
 }
 
@@ -120,11 +122,14 @@ export async function resolveCalendarAccessToken(
       credentials: credentialCandidates,
     });
   } catch (err) {
-    // Only a permanent failure (dead refresh token / bad OAuth client) means
-    // "needs-reauth" — collapse those to `null` as before. A transient
-    // failure (network error, 429, 5xx, timeout) is rethrown so callers can
-    // record it as a soft sync error without flipping account status.
     if (isPermanentRefreshFailure(err)) return null;
+    if (
+      bundle?.accessToken &&
+      bundle.expiresAt &&
+      bundle.expiresAt > Date.now() + CALENDAR_REQUEST_SAFETY_MARGIN_MS
+    ) {
+      return bundle.accessToken;
+    }
     throw err;
   }
   if (!refreshed.access_token) return null;
@@ -157,13 +162,13 @@ export async function recordCalendarFetchSuccess(
     .set({
       lastSyncedAt: now,
       lastSyncError: null,
-      status: "connected",
       updatedAt: now,
     })
     .where(
       and(
         eq(schema.calendarAccounts.id, account.id),
         eq(schema.calendarAccounts.ownerEmail, account.ownerEmail),
+        eq(schema.calendarAccounts.status, "connected"),
       ),
     );
 }
@@ -171,10 +176,15 @@ export async function recordCalendarFetchSuccess(
 export async function recordCalendarFetchError(
   account: CalendarAccountForEvents,
   error: unknown,
+  options: { needsReauth?: boolean } = {},
 ): Promise<CalendarFetchError> {
   const message =
-    error instanceof Error ? error.message : String(error || "Calendar failed");
-  const needsReauth = shouldMarkNeedsReauth(message);
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error || "Calendar failed"
+        : "Calendar failed";
+  const needsReauth = options.needsReauth ?? shouldMarkNeedsReauth(message);
   if (!account.ownerEmail) {
     return { accountId: account.id, error: message, needsReauth };
   }
@@ -182,7 +192,7 @@ export async function recordCalendarFetchError(
   await db
     .update(schema.calendarAccounts)
     .set({
-      status: needsReauth ? "needs-reauth" : "connected",
+      ...(needsReauth ? { status: "needs-reauth" as const } : {}),
       lastSyncError: needsReauth
         ? "Google Calendar needs to be reconnected."
         : message,
@@ -242,7 +252,7 @@ export function calendarEventParticipants(event: CalendarEvent) {
 export function calendarEventToMeetingView(args: {
   account: CalendarAccountForEvents;
   event: CalendarEvent;
-  meeting?: any | null;
+  meeting?: any;
 }) {
   const startIso = eventStartIso(args.event);
   const endIso = eventEndIso(args.event);
@@ -295,6 +305,16 @@ export async function lockCalendarAccount(
   return locked.length > 0;
 }
 
+export class CalendarEventUnavailableError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    this.name = "CalendarEventUnavailableError";
+    if (options && "cause" in options) {
+      (this as { cause?: unknown }).cause = options.cause;
+    }
+  }
+}
+
 export async function fetchLiveCalendarEventFromId(virtualId: string) {
   const parsed = parseCalendarMeetingId(virtualId);
   if (!parsed) return null;
@@ -313,14 +333,19 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
   try {
     accessToken = await resolveCalendarAccessToken(account);
   } catch (err) {
-    // Transient refresh failure — record the real error (won't match
-    // shouldMarkNeedsReauth) instead of a permanent needs-reauth marker.
     await recordCalendarFetchError(account, err);
-    return null;
+    throw new CalendarEventUnavailableError(
+      "Could not reach Google Calendar to load this event.",
+      { cause: err },
+    );
   }
   if (!accessToken) {
-    await recordCalendarFetchError(account, new Error("Token refresh failed"));
-    return null;
+    await recordCalendarFetchError(account, new Error("Token refresh failed"), {
+      needsReauth: true,
+    });
+    throw new CalendarEventUnavailableError(
+      "Google Calendar needs to be reconnected before this event can load.",
+    );
   }
 
   try {
@@ -334,7 +359,10 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
     return { account, event };
   } catch (err) {
     await recordCalendarFetchError(account, err);
-    return null;
+    throw new CalendarEventUnavailableError(
+      "Could not load this event from Google Calendar.",
+      { cause: err },
+    );
   }
 }
 
@@ -423,14 +451,15 @@ export async function materializeCalendarMeetingFromVirtualId(
   const db = getDb();
   const ownerEmail = getCurrentOwnerEmail();
   const orgId = (await getActiveOrganizationId().catch(() => null)) ?? null;
+  const defaultVisibility = await getDefaultRecordingVisibility(
+    orgId ?? live.account.orgId,
+    ownerEmail,
+  );
   const joinUrl = pickJoinUrl(live.event);
   const meetingId = nanoid();
   const nowIso = new Date().toISOString();
 
   return db.transaction(async (tx: any) => {
-    // Disconnect takes this same account-row write lock before it snapshots
-    // and deletes events. If disconnect wins, the account is gone by the time
-    // this transaction reaches the lock and materialization becomes a no-op.
     if (
       !(await lockCalendarAccount(tx, live.account.id, live.account.ownerEmail))
     )
@@ -449,11 +478,6 @@ export async function materializeCalendarMeetingFromVirtualId(
       }
     }
 
-    // Claim the calendar_events row atomically before inserting the meeting
-    // row, so two concurrent materialize calls for the same event can't both
-    // insert a `meetings` row (check-then-act TOCTOU). Only the caller whose
-    // UPDATE actually matched a row (meetingId still NULL) proceeds to insert;
-    // the loser re-reads and returns the winner's meeting instead.
     const claimed = await tx
       .update(schema.calendarEvents)
       .set({ meetingId, updatedAt: nowIso })
@@ -466,7 +490,6 @@ export async function materializeCalendarMeetingFromVirtualId(
       .returning({ id: schema.calendarEvents.id });
 
     if (!claimed.length) {
-      // Someone else claimed it first — re-read and return the winner.
       const [winnerEvent] = await tx
         .select({ meetingId: schema.calendarEvents.meetingId })
         .from(schema.calendarEvents)
@@ -499,6 +522,7 @@ export async function materializeCalendarMeetingFromVirtualId(
         calendarEventId: snapshot.id,
         recordingId: null,
         transcriptStatus: "idle",
+        shareTranscript: false,
         summaryMd: "",
         bulletsJson: "[]",
         actionItemsJson: "[]",
@@ -508,7 +532,7 @@ export async function materializeCalendarMeetingFromVirtualId(
         updatedAt: nowIso,
         ownerEmail,
         orgId,
-        visibility: "private",
+        visibility: defaultVisibility,
       } as any);
 
       const participants = calendarEventParticipants(live.event).filter(
@@ -528,8 +552,6 @@ export async function materializeCalendarMeetingFromVirtualId(
         );
       }
     } catch (err) {
-      // Roll back the claim so a future call can retry — but only if it still
-      // points at our own meetingId (don't clobber a legitimate later claim).
       await tx
         .update(schema.calendarEvents)
         .set({ meetingId: null, updatedAt: new Date().toISOString() })

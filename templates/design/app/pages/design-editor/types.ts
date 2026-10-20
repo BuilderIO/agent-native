@@ -30,12 +30,43 @@ export type DesignLeftPanel =
   | "assets"
   | "tools"
   | "tokens"
+  | "threads"
   | "import"
   | "code";
 
-export const SHOW_DESIGN_CODE_LEFT_PANEL = true;
+const designSecondaryLeftPanelsSetting =
+  typeof import.meta !== "undefined"
+    ? (import.meta as { env?: Record<string, string> }).env
+        ?.VITE_SHOW_DESIGN_SECONDARY_LEFT_PANELS
+    : undefined;
+export const SHOW_DESIGN_SECONDARY_LEFT_PANELS =
+  designSecondaryLeftPanelsSetting === "1" ||
+  designSecondaryLeftPanelsSetting === "true";
+export const SHOW_DESIGN_CODE_LEFT_PANEL = SHOW_DESIGN_SECONDARY_LEFT_PANELS;
 
-/** Zoom percentage applied when entering single-screen (focused) editor mode. */
+export function isDesignLeftPanelEnabled(
+  value: unknown,
+): value is DesignLeftPanel {
+  if (
+    value !== "file" &&
+    value !== "agent" &&
+    value !== "assets" &&
+    value !== "tools" &&
+    value !== "tokens" &&
+    value !== "threads" &&
+    value !== "import" &&
+    value !== "code"
+  ) {
+    return false;
+  }
+
+  if (value === "code") return SHOW_DESIGN_CODE_LEFT_PANEL;
+  if (value === "assets" || value === "tools") {
+    return SHOW_DESIGN_SECONDARY_LEFT_PANELS;
+  }
+  return true;
+}
+
 export const FOCUSED_SCREEN_ZOOM = 100;
 
 export interface DesignFile {
@@ -43,11 +74,16 @@ export interface DesignFile {
   filename: string;
   fileType: string;
   content: string;
-  createdAt: string;
+  createdAt: string | null;
   updatedAt: string;
 }
 
-export type DesignAccessRole = "owner" | "admin" | "editor" | "viewer";
+export type DesignAccessRole =
+  | "owner"
+  | "admin"
+  | "editor"
+  | "commenter"
+  | "viewer";
 
 export interface DesignData {
   id: string;
@@ -56,6 +92,8 @@ export interface DesignData {
   description?: string;
   projectType: string;
   designSystemId?: string | null;
+  liveCollaborationEnabled?: boolean;
+  visibility?: "private" | "org" | "public";
   data?: string | null;
   accessRole?: DesignAccessRole;
   files: DesignFile[];

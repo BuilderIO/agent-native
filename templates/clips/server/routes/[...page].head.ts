@@ -3,7 +3,6 @@ import { defineEventHandler, getRequestURL, setResponseHeader } from "h3";
 import { MEDIA_CAPTURE_PERMISSIONS_POLICY } from "../lib/media-permissions.js";
 
 export default defineEventHandler((event) => {
-  // Set before any short-circuit so the `/` redirect inherits it too.
   setResponseHeader(
     event,
     "Permissions-Policy",
@@ -16,6 +15,7 @@ export default defineEventHandler((event) => {
     return new Response(null, {
       status: 302,
       headers: {
+        "content-type": "text/html; charset=utf-8",
         location: "/library",
         "Permissions-Policy": MEDIA_CAPTURE_PERMISSIONS_POLICY,
       },

@@ -167,12 +167,12 @@ describe("DescriptionField behavior", () => {
     act(() => {
       textareaProps.onChange({ target: { value: "First edit" } });
     });
-    act(() => textareaProps.onBlur());
+    void act(() => textareaProps.onBlur());
     act(() => {
       textareaProps.onFocus();
       textareaProps.onChange({ target: { value: "Latest edit" } });
     });
-    act(() => textareaProps.onBlur());
+    void act(() => textareaProps.onBlur());
 
     await Promise.resolve();
     expect(onSave).toHaveBeenCalledTimes(1);
@@ -203,12 +203,12 @@ describe("DescriptionField behavior", () => {
     act(() => {
       textareaProps.onChange({ target: { value: "First edit" } });
     });
-    act(() => textareaProps.onBlur());
+    void act(() => textareaProps.onBlur());
     act(() => {
       textareaProps.onFocus();
       textareaProps.onChange({ target: { value: "Latest edit" } });
     });
-    act(() => textareaProps.onBlur());
+    void act(() => textareaProps.onBlur());
 
     await act(async () => {
       await secondSaveFinished;

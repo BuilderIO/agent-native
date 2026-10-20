@@ -2,12 +2,54 @@ import { describe, expect, it } from "vitest";
 
 import {
   mergeCanvasFramePlacements,
+  nextCanvasFramePosition,
   nextFreeCanvasRowY,
   numericDesignDataWriteError,
   parseCanvasFrameGeometryById,
 } from "./canvas-frames";
+import {
+  getResponsiveBreakpointHeightPx,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "./responsive-frame-layout";
 
 describe("numericDesignDataWriteError", () => {
+  it("rejects empty and unknown-only canvas frame entries", () => {
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a"], {}),
+    ).toContain("at least one geometry field");
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a"], {
+        label: "Home",
+      }),
+    ).toContain("at least one geometry field");
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a"], { x: 0 }),
+    ).toBeNull();
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a"], null),
+    ).toContain("must be an object");
+  });
+
+  it.each(["canvasFrames", "screenMetadata", "localhostScreens"])(
+    "rejects non-object %s maps and entries instead of ignoring dimensions",
+    (map) => {
+      for (const value of [["390", "auto"], null, "390", 390]) {
+        expect(numericDesignDataWriteError([map], value)).toContain(
+          "must be an object",
+        );
+        expect(numericDesignDataWriteError([map, "screen_a"], value)).toContain(
+          "must be an object",
+        );
+        expect(
+          numericDesignDataWriteError([map], { screen_a: value }),
+        ).toContain("must be an object");
+      }
+      expect(
+        numericDesignDataWriteError([map], { screen_a: { width: 390 } }),
+      ).toBeNull();
+    },
+  );
+
   it("rejects string dimensions", () => {
     expect(
       numericDesignDataWriteError(["canvasFrames", "screen_a"], {
@@ -26,6 +68,46 @@ describe("numericDesignDataWriteError", () => {
         ["screenMetadata", "screen_a", "width"],
         "800",
       ),
+    ).toContain("must be a finite JSON number");
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "breakpointHeights", "390"],
+        2400,
+      ),
+    ).toBeNull();
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "breakpointHeights", "390"],
+        "2400",
+      ),
+    ).toContain("must be a finite JSON number");
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "breakpointHeights", "390"],
+        0,
+      ),
+    ).toContain("must be positive");
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "breakpointHeights", "390"],
+        MAX_SANE_FRAME_DIMENSION_PX + 1,
+      ),
+    ).toContain(`must be at most ${MAX_SANE_FRAME_DIMENSION_PX} px`);
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "breakpointHeights", "390"],
+        1e308,
+      ),
+    ).toContain(`must be at most ${MAX_SANE_FRAME_DIMENSION_PX} px`);
+    expect(
+      numericDesignDataWriteError(["screenMetadata", "screen_a"], {
+        breakpointHeights: { "390": 1e308 },
+      }),
+    ).toContain(`must be at most ${MAX_SANE_FRAME_DIMENSION_PX} px`);
+    expect(
+      numericDesignDataWriteError(["screenMetadata", "screen_a"], {
+        breakpointHeights: { "390": "2400" },
+      }),
     ).toContain("must be a finite JSON number");
     expect(
       numericDesignDataWriteError(["canvasFrames"], {
@@ -65,6 +147,29 @@ describe("numericDesignDataWriteError", () => {
     expect(
       numericDesignDataWriteError(["tweakSelections"], { accent: "blue" }),
     ).toBeNull();
+  });
+});
+
+describe("getResponsiveBreakpointHeightPx", () => {
+  it("ignores persisted heights above the frame dimension ceiling", () => {
+    expect(
+      getResponsiveBreakpointHeightPx(
+        { breakpointHeights: { "390": MAX_SANE_FRAME_DIMENSION_PX } },
+        390,
+      ),
+    ).toBe(MAX_SANE_FRAME_DIMENSION_PX);
+    expect(
+      getResponsiveBreakpointHeightPx(
+        { breakpointHeights: { "390": MAX_SANE_FRAME_DIMENSION_PX + 1 } },
+        390,
+      ),
+    ).toBeUndefined();
+    expect(
+      getResponsiveBreakpointHeightPx(
+        { breakpointHeights: { "390": 1e308 } },
+        390,
+      ),
+    ).toBeUndefined();
   });
 });
 
@@ -132,8 +237,6 @@ describe("nextFreeCanvasRowY", () => {
   });
 
   it("clears the lowest existing frame by the gap", () => {
-    // Without this, a second variant set is placed at y=0 straight on top of
-    // the first — the reported "Show another set" overlap.
     const existing = {
       a: { x: 0, y: 0, width: 390, height: 844 },
       b: { x: 486, y: 0, width: 390, height: 844 },
@@ -147,6 +250,152 @@ describe("nextFreeCanvasRowY", () => {
       low: { x: 500, y: 900, width: 390, height: 100 },
     };
     expect(nextFreeCanvasRowY(existing, 24)).toBe(2024);
+  });
+
+  it("clears responsive previews, not only the primary frame", () => {
+    const existing = {
+      mobile: { x: 0, y: 0, width: 390, height: 844 },
+    };
+    expect(
+      nextFreeCanvasRowY(existing, 96, {
+        responsiveLayout: {
+          screenFileIds: ["mobile"],
+          screenMetadataByFileId: {
+            mobile: { width: 390, height: 844 },
+          },
+          breakpointWidths: [390, 768, 1440],
+        },
+      }),
+    ).toBeCloseTo(96 + (1440 * 844) / 390);
+  });
+
+  it("clears rotated responsive previews using their full footprint", () => {
+    const existing = {
+      mobile: { x: 0, y: 0, width: 390, height: 844, rotation: 90 },
+    };
+    const responsiveWidth = 390 + 24 + 768 + 24 + 1440;
+    expect(
+      nextFreeCanvasRowY(existing, 96, {
+        responsiveLayout: {
+          screenFileIds: ["mobile"],
+          screenMetadataByFileId: {
+            mobile: { width: 390, height: 844 },
+          },
+          breakpointWidths: [390, 768, 1440],
+        },
+      }),
+    ).toBeCloseTo(96 + 844 / 2 + responsiveWidth - 390 / 2);
+  });
+
+  it("does not expand board frames as responsive screens", () => {
+    expect(
+      nextFreeCanvasRowY(
+        {
+          board: {
+            x: 0,
+            y: 1000,
+            width: 1440,
+            height: 100,
+            rotation: 90,
+          },
+        },
+        96,
+        {
+          responsiveLayout: {
+            screenFileIds: ["screen"],
+            breakpointWidths: [390, 768],
+          },
+        },
+      ),
+    ).toBe(1770 + 96);
+  });
+
+  it("uses responsive geometry for screen frames without metadata", () => {
+    expect(
+      nextFreeCanvasRowY(
+        {
+          screen: {
+            x: 0,
+            y: 1000,
+            width: 1440,
+            height: 100,
+            rotation: 90,
+          },
+        },
+        96,
+        {
+          responsiveLayout: {
+            screenFileIds: ["screen"],
+            breakpointWidths: [390],
+          },
+        },
+      ),
+    ).toBeGreaterThan(1770 + 96);
+  });
+
+  it("reserves measured tall breakpoint heights when placing the next row", () => {
+    const existing = {
+      mobile: { x: 0, y: 0, width: 1440, height: 900 },
+    };
+    expect(
+      nextFreeCanvasRowY(existing, 96, {
+        responsiveLayout: {
+          screenFileIds: ["mobile"],
+          screenMetadataByFileId: {
+            mobile: {
+              width: 1440,
+              height: 900,
+              breakpointHeights: { "390": 2200 },
+            },
+          },
+          breakpointWidths: [390],
+        },
+      }),
+    ).toBe(2200 + 96);
+  });
+
+  it("uses renderer scale after a primary frame changes aspect ratio", () => {
+    expect(
+      nextFreeCanvasRowY(
+        { tablet: { x: 0, y: 0, width: 768, height: 1024 } },
+        96,
+        {
+          responsiveLayout: {
+            screenFileIds: ["tablet"],
+            screenMetadataByFileId: {
+              tablet: {
+                width: 1440,
+                height: 900,
+                breakpointHeights: { "390": 2200 },
+              },
+            },
+            breakpointWidths: [390],
+          },
+        },
+      ),
+    ).toBe(2200 + 96);
+  });
+
+  it("clears rotated responsive previews around the primary frame pivot", () => {
+    expect(
+      nextFreeCanvasRowY(
+        { tablet: { x: 0, y: 0, width: 768, height: 1024, rotation: 90 } },
+        96,
+        {
+          responsiveLayout: {
+            screenFileIds: ["tablet"],
+            screenMetadataByFileId: {
+              tablet: {
+                width: 1440,
+                height: 900,
+                breakpointHeights: { "390": 2200 },
+              },
+            },
+            breakpointWidths: [390],
+          },
+        },
+      ),
+    ).toBe(1310 + 96);
   });
 
   it("ignores the frames being rewritten so a re-run stays put", () => {
@@ -170,7 +419,84 @@ describe("nextFreeCanvasRowY", () => {
     expect(nextFreeCanvasRowY({ a: { x: 0, y: 300 } }, 50)).toBe(350);
   });
 
+  it("uses renderer fallback geometry when finding the next row", () => {
+    expect(
+      nextFreeCanvasRowY({ legacy: { x: 0, y: 100 } }, 160, {
+        responsiveLayout: { screenFileIds: ["legacy"] },
+      }),
+    ).toBe(900);
+  });
+
   it("ignores malformed entries", () => {
     expect(nextFreeCanvasRowY({ a: "nope", b: 5 }, 96)).toBe(0);
+  });
+});
+
+describe("nextCanvasFramePosition", () => {
+  it("places beside the rotated frame bounds", () => {
+    const position = nextCanvasFramePosition({
+      tall: { x: 0, y: 0, width: 100, height: 1000, rotation: 90 },
+    });
+    expect(position.x).toBe(710);
+    expect(position.y).toBeCloseTo(450);
+  });
+
+  it("includes rendered responsive breakpoint frames in the right edge", () => {
+    expect(
+      nextCanvasFramePosition(
+        { mobile: { x: 0, y: 0, width: 390, height: 844 } },
+        160,
+        {
+          responsiveLayout: {
+            screenFileIds: ["mobile"],
+            screenMetadataByFileId: {
+              mobile: { width: 390, height: 844 },
+            },
+            breakpointWidths: [390, 768, 1440],
+          },
+        },
+      ),
+    ).toEqual({ x: 2806, y: 0 });
+  });
+
+  it("uses renderer fallback dimensions when persisted frame geometry is partial", () => {
+    expect(
+      nextCanvasFramePosition({ screen: { x: 100, y: 200 } }, 160, {
+        responsiveLayout: { screenFileIds: ["screen"] },
+      }),
+    ).toEqual({ x: 580, y: 200 });
+    expect(
+      nextCanvasFramePosition({ screen: { x: 100, y: 200 } }, 160, {
+        responsiveLayout: {
+          screenFileIds: ["screen"],
+          screenMetadataByFileId: {
+            screen: { width: 640, height: 480 },
+          },
+        },
+      }),
+    ).toEqual({ x: 580, y: 200 });
+  });
+
+  it("includes overview screens that only have renderer-generated geometry", () => {
+    expect(
+      nextCanvasFramePosition({}, 160, {
+        responsiveLayout: { screenFileIds: ["first", "second"] },
+      }),
+    ).toEqual({ x: 856, y: 0 });
+  });
+
+  it("uses responsive group widths for screens without persisted geometry", () => {
+    const position = nextCanvasFramePosition({}, 160, {
+      responsiveLayout: {
+        screenFileIds: ["legacy"],
+        screenMetadataByFileId: {
+          legacy: { width: 390, height: 844 },
+        },
+        breakpointWidths: [390, 768, 1440],
+      },
+    });
+
+    expect(position.x).toBeGreaterThan(480);
+    expect(position.y).toBe(0);
   });
 });

@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
 import { hashDataProgramParams, runDataProgram } from "./execute.js";
 import {
   archiveDataProgram,
@@ -38,12 +39,13 @@ function compactColumns(
 export interface CreateDataProgramActionsOptions {
   appId: string;
   getActions: () => Record<string, ActionEntry>;
+  evaluator?: SandboxCodeEvaluator;
 }
 
 export function createDataProgramActions(
   options: CreateDataProgramActionsOptions,
 ): Record<string, ActionEntry> {
-  const { appId } = options;
+  const { appId, evaluator } = options;
 
   const saveDataProgram = defineAction({
     description:
@@ -94,6 +96,7 @@ export function createDataProgramActions(
         params: args.defaultParams ?? {},
         ctx: { userEmail, orgId: ctx?.orgId ?? null },
         triggeredBy: "preview",
+        evaluator,
       });
       if (!dryRun.ok) {
         throw new Error(
@@ -144,6 +147,7 @@ export function createDataProgramActions(
         params: args.params ?? {},
         ctx: { userEmail: ctx?.userEmail, orgId: ctx?.orgId ?? null },
         triggeredBy: "preview",
+        evaluator,
       });
       if (!result.ok) {
         return {
@@ -178,6 +182,7 @@ export function createDataProgramActions(
         ctx: { userEmail: ctx?.userEmail, orgId: ctx?.orgId ?? null },
         triggeredBy: "agent",
         forceRefresh: args.forceRefresh,
+        evaluator,
       });
       if (!result.ok) {
         return {
@@ -251,7 +256,10 @@ export function createDataProgramActions(
     http: { method: "GET" },
     readOnly: true,
     run: async (args, ctx) => {
-      const program = await getDataProgram(args.programId, appId);
+      const program = await getDataProgram(args.programId, appId, {
+        userEmail: ctx?.userEmail,
+        orgId: ctx?.orgId ?? undefined,
+      });
       if (!program) throw new Error("Data program not found.");
 
       const { resolveAccess } = await import("../sharing/access.js");
@@ -264,9 +272,6 @@ export function createDataProgramActions(
       const defaultParams = program.defaultParams
         ? (JSON.parse(program.defaultParams) as Record<string, unknown>)
         : {};
-      // Viewer/org-scoped hash: the cached run for these params was produced
-      // under SOME caller's credentials and org grants, so only show it back
-      // to that same scope (see hashDataProgramParams doc).
       const hash = hashDataProgramParams(
         defaultParams,
         ctx?.userEmail,
@@ -319,7 +324,10 @@ export function createDataProgramActions(
         userEmail: ctx?.userEmail,
         orgId: ctx?.orgId ?? undefined,
       });
-      const archived = await archiveDataProgram(args.programId, appId);
+      const archived = await archiveDataProgram(args.programId, appId, {
+        userEmail: ctx?.userEmail,
+        orgId: ctx?.orgId ?? undefined,
+      });
       return { archived };
     },
   });

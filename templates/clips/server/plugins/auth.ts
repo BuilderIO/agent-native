@@ -1,32 +1,36 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
-// Clips has public share pages, embeds, and view-event tracking that must
-// reach unauthenticated viewers. Everything else sits behind auth.
-export default createAuthPlugin({
-  // Clips owns `/_agent-native/google/*` so the same registered Google
-  // callback can handle both normal sign-in and the Calendar connect flow.
+import { PRERENDERED_PUBLIC_PAGE_PATHS } from "../../shared/prerendered-public-paths.js";
+
+export default createToolkitAuthPlugin({
+  maxAge: 60 * 60 * 24 * 90,
+  workspaceAppPublicPaths: ["/"],
   mountGoogleOAuthRoutes: false,
   marketing: {
     appName: "Clips",
+    learnMoreUrl:
+      "https://agent-native.com/apps/clips?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
       "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
-      "Calendar-synced meeting notes (Granola-style) with live transcripts and AI action items",
-      "Push-to-talk voice dictation (Wisprflow-style) — hold Fn anywhere, get clean text back",
+      "Calendar-synced meeting notes with live transcripts and AI action items",
+      "Push-to-talk voice dictation - hold Fn anywhere, get clean text back",
       "One searchable library across recordings, meetings, and dictations",
     ],
   },
   publicPaths: [
     "/share",
-    "/r",
     "/embed",
-    "/download",
+    ...PRERENDERED_PUBLIC_PAGE_PATHS,
+    "/r",
     "/bug-report",
-    // React Router's lazy route-discovery endpoint. If this is gated by
-    // auth it returns an HTML login page; the client tries to parse it
-    // as JSON, fails, and can't resolve any public route the user lands
-    // on directly (/download, /share/:id, /embed/:id). Must be public.
+    "/record",
+    "/_agent-native/actions/create-intake-recording",
+    "/api/clip-intake",
+    // Chunk POSTs from an outside agent carry no session cookie; the route
+    // refuses anything without a ticket for its own recording.
+    "/api/uploads/:recordingId/agent-chunk",
     "/__manifest",
     "/api/view-event",
     "/api/public-recording",
@@ -35,13 +39,11 @@ export default createAuthPlugin({
     "/api/agent-context.json",
     "/api/agent-transcript.json",
     "/api/agent-frame.jpg",
+    "/api/agent-frames.jpg",
+    "/api/agent-app-activity.json",
     "/api/media",
     "/api/clips-latest.json",
     "/api/clips-updater.json",
-    // Public media-serving routes enforce resolveAccess + password/expiry
-    // checks themselves. They need to bypass the app auth shell so anonymous
-    // viewers and crawlers can fetch public share media. Chunk upload POSTs
-    // stay behind auth under /api/uploads/*.
     "/api/video",
     "/api/thumbnail",
     "/api/auth/google-calendar",

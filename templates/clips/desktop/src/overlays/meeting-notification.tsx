@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertCircle,
   IconChevronDown,
@@ -11,6 +12,8 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 
+import { CLIPS_MEETINGS, isLabEnabled } from "../../../shared/labs";
+import { loadDesktopAuthToken } from "../app";
 import { dismissMeetingNotification } from "../lib/meeting-notification-dismissal";
 import {
   detectMeetingJoinProvider,
@@ -19,6 +22,7 @@ import {
   type MeetingJoinProvider,
 } from "../lib/meeting-notification-timing";
 import { openMeetingJoinUrl } from "../lib/open-meeting-join-url";
+import { loadStoredServerUrl } from "../lib/url";
 
 interface NotificationData {
   type: "calendar" | "adhoc";
@@ -27,6 +31,7 @@ interface NotificationData {
   meetingId: string;
   joinUrl?: string | null;
   platform?: string | null;
+  browserBundleId?: string | null;
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
   autoStart?: boolean;
@@ -37,18 +42,19 @@ interface TranscriptionStatusPayload {
   error?: string;
 }
 
+interface ReplacementRecoveryPayload {
+  meetingId: string;
+  failedMeetingId: string;
+}
+
 const SNOOZE_MS = 5 * 60_000;
 const FALLBACK_AUTO_HIDE_MS = 6 * 60_000;
 const DISMISSAL_TOMBSTONE_MS = 30 * 60_000;
-// Card is up to 440px wide; the extra width keeps its close control and menu
-// inside the transparent window edges.
 const NOTIFICATION_WINDOW_WIDTH = 504;
 const NOTIFICATION_COLLAPSED_HEIGHT = 120;
+const NOTIFICATION_RECOVERY_HEIGHT = 156;
 const NOTIFICATION_MENU_HEIGHT = 224;
 
-/**
- * Open a meeting join URL via its native desktop app when supported.
- */
 async function openJoinUrl(url: string | null | undefined): Promise<void> {
   if (!url) return;
   try {
@@ -58,10 +64,12 @@ async function openJoinUrl(url: string | null | undefined): Promise<void> {
   }
 }
 
-function resizeNotificationWindow(expanded: boolean) {
+function resizeNotificationWindow(expanded: boolean, recovery = false) {
   const height = expanded
     ? NOTIFICATION_MENU_HEIGHT
-    : NOTIFICATION_COLLAPSED_HEIGHT;
+    : recovery
+      ? NOTIFICATION_RECOVERY_HEIGHT
+      : NOTIFICATION_COLLAPSED_HEIGHT;
   getCurrentWindow()
     .setSize(new LogicalSize(NOTIFICATION_WINDOW_WIDTH, height))
     .catch((err) => {
@@ -70,8 +78,6 @@ function resizeNotificationWindow(expanded: boolean) {
 }
 
 function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
-  // Lightweight glyphs — keep the overlay free of extra assets. Zoom blue
-  // camera / Meet green / Teams purple, otherwise a generic video icon.
   if (provider === "zoom") {
     return (
       <span
@@ -112,30 +118,25 @@ function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
   );
 }
 
-/**
- * Granola-style meeting notification — small card in the top-right corner.
- *
- * Primary split button: join the call and open Clips notes in one click.
- * Chevron exposes secondary actions (join only / notes only / snooze).
- *
- * Data arrives via Tauri event `meetings:show-notification`. Visibility holds
- * from 1 minute before start until 5 minutes after, unless dismissed.
- */
 export function MeetingNotification() {
+  const t = useT();
   const [data, setData] = useState<NotificationData | null>(null);
   const [showClose, setShowClose] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replacementRecovery, setReplacementRecovery] =
+    useState<ReplacementRecoveryPayload | null>(null);
+  const [recoveryActionFailed, setRecoveryActionFailed] = useState(false);
   const [pending, setPending] = useState(false);
   const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef<NotificationData | null>(null);
+  const startingRef = useRef<NotificationData | null>(null);
   const dismissedKeysRef = useRef(new Map<string, number>());
-  // Real DOM hover only fires while this overlay window is key, which macOS
-  // won't grant it without a click (`show_without_activation` never
-  // activates). `polledHovered` mirrors the Rust-side global cursor poll
-  // (`meetings:notification-hover`, see `start_meeting_notification_hover_tracking`
-  // in notifications.rs) so the X still reveals on hover while another app is
-  // focused — same fallback pattern as the recording pill's `clips:pill-hover`.
+  const meetingsLabEnabledRef = useRef<boolean | null>(null);
+  const pendingNotificationRef = useRef<{
+    payload: NotificationData;
+    options?: { hydrated?: boolean };
+  } | null>(null);
   const [domHovered, setDomHovered] = useState(false);
   const [polledHovered, setPolledHovered] = useState(false);
   const hovered = domHovered || polledHovered;
@@ -161,8 +162,86 @@ export function MeetingNotification() {
   }, [data]);
 
   useEffect(() => {
-    resizeNotificationWindow(Boolean(data && menuOpen));
-  }, [data, menuOpen]);
+    let cancelled = false;
+    let preferenceVersion = 0;
+    let unlisten: (() => void) | null = null;
+
+    const applyValues = (values: unknown): boolean => {
+      if (!values || typeof values !== "object" || Array.isArray(values)) {
+        return false;
+      }
+      const enabled = isLabEnabled(
+        values as Record<string, unknown>,
+        CLIPS_MEETINGS,
+      );
+      meetingsLabEnabledRef.current = enabled;
+      if (!enabled) {
+        pendingNotificationRef.current = null;
+        startingRef.current = null;
+        hideNotification();
+        return true;
+      }
+      const pending = pendingNotificationRef.current;
+      pendingNotificationRef.current = null;
+      if (pending) showNotification(pending.payload, pending.options);
+      return true;
+    };
+    const serverUrl = loadStoredServerUrl();
+    const authToken = loadDesktopAuthToken(serverUrl);
+
+    const startFetch = () => {
+      const requestVersion = preferenceVersion;
+      void fetch(`${serverUrl}/_agent-native/actions/get-lab-states`, {
+        credentials: "include",
+        ...(authToken
+          ? { headers: { Authorization: `Bearer ${authToken}` } }
+          : {}),
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`lab read failed (${response.status})`);
+          }
+          return response.json();
+        })
+        .then((payload) => {
+          if (!cancelled && requestVersion === preferenceVersion) {
+            applyValues(payload?.result ?? payload);
+          }
+        })
+        .catch(() => {});
+    };
+
+    const updateListener = listen<{ values?: Record<string, unknown> }>(
+      "clips:labs-updated",
+      (event) => {
+        if (cancelled || !applyValues(event.payload?.values)) return;
+        preferenceVersion += 1;
+      },
+    );
+    updateListener
+      .then((cleanup) => {
+        if (cancelled) {
+          cleanup();
+        } else {
+          unlisten = cleanup;
+          startFetch();
+        }
+      })
+      .catch(() => {
+        if (!cancelled) startFetch();
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    resizeNotificationWindow(
+      Boolean(data && menuOpen),
+      Boolean(data && replacementRecovery),
+    );
+  }, [data, menuOpen, replacementRecovery]);
 
   useEffect(() => {
     return () => resizeNotificationWindow(false);
@@ -179,35 +258,43 @@ export function MeetingNotification() {
 
   useEffect(() => {
     if (!data) {
-      // Dismissing doesn't guarantee mouseleave/hovered:false fires first
-      // (e.g. dismissed while the cursor is still over the card), so clear
-      // every hover source here — otherwise the next notification can
-      // inherit hovered === true and open with its close button already
-      // showing and auto-hide already cancelled.
       prevHoveredRef.current = false;
       setDomHovered(false);
       setPolledHovered(false);
       setShowClose(false);
       return;
     }
+    setShowClose(hovered && !replacementRecovery);
     if (hovered === prevHoveredRef.current) return;
     prevHoveredRef.current = hovered;
-    setShowClose(hovered);
     if (hovered) {
       clearAutoHide();
     } else {
       setMenuOpen(false);
       resumeAutoHide();
     }
-  }, [data, hovered]);
+  }, [data, hovered, replacementRecovery]);
 
   function showNotification(
     payload: NotificationData,
     options?: { hydrated?: boolean },
   ) {
+    const labState = meetingsLabEnabledRef.current;
+    if (labState === false) return;
+    if (labState === null) {
+      pendingNotificationRef.current = {
+        payload,
+        ...(options ? { options } : {}),
+      };
+      return;
+    }
     if (isDismissed(payload)) return;
+    startingRef.current = null;
+    invoke("recording_pill_prewarm").catch(() => {});
     setData(payload);
     setError(null);
+    setReplacementRecovery(null);
+    setRecoveryActionFailed(false);
     setMenuOpen(false);
     setPending(!!payload.autoStart && !options?.hydrated);
     const startMs = payload.scheduledStart
@@ -237,11 +324,13 @@ export function MeetingNotification() {
       }).catch(() => {});
     };
 
-    trackListen(
-      listen<NotificationData>("meetings:show-notification", (ev) => {
+    const showListener = listen<NotificationData>(
+      "meetings:show-notification",
+      (ev) => {
         showNotification(ev.payload);
-      }),
+      },
     );
+    trackListen(showListener);
 
     trackListen(
       listen<{ hovered: boolean }>("meetings:notification-hover", (ev) => {
@@ -249,32 +338,93 @@ export function MeetingNotification() {
       }),
     );
 
-    // Cold overlay boot: hydrate any payload stored before this webview
-    // mounted (calendar or adhoc).
-    invoke<NotificationData | null>("take_pending_meeting_notification")
-      .then((pending) => {
-        if (stopped || !pending) return;
-        showNotification(pending, { hydrated: true });
-      })
-      .catch(() => {});
-
-    trackListen(
-      listen<TranscriptionStatusPayload>("meetings:hide-notification", (ev) => {
+    const hideListener = listen<TranscriptionStatusPayload>(
+      "meetings:hide-notification",
+      (ev) => {
         if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+        startingRef.current = dataRef.current;
         hideNotification();
-      }),
+      },
     );
+    trackListen(hideListener);
+    const errorListener = listen<TranscriptionStatusPayload>(
+      "meetings:transcription-error",
+      (ev) => {
+        const starting = startingRef.current;
+        const restoring =
+          !dataRef.current &&
+          starting !== null &&
+          starting.meetingId === ev.payload.meetingId;
+        if (!restoring && ev.payload.meetingId !== dataRef.current?.meetingId)
+          return;
+        if (restoring) {
+          setData(starting);
+          setMenuOpen(false);
+        }
+        startingRef.current = null;
+        setPending(false);
+        setReplacementRecovery(null);
+        setRecoveryActionFailed(false);
+        setError(ev.payload.error || "Could not start notes.");
+        scheduleAutoHide(15_000);
+      },
+    );
+    trackListen(errorListener);
     trackListen(
-      listen<TranscriptionStatusPayload>(
-        "meetings:transcription-error",
-        (ev) => {
-          if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+      listen<ReplacementRecoveryPayload>(
+        "meetings:replacement-recovery-required",
+        (event) => {
+          if (event.payload.meetingId !== dataRef.current?.meetingId) {
+            const recoveryNotification: NotificationData = {
+              type: "adhoc",
+              title: "",
+              subtitle: "",
+              meetingId: event.payload.meetingId,
+            };
+            dataRef.current = recoveryNotification;
+            setData(recoveryNotification);
+          }
+          startingRef.current = null;
+          setReplacementRecovery(event.payload);
+          setRecoveryActionFailed(false);
           setPending(false);
-          setError(ev.payload.error || "Could not start notes.");
-          scheduleAutoHide(15_000);
+          setError(null);
+          setMenuOpen(false);
+          clearAutoHide();
+          setShowClose(false);
         },
       ),
     );
+    trackListen(
+      listen<{ meetingId: string }>(
+        "meetings:replacement-recovery-action-failed",
+        (event) => {
+          if (event.payload.meetingId !== dataRef.current?.meetingId) return;
+          setPending(false);
+          setRecoveryActionFailed(true);
+        },
+      ),
+    );
+    const startedListener = listen<TranscriptionStatusPayload>(
+      "meetings:transcription-started",
+      (ev) => {
+        if (startingRef.current?.meetingId === ev.payload.meetingId) {
+          startingRef.current = null;
+        }
+      },
+    );
+    trackListen(startedListener);
+
+    Promise.all([showListener, hideListener, errorListener, startedListener])
+      .then(() =>
+        invoke<NotificationData | null>("take_pending_meeting_notification"),
+      )
+      .then((pending) => {
+        if (stopped || !pending) return;
+        if (dataRef.current) return;
+        showNotification(pending, { hydrated: true });
+      })
+      .catch(() => {});
 
     return () => {
       stopped = true;
@@ -308,6 +458,7 @@ export function MeetingNotification() {
   }
 
   function resumeAutoHide() {
+    if (replacementRecovery) return;
     const current = dataRef.current;
     const startMs = current?.scheduledStart
       ? Date.parse(current.scheduledStart)
@@ -322,13 +473,17 @@ export function MeetingNotification() {
     clearAutoHide();
     setData(null);
     setError(null);
+    setReplacementRecovery(null);
+    setRecoveryActionFailed(false);
     setPending(false);
     setMenuOpen(false);
     dataRef.current = null;
   }
 
   function dismissNotification() {
+    if (replacementRecovery) return;
     const current = dataRef.current;
+    startingRef.current = null;
     if (current) {
       dismissedKeysRef.current.set(
         notificationKey(current),
@@ -342,14 +497,17 @@ export function MeetingNotification() {
   }
 
   async function takeNotes() {
-    if (!data || pending) return;
+    if (!data || pending || replacementRecovery) return;
     setPending(true);
     setError(null);
     setMenuOpen(false);
     emit("meetings:start-transcription", {
       meetingId: data.meetingId,
       joinUrl: data.joinUrl,
+      platform: data.platform,
+      browserBundleId: data.browserBundleId,
       reason: "user",
+      scheduledStart: data.scheduledStart,
     }).catch((err) => {
       setPending(false);
       setError((err as Error)?.message ?? "Could not start notes.");
@@ -362,9 +520,8 @@ export function MeetingNotification() {
     await openJoinUrl(data.joinUrl);
   }
 
-  /** Granola primary: join the call and start Clips notes together. */
   async function joinAndOpenClips() {
-    if (!data || pending) return;
+    if (!data || pending || replacementRecovery) return;
     setMenuOpen(false);
     if (data.joinUrl) {
       await openJoinUrl(data.joinUrl);
@@ -373,7 +530,7 @@ export function MeetingNotification() {
   }
 
   function snooze() {
-    if (!data) return;
+    if (!data || replacementRecovery) return;
     setMenuOpen(false);
     invoke("meetings_snooze", {
       meetingId: data.meetingId,
@@ -382,11 +539,30 @@ export function MeetingNotification() {
     hideNotification();
   }
 
+  async function copyUnsavedNotesAndStart() {
+    if (!data || !replacementRecovery || pending) return;
+    setPending(true);
+    setError(null);
+    setRecoveryActionFailed(false);
+    try {
+      await emit("meetings:replacement-copy-and-start-request", {
+        meetingId: data.meetingId,
+        failedMeetingId: replacementRecovery.failedMeetingId,
+      });
+    } catch (actionError) {
+      console.warn(
+        "[clips-meeting-notif] could not request transcript recovery:",
+        actionError,
+      );
+      setPending(false);
+      setRecoveryActionFailed(true);
+    }
+  }
+
   if (!data) {
     return <div className="meeting-notification-root" />;
   }
 
-  const isCalendar = data.type === "calendar";
   const hasJoin = Boolean(data.joinUrl);
   const provider = detectMeetingJoinProvider(data.joinUrl, data.platform);
   const providerName = joinProviderLabel(provider);
@@ -396,6 +572,9 @@ export function MeetingNotification() {
       : `Join ${providerName}`
     : "Start notes";
   const secondaryLabel = hasJoin ? "& open Clips" : null;
+  const recoveryDescription = replacementRecovery
+    ? t("meetingReplacement.description")
+    : null;
 
   return (
     <div className="meeting-notification-root">
@@ -404,47 +583,77 @@ export function MeetingNotification() {
         onMouseEnter={() => setDomHovered(true)}
         onMouseLeave={() => setDomHovered(false)}
       >
-        <div
-          className={`meeting-notification-bar ${isCalendar ? "meeting-notification-bar-calendar" : "meeting-notification-bar-adhoc"}`}
-        />
         <div className="meeting-notification-content">
-          <div className="meeting-notification-title">{data.title}</div>
-          <div className="meeting-notification-subtitle">{data.subtitle}</div>
+          <div className="meeting-notification-title">
+            {data.title ||
+              (replacementRecovery ? t("meetingReplacement.title") : "")}
+          </div>
+          <div className="meeting-notification-subtitle">
+            {!replacementRecovery &&
+            data.type === "adhoc" &&
+            data.browserBundleId
+              ? t("meetingBrowserConfirmation")
+              : !replacementRecovery
+                ? data.subtitle
+                : null}
+          </div>
           {error ? (
             <div className="meeting-notification-error" role="alert">
               <IconAlertCircle size={12} aria-hidden="true" />
               <span>{error}</span>
             </div>
           ) : null}
+          {recoveryDescription ? (
+            <div className="meeting-notification-error" role="alert">
+              <IconAlertCircle size={12} aria-hidden="true" />
+              <span>
+                {recoveryActionFailed
+                  ? t("meetingReplacement.actionFailed")
+                  : recoveryDescription}
+              </span>
+            </div>
+          ) : null}
         </div>
         <div className="meeting-notification-split">
           <button
             className="meeting-notification-split-main"
-            onClick={hasJoin ? joinAndOpenClips : takeNotes}
+            onClick={
+              replacementRecovery
+                ? copyUnsavedNotesAndStart
+                : hasJoin
+                  ? joinAndOpenClips
+                  : takeNotes
+            }
             disabled={pending}
             data-no-drag
           >
             <ProviderGlyph provider={provider} />
             <span className="meeting-notification-split-copy">
               <span className="meeting-notification-split-primary">
-                {pending ? "Starting…" : primaryLabel}
+                {pending
+                  ? "Starting…"
+                  : replacementRecovery
+                    ? t("meetingReplacement.copyAndStart")
+                    : primaryLabel}
               </span>
-              {secondaryLabel && !pending ? (
+              {secondaryLabel && !pending && !replacementRecovery ? (
                 <span className="meeting-notification-split-secondary">
                   {secondaryLabel}
                 </span>
               ) : null}
             </span>
           </button>
-          <button
-            className="meeting-notification-split-chevron"
-            onClick={() => setMenuOpen((open) => !open)}
-            aria-label="More actions"
-            aria-expanded={menuOpen}
-            data-no-drag
-          >
-            <IconChevronDown size={14} aria-hidden="true" />
-          </button>
+          {!replacementRecovery ? (
+            <button
+              className="meeting-notification-split-chevron"
+              onClick={() => setMenuOpen((open) => !open)}
+              aria-label="More actions"
+              aria-expanded={menuOpen}
+              data-no-drag
+            >
+              <IconChevronDown size={14} aria-hidden="true" />
+            </button>
+          ) : null}
           {menuOpen ? (
             <div className="meeting-notification-menu" role="menu">
               {hasJoin ? (

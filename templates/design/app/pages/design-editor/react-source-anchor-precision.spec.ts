@@ -3,23 +3,15 @@ import { describe, expect, it } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
 
-import { reactSourceAnchorForPendingEdit } from "./pending-edits";
+import {
+  formatPendingVisualStylePrompt,
+  reactSourceAnchorForPendingEdit,
+  type PendingVisualStyleEdit,
+} from "./pending-edits";
 import {
   buildReactSemanticHandoff,
   redactReactSourceAnchor,
 } from "./react-semantic-handoff";
-
-/**
- * The React 19 anchor is not an authored coordinate.
- *
- * `_debugSource` is gone in React 19 and its `jsxDEV` discards the authored
- * `__source` argument the dev transform still emits, so the only surviving
- * position is a `_debugStack` frame into the file the DEV SERVER SERVES.
- * Measured against the React 19.2 + Vite 8 target used for this work: an `<h1>`
- * authored at App.jsx:13:7 reports as App.jsx:26:20 — off by thirteen lines,
- * past the end of a 26-line file. Every tier below therefore has to say which
- * one it is, all the way into the agent prompt.
- */
 
 function infoWith(
   provenance: NonNullable<ElementInfo["provenance"]>,
@@ -104,8 +96,6 @@ describe("react source anchor precision", () => {
       "positionPrecision",
     );
 
-    // An authored anchor must NOT carry the caveat — a warning on every handoff
-    // is a warning on none.
     const authored = buildReactSemanticHandoff({
       operation: "move",
       desiredChange: "Move the heading.",
@@ -140,10 +130,6 @@ describe("react source anchor precision", () => {
       }),
     )!;
 
-    // 26:20 is the TRANSFORMED position of the <h1> authored at 13:7. This
-    // file puts a DIFFERENT <h1> exactly there, which is the case that matters:
-    // without the precision gate the writer finds a tag, matches it, and edits
-    // the wrong element with status "applied".
     const content = [
       "export default function App() {",
       "  return (",
@@ -169,5 +155,35 @@ describe("react source anchor precision", () => {
 
     expect(planned.result.status).toBe("needsAgent");
     expect(planned.result.changed).toBe(false);
+  });
+
+  it("keeps an unresolved absolute source path visible in the coding-agent prompt", () => {
+    const sourceFile = "/Users/dev/app/packages/core/dist/AuthPage.js";
+    const edit = {
+      screenId: "screen-1",
+      filename: "screen.html",
+      screenName: "Sign in",
+      selector: "h1",
+      classes: [],
+      styles: { fontSize: "32px" },
+      originalStyles: { fontSize: "24px" },
+      updatedAt: 1,
+      sourceAnchor: {
+        sourceFile,
+        line: 1810,
+        column: 15,
+        method: "debug-stack",
+        component: "AuthPage",
+      },
+    } satisfies PendingVisualStyleEdit;
+
+    const prompt = formatPendingVisualStylePrompt({
+      audience: "coding-agent",
+      edits: [edit],
+    });
+
+    expect(prompt).toContain(sourceFile);
+    expect(prompt).toContain("outside the connected root");
+    expect(prompt).toContain('"sourcePathStatus": "outside-connected-root"');
   });
 });

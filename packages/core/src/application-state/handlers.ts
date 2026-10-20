@@ -8,65 +8,85 @@ import {
   type H3Event,
 } from "h3";
 
-import { getSession } from "../server/auth.js";
+import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
 import { readBody } from "../server/h3-helpers.js";
+import { appStateKeyForBrowserTab } from "./script-helpers.js";
 import {
   appStateGet,
   appStateGetManyEntries,
   appStatePut,
+  appStateCompareAndSet,
   appStateDelete,
   appStateList,
   appStateDeleteByPrefix,
 } from "./store.js";
 
-/**
- * Resolve the session ID for app state scoping. Returns the authenticated
- * user's email; throws 401 when the request has no session.
- */
+export const APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY =
+  "agentNativeAppStateAnonymousOwner";
+
+export type AppStateAnonymousOwnerResolver = (
+  event: H3Event,
+) => string | null | Promise<string | null>;
+
 async function getSessionId(event: H3Event): Promise<string> {
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
-  if (!session?.email) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: "Unauthenticated",
-    });
-  }
-  return session.email;
+  if (session?.email) return session.email;
+  const anonymousOwner = event.context?.[
+    APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY
+  ] as AppStateAnonymousOwnerResolver | undefined;
+  const owner = await anonymousOwner?.(event);
+  if (owner) return owner;
+  throw createError({
+    statusCode: 401,
+    statusMessage: "Unauthenticated",
+  });
 }
 
 function safeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_:-]/g, "");
 }
 
-// --- Generic state handlers ---
+const TAB_SCOPED_KEYS = new Set([
+  "navigation",
+  "navigate",
+  "__url__",
+  "__set_url__",
+  "settings-view",
+  "pending-selection-context",
+]);
+
+function requestScopedKey(key: string, event: H3Event): string {
+  return TAB_SCOPED_KEYS.has(key)
+    ? appStateKeyForBrowserTab(key, readBrowserTabIdHeader(event))
+    : key;
+}
 
 export const getState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
-  const key = safeKey(String(getRouterParam(event, "key")));
+  const key = requestScopedKey(
+    safeKey(String(getRouterParam(event, "key"))),
+    event,
+  );
   const value = await appStateGet(sessionId, key);
   return value ?? null;
 });
 
-/** Upper bound on one batched read, so a crafted URL can't fan out unbounded. */
 export const MAX_APP_STATE_BATCH_KEYS = 100;
 
-/**
- * `GET /_agent-native/application-state?keys=a,b,c` — read many keys for the
- * caller's session in one round trip.
- *
- * `values` carries only the keys that have a stored row; every other requested
- * key is listed in `missing`. A key whose stored value is `null` therefore
- * appears in `values` with a `null` value and NOT in `missing`, which is what
- * keeps "no row" distinguishable from "row holding an empty value".
- */
 export const getStateMany = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const raw = getQuery(event).keys;
-  const requested = (Array.isArray(raw) ? raw : [raw])
-    .flatMap((entry) => String(entry ?? "").split(","))
-    .map((key) => safeKey(key.trim()))
-    .filter((key) => key.length > 0);
-  const keys = [...new Set(requested)];
+  const requested = [
+    ...new Set(
+      (Array.isArray(raw) ? raw : [raw])
+        .flatMap((entry) => String(entry ?? "").split(","))
+        .map((key) => safeKey(key.trim()))
+        .filter((key) => key.length > 0),
+    ),
+  ];
+  const storageKeys = requested.map((key) => requestScopedKey(key, event));
+  const keys = [...new Set(storageKeys)];
 
   if (keys.length === 0) {
     throw createError({
@@ -82,45 +102,83 @@ export const getStateMany = defineEventHandler(async (event: H3Event) => {
   }
 
   const entries = await appStateGetManyEntries(sessionId, keys);
+  const entriesByKey = new Map(
+    entries.map((entry) => [entry.key, entry.value]),
+  );
   const values: Record<string, unknown> = {};
-  for (const entry of entries) values[entry.key] = entry.value;
+  requested.forEach((key, index) => {
+    const storageKey = storageKeys[index];
+    if (storageKey !== undefined && entriesByKey.has(storageKey)) {
+      values[key] = entriesByKey.get(storageKey);
+    }
+  });
   return {
     values,
-    missing: keys.filter((key) => !(key in values)),
+    missing: requested.filter((key) => !(key in values)),
   };
 });
 
 export const putState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
-  const key = safeKey(String(getRouterParam(event, "key")));
+  const key = requestScopedKey(
+    safeKey(String(getRouterParam(event, "key"))),
+    event,
+  );
   const body = await readBody(event);
   const requestSource = getHeader(event, "x-request-source") || undefined;
   await appStatePut(sessionId, key, body, { requestSource });
   return body;
 });
 
+export const compareAndSetState = defineEventHandler(async (event: H3Event) => {
+  const sessionId = await getSessionId(event);
+  const key = requestScopedKey(
+    safeKey(String(getRouterParam(event, "key"))),
+    event,
+  );
+  const body = (await readBody(event)) as {
+    expected?: Record<string, unknown> | null;
+    next?: Record<string, unknown> | null;
+  };
+  if (!("expected" in body) || !("next" in body)) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "expected and next are required",
+    });
+  }
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  return {
+    changed: await appStateCompareAndSet(
+      sessionId,
+      key,
+      body.expected ?? null,
+      body.next ?? null,
+      { requestSource },
+    ),
+  };
+});
+
 export const deleteState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
-  const key = safeKey(String(getRouterParam(event, "key")));
+  const key = requestScopedKey(
+    safeKey(String(getRouterParam(event, "key"))),
+    event,
+  );
   const requestSource = getHeader(event, "x-request-source") || undefined;
   await appStateDelete(sessionId, key, { requestSource });
   return { ok: true };
 });
 
-// --- Multi-draft compose handlers ---
-
 function composeDraftKey(id: string): string {
   return `compose-${safeKey(id)}`;
 }
 
-/** List all compose drafts */
 export const listComposeDrafts = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const items = await appStateList(sessionId, "compose-");
   return items.map((item) => item.value);
 });
 
-/** Get a single compose draft */
 export const getComposeDraft = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
@@ -128,7 +186,6 @@ export const getComposeDraft = defineEventHandler(async (event: H3Event) => {
   return value ?? null;
 });
 
-/** Create or update a compose draft */
 export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
@@ -146,7 +203,6 @@ export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
   return state;
 });
 
-/** Delete a single compose draft */
 export const deleteComposeDraft = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
@@ -155,7 +211,6 @@ export const deleteComposeDraft = defineEventHandler(async (event: H3Event) => {
   return { ok: true };
 });
 
-/** Delete all compose drafts */
 export const deleteAllComposeDrafts = defineEventHandler(
   async (event: H3Event) => {
     const sessionId = await getSessionId(event);

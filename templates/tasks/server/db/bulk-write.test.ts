@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 import { BULK_WRITE_CHUNK_SIZE, chunk } from "./bulk-write.js";
 
 const PARAMS_PER_ENTRY = 3;
-const SQLITE_PARAM_LIMIT = 999;
+const POSTGRES_PARAM_BUDGET = 900;
 
 describe("bulk write chunking", () => {
-  it("keeps a full chunk under SQLite's parameter limit", () => {
+  it("keeps a full chunk under the Postgres parameter budget", () => {
     expect(BULK_WRITE_CHUNK_SIZE * PARAMS_PER_ENTRY).toBeLessThan(
-      SQLITE_PARAM_LIMIT,
+      POSTGRES_PARAM_BUDGET,
     );
   });
 

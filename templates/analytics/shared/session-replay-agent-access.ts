@@ -8,6 +8,13 @@ export const SESSION_REPLAY_AGENT_ACCESS_PARAM =
 export const SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX =
   "analytics-session-replay-agent-context";
 
+export const SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT =
+  "/api/session-replay/agent-context.json";
+export const SESSION_REPLAY_AGENT_EVENTS_ENDPOINT =
+  "/api/session-replay/agent-events.json";
+export const SESSION_REPLAY_AGENT_DIAGNOSTICS_ENDPOINT =
+  "/api/session-replay/agent-diagnostics.json";
+
 export function sessionReplayAgentAccessTokenResourceId(
   recordingId: string,
 ): string {

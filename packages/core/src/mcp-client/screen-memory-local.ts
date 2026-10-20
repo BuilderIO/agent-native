@@ -119,7 +119,6 @@ export interface ScreenMemoryQueryResult {
   sinceMinutes: number | null;
   count: number;
   items: ScreenMemoryContextItem[];
-  /** Stable, bounded local retrieval contract. `items` remains for legacy callers. */
   evidence: ScreenMemoryEvidenceItem[];
   coverage: ScreenMemoryRetrievalCoverage;
   truncation: ScreenMemoryTruncation;
@@ -131,7 +130,6 @@ export interface ScreenMemoryLocalOptions {
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   homeDir?: string;
-  /** Test-only clock injection; retrieval never reads network time. */
   now?: () => Date;
 }
 
@@ -287,7 +285,7 @@ async function exists(pathname: string): Promise<boolean> {
   }
 }
 
-async function readJson(pathname: string): Promise<unknown | null> {
+async function readJson(pathname: string): Promise<unknown> {
   const { fs } = await nodeModules();
   try {
     return JSON.parse(await fs.readFile(pathname, "utf8"));
@@ -635,7 +633,7 @@ function redactCredentialText(value: string): string {
       /\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})\b/g,
       "[REDACTED CREDENTIAL]",
     )
-    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]{8,}/gi, "Bearer [REDACTED]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]{8,}/gi, "Bearer [REDACTED]")
     .replace(
       /\b(api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*([^\s,;]{4,})/gi,
       "$1=[REDACTED]",
@@ -766,13 +764,6 @@ function transcriptSpan(row: LocalContextRow): LocalTranscriptSpan | null {
   return { row, segmentId, source, startMs, endMs };
 }
 
-/**
- * Whisper emits phrase-sized rows, which can split an ordinary sentence in
- * the middle. Join only rows that are demonstrably continuous in the same
- * finalized segment and audio source. Stored sidecars remain untouched, and a
- * real pause, source switch, segment boundary, or excerpt bound starts a new
- * evidence item.
- */
 function coalesceTranscriptRows(rows: LocalContextRow[]): LocalContextRow[] {
   const passthrough: LocalContextRow[] = [];
   const groups = new Map<string, LocalTranscriptSpan[]>();
@@ -995,10 +986,6 @@ export async function queryScreenMemoryContext(
   });
   const segments = await readSegments(paths.dataDirs);
   const cleanSegments = segments.filter((segment) => segment.clean);
-  // Modern stores bind every evidence row to retained segment metadata. Once
-  // segment metadata exists, refuse rows that only point at tainted, corrupt,
-  // or pruned media. Legacy context-only stores (no segment metadata at all)
-  // remain readable for backwards compatibility.
   const rows =
     segments.length === 0
       ? candidateRows
@@ -1123,12 +1110,6 @@ export async function queryScreenMemoryContext(
   };
 }
 
-/**
- * Agent-facing retrieval boundary. Asking an agent to search Rewind is the
- * authorization. This removes filesystem paths, redacts obvious
- * credential-shaped text, and records a content-free activity receipt before
- * it is returned to an action caller.
- */
 export async function queryScreenMemoryForAgent(
   args: {
     query?: string | null;

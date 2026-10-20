@@ -8,6 +8,7 @@ import {
   type CodeAgentCodePackResult,
   type CodeAgentControlResult,
   type CodeAgentCreateRunResult,
+  type CodeAgentForkRunResult,
   type CodeAgentFollowUpResult,
   type CodeAgentHostMetadata,
   type CodeAgentModelListResult,
@@ -16,6 +17,14 @@ import {
   type CodeAgentProjectSelectResult,
   type CodeAgentProviderSettings,
   type CodeAgentProviderSettingsUpdateResult,
+  type CodeAgentBuilderConnectionResult,
+  type CodeAgentBuilderActivationRequest,
+  type CodeAgentBuilderActivationResult,
+  type CodeAgentBuilderConnectOpenRequest,
+  type CodeAgentBuilderConnectOpenResult,
+  type CodeAgentPortalTransferAllResult,
+  type CodeAgentPortalTransferResult,
+  type CodeAgentRemoteWaitlistResult,
   type CodeAgentRemoteConnectorControlResult,
   type CodeAgentRemoteConnectorPairResult,
   type CodeAgentRemoteConnectorStatus,
@@ -23,9 +32,13 @@ import {
   type CodeAgentRetryRunResult,
   type CodeAgentRun,
   type CodeAgentRunListResult,
+  type CodeAgentScheduleListResult,
+  type CodeAgentScheduleResult,
+  type CodeAgentRestoreWorktreeResult,
   type CodeAgentTerminalResult,
   type CodeAgentTranscriptResult,
   type CodeAgentUpdateRunResult,
+  type CodeAgentWorktreeListResult,
 } from "@shared/ipc-channels";
 import {
   app,
@@ -59,8 +72,21 @@ export interface CodeAgentsIpcDeps {
   timestampSlug: (value: string) => string;
   normalizeCodeAgentRunId: (value: unknown) => string | null;
   listDesktopCodeAgentRuns: (goalId?: string) => CodeAgentRun[];
+  listCodeAgentSchedules: () => CodeAgentScheduleListResult;
+  createCodeAgentSchedule: (input: unknown) => CodeAgentScheduleResult;
+  updateCodeAgentSchedule: (input: unknown) => CodeAgentScheduleResult;
+  deleteCodeAgentSchedule: (input: unknown) => CodeAgentScheduleResult;
+  runCodeAgentScheduleNow: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  listCodeAgentWorktrees: (input?: unknown) => CodeAgentWorktreeListResult;
   createCodeAgentRun: (input: unknown) => Promise<CodeAgentCreateRunResult>;
-  getCodeAgentModelList: () => CodeAgentModelListResult;
+  forkCodeAgentRun: (input: unknown) => Promise<CodeAgentForkRunResult>;
+  restoreCodeAgentWorktree: (
+    input: unknown,
+  ) => Promise<CodeAgentRestoreWorktreeResult>;
+  submitCodeAgentRemoteWaitlist: (
+    input: unknown,
+  ) => Promise<CodeAgentRemoteWaitlistResult>;
+  getCodeAgentModelList: (input?: unknown) => Promise<CodeAgentModelListResult>;
   readCodeAgentTranscript: (input: unknown) => CodeAgentTranscriptResult;
   removeCodeAgentTranscriptSubscription: (subscriptionId: string) => void;
   initializeCodeAgentTranscriptSubscriptionKeys: (
@@ -78,17 +104,32 @@ export interface CodeAgentsIpcDeps {
     batch: Omit<CodeAgentTranscriptSubscriptionBatch, "subscriptionId">,
   ) => void;
   appendCodeAgentFollowUp: (input: unknown) => Promise<CodeAgentFollowUpResult>;
+  transferCodeAgentRun: (
+    input: unknown,
+  ) => Promise<CodeAgentPortalTransferResult>;
+  transferAllCodeAgentRuns: (
+    input?: unknown,
+  ) => Promise<CodeAgentPortalTransferAllResult>;
   updateCodeAgentRun: (input: unknown) => CodeAgentUpdateRunResult;
   retryCodeAgentRun: (input: unknown) => CodeAgentRetryRunResult;
   rerunCodeAgentRun: (input: unknown) => Promise<CodeAgentRerunResult>;
   controlCodeAgentRun: (input: unknown) => Promise<CodeAgentControlResult>;
   getCodeAgentHostMetadata: () => CodeAgentHostMetadata;
   getBundledChromeExtensionPath: () => string;
-  getCodeAgentProviderSettings: () => CodeAgentProviderSettings;
+  prepareBrowserSetup: () => Promise<void>;
+  getCodeAgentProviderSettings: () => Promise<CodeAgentProviderSettings>;
+  getBuilderConnectionStatus: (
+    connectAttemptId?: string,
+  ) => Promise<CodeAgentBuilderConnectionResult>;
+  activateBuilderAccount: (
+    input: CodeAgentBuilderActivationRequest,
+  ) => Promise<CodeAgentBuilderActivationResult>;
+  openBuilderConnectUrl: (
+    input: CodeAgentBuilderConnectOpenRequest,
+  ) => Promise<CodeAgentBuilderConnectOpenResult>;
   updateCodeAgentProviderSettings: (
     input: unknown,
-  ) => CodeAgentProviderSettingsUpdateResult;
-  connectDesktopBuilderProvider: () => Promise<CodeAgentProviderSettingsUpdateResult>;
+  ) => Promise<CodeAgentProviderSettingsUpdateResult>;
   listCodeAgentProjectPacks: (input?: unknown) => CodeAgentCodePackResult;
   listCodeAgentProjects: () => CodeAgentProjectListResult;
   upsertCodeAgentProject: (folderPath: string) => CodeAgentProjectSelectResult;
@@ -106,18 +147,12 @@ export interface CodeAgentsIpcDeps {
   getRemoteConnectorStatus: () => CodeAgentRemoteConnectorStatus;
   setRemoteConnectorEnabled: (
     enabled: boolean,
-  ) => CodeAgentRemoteConnectorControlResult;
+  ) => Promise<CodeAgentRemoteConnectorControlResult>;
   pairRemoteCodeAgentConnector: (
     input: unknown,
   ) => Promise<CodeAgentRemoteConnectorPairResult>;
 }
 
-/**
- * Registers the clipboard + Agent-Native Code (background code-agent) IPC
- * surface: run listing/creation/transcripts, follow-ups, control commands,
- * computer-use setup, provider settings, projects, terminal launch, and the
- * remote connector pairing flow.
- */
 export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
   const {
     isObject,
@@ -125,7 +160,16 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     timestampSlug,
     normalizeCodeAgentRunId,
     listDesktopCodeAgentRuns,
+    listCodeAgentSchedules,
+    createCodeAgentSchedule,
+    updateCodeAgentSchedule,
+    deleteCodeAgentSchedule,
+    runCodeAgentScheduleNow,
+    listCodeAgentWorktrees,
     createCodeAgentRun,
+    forkCodeAgentRun,
+    restoreCodeAgentWorktree,
+    submitCodeAgentRemoteWaitlist,
     getCodeAgentModelList,
     readCodeAgentTranscript,
     removeCodeAgentTranscriptSubscription,
@@ -134,15 +178,20 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     setCodeAgentTranscriptSubscription,
     sendCodeAgentTranscriptSubscriptionBatch,
     appendCodeAgentFollowUp,
+    transferCodeAgentRun,
+    transferAllCodeAgentRuns,
     updateCodeAgentRun,
     retryCodeAgentRun,
     rerunCodeAgentRun,
     controlCodeAgentRun,
     getCodeAgentHostMetadata,
     getBundledChromeExtensionPath,
+    prepareBrowserSetup,
     getCodeAgentProviderSettings,
+    getBuilderConnectionStatus,
+    activateBuilderAccount,
+    openBuilderConnectUrl,
     updateCodeAgentProviderSettings,
-    connectDesktopBuilderProvider,
     listCodeAgentProjectPacks,
     listCodeAgentProjects,
     upsertCodeAgentProject,
@@ -199,8 +248,72 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
   );
 
   ipcMain.handle(
+    IPC.CODE_AGENTS_LIST_SCHEDULES,
+    (): CodeAgentScheduleListResult => listCodeAgentSchedules(),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_CREATE_SCHEDULE,
+    (_event: IpcMainInvokeEvent, input: unknown): CodeAgentScheduleResult =>
+      createCodeAgentSchedule(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_UPDATE_SCHEDULE,
+    (_event: IpcMainInvokeEvent, input: unknown): CodeAgentScheduleResult =>
+      updateCodeAgentSchedule(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_DELETE_SCHEDULE,
+    (_event: IpcMainInvokeEvent, input: unknown): CodeAgentScheduleResult =>
+      deleteCodeAgentSchedule(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_RUN_SCHEDULE_NOW,
+    (
+      _event: IpcMainInvokeEvent,
+      input: unknown,
+    ): Promise<CodeAgentScheduleResult> => runCodeAgentScheduleNow(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_LIST_WORKTREES,
+    (_event: IpcMainInvokeEvent, cwd?: unknown): CodeAgentWorktreeListResult =>
+      listCodeAgentWorktrees(cwd),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_FORK_RUN,
+    (
+      _event: IpcMainInvokeEvent,
+      input: unknown,
+    ): Promise<CodeAgentForkRunResult> => forkCodeAgentRun(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_RESTORE_WORKTREE,
+    (
+      _event: IpcMainInvokeEvent,
+      input: unknown,
+    ): Promise<CodeAgentRestoreWorktreeResult> =>
+      restoreCodeAgentWorktree(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_REMOTE_WAITLIST,
+    (
+      _event: IpcMainInvokeEvent,
+      input: unknown,
+    ): Promise<CodeAgentRemoteWaitlistResult> =>
+      submitCodeAgentRemoteWaitlist(input),
+  );
+
+  ipcMain.handle(
     IPC.CODE_AGENTS_LIST_MODELS,
-    (): CodeAgentModelListResult => getCodeAgentModelList(),
+    (_event: IpcMainInvokeEvent, input?: unknown) =>
+      getCodeAgentModelList(input),
   );
 
   ipcMain.handle(
@@ -273,6 +386,23 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
   );
 
   ipcMain.handle(
+    IPC.CODE_AGENTS_PORTAL_TRANSFER_RUN,
+    (
+      _event: IpcMainInvokeEvent,
+      input: unknown,
+    ): Promise<CodeAgentPortalTransferResult> => transferCodeAgentRun(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_PORTAL_TRANSFER_ALL,
+    (
+      _event: IpcMainInvokeEvent,
+      input?: unknown,
+    ): Promise<CodeAgentPortalTransferAllResult> =>
+      transferAllCodeAgentRuns(input),
+  );
+
+  ipcMain.handle(
     IPC.CODE_AGENTS_UPDATE_RUN,
     (_event: IpcMainInvokeEvent, input: unknown): CodeAgentUpdateRunResult =>
       updateCodeAgentRun(input),
@@ -325,6 +455,7 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
         openExternal: (url) => shell.openExternal(url),
         extensionPath: getBundledChromeExtensionPath,
         pathExists: fs.existsSync,
+        prepareBrowserSetup,
         revealExtensionFolder: async (extensionPath) => {
           const openError = await shell.openPath(extensionPath);
           if (openError) throw new Error(openError);
@@ -350,24 +481,34 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
       }),
   );
 
+  ipcMain.handle(IPC.CODE_AGENTS_PROVIDER_SETTINGS_GET, () =>
+    getCodeAgentProviderSettings(),
+  );
+
   ipcMain.handle(
-    IPC.CODE_AGENTS_PROVIDER_SETTINGS_GET,
-    (): CodeAgentProviderSettings => getCodeAgentProviderSettings(),
+    IPC.CODE_AGENTS_BUILDER_STATUS_GET,
+    (_event: IpcMainInvokeEvent, connectAttemptId?: unknown) =>
+      getBuilderConnectionStatus(
+        typeof connectAttemptId === "string" ? connectAttemptId : undefined,
+      ),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_BUILDER_ACTIVATE,
+    (_event: IpcMainInvokeEvent, input: CodeAgentBuilderActivationRequest) =>
+      activateBuilderAccount(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_BUILDER_CONNECT_OPEN,
+    (_event: IpcMainInvokeEvent, input: CodeAgentBuilderConnectOpenRequest) =>
+      openBuilderConnectUrl(input),
   );
 
   ipcMain.handle(
     IPC.CODE_AGENTS_PROVIDER_SETTINGS_UPDATE,
-    (
-      _event: IpcMainInvokeEvent,
-      input: unknown,
-    ): CodeAgentProviderSettingsUpdateResult =>
+    (_event: IpcMainInvokeEvent, input: unknown) =>
       updateCodeAgentProviderSettings(input),
-  );
-
-  ipcMain.handle(
-    IPC.CODE_AGENTS_PROVIDER_BUILDER_CONNECT,
-    (): Promise<CodeAgentProviderSettingsUpdateResult> =>
-      connectDesktopBuilderProvider(),
   );
 
   ipcMain.handle(
@@ -440,7 +581,7 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     (
       _event: IpcMainInvokeEvent,
       enabled: unknown,
-    ): CodeAgentRemoteConnectorControlResult =>
+    ): Promise<CodeAgentRemoteConnectorControlResult> =>
       setRemoteConnectorEnabled(Boolean(enabled)),
   );
 

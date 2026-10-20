@@ -84,7 +84,9 @@ function shouldDropExpectedMediaPermissionError(
   const text =
     error instanceof Error
       ? `${error.name}: ${error.message}`
-      : String(error ?? "");
+      : typeof error === "string"
+        ? error
+        : "";
 
   return (
     /\bNotAllowedError\b/i.test(text) ||

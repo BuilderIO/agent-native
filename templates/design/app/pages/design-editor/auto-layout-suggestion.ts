@@ -1,6 +1,13 @@
-import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  applyVisualEdit,
+  buildCodeLayerProjection,
+  type CodeLayerSource,
+} from "@shared/code-layer";
 
-import type { AlignableRect } from "./layout-operations";
+import {
+  inferFlowAxisFromRects,
+  type AlignableRect,
+} from "./layout-operations";
 
 export interface AutoLayoutInsets {
   top: number;
@@ -93,12 +100,6 @@ function relativeVariance(values: readonly number[]): number {
   );
 }
 
-/**
- * Infer a reversible flex layout from measured, direct-child geometry.
- * This intentionally refuses grid-like/overlapping arrangements instead of
- * silently flattening a design that a one-dimensional flex layout cannot
- * faithfully reproduce.
- */
 export function inferAutoLayoutSuggestion(args: {
   container: AlignableRect;
   children: readonly SuggestionRect[];
@@ -120,8 +121,7 @@ export function inferAutoLayoutSuggestion(args: {
   const maxY = Math.max(...children.map((child) => child.y + child.height));
   const spreadX = maxX - minX;
   const spreadY = maxY - minY;
-  const direction: "row" | "column" =
-    children.length === 1 ? "column" : spreadX >= spreadY ? "row" : "column";
+  const direction = inferFlowAxisFromRects(children);
   const primaryStart = (child: SuggestionRect) =>
     direction === "row" ? child.x : child.y;
   const primarySize = (child: SuggestionRect) =>
@@ -159,32 +159,39 @@ export function inferAutoLayoutSuggestion(args: {
     direction === "row" ? args.container.y : args.container.x;
   const crossContainerSize =
     direction === "row" ? args.container.height : args.container.width;
-  const crossCenters = children.map(
-    (child) => crossStart(child) + crossSize(child) / 2,
-  );
-  const averageCrossCenter =
-    crossCenters.reduce((sum, value) => sum + value, 0) / crossCenters.length;
-  const normalizedCross =
-    crossContainerSize > 0
-      ? (averageCrossCenter - crossContainerStart) / crossContainerSize
-      : 0;
+  const crossPaddingLeading = direction === "row" ? padding.top : padding.left;
+  const crossPaddingTrailing =
+    direction === "row" ? padding.bottom : padding.right;
+  const crossInnerStart = crossContainerStart + crossPaddingLeading;
   const innerCrossSize = Math.max(
     0,
-    crossContainerSize -
-      (direction === "row"
-        ? padding.top + padding.bottom
-        : padding.left + padding.right),
+    crossContainerSize - crossPaddingLeading - crossPaddingTrailing,
   );
+  const crossInnerEnd = crossInnerStart + innerCrossSize;
   const stretches = children.every(
     (child) => Math.abs(crossSize(child) - innerCrossSize) <= 2,
   );
+  const startsAligned = children.every(
+    (child) => Math.abs(crossStart(child) - crossInnerStart) <= 2,
+  );
+  const endsAligned = children.every(
+    (child) =>
+      Math.abs(crossStart(child) + crossSize(child) - crossInnerEnd) <= 2,
+  );
+  const crossCenters = children.map(
+    (child) => crossStart(child) + crossSize(child) / 2,
+  );
+  const centersAligned =
+    Math.max(...crossCenters) - Math.min(...crossCenters) <= 2;
   const alignItems = stretches
     ? FLEX_ALIGN_STRETCH
-    : normalizedCross > 0.58 // i18n-ignore geometry threshold, no visible copy
-      ? FLEX_ALIGN_END
-      : normalizedCross < 0.42
-        ? FLEX_ALIGN_START
-        : FLEX_ALIGN_CENTER;
+    : startsAligned
+      ? FLEX_ALIGN_START
+      : endsAligned
+        ? FLEX_ALIGN_END
+        : centersAligned
+          ? FLEX_ALIGN_CENTER
+          : FLEX_ALIGN_START;
 
   const primaryLeading = direction === "row" ? padding.left : padding.top;
   const primaryTrailing = direction === "row" ? padding.right : padding.bottom;
@@ -237,15 +244,17 @@ export type ApplyAutoLayoutSuggestionResult =
   | { status: "applied"; content: string }
   | { status: "conflict" | "failed"; content: string; message?: string };
 
-/** Apply the reviewed proposal atomically from the caller's perspective. */
 export function applyAutoLayoutSuggestion(
   content: string,
   suggestion: AutoLayoutSuggestion,
+  source?: CodeLayerSource,
 ): ApplyAutoLayoutSuggestionResult {
   if (!suggestion.safeToApply) {
     return { status: "failed", content, message: "unsafe-suggestion" };
   }
-  const initialProjection = buildCodeLayerProjection(content);
+  const initialProjection = buildCodeLayerProjection(content, {
+    ...(source ? { source } : {}),
+  });
   const container = initialProjection.nodes.find(
     (node) =>
       node.id === suggestion.containerId ||
@@ -274,25 +283,37 @@ export function applyAutoLayoutSuggestion(
 
   let nextContent = content;
   for (let index = 1; index < resolvedOrderedChildIds.length; index += 1) {
-    const moved = applyVisualEdit(nextContent, {
-      kind: "moveNode",
-      target: { nodeId: resolvedOrderedChildIds[index]! },
-      anchor: { nodeId: resolvedOrderedChildIds[index - 1]! },
-      placement: "after",
-    });
+    const moved = applyVisualEdit(
+      nextContent,
+      {
+        kind: "moveNode",
+        target: { nodeId: resolvedOrderedChildIds[index]! },
+        anchor: { nodeId: resolvedOrderedChildIds[index - 1]! },
+        placement: "after",
+      },
+      {
+        ...(source ? { source } : {}),
+      },
+    );
     if (moved.result.status === "applied") nextContent = moved.content;
     else {
       return { status: "failed", content, message: moved.result.message };
     }
   }
 
-  const autoLayout = applyVisualEdit(nextContent, {
-    kind: "autoLayout",
-    targetId: container.id,
-    enabled: true,
-    direction: suggestion.direction,
-    gap: `${suggestion.gap}px`,
-  });
+  const autoLayout = applyVisualEdit(
+    nextContent,
+    {
+      kind: "autoLayout",
+      targetId: container.id,
+      enabled: true,
+      direction: suggestion.direction,
+      gap: `${suggestion.gap}px`,
+    },
+    {
+      ...(source ? { source } : {}),
+    },
+  );
   if (autoLayout.result.status !== "applied") {
     return { status: "failed", content, message: autoLayout.result.message };
   }
@@ -313,12 +334,18 @@ export function applyAutoLayoutSuggestion(
       : []),
   ];
   for (const [property, value] of styleValues) {
-    const styled = applyVisualEdit(nextContent, {
-      kind: "style",
-      target: { nodeId: container.id },
-      property,
-      value,
-    });
+    const styled = applyVisualEdit(
+      nextContent,
+      {
+        kind: "style",
+        target: { nodeId: container.id },
+        property,
+        value,
+      },
+      {
+        ...(source ? { source } : {}),
+      },
+    );
     if (styled.result.status === "applied") nextContent = styled.content;
     else {
       return { status: "failed", content, message: styled.result.message };

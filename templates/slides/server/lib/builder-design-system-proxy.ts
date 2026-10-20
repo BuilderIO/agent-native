@@ -2,6 +2,7 @@ import {
   createBuilderDesignSystemProxyFields,
   localBuilderDesignSystemId,
   type BuilderDesignSystemIndexResult,
+  type BuilderDesignSystemGitHubSource,
   type BuilderDesignSystemSourceKind,
 } from "@agent-native/core/server";
 import { and, eq, isNull } from "drizzle-orm";
@@ -16,6 +17,8 @@ export async function upsertBuilderProxyDesignSystem({
   projectName,
   description,
   sourceKind,
+  githubSources,
+  localDesignSystemId: requestedLocalDesignSystemId,
 }: {
   result: BuilderDesignSystemIndexResult;
   ownerEmail: string;
@@ -23,6 +26,8 @@ export async function upsertBuilderProxyDesignSystem({
   projectName?: string;
   description?: string;
   sourceKind?: BuilderDesignSystemSourceKind;
+  githubSources?: BuilderDesignSystemGitHubSource[];
+  localDesignSystemId?: string;
 }) {
   const db = getDb();
   const now = new Date().toISOString();
@@ -35,6 +40,8 @@ export async function upsertBuilderProxyDesignSystem({
     description,
     surface: "slides",
     sourceKind,
+    githubSources,
+    syncedAt: githubSources?.length ? now : undefined,
   });
   const [existing] = await db
     .select({
@@ -43,7 +50,12 @@ export async function upsertBuilderProxyDesignSystem({
       orgId: schema.designSystems.orgId,
     })
     .from(schema.designSystems)
-    .where(eq(schema.designSystems.id, baseLocalDesignSystemId))
+    .where(
+      eq(
+        schema.designSystems.id,
+        requestedLocalDesignSystemId ?? baseLocalDesignSystemId,
+      ),
+    )
     .limit(1);
   const existingBelongsToScope =
     existing?.ownerEmail === ownerEmail &&
@@ -51,7 +63,7 @@ export async function upsertBuilderProxyDesignSystem({
   const localDesignSystemId =
     existing && !existingBelongsToScope
       ? `${baseLocalDesignSystemId}-${nanoid(8)}`
-      : baseLocalDesignSystemId;
+      : (requestedLocalDesignSystemId ?? baseLocalDesignSystemId);
   if (existingBelongsToScope) {
     await db
       .update(schema.designSystems)

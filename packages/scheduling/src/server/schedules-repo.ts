@@ -1,8 +1,4 @@
 import { accessFilter } from "@agent-native/core/sharing";
-/**
- * Data access for schedules — the weekly-hours + date-override definitions
- * that event types reference.
- */
 import { eq, and, inArray, type SQL } from "drizzle-orm";
 import { nanoid } from "nanoid";
 

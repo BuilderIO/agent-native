@@ -6,13 +6,6 @@ const mocks = vi.hoisted(() => ({
   upsertAnalysisWithRetry: vi.fn(),
 }));
 
-/**
- * Default passthrough: fetch via the mocked `getAnalysis`, run the action's
- * mutate callback once against it, then forward to the mocked
- * `upsertAnalysis` and return an AnalysisRecord-shaped result carrying the
- * mutated name. Individual tests override this with `mockImplementationOnce`
- * to simulate a lost race and prove the retry helper re-reads fresh state.
- */
 function defaultUpsertAnalysisWithRetry(
   id: string,
   ctx: unknown,
@@ -84,9 +77,6 @@ describe("rename-analysis", () => {
     expect(mocks.upsertAnalysisWithRetry).toHaveBeenCalledTimes(1);
     expect(mocks.upsertAnalysis).toHaveBeenCalledTimes(1);
     const [, savedBody] = mocks.upsertAnalysis.mock.calls[0];
-    // The rename patch touches only `name`, never a stale snapshot of the
-    // other fields, so a concurrent writer's changes to description/results
-    // can never be clobbered by this call.
     expect(savedBody).toEqual({ name: "New Name" });
   });
 
@@ -99,13 +89,6 @@ describe("rename-analysis", () => {
   });
 
   it("lands both a concurrent analysis edit and this rename when the first fenced write is lost to the race", async () => {
-    // Simulates two interleaved writers racing on the same analysis: this
-    // call renames the analysis, but its first fenced write is lost because a
-    // concurrent save (e.g. save-analysis re-running with fresh results)
-    // already saved new resultMarkdown/resultData in between. A correct retry
-    // re-reads that winning save and reapplies the rename on top of it, so
-    // both the fresh results and the new name land instead of the rename
-    // clobbering the re-run with a stale snapshot.
     const beforeConcurrentWrite = analysisRecord();
     const afterConcurrentWrite = analysisRecord({
       resultMarkdown: "# Fresh findings from re-run",
@@ -117,9 +100,9 @@ describe("rename-analysis", () => {
     mocks.upsertAnalysisWithRetry.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
         mutateCallCount += 1;
-        await mutate(beforeConcurrentWrite); // attempt 1: lost to the race
+        await mutate(beforeConcurrentWrite);
         mutateCallCount += 1;
-        const body = await mutate(afterConcurrentWrite); // retry
+        const body = await mutate(afterConcurrentWrite);
         await mocks.upsertAnalysis(id, body, ctx);
         return { ...afterConcurrentWrite, ...body };
       },
@@ -136,8 +119,6 @@ describe("rename-analysis", () => {
       name: "Renamed While Racing",
     });
     const saved = mocks.upsertAnalysis.mock.calls[0][1] as { name: string };
-    // Only `name` is ever in the saved patch — the concurrent writer's fresh
-    // resultMarkdown/resultData are left untouched by this call.
     expect(saved).toEqual({ name: "Renamed While Racing" });
   });
 });

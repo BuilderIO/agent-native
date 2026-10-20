@@ -1,23 +1,3 @@
-/**
- * Shared Gmail inbox-listing core.
- *
- * This is the single source of truth for turning a view/query/label into a
- * filtered, sorted list of emails from Gmail — called by both the actions
- * surface (agent, `actions/list-emails.ts`) and the REST route handler
- * (frontend, `handlers/emails.ts::listEmails`). Before this file existed the
- * two call sites re-implemented the same query-build + pagination +
- * thread-scoping pipeline independently, which let them drift: the REST
- * handler filtered out snoozed threads and handled Gmail 429/quota errors
- * gracefully, while the agent action did neither. Keeping this logic in one
- * place means the agent's inbox always matches what the human sees.
- *
- * Callers remain responsible for resolving `accountTokens` / `labelMap`
- * (the two call sites fetch these differently — the REST handler caches
- * label names and account display names, the action does not — that's a
- * legitimate perf difference, not part of the listing core) and for shaping
- * their own response envelope (compact/counts for the action; pagination
- * tokens, error headers, and HTTP status for the REST handler).
- */
 import type { EmailMessage } from "@shared/types.js";
 
 import {
@@ -45,18 +25,23 @@ export interface ListInboxEmailsParams {
   pageTokens?: Record<string, string>;
   threadFormat?: "full" | "metadata" | "minimal";
   threadCandidateLimit?: number;
-  /** Disable the extra recent-message candidate pass for bounded inventory. */
   includeRecentMessageCandidates?: boolean;
   accountTokens: ListInboxEmailsAccountToken[];
-  /** Selected account ids are forwarded to Gmail before token refresh. */
   accountEmails?: string[];
   labelMap: Map<string, string>;
+}
+
+export interface ListInboxEmailsError {
+  email: string;
+  error: string;
+  isQuotaError?: boolean;
+  retryAfterMs?: number;
 }
 
 export interface ListInboxEmailsSuccess {
   ok: true;
   emails: EmailMessage[];
-  errors: Array<{ email: string; error: string }>;
+  errors: ListInboxEmailsError[];
   nextPageTokens?: Record<string, string>;
   resultSizeEstimate?: number;
 }
@@ -72,34 +57,28 @@ export type ListInboxEmailsResult =
   | ListInboxEmailsSuccess
   | ListInboxEmailsFailure;
 
-export function isGmailQuotaError(message: string): boolean {
-  return /\b(?:429|quota|rate limit|rateLimitExceeded|userRateLimitExceeded)\b/i.test(
-    message,
-  );
+export function isGmailQuotaError(error: ListInboxEmailsError): boolean {
+  return error.isQuotaError === true;
 }
 
 export function retryAfterSecondsFromErrors(
-  errors: Array<{ error: string }>,
+  errors: Array<{ retryAfterMs?: number }>,
 ): number {
-  let retryAfter = 60;
-  for (const { error } of errors) {
-    const match = error.match(/retry in\s+(\d+)s/i);
-    if (!match) continue;
-    const seconds = Number(match[1]);
-    if (Number.isFinite(seconds) && seconds > retryAfter) {
-      retryAfter = seconds;
+  let retryAfterMs: number | undefined;
+  for (const { retryAfterMs: ms } of errors) {
+    if (
+      typeof ms === "number" &&
+      (retryAfterMs === undefined || ms > retryAfterMs)
+    ) {
+      retryAfterMs = ms;
     }
   }
-  return Math.min(retryAfter, 5 * 60);
+  return Math.min(
+    Math.max(1, Math.ceil((retryAfterMs ?? 60_000) / 1000)),
+    5 * 60,
+  );
 }
 
-/**
- * Fetch, thread-scope, sort, and snooze-filter Gmail messages for a view.
- * Returns a discriminated result instead of throwing on Gmail errors so both
- * callers can decide how to surface a rate-limit/quota failure gracefully
- * (HTTP status + Retry-After header for the REST handler, a structured JSON
- * error payload for the agent action) rather than an unhandled exception.
- */
 export async function listInboxEmails(
   params: ListInboxEmailsParams,
 ): Promise<ListInboxEmailsResult> {
@@ -148,7 +127,7 @@ export async function listInboxEmails(
     errors.length > 0 &&
     everySelectedAccountFailed
   ) {
-    const isQuotaError = errors.every((e) => isGmailQuotaError(e.error));
+    const isQuotaError = errors.every((e) => isGmailQuotaError(e));
     return {
       ok: false,
       message: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
@@ -172,9 +151,6 @@ export async function listInboxEmails(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
 
-  // Filter out snoozed threads (they may linger in Gmail due to eventual
-  // consistency). Skip when searching — the user/agent wants to find snoozed
-  // emails too when explicitly searching for them.
   if (!q && (view === "inbox" || view === "unread")) {
     const snoozedIds = await getSnoozedThreadIds(ownerEmail);
     if (snoozedIds.size > 0) {

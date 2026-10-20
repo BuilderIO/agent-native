@@ -5,7 +5,7 @@ import {
   buildSlackAgentManifest,
 } from "./slack-manifest.js";
 
-describe("Slack Agent Native app manifest", () => {
+describe("Slack Agent-Native app manifest", () => {
   it("enables Agent View and writable direct messages", () => {
     const manifest = buildSlackAgentManifest({
       oauthRedirectUrl:
@@ -16,7 +16,7 @@ describe("Slack Agent Native app manifest", () => {
         "https://app.example.com/_agent-native/integrations/slack/interactions",
     });
 
-    expect(manifest.display_information.name).toBe("Agent Native");
+    expect(manifest.display_information.name).toBe("Agent-Native");
     expect(manifest.features.agent_view.agent_description).toBeTruthy();
     expect(manifest.features.app_home).toEqual({
       home_tab_enabled: false,
@@ -46,6 +46,13 @@ describe("Slack Agent Native app manifest", () => {
     expect(manifest.settings.event_subscriptions.bot_events).toEqual([
       ...SLACK_AGENT_BOT_EVENTS,
     ]);
+    expect(manifest.settings.event_subscriptions.bot_events).not.toEqual(
+      expect.arrayContaining([
+        "message.channels",
+        "message.groups",
+        "message.mpim",
+      ]),
+    );
   });
 
   it("uses only the supplied deployment URLs", () => {

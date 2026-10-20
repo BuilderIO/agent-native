@@ -185,6 +185,13 @@ describe("BuilderSourceReviewDialog row selection", () => {
     });
 
     expect(document.body.textContent).toContain("Builder body blocks changed.");
+    const bodyComparison = document.body.querySelector(
+      '[aria-label="database.bodyChangeComparison"]',
+    );
+    expect(bodyComparison?.textContent).toContain("database.currentBody");
+    expect(bodyComparison?.textContent).toContain("Old body");
+    expect(bodyComparison?.textContent).toContain("database.proposedBody");
+    expect(bodyComparison?.textContent).toContain("New body");
     expect(document.body.textContent).toContain(
       "Embedded video will be preserved by reference.",
     );

@@ -2,13 +2,14 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { listAccessibleAutomationDefinitions } from "../../automations/service.js";
+import { isPausedByFramework, hasStalePause } from "../automation-outcome.js";
 import {
   describeCron,
   effectiveTimezone,
   isValidCron,
   nextOccurrence,
 } from "../cron.js";
-import type { JobFrontmatter } from "../frontmatter.js";
+import { jobBelongsToApp, type JobFrontmatter } from "../frontmatter.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
@@ -42,8 +43,14 @@ export interface RecurringJobActionItem {
   lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
+  lastErrorCode: string | null;
+  pausedReason: string | null;
+  pausedAt: string | null;
   nextRun: string | null;
   createdBy: string | null;
+  executionHostId: string | null;
+  executionEngine: string | null;
+  executionCwd: string | null;
   mcpTools: string[];
   canUpdate: boolean;
   effectiveRole: "owner" | "collaborate" | "view";
@@ -57,7 +64,7 @@ export interface RecurringJobActionItem {
 
 export default defineAction({
   description:
-    "List accessible legacy recurring jobs. The optional scope remains a compatibility filter; access is resolved by stable resource id.",
+    "List accessible legacy recurring cron jobs. The optional scope remains a compatibility filter; access is resolved by stable resource id.",
   agentTool: false,
   schema: z.object({
     scope: scopeSchema.optional(),
@@ -72,12 +79,14 @@ export default defineAction({
     const definitions = await listAccessibleAutomationDefinitions({
       userEmail,
       orgId: ctx?.orgId,
+      appId: ctx?.appId,
     });
     return definitions
       .filter(({ classification }) => classification.kind === "job")
       .filter((definition) => !scope || definition.scope === scope)
-      .map(
-        ({
+      .filter((definition) => jobBelongsToApp(definition.meta, ctx?.appId))
+      .map((definition) => {
+        const {
           resource,
           name,
           scope: definitionScope,
@@ -86,7 +95,9 @@ export default defineAction({
           canUpdate,
           effectiveRole,
           capabilities,
-        }) => ({
+        } = definition;
+        const pausedByFramework = isPausedByFramework(meta);
+        return {
           id: resource.id,
           resourceId: resource.id,
           name,
@@ -102,15 +113,25 @@ export default defineAction({
           enabled: meta.enabled,
           lastRun: meta.lastRun ?? null,
           lastCheck: meta.lastCheck ?? null,
-          lastStatus: meta.lastStatus ?? null,
+          lastStatus: pausedByFramework
+            ? "paused"
+            : hasStalePause(meta) && meta.lastStatus === "paused"
+              ? null
+              : (meta.lastStatus ?? null),
           lastError: meta.lastError ?? null,
+          lastErrorCode: meta.lastErrorCode ?? null,
+          pausedReason: pausedByFramework ? (meta.pausedReason ?? null) : null,
+          pausedAt: pausedByFramework ? (meta.pausedAt ?? null) : null,
           nextRun: nextRun(meta),
           createdBy: meta.createdBy ?? null,
+          executionHostId: meta.executionHostId ?? null,
+          executionEngine: meta.executionEngine ?? null,
+          executionCwd: meta.executionCwd ?? null,
           mcpTools: meta.mcpTools ?? [],
           canUpdate,
           effectiveRole,
           capabilities,
-        }),
-      );
+        };
+      });
   },
 });

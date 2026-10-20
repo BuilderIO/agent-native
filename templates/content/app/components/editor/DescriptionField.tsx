@@ -17,11 +17,6 @@ export function descriptionFieldEscapeDraft(
   return savedDescription ?? "";
 }
 
-/**
- * Quiet, stable guidance attached to a page or database. This intentionally
- * renders the owned description only; ancestor context is assembled for agent
- * reads rather than copied into the surface.
- */
 export function DescriptionField({
   description,
   canEdit,
@@ -35,7 +30,7 @@ export function DescriptionField({
   label?: string;
   placeholder?: string;
   className?: string;
-  onSave: (description: string) => Promise<unknown> | unknown;
+  onSave: (description: string) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState(description ?? "");
   const [editing, setEditing] = useState(false);

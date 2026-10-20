@@ -66,6 +66,7 @@ const typeOptions = [
   "generic",
   "slack",
   "granola",
+  "zoom",
   "Docs",
   "Notion",
   "GitHub",
@@ -154,9 +155,7 @@ export default function KnowledgeRoute() {
   return (
     <div className="min-h-full bg-background">
       <PageHeader
-        eyebrow={t("navigation.knowledge")}
         title={t("knowledge.title")}
-        description={t("knowledge.description")}
         actions={
           <Badge variant="outline" className="gap-2">
             <IconTable className="size-4" />
@@ -282,7 +281,7 @@ export default function KnowledgeRoute() {
                         : t("knowledge.notApplicable")}
                     </TableCell>
                     <TableCell className="text-end">
-                      {row.citations ?? 0}
+                      {row.evidence?.length ?? 0}
                     </TableCell>
                   </TableRow>
                 ))}

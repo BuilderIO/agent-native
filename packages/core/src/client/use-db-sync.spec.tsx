@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getBrowserTabId } from "./browser-tab-id.js";
+import { getChangeVersion, useChangeVersion } from "./use-change-version.js";
 import {
   isInteractionCriticalSyncEvent,
   subscribeSyncEvents,
@@ -52,16 +53,19 @@ function SyncProbe({
   onEvent,
 }: {
   queryClient: QueryClientProbe;
-  actionInvalidatePredicate?: (query: {
-    queryKey: readonly unknown[];
-  }) => boolean;
+  actionInvalidatePredicate?: (
+    query: { queryKey: readonly unknown[] },
+    events: readonly { source?: string; key?: string }[],
+  ) => boolean;
   suppressActionInvalidationFor?: string[];
   onEvent?: (data: any) => void;
 }) {
   useDbSync({
     queryClient,
     sseUrl: false,
+    realtime: { reason: "test remote sync behavior" },
     interval: 50,
+    fallbackInterval: 50,
     pauseWhenHidden: false,
     actionInvalidatePredicate,
     suppressActionInvalidationFor,
@@ -71,8 +75,9 @@ function SyncProbe({
 }
 
 let screenKeyValue = 0;
-function ScreenKeyProbe() {
+function ScreenKeyProbe({ enabled = true }: { enabled?: boolean }) {
   const k = useScreenRefreshKey({
+    enabled,
     sseUrl: false,
     interval: 50,
     pauseWhenHidden: false,
@@ -100,11 +105,6 @@ async function renderWithEvent(event: Record<string, unknown>) {
     await Promise.resolve();
     await Promise.resolve();
   });
-  // useDbSync coalesces invalidation into a single flush per
-  // INVALIDATE_COALESCE_MS (250ms) — wait past that window (outside `act`,
-  // since a raw application `setTimeout` nested inside `act(async () => …)`
-  // is not reliably awaited by React's act() batching) so the batch has
-  // landed before assertions run.
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 260));
   });
@@ -112,11 +112,6 @@ async function renderWithEvent(event: Record<string, unknown>) {
   return { container, fetchMock, queryClient, root };
 }
 
-/**
- * Query keys targeted by each recorded invalidation. Every sync-driven
- * invalidation also carries the framework's terminal-auth-failure skip
- * predicate, so assertions compare keys rather than whole filter objects.
- */
 function invalidatedQueryKeys(
   calls: QueryClientProbe["calls"],
 ): Array<string[] | undefined> {
@@ -155,6 +150,91 @@ describe("useDbSync", () => {
     _resetSyncTransportRegistryForTests();
   });
 
+  it("does not create a background transport without an explicit opt-in", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    function DefaultProbe() {
+      useDbSync({ queryClient, sseUrl: false });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<DefaultProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses chat run events to invalidate local side effects without polling", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn();
+    const observedEvents: Array<{ source?: string; key?: string }> = [];
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RunProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        onEvent: (event) => observedEvents.push(event),
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<RunProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "update-document",
+            completedSideEffect: true,
+            tabId: "tab-a",
+          },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+    expect(invalidatedQueryKeys(queryClient.calls)).toEqual([["action"]]);
+    expect(observedEvents).toContainEqual(
+      expect.objectContaining({ source: "action", key: "update-document" }),
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "tab-a" },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+    expect(invalidatedQueryKeys(queryClient.calls)).toEqual([
+      ["action"],
+      ["action"],
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("invalidates only action-backed queries by default for action events", async () => {
     const result = await renderWithEvent({
       version: 1,
@@ -172,6 +252,39 @@ describe("useDbSync", () => {
     expect(result.queryClient.refetchOptions).toEqual([
       { cancelRefetch: false },
     ]);
+  });
+
+  it("bumps active raw-query source counters after an unscoped local action", async () => {
+    const queryClient = new QueryClientProbe();
+    let dashboardVersion = 0;
+    function RunProbe() {
+      useDbSync({ queryClient, sseUrl: false });
+      dashboardVersion = useChangeVersion("dashboards");
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => root.render(<RunProbe />));
+    expect(dashboardVersion).toBe(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "update-dashboard",
+            completedSideEffect: true,
+            tabId: "tab-a",
+          },
+        }),
+      );
+    });
+
+    expect(dashboardVersion).toBe(1);
   });
 
   it("does not refetch an action query that terminally 401'd", async () => {
@@ -197,8 +310,6 @@ describe("useDbSync", () => {
     };
     const healthy: ProbeQuery = { queryKey: ["action", "list-projects"] };
 
-    // A 401 repeats until the session changes; refetching it on every sync
-    // tick is what turned one expired session into 135k background 401s.
     expect(actionCall?.predicate?.(unauthorized)).toBe(false);
     expect(actionCall?.predicate?.(healthy)).toBe(true);
   });
@@ -237,14 +348,56 @@ describe("useDbSync", () => {
     ]);
   });
 
+  it("bumps the app-state wildcard for an unscoped remote state event", async () => {
+    const before = getChangeVersion("app-state:*");
+    const result = await renderWithEvent({
+      version: before + 1,
+      source: "app-state",
+      type: "change",
+    });
+    roots.push(result.root);
+    containers.push(result.container);
+
+    expect(getChangeVersion("app-state:*")).toBeGreaterThan(before);
+  });
+
+  it("invalidates only the originating tab's navigate command cache", async () => {
+    const result = await renderWithEvent({
+      version: 1,
+      source: "app-state",
+      type: "change",
+      key: "navigate:tab-a",
+      requestSource: "agent",
+    });
+    roots.push(result.root);
+    containers.push(result.container);
+
+    expect(invalidatedQueryKeys(result.queryClient.calls)).toContainEqual([
+      "navigate-command",
+      "tab-a",
+    ]);
+    expect(invalidatedQueryKeys(result.queryClient.calls)).not.toContainEqual([
+      "navigate-command",
+    ]);
+  });
+
   it("can scope the broad action invalidate away from expensive query keys", async () => {
     const queryClient = new QueryClientProbe();
+    const observedEvents: Array<readonly { source?: string; key?: string }[]> =
+      [];
     const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
             version: 1,
-            events: [{ version: 1, source: "action", type: "change" }],
+            events: [
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "update-document",
+              },
+            ],
           }),
         ),
     );
@@ -260,17 +413,15 @@ describe("useDbSync", () => {
       root.render(
         <SyncProbe
           queryClient={queryClient}
-          actionInvalidatePredicate={(query) =>
-            query.queryKey[0] !== "sql-chart"
-          }
+          actionInvalidatePredicate={(query, events) => {
+            observedEvents.push(events);
+            return query.queryKey[0] !== "sql-chart";
+          }}
         />,
       );
       await Promise.resolve();
       await Promise.resolve();
     });
-    // useDbSync coalesces invalidation into a single flush per
-    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
-    // (see the comment in renderWithEvent above).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
@@ -280,6 +431,12 @@ describe("useDbSync", () => {
     expect(broadCall?.predicate?.(queryClient.queries[1])).toBe(true);
     expect(queryClient.calls).toEqual([broadCall]);
     expect(queryClient.refetchOptions).toEqual([{ cancelRefetch: false }]);
+    expect(observedEvents[0]).toEqual([
+      expect.objectContaining({
+        source: "action",
+        key: "update-document",
+      }),
+    ]);
   });
 
   it("can suppress action-query invalidation for high-volume background actions", async () => {
@@ -320,9 +477,6 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // useDbSync coalesces invalidation into a single flush per
-    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
-    // (see the comment in renderWithEvent above).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
@@ -332,8 +486,6 @@ describe("useDbSync", () => {
     expect(keys).not.toContainEqual(["extension"]);
     expect(keys).not.toContainEqual(["extensions"]);
     expect(keys).not.toContainEqual(["slot-installs"]);
-    // Suppression must not swallow the events themselves — templates layer
-    // surgical logic on onEvent and must still see suppressed-action batches.
     expect(forwardedEvents).toContainEqual(
       expect.objectContaining({ key: "process-builder-body-hydration" }),
     );
@@ -381,9 +533,6 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // useDbSync coalesces invalidation into a single flush per
-    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
-    // (see the comment in renderWithEvent above).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
@@ -425,11 +574,6 @@ describe("useDbSync", () => {
   });
 
   it("does not refetch action/extension/tool queries for app-state-only events", async () => {
-    // Regression guard for the client fetch storm: an active agent session
-    // mirrors navigation/selection into application_state continuously, and
-    // the serverless poll path replays those writes back to the tab. Those
-    // app-state events must NOT fan out into "refetch every action query"
-    // (which exhausted the DB pool and surfaced downstream as stale_run).
     const result = await renderWithEvent({
       version: 1,
       source: "app-state",
@@ -440,11 +584,18 @@ describe("useDbSync", () => {
     containers.push(result.container);
 
     expect(result.fetchMock).toHaveBeenCalled();
+    const appStateCall = result.queryClient.calls.find(
+      (call) => call?.predicate,
+    );
+    expect(
+      appStateCall?.predicate?.({ queryKey: ["app-state", "selection"] }),
+    ).toBe(true);
+    expect(
+      appStateCall?.predicate?.({ queryKey: ["app-state", "navigate"] }),
+    ).toBe(false);
+    expect(appStateCall?.predicate?.({ queryKey: ["app-state"] })).toBe(true);
     const keys = invalidatedQueryKeys(result.queryClient.calls);
-    // The one query app-state writes legitimately refresh.
-    expect(keys).toContainEqual(["app-state"]);
-    // But never the broad data-query prefixes.
-    expect(keys).not.toContainEqual(undefined);
+    expect(keys).toHaveLength(1);
     expect(keys).not.toContainEqual(["action"]);
     expect(keys).not.toContainEqual(["extension"]);
     expect(keys).not.toContainEqual(["tool"]);
@@ -452,9 +603,6 @@ describe("useDbSync", () => {
   });
 
   it("still refetches action queries when an action event rides alongside app-state churn", async () => {
-    // A real mutation (action event) that ALSO writes navigation state must
-    // still refresh action queries — the scoping only drops app-state-ONLY
-    // batches from the data-query invalidation.
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn(
       async () =>
@@ -531,10 +679,6 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    // Interaction-critical events (navigate/show-questions/__set_url__
-    // app-state writes) must bypass INVALIDATE_COALESCE_MS entirely — no
-    // 260ms wait needed, the invalidation lands in the same flush of
-    // microtasks that delivered the event.
     expect(invalidatedQueryKeys(queryClient.calls)).toContainEqual([
       "app-state",
     ]);
@@ -621,13 +765,8 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    // No wait yet: a pure action-change batch (no interaction-critical
-    // events) must still be sitting in the coalesce window, unflushed.
     expect(queryClient.calls).toHaveLength(0);
 
-    // useDbSync coalesces invalidation into a single flush per
-    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
-    // (see the comment in renderWithEvent above).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
@@ -658,12 +797,8 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    // Mount poll = failure #1.
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // Base interval is 50ms, but after one failure the next poll is delayed
-    // to 50 * 2^1 = 100ms — advancing past the base interval alone must NOT
-    // trigger another poll.
     await act(async () => {
       vi.advanceTimersByTime(60);
       await Promise.resolve();
@@ -672,13 +807,12 @@ describe("useDbSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      vi.advanceTimersByTime(50); // 110ms total ≥ 100ms backoff
+      vi.advanceTimersByTime(50);
       await Promise.resolve();
       await Promise.resolve();
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    // Failure #2 → next delay 50 * 2^2 = 200ms.
     await act(async () => {
       vi.advanceTimersByTime(150);
       await Promise.resolve();
@@ -688,15 +822,14 @@ describe("useDbSync", () => {
 
     failing = false;
     await act(async () => {
-      vi.advanceTimersByTime(60); // crosses the 200ms mark → poll #3 succeeds
+      vi.advanceTimersByTime(60);
       await Promise.resolve();
       await Promise.resolve();
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
 
-    // Success resets the backoff to the base 50ms interval.
     await act(async () => {
-      vi.advanceTimersByTime(60);
+      vi.advanceTimersByTime(100);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -712,7 +845,12 @@ describe("useDbSync", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     function AdaptiveProbe() {
-      useDbSync({ queryClient, sseUrl: false, pauseWhenHidden: false });
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        realtime: { reason: "test remote sync behavior" },
+        pauseWhenHidden: false,
+      });
       return null;
     }
 
@@ -778,6 +916,183 @@ describe("useDbSync", () => {
     expect(pollCallCount()).toBe(5);
   });
 
+  it("keeps the one-minute idle cadence when activity occurs during a poll", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    let finishSecondPoll!: (response: Response) => void;
+    const fetchMock = vi.fn(() => {
+      if (fetchMock.mock.calls.length === 2) {
+        return new Promise<Response>((resolve) => {
+          finishSecondPoll = resolve;
+        });
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function AdaptiveProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        realtime: { reason: "test idle activity timing" },
+        pauseWhenHidden: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<AdaptiveProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("pointerdown"));
+      finishSecondPoll(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(59_999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps the one-minute idle cadence when focus occurs during a poll", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    let finishSecondPoll!: (response: Response) => void;
+    const fetchMock = vi.fn(() => {
+      if (fetchMock.mock.calls.length === 2) {
+        return new Promise<Response>((resolve) => {
+          finishSecondPoll = resolve;
+        });
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function AdaptiveProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        realtime: { reason: "test idle focus timing" },
+        pauseWhenHidden: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<AdaptiveProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      finishSecondPoll(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(59_999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not let a paged response high-water mark skip its durable cursor", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Response(
+          JSON.stringify({
+            version: 10_000,
+            events: [{ version: 2_000, cursorId: "a", source: "action" }],
+            cursor: "2000.a",
+          }),
+        );
+      }
+      return new Response(JSON.stringify({ version: 10_000, events: [] }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function CursorProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        realtime: { reason: "test remote sync behavior" },
+        interval: 50,
+        fallbackInterval: 50,
+        pauseWhenHidden: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<CursorProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("cursor=");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("since=2000");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("cursor=2000.a");
+  });
+
   it("keeps active sync alive at a slower cadence while hidden", async () => {
     vi.useFakeTimers();
     const queryClient = new QueryClientProbe();
@@ -792,7 +1107,12 @@ describe("useDbSync", () => {
       .mockImplementation(() => visibilityState);
 
     function BackgroundProbe() {
-      useDbSync({ queryClient, sseUrl: false });
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        realtime: { reason: "test hidden-tab sync behavior" },
+        pauseWhenHidden: false,
+      });
       return null;
     }
 
@@ -861,6 +1181,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: { reason: "test hidden-tab sync behavior" },
         interval: 50,
         pauseWhenHidden: true,
       });
@@ -899,6 +1220,127 @@ describe("useDbSync", () => {
     visibilitySpy.mockRestore();
   });
 
+  it("coalesces a refresh-data dispatched mid-poll into exactly one follow-up poll", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    let resolveFirst!: (value: Response) => void;
+    const fetchMock = vi.fn(() => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Promise<Response>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RefreshProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        realtime: { reason: "test forced refresh behavior" },
+        interval: 50_000,
+        pauseWhenHidden: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    const pollCallCount = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ).length;
+
+    await act(async () => {
+      root.render(<RefreshProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(1);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(1);
+
+    await act(async () => {
+      resolveFirst(new Response(JSON.stringify({ version: 1, events: [] })));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(2);
+  });
+
+  it("still issues a forced poll from refresh-data while the document is hidden", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let visibilityState: DocumentVisibilityState = "visible";
+    const visibilitySpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => visibilityState);
+
+    function HiddenRefreshProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        realtime: { reason: "test forced refresh behavior" },
+        interval: 50_000,
+        pauseWhenHidden: true,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    const pollCallCount = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ).length;
+
+    await act(async () => {
+      root.render(<HiddenRefreshProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(1);
+
+    act(() => {
+      visibilityState = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(pollCallCount()).toBe(1);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(2);
+
+    visibilitySpy.mockRestore();
+  });
+
   it("subscribeSyncEvents shares the transport and reports SSE state on join", async () => {
     const fetchMock = vi.fn(
       async () =>
@@ -921,10 +1363,8 @@ describe("useDbSync", () => {
       pauseWhenHidden: false,
     });
 
-    // Joining reports the current SSE state immediately (disabled here).
     expect(sseStates).toEqual([false]);
 
-    // The transport polls on start; events fan out to plain subscribers.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).toHaveBeenCalled();
     expect(
@@ -1014,10 +1454,6 @@ describe("useDbSync", () => {
     container.remove();
   });
 
-  // -------------------------------------------------------------------------
-  // Shared transport regression tests
-  // -------------------------------------------------------------------------
-
   it("uses a single fetch when useDbSync and useScreenRefreshKey are both mounted", async () => {
     const queryClient = new QueryClientProbe();
     let callCount = 0;
@@ -1036,6 +1472,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: { reason: "test transport sharing" },
         interval: 50,
         pauseWhenHidden: false,
       });
@@ -1059,9 +1496,94 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    // Both hooks share the same transport — only ONE fetch call for the
-    // initial poll, not two.
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not create a sync transport for the screen refresh boundary", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<ScreenKeyProbe enabled={false} />);
+      await Promise.resolve();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(<ScreenKeyProbe enabled />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not refresh the screen after a failed refresh-screen tool", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => root.render(<ScreenKeyProbe enabled />));
+    expect(screenKeyValue).toBe(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: { tool: "refresh-screen", isError: true },
+        }),
+      );
+    });
+    expect(screenKeyValue).toBe(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: { tool: "refresh-screen", isError: false },
+        }),
+      );
+    });
+    expect(screenKeyValue).toBe(1);
+  });
+
+  it("does not replay a failed refresh-screen tool at run end", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => root.render(<ScreenKeyProbe enabled />));
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "refresh-screen",
+            completedSideEffect: true,
+            isError: true,
+            tabId: "tab-failed-refresh",
+          },
+        }),
+      );
+    });
+    expect(screenKeyValue).toBe(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "tab-failed-refresh" },
+        }),
+      );
+    });
+    expect(screenKeyValue).toBe(0);
   });
 
   it("fans events to both useDbSync and useScreenRefreshKey subscribers", async () => {
@@ -1086,6 +1608,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: { reason: "test transport sharing" },
         interval: 50,
         pauseWhenHidden: false,
       });
@@ -1109,20 +1632,14 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // useDbSync coalesces invalidation into a single flush per
-    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
-    // (see the comment in renderWithEvent above).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
-    // useDbSync received the action event and invalidated only action-backed
-    // queries; it no longer fans the event across the entire active cache.
     expect(invalidatedQueryKeys(queryClient.calls)).toContainEqual(["action"]);
     expect(invalidatedQueryKeys(queryClient.calls)).not.toContainEqual(
       undefined,
     );
-    // useScreenRefreshKey received the screen-refresh event.
     expect(capturedScreenKey).toBe(1);
   });
 
@@ -1153,11 +1670,9 @@ describe("useDbSync", () => {
     const afterFirst = fetchCallCount;
     expect(afterFirst).toBeGreaterThanOrEqual(1);
 
-    // Unmount — transport tears down and registry entry is cleared.
     act(() => root1.unmount());
     container1.remove();
 
-    // Re-mount should start a fresh transport (new poll from version 0).
     fetchCallCount = 0;
     const qc2 = new QueryClientProbe();
     const container2 = document.createElement("div");
@@ -1172,7 +1687,6 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    // New transport polls again from scratch.
     expect(fetchCallCount).toBeGreaterThanOrEqual(1);
   });
 });

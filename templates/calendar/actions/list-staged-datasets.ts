@@ -1,6 +1,3 @@
-/**
- * Thin calendar re-export of staged dataset listing, pre-bound to appId="calendar".
- */
 import { createListStagedDatasetsAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 

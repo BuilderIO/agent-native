@@ -1,10 +1,11 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   ForbiddenError,
   assertAccess,
   currentAccess,
   resolveAccess,
+  roleSatisfies,
 } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -73,6 +74,8 @@ export default defineAction({
   mcpApp: {
     compactCatalog: true,
   },
+  changeResource: (input) =>
+    input.planId ? { resourceType: "plan", resourceId: input.planId } : null,
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();
     const commentRequestEmail = !isAnonymousPublicViewer(requesterEmail)
@@ -131,6 +134,11 @@ export default defineAction({
     const requester = normalizeEmail(commentRequestEmail);
     const author = normalizeEmail(existing.authorEmail);
     const isAuthor = Boolean(requester && author && requester === author);
+    if (!roleSatisfies(access.role, "commenter")) {
+      throw new ForbiddenError(
+        "Commenting on this plan requires commenter access or higher.",
+      );
+    }
     if (!isAuthor) {
       try {
         await assertAccess(

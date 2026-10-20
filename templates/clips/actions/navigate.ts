@@ -1,22 +1,5 @@
-/**
- * Navigate the UI to a view or a specific recording / space / folder / share.
- *
- * Writes a navigate command to `application_state` which the UI reads and
- * auto-deletes. This is a one-shot command — it will not persist across
- * navigations.
- *
- * Usage:
- *   pnpm action navigate --view=library
- *   pnpm action navigate --view=shared
- *   pnpm action navigate --view=recording --recordingId=<id>
- *   pnpm action navigate --view=meeting --meetingId=<id>
- *   pnpm action navigate --view=dictate
- *   pnpm action navigate --view=space --spaceId=<id>
- *   pnpm action navigate --path=/r/rec_abc
- */
-
-import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { defineAction } from "@agent-native/core/action";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 const Views = [
@@ -69,6 +52,22 @@ export default defineAction({
       .string()
       .optional()
       .describe("Library search term (sets ?q=… on library/space)"),
+    panel: z
+      .enum([
+        "comments",
+        "transcript",
+        "agent",
+        "debug",
+        "insights",
+        "settings",
+      ])
+      .optional()
+      .describe("Viewer panel to focus when opening a recording"),
+    atMs: z.coerce
+      .number()
+      .min(0)
+      .optional()
+      .describe("Playback timestamp in milliseconds when opening a recording"),
     path: z
       .string()
       .optional()
@@ -81,7 +80,7 @@ export default defineAction({
     if (!args.view && !args.path) {
       throw new Error("at least --view or --path is required.");
     }
-    const nav: Record<string, string> = {};
+    const nav: Record<string, string | number> = {};
     if (args.view) nav.view = args.view;
     if (args.recordingId) nav.recordingId = args.recordingId;
     if (args.meetingId) nav.meetingId = args.meetingId;
@@ -90,8 +89,10 @@ export default defineAction({
     if (args.folderId) nav.folderId = args.folderId;
     if (args.shareId) nav.shareId = args.shareId;
     if (args.search) nav.search = args.search;
+    if (args.panel) nav.panel = args.panel;
+    if (args.atMs != null) nav.atMs = args.atMs;
     if (args.path) nav.path = args.path;
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
     const target =
       args.path ||
       [
@@ -102,6 +103,8 @@ export default defineAction({
         args.spaceId,
         args.folderId,
         args.shareId,
+        args.panel,
+        args.atMs,
       ]
         .filter(Boolean)
         .join(":");

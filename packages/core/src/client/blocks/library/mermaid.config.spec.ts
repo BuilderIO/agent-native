@@ -7,12 +7,6 @@ import {
   type MermaidData,
 } from "./mermaid.config.js";
 
-/**
- * Minimal `BlockAttrReader` over a plain attribute bag, mirroring the runtime
- * `createAttrReader` value-domain narrowing (string-vs-number-vs-object). Lets
- * the test assert the `toAttrs` → `fromAttrs` round-trip without spinning up the
- * full MDX serialize/parse pipeline.
- */
 function reader(attrs: Record<string, unknown>): BlockAttrReader {
   const read = (name: string) => attrs[name];
   return {
@@ -32,7 +26,6 @@ function reader(attrs: Record<string, unknown>): BlockAttrReader {
   };
 }
 
-/** Re-decode data from the attribute bag `toAttrs` produced. */
 function roundTrip(data: MermaidData): MermaidData {
   const attrs = mermaidMdx.toAttrs(data) as Record<string, unknown>;
   return mermaidMdx.fromAttrs(reader(attrs), "");
@@ -68,7 +61,6 @@ describe("mermaid block config", () => {
     const data: MermaidData = {
       source: "graph LR\n  X --> Y",
     };
-    // No caption attribute is emitted, so the decode yields `caption: undefined`.
     expect(roundTrip(data)).toEqual({
       source: data.source,
       caption: undefined,

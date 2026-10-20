@@ -26,7 +26,7 @@ const mobileCaptureStateSchema = z
 
 export default defineAction({
   description:
-    "Record the privacy-safe view and phase of the Agent Native mobile capture companion.",
+    "Record the privacy-safe view and phase of the Agent-Native mobile capture companion.",
   agentTool: false,
   schema: mobileCaptureStateSchema,
   run: async (args) => {

@@ -26,7 +26,7 @@ function ownerForScope(scopeId: string): string {
 }
 
 function memoryName(value: unknown): string {
-  const name = String(value ?? "")
+  const name = stringifyValue(value ?? "")
     .trim()
     .toLowerCase();
   if (!/^[a-z0-9][a-z0-9_-]{0,79}$/.test(name)) {
@@ -38,7 +38,7 @@ function memoryName(value: unknown): string {
 }
 
 function memoryText(value: unknown, name: string, max: number): string {
-  const text = String(value ?? "").trim();
+  const text = stringifyValue(value ?? "").trim();
   if (!text) throw new Error(`${name} is required`);
   return text.slice(0, max);
 }
@@ -162,9 +162,9 @@ export function integrationMemoryActions(): Record<string, ActionEntry> {
       run: async (args: Record<string, unknown>) =>
         JSON.stringify(
           await rememberForIntegrationScope({
-            name: String(args.name ?? ""),
-            description: String(args.description ?? ""),
-            content: String(args.content ?? ""),
+            name: stringifyValue(args.name ?? ""),
+            description: stringifyValue(args.description ?? ""),
+            content: stringifyValue(args.content ?? ""),
           }),
         ),
     },
@@ -180,8 +180,20 @@ export function integrationMemoryActions(): Record<string, ActionEntry> {
       },
       run: async (args: Record<string, unknown>) =>
         JSON.stringify(
-          await forgetIntegrationMemory({ name: String(args.name ?? "") }),
+          await forgetIntegrationMemory({
+            name: stringifyValue(args.name ?? ""),
+          }),
         ),
     },
   };
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

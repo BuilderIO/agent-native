@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { z } from "zod";
 
@@ -7,15 +7,10 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
-    const isLocal = (): boolean => {
-      const url = process.env.DATABASE_URL || "file:./data/app.db";
-      return url.startsWith("file:");
-    };
-
     try {
       const exec = getDbExec();
       await exec.execute("SELECT 1");
-      return { ok: true, local: isLocal() };
+      return { ok: true };
     } catch (e) {
       return {
         ok: false,

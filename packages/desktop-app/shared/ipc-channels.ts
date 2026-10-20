@@ -1,4 +1,3 @@
-/** IPC channel names shared between main, preload, and renderer. */
 import type { CodeAgentPermissionMode } from "./code-agents";
 import type { DesktopDesignPreviewRect } from "./design-preview-placement";
 import type {
@@ -6,28 +5,44 @@ import type {
   DesktopShortcutUpdateResult,
   DesktopShortcutUpsertRequest,
 } from "./desktop-shortcuts";
+import type {
+  DesktopEnvironmentLane,
+  DesktopEnvironmentLanePreference,
+} from "./environment-lane";
+import type {
+  QuickPromptSettings,
+  QuickPromptPreferences,
+} from "./quick-prompt";
 
 export const IPC = {
-  /** Window control channels (renderer → main) */
   WINDOW_MINIMIZE: "window:minimize",
-  WINDOW_MAXIMIZE: "window:maximize",
+  WINDOW_TOGGLE_WINDOW_MODE: "window:toggle-window-mode",
   WINDOW_CLOSE: "window:close",
+  WINDOW_NATIVE_BUTTONS_VISIBILITY: "window:native-buttons-visibility",
 
-  /** Window state query (renderer ↔ main) */
-  WINDOW_IS_MAXIMIZED: "window:is-maximized",
-
-  /** Window state broadcast (main → renderer) */
-  WINDOW_MAXIMIZED_CHANGED: "window:maximized-changed",
-
-  /** Inter-app message relay (renderer → main → renderer) */
   INTER_APP_SEND: "inter-app:send",
   INTER_APP_MESSAGE: "inter-app:message",
 
-  /** App status events (main → renderer) */
   APP_STATUS: "app:status",
+  OAUTH_POPUP_CLOSED: "oauth:popup:closed",
+  OAUTH_POPUP_CANCEL: "oauth:popup:cancel",
+  OAUTH_SYSTEM_BROWSER_RETURNED: "oauth:system-browser:returned",
 
-  /** App config management (renderer ↔ main) */
+  IDENTITY_STATUS_GET: "identity:status:get",
+  IDENTITY_AVAILABILITY_GET: "identity:availability:get",
+  IDENTITY_STATUS_CHANGED: "identity:status:changed",
+  IDENTITY_SETTINGS_GET: "identity:settings:get",
+  IDENTITY_SSO_ENABLED_SET: "identity:sso-enabled:set",
+  IDENTITY_ENVIRONMENT_LANE_GET: "identity:environment-lane:get",
+  IDENTITY_ENVIRONMENT_LANE_SET: "identity:environment-lane:set",
+  IDENTITY_APP_SESSION_ENSURE: "identity:app-session:ensure",
+  IDENTITY_SIGN_IN: "identity:sign-in",
+  IDENTITY_AUTHENTICATE: "identity:authenticate",
+  IDENTITY_MAGIC_LINK_REQUEST: "identity:magic-link:request",
+  IDENTITY_SIGN_OUT: "identity:sign-out",
+
   APPS_LOAD: "apps:load",
+  APPS_LOAD_WORKSPACE: "apps:load-workspace",
   APPS_ADD: "apps:add",
   APPS_REMOVE: "apps:remove",
   APPS_UPDATE: "apps:update",
@@ -37,54 +52,63 @@ export const IPC = {
   APPS_GET_CREATION_SETTINGS: "apps:get-creation-settings",
   APPS_UPDATE_CREATION_SETTINGS: "apps:update-creation-settings",
   APPS_CREATE_FROM_PROMPT: "apps:create-from-prompt",
+  APPS_PREPARE_LOCAL_CODE_CHANGE: "apps:prepare-local-code-change",
   APPS_SHOW_CONTEXT_MENU: "apps:show-context-menu",
 
-  /** Hosted Plan app local-file sync (Plan webview ↔ main) */
+  DESKTOP_CHAT_GET_API_URL: "desktop-chat:get-api-url",
+  DESKTOP_CHAT_GET_TERMINAL_INFO_URL: "desktop-chat:get-terminal-info-url",
+  DESKTOP_CHAT_OPEN_APP: "desktop-chat:open-app",
+
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
   PLAN_FILES_CHOOSE_FOLDER: "plan-files:choose-folder",
   PLAN_FILES_WRITE: "plan-files:write",
   PLAN_FILES_READ: "plan-files:read",
   PLAN_FILES_CLEAR_FOLDER: "plan-files:clear-folder",
 
-  /** Hosted Content app local-file sync (Content webview ↔ main) */
   CONTENT_FILES_GET_FOLDER: "content-files:get-folder",
   CONTENT_FILES_CHOOSE_FOLDER: "content-files:choose-folder",
+  CONTENT_FILES_ASSOCIATE_SOURCE: "content-files:associate-source",
   CONTENT_FILES_WRITE: "content-files:write",
   CONTENT_FILES_WRITE_FILE: "content-files:write-file",
   CONTENT_FILES_DELETE_FILE: "content-files:delete-file",
   CONTENT_FILES_READ: "content-files:read",
   CONTENT_FILES_REVEAL_FILE: "content-files:reveal-file",
   CONTENT_FILES_CLEAR_FOLDER: "content-files:clear-folder",
+  CONTENT_FILES_SUBSCRIBE_CHANGES: "content-files:subscribe-changes",
+  CONTENT_FILES_UNSUBSCRIBE_CHANGES: "content-files:unsubscribe-changes",
+  CONTENT_FILES_CHANGED: "content-files:changed",
 
-  /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
 
-  /** Focused Design native preview (Design guest ↔ main) */
   DESIGN_PREVIEW_REQUEST: "design-preview:request",
   DESIGN_PREVIEW_STATE: "design-preview:state",
 
-  /** Clipboard helpers (renderer ↔ main) */
   CLIPBOARD_WRITE_TEXT: "clipboard:write-text",
+  SHELL_OPEN_EXTERNAL: "shell:open-external",
 
-  /** Frame settings (renderer ↔ main) */
-  FRAME_LOAD: "frame:load",
-  FRAME_UPDATE: "frame:update",
-
-  /** Auto-update (renderer ↔ main) */
   UPDATE_CHECK: "update:check",
   UPDATE_DOWNLOAD: "update:download",
   UPDATE_INSTALL: "update:install",
   UPDATE_GET_STATUS: "update:get-status",
-  /** Broadcast (main → renderer) */
   UPDATE_STATUS_CHANGED: "update:status-changed",
 
-  /** Agent-Native Code hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
+  CODE_AGENTS_LIST_SCHEDULES: "code-agents:list-schedules",
+  CODE_AGENTS_CREATE_SCHEDULE: "code-agents:create-schedule",
+  CODE_AGENTS_UPDATE_SCHEDULE: "code-agents:update-schedule",
+  CODE_AGENTS_DELETE_SCHEDULE: "code-agents:delete-schedule",
+  CODE_AGENTS_RUN_SCHEDULE_NOW: "code-agents:run-schedule-now",
+  CODE_AGENTS_LIST_WORKTREES: "code-agents:list-worktrees",
   CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
+  CODE_AGENTS_FORK_RUN: "code-agents:fork-run",
+  CODE_AGENTS_RESTORE_WORKTREE: "code-agents:restore-worktree",
+  CODE_AGENTS_REMOTE_WAITLIST: "code-agents:remote-waitlist",
   CODE_AGENTS_LIST_MODELS: "code-agents:list-models",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
   CODE_AGENTS_APPEND_FOLLOW_UP: "code-agents:append-follow-up",
+  CODE_AGENTS_PORTAL_TRANSFER_RUN: "code-agents:portal-transfer-run",
+  CODE_AGENTS_PORTAL_TRANSFER_ALL: "code-agents:portal-transfer-all",
   CODE_AGENTS_UPDATE_RUN: "code-agents:update-run",
   CODE_AGENTS_CONTROL_RUN: "code-agents:control-run",
   CODE_AGENTS_RETRY_RUN: "code-agents:retry-run",
@@ -105,20 +129,69 @@ export const IPC = {
   CODE_AGENTS_REMOTE_CONNECTOR_PAIR: "code-agents:remote-connector:pair",
   CODE_AGENTS_PROVIDER_SETTINGS_GET: "code-agents:provider-settings:get",
   CODE_AGENTS_PROVIDER_SETTINGS_UPDATE: "code-agents:provider-settings:update",
-  CODE_AGENTS_PROVIDER_BUILDER_CONNECT: "code-agents:provider-builder:connect",
+  CODE_AGENTS_BUILDER_STATUS_GET: "code-agents:builder-status:get",
+  CODE_AGENTS_BUILDER_ACTIVATE: "code-agents:builder:activate",
+  CODE_AGENTS_BUILDER_CONNECT_OPEN: "code-agents:builder:connect-open",
 
-  /** Deep links (main → renderer) */
   DEEP_LINK_OPEN: "deep-link:open",
 
-  /** Local desktop app-launch shortcuts (renderer ↔ main) */
   SHORTCUTS_ACTIVATE: "shortcuts:activate",
   SHORTCUTS_ACTIVATE_ACK: "shortcuts:activate-ack",
   SHORTCUTS_LOAD: "shortcuts:load",
   SHORTCUTS_UPSERT: "shortcuts:upsert",
   SHORTCUTS_REMOVE: "shortcuts:remove",
+
+  QUICK_PROMPT_LOAD: "quick-prompt:load",
+  QUICK_PROMPT_UPDATE: "quick-prompt:update",
+  QUICK_PROMPT_DISMISS: "quick-prompt:dismiss",
+  QUICK_PROMPT_SET_PICKER_OPEN: "quick-prompt:set-picker-open",
+  QUICK_PROMPT_SET_SETUP_REQUIRED: "quick-prompt:set-setup-required",
+  QUICK_PROMPT_OPEN_PROVIDER_SETTINGS: "quick-prompt:open-provider-settings",
+  QUICK_PROMPT_HIDDEN: "quick-prompt:hidden",
+  QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
 
-/** Auto-update status surfaced from electron-updater. */
+export interface DesktopTerminalContext {
+  appId: string;
+  path?: string;
+  view?: string;
+}
+
+export type CodeAgentScheduleScope = "global" | "thread";
+export type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
+
+export interface CodeAgentSchedule {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  prompt: string;
+  scope: CodeAgentScheduleScope;
+  targetRunId?: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  nextRunAt: string;
+  lastRunAt?: string;
+  lastStatus?: CodeAgentScheduleStatus;
+  lastError?: string;
+  lastTriggeredRunId?: string;
+  createdByRunId?: string;
+}
+
+export interface CodeAgentScheduleListResult {
+  status: "ok" | "unavailable";
+  schedules: CodeAgentSchedule[];
+  error?: string;
+}
+
+export interface CodeAgentScheduleResult {
+  ok: boolean;
+  schedule?: CodeAgentSchedule;
+  message: string;
+  error?: string;
+}
+
 export type UpdateStatus =
   | { state: "idle" }
   | { state: "unsupported"; reason: string }
@@ -135,12 +208,32 @@ export type UpdateStatus =
   | { state: "downloaded"; version: string; releaseNotes?: string }
   | { state: "error"; message: string };
 
+export type {
+  DesktopEnvironmentLane,
+  DesktopEnvironmentLanePreference,
+} from "./environment-lane";
+
+export type DesktopIdentityStatus =
+  | "idle"
+  | "signing-in"
+  | "signed-in"
+  | "sign-in-required"
+  | "failed";
+
+export interface DesktopIdentitySettings {
+  ssoEnabled: boolean;
+}
+
+export interface DesktopEnvironmentLaneState {
+  preference: DesktopEnvironmentLanePreference;
+  lane: DesktopEnvironmentLane;
+  eligible: boolean;
+}
+
 export interface ActiveWebviewTarget {
   appId: string;
   webContentsId?: number;
-  /** False releases this exact owner without racing a newly active tab. */
   active?: boolean;
-  /** App webview bounds in BrowserWindow content coordinates. */
   hostBounds?: DesktopDesignPreviewRect;
 }
 
@@ -171,9 +264,51 @@ export interface DesktopAppCreationSettings {
   appsRoot: string;
 }
 
+export interface DesktopAppCreationSettingsUpdateResult {
+  ok: boolean;
+  settings: DesktopAppCreationSettings;
+  error?: string;
+}
+
 export interface DesktopCreateAppRequest {
   prompt: string;
   appsRoot?: string;
+}
+
+export type DesktopIdentityAuthMode = "sign-in" | "sign-up";
+
+export interface DesktopIdentityAuthRequest {
+  mode: DesktopIdentityAuthMode;
+  email: string;
+  password: string;
+}
+
+export interface DesktopIdentityAuthResult {
+  ok: boolean;
+  email?: string;
+  error?: string;
+}
+
+export interface DesktopIdentityMagicLinkRequest {
+  email: string;
+}
+
+export interface DesktopIdentityMagicLinkResult {
+  ok: boolean;
+  email?: string;
+  pending?: boolean;
+  error?: string;
+}
+
+export interface DesktopWorkspaceAppListResult {
+  enabled: boolean;
+  apps: import("@agent-native/shared-app-config").AppConfig[];
+  unavailable?: boolean;
+}
+
+export interface DesktopPrepareLocalCodeChangeRequest {
+  appId: string;
+  prompt: string;
 }
 
 export interface DesktopCreateAppResult {
@@ -184,6 +319,8 @@ export interface DesktopCreateAppResult {
   message: string;
   error?: string;
 }
+
+export type DesktopPrepareLocalCodeChangeResult = DesktopCreateAppResult;
 
 export type DesktopAppContextAction =
   | "edit"
@@ -260,20 +397,35 @@ export type DesktopPlanFilesResult =
 export interface DesktopContentFilesFolder {
   id?: string;
   name: string;
+  kind?: "persistent" | "temporary";
+  repository?: DesktopContentFilesRepository;
+  contentSource?: {
+    sourceId: string;
+    databaseId?: string;
+  };
   path?: string;
   sourcePrefix?: string;
   updatedAt?: string;
 }
 
+export interface DesktopContentFilesRepository {
+  localId: string;
+  branch?: string;
+  commit?: string;
+  detached?: boolean;
+}
+
 export interface DesktopContentFilesWriteRequest {
   folderId?: string;
   files: Record<string, string>;
+  expectedRevisions: Record<string, string | null>;
 }
 
 export interface DesktopContentFileWriteRequest {
   folderId?: string;
   path: string;
   content: string;
+  expectedRevision?: string | null;
 }
 
 export interface DesktopContentFileRevealRequest {
@@ -284,14 +436,33 @@ export interface DesktopContentFileRevealRequest {
 export interface DesktopContentFileDeleteRequest {
   folderId?: string;
   path: string;
+  expectedRevision: string;
 }
 
 export interface DesktopContentFilesFolderRequest {
   folderId?: string;
 }
 
+export interface DesktopContentFilesAssociateSourceRequest {
+  folderId: string;
+  sourceId: string;
+  databaseId?: string;
+}
+
 export interface DesktopContentFilesClearFolderRequest {
   folderId?: string;
+}
+
+export interface DesktopContentFilesChangesRequest {
+  folderId?: string;
+}
+
+export interface DesktopContentFilesChange {
+  folderId: string;
+  revision: string;
+  changedAt: string;
+  missing?: boolean;
+  reason?: "attached" | "changed" | "missing";
 }
 
 export type DesktopContentFilesResult =
@@ -301,14 +472,22 @@ export type DesktopContentFilesResult =
       folders?: DesktopContentFilesFolder[];
       files?: string[];
       sources?: Record<string, string>;
+      revisions?: Record<string, string>;
+      identities?: Record<string, string>;
       controlResources?: Record<string, string>;
     }
   | {
       ok: false;
       error: string;
+      code?: "conflict" | "unavailable" | "invalid-request";
       canceled?: boolean;
       folder?: DesktopContentFilesFolder;
       folders?: DesktopContentFilesFolder[];
+      conflict?: {
+        path: string;
+        expectedRevision?: string | null;
+        actualRevision?: string;
+      };
     };
 
 export type CodeAgentRunStatus =
@@ -346,7 +525,7 @@ export type CodeAgentReasoningEffort =
 export interface CodeAgentModelSelection {
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
 }
 
 export interface CodeAgentModelOption {
@@ -356,6 +535,8 @@ export interface CodeAgentModelOption {
   label: string;
   description?: string;
   configured?: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
 }
 
 export interface CodeAgentModelListResult {
@@ -370,7 +551,6 @@ export interface CodeAgentPromptAttachment {
   type?: string;
   size?: number;
   text?: string;
-  /** Base64 data URL for image attachments (e.g. "data:image/png;base64,..."). */
   dataUrl?: string;
 }
 
@@ -433,7 +613,7 @@ export interface CodeAgentProjectSelectResult {
 export interface CodeAgentQueueMetadata {
   queued: boolean;
   queuedAt?: string;
-  queuedBy?: "desktop" | "cli" | "host" | string;
+  queuedBy?: "desktop" | "cli" | "host" | (string & {});
   queueId?: string;
   queuePosition?: number;
   attempt?: number;
@@ -446,7 +626,7 @@ export interface CodeAgentSteeringMetadata {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 }
 
@@ -509,12 +689,6 @@ export interface CodeAgentTranscriptEvent {
   artifactPath?: string;
   artifactUrl?: string;
   metadata?: Record<string, unknown>;
-  /**
-   * Structured marker for events that need special UI handling beyond
-   * free-text matching. `"credential-gap"` marks the status event reporting
-   * that no LLM provider key (or Codex CLI login) is available. Optional so
-   * older persisted transcripts without the field keep parsing unchanged.
-   */
   signal?: "credential-gap";
 }
 
@@ -535,10 +709,12 @@ export interface CodeAgentCreateRunRequest {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
+  worktree?: CodeAgentWorktreeSelection;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 }
@@ -552,6 +728,67 @@ export interface CodeAgentCreateRunResult {
   error?: string;
 }
 
+export type CodeAgentWorktreeMode = "new" | "named";
+
+export interface CodeAgentWorktreeSelection {
+  mode: CodeAgentWorktreeMode;
+  name?: string;
+}
+
+export type CodeAgentWorktreeState =
+  | "available"
+  | "attached"
+  | "cleanup-pending"
+  | "recoverable"
+  | "removed"
+  | "error";
+
+export interface CodeAgentWorktreeSummary {
+  id: string;
+  name: string;
+  branch: string;
+  path: string;
+  sourcePath: string;
+  state: CodeAgentWorktreeState;
+  attached: boolean;
+  lastUsedAt: string;
+  lastCleanupError?: string;
+}
+
+export interface CodeAgentWorktreeListResult {
+  status: "ok" | "unavailable";
+  sourcePath: string;
+  worktrees: CodeAgentWorktreeSummary[];
+  error?: string;
+}
+
+export interface CodeAgentForkRunRequest {
+  goalId?: string;
+  sourceRunId: string;
+  executionTarget: "local" | "worktree";
+}
+
+export interface CodeAgentForkRunResult {
+  ok: boolean;
+  sourceRunId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentRestoreWorktreeRequest {
+  worktreeId: string;
+  runId?: string;
+}
+
+export interface CodeAgentRestoreWorktreeResult {
+  ok: boolean;
+  worktreeId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
 export interface CodeAgentFollowUpRequest {
   goalId?: string;
   runId: string;
@@ -560,7 +797,7 @@ export interface CodeAgentFollowUpRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 }
@@ -573,13 +810,51 @@ export interface CodeAgentFollowUpResult {
   error?: string;
 }
 
+export interface CodeAgentPortalTransferRequest {
+  runId: string;
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferItem {
+  runId: string;
+  title?: string;
+  ok: boolean;
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferResult {
+  ok: boolean;
+  runId: string;
+  run?: CodeAgentRun;
+  host?: { id: string; label: string };
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferAllRequest {
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferAllResult {
+  ok: boolean;
+  host?: { id: string; label: string };
+  transferred: CodeAgentPortalTransferItem[];
+  skipped: CodeAgentPortalTransferItem[];
+  failed: CodeAgentPortalTransferItem[];
+  message: string;
+  error?: string;
+}
+
 export interface CodeAgentUpdateRunRequest {
   goalId?: string;
   runId: string;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 }
 
@@ -616,6 +891,7 @@ export interface CodeAgentRemoteConnectorStatus {
   configured: boolean;
   configPath: string;
   relayUrl?: string;
+  workspacePath?: string;
   pid?: number;
   startedAt?: string;
   lastExitAt?: string;
@@ -635,6 +911,7 @@ export interface CodeAgentRemoteConnectorControlResult {
 export interface CodeAgentRemoteConnectorPairRequest {
   relayUrl?: string;
   label?: string;
+  workspacePath?: string;
 }
 
 export interface CodeAgentRemoteConnectorPairResult {
@@ -659,6 +936,62 @@ export type CodeAgentProviderCredentialKey =
   | "BUILDER_PRIVATE_KEY"
   | "BUILDER_PUBLIC_KEY";
 
+export interface CodeAgentBuilderConnectionStatus {
+  configured: boolean;
+  builderEnabled: boolean;
+  connectUrl: string;
+  appHost: string;
+  apiHost: string;
+  publicKeyConfigured: boolean;
+  privateKeyConfigured: boolean;
+  grants?: {
+    org?: { connectedAt: number | null; needsReconnect: boolean };
+    personal?: {
+      connectedAt: number | null;
+      needsReconnect: boolean;
+      restricted: boolean;
+    };
+  } | null;
+  effective?: "personal" | "org" | "workspace" | "env" | null;
+  canConnect?: { org: boolean; personal: boolean };
+  canDisconnect?: boolean;
+  agentNativeProvisioningEnabled?: boolean;
+  agentNativeProvisioningToken?: string;
+  envManaged?: boolean;
+  credentialSource?: "user" | "org" | "workspace" | "env";
+  orgName?: string;
+  connectError?: { message: string; at: number; code?: string };
+  authError?: { message: string; at: number };
+}
+
+export type CodeAgentBuilderConnectionResult =
+  | { state: "connected"; status: CodeAgentBuilderConnectionStatus }
+  | { state: "disconnected"; status: CodeAgentBuilderConnectionStatus }
+  | { state: "unavailable"; error: string };
+
+export interface CodeAgentBuilderActivationRequest {
+  provisioningToken: string;
+  scope?: "org" | "personal";
+  connectToken?: string | null;
+  source?: string;
+  flow?: string;
+}
+
+export type CodeAgentBuilderActivationResult =
+  | { ok: true; scope?: "org" | "personal" }
+  | { ok: false; code: string; message: string | null };
+
+export interface CodeAgentBuilderConnectOpenRequest {
+  connectAttemptId: string;
+  scope?: "org" | "personal";
+  source?: string;
+  flow?: string;
+}
+
+export type CodeAgentBuilderConnectOpenResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
 export interface CodeAgentProviderStatus {
   id: CodeAgentProviderId;
   label: string;
@@ -666,7 +999,13 @@ export interface CodeAgentProviderStatus {
   configuredKeys: CodeAgentProviderCredentialKey[];
   missingKeys: CodeAgentProviderCredentialKey[];
   savedKeys: CodeAgentProviderCredentialKey[];
-  source?: "desktop-settings" | "environment" | "mixed" | "local-codex";
+  source?:
+    | "desktop-settings"
+    | "desktop-managed"
+    | "environment"
+    | "mixed"
+    | "local-codex";
+  error?: string;
 }
 
 export interface CodeAgentProviderSettings {
@@ -714,10 +1053,11 @@ export interface CodeAgentRerunRequest {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 }
@@ -732,7 +1072,7 @@ export interface CodeAgentRetryRunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 }
 
@@ -740,6 +1080,21 @@ export interface CodeAgentRetryRunResult {
   ok: boolean;
   run?: CodeAgentRun;
   message: string;
+  error?: string;
+}
+
+export type CodeAgentExecutionTarget = "local" | "worktree" | "portal";
+
+export interface CodeAgentRemoteWaitlistRequest {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+}
+
+export interface CodeAgentRemoteWaitlistResult {
+  ok: boolean;
+  message?: string;
   error?: string;
 }
 
@@ -754,7 +1109,7 @@ export interface CodeAgentCodePackMetadata {
 
 export interface CodeAgentHostMetadata {
   status: "ok" | "unavailable";
-  platform: NodeJS.Platform | string;
+  platform: NodeJS.Platform | (string & {});
   desktopVersion?: string;
   storeRoot: string;
   runsDir: string;
@@ -813,14 +1168,34 @@ export interface DesktopOpenRequest {
   path?: string;
   softOpen?: boolean;
   runId?: string;
+  settingsTab?: string;
+}
+
+export interface DesktopChatOpenAppRequest {
+  app: string;
+  path?: string;
+  view?: string;
 }
 
 export interface DesktopShortcutActivationRequest extends DesktopOpenRequest {
   requestId: string;
 }
 
+export interface QuickPromptSubmitRequest {
+  prompt: string;
+  cwd?: string;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | (string & {});
+  attachments?: CodeAgentPromptAttachment[];
+}
+
+export type QuickPromptSubmitResult = CodeAgentCreateRunResult;
+
 export type {
   DesktopShortcutSettings,
   DesktopShortcutUpdateResult,
   DesktopShortcutUpsertRequest,
+  QuickPromptPreferences,
+  QuickPromptSettings,
 };

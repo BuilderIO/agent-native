@@ -1,17 +1,17 @@
-import { defineAction } from "@agent-native/core";
-import { resolveSecret } from "@agent-native/core/server";
+import { defineAction } from "@agent-native/core/action";
+import { resolveGeminiApiKey, resolveSecret } from "@agent-native/core/server";
 import { z } from "zod";
 
 export default defineAction({
   description:
-    "Check which image generation providers are configured (agent CLI tool).",
+    "Check which local image generation providers are configured. Slides uses a local provider by default; Assets is opt-in for a requested brand library or an Assets-exclusive capability.",
   schema: z.object({}),
   http: false,
   run: async () => {
     const { getConfiguredProviders } =
       await import("../server/handlers/image-providers/index.js");
     const configured = await getConfiguredProviders();
-    const geminiStatus = (await resolveSecret("GEMINI_API_KEY"))
+    const geminiStatus = (await resolveGeminiApiKey())
       ? "Configured"
       : "Not configured";
     const openaiStatus = (await resolveSecret("OPENAI_API_KEY"))
@@ -24,8 +24,9 @@ export default defineAction({
 
     return `Image Generation Status:
 ========================
-Primary: Assets app (via A2A)
-Local fallback providers:
+Primary: local image provider
+Assets: opt-in for requested brand-library generation or an Assets-exclusive capability
+Local providers:
 Gemini: ${geminiStatus}
 OpenAI: ${openaiStatus}
 ${autoProvider}

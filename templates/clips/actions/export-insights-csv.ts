@@ -1,14 +1,4 @@
-/**
- * Export a CSV of every recording in the organization with view / engagement
- * counts. Returned as `text/csv` with Content-Disposition attachment so the
- * browser downloads it.
- *
- * Usage:
- *   pnpm action export-insights-csv
- *   pnpm action export-insights-csv --organizationId=<id>
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -17,7 +7,7 @@ import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const s = String(value);
+  const s = typeof value === "string" ? value : (JSON.stringify(value) ?? "");
   if (/[",\n\r]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }
@@ -28,9 +18,6 @@ function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Hard cap so a very large organization's export can't turn into an
-// unbounded scan. `truncated` in the response tells the caller the CSV
-// covers only the most recently created MAX_RECORDINGS recordings.
 const MAX_RECORDINGS = 5000;
 
 export default defineAction({
@@ -160,8 +147,6 @@ export default defineAction({
       csv,
       filename,
       rows: recordings.length,
-      // True when the organization has more than MAX_RECORDINGS recordings —
-      // the CSV covers only the most recently created MAX_RECORDINGS rows.
       truncated,
     };
   },

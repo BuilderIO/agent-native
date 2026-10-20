@@ -51,8 +51,6 @@ describe("plan block registry — callout", () => {
       data: { tone: "risk", body: "Watch out for **edge cases**." },
     });
 
-    // Exactly the legacy `<Callout id tone>…body…</Callout>` shape: id first,
-    // then tone attribute, then the trimmed markdown body as MDX children.
     expect(mdx).toBe(
       [
         '<Callout id="callout-1" tone="risk">',
@@ -72,8 +70,6 @@ describe("plan block registry — callout", () => {
       brief: source.brief,
     });
 
-    // The exported plan.mdx contains a real `<Callout>` element with the tone
-    // attribute and the body as prose children.
     expect(folder["plan.mdx"]).toContain("<Callout");
     expect(folder["plan.mdx"]).toContain('tone="risk"');
     expect(folder["plan.mdx"]).toContain("edge cases");
@@ -91,7 +87,6 @@ describe("plan block registry — callout", () => {
   it("exposes the callout body as a markdown() field so the auto-editor uses the rich editor", () => {
     const fields = introspect(calloutSchema);
     const byKey = Object.fromEntries(fields.map((field) => [field.key, field]));
-    // tone → select; body → the shared rich-markdown editor (inline editing).
     expect(byKey.tone?.kind).toBe("enum");
     expect(byKey.tone?.enumValues).toEqual([
       "info",
@@ -106,9 +101,6 @@ describe("plan block registry — callout", () => {
   it("edits a callout through the schema-editor persistence path (update-block)", () => {
     const content = calloutContent();
 
-    // The auto-editor commits `{ ...block, data: nextData }`; PlanContentRenderer
-    // routes that to an `update-block` patch (shallow data merge). Simulate both
-    // the tone select and the markdown body edit.
     const patched = applyPlanContentPatches(content, [
       {
         op: "update-block",
@@ -135,7 +127,6 @@ describe("plan block agent vocabulary export", () => {
   it("describes every registered plan block with type, MDX tag, and schema", () => {
     const docs = describePlanBlocksForAgent();
     const byType = Object.fromEntries(docs.map((doc) => [doc.type, doc]));
-    // Each converted block the `get-plan-blocks` action exposes to the agent.
     for (const type of [
       "callout",
       "checklist",
@@ -161,7 +152,6 @@ describe("plan block agent vocabulary export", () => {
       expect(byType[type].mdxTag.length).toBeGreaterThan(0);
       expect(byType[type].description.length).toBeGreaterThan(0);
     }
-    // tabs is the one block that can also be placed inline.
     expect(byType.tabs.placement).toContain("inline");
   });
 
@@ -174,7 +164,6 @@ describe("plan block agent vocabulary export", () => {
     expect(ref).toContain("`<WireframeBlock>`");
     expect(ref).toContain("`question-form`");
     expect(ref).toContain("`<QuestionForm>`");
-    // Every described block appears as a row.
     for (const doc of describePlanBlocksForAgent()) {
       expect(ref).toContain(`\`${doc.type}\``);
     }

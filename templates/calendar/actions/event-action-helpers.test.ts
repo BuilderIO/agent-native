@@ -11,13 +11,56 @@ vi.mock("../server/lib/google-calendar.js", () => ({
   getAuthStatus: getAuthStatusMock,
 }));
 
+import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import {
   buildStatusEventFields,
+  googleEventResultId,
   ensureOrganizerInAttendees,
+  normalizeGoogleEventId,
   normalizeCreateEventInput,
+  resolveBulkGoogleEventAccountEmail,
+  resolveGoogleEventAccountEmail,
+  validateEventTimeOrder,
   validateStatusEventTiming,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers";
+
+describe("normalizeGoogleEventId", () => {
+  it("unwraps a multi-account event identity for provider mutations", () => {
+    const id = createGoogleAccountEventId({
+      accountEmail: "owner@example.com",
+      googleEventId: "provider-event-id",
+    });
+
+    expect(normalizeGoogleEventId(id)).toBe("provider-event-id");
+    expect(resolveGoogleEventAccountEmail(id, undefined)).toBe(
+      "owner@example.com",
+    );
+    expect(() =>
+      resolveGoogleEventAccountEmail(id, "different@example.com"),
+    ).toThrow("does not match");
+
+    const otherId = createGoogleAccountEventId({
+      accountEmail: "other@example.com",
+      googleEventId: "provider-event-id",
+    });
+    expect(() =>
+      resolveBulkGoogleEventAccountEmail([id, otherId], undefined),
+    ).toThrow("one Google account");
+    expect(() =>
+      resolveBulkGoogleEventAccountEmail(
+        [id, "google-other"],
+        "owner@example.com",
+      ),
+    ).toThrow("cannot mix");
+    expect(googleEventResultId(id, "replacement-id", "other@example.com")).toBe(
+      createGoogleAccountEventId({
+        accountEmail: "other@example.com",
+        googleEventId: "replacement-id",
+      }),
+    );
+  });
+});
 
 describe("resolveOwnedAccountEmail", () => {
   it("accepts a connected secondary account beneath the signed-in owner", async () => {
@@ -183,9 +226,68 @@ describe("buildStatusEventFields", () => {
       },
     });
   });
+
+  it("creates unlabeled office working-location fields without a placeholder name", () => {
+    expect(
+      buildStatusEventFields({
+        eventType: "workingLocation",
+        workingLocationType: "officeLocation",
+      }),
+    ).toMatchObject({
+      workingLocationProperties: {
+        type: "officeLocation",
+        officeLocation: {},
+      },
+    });
+  });
+
+  it("creates Other working-location fields from workingLocationLabel", () => {
+    expect(
+      buildStatusEventFields({
+        eventType: "workingLocation",
+        workingLocationType: "customLocation",
+        workingLocationLabel: "Church",
+        location: "",
+        title: "",
+      }),
+    ).toMatchObject({
+      workingLocationProperties: {
+        type: "customLocation",
+        customLocation: { label: "Church" },
+      },
+    });
+  });
+
+  it("rejects Other working locations without a name", () => {
+    expect(() =>
+      buildStatusEventFields({
+        eventType: "workingLocation",
+        workingLocationType: "customLocation",
+        location: "",
+        title: "",
+      }),
+    ).toThrow("Other working locations require a name");
+  });
 });
 
 describe("normalizeCreateEventInput", () => {
+  it("rejects a timed event that ends at or before its start", () => {
+    expect(() =>
+      normalizeCreateEventInput({
+        title: "Standup",
+        start: "2026-07-06T13:30:00.000Z",
+        end: "2026-07-06T09:30:00.000Z",
+      }),
+    ).toThrow("Event end must be after its start.");
+    expect(() =>
+      normalizeCreateEventInput({
+        title: "Standup",
+        start: "2026-07-06T13:30:00.000Z",
+        end: "2026-07-06T13:30:00.000Z",
+      }),
+    ).toThrow("Event end must be after its start.");
+  });
+
   it("defaults the OOO title and translates one inclusive date into timed bounds", () => {
     expect(
       normalizeCreateEventInput({
@@ -313,6 +415,24 @@ describe("normalizeCreateEventInput", () => {
       }),
     ).toThrow("Event title is required");
   });
+
+  it("allows titleless all-day working locations with exclusive date bounds", () => {
+    expect(
+      normalizeCreateEventInput({
+        eventType: "workingLocation",
+        start: "2026-08-10",
+        end: "2026-08-15",
+        allDay: true,
+      }),
+    ).toEqual({
+      title: "",
+      start: "2026-08-10",
+      end: "2026-08-15",
+      startTimeZone: undefined,
+      endTimeZone: undefined,
+      allDay: true,
+    });
+  });
 });
 
 describe("validateStatusEventTiming", () => {
@@ -353,7 +473,7 @@ describe("validateStatusEventTiming", () => {
     ).not.toThrow();
   });
 
-  it("rejects multi-day all-day working locations", () => {
+  it("allows multi-day all-day working locations", () => {
     expect(() =>
       validateStatusEventTiming({
         eventType: "workingLocation",
@@ -361,6 +481,93 @@ describe("validateStatusEventTiming", () => {
         start: "2026-07-06",
         end: "2026-07-11",
       }),
-    ).toThrow("All-day working location events must be a single day.");
+    ).not.toThrow();
+  });
+
+  it("rejects empty all-day working-location ranges", () => {
+    expect(() =>
+      validateStatusEventTiming({
+        eventType: "workingLocation",
+        allDay: true,
+        start: "2026-07-06",
+        end: "2026-07-06",
+      }),
+    ).toThrow("end date must be after");
+  });
+});
+
+describe("validateEventTimeOrder", () => {
+  it("rejects a timed event that ends before it starts", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        start: "2026-07-06T13:30:00.000Z",
+        end: "2026-07-06T09:30:00.000Z",
+      }),
+    ).toThrow("Event end must be after its start");
+  });
+
+  it("rejects a zero-length timed event", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        start: "2026-07-06T13:30:00.000Z",
+        end: "2026-07-06T13:30:00.000Z",
+      }),
+    ).toThrow("Event end must be after its start");
+  });
+
+  it("allows a normal timed event", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        start: "2026-07-06T13:30:00.000Z",
+        end: "2026-07-06T14:00:00.000Z",
+      }),
+    ).not.toThrow();
+  });
+
+  it("allows a timed event that crosses midnight", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        start: "2026-07-06T23:30:00.000Z",
+        end: "2026-07-07T00:30:00.000Z",
+      }),
+    ).not.toThrow();
+  });
+
+  it("leaves explicit all-day spans to the status-event rules", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        allDay: true,
+        start: "2026-07-06",
+        end: "2026-07-06",
+      }),
+    ).not.toThrow();
+  });
+
+  it("orders date-only bounds instead of waving them through", () => {
+    expect(() =>
+      validateEventTimeOrder({ start: "2026-07-08", end: "2026-07-06" }),
+    ).toThrow("Event end must be after its start");
+    expect(() =>
+      validateEventTimeOrder({ start: "2026-07-06", end: "2026-07-06" }),
+    ).toThrow("Event end must be after its start");
+    expect(() =>
+      validateEventTimeOrder({ start: "2026-07-06", end: "2026-07-07" }),
+    ).not.toThrow();
+  });
+
+  it("orders a date-only bound against an instant bound", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        allDay: false,
+        start: "2026-07-08",
+        end: "2026-07-06T10:00:00.000Z",
+      }),
+    ).toThrow("Event end must be after its start");
+  });
+
+  it("fails loudly on an unparseable bound instead of passing it through", () => {
+    expect(() =>
+      validateEventTimeOrder({ start: "not-a-time", end: "also-not-a-time" }),
+    ).toThrow("must be valid timestamps");
   });
 });

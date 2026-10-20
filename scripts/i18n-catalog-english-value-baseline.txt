@@ -229,26 +229,345 @@ templates/calendar/app/i18n/zh-CN|bookingLinks.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-CN|eventForm.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-TW|bookingLinks.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-TW|eventForm.googleMeet|Google Meet
-templates/clips/app/i18n/ar-SA|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/ar-SA|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/de-DE|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/de-DE|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/es-ES|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/es-ES|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/fr-FR|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/fr-FR|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/hi-IN|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/hi-IN|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/ja-JP|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/ja-JP|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/ko-KR|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/ko-KR|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/pt-BR|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/pt-BR|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/zh-CN|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/zh-TW|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/es-ES|captureInstall.chromePendingDescription|Browser logs option is ready, pending the Chrome Web Store URL.
+templates/clips/app/i18n/es-ES|captureInstall.chromeTitle|Chrome extension
+templates/clips/app/i18n/es-ES|captureInstall.description|Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.
+templates/clips/app/i18n/es-ES|captureInstall.desktopTitle|Desktop app
+templates/clips/app/i18n/es-ES|captureInstall.openDesktopApp|Open desktop app
+templates/clips/app/i18n/es-ES|captureInstall.title|Choose your recorder
+templates/clips/app/i18n/es-ES|dictateRoute.browserDictationDescriptionDesktop|Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.
+templates/clips/app/i18n/es-ES|dictateRoute.browserDictation|Browser dictation
+templates/clips/app/i18n/es-ES|dictateRoute.browserUnavailableShort|Browser speech recognition is unavailable here
+templates/clips/app/i18n/es-ES|dictateRoute.browserUnavailable|Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation.
+templates/clips/app/i18n/es-ES|dictateRoute.cleanupWithAi|Cleanup with AI
+templates/clips/app/i18n/es-ES|dictateRoute.desktopCtaTitle|Dictate from anywhere with the desktop app
+templates/clips/app/i18n/es-ES|dictateRoute.desktopShortcutsDescriptionSuffix|, in the desktop app.
+templates/clips/app/i18n/es-ES|dictateRoute.desktopShortcuts|Desktop shortcuts
+templates/clips/app/i18n/es-ES|dictateRoute.dictationSaved|Dictation saved
+templates/clips/app/i18n/es-ES|dictateRoute.dictionaryLoading|Loading dictionary...
+templates/clips/app/i18n/es-ES|dictateRoute.downloadDesktopApp|Download Clips desktop app
+templates/clips/app/i18n/es-ES|dictateRoute.emptyWebDescription|Dictation runs through the desktop app for global shortcuts that work in any app — Slack, your editor, anywhere.
+templates/clips/app/i18n/es-ES|dictateRoute.holdFn|Hold Fn
+templates/clips/app/i18n/es-ES|dictateRoute.howToUse|How to use Dictate
+templates/clips/app/i18n/es-ES|dictateRoute.loadFailed|Couldn't load dictations.
+templates/clips/app/i18n/es-ES|dictateRoute.noFilterMatches|No dictations matching this filter.
+templates/clips/app/i18n/es-ES|dictateRoute.noSpeechCaptured|No speech captured
+templates/clips/app/i18n/es-ES|dictateRoute.noText|No text
+templates/clips/app/i18n/es-ES|dictateRoute.pageTitle|Dictate · Clips
+templates/clips/app/i18n/es-ES|dictateRoute.quickNoteHint|Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop.
+templates/clips/app/i18n/es-ES|dictateRoute.quickNoteTitle|Quick dictation note
+templates/clips/app/i18n/es-ES|dictateRoute.startSpeaking|Start speaking...
+templates/clips/app/i18n/es-ES|dictateRoute.vocabularyAddFailed|Couldn't add term
+templates/clips/app/i18n/es-ES|dictateRoute.vocabularyRemoveFailed|Couldn't remove term
+templates/clips/app/i18n/es-ES|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
+templates/clips/app/i18n/es-ES|editableTitle.editLabel|Edit clip title
+templates/clips/app/i18n/es-ES|editableTitle.emptyTitle|Title cannot be empty
+templates/clips/app/i18n/es-ES|editableTitle.generatingTitle|Generating title
+templates/clips/app/i18n/es-ES|editableTitle.placeholder|Clip title
+templates/clips/app/i18n/es-ES|editableTitle.renameFailed|Failed to rename clip
+templates/clips/app/i18n/es-ES|editableTitle.untitled|Untitled Clip
+templates/clips/app/i18n/es-ES|editorToolbar.clearAllEditsDescription|This removes every trim, blur, and the custom thumbnail from this recording. The original video is never modified.
+templates/clips/app/i18n/es-ES|editorToolbar.clearAllEditsTitle|Clear all edits?
+templates/clips/app/i18n/es-ES|editorToolbar.clearAllEdits|Clear all edits
+templates/clips/app/i18n/es-ES|editorToolbar.clearEdits|Clear edits
+templates/clips/app/i18n/es-ES|editorToolbar.clearFailed|Clear failed
+templates/clips/app/i18n/es-ES|editorToolbar.cutAfterPlayhead|Cut after playhead
+templates/clips/app/i18n/es-ES|editorToolbar.cutBeforePlayhead|Cut before playhead
+templates/clips/app/i18n/es-ES|editorToolbar.cutSelectedRange|Cut selected range
+templates/clips/app/i18n/es-ES|editorToolbar.cutSelection|Cut selection
+templates/clips/app/i18n/es-ES|editorToolbar.downloadOriginal|Download original
+templates/clips/app/i18n/es-ES|editorToolbar.editsCleared|Edits cleared
+templates/clips/app/i18n/es-ES|editorToolbar.endCut|End cut
+templates/clips/app/i18n/es-ES|editorToolbar.exportAnyway|Export anyway
+templates/clips/app/i18n/es-ES|editorToolbar.exportFailed|Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.
+templates/clips/app/i18n/es-ES|editorToolbar.exportMp4|Export MP4
+templates/clips/app/i18n/es-ES|editorToolbar.exportedMp4|Exported MP4
+templates/clips/app/i18n/es-ES|editorToolbar.fitToWidth|Fit to width
+templates/clips/app/i18n/es-ES|editorToolbar.hideChapters|Hide chapters
+templates/clips/app/i18n/es-ES|editorToolbar.loadingFfmpeg|Loading ffmpeg…
+templates/clips/app/i18n/es-ES|editorToolbar.longExportTitle|This export is long
+templates/clips/app/i18n/es-ES|editorToolbar.movePlayheadBeforeEnding|Move the playhead before the ending you want to cut
+templates/clips/app/i18n/es-ES|editorToolbar.movePlayheadPastIntro|Move the playhead past the intro you want to cut
+templates/clips/app/i18n/es-ES|editorToolbar.nothingToUndo|Nothing to undo
+templates/clips/app/i18n/es-ES|editorToolbar.playheadEdits|Playhead edits
+templates/clips/app/i18n/es-ES|editorToolbar.previewSpeedTooltip|Preview speed while trimming
+templates/clips/app/i18n/es-ES|editorToolbar.previewSpeed|Preview speed
+templates/clips/app/i18n/es-ES|editorToolbar.selectRangeFirst|Select a range on the waveform or transcript first
+templates/clips/app/i18n/es-ES|editorToolbar.selectionCut|Selection cut
+templates/clips/app/i18n/es-ES|editorToolbar.showChapters|Show chapters
+templates/clips/app/i18n/es-ES|editorToolbar.splitAdded|Split added
+templates/clips/app/i18n/es-ES|editorToolbar.splitAtPlayhead|Split at playhead
+templates/clips/app/i18n/es-ES|editorToolbar.splitFailed|Split failed
+templates/clips/app/i18n/es-ES|editorToolbar.startCut|Start cut
+templates/clips/app/i18n/es-ES|editorToolbar.stitchClips|Stitch clips
+templates/clips/app/i18n/es-ES|editorToolbar.trimFailed|Trim failed
+templates/clips/app/i18n/es-ES|editorToolbar.undoFailed|Undo failed
+templates/clips/app/i18n/es-ES|editorToolbar.videoNotReady|Video not ready yet
+templates/clips/app/i18n/es-ES|editorToolbar.zoomIn|Zoom in
+templates/clips/app/i18n/es-ES|editorToolbar.zoomOut|Zoom out
+templates/clips/app/i18n/es-ES|meetingsRoute.calendarConnected|Calendar connected
+templates/clips/app/i18n/es-ES|meetingsRoute.calendarDisconnected|Calendar disconnected
+templates/clips/app/i18n/es-ES|meetingsRoute.calendarNeedsReconnect|Google Calendar needs to be reconnected to keep showing your upcoming meetings.
+templates/clips/app/i18n/es-ES|meetingsRoute.calendarSettings|Calendar settings
+templates/clips/app/i18n/es-ES|meetingsRoute.clearSearch|Clear search
+templates/clips/app/i18n/es-ES|meetingsRoute.connectCalendarReminder|Connect Google Calendar for meeting reminders.
+templates/clips/app/i18n/es-ES|meetingsRoute.disconnectGoogleCalendarTitle|Disconnect Google Calendar?
+templates/clips/app/i18n/es-ES|meetingsRoute.getDesktopApp|Get desktop app
+templates/clips/app/i18n/es-ES|meetingsRoute.guideCalendarDescription|Meetings are pulled from your calendar so Clips knows when to remind you.
+templates/clips/app/i18n/es-ES|meetingsRoute.guideCalendarTitle|Connect Google Calendar
+templates/clips/app/i18n/es-ES|meetingsRoute.guideDesktopDescription|Desktop capture is required for mic plus system-audio transcription.
+templates/clips/app/i18n/es-ES|meetingsRoute.guideDesktopTitle|Keep Clips Desktop open
+templates/clips/app/i18n/es-ES|meetingsRoute.guideStartDescription|Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.
+templates/clips/app/i18n/es-ES|meetingsRoute.guideStartTitle|Click Start notes
+templates/clips/app/i18n/es-ES|meetingsRoute.howToTriggerTitle|How to trigger meeting notes
+templates/clips/app/i18n/es-ES|meetingsRoute.notesPending|Notes pending
+templates/clips/app/i18n/es-ES|meetingsRoute.pageTitle|Meetings · Clips
+templates/clips/app/i18n/es-ES|meetingsRoute.pastRecordings|Past recordings
+templates/clips/app/i18n/es-ES|meetingsRoute.refreshing|Refreshing…
+templates/clips/app/i18n/es-ES|meetingsRoute.requiredForReminders|Desktop captures mic + system audio for meeting transcription.
+templates/clips/app/i18n/es-ES|meetingsRoute.transcriptPending|Transcript pending
+templates/clips/app/i18n/es-ES|playerSettings.addCta|+ Add
+templates/clips/app/i18n/es-ES|playerSettings.allowDownloads|Allow downloads
+templates/clips/app/i18n/es-ES|playerSettings.animatedThumbnail|Animated thumbnail
+templates/clips/app/i18n/es-ES|playerSettings.buttonLabelPlaceholder|Button label
+templates/clips/app/i18n/es-ES|playerSettings.callToAction|Call to action
+templates/clips/app/i18n/es-ES|playerSettings.defaultCtaLabel|Learn more
+templates/clips/app/i18n/es-ES|playerSettings.defaultPlaybackSpeed|Default playback speed
+templates/clips/app/i18n/es-ES|playerSettings.noCtas|No CTAs yet. Add a button that appears during or after the video.
+templates/clips/app/i18n/es-ES|playerSettings.noPasswordPlaceholder|No password
+templates/clips/app/i18n/es-ES|playerSettings.passwordProtection|Password protection
+templates/clips/app/i18n/es-ES|playerSettings.passwordSetPlaceholder|Password is set — type to replace
+templates/clips/app/i18n/es-ES|playerSettings.passwordWhitespaceOnly|Spaces alone aren't a valid password.
+templates/clips/app/i18n/es-ES|playerSettings.placementEnd|At end
+templates/clips/app/i18n/es-ES|playerSettings.viewerOptions|Viewer options
+templates/clips/app/i18n/es-ES|preRecord.audioAndCamera|Audio & camera
+templates/clips/app/i18n/es-ES|preRecord.cameraOff|Camera off
+templates/clips/app/i18n/es-ES|preRecord.captureSource|Capture source
+templates/clips/app/i18n/es-ES|preRecord.chooseMicrophone|Choose microphone...
+templates/clips/app/i18n/es-ES|preRecord.defaultCamera|Default camera
+templates/clips/app/i18n/es-ES|preRecord.defaultMicPlaceholder|Default mic
+templates/clips/app/i18n/es-ES|preRecord.defaultMicrophone|Default microphone
+templates/clips/app/i18n/es-ES|preRecord.enumerateFailed|Could not enumerate devices
+templates/clips/app/i18n/es-ES|preRecord.fixCameraAccess|Fix camera access or switch to Screen mode before recording.
+templates/clips/app/i18n/es-ES|preRecord.fixMicrophoneAccess|Fix microphone access or turn audio off before recording.
+templates/clips/app/i18n/es-ES|preRecord.importing|Importing...
+templates/clips/app/i18n/es-ES|preRecord.includeAudioAria|Include audio in this recording
+templates/clips/app/i18n/es-ES|preRecord.includeCameraAria|Include camera in this recording
+templates/clips/app/i18n/es-ES|preRecord.loomImportFailed|Could not import that Loom.
+templates/clips/app/i18n/es-ES|preRecord.microphoneSelectionUnsupported|This browser does not support microphone device selection.
+templates/clips/app/i18n/es-ES|preRecord.modeCameraOnly|Camera only
+templates/clips/app/i18n/es-ES|preRecord.modeScreenCamera|Screen + cam
+templates/clips/app/i18n/es-ES|preRecord.modeScreenOnly|Screen only
+templates/clips/app/i18n/es-ES|preRecord.noAudio|No audio
+templates/clips/app/i18n/es-ES|preRecord.noCamera|No camera
+templates/clips/app/i18n/es-ES|preRecord.noMicrophone|No microphone
+templates/clips/app/i18n/es-ES|preRecord.openingMicrophone|Opening microphone...
+templates/clips/app/i18n/es-ES|preRecord.startRecording|Start recording
+templates/clips/app/i18n/es-ES|preRecord.surfaceBrowserDescription|Choose an open tab
+templates/clips/app/i18n/es-ES|preRecord.surfaceBrowser|Browser tab
+templates/clips/app/i18n/es-ES|preRecord.surfaceScreenDescription|Capture everything
+templates/clips/app/i18n/es-ES|preRecord.surfaceWindowDescription|Best for slides or one app
+templates/clips/app/i18n/es-ES|preRecord.tryClipsDesktop|Try Clips Desktop.
+templates/clips/app/i18n/es-ES|preRecord.uploadVideo|Upload video
+templates/clips/app/i18n/es-ES|recordRoute.backToLibrary|Back to library
+templates/clips/app/i18n/es-ES|recordRoute.betterInDesktop|Better in the desktop app
+templates/clips/app/i18n/es-ES|recordRoute.clipsRecorder|Clips recorder
+templates/clips/app/i18n/es-ES|recordRoute.couldNotStartRecorder|Could not start recorder
+templates/clips/app/i18n/es-ES|recordRoute.couldNotStartRecording|Could not start recording
+templates/clips/app/i18n/es-ES|recordRoute.desktopAppDescription|Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.
+templates/clips/app/i18n/es-ES|recordRoute.downloadDesktopApp|Download desktop app
+templates/clips/app/i18n/es-ES|recordRoute.largeClipsNeedReencode|Large clips need a quick re-encode before upload.
+templates/clips/app/i18n/es-ES|recordRoute.logIn|Log in
+templates/clips/app/i18n/es-ES|recordRoute.loomImported|Loom imported
+templates/clips/app/i18n/es-ES|recordRoute.noLocalRecordingData|No local recording data is available to download.
+templates/clips/app/i18n/es-ES|recordRoute.openRecorderInTab|Open recorder in tab
+templates/clips/app/i18n/es-ES|recordRoute.openSettings|Open settings
+templates/clips/app/i18n/es-ES|recordRoute.openedRecorderInNewTab|Opened recorder in a new tab
+templates/clips/app/i18n/es-ES|recordRoute.pageTitle|New recording — Clips
+templates/clips/app/i18n/es-ES|recordRoute.preparingSources|Preparing sources…
+templates/clips/app/i18n/es-ES|recordRoute.recordingDownloadStarted|Recording download started
+templates/clips/app/i18n/es-ES|recordRoute.recordingReadyToUpload|Recording is ready to upload
+templates/clips/app/i18n/es-ES|recordRoute.recordingSaved|Recording saved
+templates/clips/app/i18n/es-ES|recordRoute.recordingScreen|Recording your screen — switch to the window you want to capture
+templates/clips/app/i18n/es-ES|recordRoute.savingRecording|Saving your recording…
+templates/clips/app/i18n/es-ES|recordRoute.sessionExpiredDescription|Your login session has expired. Log in again to start recording.
+templates/clips/app/i18n/es-ES|recordRoute.sessionExpired|Session expired
+templates/clips/app/i18n/es-ES|recordRoute.technicalDetails|Technical details
+templates/clips/app/i18n/es-ES|recordRoute.uploadFailed|Upload failed
+templates/clips/app/i18n/es-ES|recordRoute.videoReadyToUpload|Video is ready to upload
+templates/clips/app/i18n/es-ES|recordRoute.videoTooLarge|Video is too large
+templates/clips/app/i18n/es-ES|recordRoute.videoUploaded|Video uploaded
+templates/clips/app/i18n/es-ES|recordRoute.whatToCheck|What to check
+templates/clips/app/i18n/pt-BR|captureInstall.chromePendingDescription|Browser logs option is ready, pending the Chrome Web Store URL.
+templates/clips/app/i18n/pt-BR|captureInstall.chromeTitle|Chrome extension
+templates/clips/app/i18n/pt-BR|captureInstall.description|Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.
+templates/clips/app/i18n/pt-BR|captureInstall.desktopTitle|Desktop app
+templates/clips/app/i18n/pt-BR|captureInstall.openDesktopApp|Open desktop app
+templates/clips/app/i18n/pt-BR|captureInstall.title|Choose your recorder
+templates/clips/app/i18n/pt-BR|dictateRoute.browserDictationDescriptionDesktop|Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.
+templates/clips/app/i18n/pt-BR|dictateRoute.browserDictation|Browser dictation
+templates/clips/app/i18n/pt-BR|dictateRoute.browserUnavailableShort|Browser speech recognition is unavailable here
+templates/clips/app/i18n/pt-BR|dictateRoute.browserUnavailable|Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation.
+templates/clips/app/i18n/pt-BR|dictateRoute.cleanupWithAi|Cleanup with AI
+templates/clips/app/i18n/pt-BR|dictateRoute.desktopCtaTitle|Dictate from anywhere with the desktop app
+templates/clips/app/i18n/pt-BR|dictateRoute.desktopShortcutsDescriptionSuffix|, in the desktop app.
+templates/clips/app/i18n/pt-BR|dictateRoute.desktopShortcuts|Desktop shortcuts
+templates/clips/app/i18n/pt-BR|dictateRoute.dictationSaved|Dictation saved
+templates/clips/app/i18n/pt-BR|dictateRoute.dictionaryLoading|Loading dictionary...
+templates/clips/app/i18n/pt-BR|dictateRoute.downloadDesktopApp|Download Clips desktop app
+templates/clips/app/i18n/pt-BR|dictateRoute.emptyWebDescription|Dictation runs through the desktop app for global shortcuts that work in any app — Slack, your editor, anywhere.
+templates/clips/app/i18n/pt-BR|dictateRoute.holdFn|Hold Fn
+templates/clips/app/i18n/pt-BR|dictateRoute.howToUse|How to use Dictate
+templates/clips/app/i18n/pt-BR|dictateRoute.loadFailed|Couldn't load dictations.
+templates/clips/app/i18n/pt-BR|dictateRoute.noFilterMatches|No dictations matching this filter.
+templates/clips/app/i18n/pt-BR|dictateRoute.noSpeechCaptured|No speech captured
+templates/clips/app/i18n/pt-BR|dictateRoute.noText|No text
+templates/clips/app/i18n/pt-BR|dictateRoute.pageTitle|Dictate · Clips
+templates/clips/app/i18n/pt-BR|dictateRoute.quickNoteHint|Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop.
+templates/clips/app/i18n/pt-BR|dictateRoute.quickNoteTitle|Quick dictation note
+templates/clips/app/i18n/pt-BR|dictateRoute.startSpeaking|Start speaking...
+templates/clips/app/i18n/pt-BR|dictateRoute.vocabularyAddFailed|Couldn't add term
+templates/clips/app/i18n/pt-BR|dictateRoute.vocabularyRemoveFailed|Couldn't remove term
+templates/clips/app/i18n/pt-BR|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
+templates/clips/app/i18n/pt-BR|editableTitle.editLabel|Edit clip title
+templates/clips/app/i18n/pt-BR|editableTitle.emptyTitle|Title cannot be empty
+templates/clips/app/i18n/pt-BR|editableTitle.generatingTitle|Generating title
+templates/clips/app/i18n/pt-BR|editableTitle.placeholder|Clip title
+templates/clips/app/i18n/pt-BR|editableTitle.renameFailed|Failed to rename clip
+templates/clips/app/i18n/pt-BR|editableTitle.untitled|Untitled Clip
+templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEditsDescription|This removes every trim, blur, and the custom thumbnail from this recording. The original video is never modified.
+templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEditsTitle|Clear all edits?
+templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEdits|Clear all edits
+templates/clips/app/i18n/pt-BR|editorToolbar.clearEdits|Clear edits
+templates/clips/app/i18n/pt-BR|editorToolbar.clearFailed|Clear failed
+templates/clips/app/i18n/pt-BR|editorToolbar.cutAfterPlayhead|Cut after playhead
+templates/clips/app/i18n/pt-BR|editorToolbar.cutBeforePlayhead|Cut before playhead
+templates/clips/app/i18n/pt-BR|editorToolbar.cutSelectedRange|Cut selected range
+templates/clips/app/i18n/pt-BR|editorToolbar.cutSelection|Cut selection
+templates/clips/app/i18n/pt-BR|editorToolbar.downloadOriginal|Download original
+templates/clips/app/i18n/pt-BR|editorToolbar.editsCleared|Edits cleared
+templates/clips/app/i18n/pt-BR|editorToolbar.endCut|End cut
+templates/clips/app/i18n/pt-BR|editorToolbar.exportAnyway|Export anyway
+templates/clips/app/i18n/pt-BR|editorToolbar.exportFailed|Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.
+templates/clips/app/i18n/pt-BR|editorToolbar.exportMp4|Export MP4
+templates/clips/app/i18n/pt-BR|editorToolbar.exportedMp4|Exported MP4
+templates/clips/app/i18n/pt-BR|editorToolbar.fitToWidth|Fit to width
+templates/clips/app/i18n/pt-BR|editorToolbar.hideChapters|Hide chapters
+templates/clips/app/i18n/pt-BR|editorToolbar.loadingFfmpeg|Loading ffmpeg…
+templates/clips/app/i18n/pt-BR|editorToolbar.longExportTitle|This export is long
+templates/clips/app/i18n/pt-BR|editorToolbar.movePlayheadBeforeEnding|Move the playhead before the ending you want to cut
+templates/clips/app/i18n/pt-BR|editorToolbar.movePlayheadPastIntro|Move the playhead past the intro you want to cut
+templates/clips/app/i18n/pt-BR|editorToolbar.nothingToUndo|Nothing to undo
+templates/clips/app/i18n/pt-BR|editorToolbar.playheadEdits|Playhead edits
+templates/clips/app/i18n/pt-BR|editorToolbar.previewSpeedTooltip|Preview speed while trimming
+templates/clips/app/i18n/pt-BR|editorToolbar.previewSpeed|Preview speed
+templates/clips/app/i18n/pt-BR|editorToolbar.selectRangeFirst|Select a range on the waveform or transcript first
+templates/clips/app/i18n/pt-BR|editorToolbar.selectionCut|Selection cut
+templates/clips/app/i18n/pt-BR|editorToolbar.showChapters|Show chapters
+templates/clips/app/i18n/pt-BR|editorToolbar.splitAdded|Split added
+templates/clips/app/i18n/pt-BR|editorToolbar.splitAtPlayhead|Split at playhead
+templates/clips/app/i18n/pt-BR|editorToolbar.splitFailed|Split failed
+templates/clips/app/i18n/pt-BR|editorToolbar.startCut|Start cut
+templates/clips/app/i18n/pt-BR|editorToolbar.stitchClips|Stitch clips
+templates/clips/app/i18n/pt-BR|editorToolbar.trimFailed|Trim failed
+templates/clips/app/i18n/pt-BR|editorToolbar.undoFailed|Undo failed
+templates/clips/app/i18n/pt-BR|editorToolbar.videoNotReady|Video not ready yet
+templates/clips/app/i18n/pt-BR|editorToolbar.zoomIn|Zoom in
+templates/clips/app/i18n/pt-BR|editorToolbar.zoomOut|Zoom out
+templates/clips/app/i18n/pt-BR|meetingsRoute.calendarConnected|Calendar connected
+templates/clips/app/i18n/pt-BR|meetingsRoute.calendarDisconnected|Calendar disconnected
+templates/clips/app/i18n/pt-BR|meetingsRoute.calendarNeedsReconnect|Google Calendar needs to be reconnected to keep showing your upcoming meetings.
+templates/clips/app/i18n/pt-BR|meetingsRoute.calendarSettings|Calendar settings
+templates/clips/app/i18n/pt-BR|meetingsRoute.clearSearch|Clear search
+templates/clips/app/i18n/pt-BR|meetingsRoute.connectCalendarReminder|Connect Google Calendar for meeting reminders.
+templates/clips/app/i18n/pt-BR|meetingsRoute.disconnectGoogleCalendarTitle|Disconnect Google Calendar?
+templates/clips/app/i18n/pt-BR|meetingsRoute.getDesktopApp|Get desktop app
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideCalendarDescription|Meetings are pulled from your calendar so Clips knows when to remind you.
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideCalendarTitle|Connect Google Calendar
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideDesktopDescription|Desktop capture is required for mic plus system-audio transcription.
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideDesktopTitle|Keep Clips Desktop open
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideStartDescription|Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideStartTitle|Click Start notes
+templates/clips/app/i18n/pt-BR|meetingsRoute.howToTriggerTitle|How to trigger meeting notes
+templates/clips/app/i18n/pt-BR|meetingsRoute.notesPending|Notes pending
+templates/clips/app/i18n/pt-BR|meetingsRoute.pageTitle|Meetings · Clips
+templates/clips/app/i18n/pt-BR|meetingsRoute.pastRecordings|Past recordings
+templates/clips/app/i18n/pt-BR|meetingsRoute.refreshing|Refreshing…
+templates/clips/app/i18n/pt-BR|meetingsRoute.requiredForReminders|Desktop captures mic + system audio for meeting transcription.
+templates/clips/app/i18n/pt-BR|meetingsRoute.transcriptPending|Transcript pending
+templates/clips/app/i18n/pt-BR|playerSettings.addCta|+ Add
+templates/clips/app/i18n/pt-BR|playerSettings.allowDownloads|Allow downloads
+templates/clips/app/i18n/pt-BR|playerSettings.animatedThumbnail|Animated thumbnail
+templates/clips/app/i18n/pt-BR|playerSettings.buttonLabelPlaceholder|Button label
+templates/clips/app/i18n/pt-BR|playerSettings.callToAction|Call to action
+templates/clips/app/i18n/pt-BR|playerSettings.defaultCtaLabel|Learn more
+templates/clips/app/i18n/pt-BR|playerSettings.defaultPlaybackSpeed|Default playback speed
+templates/clips/app/i18n/pt-BR|playerSettings.noCtas|No CTAs yet. Add a button that appears during or after the video.
+templates/clips/app/i18n/pt-BR|playerSettings.noPasswordPlaceholder|No password
+templates/clips/app/i18n/pt-BR|playerSettings.passwordProtection|Password protection
+templates/clips/app/i18n/pt-BR|playerSettings.passwordSetPlaceholder|Password is set — type to replace
+templates/clips/app/i18n/pt-BR|playerSettings.passwordWhitespaceOnly|Spaces alone aren't a valid password.
+templates/clips/app/i18n/pt-BR|playerSettings.placementEnd|At end
+templates/clips/app/i18n/pt-BR|playerSettings.viewerOptions|Viewer options
+templates/clips/app/i18n/pt-BR|preRecord.audioAndCamera|Audio & camera
+templates/clips/app/i18n/pt-BR|preRecord.cameraOff|Camera off
+templates/clips/app/i18n/pt-BR|preRecord.captureSource|Capture source
+templates/clips/app/i18n/pt-BR|preRecord.chooseMicrophone|Choose microphone...
+templates/clips/app/i18n/pt-BR|preRecord.defaultCamera|Default camera
+templates/clips/app/i18n/pt-BR|preRecord.defaultMicPlaceholder|Default mic
+templates/clips/app/i18n/pt-BR|preRecord.defaultMicrophone|Default microphone
+templates/clips/app/i18n/pt-BR|preRecord.enumerateFailed|Could not enumerate devices
+templates/clips/app/i18n/pt-BR|preRecord.fixCameraAccess|Fix camera access or switch to Screen mode before recording.
+templates/clips/app/i18n/pt-BR|preRecord.fixMicrophoneAccess|Fix microphone access or turn audio off before recording.
+templates/clips/app/i18n/pt-BR|preRecord.importing|Importing...
+templates/clips/app/i18n/pt-BR|preRecord.includeAudioAria|Include audio in this recording
+templates/clips/app/i18n/pt-BR|preRecord.includeCameraAria|Include camera in this recording
+templates/clips/app/i18n/pt-BR|preRecord.loomImportFailed|Could not import that Loom.
+templates/clips/app/i18n/pt-BR|preRecord.microphoneSelectionUnsupported|This browser does not support microphone device selection.
+templates/clips/app/i18n/pt-BR|preRecord.modeCameraOnly|Camera only
+templates/clips/app/i18n/pt-BR|preRecord.modeScreenCamera|Screen + cam
+templates/clips/app/i18n/pt-BR|preRecord.modeScreenOnly|Screen only
+templates/clips/app/i18n/pt-BR|preRecord.noAudio|No audio
+templates/clips/app/i18n/pt-BR|preRecord.noCamera|No camera
+templates/clips/app/i18n/pt-BR|preRecord.noMicrophone|No microphone
+templates/clips/app/i18n/pt-BR|preRecord.openingMicrophone|Opening microphone...
+templates/clips/app/i18n/pt-BR|preRecord.startRecording|Start recording
+templates/clips/app/i18n/pt-BR|preRecord.surfaceBrowserDescription|Choose an open tab
+templates/clips/app/i18n/pt-BR|preRecord.surfaceBrowser|Browser tab
+templates/clips/app/i18n/pt-BR|preRecord.surfaceScreenDescription|Capture everything
+templates/clips/app/i18n/pt-BR|preRecord.surfaceWindowDescription|Best for slides or one app
+templates/clips/app/i18n/pt-BR|preRecord.tryClipsDesktop|Try Clips Desktop.
+templates/clips/app/i18n/pt-BR|preRecord.uploadVideo|Upload video
+templates/clips/app/i18n/pt-BR|recordRoute.backToLibrary|Back to library
+templates/clips/app/i18n/pt-BR|recordRoute.betterInDesktop|Better in the desktop app
+templates/clips/app/i18n/pt-BR|recordRoute.clipsRecorder|Clips recorder
+templates/clips/app/i18n/pt-BR|recordRoute.couldNotStartRecorder|Could not start recorder
+templates/clips/app/i18n/pt-BR|recordRoute.couldNotStartRecording|Could not start recording
+templates/clips/app/i18n/pt-BR|recordRoute.desktopAppDescription|Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.
+templates/clips/app/i18n/pt-BR|recordRoute.downloadDesktopApp|Download desktop app
+templates/clips/app/i18n/pt-BR|recordRoute.largeClipsNeedReencode|Large clips need a quick re-encode before upload.
+templates/clips/app/i18n/pt-BR|recordRoute.logIn|Log in
+templates/clips/app/i18n/pt-BR|recordRoute.loomImported|Loom imported
+templates/clips/app/i18n/pt-BR|recordRoute.noLocalRecordingData|No local recording data is available to download.
+templates/clips/app/i18n/pt-BR|recordRoute.openRecorderInTab|Open recorder in tab
+templates/clips/app/i18n/pt-BR|recordRoute.openSettings|Open settings
+templates/clips/app/i18n/pt-BR|recordRoute.openedRecorderInNewTab|Opened recorder in a new tab
+templates/clips/app/i18n/pt-BR|recordRoute.pageTitle|New recording — Clips
+templates/clips/app/i18n/pt-BR|recordRoute.preparingSources|Preparing sources…
+templates/clips/app/i18n/pt-BR|recordRoute.recordingDownloadStarted|Recording download started
+templates/clips/app/i18n/pt-BR|recordRoute.recordingReadyToUpload|Recording is ready to upload
+templates/clips/app/i18n/pt-BR|recordRoute.recordingSaved|Recording saved
+templates/clips/app/i18n/pt-BR|recordRoute.recordingScreen|Recording your screen — switch to the window you want to capture
+templates/clips/app/i18n/pt-BR|recordRoute.savingRecording|Saving your recording…
+templates/clips/app/i18n/pt-BR|recordRoute.sessionExpiredDescription|Your login session has expired. Log in again to start recording.
+templates/clips/app/i18n/pt-BR|recordRoute.sessionExpired|Session expired
+templates/clips/app/i18n/pt-BR|recordRoute.technicalDetails|Technical details
+templates/clips/app/i18n/pt-BR|recordRoute.uploadFailed|Upload failed
+templates/clips/app/i18n/pt-BR|recordRoute.videoReadyToUpload|Video is ready to upload
+templates/clips/app/i18n/pt-BR|recordRoute.videoTooLarge|Video is too large
+templates/clips/app/i18n/pt-BR|recordRoute.videoUploaded|Video uploaded
+templates/clips/app/i18n/pt-BR|recordRoute.whatToCheck|What to check
 templates/design/app/i18n/ar-SA|designEditor.askAgent|Ask agent
-templates/design/app/i18n/ar-SA|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -266,15 +585,12 @@ templates/design/app/i18n/ar-SA|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/ar-SA|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ar-SA|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ar-SA|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/ar-SA|designEditor.tokens.add|Add token
 templates/design/app/i18n/ar-SA|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/ar-SA|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/ar-SA|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/ar-SA|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ar-SA|designEditor.tokens.newToken|New token
-templates/design/app/i18n/ar-SA|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/de-DE|designEditor.askAgent|Ask agent
-templates/design/app/i18n/de-DE|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -292,15 +608,12 @@ templates/design/app/i18n/de-DE|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/de-DE|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/de-DE|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/de-DE|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/de-DE|designEditor.tokens.add|Add token
 templates/design/app/i18n/de-DE|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/de-DE|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/de-DE|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/de-DE|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/de-DE|designEditor.tokens.newToken|New token
-templates/design/app/i18n/de-DE|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/es-ES|designEditor.askAgent|Ask agent
-templates/design/app/i18n/es-ES|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -318,15 +631,12 @@ templates/design/app/i18n/es-ES|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/es-ES|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/es-ES|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/es-ES|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/es-ES|designEditor.tokens.add|Add token
 templates/design/app/i18n/es-ES|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/es-ES|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/es-ES|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/es-ES|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/es-ES|designEditor.tokens.newToken|New token
-templates/design/app/i18n/es-ES|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/fr-FR|designEditor.askAgent|Ask agent
-templates/design/app/i18n/fr-FR|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -344,15 +654,12 @@ templates/design/app/i18n/fr-FR|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/fr-FR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/fr-FR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/fr-FR|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/fr-FR|designEditor.tokens.add|Add token
 templates/design/app/i18n/fr-FR|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/fr-FR|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/fr-FR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/fr-FR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/fr-FR|designEditor.tokens.newToken|New token
-templates/design/app/i18n/fr-FR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/hi-IN|designEditor.askAgent|Ask agent
-templates/design/app/i18n/hi-IN|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -370,15 +677,12 @@ templates/design/app/i18n/hi-IN|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/hi-IN|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/hi-IN|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/hi-IN|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/hi-IN|designEditor.tokens.add|Add token
 templates/design/app/i18n/hi-IN|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/hi-IN|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/hi-IN|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/hi-IN|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/hi-IN|designEditor.tokens.newToken|New token
-templates/design/app/i18n/hi-IN|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/ja-JP|designEditor.askAgent|Ask agent
-templates/design/app/i18n/ja-JP|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -396,15 +700,12 @@ templates/design/app/i18n/ja-JP|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/ja-JP|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ja-JP|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ja-JP|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/ja-JP|designEditor.tokens.add|Add token
 templates/design/app/i18n/ja-JP|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/ja-JP|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/ja-JP|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/ja-JP|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ja-JP|designEditor.tokens.newToken|New token
-templates/design/app/i18n/ja-JP|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/ko-KR|designEditor.askAgent|Ask agent
-templates/design/app/i18n/ko-KR|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -422,15 +723,12 @@ templates/design/app/i18n/ko-KR|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/ko-KR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ko-KR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ko-KR|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/ko-KR|designEditor.tokens.add|Add token
 templates/design/app/i18n/ko-KR|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/ko-KR|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/ko-KR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/ko-KR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ko-KR|designEditor.tokens.newToken|New token
-templates/design/app/i18n/ko-KR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/pt-BR|designEditor.askAgent|Ask agent
-templates/design/app/i18n/pt-BR|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -448,15 +746,12 @@ templates/design/app/i18n/pt-BR|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/pt-BR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/pt-BR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/pt-BR|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/pt-BR|designEditor.tokens.add|Add token
 templates/design/app/i18n/pt-BR|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/pt-BR|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/pt-BR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/pt-BR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/pt-BR|designEditor.tokens.newToken|New token
-templates/design/app/i18n/pt-BR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/zh-CN|designEditor.askAgent|Ask agent
-templates/design/app/i18n/zh-CN|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -474,13 +769,11 @@ templates/design/app/i18n/zh-CN|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/zh-CN|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/zh-CN|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/zh-CN|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/zh-CN|designEditor.tokens.add|Add token
 templates/design/app/i18n/zh-CN|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/zh-CN|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/zh-CN|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/zh-CN|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/zh-CN|designEditor.tokens.newToken|New token
-templates/design/app/i18n/zh-CN|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.

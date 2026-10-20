@@ -5,14 +5,14 @@ export const DESIGN_EDITOR_PREFERENCES_STORAGE_KEY =
 
 export interface DesignEditorPreferences {
   nudge: NudgeAmounts;
+  inspectorGridDebug: boolean;
 }
 
 export const DEFAULT_EDITOR_PREFERENCES: DesignEditorPreferences = {
   nudge: DEFAULT_NUDGE_AMOUNTS,
+  inspectorGridDebug: false,
 };
 
-/** Figma allows 1-1000 for both nudge amounts and rejects 0 — a 0 nudge makes
- * the arrow keys look broken rather than doing nothing on purpose. */
 export const MIN_NUDGE_AMOUNT = 1;
 export const MAX_NUDGE_AMOUNT = 1000;
 
@@ -34,9 +34,6 @@ export type ParseEditorPreferencesResult =
       reason: string;
     };
 
-/** Never collapses "nothing stored yet" and "stored value is corrupt" into the
- * same result: the caller must be able to tell a first run from a store it
- * should overwrite rather than keep re-reading. */
 export function parseEditorPreferences(
   raw: string | null | undefined,
 ): ParseEditorPreferencesResult {
@@ -69,6 +66,18 @@ export function parseEditorPreferences(
     };
   }
   const source = (nudge ?? {}) as { small?: unknown; big?: unknown };
+  const inspectorGridDebug = (decoded as { inspectorGridDebug?: unknown })
+    .inspectorGridDebug;
+  if (
+    inspectorGridDebug !== undefined &&
+    typeof inspectorGridDebug !== "boolean"
+  ) {
+    return {
+      status: "invalid",
+      preferences: DEFAULT_EDITOR_PREFERENCES,
+      reason: "expected inspectorGridDebug to be a boolean",
+    };
+  }
   return {
     status: "ok",
     preferences: {
@@ -76,6 +85,7 @@ export function parseEditorPreferences(
         small: normalizeNudgeAmount(source.small, DEFAULT_NUDGE_AMOUNTS.small),
         big: normalizeNudgeAmount(source.big, DEFAULT_NUDGE_AMOUNTS.big),
       },
+      inspectorGridDebug: inspectorGridDebug ?? false,
     },
   };
 }
@@ -94,5 +104,6 @@ export function serializeEditorPreferences(
         DEFAULT_NUDGE_AMOUNTS.big,
       ),
     },
+    inspectorGridDebug: preferences.inspectorGridDebug,
   });
 }

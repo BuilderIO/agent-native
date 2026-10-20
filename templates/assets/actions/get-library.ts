@@ -1,8 +1,16 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
+import { roleSatisfies } from "@agent-native/core/sharing";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  APPROVE_ROLE,
+  canReadDraftAsset,
+  canReadRun,
+  resolveDraftReadScope,
+  unrestrictedDraftReadScope,
+} from "../server/lib/library-access.js";
 import {
   requireLibraryAccess,
   serializeAssets,
@@ -42,12 +50,19 @@ export default defineAction({
         .where(eq(schema.assetGenerationRuns.libraryId, id))
         .orderBy(desc(schema.assetGenerationRuns.createdAt)),
     ]);
+    const scope = roleSatisfies(access.role, APPROVE_ROLE)
+      ? unrestrictedDraftReadScope()
+      : await resolveDraftReadScope([id]);
     return {
       library: serializeLibrary({ ...library, accessRole: access.role }),
       collections,
       folders,
-      assets: serializeAssets(assets),
-      runs: runs.map(serializeGenerationRun),
+      assets: serializeAssets(
+        assets.filter((asset) => canReadDraftAsset(scope, asset)),
+      ),
+      runs: runs
+        .filter((run) => canReadRun(scope, run))
+        .map(serializeGenerationRun),
     };
   },
 });

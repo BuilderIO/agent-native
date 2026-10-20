@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// `widenIntColumnsToBigInt` resolves `isPostgres()` through `./client.js`,
-// which derives the dialect from `process.env.DATABASE_URL`. These tests stub
-// that env and pass an injected fake client, so no real database is required.
-
 describe("widenIntColumnsToBigInt", () => {
   let originalEnv: NodeJS.ProcessEnv;
   beforeEach(() => {
@@ -15,8 +11,6 @@ describe("widenIntColumnsToBigInt", () => {
     vi.resetModules();
   });
 
-  // A recording fake client. `int4Columns` are the columns the simulated
-  // information_schema reports as 32-bit `integer`.
   function fakeClient(int4Columns: string[]) {
     const calls: string[] = [];
     const client = {
@@ -38,7 +32,6 @@ describe("widenIntColumnsToBigInt", () => {
   it("only ALTERs columns that are currently int4 (skips already-bigint)", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { widenIntColumnsToBigInt } = await import("./widen-columns.js");
-    // started_at + completed_at are still int4; heartbeat_at is already bigint.
     const { client, calls } = fakeClient(["started_at", "completed_at"]);
     await widenIntColumnsToBigInt(
       "agent_runs",
@@ -52,20 +45,61 @@ describe("widenIntColumnsToBigInt", () => {
     ]);
   });
 
-  it("is a no-op on SQLite (never touches the DB)", async () => {
-    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-    const { widenIntColumnsToBigInt } = await import("./widen-columns.js");
-    const { client, calls } = fakeClient(["started_at"]);
-    await widenIntColumnsToBigInt("agent_runs", ["started_at"], client);
-    expect(calls).toEqual([]);
-  });
-
   it("issues no ALTER when no requested column is int4", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { widenIntColumnsToBigInt } = await import("./widen-columns.js");
-    const { client, calls } = fakeClient([]); // all already bigint
+    const { client, calls } = fakeClient([]);
     await widenIntColumnsToBigInt("chat_threads", ["created_at"], client);
     expect(calls.some((c) => /ALTER TABLE/i.test(c))).toBe(false);
+  });
+
+  it("skips production function probes even during migration duty but keeps release checks", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+    const { widenIntColumnsToBigInt } = await import("./widen-columns.js");
+    const { withMigrationRuntime } = await import("./migration-runtime.js");
+    const { client, calls } = fakeClient(["updated_at"]);
+
+    await widenIntColumnsToBigInt("settings", ["updated_at"], client);
+    expect(calls).toEqual([]);
+
+    await withMigrationRuntime(() =>
+      widenIntColumnsToBigInt("settings", ["updated_at"], client),
+    );
+    expect(calls).toEqual([]);
+
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    await withMigrationRuntime(() =>
+      widenIntColumnsToBigInt("settings", ["updated_at"], client),
+    );
+    expect(calls[0]).toMatch(/information_schema\.columns/i);
+    expect(calls).toContain(
+      "ALTER TABLE settings ALTER COLUMN updated_at TYPE BIGINT",
+    );
+  });
+
+  it("allows widening within a runtime-owned migration", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { widenIntColumnsToBigInt } = await import("./widen-columns.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+    const { client, calls } = fakeClient(["updated_at"]);
+
+    await withMigrationExecutionRuntime(() =>
+      widenIntColumnsToBigInt("settings", ["updated_at"], client),
+    );
+
+    expect(
+      calls.some((call) => /information_schema\.columns/i.test(call)),
+    ).toBe(true);
+    expect(calls).toContain(
+      "ALTER TABLE settings ALTER COLUMN updated_at TYPE BIGINT",
+    );
   });
 
   it("rejects non-identifier table names (no query issued)", async () => {

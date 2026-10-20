@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
+import { getRequestRunContext } from "../server/request-context.js";
 import type { AccessContext } from "../sharing/access.js";
 import { accessFilter, assertAccess } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
@@ -35,7 +36,17 @@ export interface DashboardRevisionRecord<
   config: TConfig;
   createdAt: string;
   createdBy: string | null;
+  chatContext: DashboardRevisionChatContext | null;
 }
+
+export interface DashboardRevisionChatContext {
+  threadId?: string;
+  runId?: string;
+  turnId?: string;
+}
+
+export type DashboardRevisionMetadataRecord<TKind extends string = string> =
+  Omit<DashboardRevisionRecord<TKind>, "config">;
 
 export interface DashboardWriteInput<
   TKind extends string = string,
@@ -83,11 +94,107 @@ function affectedRowCount(result: unknown): number | undefined {
   return undefined;
 }
 
+function stableStringify(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new Error("Dashboard config contains an unserializable value.");
+    }
+    return serialized;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
+    .join(",")}}`;
+}
+
+function comparableJson(raw: string): string {
+  try {
+    return stableStringify(JSON.parse(raw));
+  } catch {
+    // coercion-ok: invalid legacy JSON stays distinct and cannot suppress a save.
+    return raw;
+  }
+}
+
+function nextRevisionTimestamp(previous: string | null | undefined): string {
+  const previousMs = previous ? Date.parse(previous) : Number.NaN;
+  return new Date(
+    Math.max(Date.now(), Number.isFinite(previousMs) ? previousMs + 1 : 0),
+  ).toISOString();
+}
+
+function revisionId(
+  dashboardId: string,
+  previousRevisionId: string | undefined,
+  kind: string,
+  title: string,
+  config: string,
+): string {
+  const fingerprint = stableStringify({
+    dashboardId,
+    previousRevisionId: previousRevisionId ?? "initial",
+    kind,
+    title,
+    config,
+  });
+  return `dashboard-revision-${createHash("sha256")
+    .update(fingerprint)
+    .digest("hex")}`;
+}
+
 function requireWriter(ctx: AccessContext): string {
   const email = ctx.userEmail?.trim().toLowerCase();
   if (!email)
     throw new Error("Dashboard writes require an authenticated user.");
   return email;
+}
+
+function dashboardChatContextFromFields(value: {
+  threadId?: unknown;
+  runId?: unknown;
+  turnId?: unknown;
+}): DashboardRevisionChatContext | null {
+  const context: DashboardRevisionChatContext = {};
+  for (const key of ["threadId", "runId", "turnId"] as const) {
+    if (typeof value[key] === "string" && value[key].trim()) {
+      context[key] = value[key];
+    }
+  }
+  return Object.keys(context).length > 0 ? context : null;
+}
+
+function requestDashboardChatContext(): DashboardRevisionChatContext | null {
+  const run = getRequestRunContext();
+  return run ? dashboardChatContextFromFields(run) : null;
+}
+
+function parseDashboardChatContext(
+  raw: unknown,
+): DashboardRevisionChatContext | null {
+  if (raw == null) return null;
+  if (typeof raw !== "string") {
+    throw new Error("Dashboard revision chat metadata is invalid.");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("Dashboard revision chat metadata is not valid JSON.");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Dashboard revision chat metadata is invalid.");
+  }
+  const context = dashboardChatContextFromFields(
+    value as Record<string, unknown>,
+  );
+  if (!context) throw new Error("Dashboard revision chat metadata is invalid.");
+  return context;
 }
 
 export function createDashboardStorage<
@@ -128,6 +235,21 @@ export function createDashboardStorage<
       config: parseConfig(row.config),
       createdAt: row.createdAt,
       createdBy: row.createdBy ?? null,
+      chatContext: parseDashboardChatContext(row.chatContext),
+    };
+  }
+
+  function revisionMetadataFromRow(
+    row: any,
+  ): DashboardRevisionMetadataRecord<TKind> {
+    return {
+      id: row.id,
+      dashboardId: row.dashboardId,
+      kind: row.kind as TKind,
+      title: row.title,
+      createdAt: row.createdAt,
+      createdBy: row.createdBy ?? null,
+      chatContext: parseDashboardChatContext(row.chatContext),
     };
   }
 
@@ -179,7 +301,7 @@ export function createDashboardStorage<
       .select({ id: dashboardRevisions.id })
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, dashboardId))
-      .orderBy(desc(dashboardRevisions.createdAt));
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id));
     const staleIds = rows
       .slice(maxRevisions)
       .map((row: { id: string }) => row.id);
@@ -194,18 +316,52 @@ export function createDashboardStorage<
     db: any,
     dashboard: DashboardRecord<TKind, TConfig>,
     writer: string,
+    chatContext: DashboardRevisionChatContext | null = requestDashboardChatContext(),
   ) {
-    await db.insert(dashboardRevisions).values({
-      id: `dashboard-revision-${randomUUID()}`,
-      dashboardId: dashboard.id,
-      kind: dashboard.kind,
-      title: dashboard.title,
-      config: serializeConfig(dashboard.config),
-      createdBy: writer,
-      ownerEmail: dashboard.ownerEmail,
-      orgId: dashboard.orgId,
-      visibility: dashboard.visibility,
-    });
+    const config = serializeConfig(dashboard.config);
+    const configKey = comparableJson(config);
+    const [latest] = await db
+      .select({
+        id: dashboardRevisions.id,
+        kind: dashboardRevisions.kind,
+        title: dashboardRevisions.title,
+        config: dashboardRevisions.config,
+        createdAt: dashboardRevisions.createdAt,
+      })
+      .from(dashboardRevisions)
+      .where(eq(dashboardRevisions.dashboardId, dashboard.id))
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
+      .limit(1);
+    if (
+      latest?.kind === dashboard.kind &&
+      latest.title === dashboard.title &&
+      comparableJson(latest.config) === configKey
+    ) {
+      return;
+    }
+    const id = revisionId(
+      dashboard.id,
+      latest?.id,
+      dashboard.kind,
+      dashboard.title,
+      configKey,
+    );
+    await db
+      .insert(dashboardRevisions)
+      .values({
+        id,
+        dashboardId: dashboard.id,
+        kind: dashboard.kind,
+        title: dashboard.title,
+        config,
+        createdAt: nextRevisionTimestamp(latest?.createdAt),
+        createdBy: writer,
+        ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
+        ownerEmail: dashboard.ownerEmail,
+        orgId: dashboard.orgId,
+        visibility: dashboard.visibility,
+      })
+      .onConflictDoNothing();
     await pruneRevisions(db, dashboard.id);
   }
 
@@ -232,10 +388,19 @@ export function createDashboardStorage<
       });
     } else {
       await assertAccess(options.resourceType, input.id, "editor", ctx);
+      const config = serializeConfig(input.config);
+      if (
+        existing.kind === input.kind &&
+        existing.title === input.title &&
+        comparableJson(serializeConfig(existing.config)) ===
+          comparableJson(config)
+      ) {
+        return existing;
+      }
       const values = {
         kind: input.kind,
         title: input.title,
-        config: serializeConfig(input.config),
+        config,
         updatedAt: new Date().toISOString(),
         updatedBy: writer,
       };
@@ -263,7 +428,7 @@ export function createDashboardStorage<
             .set(values)
             .where(eq(dashboards.id, input.id));
         }
-        await snapshot(tx, existing, writer);
+        await snapshot(tx, existing, writer, requestDashboardChatContext());
       });
     }
     const stored = await get(input.id, ctx);
@@ -281,9 +446,51 @@ export function createDashboardStorage<
       .select()
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, id))
-      .orderBy(desc(dashboardRevisions.createdAt))
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
       .limit(maxRevisions);
     return rows.map(revisionFromRow);
+  }
+
+  async function listRevisionMetadata(id: string, ctx: AccessContext) {
+    const dashboard = await get(id, ctx);
+    if (!dashboard) return [];
+    await assertAccess(options.resourceType, id, "viewer", ctx);
+    const rows = await options
+      .getDb()
+      .select({
+        id: dashboardRevisions.id,
+        dashboardId: dashboardRevisions.dashboardId,
+        kind: dashboardRevisions.kind,
+        title: dashboardRevisions.title,
+        createdAt: dashboardRevisions.createdAt,
+        createdBy: dashboardRevisions.createdBy,
+        chatContext: dashboardRevisions.chatContext,
+      })
+      .from(dashboardRevisions)
+      .where(eq(dashboardRevisions.dashboardId, id))
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
+      .limit(maxRevisions);
+    return rows.map(revisionMetadataFromRow);
+  }
+
+  async function createRevisionSnapshot(
+    id: string,
+    ctx: AccessContext,
+    chatContext?: DashboardRevisionChatContext,
+  ) {
+    const dashboard = await get(id, ctx);
+    if (!dashboard) return null;
+    await assertAccess(options.resourceType, id, "editor", ctx);
+    const writer = requireWriter(ctx);
+    await options.getDb().transaction(async (tx: any) => {
+      await snapshot(
+        tx,
+        dashboard,
+        writer,
+        chatContext ?? requestDashboardChatContext(),
+      );
+    });
+    return dashboard;
   }
 
   async function restore(id: string, revisionId: string, ctx: AccessContext) {
@@ -329,5 +536,14 @@ export function createDashboardStorage<
     });
   }
 
-  return { get, list, write, listRevisions, restore, registerShareable };
+  return {
+    get,
+    list,
+    write,
+    listRevisions,
+    listRevisionMetadata,
+    createRevisionSnapshot,
+    restore,
+    registerShareable,
+  };
 }

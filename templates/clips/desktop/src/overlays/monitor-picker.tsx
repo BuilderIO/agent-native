@@ -20,15 +20,6 @@ function parseParams(search: string): MonitorPickerParams {
   };
 }
 
-/**
- * One of these opens centered on every connected monitor before a
- * full-screen native recording starts with more than one monitor attached
- * (see `show_monitor_picker` on the Rust side). The display id this specific
- * monitor resolves to is baked into this window's own URL rather than looked
- * up again here, so a click can report it without a round trip. The recorder
- * driver — not this component — closes every sibling window once it hears
- * either event, so a click never closes just itself.
- */
 export function MonitorPicker() {
   const { index, total, displayId } =
     typeof window === "undefined"

@@ -1,13 +1,4 @@
-/**
- * Update organization branding — org name, brand color, brand logo URL,
- * default visibility — by updating the framework `organizations` row for the
- * name and upserting the Clips-specific `organization_settings` sidecar row.
- *
- * Usage:
- *   pnpm action set-organization-branding --brandColor="#18181B" --brandLogoUrl=/api/media/abc.png
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { organizations } from "@agent-native/core/org";
 import { eq } from "drizzle-orm";
@@ -20,7 +11,7 @@ const VisibilityEnum = z.enum(["private", "org", "public"]);
 
 export default defineAction({
   description:
-    "Update the active organization's Clips branding — brand color (e.g. #18181B), brand logo URL, and default recording visibility. Upserts the organization_settings sidecar row.",
+    "Update the active organization's Clips branding — brand color, brand logo reference, and default recording visibility. Upserts the organization_settings sidecar row.",
   schema: z.object({
     organizationId: z
       .string()
@@ -37,11 +28,11 @@ export default defineAction({
       .string()
       .regex(/^#[0-9a-fA-F]{3,8}$/)
       .optional()
-      .describe("Hex color (e.g. #18181B)"),
+      .describe("Hex color"),
     brandLogoUrl: z
       .string()
       .nullish()
-      .describe("URL of the logo image — pass null to clear"),
+      .describe("Stored logo reference or legacy URL — pass null to clear"),
     defaultVisibility: VisibilityEnum.optional().describe(
       "Default visibility for new recordings",
     ),
@@ -52,9 +43,6 @@ export default defineAction({
       ["admin"],
     );
 
-    // Ensure a settings row exists. Clips' own organization_settings table is
-    // dialect-agnostic — schema.ts declares created_at/updated_at as TEXT with
-    // an ISO default, so we use ISO strings on both PG and SQLite.
     const db = getDb();
     const nowIso = new Date().toISOString();
     await db
@@ -77,7 +65,6 @@ export default defineAction({
         .where(eq(organizations.id, organizationId));
     }
 
-    // Build the settings UPDATE dynamically — only patch fields that were passed.
     const updates: Partial<typeof schema.organizationSettings.$inferInsert> =
       {};
 
@@ -98,7 +85,6 @@ export default defineAction({
         .where(eq(schema.organizationSettings.organizationId, organizationId));
     }
 
-    // Return the current values.
     const [row] = await db
       .select({
         organizationId: schema.organizationSettings.organizationId,

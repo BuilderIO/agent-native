@@ -2,6 +2,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconCheck,
   IconLoader2,
@@ -61,9 +62,6 @@ export function AppKeysPopover({
                 size="sm"
                 aria-label={`Manage keys for ${appName}`}
                 onClick={(event) => {
-                  // Keep parent card click handlers from also firing. Do not
-                  // preventDefault here: Radix uses the same click to open the
-                  // popover trigger.
                   event.stopPropagation();
                 }}
                 className="size-7 rounded-md p-0 text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
@@ -95,8 +93,16 @@ export function AppKeysPanel({
   appId: string;
   appName: string;
 }) {
+  const { org, role, isLoading: orgLoading, error: orgError } = useOrgRole();
+  const accessReady = !orgLoading && !orgError && !!org;
+  const canManageVault =
+    accessReady && (!org.orgId || role === "owner" || role === "admin");
   const secretsQuery = useActionQuery("list-vault-secret-options", {});
-  const grantsQuery = useActionQuery("list-vault-grants", { appId });
+  const grantsQuery = useActionQuery(
+    "list-vault-grants",
+    { appId },
+    { enabled: canManageVault },
+  );
   const accessQuery = useActionQuery("get-vault-access-settings", {});
   const { data: secrets = [], isLoading: secretsLoading } = secretsQuery;
   const {
@@ -153,14 +159,16 @@ export function AppKeysPanel({
     onError: (err) => toast.error(`Sync failed: ${String(err)}`),
   });
 
-  const isLoading = secretsLoading || grantsLoading || accessLoading;
-  const error = secretsQuery.error ?? grantsQuery.error ?? accessQuery.error;
+  const isLoading =
+    orgLoading || secretsLoading || grantsLoading || accessLoading;
+  const error =
+    secretsQuery.error ?? grantsQuery.error ?? accessQuery.error ?? orgError;
   const grantedCount = grantBySecretId.size;
   const typedSecrets = secrets as VaultSecret[];
   const allApps = accessMode !== "manual";
 
   const toggleSecret = (secret: VaultSecret) => {
-    if (allApps) return;
+    if (!canManageVault || allApps) return;
     if (pendingSecretIds.has(secret.id)) return;
     const existing = grantBySecretId.get(secret.id);
     markPending(secret.id, true);
@@ -182,12 +190,14 @@ export function AppKeysPanel({
           <p className="text-[11px] text-muted-foreground">
             {error
               ? null
-              : allApps
-                ? `${typedSecrets.length} available`
-                : `${grantedCount} of ${typedSecrets.length} granted`}
+              : !canManageVault
+                ? "Only workspace owners and admins can manage keys."
+                : allApps
+                  ? `${typedSecrets.length} available`
+                  : `${grantedCount} of ${typedSecrets.length} granted`}
           </p>
         </div>
-        {!error ? (
+        {!error && canManageVault ? (
           <Button
             type="button"
             variant="outline"
@@ -216,7 +226,7 @@ export function AppKeysPanel({
             error={error}
             onRetry={() => {
               void secretsQuery.refetch();
-              void grantsQuery.refetch();
+              if (canManageVault) void grantsQuery.refetch();
               void accessQuery.refetch();
             }}
           />
@@ -248,7 +258,7 @@ export function AppKeysPanel({
                 key={secret.id}
                 type="button"
                 aria-pressed={granted}
-                disabled={pending || allApps}
+                disabled={pending || allApps || !canManageVault}
                 onClick={() => toggleSecret(secret)}
                 className={`flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60 ${
                   pending || allApps ? "" : "cursor-pointer"

@@ -1,0 +1,89 @@
+import path from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+// @ts-expect-error - .mjs helper without types
+import { parseUnifiedDiff } from "./changed-lines.mjs";
+
+const CWD = "/repo";
+
+describe("parseUnifiedDiff", () => {
+  it("collects added line numbers per file", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +3 @@",
+      "+const x = 1;",
+    ].join("\n");
+
+    const result = parseUnifiedDiff(diff, CWD);
+    expect(result?.get(path.resolve(CWD, "src/a.ts"))).toEqual(new Set([3]));
+  });
+
+  it("keys files so a Windows path.join lookup finds them", () => {
+    const diff = [
+      "diff --git a/templates/app/en.ts b/templates/app/en.ts",
+      "+++ b/templates/app/en.ts",
+      "@@ -0,0 +1 @@",
+      "+export const en = {};",
+    ].join("\n");
+
+    const cwd = "C:\\repo";
+    const result = parseUnifiedDiff(diff, cwd, path.win32);
+    expect(
+      result?.get(path.win32.join(cwd, "templates", "app", "en.ts")),
+    ).toEqual(new Set([1]));
+  });
+
+  it("leaves prototypes out of the added lines", () => {
+    const diff = [
+      "diff --git a/prototypes/kit/ui.ts b/prototypes/kit/ui.ts",
+      "+++ b/prototypes/kit/ui.ts",
+      "@@ -0,0 +1 @@",
+      "+} catch {}",
+      "diff --git a/src/a.ts b/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +2 @@",
+      "+const x = 1;",
+    ].join("\n");
+
+    const result = parseUnifiedDiff(diff, CWD);
+    expect([...(result?.keys() ?? [])]).toEqual([
+      path.resolve(CWD, "src/a.ts"),
+    ]);
+  });
+
+  it("refuses to scope when a source file diffs as binary", () => {
+    const diff = "Binary files a/src/a.ts and b/src/a.ts differ";
+    expect(parseUnifiedDiff(diff, CWD)).toBeNull();
+  });
+
+  it("refuses even when the binary file is one of several", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +1 @@",
+      "+const x = 1;",
+      "diff --git a/src/b.tsx b/src/b.tsx",
+      "Binary files a/src/b.tsx and b/src/b.tsx differ",
+    ].join("\n");
+
+    expect(parseUnifiedDiff(diff, CWD)).toBeNull();
+  });
+
+  it("still scopes when the binary file is a genuine asset", () => {
+    const diff = [
+      "diff --git a/img/logo.png b/img/logo.png",
+      "Binary files a/img/logo.png and b/img/logo.png differ",
+      "diff --git a/src/a.ts b/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +1 @@",
+      "+const x = 1;",
+    ].join("\n");
+
+    const result = parseUnifiedDiff(diff, CWD);
+    expect(result).not.toBeNull();
+    expect(result?.get(path.resolve(CWD, "src/a.ts"))).toEqual(new Set([1]));
+  });
+});

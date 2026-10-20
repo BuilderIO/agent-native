@@ -68,7 +68,7 @@ function formValue(
   const value = props[name] ?? input.default;
   if (input.type === "boolean") return value === true || value === "true";
   if (value === undefined || value === null) return "";
-  return String(value);
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
 function LocalComponentInputEditor({
@@ -130,7 +130,7 @@ function LocalComponentInputEditor({
         <Button
           type="button"
           size="icon"
-          variant="outline"
+          variant="secondary"
           className="pointer-events-none absolute right-2 top-2 z-10 h-7 w-7 rounded-md bg-background/95 opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus:pointer-events-auto focus:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
           aria-label={`Edit ${componentName} inputs`}
         >
@@ -288,11 +288,12 @@ function LocalMdxComponentView({
           componentName={name}
           inputs={inputs}
           props={rawProps}
-          children={children}
           editor={editor}
           getPos={getPos}
           updateAttributes={updateAttributes}
-        />
+        >
+          {children}
+        </LocalComponentInputEditor>
       ) : null}
       {createElement(Component, props, children)}
     </NodeViewWrapper>

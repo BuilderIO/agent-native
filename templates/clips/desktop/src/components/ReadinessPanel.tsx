@@ -5,28 +5,18 @@ import {
   IconCircleOff,
   IconRefresh,
 } from "@tabler/icons-react";
-import { invoke } from "@tauri-apps/api/core";
 import { useState, useCallback, useEffect } from "react";
 
+import {
+  permissionStatusForPane,
+  readPermissionStatuses,
+  requestOrOpenPermission,
+  type MacosPrivacyPane,
+  type PermissionStatuses,
+} from "../lib/permission-status";
 import { isMacPlatform, isWindowsPlatform } from "../lib/platform";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
-type MacosPrivacyPane =
-  | "camera"
-  | "microphone"
-  | "screen"
-  | "speech"
-  | "accessibility"
-  | "input-monitoring";
-
-type PermissionStatuses = {
-  screen: boolean;
-  camera: boolean;
-  microphone: boolean;
-  speech: boolean;
-  accessibility: boolean;
-  inputMonitoring: boolean;
-};
 
 type ReadinessItem = {
   label: string;
@@ -53,39 +43,39 @@ function readinessItems({
   const items: ReadinessItem[] = [
     {
       label: "Screen Recording",
-      detail: "Needed for screen or window capture.",
+      detail: "Allows Clips to record your screen",
       pane: "screen",
       active: mode !== "camera",
     },
     {
       label: "Microphone",
-      detail: "Needed when the mic is on.",
+      detail: "Allows Clips to access your microphone",
       pane: "microphone",
       active: micOn,
     },
     {
       label: "Speech Recognition",
-      detail: "Used for native transcripts.",
+      detail: "Allows Clips to use speech recognition",
       pane: "speech",
       active: micOn,
       macosOnly: true,
     },
     {
       label: "Camera",
-      detail: "Needed when camera is on.",
+      detail: "Allows Clips to access your camera",
       pane: "camera",
       active: mode !== "screen" && cameraOn,
     },
     {
       label: "Accessibility",
-      detail: "Needed to paste dictated text into other apps.",
+      detail: "Allows Clips to control this device to paste dictated text",
       pane: "accessibility",
       active: includeVoicePaste,
       macosOnly: true,
     },
     {
       label: "Input Monitoring",
-      detail: "Only needed for the Fn dictation shortcut.",
+      detail: "Allows Clips to detect the Fn key",
       pane: "input-monitoring",
       active: includeFnMonitoring,
       macosOnly: true,
@@ -93,22 +83,6 @@ function readinessItems({
   ];
 
   return items.filter((item) => item.active && (!item.macosOnly || mac));
-}
-
-function statusForPane(
-  pane: MacosPrivacyPane,
-  statuses: PermissionStatuses | null,
-): boolean | null {
-  if (!statuses) return null;
-  const map: Record<MacosPrivacyPane, boolean> = {
-    screen: statuses.screen,
-    camera: statuses.camera,
-    microphone: statuses.microphone,
-    speech: statuses.speech,
-    accessibility: statuses.accessibility,
-    "input-monitoring": statuses.inputMonitoring,
-  };
-  return map[pane];
 }
 
 export function ReadinessPanel({
@@ -142,43 +116,42 @@ export function ReadinessPanel({
 
   const [statuses, setStatuses] = useState<PermissionStatuses | null>(null);
   const [checking, setChecking] = useState(false);
+  const [refreshingPane, setRefreshingPane] = useState<MacosPrivacyPane | null>(
+    null,
+  );
 
   const checkStatuses = useCallback(async () => {
     setChecking(true);
     try {
-      const result = await invoke<PermissionStatuses>(
-        "check_permission_statuses",
-      );
-      setStatuses(result);
-    } catch {
-      // Non-macOS or command not available — leave statuses null
+      setStatuses(await readPermissionStatuses());
     } finally {
       setChecking(false);
     }
   }, []);
 
-  const requestOrOpenPermission = useCallback(
-    async (pane: MacosPrivacyPane) => {
-      if (mac && pane === "screen") {
-        try {
-          const granted = await invoke<boolean>(
-            "system_audio_request_permission",
-          );
-          await checkStatuses();
-          if (granted) return;
-        } catch {
-          // Fall through to the dedicated privacy pane. The request API may
-          // be unavailable on an older macOS build or the user may already
-          // have denied the prompt once.
-        }
-      }
-      onOpenPermission(pane);
+  const refreshPermissions = useCallback(
+    (pane: MacosPrivacyPane) => {
+      setRefreshingPane(null);
+      window.requestAnimationFrame(() => setRefreshingPane(pane));
+      window.setTimeout(() => {
+        setRefreshingPane((current) => (current === pane ? null : current));
+      }, 450);
+      void checkStatuses();
     },
-    [checkStatuses, mac, onOpenPermission],
+    [checkStatuses],
+  );
+
+  const grantPermission = useCallback(
+    (pane: MacosPrivacyPane) =>
+      requestOrOpenPermission(pane, {
+        onOpenSettings: onOpenPermission,
+        onRecheck: () => void checkStatuses(),
+      }),
+    [checkStatuses, onOpenPermission],
   );
 
   useEffect(() => {
-    if (open && !statuses && mac) checkStatuses();
+    if (open && !statuses && mac) void checkStatuses();
   }, [open, statuses, mac, checkStatuses]);
 
   return (
@@ -203,7 +176,7 @@ export function ReadinessPanel({
         <div className="readiness-list">
           {items.length ? (
             items.map((item) => {
-              const granted = statusForPane(item.pane, statuses);
+              const granted = permissionStatusForPane(item.pane, statuses);
               return (
                 <div className="readiness-item" key={item.pane}>
                   <div className="readiness-item-copy">
@@ -214,8 +187,8 @@ export function ReadinessPanel({
                     {mac ? (
                       <button
                         type="button"
-                        className={`readiness-refresh ${checking ? "readiness-refresh-spinning" : ""}`}
-                        onClick={checkStatuses}
+                        className={`readiness-refresh ${refreshingPane === item.pane ? "readiness-refresh-rotating" : ""}`}
+                        onClick={() => refreshPermissions(item.pane)}
                         disabled={checking}
                         aria-label="Recheck permissions"
                         title="Recheck"
@@ -239,7 +212,7 @@ export function ReadinessPanel({
                       <button
                         type="button"
                         className="readiness-open-button"
-                        onClick={() => void requestOrOpenPermission(item.pane)}
+                        onClick={() => void grantPermission(item.pane)}
                       >
                         Open
                       </button>

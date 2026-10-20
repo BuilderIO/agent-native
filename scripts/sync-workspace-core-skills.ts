@@ -6,14 +6,38 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
+  readlinkSync,
   rmSync,
+  statSync,
+  writeFileSync,
 } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { missingInstructionSkillReferences } from "../packages/core/src/cli/template-skill-references.js";
+import {
+  CLIPS_TEMPLATE_SHARED_SKILLS,
+  CHAT_STARTER_SKILLS,
+  DEFAULT_TEMPLATE_LOCAL_SKILLS,
+  DEFAULT_TEMPLATE_SHARED_SKILLS,
+  DISPATCH_TEMPLATE_SHARED_SKILLS,
+  DOMAIN_TEMPLATE_SHARED_SKILLS,
+  FACTORY_TEMPLATE_SHARED_SKILLS,
+  FRAMEWORK_TEMPLATE_SHARED_SKILLS,
+  HEADLESS_TEMPLATE_SHARED_SKILLS,
+  WORKSPACE_SKILLS,
+} from "../packages/core/src/cli/workspace-skill-policy.js";
+import { isRetiredCompatibilityTemplate } from "./template-standard/manifest.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
 const sourceDir = join(rootDir, ".agents", "skills");
+const allowedSourceRoots = [
+  realpathSync(sourceDir),
+  realpathSync(join(rootDir, "skills")),
+  realpathSync(join(rootDir, "templates", "content", ".agents", "skills")),
+];
 const targetDir = join(
   rootDir,
   "packages",
@@ -45,143 +69,70 @@ const headlessTemplateSkillsDir = join(
   ".agents",
   "skills",
 );
-
-const workspaceSkillIncludes = [
-  "a2a-protocol",
-  "actions",
-  "agent-native-docs",
-  "agent-native-toolkit",
-  "agent-page",
-  "adding-a-feature",
-  "adding-workspace-apps",
-  "address-feedback",
-  "audit-log",
-  "authentication",
-  "automations",
-  "browser-sessions",
-  "capture-learnings",
-  "changelog",
-  "client-methods",
-  "client-side-routing",
-  "composable-mini-apps",
-  "context-awareness",
-  "context-xray",
-  "create-skill",
-  "customizing-agent-native",
-  "data-programs",
-  "delegate-to-agent",
-  "extension-points",
-  "extensions",
-  "external-agents",
-  "frontend-design",
-  "feature-flags",
-  "generative-ui",
-  "harness-agents",
-  "internationalization",
-  "integration-webhooks",
-  "mvp-followup",
-  "native-navigation",
-  "observability",
-  "onboarding",
-  "performance",
-  "portability",
-  "qa",
-  "real-time-collab",
-  "real-time-sync",
-  "recurring-jobs",
-  "reliable-mutations",
-  "secrets",
-  "security",
-  "self-modifying-code",
-  "server-plugins",
-  "shadcn-ui",
-  "sharing",
-  "storing-data",
-  "tracking",
-  "turn-into-app",
-  "turn-into-skill",
-  "upgrade-agent-native",
-  "visual-answer",
-  "voice-transcription",
-  "workspace-conventions",
-  "writing-agent-instructions",
-];
-
-// These are shared framework/best-practice skills that generated/default apps
-// and first-party templates often copy locally. Keep them byte-for-byte
-// canonical so generated apps, workspaces, and this repo do not learn different
-// architectural rules.
-const templateSharedSkillIncludes = [
-  "actions",
-  "agent-native-docs",
-  "agent-native-toolkit",
-  "adding-a-feature",
-  "capture-learnings",
-  "client-methods",
-  "create-skill",
-  "customizing-agent-native",
-  "delegate-to-agent",
-  "frontend-design",
-  "feature-flags",
-  "integration-webhooks",
-  "internationalization",
-  "onboarding",
-  "performance",
-  "real-time-collab",
-  "real-time-sync",
-  "security",
-  "self-modifying-code",
-  "shadcn-ui",
-  "secrets",
-  "storing-data",
-  "sharing",
-  "turn-into-app",
-  "turn-into-skill",
-  "upgrade-agent-native",
-];
-
-const requiredTemplateSharedSkills: Record<string, string[]> = {
-  chat: ["agent-native-docs"],
+const chatStarterSkillsDir = join(
+  rootDir,
+  "packages",
+  "core",
+  "src",
+  "templates",
+  "chat",
+  ".agents",
+  "skills",
+);
+const factoryBundleSkillsDir = join(
+  rootDir,
+  "packages",
+  "core",
+  "src",
+  "templates",
+  "factory",
+  ".agents",
+  "skills",
+);
+const factoryBundleSkillIncludes = ["review-latest-feedback", "review-prs"];
+const FACTORY_REPO_ONLY_MARKERS = {
+  start: "<!-- framework-repo-only:start -->",
+  end: "<!-- framework-repo-only:end -->",
+};
+const FACTORY_EXCLUDED_SKILL_FILES = {
+  "review-latest-feedback": new Set(["references/ci-red-report.md"]),
 };
 
-/** Copied into every first-party template that uses shared skills. */
-const requiredAllTemplateSharedSkills = [
-  "agent-native-docs",
-  "agent-native-toolkit",
-  "customizing-agent-native",
-  "feature-flags",
-  "sharing",
-  "storing-data",
-  "turn-into-app",
-  "turn-into-skill",
-  "upgrade-agent-native",
+const workspaceSkillIncludes = [...WORKSPACE_SKILLS];
+
+const defaultTemplateSharedSkillIncludes = [...DEFAULT_TEMPLATE_SHARED_SKILLS];
+const defaultTemplateSyncedSkillIncludes =
+  defaultTemplateSharedSkillIncludes.filter(
+    (skill) =>
+      !DEFAULT_TEMPLATE_LOCAL_SKILLS.includes(
+        skill as (typeof DEFAULT_TEMPLATE_LOCAL_SKILLS)[number],
+      ),
+  );
+
+const headlessTemplateSharedSkillIncludes = [
+  ...HEADLESS_TEMPLATE_SHARED_SKILLS,
 ];
 
-const requiredDefaultTemplateSharedSkills = [
-  "agent-native-toolkit",
-  "customizing-agent-native",
-  "feature-flags",
-  "integration-webhooks",
-  "internationalization",
-  "onboarding",
-  "secrets",
-  "turn-into-app",
-  "turn-into-skill",
-  "upgrade-agent-native",
-];
+const templateSharedSkillIncludesByTemplate: Record<string, string[]> = {
+  chat: [...CHAT_STARTER_SKILLS],
+  clips: [...CLIPS_TEMPLATE_SHARED_SKILLS],
+  dispatch: [...DISPATCH_TEMPLATE_SHARED_SKILLS],
+  factory: [...FACTORY_TEMPLATE_SHARED_SKILLS],
+};
 
-const requiredHeadlessTemplateSharedSkills = [
-  "actions",
-  "agent-native-docs",
-  "agent-native-toolkit",
-  "customizing-agent-native",
-  "feature-flags",
-  "integration-webhooks",
-  "secrets",
-  "turn-into-app",
-  "turn-into-skill",
-  "upgrade-agent-native",
-];
+function templateSkillsFor(template: string): string[] {
+  return (
+    templateSharedSkillIncludesByTemplate[template] ?? [
+      ...DOMAIN_TEMPLATE_SHARED_SKILLS,
+    ]
+  );
+}
+
+function includedSkillsForTemplate(template: string): string[] {
+  if (template === "default") return defaultTemplateSharedSkillIncludes;
+  if (template === "headless") return headlessTemplateSharedSkillIncludes;
+  return templateSkillsFor(template);
+}
 
 const actionFirstInstructionFiles = [
   join(
@@ -218,23 +169,69 @@ const staleInstructionPatterns = [
   },
 ];
 
-const requiredActionGuidance = [
+const runtimeIntegrationGuidancePattern =
+  /For external integrations, inspect the workspace\/provider connection catalog\s+first(?:\.|;)/;
+
+const interactionResponsivenessInstructionPattern =
+  /^- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work\.$/m;
+
+const requiredRuntimeInstructionFiles = [
+  "AGENTS.md",
+  "packages/core/src/templates/default/AGENTS.md",
+  "packages/core/src/templates/headless/AGENTS.md",
+  "packages/core/src/templates/workspace-root/AGENTS.md",
+  "packages/core/src/templates/workspace-core/AGENTS.md",
+  "registry/agent-native-app/AGENTS.md",
+];
+
+const requiredGeneratedGuidance = [
   {
     rel: "packages/core/src/templates/default/AGENTS.md",
     pattern:
-      /Do not create `\/api\/\*` routes that only call,\s+repackage, or proxy an action\./,
+      /Do not\s+create `\/api\/\*` routes that only call,\s+repackage, or proxy an action\./,
+    message: "canonical action-first guidance",
+  },
+  {
+    rel: "packages/core/src/templates/default/AGENTS.md",
+    pattern: runtimeIntegrationGuidancePattern,
+    message: "runtime-visible integration preflight",
+  },
+  {
+    rel: "packages/core/src/templates/headless/AGENTS.md",
+    pattern: runtimeIntegrationGuidancePattern,
+    message: "runtime-visible integration preflight",
   },
   {
     rel: "packages/core/src/templates/workspace-root/AGENTS.md",
     pattern: /Normal app data must flow through actions\./,
+    message: "canonical action-first guidance",
   },
   {
     rel: "packages/core/src/templates/workspace-core/AGENTS.md",
     pattern: /Normal app data must flow through actions\./,
+    message: "canonical action-first guidance",
   },
   {
     rel: "registry/agent-native-app/AGENTS.md",
     pattern: /Normal app data must flow through actions\./,
+    message: "canonical action-first guidance",
+  },
+  {
+    rel: "registry/agent-native-app/AGENTS.md",
+    pattern: runtimeIntegrationGuidancePattern,
+    message: "runtime-visible integration preflight",
+  },
+  {
+    rel: "packages/core/src/templates/workspace-root/AGENTS.md",
+    pattern:
+      /Before implementing an app that connects to an external service, inspect the\s+workspace\/provider connection catalog first[.;]/,
+    message: "shared-primitive integration preflight",
+  },
+  {
+    rel: "packages/core/src/templates/workspace-core/AGENTS.md",
+    pattern:
+      /For external integrations, check the provider connection catalog first/,
+    message: "shared-primitive integration preflight",
   },
 ];
 
@@ -247,7 +244,7 @@ const requiredAgentWorkflowGuidance = [
 ].map((rel) => ({
   rel,
   pattern:
-    /Keep actions deterministic and focused[\s\S]*AgentSidebar[\s\S]*same\s+thread/,
+    /Keep actions deterministic\s+and\s+focused[\s\S]*AgentSidebar[\s\S]*same\s+thread/,
 }));
 
 const requiredToolkitDiscoveryGuidance = [
@@ -264,27 +261,44 @@ const requiredRegistryConventionSkills = [
   "customizing-agent-native",
 ];
 
-// Repo-maintenance workflows are useful in this repository, but generated
-// workspaces should not inherit branch/PR shipping behavior from our monorepo.
 const workspaceSkillExcludes = [
   "babysit-pr",
+  "chat-first-workbench",
   "concurrent-agents",
   "delegating-work",
   "fix-at-the-boundary",
+  "framework-stores",
   "multi-frontier-desktop",
   "new-branch",
   "ship",
-  "ship-desktop",
+  "ship-and-monitor",
   "verifying-changes",
+  "content-product-development",
+  "design-exploration",
+  "visual-edit",
+  "visual-plan",
+  "visual-recap",
+  "visualize-repo",
+  "writing-reference-docs",
 ];
 
 const check = process.argv.includes("--check");
-const includeSet = new Set(workspaceSkillIncludes);
 const excludeSet = new Set(workspaceSkillExcludes);
+
+function isDirEntry(dir, entry) {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return statSync(join(dir, entry.name)).isDirectory();
+  } catch {
+    // coercion-ok: broken symlink entries are intentionally excluded from generated skill copies.
+    return false; // broken symlink
+  }
+}
 
 function listSkillDirs(dir) {
   return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => isDirEntry(dir, entry))
     .map((entry) => entry.name)
     .sort();
 }
@@ -294,7 +308,7 @@ function listFiles(dir, base = dir) {
   const files = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const abs = join(dir, entry.name);
-    if (entry.isDirectory()) {
+    if (isDirEntry(dir, entry)) {
       files.push(...listFiles(abs, base));
     } else if (entry.isFile()) {
       files.push(relative(base, abs));
@@ -311,25 +325,26 @@ function relSkillFiles(skillName) {
 
 function assertCategorized() {
   const sourceSkills = listSkillDirs(sourceDir);
-  const unknown = sourceSkills.filter(
-    (skill) => !includeSet.has(skill) && !excludeSet.has(skill),
-  );
   const missing = workspaceSkillIncludes.filter(
     (skill) => !sourceSkills.includes(skill),
   );
   const overlap = workspaceSkillIncludes.filter((skill) =>
     excludeSet.has(skill),
   );
-  const missingTemplateShared = templateSharedSkillIncludes.filter(
+  const missingTemplateShared = defaultTemplateSyncedSkillIncludes.filter(
+    (skill) => !sourceSkills.includes(skill),
+  );
+  const missingDefaultLocal = DEFAULT_TEMPLATE_LOCAL_SKILLS.filter(
+    (skill) => !listSkillDirs(defaultTemplateSkillsDir).includes(skill),
+  );
+  const missingPerTemplate = [
+    ...new Set(Object.values(templateSharedSkillIncludesByTemplate).flat()),
+  ].filter((skill) => !sourceSkills.includes(skill));
+  const missingHeadless = headlessTemplateSharedSkillIncludes.filter(
     (skill) => !sourceSkills.includes(skill),
   );
 
   const errors = [];
-  if (unknown.length > 0) {
-    errors.push(
-      `Uncategorized root skills: ${unknown.join(", ")}. Add each one to workspaceSkillIncludes or workspaceSkillExcludes.`,
-    );
-  }
   if (missing.length > 0) {
     errors.push(
       `Included skills missing from ${sourceDir}: ${missing.join(", ")}`,
@@ -343,6 +358,25 @@ function assertCategorized() {
   if (missingTemplateShared.length > 0) {
     errors.push(
       `Template-shared skills missing from ${sourceDir}: ${missingTemplateShared.join(
+        ", ",
+      )}`,
+    );
+  }
+  if (missingDefaultLocal.length > 0) {
+    errors.push(
+      `Default-template local skills missing from ${defaultTemplateSkillsDir}: ${missingDefaultLocal.join(", ")}`,
+    );
+  }
+  if (missingPerTemplate.length > 0) {
+    errors.push(
+      `Per-template shared skills missing from ${sourceDir}: ${missingPerTemplate.join(
+        ", ",
+      )}`,
+    );
+  }
+  if (missingHeadless.length > 0) {
+    errors.push(
+      `Headless-template skills missing from ${sourceDir}: ${missingHeadless.join(
         ", ",
       )}`,
     );
@@ -386,9 +420,53 @@ function checkInSync() {
   );
 }
 
-function checkSkillDirInSync(label, skill, targetSkillDir) {
+function factorySkillFiles(skill) {
   const sourceSkillDir = join(sourceDir, skill);
-  const expected = listFiles(sourceSkillDir);
+  const excluded = FACTORY_EXCLUDED_SKILL_FILES[skill] ?? new Set();
+  return listFiles(sourceSkillDir).filter(
+    (file) => !excluded.has(file.split(sep).join("/")),
+  );
+}
+
+function factorySkillContent(skill, file, content) {
+  if (skill !== "review-latest-feedback" || file !== "SKILL.md") return content;
+  const output = [];
+  let inRepoOnlyBlock = false;
+  let blockCount = 0;
+  for (const line of content.split("\n")) {
+    if (line.trim() === FACTORY_REPO_ONLY_MARKERS.start) {
+      if (inRepoOnlyBlock) {
+        throw new Error("nested framework-repo-only skill markers");
+      }
+      inRepoOnlyBlock = true;
+      blockCount += 1;
+      continue;
+    }
+    if (line.trim() === FACTORY_REPO_ONLY_MARKERS.end) {
+      if (!inRepoOnlyBlock) {
+        throw new Error("unmatched framework-repo-only end marker");
+      }
+      inRepoOnlyBlock = false;
+      continue;
+    }
+    if (!inRepoOnlyBlock) output.push(line);
+  }
+  if (inRepoOnlyBlock || blockCount === 0) {
+    throw new Error("review-latest-feedback needs repo-only section markers");
+  }
+  return output.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+function checkSkillDirInSync(
+  label,
+  skill,
+  targetSkillDir,
+  factoryTarget = false,
+) {
+  const sourceSkillDir = join(sourceDir, skill);
+  const expected = factoryTarget
+    ? factorySkillFiles(skill)
+    : listFiles(sourceSkillDir);
   const actual = listFiles(targetSkillDir);
   const expectedSet = new Set(expected);
   const actualSet = new Set(actual);
@@ -396,9 +474,11 @@ function checkSkillDirInSync(label, skill, targetSkillDir) {
   const extra = actual.filter((file) => !expectedSet.has(file));
   const changed = expected.filter((file) => {
     if (!actualSet.has(file)) return false;
+    const sourceContent = readFileSync(join(sourceSkillDir, file), "utf-8");
     return (
-      readFileSync(join(sourceSkillDir, file), "utf-8") !==
-      readFileSync(join(targetSkillDir, file), "utf-8")
+      (factoryTarget
+        ? factorySkillContent(skill, file, sourceContent)
+        : sourceContent) !== readFileSync(join(targetSkillDir, file), "utf-8")
     );
   });
 
@@ -421,12 +501,14 @@ function listTemplateDirs() {
   if (!existsSync(templatesDir)) return [];
   return readdirSync(templatesDir, { withFileTypes: true })
     .filter((entry) => {
-      if (!entry.isDirectory()) return false;
+      if (!isDirEntry(templatesDir, entry)) return false;
       if (entry.name.startsWith(".") || entry.name === "node_modules") {
         return false;
       }
-      // Skip leftover/retired shells that no longer ship a package.json.
-      return existsSync(join(templatesDir, entry.name, "package.json"));
+      return (
+        existsSync(join(templatesDir, entry.name, "package.json")) &&
+        !isRetiredCompatibilityTemplate(entry.name)
+      );
     })
     .map((entry) => entry.name)
     .sort();
@@ -441,6 +523,19 @@ function listInstructionFiles() {
   return files.sort();
 }
 
+function hasInteractionResponsivenessSkill(content) {
+  const match = content.match(
+    /^## Interaction Responsiveness\n\n((?:(?!^## ).)*)/ms,
+  );
+  if (!match) return false;
+  const section = match[1];
+  return (
+    section.includes("100 ms") &&
+    section.includes("400 ms") &&
+    section.includes("network round-trip")
+  );
+}
+
 function checkGeneratedInstructionPhrases() {
   const findings = [];
   for (const file of listInstructionFiles()) {
@@ -452,7 +547,7 @@ function checkGeneratedInstructionPhrases() {
     }
   }
 
-  for (const { rel, pattern } of requiredActionGuidance) {
+  for (const { rel, pattern, message } of requiredGeneratedGuidance) {
     const file = join(rootDir, rel);
     if (!existsSync(file)) {
       findings.push(`${rel}: missing required generated-app guidance file`);
@@ -460,7 +555,55 @@ function checkGeneratedInstructionPhrases() {
     }
     const content = readFileSync(file, "utf-8");
     if (!pattern.test(content)) {
-      findings.push(`${rel}: missing canonical action-first guidance`);
+      findings.push(`${rel}: missing ${message}`);
+    }
+  }
+
+  for (const template of listTemplateDirs()) {
+    const rel = `templates/${template}/AGENTS.md`;
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(`${rel}: missing required generated-app guidance file`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    if (!runtimeIntegrationGuidancePattern.test(content)) {
+      findings.push(`${rel}: missing runtime-visible integration preflight`);
+    }
+  }
+
+  const interactionResponsivenessSkillFile = join(
+    sourceDir,
+    "frontend-design",
+    "SKILL.md",
+  );
+  if (
+    !hasInteractionResponsivenessSkill(
+      readFileSync(interactionResponsivenessSkillFile, "utf-8"),
+    )
+  ) {
+    findings.push(
+      ".agents/skills/frontend-design/SKILL.md: missing bounded interaction responsiveness guidance",
+    );
+  }
+
+  for (const rel of [
+    ...requiredRuntimeInstructionFiles,
+    ...listTemplateDirs().map((template) => `templates/${template}/AGENTS.md`),
+  ]) {
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(
+        `${rel}: missing required interaction responsiveness guidance file`,
+      );
+      continue;
+    }
+    if (
+      !interactionResponsivenessInstructionPattern.test(
+        readFileSync(file, "utf-8"),
+      )
+    ) {
+      findings.push(`${rel}: missing interaction responsiveness guidance`);
     }
   }
 
@@ -532,42 +675,175 @@ function checkGeneratedInstructionPhrases() {
 
   if (findings.length > 0) {
     throw new Error(
-      `Generated guidance is out of sync.\n\n${findings.join("\n")}`,
+      `Generated app guidance is out of sync.\n\n${findings.join("\n")}`,
+    );
+  }
+}
+
+function checkInstructionSkillReferences() {
+  const knownSkillNames = new Set([
+    ...FRAMEWORK_TEMPLATE_SHARED_SKILLS,
+    ...listSkillDirs(sourceDir),
+    ...listSkillDirs(defaultTemplateSkillsDir),
+    ...listSkillDirs(headlessTemplateSkillsDir),
+    ...listSkillDirs(targetDir),
+    ...listSkillDirs(factoryBundleSkillsDir),
+    ...listTemplateDirs().flatMap((template) =>
+      listSkillDirs(join(templatesDir, template, ".agents", "skills")),
+    ),
+  ]);
+  const scaffoldInstructions = [
+    {
+      rel: "packages/core/src/templates/default/AGENTS.md",
+      skillsDir: defaultTemplateSkillsDir,
+    },
+    {
+      rel: "packages/core/src/templates/headless/AGENTS.md",
+      skillsDir: headlessTemplateSkillsDir,
+    },
+    {
+      rel: "packages/core/src/templates/workspace-core/AGENTS.md",
+      skillsDir: targetDir,
+    },
+    {
+      rel: "packages/core/src/templates/workspace-root/AGENTS.md",
+      skillsDir: targetDir,
+    },
+    ...listTemplateDirs().map((template) => ({
+      rel: `templates/${template}/AGENTS.md`,
+      skillsDir: join(templatesDir, template, ".agents", "skills"),
+    })),
+  ];
+  const findings = [];
+  for (const { rel, skillsDir } of scaffoldInstructions) {
+    const instructions = join(rootDir, rel);
+    if (!existsSync(instructions)) continue;
+    const content = readFileSync(instructions, "utf-8");
+    if (!content.includes("rg --hidden --follow")) {
+      findings.push(
+        `${rel}: missing hidden and linked skill discovery command`,
+      );
+    }
+    for (const flag of ["query", "slug"]) {
+      if (!content.includes(`pnpm action docs-search --${flag}`)) {
+        findings.push(`${rel}: missing docs-search --${flag} command`);
+      }
+    }
+    const shippedSkills = new Set(listSkillDirs(skillsDir));
+    const missing = missingInstructionSkillReferences(
+      content,
+      shippedSkills,
+      knownSkillNames,
+    );
+    if (missing.length > 0) {
+      findings.push(
+        `${rel}: references skills not shipped here: ${missing.join(", ")}`,
+      );
+    }
+  }
+
+  const skillScaffoldDirs = [
+    dirname(dirname(defaultTemplateSkillsDir)),
+    dirname(dirname(headlessTemplateSkillsDir)),
+    dirname(dirname(targetDir)),
+    join(rootDir, "packages", "core", "src", "templates", "workspace-root"),
+    dirname(dirname(chatStarterSkillsDir)),
+    dirname(dirname(factoryBundleSkillsDir)),
+    ...listTemplateDirs().map((template) => join(templatesDir, template)),
+  ];
+  for (const dir of skillScaffoldDirs) {
+    const ignoreFile = join(dir, ".ignore");
+    const rel = relative(rootDir, ignoreFile);
+    if (
+      !existsSync(ignoreFile) ||
+      !readFileSync(ignoreFile, "utf-8").split(/\r?\n/).includes("!.agents/")
+    ) {
+      findings.push(`${rel}: missing !.agents/ skill-discovery exception`);
+    }
+  }
+
+  if (findings.length > 0) {
+    throw new Error(
+      `Generated AGENTS.md skill references are out of sync.\n\n${findings.join("\n")}`,
+    );
+  }
+}
+
+function checkSyncedSkillFrontmatter() {
+  const skills = new Set([
+    ...workspaceSkillIncludes,
+    ...defaultTemplateSyncedSkillIncludes,
+    ...headlessTemplateSharedSkillIncludes,
+    ...Object.values(templateSharedSkillIncludesByTemplate).flat(),
+  ]);
+  const findings = [];
+  for (const skill of [...skills].sort()) {
+    const file = join(sourceDir, skill, "SKILL.md");
+    if (!existsSync(file)) {
+      findings.push(`${skill}: missing SKILL.md`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+    const fields = frontmatter?.[1];
+    if (!fields) {
+      findings.push(`${skill}: missing YAML frontmatter`);
+      continue;
+    }
+    const name = fields.match(/^name:\s*(\S+)\s*$/m)?.[1];
+    const descriptionLine = fields.match(/^description:\s*(.*)$/m)?.[1];
+    const descriptionHasValue = Boolean(
+      descriptionLine?.trim() ||
+      (descriptionLine !== undefined &&
+        fields
+          .slice(fields.indexOf("description:") + "description:".length)
+          .split("\n")
+          .slice(1)
+          .some((line) => /^\s+\S/.test(line))),
+    );
+    if (name !== skill || !descriptionHasValue) {
+      findings.push(
+        `${skill}: frontmatter must name the skill and describe what/when to use it`,
+      );
+    }
+  }
+  if (findings.length > 0) {
+    throw new Error(
+      `Synced skill frontmatter is incomplete.\n\n${findings.join("\n")}`,
     );
   }
 }
 
 function forEachExistingTemplateSharedSkill(fn) {
-  for (const skill of templateSharedSkillIncludes) {
+  for (const skill of defaultTemplateSyncedSkillIncludes) {
     const targetSkillDir = join(defaultTemplateSkillsDir, skill);
-    if (
-      existsSync(targetSkillDir) ||
-      requiredDefaultTemplateSharedSkills.includes(skill)
-    ) {
-      fn(
-        "packages/core/src/templates/default/.agents/skills",
-        skill,
-        targetSkillDir,
-      );
-    }
+    fn(
+      "packages/core/src/templates/default/.agents/skills",
+      skill,
+      targetSkillDir,
+    );
   }
 
-  for (const skill of templateSharedSkillIncludes) {
+  for (const skill of headlessTemplateSharedSkillIncludes) {
     const targetSkillDir = join(headlessTemplateSkillsDir, skill);
-    if (
-      existsSync(targetSkillDir) ||
-      requiredHeadlessTemplateSharedSkills.includes(skill)
-    ) {
-      fn(
-        "packages/core/src/templates/headless/.agents/skills",
-        skill,
-        targetSkillDir,
-      );
-    }
+    fn(
+      "packages/core/src/templates/headless/.agents/skills",
+      skill,
+      targetSkillDir,
+    );
+  }
+
+  for (const skill of CHAT_STARTER_SKILLS) {
+    const targetSkillDir = join(chatStarterSkillsDir, skill);
+    fn(
+      "packages/core/src/templates/chat/.agents/skills",
+      skill,
+      targetSkillDir,
+    );
   }
 
   for (const template of listTemplateDirs()) {
-    for (const skill of templateSharedSkillIncludes) {
+    for (const skill of templateSkillsFor(template)) {
       const targetSkillDir = join(
         templatesDir,
         template,
@@ -575,33 +851,145 @@ function forEachExistingTemplateSharedSkill(fn) {
         "skills",
         skill,
       );
-      if (
-        existsSync(targetSkillDir) ||
-        (requiredTemplateSharedSkills[template] ?? []).includes(skill) ||
-        requiredAllTemplateSharedSkills.includes(skill)
-      ) {
-        fn(`templates/${template}/.agents/skills`, skill, targetSkillDir);
-      }
+      fn(
+        `templates/${template}/.agents/skills`,
+        skill,
+        targetSkillDir,
+        template === "factory",
+      );
     }
   }
 }
 
 function checkTemplateSharedSkillsInSync() {
-  forEachExistingTemplateSharedSkill((label, skill, targetSkillDir) => {
-    checkSkillDirInSync(label, skill, targetSkillDir);
-  });
+  forEachExistingTemplateSharedSkill(
+    (label, skill, targetSkillDir, factoryTarget) => {
+      checkSkillDirInSync(label, skill, targetSkillDir, factoryTarget);
+    },
+  );
+  checkNoStaleTemplateSharedSkills();
 }
 
-function copySkill(skill, targetSkillDir) {
+function checkFactoryBundleSkillsInSync() {
+  for (const skill of factoryBundleSkillIncludes) {
+    checkSkillDirInSync(
+      "packages/core/src/templates/factory/.agents/skills",
+      skill,
+      join(factoryBundleSkillsDir, skill),
+      true,
+    );
+  }
+}
+
+function forEachTemplateSkillsDir(fn) {
+  fn(
+    "packages/core/src/templates/default/.agents/skills",
+    defaultTemplateSkillsDir,
+    "default",
+  );
+  fn(
+    "packages/core/src/templates/headless/.agents/skills",
+    headlessTemplateSkillsDir,
+    "headless",
+  );
+  fn(
+    "packages/core/src/templates/chat/.agents/skills",
+    chatStarterSkillsDir,
+    "chat",
+  );
+  fn(
+    "packages/core/src/templates/factory/.agents/skills",
+    factoryBundleSkillsDir,
+    "factory",
+  );
+  for (const template of listTemplateDirs()) {
+    fn(
+      `templates/${template}/.agents/skills`,
+      join(templatesDir, template, ".agents", "skills"),
+      template,
+    );
+  }
+}
+
+function checkNoStaleTemplateSharedSkills() {
+  const extra = [];
+  forEachTemplateSkillsDir((label, skillsDir, template) => {
+    const includedSkills = includedSkillsForTemplate(template);
+    const staleSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
+      (skill) => !includedSkills.includes(skill),
+    );
+    for (const skill of staleSkills) {
+      if (existsSync(join(skillsDir, skill))) {
+        extra.push(`${label}/${skill}`);
+      }
+    }
+  });
+  if (extra.length > 0) {
+    throw new Error(
+      `Optional framework skills are still copied into templates:\n${extra.join(
+        "\n",
+      )}\n\nRun: pnpm sync:workspace-skills`,
+    );
+  }
+}
+
+function isWithin(root, candidate) {
+  const pathFromRoot = relative(root, candidate);
+  return (
+    pathFromRoot === "" ||
+    (pathFromRoot !== ".." &&
+      !pathFromRoot.startsWith(`..${sep}`) &&
+      !isAbsolute(pathFromRoot))
+  );
+}
+
+function isAbsoluteLinkTarget(target) {
+  return isAbsolute(target) || win32.isAbsolute(target);
+}
+
+function resolveSourceSkill(skill) {
+  const sourceSkillDir = realpathSync(join(sourceDir, skill));
+  if (!allowedSourceRoots.some((root) => isWithin(root, sourceSkillDir))) {
+    throw new Error(
+      `Refusing to copy ${skill}: resolved source is outside approved skill roots (${sourceSkillDir})`,
+    );
+  }
+  return sourceSkillDir;
+}
+
+function validateSourceSkills() {
+  for (const skill of new Set([
+    ...workspaceSkillIncludes,
+    ...defaultTemplateSyncedSkillIncludes,
+    ...headlessTemplateSharedSkillIncludes,
+    ...Object.values(templateSharedSkillIncludesByTemplate).flat(),
+  ])) {
+    resolveSourceSkill(skill);
+  }
+}
+
+function copySkill(skill, targetSkillDir, factoryTarget = false) {
+  const sourceSkillDir = resolveSourceSkill(skill);
   if (
     existsSync(targetSkillDir) &&
-    lstatSync(targetSkillDir).isSymbolicLink()
+    lstatSync(targetSkillDir).isSymbolicLink() &&
+    !isAbsoluteLinkTarget(readlinkSync(targetSkillDir))
   ) {
     return;
   }
   rmSync(targetSkillDir, { recursive: true, force: true });
   mkdirSync(dirname(targetSkillDir), { recursive: true });
-  cpSync(join(sourceDir, skill), targetSkillDir, { recursive: true });
+  cpSync(sourceSkillDir, targetSkillDir, { recursive: true });
+  if (factoryTarget) {
+    for (const file of FACTORY_EXCLUDED_SKILL_FILES[skill] ?? []) {
+      rmSync(join(targetSkillDir, file), { force: true });
+    }
+    const skillFile = join(targetSkillDir, "SKILL.md");
+    writeFileSync(
+      skillFile,
+      factorySkillContent(skill, "SKILL.md", readFileSync(skillFile, "utf-8")),
+    );
+  }
 }
 
 function syncWorkspaceCoreSkills() {
@@ -613,26 +1001,53 @@ function syncWorkspaceCoreSkills() {
 }
 
 function syncTemplateSharedSkills() {
-  forEachExistingTemplateSharedSkill((_template, skill, targetSkillDir) => {
-    copySkill(skill, targetSkillDir);
+  forEachExistingTemplateSharedSkill(
+    (_template, skill, targetSkillDir, factoryTarget) => {
+      copySkill(skill, targetSkillDir, factoryTarget);
+    },
+  );
+  forEachTemplateSkillsDir((_label, skillsDir, template) => {
+    const includedSkills = includedSkillsForTemplate(template);
+    const staleSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
+      (skill) => !includedSkills.includes(skill),
+    );
+    for (const skill of staleSkills) {
+      rmSync(join(skillsDir, skill), { recursive: true, force: true });
+    }
   });
+}
+
+function syncFactoryBundleSkills() {
+  rmSync(factoryBundleSkillsDir, { recursive: true, force: true });
+  mkdirSync(factoryBundleSkillsDir, { recursive: true });
+  for (const skill of factoryBundleSkillIncludes) {
+    copySkill(skill, join(factoryBundleSkillsDir, skill), true);
+  }
 }
 
 try {
   assertCategorized();
+  validateSourceSkills();
   if (check) {
     checkInSync();
     checkTemplateSharedSkillsInSync();
+    checkFactoryBundleSkillsInSync();
     checkGeneratedInstructionPhrases();
+    checkInstructionSkillReferences();
+    checkSyncedSkillFrontmatter();
     console.log(
       "Workspace-core, default-template, and template shared skills are in sync.",
     );
   } else {
     syncWorkspaceCoreSkills();
     syncTemplateSharedSkills();
+    syncFactoryBundleSkills();
     checkInSync();
     checkTemplateSharedSkillsInSync();
+    checkFactoryBundleSkillsInSync();
     checkGeneratedInstructionPhrases();
+    checkInstructionSkillReferences();
+    checkSyncedSkillFrontmatter();
     console.log(
       "Synced workspace-core, default-template, and template shared skills from .agents/skills.",
     );

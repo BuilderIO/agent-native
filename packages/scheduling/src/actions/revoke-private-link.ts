@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -20,8 +20,6 @@ export default defineAction({
     try {
       await assertAccess("event-type", link.eventTypeId, "editor");
     } catch {
-      // Keep private-link hashes unprobeable: callers without access receive
-      // the same idempotent result as callers presenting an unknown hash.
       return { ok: true };
     }
     await db

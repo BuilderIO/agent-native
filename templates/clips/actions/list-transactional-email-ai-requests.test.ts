@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   claimant: "recipient@example.test",
-  listJobs: vi.fn(),
+  accessFilter: vi.fn((...args: unknown[]) => args),
+  listAiClaimCandidates: vi.fn(),
   claimAwaitingAi: vi.fn(),
   reclaimStaleAiDispatch: vi.fn(),
-  resolveAccess: vi.fn(),
   readConfig: vi.fn(),
+  resolveAccess: vi.fn(),
   gte: vi.fn((...args: unknown[]) => args),
   select: vi.fn(),
 }));
@@ -15,14 +16,20 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: (...args: unknown[]) => args,
-  resolveAccess: (...args: unknown[]) => mocks.resolveAccess(...args),
+  accessFilter: mocks.accessFilter,
+  resolveAccess: mocks.resolveAccess,
 }));
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
   gte: (...args: unknown[]) => mocks.gte(...args),
   inArray: (...args: unknown[]) => args,
+  ne: (...args: unknown[]) => args,
+  or: (...args: unknown[]) => args,
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings: [...strings],
+    values,
+  }),
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => mocks.claimant,
@@ -32,7 +39,8 @@ vi.mock("../server/lib/transactional-email-store.js", () => ({
   AI_DISPATCH_STALE_MS: 30 * 60 * 1000,
   isAiBackedType: (type: string) => type === "two-clips",
   transactionalEmailStore: {
-    listJobs: (...args: unknown[]) => mocks.listJobs(...args),
+    listAiClaimCandidates: (...args: unknown[]) =>
+      mocks.listAiClaimCandidates(...args),
     readConfig: (...args: unknown[]) => mocks.readConfig(...args),
     claimAwaitingAi: (...args: unknown[]) => mocks.claimAwaitingAi(...args),
     reclaimStaleAiDispatch: (...args: unknown[]) =>
@@ -44,8 +52,11 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     recordings: {
       id: "recordings.id",
+      ownerEmail: "recordings.ownerEmail",
       title: "recordings.title",
       description: "recordings.description",
+      visibility: "recordings.visibility",
+      orgId: "recordings.orgId",
     },
     recordingTranscripts: {
       recordingId: "transcripts.recordingId",
@@ -63,6 +74,11 @@ vi.mock("../server/db/index.js", () => ({
       principalId: "shares.principalId",
       createdBy: "shares.createdBy",
       createdAt: "shares.createdAt",
+    },
+    organizations: {
+      id: "organizations.id",
+      identityAuthority: "organizations.identityAuthority",
+      identityId: "organizations.identityId",
     },
   },
 }));
@@ -91,6 +107,9 @@ function setupSelectRows(rows: unknown[][]) {
     const result = rows.shift() ?? [];
     return {
       from() {
+        return this;
+      },
+      leftJoin() {
         return this;
       },
       where: async () => result,
@@ -142,7 +161,7 @@ function setupContextRows(shareRows?: Record<string, string>[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.claimant = "recipient@example.test";
-  mocks.listJobs.mockResolvedValue([job]);
+  mocks.listAiClaimCandidates.mockResolvedValue([job]);
   mocks.readConfig.mockResolvedValue({
     enabledAt: "2026-08-01T00:00:00.000Z",
   });
@@ -156,7 +175,6 @@ beforeEach(() => {
     state: "ai_dispatched",
     aiClaimedBy: mocks.claimant,
   });
-  mocks.resolveAccess.mockResolvedValue({ role: "viewer" });
   setupContextRows();
 });
 
@@ -169,13 +187,19 @@ describe("list-transactional-email-ai-requests", () => {
   it("lets the direct-share recipient claim and returns exactly two bounded authoritative packets", async () => {
     const result = await claimTransactionalEmailAiRequests(mocks.claimant);
 
-    expect(mocks.resolveAccess).not.toHaveBeenCalled();
     expect(mocks.claimAwaitingAi).toHaveBeenCalledWith(
       job.logicalKey,
       mocks.claimant,
     );
     expect(result.requests).toHaveLength(1);
     expect(result.requests[0].contextPackets).toHaveLength(2);
+    expect(mocks.accessFilter).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      undefined,
+      "viewer",
+      { includePublic: true },
+    );
     expect(result.requests[0].contextPackets).toEqual([
       expect.objectContaining({
         recordingId: "recording-1",
@@ -193,7 +217,7 @@ describe("list-transactional-email-ai-requests", () => {
   it("atomically reclaims stale browser dispatches", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-01T01:00:00.000Z"));
-    mocks.listJobs.mockResolvedValue([
+    mocks.listAiClaimCandidates.mockResolvedValue([
       {
         ...job,
         state: "ai_dispatched",
@@ -220,7 +244,7 @@ describe("list-transactional-email-ai-requests", () => {
       recipient: `unrelated-${index}@example.test`,
       requestedBy: `sender-${index}@example.test`,
     }));
-    mocks.listJobs.mockResolvedValue([...unrelatedJobs, job]);
+    mocks.listAiClaimCandidates.mockResolvedValue([...unrelatedJobs, job]);
 
     const result = await claimTransactionalEmailAiRequests(mocks.claimant);
 
@@ -270,27 +294,31 @@ describe("list-transactional-email-ai-requests", () => {
 
   it("denies a requestedBy sender with only generic public access to the other Clip", async () => {
     mocks.claimant = "second-sender@example.test";
-    mocks.resolveAccess.mockResolvedValue({
-      role: "viewer",
-      resource: { visibility: "public" },
-    });
     mocks.select.mockReset();
-    setupSelectRows([[{ recordingId: "recording-2" }], []]);
+    setupSelectRows([
+      [{ id: "recording-2", ownerEmail: "other@example.test" }],
+      [],
+      [],
+    ]);
 
     await expect(
       claimTransactionalEmailAiRequests(mocks.claimant),
     ).resolves.toEqual({ requests: [] });
-    expect(mocks.resolveAccess).toHaveBeenCalledTimes(2);
     expect(mocks.claimAwaitingAi).not.toHaveBeenCalled();
   });
 
   it("allows a requestedBy sender who owns one Clip and has a direct user share to the other", async () => {
     mocks.claimant = "second-sender@example.test";
-    mocks.resolveAccess
-      .mockResolvedValueOnce({ role: "owner", resource: {} })
-      .mockResolvedValueOnce({ role: "viewer", resource: {} });
     mocks.select.mockReset();
-    setupSelectRows([[{ recordingId: "recording-2" }], [], ...contextRows()]);
+    setupSelectRows([
+      [
+        { id: "recording-1", ownerEmail: mocks.claimant },
+        { id: "recording-2", ownerEmail: "other@example.test" },
+      ],
+      [{ recordingId: "recording-2" }],
+      [],
+      ...contextRows(),
+    ]);
 
     const result = await claimTransactionalEmailAiRequests(mocks.claimant);
 
@@ -304,14 +332,60 @@ describe("list-transactional-email-ai-requests", () => {
 
   it("denies a sender when either recording is inaccessible and never loads transcripts", async () => {
     mocks.claimant = "second-sender@example.test";
-    mocks.resolveAccess
-      .mockResolvedValueOnce({ role: "viewer" })
-      .mockResolvedValueOnce(null);
+    mocks.select.mockReset();
+    setupSelectRows([[], [], []]);
 
     await expect(
       claimTransactionalEmailAiRequests(mocks.claimant),
     ).resolves.toEqual({ requests: [] });
-    expect(mocks.select).not.toHaveBeenCalled();
     expect(mocks.claimAwaitingAi).not.toHaveBeenCalled();
+  });
+
+  it("rechecks linked organization recordings through the authoritative resolver", async () => {
+    mocks.claimant = "second-sender@example.test";
+    mocks.resolveAccess.mockImplementation(async (_type, recordingId) =>
+      recordingId === "recording-1" ? null : { role: "viewer" },
+    );
+    mocks.select.mockReset();
+    setupSelectRows([
+      [
+        {
+          id: "recording-1",
+          ownerEmail: "other@example.test",
+          visibility: "org",
+          orgId: "linked-org",
+          identityAuthority: "https://identity.example.test",
+          identityId: "identity-org",
+        },
+        {
+          id: "recording-2",
+          ownerEmail: "other@example.test",
+          visibility: "org",
+          orgId: "linked-org",
+          identityAuthority: "https://identity.example.test",
+          identityId: "identity-org",
+        },
+      ],
+      [{ recordingId: "recording-2" }],
+      [],
+    ]);
+
+    await expect(
+      claimTransactionalEmailAiRequests(mocks.claimant),
+    ).resolves.toEqual({ requests: [] });
+    expect(mocks.resolveAccess).toHaveBeenNthCalledWith(
+      1,
+      "recording",
+      "recording-1",
+      undefined,
+      { skipResourceBody: true },
+    );
+    expect(mocks.resolveAccess).toHaveBeenNthCalledWith(
+      2,
+      "recording",
+      "recording-2",
+      undefined,
+      { skipResourceBody: true },
+    );
   });
 });

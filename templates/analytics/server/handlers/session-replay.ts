@@ -1,6 +1,10 @@
 import { gunzipSync } from "node:zlib";
 
 import {
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "@agent-native/core/shared";
+import {
   defineEventHandler,
   getHeader,
   getQuery,
@@ -11,6 +15,11 @@ import {
 } from "h3";
 
 import { runApiHandlerWithContext } from "../lib/credentials";
+import {
+  errorReply,
+  parseJsonBody,
+  requestError,
+} from "../lib/request-errors.js";
 import {
   resolveSessionReplayAgentAccess,
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
@@ -58,17 +67,23 @@ function setCors(event: any): void {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "content-type, content-encoding, x-agent-native-analytics-key",
+    `content-type, content-encoding, x-agent-native-analytics-key, ${SYNTHETIC_TRAFFIC_HEADER.toLowerCase()}`,
   );
   setResponseHeader(event, "Access-Control-Max-Age", "86400");
+  setResponseHeader(event, "Access-Control-Expose-Headers", "retry-after");
 }
 
-function statusFromError(error: any): number {
-  return typeof error?.statusCode === "number" ? error.statusCode : 400;
+function retryAfterFromError(error: any): number | null {
+  const seconds = error?.retryAfterSeconds;
+  return typeof seconds === "number" && Number.isFinite(seconds) && seconds >= 0
+    ? Math.ceil(seconds)
+    : null;
 }
 
-function messageFromError(error: any): string {
-  return error?.message || String(error);
+function replyWithError(event: any, error: unknown): { error: string } {
+  const reply = errorReply(error, "[session-replay]");
+  setResponseStatus(event, reply.statusCode);
+  return { error: reply.error };
 }
 
 function hasQueryKey(query: Record<string, unknown>): boolean {
@@ -78,16 +93,12 @@ function hasQueryKey(query: Record<string, unknown>): boolean {
 function injectHeaderKey(body: unknown, headerKey?: string): unknown {
   if (!headerKey) return body;
   if (typeof body === "string" && body.trim()) {
-    return { ...JSON.parse(body), publicKey: headerKey };
+    return { ...(parseJsonBody(body) as object), publicKey: headerKey };
   }
   if (body && typeof body === "object" && !Array.isArray(body)) {
     return { ...(body as Record<string, unknown>), publicKey: headerKey };
   }
   return { publicKey: headerKey };
-}
-
-function statusError(message: string, statusCode: number): Error {
-  return Object.assign(new Error(message), { statusCode });
 }
 
 function looksLikeDecodedJson(bytes: Buffer): boolean {
@@ -136,25 +147,20 @@ export function decodeSessionReplayRequestBody(
     if (gunzipped) {
       decoded = gunzipped;
     } else {
-      // Netlify may hand Nitro an already-decoded body while preserving the
-      // original browser Content-Encoding header.
       if (looksLikeDecodedJson(bytes)) {
         decoded = bytes;
       } else {
-        // Some Netlify paths wrap binary request bodies in a JS string before
-        // Nitro reads them back as UTF-8. Reinterpret that text as one-byte
-        // binary data so real browser CompressionStream uploads survive.
         const textWrappedGzip = decodeTextWrappedGzip(bytes);
         if (textWrappedGzip) {
           decoded = textWrappedGzip.decoded;
           requestBytes = textWrappedGzip.requestBytes;
         } else {
-          throw statusError("Invalid gzip-compressed replay body", 400);
+          throw requestError("Invalid gzip-compressed replay body", 400);
         }
       }
     }
   } else if (encoding && encoding !== "identity") {
-    throw statusError(
+    throw requestError(
       `Unsupported replay request content-encoding: ${encoding}`,
       415,
     );
@@ -236,7 +242,7 @@ function replayChunkSeqsFromQuery(query: Record<string, unknown>): number[] {
 function verifyAgentReplayAccessToken(
   event: any,
   recordingId: string,
-): { token: string; viewerEmail: string } | null | false {
+): { token: string; viewerEmail?: string } | null | false {
   const token = readAgentReplayAccessToken(event);
   if (!token) return null;
   const access = resolveSessionReplayAgentAccess(recordingId, token);
@@ -274,14 +280,17 @@ export const handleSessionReplayOptions = defineEventHandler((event) => {
 
 export const handleSessionReplayIngest = defineEventHandler(async (event) => {
   setCors(event);
+  if (isSyntheticTrafficValue(getHeader(event, SYNTHETIC_TRAFFIC_HEADER))) {
+    setResponseStatus(event, 202);
+    return { success: true, accepted: 0 };
+  }
+
   try {
     const query = getQuery(event);
     if (hasQueryKey(query)) {
-      throw Object.assign(
-        new Error(
-          "Analytics public keys must be sent in the request body or x-agent-native-analytics-key header, not the query string",
-        ),
-        { statusCode: 400 },
+      throw requestError(
+        "Analytics public keys must be sent in the request body or x-agent-native-analytics-key header, not the query string",
+        400,
       );
     }
 
@@ -297,8 +306,11 @@ export const handleSessionReplayIngest = defineEventHandler(async (event) => {
     setResponseStatus(event, 202);
     return { success: true, ...result };
   } catch (error: any) {
-    setResponseStatus(event, statusFromError(error));
-    return { error: messageFromError(error) };
+    const retryAfter = retryAfterFromError(error);
+    if (retryAfter !== null) {
+      setResponseHeader(event, "Retry-After", String(retryAfter));
+    }
+    return replyWithError(event, error);
   }
 });
 
@@ -310,9 +322,8 @@ export const handleSessionReplayList = defineEventHandler(async (event) => {
         listFiltersFromQuery(getQuery(event)),
       );
       return { recordings };
-    } catch (error: any) {
-      setResponseStatus(event, statusFromError(error));
-      return { error: messageFromError(error) };
+    } catch (error) {
+      return replyWithError(event, error);
     }
   });
 });
@@ -331,9 +342,8 @@ export const handleSessionReplaySummary = defineEventHandler(async (event) => {
         orgId: ctx.orgId ?? null,
       });
       return { recording };
-    } catch (error: any) {
-      setResponseStatus(event, statusFromError(error));
-      return { error: messageFromError(error) };
+    } catch (error) {
+      return replyWithError(event, error);
     }
   });
 });
@@ -357,9 +367,8 @@ export const handleSessionReplayEvents = defineEventHandler(async (event) => {
           limit: asInt(query.limit),
         },
       );
-    } catch (error: any) {
-      setResponseStatus(event, statusFromError(error));
-      return { error: messageFromError(error) };
+    } catch (error) {
+      return replyWithError(event, error);
     }
   });
 });
@@ -393,9 +402,8 @@ export const handleSessionReplayManifest = defineEventHandler(async (event) => {
           ),
         })),
       };
-    } catch (error: any) {
-      setResponseStatus(event, statusFromError(error));
-      return { error: messageFromError(error) };
+    } catch (error) {
+      return replyWithError(event, error);
     }
   }
 
@@ -405,9 +413,8 @@ export const handleSessionReplayManifest = defineEventHandler(async (event) => {
         userEmail: ctx.userEmail,
         orgId: ctx.orgId ?? null,
       });
-    } catch (error: any) {
-      setResponseStatus(event, statusFromError(error));
-      return { error: messageFromError(error) };
+    } catch (error) {
+      return replyWithError(event, error);
     }
   });
 });
@@ -438,9 +445,8 @@ export const handleSessionReplayChunkBytes = defineEventHandler(
         setResponseHeader(event, "X-Session-Replay-Seq", String(result.seq));
         setResponseHeader(event, "X-Session-Replay-Checksum", result.checksum);
         return result.json;
-      } catch (error: any) {
-        setResponseStatus(event, statusFromError(error));
-        return { error: messageFromError(error) };
+      } catch (error) {
+        return replyWithError(event, error);
       }
     }
 
@@ -450,18 +456,13 @@ export const handleSessionReplayChunkBytes = defineEventHandler(
           userEmail: ctx.userEmail,
           orgId: ctx.orgId ?? null,
         });
-        // Serve decompressed JSON and let the platform negotiate wire
-        // compression. Manually returning a pre-gzipped body with a
-        // `Content-Encoding: gzip` header corrupted replay downloads on
-        // serverless hosts and left playback blank in production.
         setResponseHeader(event, "Content-Type", "application/json");
         setResponseHeader(event, "Cache-Control", "no-store");
         setResponseHeader(event, "X-Session-Replay-Seq", String(result.seq));
         setResponseHeader(event, "X-Session-Replay-Checksum", result.checksum);
         return result.json;
-      } catch (error: any) {
-        setResponseStatus(event, statusFromError(error));
-        return { error: messageFromError(error) };
+      } catch (error) {
+        return replyWithError(event, error);
       }
     });
   },
@@ -490,9 +491,8 @@ export const handleSessionReplayChunkBatch = defineEventHandler(
         applyAgentReplayReadHeaders(event);
         setResponseHeader(event, "Content-Type", "application/json");
         return result;
-      } catch (error: any) {
-        setResponseStatus(event, statusFromError(error));
-        return { error: messageFromError(error) };
+      } catch (error) {
+        return replyWithError(event, error);
       }
     }
 
@@ -505,9 +505,8 @@ export const handleSessionReplayChunkBatch = defineEventHandler(
         setResponseHeader(event, "Content-Type", "application/json");
         setResponseHeader(event, "Cache-Control", "no-store");
         return result;
-      } catch (error: any) {
-        setResponseStatus(event, statusFromError(error));
-        return { error: messageFromError(error) };
+      } catch (error) {
+        return replyWithError(event, error);
       }
     });
   },

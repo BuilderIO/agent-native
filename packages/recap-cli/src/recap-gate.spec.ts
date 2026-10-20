@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import { evaluateRecapGate, type RecapGateInput } from "./recap.js";
 
 function validGateInput(
@@ -58,5 +59,24 @@ describe("evaluateRecapGate", () => {
 
     expect(decision.run).toBe(true);
     expect(decision.reasons).toEqual([]);
+  });
+});
+
+describe("recap gate workflow", () => {
+  it("keeps skip reasons in Actions without posting PR comments", () => {
+    const gateSection = PR_VISUAL_RECAP_WORKFLOW_YML.slice(
+      PR_VISUAL_RECAP_WORKFLOW_YML.indexOf("\n  gate:"),
+      PR_VISUAL_RECAP_WORKFLOW_YML.indexOf("\n  recap:"),
+    );
+
+    expect(gateSection).toContain("Visual recap skipped");
+    expect(gateSection).not.toContain("### Visual recap — skipped");
+    expect(gateSection).not.toContain("Recap skipped for");
+    expect(gateSection).not.toContain("createComment");
+    expect(gateSection).not.toContain("updateComment");
+    expect(gateSection).not.toContain("issues: write");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "if: always() && !cancelled() && steps.diff.outputs.tiny != 'true'",
+    );
   });
 });

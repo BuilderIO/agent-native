@@ -1,12 +1,16 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { registerShareableResource } from "@agent-native/core/sharing";
-import { createClient, type Client } from "@libsql/client";
+
+const { PGlite } = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
 import { eq } from "drizzle-orm";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import {
   afterAll,
   beforeAll,
@@ -18,9 +22,30 @@ import {
 } from "vitest";
 
 import * as planSchema from "../server/db/schema.js";
+import { PLANS_TABLE_DDL } from "../server/test-support/plans-test-schema.js";
 
-let client: Client;
-let db: LibSQLDatabase<typeof planSchema>;
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      results.push(await client.query(postgresSql(sql)));
+    return results.at(-1);
+  }
+  return client.query(postgresSql(statement.sql), statement.args ?? []);
+}
+
+let client: PGlite;
+let db: PgliteDatabase<typeof planSchema>;
 let dbDir: string;
 
 vi.mock("../server/db/index.js", () => ({
@@ -79,7 +104,7 @@ const changedContent = {
 
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
-  await client.executeMultiple(`
+  await execute(`
     DELETE FROM plan_versions;
     DELETE FROM plan_events;
     DELETE FROM plan_comments;
@@ -176,51 +201,11 @@ async function mutatePlanAfterSnapshot() {
 beforeAll(async () => {
   process.env.PLAN_LOCAL_MODE = "0";
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-versions-"));
-  client = createClient({ url: `file:${path.join(dbDir, "test.db")}` });
+  client = await PGlite.create(dbDir);
   db = drizzle(client, { schema: planSchema });
-  await client.execute("PRAGMA foreign_keys = ON");
-  await client.executeMultiple(`
-    CREATE TABLE plans (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      brief TEXT NOT NULL,
-      kind TEXT NOT NULL DEFAULT 'plan',
-      status TEXT NOT NULL DEFAULT 'draft',
-      source TEXT NOT NULL DEFAULT 'manual',
-      repo_path TEXT,
-      current_focus TEXT,
-      html TEXT,
-      markdown TEXT,
-      content TEXT,
-      hosted_plan_id TEXT,
-      hosted_plan_url TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      approved_at TEXT,
-      usage_agent TEXT,
-      usage_model TEXT,
-      usage_input_tokens INTEGER,
-      usage_output_tokens INTEGER,
-      usage_cache_read_tokens INTEGER,
-      usage_cache_write_tokens INTEGER,
-      usage_cost_cents_x100 INTEGER,
-      usage_cost_source TEXT,
-      usage_recorded_at TEXT,
-      source_url TEXT,
-      source_type TEXT,
-      source_repo TEXT,
-      source_pr_number INTEGER,
-      source_pr_state TEXT,
-      source_pr_merged_at TEXT,
-      source_author_email TEXT,
-      source_author_name TEXT,
-      source_author_login TEXT,
-      recap_idempotency_key TEXT,
-      deleted_at TEXT, deleted_by TEXT,
-      owner_email TEXT NOT NULL,
-      org_id TEXT,
-      visibility TEXT NOT NULL DEFAULT 'private'
-    );
+
+  await execute(`
+    ${PLANS_TABLE_DDL};
     CREATE TABLE plan_sections (
       id TEXT PRIMARY KEY,
       plan_id TEXT NOT NULL,
@@ -262,7 +247,8 @@ beforeAll(async () => {
       message TEXT NOT NULL,
       payload TEXT,
       created_by TEXT NOT NULL DEFAULT 'agent',
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE plan_versions (
       id TEXT PRIMARY KEY,
@@ -273,12 +259,13 @@ beforeAll(async () => {
       change_label TEXT,
       created_by TEXT NOT NULL DEFAULT 'agent',
       created_at TEXT NOT NULL,
+      chat_context TEXT,
       summary_status TEXT,
       summary_source TEXT,
       block_count INTEGER,
       section_count INTEGER,
-      has_canvas INTEGER,
-      has_prototype INTEGER,
+      has_canvas BOOLEAN,
+      has_prototype BOOLEAN,
       preview_text TEXT
     );
     CREATE TABLE plan_shares (
@@ -288,7 +275,8 @@ beforeAll(async () => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
   `);
 
@@ -311,8 +299,8 @@ beforeAll(async () => {
     .createPlanVersionSnapshot;
 });
 
-afterAll(() => {
-  client?.close();
+afterAll(async () => {
+  await client?.close();
   if (dbDir) fs.rmSync(dbDir, { recursive: true, force: true });
   if (originalPlanLocalMode === undefined) delete process.env.PLAN_LOCAL_MODE;
   else process.env.PLAN_LOCAL_MODE = originalPlanLocalMode;
@@ -443,7 +431,6 @@ describe("plan version actions", () => {
   });
 
   it("restore preserves comment sectionId for sections that survive, nulls it only for sections absent from the snapshot", async () => {
-    // Seed a plan with TWO sections.
     await db.insert(planSchema.plans).values({
       id: PLAN_ID,
       title: "Two-section plan",
@@ -491,7 +478,6 @@ describe("plan version actions", () => {
       },
     ]);
 
-    // Snapshot with both sections present.
     const snapshot = await createPlanVersionSnapshot(PLAN_ID, {
       force: true,
       label: "Both sections",
@@ -499,9 +485,6 @@ describe("plan version actions", () => {
     });
     expect(snapshot.created).toBe(true);
 
-    // Add comments anchored to both sections in the snapshot. Restore deletes
-    // and re-inserts all sections internally, so both anchors must survive that
-    // FK-sensitive replacement.
     await db.insert(planSchema.planComments).values([
       {
         id: "comment_on_a",
@@ -555,22 +538,15 @@ describe("plan version actions", () => {
       .where(eq(planSchema.planComments.planId, PLAN_ID))
       .then((rows) => rows.sort((a, b) => a.id.localeCompare(b.id)));
 
-    // sec_a is in the snapshot → comment_on_a must keep its anchor.
     const commentOnA = comments.find((c) => c.id === "comment_on_a");
     expect(commentOnA?.sectionId).toBe("sec_a");
 
-    // sec_b is also in the snapshot (restore re-inserts it) →
-    // comment_on_b must also keep its anchor.
     const commentOnB = comments.find((c) => c.id === "comment_on_b");
     expect(commentOnB?.sectionId).toBe("sec_b");
   });
 
   it("restore nulls sectionId only for comments anchored to sections absent from the snapshot", async () => {
-    // sec_saved is in the snapshot; sec_gone is NOT — comment on sec_gone must
-    // be detached, comment on sec_saved must keep its anchor.
-    await seedPlan(); // seeds sec_saved
-    // Add sec_gone to the live plan (not captured in the snapshot we're about
-    // to take, because we snapshot BEFORE adding it).
+    await seedPlan();
     const snapshot = await createPlanVersionSnapshot(PLAN_ID, {
       force: true,
       label: "Only sec_saved",
@@ -578,7 +554,6 @@ describe("plan version actions", () => {
     });
     expect(snapshot.created).toBe(true);
 
-    // Now add sec_gone and comments on both sections.
     await db.insert(planSchema.planSections).values({
       id: "sec_gone",
       planId: PLAN_ID,
@@ -646,9 +621,7 @@ describe("plan version actions", () => {
     const surviving = comments.find((c) => c.id === "comment_surviving");
     const orphaned = comments.find((c) => c.id === "comment_orphaned");
 
-    // Comment on sec_saved: section is in the snapshot, must keep its anchor.
     expect(surviving?.sectionId).toBe("sec_saved");
-    // Comment on sec_gone: section NOT in snapshot, must be detached.
     expect(orphaned?.sectionId).toBeNull();
   });
 });

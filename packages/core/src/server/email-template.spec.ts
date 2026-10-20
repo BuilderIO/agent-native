@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { emailLink, renderEmail } from "./email-template.js";
+import { emailLink, emailQuote, renderEmail } from "./email-template.js";
 
 describe("renderEmail", () => {
+  it("renders user-authored quotes as escaped message blocks", () => {
+    const { html, text } = renderEmail({
+      heading: "A deck was shared with you",
+      paragraphs: [emailQuote("Review <this>\nwhen you can.")],
+    });
+
+    expect(html).toContain("Review &lt;this&gt;<br />when you can.");
+    expect(html).not.toContain("Review <this>");
+    expect(text).toContain("Review <this>\nwhen you can.");
+  });
+
   it("uses a CID-backed brand header with a text fallback", () => {
     const { html } = renderEmail({
       brandName: "Clips",
@@ -107,6 +118,24 @@ describe("renderEmail", () => {
       "Summarize with AI: https://clips.example/r/rec-1?panel=agent",
     );
     expect(text).toContain("Reply to reach alice@example.com directly.");
+  });
+
+  it("renders the resource block before the CTA", () => {
+    const { html, text } = renderEmail({
+      heading: "Alice shared a document",
+      paragraphs: [
+        "Alice (alice@example.com) has invited you to view the following document:",
+      ],
+      resourceBlock: { name: "Project plan" },
+      cta: { label: "Open", url: "https://example.com/doc/1" },
+    });
+
+    expect(html).toContain(">Project plan</td>");
+    expect(html.indexOf("Project plan")).toBeLessThan(
+      html.indexOf(">\n              Open\n"),
+    );
+    expect(text).toContain("Project plan\n\nOpen: https://example.com/doc/1");
+    expect(text).not.toContain("Use the button below to open it");
   });
 
   it("renders a safe treated link block after the CTA", () => {

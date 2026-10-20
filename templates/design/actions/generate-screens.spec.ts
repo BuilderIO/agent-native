@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
+  writeAppStateForCurrentTab: vi.fn(),
   assertAccess: vi.fn(),
   existingDesignFiles: [] as Array<{ filename: string }>,
   existingDesignRows: [] as Array<{ data: string | null }>,
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
+  writeAppStateForCurrentTab: mocks.writeAppStateForCurrentTab,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -71,11 +73,15 @@ vi.mock("@agent-native/creative-context/server", () => ({
   resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
 }));
 
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
+
 import action from "./generate-screens.js";
 
 describe("generate-screens", () => {
   beforeEach(() => {
     mocks.writeAppState.mockReset();
+    mocks.writeAppStateForCurrentTab.mockReset();
     mocks.assertAccess.mockReset();
     mocks.existingDesignFiles = [];
     mocks.existingDesignRows = [];
@@ -96,7 +102,6 @@ describe("generate-screens", () => {
       screens: [{ title: "Settings" }],
     });
 
-    // Placed to the right of the existing 1440-wide screen, not stacked at 0.
     expect(result.targets[0]!.canvasFrame!.x).toBeGreaterThanOrEqual(1440);
   });
 
@@ -126,15 +131,15 @@ describe("generate-screens", () => {
         ]),
       }),
     );
-    expect(mocks.writeAppState).toHaveBeenNthCalledWith(2, "navigate", {
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
       view: "editor",
       designId: "design_123",
       editorView: "overview",
-      path: "/design/design_123?view=overview",
+      path: "/design/design_123?editorView=overview",
     });
     expect(result).toMatchObject({
       designId: "design_123",
-      path: "/design/design_123?view=overview",
+      path: "/design/design_123?editorView=overview",
       targets: [
         {
           title: "Onboarding",
@@ -156,6 +161,19 @@ describe("generate-screens", () => {
     });
   });
 
+  it("plans screens without recording a generation attempt", async () => {
+    track.mockReset();
+    await action.run({
+      designId: "design_123",
+      prompt: "Add onboarding",
+      screens: [{ title: "Onboarding" }, { title: "Empty State" }],
+    });
+
+    // The generate-design calls that fill these targets are the attempts; a
+    // terminal event here would count every plan as a zero-file failure.
+    expect(track).not.toHaveBeenCalled();
+  });
+
   it("deep-links external hosts into overview mode", () => {
     expect(
       action.link?.({
@@ -163,7 +181,7 @@ describe("generate-screens", () => {
         result: { designId: "design_123" },
       }),
     ).toEqual({
-      url: "/_agent-native/open?app=design&view=editor&designId=design_123&to=%2Fdesign%2Fdesign_123%3Fview%3Doverview",
+      url: "/_agent-native/open?app=design&view=editor&designId=design_123&to=%2Fdesign%2Fdesign_123%3FeditorView%3Doverview",
       label: "Open generation session",
       view: "editor",
     });
@@ -206,11 +224,6 @@ describe("generate-screens", () => {
     ]);
   });
 
-  // Without checking the design's already-saved files, a requested/slugged
-  // target could silently collide with an existing screen: generate-design's
-  // existing-file lookup is keyed by filename, so the later generate-design
-  // call for a "new" target that happens to match an existing filename would
-  // UPDATE (overwrite) that pre-existing file instead of creating a new one.
   it("avoids target filenames that already exist in the design", async () => {
     mocks.existingDesignFiles = [{ filename: "onboarding.html" }];
 
@@ -262,10 +275,6 @@ describe("generate-screens", () => {
     ).toBe(false);
   });
 
-  // B5-10: AI-generated desktop designs were being placed in mobile-width
-  // screens because every screen got the same fixed region regardless of
-  // content. deviceType (and explicit width/height) now flow end-to-end from
-  // the requested screen into the returned canvasFrame.
   describe("device-aware canvas region sizing (B5-10)", () => {
     it("defaults an untyped screen to a desktop-sized region", async () => {
       const result = await action.run({
@@ -336,7 +345,6 @@ describe("generate-screens", () => {
       expect(result.targets[1]!.canvasFrame).toMatchObject({ width: 1440 });
       expect(result.targets[2]!.canvasFrame).toMatchObject({ width: 768 });
 
-      // Non-overlapping: each screen still gets a distinct x/y placement.
       const positions = result.targets.map((target) => ({
         x: target.canvasFrame!.x,
         y: target.canvasFrame!.y,

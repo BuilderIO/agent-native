@@ -1,10 +1,18 @@
 import type { SlackMessage, Workspace } from "../connectors/slack.js";
+import { safeHttpUrl } from "../lib/safe-http-url";
 import type { IngestionEnvelope } from "./contracts";
 import { createSlackReader } from "./slack-client";
+import {
+  collectSlackUserIds,
+  resolveSlackUserLabels,
+  serializeUserLabels,
+  SLACK_USER_INFO_CONCURRENCY,
+} from "./slack-user-labels";
 
 const SLACK_HISTORY_LIMIT = 100;
 const MAX_HISTORY_PAGES = 5;
 const MAX_SUMMARY_LENGTH = 500;
+export { SLACK_USER_INFO_CONCURRENCY };
 
 export interface SlackPollInput {
   workspace: Workspace;
@@ -37,36 +45,61 @@ function compactText(text: string): string {
     : compact;
 }
 
-function messageLabel(message: SlackMessage): string {
+function messageLabel(message: SlackMessage, resolvedLabel?: string): string {
   if (message.bot_id || message.username) {
     return `Slack bot ${message.username ?? message.bot_id ?? "unknown"}`;
   }
-  return `Slack user ${message.user ?? "unknown"}`;
+  return `Slack user ${resolvedLabel ?? message.user ?? "unknown"}`;
+}
+
+function userLabelsForMessage(
+  message: SlackMessage,
+  userLabels?: Map<string, string>,
+): { userLabelsJson: string } | Record<string, never> {
+  if (!userLabels || userLabels.size === 0) return {};
+  const subset = new Map<string, string>();
+  for (const userId of collectSlackUserIds([message])) {
+    const label = userLabels.get(userId);
+    if (label) subset.set(userId, label);
+  }
+  if (subset.size === 0) return {};
+  return { userLabelsJson: serializeUserLabels(subset) };
 }
 
 function toEnvelope(
   channelId: string,
   message: SlackMessage,
   teamDomain?: string,
+  userLabels?: Map<string, string>,
 ): IngestionEnvelope {
   const threadTs = message.thread_ts ?? message.ts;
   const suppliedPermalink = (message as SlackMessage & { permalink?: string })
     .permalink;
-  const sourceUrl =
+  const sourceUrl = safeHttpUrl(
     suppliedPermalink ??
-    (teamDomain
-      ? `https://${teamDomain}.slack.com/archives/${channelId}/p${message.ts.replace(".", "")}${threadTs !== message.ts ? `?thread_ts=${threadTs}` : ""}`
-      : undefined);
+      (teamDomain
+        ? `https://${teamDomain}.slack.com/archives/${channelId}/p${message.ts.replace(".", "")}${threadTs !== message.ts ? `?thread_ts=${threadTs}` : ""}`
+        : undefined),
+  );
 
   return {
     source: "slack",
     externalId: `${channelId}:${threadTs}`,
     receivedAt: new Date().toISOString(),
     ...(sourceUrl ? { sourceUrl } : {}),
-    title: messageLabel(message),
+    title: messageLabel(
+      message,
+      message.user ? userLabels?.get(message.user) : undefined,
+    ),
     summary: compactText(message.text),
     channelId,
     threadTs,
+    metadata: {
+      messageTs: message.ts,
+      authorId: message.user ?? null,
+      author: message.user ?? null,
+      ...userLabelsForMessage(message, userLabels),
+    },
     coverage:
       message.reply_count && message.reply_count > 0 ? "partial" : "complete",
   };
@@ -148,9 +181,14 @@ export async function pollSlackChannel({
     { value: priorTs, raw: priorLastSlackTs },
   );
 
+  const userLabels = await resolveSlackUserLabels(
+    collectSlackUserIds(uniqueNewMessages.map(({ message }) => message)),
+    (userId) => slack.getUserInfo(workspace, userId),
+  );
+
   return {
     envelopes: uniqueNewMessages.map(({ message }) =>
-      toEnvelope(channelId, message, teamDomain),
+      toEnvelope(channelId, message, teamDomain, userLabels),
     ),
     nextLastSlackTs: maxSeen.raw,
     nextHistoryCursor,

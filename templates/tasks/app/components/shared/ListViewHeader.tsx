@@ -1,5 +1,5 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ListSelectionHeaderToggle } from "@/components/shared/selection/ListSelectionHeaderToggle";
@@ -9,7 +9,6 @@ import { Switch } from "@/components/ui/switch";
 
 export interface ListViewHeaderProps<T extends { id: string }> {
   title: string;
-  description: string;
   isPending: boolean;
   showSelectToggle: boolean;
   selection: ListSelection<T> | null;
@@ -21,7 +20,6 @@ export interface ListViewHeaderProps<T extends { id: string }> {
 
 export function ListViewHeader<T extends { id: string }>({
   title,
-  description,
   isPending,
   showSelectToggle,
   selection,
@@ -39,7 +37,6 @@ export function ListViewHeader<T extends { id: string }>({
   return (
     <PageHeader
       title={title}
-      description={description}
       actions={
         hasActions ? (
           <>

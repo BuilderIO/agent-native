@@ -124,7 +124,7 @@ const withAndroidCaptureTile: ConfigPlugin = (config) => {
       }),
       AndroidConfig.Resources.buildResourceItem({
         name: "agent_native_capture_tile_description",
-        value: "Start dictation in Agent Native",
+        value: "Start dictation in Agent-Native",
         translatable: true,
       }),
     ];

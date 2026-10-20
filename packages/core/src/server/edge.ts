@@ -1,4 +1,11 @@
+export { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
+export { getSsrAuthRedirectScript } from "../shared/ssr-auth-redirect.js";
+export { getFrameworkRoutePrefix } from "./framework-route-prefix.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
+export {
+  getDisabledDefaultPlugins,
+  isDefaultPluginDisabled,
+} from "./default-plugins.js";
 export {
   BETTER_AUTH_MIGRATIONS,
   runBetterAuthMigrations,
@@ -7,7 +14,6 @@ export { runFrameworkReleaseMigrations } from "./release-migrations.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
-  refreshGlobalMcpManager,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 export {
@@ -20,6 +26,7 @@ export {
   FRAMEWORK_ROUTE_PREFIX,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
+export type { CoreRoutesMcpOptions } from "./core-routes/mcp-connect-options.js";
 export {
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,
@@ -71,4 +78,12 @@ export {
   markDefaultPluginProvided,
   type H3AppShim,
 } from "./framework-request-handler.js";
+export { directHttpActionApprovalRefusal } from "./action-approval.js";
 export { runWithRequestContext } from "./request-context.js";
+export { isSameOriginRequest } from "./request-origin.js";
+export {
+  hasUiActionCapability,
+  mountUiActionCapabilityRoute,
+} from "./ui-action-capability.js";
+export { getSession } from "./auth.js";
+export { resolveOrgIdForEmailViaEvent } from "../org/context.js";

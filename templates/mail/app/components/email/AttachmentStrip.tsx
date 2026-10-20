@@ -41,6 +41,7 @@ export function AttachmentStrip({
         return (
           <div
             key={att.id}
+            data-an-block
             className="group flex min-w-0 max-w-full items-center gap-2 rounded-md border border-border bg-muted/45 p-1.5 pe-2 text-xs"
           >
             <div

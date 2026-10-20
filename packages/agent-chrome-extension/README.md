@@ -6,7 +6,10 @@ grant access to one exact extension origin instead of a wildcard.
 
 This private Manifest V3 extension is the Chrome-side capability adapter for the
 Agent-Native desktop app. It does not accept messages from web pages and it has
-no arbitrary JavaScript evaluation command.
+no agent-supplied JavaScript evaluation command. The shared control service may
+evaluate one fixed, extension-owned phantom-cursor expression with bounded
+coordinates so users can see the current action; that expression removes its
+own marker after a short fade and is also cleared during teardown.
 
 ## Native host contract
 
@@ -34,10 +37,13 @@ Emergency stop also releases injected mouse buttons and modifier keys before it
 detaches the debugger.
 
 Supported commands are `attach`, `detach`, `stop`, `observe`, `click`, `type`,
-`key`, `navigate`, and `scroll`. `observe` returns a bounded, simplified Chrome
-Accessibility tree and an optional viewport JPEG. Click and type targets are
-`backendNodeId` values from that tree. Navigation is restricted to the task's
-exact allowed-origin set.
+`key`, `navigate`, `open-tab`, and `scroll`. `observe` returns a bounded,
+simplified Chrome Accessibility tree and an optional viewport JPEG. Click and
+type targets are `backendNodeId` values from that tree. Navigation and
+background tab creation are restricted to the task's exact allowed-origin set.
+`open-tab` calls Chrome with `active: false`, then moves the task lease to the
+new tab after debugger attachment; it never focuses a Chrome window or uses
+the macOS cursor.
 
 The native port sends a heartbeat every 20 seconds. Chrome alarms retry the
 connection after a native-host disconnect, while the disconnect itself first
@@ -45,8 +51,9 @@ triggers an emergency detach of every controlled tab.
 
 ## Security boundaries
 
-- No content script, externally connectable page, `eval`, or CDP
-  `Runtime.evaluate` surface exists.
+- No content script, externally connectable page, `eval`, or agent-controlled
+  CDP expression surface exists. The only CDP `Runtime.evaluate` call is the
+  fixed cursor marker described above; action payloads never become code.
 - Every mutation revalidates the task, tab, and current origin immediately
   before input is dispatched.
 - Main-frame and tab URL changes are monitored and fail closed by detaching.

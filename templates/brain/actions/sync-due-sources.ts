@@ -1,11 +1,11 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { syncDueBrainSourcesOnce } from "../server/jobs/sync-sources.js";
 
 export default defineAction({
   description:
-    "Run due Brain source syncs for accessible auto-sync sources. Use this to kick scheduled Slack, Granola, or GitHub polling manually.",
+    "Run due Brain source syncs for accessible auto-sync sources. Use this to kick scheduled Slack, Granola, GitHub, or Zoom polling manually.",
   schema: z.object({
     limit: z.coerce.number().int().min(1).max(25).default(5),
   }),

@@ -12,7 +12,7 @@ function objectValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function hasSlackChannelPatch(config: Record<string, unknown>) {
+export function hasSlackChannelPatch(config: Record<string, unknown>) {
   const nested = objectValue(config.slack);
   return SLACK_CHANNEL_CONFIG_KEYS.some(
     (key) =>

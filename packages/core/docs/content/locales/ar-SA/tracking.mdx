@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -101,13 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
 ‏`source` هو إمّا `ctx` الخاص بالإجراء يُمرَّر كما هو، أو كائن بيانات وصفية `{ userId, anonymousId, sessionId }` للمستدعين الذين لا يملكون `ctx`.
 
-‏جلسة المتصفح ليست شيئًا على المستدعي تمريره: فهي تأتي من سياق الطلب المحيط (`RequestContext.browserSessionId`، الذي يُضبط من ترويسة `X-Agent-Native-Session-Id` التي يرسلها عميل الإجراءات والدردشة ودالة `track()` في المتصفح)، فتُربط الزيارة نفسها سواء أطلقت الواجهة الحدث أم الوكيل. ويعيّنها كل مزوّد إلى حقل الجلسة الخاص به: `$session_id` في PostHog، وهو ما يربط الحدث بإعادة تشغيل الجلسة؛ وخاصية `session_id` في Mixpanel وAmplitude؛ و`sessionId` على المستوى الأعلى في الويب هوك وAgent Native Analytics. وهي غائبة للمستدعين بلا متصفح (cron وCLI وMCP وA2A)، ويتجاوزها `sessionId` الممرَّر في كائن البيانات الوصفية.
+‏جلسة المتصفح ليست شيئًا على المستدعي تمريره: فهي تأتي من سياق الطلب المحيط (`RequestContext.browserSessionId`، الذي يُضبط من ترويسة `X-Agent-Native-Session-Id` التي يرسلها عميل الإجراءات والدردشة ودالة `track()` في المتصفح)، فتُربط الزيارة نفسها سواء أطلقت الواجهة الحدث أم الوكيل. ويعيّنها كل مزوّد إلى حقل الجلسة الخاص به: `$session_id` في PostHog، وهو ما يربط الحدث بإعادة تشغيل الجلسة؛ وخاصية `session_id` في Mixpanel وAmplitude؛ و`sessionId` على المستوى الأعلى في الويب هوك وAgent-Native Analytics. وهي غائبة للمستدعين بلا متصفح (cron وCLI وMCP وA2A)، ويتجاوزها `sessionId` الممرَّر في كائن البيانات الوصفية.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -116,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 هل تحتاج إلى واجهة خلفية مخصصة، أو سجل الموفر API، أو الأجزاء الداخلية المجمعة/المفردة؟ انظر [Advanced: custom providers & internals](#advanced) في النهاية.
@@ -194,11 +194,11 @@ track("checkout.completed", { total: 49.99, items: 3 });
 - **أطلق النار وانسى.** لا يؤدي ذلك أبدًا إلى حظر UI، ولا يؤدي مطلقًا إلى رمي أخطاء الشبكة أو ابتلاعها.
 - **تمت المصادقة عليه، للطرف الأول فقط.** يتطلب المسار جلسة وعلامة CSRF من نفس المصدر (يتم تعيينها تلقائيًا بواسطة المساعد)، لذلك لا يمكن استخدامه كترحيل تحليلات مفتوح. يبلغ الحد الأقصى لـ `name` 200 حرف و`properties` يصل إلى 16 كيلو بايت تقريبًا؛ يتم رفض الحمولات كبيرة الحجم أو المشوهة.
 
-يختلف هذا عن القياس عن بعد للمتصفح الداخلي لإطار العمل (`trackEvent()` / مشاهدات الصفحة التلقائية - راجع [Browser defaults](#browser-defaults) أدناه), والذي يدعم تحليلات المنتج الخاصة بـ Agent Native. استخدم `track()` لأحداث التحليلات الخاصة بتطبيقك والتي يجب أن تصل إلى مقدمي الخدمة الذين تم تكوينهم.
+يختلف هذا عن القياس عن بعد للمتصفح الداخلي لإطار العمل (`trackEvent()` / مشاهدات الصفحة التلقائية - راجع [Browser defaults](#browser-defaults) أدناه), والذي يدعم تحليلات المنتج الخاصة بـ Agent-Native. استخدم `track()` لأحداث التحليلات الخاصة بتطبيقك والتي يجب أن تصل إلى مقدمي الخدمة الذين تم تكوينهم.
 
 ## إعادة تشغيل الجلسة {#session-replay}
 
-يمكن لتطبيقات Agent Native الاشتراك في إعادة تشغيل جلسة المتصفح من الطرف الأول دون إضافة SDK تحليلات ثانٍ. استدعِ `configureTracking()` مرة واحدة في جذر المتصفح ومرر مفتاح Analytics العام بالإضافة إلى نقطة نهاية المُجمِّع:
+يمكن لتطبيقات Agent-Native الاشتراك في إعادة تشغيل جلسة المتصفح من الطرف الأول دون إضافة SDK تحليلات ثانٍ. استدعِ `configureTracking()` مرة واحدة في جذر المتصفح ومرر مفتاح Analytics العام بالإضافة إلى نقطة نهاية المُجمِّع:
 
 ```ts
 import { configureTracking } from "@agent-native/core/client/analytics";
@@ -219,7 +219,7 @@ configureTracking({
 
 عندما يكون `sessionReplay.enabled` صادقًا (truthy)، يقوم العميل باستيراد `@rrweb/record` ديناميكيًا بعد بدء التشغيل وينشر أجزاء إعادة التشغيل إلى نقطة نهاية إعادة التشغيل. إذا كانت `endpoint` تنتهي بـ `/api/analytics/track` أو `/track`، يتم اشتقاق نقطة نهاية إعادة التشغيل تلقائيًا كـ `/api/analytics/replay`. تجاوز ذلك صراحةً باستخدام `sessionReplay.endpoint` عندما يكون مُجمِّع إعادة التشغيل موجودًا في مكان آخر.
 
-تستدعي جذور قوالب Agent Native بالفعل `configureTracking()`. يمكن لعمليات نشر القوالب المستضافة تفعيل إعادة التشغيل باستخدام متغيرات بيئة Vite/Netlify، بينما يجب أن يُفضّل مستهلكو المكتبة الصيغة الصريحة `configureTracking({ key, endpoint, sessionReplay })` أعلاه:
+تستدعي جذور قوالب Agent-Native بالفعل `configureTracking()`. يمكن لعمليات نشر القوالب المستضافة تفعيل إعادة التشغيل باستخدام متغيرات بيئة Vite/Netlify، بينما يجب أن يُفضّل مستهلكو المكتبة الصيغة الصريحة `configureTracking({ key, endpoint, sessionReplay })` أعلاه:
 
 ```bash
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
@@ -228,7 +228,7 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
 VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
-يقوم مساعد المتصفح أيضًا بإجراء قراءة غير محظِّرة وبأفضل جهد ممكن لجلسة مصادقة Agent Native الحالية. إعادة التشغيل مخصصة لتسجيل الدخول فقط بشكل افتراضي: عندما يكون `sessionReplay` مفعّلاً، لا يبدأ التسجيل ما لم تُحلّ الجلسة إلى عنوان بريد إلكتروني لمستخدم. تتضمن إعادة تشغيل الجلسات المسجَّلة `userId`/`userEmail` المدعومين بالبريد الإلكتروني بالإضافة إلى `orgId`.
+يقوم مساعد المتصفح أيضًا بإجراء قراءة غير محظِّرة وبأفضل جهد ممكن لجلسة مصادقة Agent-Native الحالية. إعادة التشغيل مخصصة لتسجيل الدخول فقط بشكل افتراضي: عندما يكون `sessionReplay` مفعّلاً، لا يبدأ التسجيل ما لم تُحلّ الجلسة إلى عنوان بريد إلكتروني لمستخدم. تتضمن إعادة تشغيل الجلسات المسجَّلة `userId`/`userEmail` المدعومين بالبريد الإلكتروني بالإضافة إلى `orgId`.
 
 اضبط `sessionReplay.requireSignedInUser: false` أو `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` فقط من أجل نشر إعادة تشغيل مجهولة الهوية مقصود. عندما يتم تعطيل تحكم المصادقة، تظل التسجيلات المجهولة قابلة للاستعلام حسب الزائر المجهول، والجلسة، والتطبيق/القالب، واسم المضيف، والمسار.
 
@@ -257,6 +257,12 @@ not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
 diagnostics shaping, and access policy inside the Analytics template.
 
 للتطوير المحلي فقط، يمكن لـ Analytics الرجوع إلى أجزاء SQL مضمّنة محدودة السعة عندما يكون تخزين blob الخاص غير متاح. يجب أن تُهيّئ عمليات النشر في الإنتاج تخزين blob خاصًا أو مشفّرًا بدلاً من الاعتماد على Postgres لحمولات إعادة التشغيل.
+
+## هويات الاختبار {#test-identities}
+
+تستمر حسابات QA وE2E في العمل في كل مكان، لكنها لا تُحتسب أبدًا. تتجاهل `track()` و`identify()` وتتبع المتصفح وإعادة تشغيل الجلسات أحداث هوية الاختبار قبل أن يراها أي موفر. يتم الاحتفاظ باستثناءات الخادم الخاصة بهوية الاختبار، وتُوسم بـ `test_identity: true`، ولا تُرسل إلا إلى الموفرين الذين يضبطون `acceptsTestIdentityExceptions` (Agent-Native Analytics)، فتبقى قابلة للاستعلام دون تنبيه أحد. كما يُمنع البريد غير المتعلق بالمصادقة الموجّه إلى هوية اختبار: تُرجع `sendEmail()` القيمة `{ status: "suppressed", reason: "test-identity" }` وتسجل المحاولة، بينما تستمر رسائل تسجيل الدخول والتحقق وإعادة تعيين كلمة المرور والدعوات في الإرسال. ينطبق ذلك على كل حقول المستلمين: تُحذف هويات الاختبار في `cc` و`bcc` وتُسجَّل أيضًا. عندما تكون `to` هوية اختبار، يحل محلها مستلم حقيقي من `cc`، ولا يحل محلها مستلم من `bcc` أبدًا، لأن بقية مستلمي `bcc` سيرونه. وإذا لم يتبقَّ أي مستلم في `to` أو `cc`، يُمنع الإرسال بالكامل ويُسجَّل كل عنوان محذوف.
+
+الدالة `isTestIdentity(email)` من `@agent-native/core/server` هي القاعدة الوحيدة. تطابق النطاقات المحجوزة `.test` و`.invalid` و`.localhost` و`.example` وعلامة QA ‏`+autoz`. أضف المزيد لكل نشر عبر `AGENT_NATIVE_TEST_IDENTITY_EMAILS`، وهي قائمة مفصولة بفواصل من العناوين الدقيقة (`qa@corp.com`) أو إدخالات `@domain` ‏(`@example.com`). الدالة `testIdentitySql(column)` هي القاعدة نفسها كتعبير PostgreSQL/BigQuery لاستعلامات المقاييس. لا تتلقى المتصفحات تلك القائمة أبدًا: تحمل استجابة الجلسة علامة `testIdentity` يحسمها الخادم، ويلتزم بها تتبّع المتصفح وإعادة تشغيل الجلسة والتقاط الاستثناءات إلى جانب القواعد المضمنة؛ ويطبّق استيعاب Agent-Native Analytics قائمة النشر أيضًا.
 
 ## متقدم: الموفرون المخصصون والداخليون {#advanced}
 
@@ -351,12 +357,12 @@ interface TrackingEvent {
 - `llm_connection_source` — `app_secrets`، أو `settings`، أو `env`
 - `llm_connection_configured` — ما إذا كان اتصال LLM متاحًا
 
-يتتبع إطار العمل أيضًا `builder connect clicked` من Connect Builder CTAs، ومسارات الاتصال Builder من جانب الخادم لتتبع أحداث دورة الحياة التي بدأت/نجحت/فشلت. يتم استدعاء `configureTracking()` تلقائيًا بواسطة إطار العمل؛ لا تحتاج إلى استدعائه في رمز القالب الخاص بك.
+يتتبع إطار العمل أيضًا `builder_connect_clicked` عند اختيار المستخدم زرًا لاستخدام Builder.io، ومسارات الاتصال Builder من جانب الخادم لتتبع أحداث دورة الحياة التي بدأت/نجحت/فشلت. يضيف إنشاء الحساب بنقرة واحدة `connect_url_kind: "provision"`، وتسجّل نافذة تسجيل الدخول المنبثقة أيضًا الاسم القديم `builder connect clicked` الذي لا يشمل نقرات الإنشاء بنقرة واحدة. يتم استدعاء `configureTracking()` تلقائيًا بواسطة إطار العمل؛ لا تحتاج إلى استدعائه في رمز القالب الخاص بك.
 
 </details>
 
 ## ما هي الخطوة التالية
 
-- [**Actions**](/docs/actions) — حيث تنشأ معظم مكالمات التتبع
-- [**Server Plugins**](/docs/server#server-plugins) — يعمل `registerBuiltinProviders()` في البرنامج الإضافي للمسارات الأساسية عند بدء التشغيل
+- [**Actions**](/docs/actions-overview) — حيث تنشأ معظم مكالمات التتبع
+- [**Server Plugins**](/docs/server-plugins) — يعمل `registerBuiltinProviders()` في البرنامج الإضافي للمسارات الأساسية عند بدء التشغيل
 - [**الأمان — إدارة الأسرار**](/docs/security#secrets) - إدارة مفاتيح API لموفري التتبع

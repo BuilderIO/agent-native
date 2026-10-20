@@ -24,11 +24,6 @@ const messages = {
   },
   settings: {
     title: "Settings",
-    description: "Language and workspace preferences for this app.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team members, organization access, and shared workspace preferences.",
@@ -44,6 +39,8 @@ const messages = {
     suggestionSurvey: "Build a customer feedback survey",
     suggestionSubmissions: "Show submissions by day",
     suggestionExport: "Export responses to CSV",
+    topSignal: "Top signal",
+    draftFollowUp: "Draft a follow-up",
   },
   sidebar: {
     collapseSidebar: "Collapse sidebar",
@@ -98,6 +95,9 @@ const messages = {
     conditionContains: "contains",
     conditionValue: "Answer",
     conditionValuePlaceholder: "Enter an answer...",
+    allowMultiple: "Allow multiple files",
+    accept: "Accepted file types",
+    acceptPlaceholder: "image/*, .pdf",
     fieldTypes: {
       text: "Short Text",
       email: "Email",
@@ -110,6 +110,7 @@ const messages = {
       date: "Date",
       rating: "Rating",
       scale: "Scale",
+      file: "File upload",
     },
   },
   builder: {
@@ -180,6 +181,7 @@ const messages = {
       dateLabel: "Date",
       ratingLabel: "Rating",
       scaleLabel: "Scale",
+      fileLabel: "File upload",
       option1: "Option 1",
       option2: "Option 2",
       option3: "Option 3",
@@ -202,6 +204,12 @@ const messages = {
       successMessage: "Success message",
       defaultSuccessMessage: "Thank you! Your response has been recorded.",
       redirectUrl: "Redirect URL (optional)",
+      completionMode: "After submission",
+      completionMessage: "Show message until refresh",
+      completionRedirect: "Redirect to URL",
+      completionMessageThenRefresh: "Show message, then refresh",
+      completionRefresh: "Refresh with a new form",
+      completionRefreshSeconds: "Refresh after (seconds)",
       anonymousResponses: "Anonymous responses",
       anonymousResponsesDescription:
         "Do not retain IP addresses, submitter identity, or source metadata.",
@@ -327,19 +335,21 @@ const messages = {
     page: "Page",
     source: "Source",
     sortBy: "Sort by {{label}}",
+    communityReview: "Review",
+    communityPublish: "Publish to site",
+    communityPublishing: "Publishing...",
+    communityPublished: "Published",
+    communityView: "View on site",
+    communityNeedsCheck: "Check Builder before retrying",
+    communityPromotionFailed: "Could not publish this submission.",
   },
   cloudUpgrade: {
     sharePublicly: "Share Publicly",
     sharePubliclyDescription:
       "To share content publicly, connect a cloud database.",
     providerDescriptions: {
-      turso: "SQLite at the edge",
       neon: "Serverless Postgres",
       supabase: "Open source Firebase alternative",
-      d1: "SQLite at the edge",
-    },
-    providerNames: {
-      d1: "Cloudflare D1",
     },
     setupSteps: "Setup steps",
     authToken: "Auth token",
@@ -361,6 +371,10 @@ const messages = {
     responseSubmitted: "Response submitted",
     noFields: "This form has no fields yet.",
     failedSubmit: "Failed to submit form",
+    uncheckablePattern:
+      "This form's rule for {label} can't be checked. Ask the form owner to fix it.",
+    patternTooLong:
+      "The value for {label} is too long to check against this form's rule.",
   },
   responseInsights: {
     unavailable: "Insights unavailable",

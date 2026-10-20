@@ -2,7 +2,7 @@ import {
   getBrowserTabId,
   readClientAppState,
   setClientAppState,
-  useChangeVersion,
+  useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useCallback, useEffect, useState } from "react";
 
@@ -121,8 +121,11 @@ export async function setSelectedCreativeContext(
   });
 }
 
-export function useCreativeContextState() {
-  const appStateVersion = useChangeVersion("app-state");
+export function useCreativeContextState(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
+  const appStateVersion = useChangeVersions(
+    enabled ? [`app-state:${CREATIVE_CONTEXT_STATE_KEY}`, "app-state:*"] : [],
+  );
   const [state, setState] = useState<CreativeContextApplicationState>(
     DEFAULT_CREATIVE_CONTEXT_STATE,
   );
@@ -130,6 +133,13 @@ export function useCreativeContextState() {
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
+    if (!enabled) {
+      setState(DEFAULT_CREATIVE_CONTEXT_STATE);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
     const controller = new AbortController();
     setIsLoading(true);
     readCreativeContextState({ signal: controller.signal })
@@ -145,7 +155,7 @@ export function useCreativeContextState() {
         if (!controller.signal.aborted) setIsLoading(false);
       });
     return () => controller.abort();
-  }, [appStateVersion]);
+  }, [appStateVersion, enabled]);
 
   const save = useCallback(async (next: CreativeContextApplicationState) => {
     const saved = await setCreativeContextState(next);

@@ -9,10 +9,14 @@ const discoverAgents = vi.fn();
 const findAgent = vi.fn();
 
 vi.mock("../a2a/client.js", () => ({
+  A2ANoJsonRpcInterfaceError: class A2ANoJsonRpcInterfaceError extends Error {},
   A2AClient: class {
     constructor(public baseUrl: string) {}
     getAgentCard(options?: { timeoutMs?: number }) {
       return getAgentCard(this.baseUrl, options);
+    }
+    resolveEndpointUrl() {
+      return Promise.resolve(this.baseUrl);
     }
   },
 }));
@@ -48,7 +52,7 @@ function skill(overrides: Partial<AgentSkill> = {}): AgentSkill {
 function card(overrides: Partial<AgentCard> = {}): AgentCard {
   return {
     name: "Analytics",
-    description: "Agent-native analytics agent",
+    description: "Agent-Native analytics agent",
     url: "https://analytics.example.test/_agent-native/a2a",
     version: "1.0.0",
     protocolVersion: "0.3",
@@ -71,6 +75,21 @@ describe("describe-workspace-apps", () => {
     expect(tool.description).toContain("never hand-maintain");
   });
 
+  it("limits peer discovery to relevant cross-app needs", () => {
+    expect(tool.description).toContain(
+      "Use only when the current request needs another app's data or capability",
+    );
+    expect(tool.description).toContain(
+      "cannot tell which peer owns it or whether a known peer can provide it",
+    );
+    expect(tool.description).toContain(
+      "Do not use it as a preflight for ordinary local work",
+    );
+    expect(tool.description).not.toContain(
+      "Use this before building a capability locally",
+    );
+  });
+
   it("makes the receiving specialist agent the default cross-app path", () => {
     expect(tool.description).toContain("natural-language call-agent message");
     expect(tool.description).toContain(
@@ -89,8 +108,33 @@ describe("describe-workspace-apps", () => {
     expect(discoverAgents).toHaveBeenCalledWith("coach");
   });
 
-  // The catalog is only trustworthy if it is read from live deployments, so an
-  // unreachable peer must read as unknown rather than as having no capabilities.
+  it("separates direct reads from capabilities that require message delegation", async () => {
+    discoverAgents.mockResolvedValue([agent()]);
+    getAgentCard.mockResolvedValue(
+      card({
+        skills: [
+          skill(),
+          skill({
+            id: "create-campaign",
+            name: "Create campaign",
+            description: "Build and save a campaign.",
+            readOnly: false,
+          }),
+        ],
+      }),
+    );
+
+    const output = await run({}, undefined, "coach");
+
+    expect(output).toContain(
+      "Read-only actions (direct action + input): query-events",
+    );
+    expect(output).toContain(
+      "Message-only capabilities (use a natural-language message): create-campaign",
+    );
+    expect(output).not.toContain("Callable actions:");
+  });
+
   it("distinguishes an unreachable card from a peer that exposes nothing", async () => {
     discoverAgents.mockResolvedValue([
       agent(),
@@ -166,7 +210,7 @@ describe("describe-workspace-apps", () => {
     const output = await run({ app: "analytics" }, undefined, "coach");
 
     expect(output).toContain("Product analytics, funnels, and session replay.");
-    expect(output).not.toContain("Agent-native analytics agent");
+    expect(output).not.toContain("Agent-Native analytics agent");
   });
 
   it("falls back to the card description when the manifest has none", async () => {
@@ -174,7 +218,7 @@ describe("describe-workspace-apps", () => {
 
     const output = await run({ app: "analytics" }, undefined, "coach");
 
-    expect(output).toContain("Agent-native analytics agent");
+    expect(output).toContain("Agent-Native analytics agent");
   });
 
   it("lists the real app ids when the requested app does not exist", async () => {

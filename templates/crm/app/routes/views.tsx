@@ -1,17 +1,9 @@
-/**
- * Saved views: the index, and the table/board surface for one view.
- *
- * Unsaved filter, sort, grouping, and presentation changes live in the URL
- * search params and nowhere else — a reload reverts to the stored view, and a
- * shared view is never autosaved. Committing a change is an explicit three-way
- * fork: save it, fork it into a new view, or discard it.
- */
-
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconArrowLeft,
   IconBookmark,
@@ -21,7 +13,7 @@ import {
   IconTable,
   IconUsers,
 } from "@tabler/icons-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -144,10 +136,6 @@ export default function SavedViewsRoute() {
   return <ViewsIndex views={views} lists={lists} />;
 }
 
-// ---------------------------------------------------------------------------
-// Index
-// ---------------------------------------------------------------------------
-
 function ViewsIndex({
   views,
   lists,
@@ -265,10 +253,6 @@ function BackToViews() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// One saved view
-// ---------------------------------------------------------------------------
-
 function SavedViewSurface({
   view,
   onSaved,
@@ -286,6 +270,15 @@ function SavedViewSurface({
   const save = useActionMutation<{ id: string }, Record<string, unknown>>(
     "save-crm-saved-view" as never,
   );
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(view.name, "Saved view")} — CRM`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [view.name]);
 
   const onGrouping = useCallback(
     (state: {
@@ -328,8 +321,6 @@ function SavedViewSurface({
 
   const effective = effectiveView(view, draft);
   const dirty = draftIsDirty(view, draft);
-  // A board view must persist an explicit grouping, so a mode switch carries
-  // whatever the board actually grouped by.
   const saveDraft: BoardDraft = {
     ...draft,
     ...(effective.viewKind === "board"
@@ -361,7 +352,7 @@ function SavedViewSurface({
       onSaved();
       toast.success(t("views.savedToast"));
       if (branch === "new") {
-        navigate(`/views?view=${encodeURIComponent(saved.id)}`);
+        void navigate(`/views?view=${encodeURIComponent(saved.id)}`);
       } else {
         setParams(clearBoardDraft(params), { replace: true });
       }
@@ -398,7 +389,7 @@ function SavedViewSurface({
             value={saveDraft.groupByAttributeId ?? ""}
             onValueChange={(next) => updateDraft({ groupByAttributeId: next })}
           >
-            <SelectTrigger className="h-8 w-56">
+            <SelectTrigger size="sm" className="w-56">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -543,14 +534,19 @@ function SaveFork({
   );
 }
 
-// ---------------------------------------------------------------------------
-// A list with no default view yet
-// ---------------------------------------------------------------------------
-
 function AdHocListSurface({ listId, name }: { listId: string; name: string }) {
   const t = useT();
   const [params, setParams] = useSearchParams();
   const mode = params.get("mode") === "table" ? "table" : "board";
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(name, "List")} — CRM`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [name]);
 
   return (
     <>
@@ -582,10 +578,6 @@ function AdHocListSurface({ listId, name }: { listId: string; name: string }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Create
-// ---------------------------------------------------------------------------
-
 function CreateSavedViewDialog() {
   const t = useT();
   const navigate = useNavigate();
@@ -609,7 +601,7 @@ function CreateSavedViewDialog() {
         audience: "personal",
       });
       setOpen(false);
-      navigate(`/views?view=${encodeURIComponent(saved.id)}`);
+      void navigate(`/views?view=${encodeURIComponent(saved.id)}`);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t("views.saveFailedToast"),

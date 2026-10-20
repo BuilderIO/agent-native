@@ -6,8 +6,8 @@ import { isSelfAddressedThread } from "@shared/self-notes.js";
 import type { EmailMessage } from "@shared/types.js";
 
 export const VIEW_QUERIES: Record<string, string> = {
-  inbox: "in:inbox -in:sent",
-  unread: "is:unread in:inbox -in:sent",
+  inbox: "in:inbox",
+  unread: "is:unread in:inbox",
   starred: "is:starred",
   sent: "in:sent",
   drafts: "in:drafts",
@@ -29,7 +29,7 @@ export function gmailSearchClause(q: string | undefined): string {
 export function gmailLabelSearchClause(label: string): string {
   const value = label.trim().replace(/\s+/g, "-").replace(/"/g, '\\"');
   if (!value) return "";
-  return /[/"()]/.test(value) ? `label:"${value}"` : `label:${value}`;
+  return /["()]/.test(value) ? `label:"${value}"` : `label:${value}`;
 }
 
 export function gmailAppLabelSearchClause(label: string): string {
@@ -55,8 +55,6 @@ function viewSearchClauseForLabelTab(view: string, label: string): string {
     return VIEW_QUERIES[view] ?? "";
   }
   if (view === "inbox" && label.toLowerCase() === "note-to-self") {
-    // Self-sent notes can carry both INBOX and SENT. Keep them in this inbox
-    // tab while still excluding sent-only/archive-only results.
     return "in:inbox";
   }
   return VIEW_QUERIES[view] ?? `label:${view}`;
@@ -81,6 +79,16 @@ export function buildGmailEmailSearchQuery({
 
   const viewQuery = VIEW_QUERIES[view] ?? `label:${view}`;
   return [viewQuery, searchClause].filter(Boolean).join(" ");
+}
+
+export function filterLabelMessages(
+  emails: EmailMessage[],
+  label: string,
+): EmailMessage[] {
+  return emails.filter(
+    (message) =>
+      !message.isTrashed && mailLabelsInclude(message.labelIds, label),
+  );
 }
 
 function threadKey(message: EmailMessage): string {

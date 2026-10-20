@@ -7,7 +7,7 @@ chapter: "content.chapter.working-systems"
 order: 17
 roadmap_status: "partially_implemented"
 summary: "React to committed Events with visible, governed Actions, retries, notifications, and receipts."
-example_workflow: "When a qualified lead enters a Database, a Rule assigns the owner, asks an agent for a bounded summary, sends the right notification, and leaves one receipt showing every action and retry."
+example_workflow: "When a qualified lead enters a Collection, a Rule assigns the owner, asks an agent for a bounded summary, sends the right notification, and leaves one receipt showing every action and retry."
 works_today: "Shared Actions, audit history, a framework scheduler, notifications, Automations, provider effects, and active Event and Rule work already cover much of the execution substrate."
 remains: "Content needs one durable Event spine and Rule model with atomic claims, retries, idempotency, agent effects, notification routing, receipts, and a humane inspection surface."
 required_capabilities:

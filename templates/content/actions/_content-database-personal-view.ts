@@ -4,7 +4,10 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "../shared/api.js";
+import {
+  CONTENT_DATABASE_FILTER_OPERATORS,
+  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+} from "../shared/api.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { filesParentPropertyId } from "./_files-system-properties.js";
 
@@ -23,28 +26,16 @@ export const sortSchema = z.object({
 export const filterSchema = z.object({
   key: z.string(),
   label: z.string(),
-  operator: z.enum([
-    "contains",
-    "equals",
-    "does_not_equal",
-    "greater_than",
-    "less_than",
-    "before",
-    "after",
-    "between",
-    "is_checked",
-    "is_unchecked",
-    "is_empty",
-    "is_not_empty",
-  ]),
+  operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
   value: z.string(),
   filterGroupId: z.string().optional(),
   parentFilterGroupId: z.string().optional(),
 });
 
+const sidebarOrderItemIdSchema = z.string().min(1).max(256);
 export const sidebarOrderSchema = z.object({
   mode: z.enum(["custom", "last_edited", "name", "created"]),
-  itemIds: z.array(z.string()),
+  itemIds: z.array(sidebarOrderItemIdSchema).max(5_000),
 });
 
 const personalViewOverridesFields = {
@@ -123,24 +114,41 @@ export async function readPersonalDatabaseViewOverrides(
     userEmail,
     personalDatabaseViewSettingKey(databaseId),
   );
+  if (stored === null) return null;
   const parsed = personalViewOverridesSchema.safeParse(stored);
   if (parsed.success)
     return normalizePersonalDatabaseViewOverrides(parsed.data);
 
-  const legacy = legacyPersonalViewOverridesSchema.safeParse(stored);
-  if (!legacy.success) return null;
+  legacyPersonalViewOverridesSchema.parse(stored);
   const [database] = await getDb()
     .select({ systemRole: schema.contentDatabases.systemRole })
     .from(schema.contentDatabases)
     .where(eq(schema.contentDatabases.id, databaseId));
+  return migratePersonalDatabaseViewOverrides(
+    stored,
+    databaseId,
+    database?.systemRole ?? null,
+  );
+}
+
+export function migratePersonalDatabaseViewOverrides(
+  stored: unknown,
+  databaseId: string,
+  systemRole: string | null,
+) {
+  if (stored === null) return null;
+  const parsed = personalViewOverridesSchema.safeParse(stored);
+  if (parsed.success)
+    return normalizePersonalDatabaseViewOverrides(parsed.data);
+  const legacy = legacyPersonalViewOverridesSchema.parse(stored);
   const legacyParentKey = filesParentPropertyId(databaseId);
   return normalizePersonalDatabaseViewOverrides({
-    ...legacy.data,
+    ...legacy,
     version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
-    views: legacy.data.views.map((view) => ({
+    views: legacy.views.map((view) => ({
       ...view,
       filters:
-        database?.systemRole === "files"
+        systemRole === "files"
           ? view.filters.filter(
               (filter) =>
                 !(

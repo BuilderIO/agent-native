@@ -2,10 +2,10 @@ import {
   sendToAgentChat,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
-import { isInBuilderFrame } from "@agent-native/core/client/host";
 
 interface OverviewChatOptions {
   openSidebar?: boolean;
+  reuseEmptyTab?: boolean;
   selectedEngine?: string | null;
   selectedEffort?: AgentChatMessage["effort"];
 }
@@ -18,18 +18,11 @@ export function submitOverviewPrompt(
   const trimmed = message.trim();
   if (!trimmed) return null;
 
-  if (isInBuilderFrame()) {
-    return sendToAgentChat({
-      message: trimmed,
-      submit: true,
-      type: "code",
-    });
-  }
-
   return sendToAgentChat({
     message: trimmed,
     submit: true,
     newTab: true,
+    ...(options?.reuseEmptyTab ? { reuseEmptyTab: true } : {}),
     model: selectedModel || undefined,
     ...(options?.selectedEngine ? { engine: options.selectedEngine } : {}),
     ...(options?.selectedEffort ? { effort: options.selectedEffort } : {}),

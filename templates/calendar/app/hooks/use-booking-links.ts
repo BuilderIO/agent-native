@@ -8,10 +8,8 @@ import type {
   ConferencingConfig,
   CustomField,
 } from "@shared/api";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-
-import { appApiPath } from "@/lib/api-path";
 
 const LIST_KEY = ["action", "list-booking-links", undefined] as const;
 
@@ -19,24 +17,8 @@ export function useBookingLinks() {
   return useActionQuery<BookingLink[]>("list-booking-links");
 }
 
-/** Prefix on optimistically-inserted ids so the UI can identify them. */
 export const OPTIMISTIC_PREFIX = "optimistic_";
 
-/**
- * Create a booking link with instant, optimistic UI.
- *
- * The mutation inserts a placeholder row into the list cache on `onMutate`
- * (with an `optimistic_*` id) so `useBookingLinks()` and any lookup by id
- * see the new row immediately. Callers can `navigate('/booking-links/' + id)`
- * as soon as they call `mutate(...)` — the detail view will find it in the
- * cache without waiting for the server.
- *
- * On success, the optimistic row is swapped for the server value and URLs
- * using the optimistic id are redirected to the real id.
- *
- * On failure, the optimistic row is removed and the error surfaces on the
- * mutation's `error` field.
- */
 export function useCreateBookingLink() {
   const queryClient = useQueryClient();
   return useActionMutation<
@@ -49,7 +31,6 @@ export function useCreateBookingLink() {
       conferencing?: ConferencingConfig;
       color?: string;
       isActive?: boolean;
-      /** Optional pre-generated id so the caller can navigate before mutate resolves. */
       optimisticId?: string;
     }
   >("create-booking-link", {
@@ -94,8 +75,7 @@ export function useCreateBookingLink() {
       }
     },
     onSettled: () => {
-      // Sync with server eventually — non-blocking.
-      queryClient.invalidateQueries({ queryKey: LIST_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIST_KEY });
     },
   });
 }
@@ -115,10 +95,17 @@ export function useUpdateBookingLink() {
   >("update-booking-link", {
     onSuccess: (updated) => {
       queryClient.setQueryData<BookingLink[]>(LIST_KEY, (current = []) =>
-        current.map((link) => (link.id === updated.id ? updated : link)),
+        current.map((link) =>
+          link.id === updated.id
+            ? { ...updated, accessRole: updated.accessRole ?? link.accessRole }
+            : link,
+        ),
       );
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: LIST_KEY,
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["public-booking-link"],
       });
     },
   });
@@ -126,18 +113,14 @@ export function useUpdateBookingLink() {
 
 export function useDeleteBookingLink() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(appApiPath(`/api/booking-links/${id}`), {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("Failed to delete booking link");
-      return res.json();
+  return useActionMutation<{ ok: true }, { id: string }>(
+    "delete-booking-link",
+    {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: LIST_KEY,
+        });
+      },
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: LIST_KEY,
-      });
-    },
-  });
+  );
 }

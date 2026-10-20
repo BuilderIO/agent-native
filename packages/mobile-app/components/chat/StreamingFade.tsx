@@ -6,7 +6,6 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-// Global cache for tracking already-seen content length per message to avoid re-animating on remount
 const seenMessageTextLengths = new Map<string, number>();
 
 export function getSeenTextLength(messageId: string): number {
@@ -20,7 +19,6 @@ export function updateSeenTextLength(messageId: string, length: number) {
   }
 }
 
-// Contexts
 export const MessageContext = createContext<{
   isStreaming: boolean;
   messageId: string;
@@ -35,7 +33,6 @@ export function useDisableFadeContext() {
   return useContext(DisableFadeContext);
 }
 
-// High-performance math-based stagger scheduler running entirely on UI thread via Reanimated delays
 let nextAnimationStartTime = 0;
 let batchCount = 0;
 const STAGGER_DELAY_MS = 32;
@@ -48,10 +45,8 @@ function getStaggeredDelay(): number {
   }
   const delay = nextAnimationStartTime - now;
 
-  // Calculate queue length (number of scheduled intervals)
   const queueLength = Math.max(0, Math.floor(delay / STAGGER_DELAY_MS));
 
-  // Determine dynamic batch size
   let currentBatchSize = 2;
   if (queueLength > 10) {
     currentBatchSize = Math.max(2, Math.floor(queueLength / 5) * 2);
@@ -119,7 +114,6 @@ export function TextFadeInStaggeredIfStreaming({
   const { isStreaming, messageId } = useContext(MessageContext);
   const isFadeDisabled = useDisableFadeContext();
 
-  // Determine shouldAnimate once on mount
   const [shouldAnimate] = useState(!isFadeDisabled && isStreaming);
 
   if (shouldAnimate && typeof children === "string") {
@@ -150,7 +144,7 @@ function AnimatedFadeInText({
     <>
       {chunks.map((chunk, i) => {
         const wordOffset = currentOffset;
-        currentOffset += chunk.length + 1; // chunk length + space
+        currentOffset += chunk.length + 1;
         return (
           <TextFadeInStaggered
             key={i}

@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { CommandMenu } from "@agent-native/core/client/navigation";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import type { CalendarEvent } from "@shared/api";
+import { timezoneFormatter } from "@shared/timezone";
 import {
   IconCalendar,
   IconClock,
@@ -12,8 +13,9 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import * as chrono from "chrono-node";
-import { format, parseISO, parse, isValid } from "date-fns";
+import { format, parse, isValid } from "date-fns";
 
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import { cn } from "@/lib/utils";
 
 type ViewMode = "month" | "week" | "day";
@@ -28,6 +30,7 @@ interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   events: CalendarEvent[];
+  timezone?: string;
   onGoToDate: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
   onCreateEvent: () => void;
@@ -50,9 +53,6 @@ const DATE_FORMATS = [
   "MMMM d, yyyy",
 ];
 
-// Trailing connector words chrono-node can leave dangling on the title when
-// the matched date phrase doesn't consume them (e.g. "call mom for" if the
-// date phrase only matched a single word after "for").
 const TRAILING_CONNECTOR_WORDS = /[\s,-]*\b(?:on|at|for|by)$/i;
 
 function parseQuickCreateEvent(query: string): QuickCreateEvent | null {
@@ -80,6 +80,7 @@ export function CommandPalette({
   open,
   onClose,
   events,
+  timezone,
   onGoToDate,
   onEventClick,
   onCreateEvent,
@@ -122,8 +123,6 @@ export function CommandPalette({
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .slice(0, 6);
 
-    // Plain date jumps and existing event matches take priority over creating
-    // a new event because the user is more likely navigating or searching.
     const quickCreate =
       onCreateEventFromText && !parsedDate && matchingEvents.length === 0
         ? parseQuickCreateEvent(query)
@@ -175,7 +174,7 @@ export function CommandPalette({
           <CommandMenu.Group heading={t("eventForm.events")}>
             {matchingEvents.map((event) => (
               <CommandMenu.Item
-                key={event.id}
+                key={getCalendarEventRenderKey(event)}
                 onSelect={() => onEventClick(event)}
                 keywords={[event.title.toLowerCase()]}
               >
@@ -192,7 +191,10 @@ export function CommandPalette({
                 />
                 <span className="flex-1 truncate">{event.title}</span>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {format(parseISO(event.start), "MMM d")}
+                  {timezoneFormatter(event.allDay ? "UTC" : timezone, {
+                    month: "short",
+                    day: "numeric",
+                  }).format(new Date(event.start))}
                 </span>
               </CommandMenu.Item>
             ))}

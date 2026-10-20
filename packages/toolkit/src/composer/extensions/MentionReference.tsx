@@ -1,52 +1,64 @@
-import {
-  IconFile,
-  IconFolder,
-  IconFileText,
-  IconCheckbox,
-  IconMail,
-  IconUser,
-  IconPresentation,
-  IconStack2,
-  IconMessageChatbot,
-} from "@tabler/icons-react";
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 
-const iconProps = { size: 14, className: "shrink-0 text-muted-foreground" };
+import { MentionChip } from "../MentionChip.js";
+import type { MentionItemMedia as MentionItemMediaValue } from "../types.js";
 
-function MentionIcon({ icon }: { icon?: string }) {
-  switch (icon) {
-    case "folder":
-      return <IconFolder {...iconProps} />;
-    case "document":
-      return <IconFileText {...iconProps} />;
-    case "form":
-      return <IconCheckbox {...iconProps} />;
-    case "email":
-      return <IconMail {...iconProps} />;
-    case "user":
-      return <IconUser {...iconProps} />;
-    case "deck":
-      return <IconPresentation {...iconProps} />;
-    case "agent":
-      return <IconMessageChatbot {...iconProps} />;
-    case "file":
-      return <IconFile {...iconProps} />;
-    default:
-      return <IconStack2 {...iconProps} />;
-  }
+const NAME_START = /^[\p{L}\p{M}\p{N}_]/u;
+const NAME_END = /[\p{L}\p{M}\p{N}_]$/u;
+
+function parseMentionItemMedia(
+  value: string | null,
+): MentionItemMediaValue | null {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return null;
+    }
+    const candidate = parsed as Record<string, unknown>;
+    const backgroundColor =
+      typeof candidate.backgroundColor === "string"
+        ? candidate.backgroundColor
+        : undefined;
+    if (candidate.type === "none") return { type: "none" };
+    if (candidate.type === "text" && typeof candidate.text === "string") {
+      return {
+        type: "text",
+        text: candidate.text,
+        ...(backgroundColor ? { backgroundColor } : {}),
+      };
+    }
+    if (candidate.type === "image" && typeof candidate.src === "string") {
+      return {
+        type: "image",
+        src: candidate.src,
+        ...(candidate.fit === "cover" ? { fit: "cover" } : {}),
+        ...(backgroundColor ? { backgroundColor } : {}),
+      };
+    }
+    // coercion-ok: Malformed optional media must preserve legacy draft rendering.
+  } catch {}
+  return null;
 }
 
 const MentionReferenceComponent = ({ node }: { node: any }) => {
   return (
     <NodeViewWrapper as="span" className="inline">
-      <span
-        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 max-w-[200px] select-none"
+      <MentionChip
+        className="select-none"
         title={node.attrs.refPath || node.attrs.refId || node.attrs.label}
-      >
-        <MentionIcon icon={node.attrs.icon} />
-        <span className="truncate">{node.attrs.label}</span>
-      </span>
+        data-mention-reference=""
+        data-mention-ref-type={node.attrs.refType || undefined}
+        data-mention-ref-id={node.attrs.refId || undefined}
+        icon={node.attrs.icon}
+        media={node.attrs.media}
+        label={node.attrs.label}
+      />
     </NodeViewWrapper>
   );
 };
@@ -62,6 +74,15 @@ export const MentionReference = Node.create({
     return {
       label: { default: null },
       icon: { default: "file" },
+      media: {
+        default: null,
+        parseHTML: (element) =>
+          parseMentionItemMedia(element.getAttribute("data-media")),
+        renderHTML: (attributes) =>
+          attributes.media
+            ? { "data-media": JSON.stringify(attributes.media) }
+            : {},
+      },
       source: { default: "" },
       refType: { default: "file" },
       refId: { default: null },
@@ -83,8 +104,18 @@ export const MentionReference = Node.create({
     ];
   },
 
-  renderText({ node }) {
-    return `@${node.attrs.label}`;
+  renderText({ node, parent, index }) {
+    const text = `@${node.attrs.label}`;
+    // Text matches a mention only as a whole @name token, so a chip right
+    // against a word would read as no mention, or as a later one.
+    const before = parent.maybeChild(index - 1);
+    const after = parent.maybeChild(index + 1);
+    const leading = before?.isText && NAME_END.test(before.text ?? "");
+    const trailing =
+      NAME_END.test(text) &&
+      ((after?.isText && NAME_START.test(after.text ?? "")) ||
+        after?.type === node.type);
+    return `${leading ? " " : ""}${text}${trailing ? " " : ""}`;
   },
 
   addNodeView() {

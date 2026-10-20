@@ -6,7 +6,10 @@ import type { A2AConfig } from "./types.js";
 const handleJsonRpcH3Mock = vi.hoisted(() =>
   vi.fn(async () => ({ jsonrpc: "2.0", id: 1, result: { ok: true } })),
 );
-const getA2ASecretByDomainMock = vi.hoisted(() => vi.fn());
+const resolveA2AOrganizationCredentialsByDomainMock = vi.hoisted(() => vi.fn());
+const resolveA2AOrganizationMetadataByDomainMock = vi.hoisted(() => vi.fn());
+const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
+const isOrgMemberForA2AMock = vi.hoisted(() => vi.fn());
 const setResponseStatusMock = vi.hoisted(() =>
   vi.fn((event: any, code: number) => {
     event._status = code;
@@ -17,6 +20,24 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getApprovalMock = vi.hoisted(() => vi.fn());
 const claimApprovalMock = vi.hoisted(() => vi.fn());
 const settleApprovalMock = vi.hoisted(() => vi.fn());
+const recordServicePrincipalDenialMock = vi.hoisted(() => vi.fn());
+const processA2ATaskFromQueueMock = vi.hoisted(() => vi.fn());
+const runLeaseMocks = vi.hoisted(() => ({
+  claimTaskExecutionLease: vi.fn(
+    async (threadId: string, turnId: string, runId: string) => ({
+      threadId,
+      turnId,
+      runId,
+      generation: "1",
+    }),
+  ),
+  renewTaskExecutionLease: vi.fn(async () => undefined),
+  releaseTurnExecutionLease: vi.fn(async () => undefined),
+  withExecutionFence: vi.fn(async (_fence: unknown, work: () => unknown) =>
+    work(),
+  ),
+  TurnExecutionLeaseBusyError: class TurnExecutionLeaseBusyError extends Error {},
+}));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -37,7 +58,7 @@ vi.mock("../server/framework-request-handler.js", () => ({
 
 vi.mock("./handlers.js", () => ({
   handleJsonRpcH3: handleJsonRpcH3Mock,
-  processA2ATaskFromQueue: vi.fn(async () => undefined),
+  processA2ATaskFromQueue: processA2ATaskFromQueueMock,
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
@@ -45,7 +66,27 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
-  getA2ASecretByDomain: getA2ASecretByDomainMock,
+  resolveA2AOrganizationCredentialsByDomain:
+    resolveA2AOrganizationCredentialsByDomainMock,
+  resolveA2AOrganizationMetadataByDomain:
+    resolveA2AOrganizationMetadataByDomainMock,
+  resolveA2AOrganizationMetadataById: resolveA2AOrganizationMetadataByIdMock,
+}));
+
+vi.mock("../org/membership.js", () => ({
+  isOrgMemberForA2A: isOrgMemberForA2AMock,
+}));
+
+const evaluateServicePrincipalMock = vi.hoisted(() => vi.fn());
+vi.mock("../org/service-principal-policy.js", async (importActual) => ({
+  ...(await importActual<
+    typeof import("../org/service-principal-policy.js")
+  >()),
+  evaluateServicePrincipal: evaluateServicePrincipalMock,
+}));
+vi.mock("../org/service-principal-guard.js", async (importActual) => ({
+  ...(await importActual<typeof import("../org/service-principal-guard.js")>()),
+  recordServicePrincipalDenial: recordServicePrincipalDenialMock,
 }));
 
 vi.mock("../server/auth.js", () => ({ getSession: getSessionMock }));
@@ -54,7 +95,20 @@ vi.mock("../server/request-context.js", () => ({
   runWithRequestContext: (_context: unknown, fn: () => unknown) => fn(),
 }));
 
+vi.mock("../agent/execution-fence.js", () => ({
+  withExecutionFence: runLeaseMocks.withExecutionFence,
+}));
+
+vi.mock("../agent/run-store.js", () => ({
+  TURN_EXECUTION_LEASE_MS: 15_000,
+  TurnExecutionLeaseBusyError: runLeaseMocks.TurnExecutionLeaseBusyError,
+  claimTaskExecutionLease: runLeaseMocks.claimTaskExecutionLease,
+  renewTaskExecutionLease: runLeaseMocks.renewTaskExecutionLease,
+  releaseTurnExecutionLease: runLeaseMocks.releaseTurnExecutionLease,
+}));
+
 vi.mock("./task-store.js", () => ({
+  a2aTaskLeaseThreadId: (taskId: string) => `a2a-task:${taskId}`,
   getA2AApprovalForOwner: getApprovalMock,
   claimA2AApproval: claimApprovalMock,
   settleA2AApproval: settleApprovalMock,
@@ -72,13 +126,40 @@ describe("mountA2A auth", () => {
   beforeEach(() => {
     vi.resetModules();
     handleJsonRpcH3Mock.mockClear();
-    getA2ASecretByDomainMock.mockReset();
+    resolveA2AOrganizationCredentialsByDomainMock.mockReset();
+    resolveA2AOrganizationMetadataByDomainMock.mockReset();
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
+    resolveA2AOrganizationMetadataByIdMock.mockReset();
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
+    isOrgMemberForA2AMock.mockReset();
+    isOrgMemberForA2AMock.mockResolvedValue(true);
     setResponseStatusMock.mockClear();
     setResponseHeaderMock.mockClear();
+    evaluateServicePrincipalMock.mockReset();
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    recordServicePrincipalDenialMock.mockReset();
     getSessionMock.mockReset();
     getApprovalMock.mockReset();
     claimApprovalMock.mockReset();
     settleApprovalMock.mockReset();
+    processA2ATaskFromQueueMock.mockReset().mockResolvedValue(undefined);
+    runLeaseMocks.claimTaskExecutionLease
+      .mockReset()
+      .mockImplementation(async (threadId, turnId, runId) => ({
+        threadId,
+        turnId,
+        runId,
+        generation: "1",
+      }));
+    runLeaseMocks.renewTaskExecutionLease
+      .mockReset()
+      .mockResolvedValue(undefined);
+    runLeaseMocks.releaseTurnExecutionLease
+      .mockReset()
+      .mockResolvedValue(undefined);
+    runLeaseMocks.withExecutionFence
+      .mockReset()
+      .mockImplementation(async (_fence, work) => work());
     process.env = { ...originalEnv, NODE_ENV: "production" };
   });
 
@@ -120,6 +201,82 @@ describe("mountA2A auth", () => {
     });
 
     expect(response.url).toBe("https://agent.example/workspace/rpc/a2a");
+  });
+
+  it("preserves retryable principal-policy failures from async task processing", async () => {
+    process.env.NODE_ENV = "test";
+    delete process.env.A2A_SECRET;
+    const { ServicePrincipalRefusedError } =
+      await import("../org/service-principal-guard.js");
+    processA2ATaskFromQueueMock.mockRejectedValueOnce(
+      new ServicePrincipalRefusedError(
+        "service_principal_unavailable",
+        "Policy store unavailable.",
+      ),
+    );
+
+    const handler = await mountedA2AProcessorHandler(config);
+    const event: any = {
+      method: "POST",
+      headers: {},
+      path: "/_agent-native/a2a/_process-task",
+      context: {},
+      body: { taskId: "task-1" },
+    };
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Policy store unavailable.",
+    });
+    expect(event._status).toBe(503);
+  });
+
+  it("authenticates custom mounted cards from app or endpoint identity", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://agent.example";
+    process.env.APP_BASE_PATH = "/workspace";
+    const handler = await mountedAgentCardHandler(
+      {
+        ...config,
+        authenticatedSkills: [
+          {
+            id: "list-records",
+            name: "List records",
+            description: "List records",
+            readOnly: true,
+          },
+        ],
+      },
+      "/rpc",
+    );
+
+    for (const audience of [
+      "https://agent.example/workspace/rpc",
+      "https://agent.example/workspace",
+    ]) {
+      const token = await new jose.SignJWT({
+        sub: "alice+qa@builder.io",
+        aud: audience,
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuer("https://dispatch.agent-native.test")
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode("shared-global-secret"));
+      const response = await handler({
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${token}`,
+          host: "agent.example",
+          "x-forwarded-proto": "https",
+        },
+        path: "/",
+        context: {},
+      });
+
+      expect(response.skills).toEqual([
+        expect.objectContaining({ id: "list-records", readOnly: true }),
+      ]);
+    }
   });
 
   it("filters public agent-card skills to explicit public-safe capabilities", async () => {
@@ -171,11 +328,12 @@ describe("mountA2A auth", () => {
     ]);
   });
 
-  // The public card may only name actions with `requiresAuth !== true`, while
-  // `actions/invoke` only runs ones with `requiresAuth === true`. Advertising
-  // the public set to a verified sibling reported "no callable actions" for an
-  // app it could in fact call, so callers fell back to open-ended delegation.
-  it("shows a verified caller the skills it can actually invoke", async () => {
+  it("shows a verified caller its direct and delegated capabilities", async () => {
+    delete process.env.APP_URL;
+    delete process.env.URL;
+    delete process.env.DEPLOY_URL;
+    delete process.env.BETTER_AUTH_URL;
+    delete process.env.APP_BASE_PATH;
     const cardConfig = {
       ...config,
       publicSkillsOnly: true,
@@ -185,7 +343,15 @@ describe("mountA2A auth", () => {
           id: "query-agent-native-analytics",
           name: "query-agent-native-analytics",
           description: "Read-only SQL over first-party analytics",
+          readOnly: true,
           publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        },
+        {
+          id: "create-campaign",
+          name: "create-campaign",
+          description: "Create a campaign from an objective",
+          readOnly: false,
+          publicAgent: { expose: true, readOnly: false, requiresAuth: true },
         },
       ],
     } as unknown as A2AConfig;
@@ -220,7 +386,55 @@ describe("mountA2A auth", () => {
     });
     expect(
       authenticated.skills.map((skill: { id: string }) => skill.id),
-    ).toEqual(["query-agent-native-analytics"]);
+    ).toEqual(["query-agent-native-analytics", "create-campaign"]);
+    expect(authenticated.skills[1]).not.toHaveProperty("inputSchema");
+  });
+
+  it("shows legacy tokens only message-delegated capabilities", async () => {
+    const cardConfig = {
+      ...config,
+      publicSkillsOnly: true,
+      skills: [],
+      authenticatedSkills: [
+        {
+          id: "query-agent-native-analytics",
+          name: "query-agent-native-analytics",
+          description: "Read-only SQL over first-party analytics",
+          readOnly: true,
+          publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        },
+        {
+          id: "create-campaign",
+          name: "create-campaign",
+          description: "Create a campaign from an objective",
+          readOnly: false,
+          publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+        },
+      ],
+    } as unknown as A2AConfig;
+
+    process.env.A2A_SECRET = "test-a2a-secret";
+    const token = await new jose.SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("legacy-sibling@example.com")
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode("test-a2a-secret"));
+
+    const authenticated = await (
+      await mountedAgentCardHandler(cardConfig)
+    )({
+      method: "GET",
+      headers: {
+        host: "agent.example",
+        "x-forwarded-proto": "https",
+        authorization: `Bearer ${token}`,
+      },
+      context: {},
+    });
+
+    expect(
+      authenticated.skills.map((skill: { id: string }) => skill.id),
+    ).toEqual(["create-campaign"]);
   });
 
   it("requires the owner's browser session for approval pages", async () => {
@@ -275,6 +489,35 @@ describe("mountA2A auth", () => {
     );
   });
 
+  it("makes an interrupted processing approval available for safe recovery", async () => {
+    getSessionMock.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
+    getApprovalMock.mockResolvedValue({
+      id: "approval-1",
+      taskId: "task-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      tool: "send-email",
+      input: { to: "recipient@example.com" },
+      status: "processing",
+      result: null,
+      expiresAt: Date.now() + 10_000,
+    });
+    const handler = await mountedA2AApprovalHandler(config);
+    const response = await handler({
+      method: "GET",
+      path: "/approval-1",
+      context: {},
+    });
+
+    expect(response).toContain('<button id="approve" >processing</button>');
+    expect(response).not.toContain(
+      "This action is paused until you approve it.",
+    );
+  });
+
   it("claims and executes an approval once from a same-origin owner session", async () => {
     const approval = {
       id: "approval-1",
@@ -294,6 +537,7 @@ describe("mountA2A auth", () => {
       orgId: "org-1",
     });
     claimApprovalMock.mockResolvedValue(approval);
+    getApprovalMock.mockResolvedValue(approval);
     const executeApproval = vi.fn(async () => ({
       status: "completed" as const,
       output: "Email sent",
@@ -320,12 +564,20 @@ describe("mountA2A auth", () => {
       "owner@example.com",
       "org-1",
     );
-    expect(executeApproval).toHaveBeenCalledWith(approval);
+    expect(executeApproval).toHaveBeenCalledWith(
+      approval,
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        threadId: "a2a-task:task-1",
+        turnId: "task-1",
+      }),
+    );
     expect(settleApprovalMock).toHaveBeenCalledWith(
       "approval-1",
       "completed",
       "Email sent",
     );
+    expect(runLeaseMocks.releaseTurnExecutionLease).toHaveBeenCalledTimes(1);
   });
 
   it("allows legacy apiKeyEnv bearer auth even when A2A_SECRET is configured", async () => {
@@ -346,7 +598,11 @@ describe("mountA2A auth", () => {
 
   it("verifies org-secret JWTs before deciding production auth is unconfigured", async () => {
     delete process.env.A2A_SECRET;
-    getA2ASecretByDomainMock.mockResolvedValueOnce("org-a2a-secret");
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: "org-a2a-secret",
+    });
     const token = await new jose.SignJWT({
       sub: "alice+qa@builder.io",
       org_domain: "builder.io",
@@ -362,15 +618,378 @@ describe("mountA2A auth", () => {
     const response = await handler(event);
 
     expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
-    expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
+    expect(event.context.__a2aVerifiedEmail).toBeUndefined();
     expect(event.context.__a2aOrgDomain).toBe("builder.io");
+    expect(event.context.__a2aVerifiedOrgId).toBe("org-builder");
+    expect(event.context.__a2aIdentityAssurance).toBe("organization");
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("downgrades a user JWT when the deployment and organization secrets collide", async () => {
+    process.env.A2A_SECRET = "same-secret";
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: "same-secret",
+    });
+    const token = await new jose.SignJWT({
+      sub: "alice+qa@builder.io",
+      org_domain: "builder.io",
+      org_id: "org-builder",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("same-secret"));
+    const handler = await mountedA2AHandler(config);
+    const event = postEvent({ authorization: `Bearer ${token}` });
+
+    const response = await handler(event);
+
+    expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    expect(event.context.__a2aVerifiedEmail).toBeUndefined();
+    expect(event.context.__a2aIdentityAssurance).toBe("organization");
+    expect(event.context.__a2aVerifiedOrgId).toBe("org-builder");
+  });
+
+  it("preserves user identity when a user token carries org_id without org_domain", async () => {
+    process.env.A2A_SECRET = "same-secret";
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValueOnce({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await new jose.SignJWT({
+      sub: "alice+qa@builder.io",
+      org_id: "org-builder",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("same-secret"));
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice+qa@builder.io",
+      orgDomain: "builder.io",
+      orgId: "org-builder",
+    });
+    expect(resolveA2AOrganizationMetadataByIdMock).toHaveBeenCalledWith(
+      "org-builder",
+    );
+    expect(
+      resolveA2AOrganizationCredentialsByDomainMock,
+    ).not.toHaveBeenCalled();
+  });
+
+  describe("user assertion demotion warning", () => {
+    const sign = (claims: jose.JWTPayload, secret: string) =>
+      new jose.SignJWT(claims)
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode(secret));
+    const demotionWarnings = (warn: { mock: { calls: unknown[][] } }) =>
+      warn.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes("orgId="));
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it("warns once per org when the org secret equals the deployment secret", async () => {
+      process.env.A2A_SECRET = "same-secret";
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-collide",
+        orgDomain: "builder.io",
+        secret: "same-secret",
+      });
+      const { verifyA2AToken } = await import("./server.js");
+      const token = await sign(
+        { sub: "alice+qa@builder.io", org_domain: "builder.io" },
+        "same-secret",
+      );
+
+      await verifyA2AToken(token);
+      await verifyA2AToken(token);
+
+      const warnings = demotionWarnings(warn);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("orgId=org-collide");
+      expect(warnings[0]).toContain("org secret equals deploy secret");
+      expect(warnings[0]).not.toContain("same-secret");
+      expect(warnings[0]).not.toContain("alice+qa@builder.io");
+    });
+
+    it("warns when a user token verifies only with the org secret", async () => {
+      delete process.env.A2A_SECRET;
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-org-secret",
+        orgDomain: "builder.io",
+        secret: "org-a2a-secret",
+      });
+      const { verifyA2AToken } = await import("./server.js");
+      const token = await sign(
+        { sub: "alice+qa@builder.io", org_domain: "builder.io" },
+        "org-a2a-secret",
+      );
+
+      await verifyA2AToken(token);
+      await verifyA2AToken(token);
+
+      const warnings = demotionWarnings(warn);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("orgId=org-org-secret");
+      expect(warnings[0]).toContain("user token verified only with org secret");
+      expect(warnings[0]).not.toContain("org-a2a-secret");
+      expect(warnings[0]).not.toContain("alice+qa@builder.io");
+    });
+
+    it("warns separately for each affected org", async () => {
+      process.env.A2A_SECRET = "same-secret";
+      const { verifyA2AToken } = await import("./server.js");
+      for (const orgId of ["org-one", "org-two"]) {
+        resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+          orgId,
+          orgDomain: "builder.io",
+          secret: "same-secret",
+        });
+        await verifyA2AToken(
+          await sign(
+            { sub: "alice+qa@builder.io", org_domain: "builder.io" },
+            "same-secret",
+          ),
+        );
+      }
+
+      expect(demotionWarnings(warn)).toEqual([
+        expect.stringContaining("orgId=org-one"),
+        expect.stringContaining("orgId=org-two"),
+      ]);
+    });
+
+    it("warns again for the same org when the cause changes", async () => {
+      const claims = { sub: "alice+qa@builder.io", org_domain: "builder.io" };
+      const { verifyA2AToken } = await import("./server.js");
+
+      process.env.A2A_SECRET = "same-secret";
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-cause-change",
+        orgDomain: "builder.io",
+        secret: "same-secret",
+      });
+      await verifyA2AToken(await sign(claims, "same-secret"));
+
+      delete process.env.A2A_SECRET;
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-cause-change",
+        orgDomain: "builder.io",
+        secret: "org-a2a-secret",
+      });
+      await verifyA2AToken(await sign(claims, "org-a2a-secret"));
+
+      expect(demotionWarnings(warn)).toEqual([
+        expect.stringContaining("org secret equals deploy secret"),
+        expect.stringContaining("user token verified only with org secret"),
+      ]);
+    });
+
+    it("stays quiet for an organization token that never asserted a user", async () => {
+      delete process.env.A2A_SECRET;
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-plain",
+        orgDomain: "builder.io",
+        secret: "org-a2a-secret",
+      });
+      const { verifyA2AToken } = await import("./server.js");
+
+      await verifyA2AToken(
+        await sign({ org_domain: "builder.io" }, "org-a2a-secret"),
+      );
+
+      expect(demotionWarnings(warn)).toEqual([]);
+    });
+  });
+
+  it("does not treat an explicitly verified org secret as proof of its subject", async () => {
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: "org-a2a-secret",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await new jose.SignJWT({
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("org-a2a-secret"));
+
+    await expect(
+      verifyA2AToken(token, undefined, {
+        globalSecretOnly: true,
+        verificationSecret: "org-a2a-secret",
+        includeClaims: true,
+      }),
+    ).resolves.toMatchObject({
+      email: null,
+      orgDomain: "builder.io",
+      orgId: "org-builder",
+      identityAssurance: "organization",
+      claims: expect.not.objectContaining({ sub: "alice@builder.io" }),
+    });
+    expect(resolveA2AOrganizationMetadataByDomainMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["message/send", "message/stream"] as const)(
+    "accepts an org principal without trusting its asserted subject for %s",
+    async (method) => {
+      process.env.A2A_SECRET = "shared-global-secret";
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+        orgId: "org-evil",
+        orgDomain: "evil.example",
+        secret: "evil-org-secret",
+      });
+      const token = await new jose.SignJWT({
+        sub: "alice@acme",
+        org_domain: "evil.example",
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode("evil-org-secret"));
+      const handler = await mountedA2AHandler(config);
+      const event = postEvent({ authorization: `Bearer ${token}` });
+      event.body = {
+        jsonrpc: "2.0",
+        id: 1,
+        method,
+        params: {
+          ...(method === "message/send" ? { async: true } : {}),
+          approvedActions: [
+            { tool: "send-email", input: { to: "attacker@example.com" } },
+          ],
+          message: { role: "user", parts: [{ type: "text", text: "send" }] },
+        },
+      };
+
+      const response = await handler(event);
+
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+      expect(event._status).toBeUndefined();
+      expect(event.context.__a2aVerifiedEmail).toBeUndefined();
+      expect(event.context.__a2aVerifiedOrgId).toBe("org-evil");
+      expect(event.context.__a2aIdentityAssurance).toBe("organization");
+      expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+      expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not read member identity evidence for organization-secret calls", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.LEGACY_A2A_KEY = "legacy-key";
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-x",
+      orgDomain: "x.example",
+      secret: "org-x-secret",
+    });
+    isOrgMemberForA2AMock.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    const token = await new jose.SignJWT({
+      sub: "victim@y.example",
+      org_domain: "x.example",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("org-x-secret"));
+    const handler = await mountedA2AHandler({
+      ...config,
+      apiKeyEnv: "LEGACY_A2A_KEY",
+    });
+    const event = postEvent({ authorization: `Bearer ${token}` });
+    event.body = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "message/send",
+      params: {
+        approvedActions: [
+          { tool: "send-email", input: { to: "attacker@example.com" } },
+        ],
+        message: { role: "user", parts: [{ type: "text", text: "send" }] },
+      },
+    };
+
+    const response = await handler(event);
+
+    expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    expect(event._status).toBeUndefined();
+    expect(event.context.__a2aVerifiedEmail).toBeUndefined();
+    expect(event.context.__a2aIdentityAssurance).toBe("organization");
+    expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("does not expose authenticated agent-card skills to an org-secret subject outside the org", async () => {
+    delete process.env.A2A_SECRET;
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-x",
+      orgDomain: "x.example",
+      secret: "org-x-secret",
+    });
+    const token = await new jose.SignJWT({
+      sub: "victim@y.example",
+      org_domain: "x.example",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("org-x-secret"));
+    const handler = await mountedAgentCardHandler({
+      ...config,
+      authenticatedSkills: [
+        {
+          id: "private-data",
+          name: "Private data",
+          description: "Read private data",
+          readOnly: true,
+        },
+      ],
+    });
+
+    const response = await handler({
+      method: "GET",
+      headers: { authorization: `Bearer ${token}`, host: "receiver.example" },
+      path: "/",
+      context: {},
+    });
+
+    expect(response.skills).not.toContainEqual(
+      expect.objectContaining({ id: "private-data" }),
+    );
   });
 
   it("falls back to the shared A2A_SECRET when the receiver org secret differs", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
-    getA2ASecretByDomainMock.mockResolvedValueOnce("receiver-local-org-secret");
+    isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: "receiver-local-org-secret",
+    });
     const token = await new jose.SignJWT({
       sub: "alice+qa@builder.io",
       org_domain: "builder.io",
@@ -390,6 +1009,105 @@ describe("mountA2A auth", () => {
     expect(event.context.__a2aOrgDomain).toBe("builder.io");
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  describe("service principal governance", () => {
+    async function serviceCall() {
+      process.env.A2A_SECRET = "shared-global-secret";
+      resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+        orgId: "org-builder",
+        orgDomain: "builder.io",
+      });
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+        orgId: "org-builder",
+        orgDomain: "builder.io",
+        secret: "receiver-local-org-secret",
+      });
+      const token = await new jose.SignJWT({
+        sub: "svc-ci@service.org-builder",
+        org_domain: "builder.io",
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuer("https://dispatch.agent-native.test")
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode("shared-global-secret"));
+      const handler = await mountedA2AHandler(config);
+      const event = postEvent({ authorization: `Bearer ${token}` });
+      return { response: await handler(event), event };
+    }
+
+    it.each(["suspended", "retired"])(
+      "refuses to start work for a %s service principal",
+      async (status) => {
+        evaluateServicePrincipalMock.mockResolvedValue({
+          status,
+          policy: { lifecycle: status },
+        });
+        const { response, event } = await serviceCall();
+        expect(event._status).toBe(403);
+        expect(response.error.data).toEqual({
+          errorCode: "service_principal_inactive",
+        });
+        expect(event.context.__a2aVerifiedEmail).toBeUndefined();
+        expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+        expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            actionName: "a2a:admission",
+            caller: "a2a",
+            error: expect.objectContaining({ statusCode: 403 }),
+          }),
+        );
+      },
+    );
+
+    it("answers a retryable 503 when the policy cannot be read", async () => {
+      evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
+      const { response, event } = await serviceCall();
+      expect(event._status).toBe(503);
+      expect(response.error.code).toBe(-32003);
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+      expect(recordServicePrincipalDenialMock).not.toHaveBeenCalled();
+    });
+
+    it("runs an active service principal", async () => {
+      evaluateServicePrincipalMock.mockResolvedValue({
+        status: "active",
+        policy: { lifecycle: "active", allowedActions: null },
+      });
+      const { response, event } = await serviceCall();
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+      expect(event.context.__a2aVerifiedEmail).toBe(
+        "svc-ci@service.org-builder",
+      );
+      expect(event.context.__a2aServicePrincipalAllowedActions).toBeNull();
+    });
+  });
+
+  it("rejects an MCP connect token signed with the shared secret", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const token = await new jose.SignJWT({
+      sub: "alice@example.test",
+      scope: "mcp-connect",
+      org_domain: "example.test",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setJti("connect-jti")
+      .setIssuedAt()
+      .setExpirationTime("365d")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    const handler = await mountedA2AHandler(config);
+
+    const event = postEvent({ authorization: `Bearer ${token}` });
+    const response = await handler(event);
+
+    expect(event._status).toBe(401);
+    expect(response).toMatchObject({
+      error: { code: -32001, message: "Invalid or expired A2A token" },
+    });
+    expect(event.context.__a2aVerifiedEmail).toBeUndefined();
+    expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
   });
 
   it("marks a verified audience-bound identity for direct action calls", async () => {
@@ -405,6 +1123,29 @@ describe("mountA2A auth", () => {
       .setExpirationTime("15m")
       .sign(new TextEncoder().encode("shared-global-secret"));
     const handler = await mountedA2AHandler(config);
+
+    const event = postEvent({ authorization: `Bearer ${token}` });
+    const response = await handler(event);
+
+    expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
+    expect(event.context.__a2aAudienceVerified).toBe(true);
+  });
+
+  it("accepts direct action identity bound to a custom mounted endpoint", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://agent.example";
+    process.env.APP_BASE_PATH = "/workspace";
+    const token = await new jose.SignJWT({
+      sub: "alice+qa@builder.io",
+      aud: "https://agent.example/workspace/rpc",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("https://dispatch.agent-native.test")
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    const handler = await mountedA2AHandler(config, "/rpc");
 
     const event = postEvent({ authorization: `Bearer ${token}` });
     const response = await handler(event);
@@ -505,7 +1246,13 @@ describe("verifyA2AToken (exported)", () => {
 
   beforeEach(() => {
     vi.resetModules();
-    getA2ASecretByDomainMock.mockReset();
+    resolveA2AOrganizationCredentialsByDomainMock.mockReset();
+    resolveA2AOrganizationMetadataByDomainMock.mockReset();
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
+    resolveA2AOrganizationMetadataByIdMock.mockReset();
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
+    isOrgMemberForA2AMock.mockReset();
+    isOrgMemberForA2AMock.mockResolvedValue(true);
     process.env = { ...originalEnv, NODE_ENV: "production" };
   });
 
@@ -532,15 +1279,44 @@ describe("verifyA2AToken (exported)", () => {
       sub: "alice@builder.io",
     });
 
-    // Event is optional: no audience claim, no org lookup needed here.
     const result = await verifyA2AToken(token);
 
     expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
   });
 
+  it("rejects MCP connect and MCP OAuth tokens signed with the same secret", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+    const connectToken = await signToken("shared-global-secret", {
+      sub: "alice@example.test",
+      scope: "mcp-connect",
+      jti: "connect-jti",
+      org_id: "org-example",
+    });
+    const oauthToken = await signToken("shared-global-secret", {
+      typ: "agent-native-mcp-oauth",
+      sub: "alice@example.test",
+      org_id: "org-example",
+      client_id: "agent-native-connect",
+    });
+
+    await expect(verifyA2AToken(connectToken)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+    await expect(verifyA2AToken(oauthToken)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+  });
+
   it("falls back to the org-level secret via org_domain (shared secret absent)", async () => {
     delete process.env.A2A_SECRET;
-    getA2ASecretByDomainMock.mockResolvedValueOnce("org-a2a-secret");
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: "org-a2a-secret",
+    });
     const { verifyA2AToken } = await import("./server.js");
     const token = await signToken("org-a2a-secret", {
       sub: "bob@builder.io",
@@ -549,16 +1325,68 @@ describe("verifyA2AToken (exported)", () => {
 
     const result = await verifyA2AToken(token);
 
-    expect(getA2ASecretByDomainMock).toHaveBeenCalledWith("builder.io");
+    expect(resolveA2AOrganizationCredentialsByDomainMock).toHaveBeenCalledWith(
+      "builder.io",
+    );
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
     expect(result).toEqual({
-      email: "bob@builder.io",
+      email: null,
       orgDomain: "builder.io",
+      orgId: "org-builder",
+      identityAssurance: "organization",
     });
+  });
+
+  it("binds a domain-only org-secret token to the receiver's local org id", async () => {
+    delete process.env.A2A_SECRET;
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-receiver",
+      orgDomain: "builder.io",
+      secret: "org-a2a-secret",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("org-a2a-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+    });
+
+    await expect(
+      verifyA2AToken(token, undefined, {
+        globalSecretOnly: true,
+        verificationSecret: "org-a2a-secret",
+      }),
+    ).resolves.toEqual({
+      email: null,
+      orgDomain: "builder.io",
+      orgId: "org-receiver",
+      identityAssurance: "organization",
+    });
+  });
+
+  it("rejects an org-secret token whose signed org_id differs from its domain org", async () => {
+    delete process.env.A2A_SECRET;
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-evil",
+      orgDomain: "evil.example",
+      secret: "org-evil-secret",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("org-evil-secret", {
+      sub: "alice@acme",
+      org_domain: "evil.example",
+      org_id: "org-acme",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
   it("rejects a token whose signature matches no candidate secret", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
-    getA2ASecretByDomainMock.mockResolvedValueOnce(undefined);
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce(null);
     const { verifyA2AToken } = await import("./server.js");
     const token = await signToken("some-other-secret", {
       sub: "mallory@builder.io",
@@ -625,9 +1453,6 @@ describe("verifyA2AToken (exported)", () => {
   });
 
   it("still accepts a token WITHOUT an aud claim when no audience can be derived", async () => {
-    // Backward-compat: tokens minted before the audience claim shipped (and
-    // internal callers that don't set one) carry no `aud`, so there is nothing
-    // to check — the secret + exp checks still gate them.
     process.env.A2A_SECRET = "shared-global-secret";
     delete process.env.APP_URL;
     delete process.env.URL;
@@ -655,6 +1480,232 @@ describe("verifyA2AToken (exported)", () => {
     const result = await verifyA2AToken(token);
 
     expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+  });
+
+  it("returns an exact org id claim without changing legacy token results", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+      org_id: "org-builder",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: "builder.io",
+      orgId: "org-builder",
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("binds domain-only global tokens to local organization metadata without receiver membership", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: "builder.io",
+      orgId: "org-builder",
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("binds ID-only global tokens to local organization metadata without receiver membership", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: null,
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_id: "org-builder",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+      orgId: "org-builder",
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a globally signed org id that does not match its resolved domain", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+      org_id: "org-evil",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a global org claim unavailable when local metadata cannot be read", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    resolveA2AOrganizationMetadataByDomainMock.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+    });
+
+    await expect(verifyA2AToken(token)).rejects.toMatchObject({
+      name: "A2AIdentityVerificationUnavailableError",
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("exposes verified claims only to an explicit caller", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+      orgId: "dispatch-org-1",
+      orgDomain: "builder.io",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+      app_id: "slides",
+      scope: "organization-federation",
+      org_id: "dispatch-org-1",
+      org_name: "Example Org",
+      org_role: "owner",
+    });
+
+    await expect(
+      verifyA2AToken(token, undefined, { includeClaims: true }),
+    ).resolves.toMatchObject({
+      email: "alice@builder.io",
+      orgId: "dispatch-org-1",
+      claims: expect.objectContaining({
+        app_id: "slides",
+        scope: "organization-federation",
+      }),
+    });
+  });
+
+  it("can restrict verification to the deployment-wide secret", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-example",
+      orgDomain: "example.com",
+      secret: "org-only-secret",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const orgToken = await signToken("org-only-secret", {
+      sub: "alice@builder.io",
+      org_domain: "example.com",
+    });
+
+    await expect(
+      verifyA2AToken(orgToken, undefined, { globalSecretOnly: true }),
+    ).resolves.toEqual({ email: null, orgDomain: null });
+    expect(
+      resolveA2AOrganizationCredentialsByDomainMock,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("binds a path-mounted receiver to its app base path", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example/dispatch";
+    process.env.APP_BASE_PATH = "/slides";
+    const { verifyA2AToken } = await import("./server.js");
+    const scopedToken = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/slides",
+    });
+    const originToken = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example",
+    });
+
+    await expect(verifyA2AToken(scopedToken)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+    });
+    await expect(verifyA2AToken(originToken)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+  });
+
+  it("uses the configured Vite base path when validating a mounted receiver", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example";
+    delete process.env.APP_BASE_PATH;
+    process.env.VITE_APP_BASE_PATH = "/dispatch";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/dispatch",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+    });
+  });
+
+  it("preserves the app URL path when no receiver base path is configured", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example/workspace";
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/workspace",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+    });
+  });
+
+  it("preserves an explicit receiver base path ending in /a2a", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example";
+    process.env.APP_BASE_PATH = "/tools/a2a";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/tools/a2a",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+    });
   });
 
   it("rejects a token whose aud does not match the receiver's derived audience", async () => {
@@ -688,11 +1739,12 @@ async function mountedAgentCardHandler(
 
 async function mountedA2AHandler(
   config: A2AConfig,
+  routePrefix = "/_agent-native",
 ): Promise<(event: any) => any> {
   const { mountA2A } = await import("./server.js");
   const app = { routes: [] as Array<{ path: string; handler: any }> };
-  mountA2A(app, config);
-  const route = app.routes.find((entry) => entry.path === "/_agent-native/a2a");
+  mountA2A(app, config, routePrefix);
+  const route = app.routes.find((entry) => entry.path === `${routePrefix}/a2a`);
   if (!route) throw new Error("A2A route was not mounted");
   return route.handler;
 }

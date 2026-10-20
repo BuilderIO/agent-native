@@ -1,32 +1,4 @@
 #!/usr/bin/env node
-/**
- * Guard: enforces that every public-facing surface only lists templates
- * from the strict allow-list in `packages/shared-app-config/templates.ts`.
- *
- * The allow-list is the set of templates with `hidden: false` (or no
- * `hidden` flag). Anything with `hidden: true` is not public-facing and
- * must NOT appear in:
- *
- *   - packages/docs/app/components/TemplateCard.tsx       (homepage catalog)
- *   - packages/docs/app/components/docsNavItems.ts        (docs sidebar)
- *   - packages/core/docs/content/template-*.(mdx|md)      (docs pages)
- *
- * Why this guard exists: agents kept re-adding hidden or deleted templates to
- * public surfaces during overnight sweeps, forcing a constant whack-a-mole.
- * The allow-list lives in one file (templates.ts) and this guard enforces
- * that every other surface only references slugs from it.
- *
- * To add a template to the public-facing list:
- *   1. Set `hidden: false` (or remove the `hidden` flag) on its entry
- *      in `packages/shared-app-config/templates.ts` AND in
- *      `packages/core/src/cli/templates-meta.ts` (the CLI duplicate).
- *   2. Add the entry to TemplateCard.tsx + docsNavItems.ts as needed.
- *   3. Re-run this guard locally to confirm.
- *
- * To remove a template: remove it from BOTH metadata files. This guard will
- * then fail on any public surface that still mentions it, pointing you at the
- * file/line to fix.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -40,16 +12,9 @@ const CLI_DUPLICATE = "packages/core/src/cli/templates-meta.ts";
 const HOSTED_GA_MEASUREMENT_ID = "G-ESF7FYXGN9";
 const HOSTED_GTM_CONTAINER_ID = "GTM-N3WSTXZ";
 
-/**
- * Parse a TEMPLATES array out of a templates-meta-shaped file. Returns
- * Map<slug, { hidden: boolean }>. Hand-rolled rather than executing the
- * file because both files are TS source — running them would require
- * compilation, and a regex-level scan is plenty for this guard.
- */
 function parseTemplateMetaFile(absPath) {
   const src = fs.readFileSync(absPath, "utf-8");
   const map = new Map();
-  // Match each `{ ... name: "...", ... }` block. Templates use object literals.
   const blocks = src.split(/^\s*\{\s*$/m).slice(1);
   for (const raw of blocks) {
     const block = raw.split(/^\s*\},?\s*$/m)[0];
@@ -57,7 +22,8 @@ function parseTemplateMetaFile(absPath) {
     if (!nameMatch) continue;
     const slug = nameMatch[1];
     const hidden = /\bhidden:\s*true\b/.test(block);
-    map.set(slug, { hidden });
+    const prodUrl = block.match(/\bprodUrl:\s*"([^"]+)"/)?.[1] ?? null;
+    map.set(slug, { hidden, prodUrl });
   }
   return map;
 }
@@ -69,9 +35,6 @@ const allowed = new Set(
   [...truth.entries()].filter(([, meta]) => !meta.hidden).map(([slug]) => slug),
 );
 
-// Template docs also have public topic pages such as
-// `template-assets-presets.mdx`. The first slug segment identifies the public
-// template; the suffix is a docs topic, not a second template catalog entry.
 function isAllowedTemplateDocSlug(slug) {
   return (
     allowed.has(slug) ||
@@ -81,7 +44,6 @@ function isAllowedTemplateDocSlug(slug) {
 
 const errors = [];
 
-// ── 1. CLI duplicate must agree with source of truth on hidden flag.
 for (const [slug, truthMeta] of truth.entries()) {
   if (!cli.has(slug)) {
     errors.push(
@@ -96,6 +58,12 @@ for (const [slug, truthMeta] of truth.entries()) {
         `but ${SOURCE_OF_TRUTH} has hidden=${truthMeta.hidden}. Keep them in sync.`,
     );
   }
+  if (truthMeta.prodUrl !== cliMeta.prodUrl) {
+    errors.push(
+      `${CLI_DUPLICATE}: "${slug}" has prodUrl=${cliMeta.prodUrl}, ` +
+        `but ${SOURCE_OF_TRUTH} has prodUrl=${truthMeta.prodUrl}. Keep them in sync.`,
+    );
+  }
 }
 for (const slug of cli.keys()) {
   if (!truth.has(slug)) {
@@ -105,7 +73,33 @@ for (const slug of cli.keys()) {
   }
 }
 
-// ── 2. Homepage catalog (TemplateCard.tsx) must only contain allowed slugs.
+const PRODUCTION_SITES_PATH = "scripts/netlify-production-sites.json";
+{
+  const sites = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, PRODUCTION_SITES_PATH), "utf-8"),
+  );
+  for (const [slug, meta] of truth.entries()) {
+    const site = sites[slug];
+    if (!meta.prodUrl || !site?.host) continue;
+    let declaredHost;
+    try {
+      declaredHost = new URL(meta.prodUrl).host;
+    } catch {
+      errors.push(
+        `${SOURCE_OF_TRUTH}: "${slug}" has an unparseable prodUrl ${meta.prodUrl}.`,
+      );
+      continue;
+    }
+    if (declaredHost !== site.host) {
+      errors.push(
+        `${SOURCE_OF_TRUTH}: "${slug}" declares prodUrl host ${declaredHost}, ` +
+          `but ${PRODUCTION_SITES_PATH} deploys it to ${site.host}. ` +
+          `Sign-in redirects and email links use the declared host, so these must match.`,
+      );
+    }
+  }
+}
+
 const TEMPLATE_CARD_PATH = "packages/docs/app/components/TemplateCard.tsx";
 {
   const src = fs.readFileSync(path.join(repoRoot, TEMPLATE_CARD_PATH), "utf-8");
@@ -123,8 +117,6 @@ const TEMPLATE_CARD_PATH = "packages/docs/app/components/TemplateCard.tsx";
   }
 }
 
-// ── 3. Docs sidebar (docsNavItems.ts) must only contain allowed slugs and
-// must point at docs pages, not the public template landing pages.
 const DOCS_NAV_PATH = "packages/docs/app/components/docsNavItems.ts";
 {
   const src = fs.readFileSync(path.join(repoRoot, DOCS_NAV_PATH), "utf-8");
@@ -155,7 +147,6 @@ const DOCS_NAV_PATH = "packages/docs/app/components/docsNavItems.ts";
   }
 }
 
-// ── 4. Docs pages (template-*.(mdx|md)) must only exist for allowed slugs.
 const DOCS_CONTENT_DIR = "packages/core/docs/content";
 {
   const dir = path.join(repoRoot, DOCS_CONTENT_DIR);
@@ -172,9 +163,6 @@ const DOCS_CONTENT_DIR = "packages/core/docs/content";
   }
 }
 
-// ── 5. Public hosted template apps must keep GA wired in their Netlify build
-// config. The shared Vite plugin bakes this public value into the SSR bundle so
-// the serverless runtime does not depend on netlify.toml env visibility.
 for (const slug of allowed) {
   const relPath = path.join("templates", slug, "netlify.toml");
   const absPath = path.join(repoRoot, relPath);

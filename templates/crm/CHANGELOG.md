@@ -1,25 +1,117 @@
 # CRM changelog
 
+## 2026-10-09
+
+### Improved
+
+- Ask chats open on their own shareable URL at /ask/<id>, and /ask always starts a blank chat.
+
+## 2026-10-08
+
+### Improved
+
+- A new Ask chat shows its heading and prompt immediately while existing chat history loads.
+
+## 2026-10-06
+
+### Fixed
+
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Cross-app automation activation now asks Clips to confirm changes locally; approval in CRM no longer travels as an A2A action grant.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-09-29
+
+### Improved
+
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
+## 2026-09-28
+
+### Improved
+
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- Ask CRM now starts with a focused title.
+
+## 2026-09-27
+
+### Fixed
+
+- Custom CRM field labels and settings stay unchanged when records update
+
+## 2026-08-11
+
+### Improved
+
+- Full-page chat composers stay at a focused 750px width.
+
+### Fixed
+
+- Chrome no longer offers to install CRM as a desktop app.
+
+## 2026-08-10
+
+### Improved
+
+- Full-page chat now uses the available width up to 1000px for more comfortable prompts and responses.
+
+## 2026-08-07
+
+### Improved
+
+- CRM settings show stable skeleton placeholders while lists, fields, connections, and intelligence trackers load.
+
+## 2026-08-06
+
+### Improved
+
+- CRM starts faster after a deploy or idle period — one-time data backfills now run once as tracked migrations instead of on every cold start.
+
+## 2026-07-29
+
+### Improved
+
+- Sidebar footers now keep Feedback, Search, and Collapse together, with language preferences available in Settings.
+
 ## 2026-07-26
 
 ### Added
 
-- CRM connects to HubSpot for scoped account intelligence, saved views, follow-up tasks, evidence, and approval-gated write proposals.
-- CRM can prepare a record-scoped, default-off Clips review recipe while keeping media and transcripts in Clips.
-- CRM can now find and review evidence-grounded call signals without storing transcripts or media.
-- Approved sales automations can now update routine local CRM fields while provider changes remain reviewable proposals.
-- CRM can now run as a standalone Native SQL system for accounts, people, opportunities, views, tasks, and cadence without an external provider.
-- Pipeline now gives each CRM user a live, permission-aware view of opportunity value by stage.
-- CRM can now connect to Salesforce alongside HubSpot for scoped account intelligence and follow-up work.
+- Any list or view can be shown as a board grouped by stage, so a pipeline can be dragged through its stages instead of edited row by row.
+- CRM now finds likely duplicate records and tells you exactly why each pair matched, then merges them into the record you choose without losing anything from either side.
+- Enrichment now shows what a run will cost before it starts, gathers free evidence first, and only spends on the records you approved.
+- Lists turn any set of records into a pipeline with its own stage and fields, and they stay yours even when the records come from HubSpot or Salesforce.
+- Opening a record now shows one page with its fields, the lists it belongs to, its activity and evidence, and the full change history of any single value.
+- Press Cmd+K to jump to any record, list, view or setting, and use keyboard shortcuts to move through the grid without reaching for the mouse.
+- Record reference fields like Account can now be linked from the record page: search records in a popover and see the link as a chip you can remove.
+- Records now use typed fields — currency, dates, ratings, status, select, references and more — and every field remembers who changed it, when, and what it was before.
+- Settings now has Fields and Lists tabs for adding fields, editing their allowed options and stage targets, and archiving what you no longer use.
+- The record grid is now a real spreadsheet: filter, sort and page over the full data set, edit in place, and copy or paste ranges straight to a spreadsheet.
 
 ### Improved
 
-- CRM can now manage keyword and smart call-signal trackers from Intelligence settings.
+- Provider record edits now show an exact before/after diff and open the record in HubSpot or Salesforce to finish the change, instead of reporting a failure
+- Record page attribute labels now read in full instead of being cut off, and the Highlights panel starts from a curated set per record type.
 
 ### Fixed
 
-- Pipeline dashboards now install correctly from the CRM action CLI.
-- CRM field validation now explains which fields cannot be edited instead of showing a generic error.
-- Fixed HubSpot contact syncs missing records updated after the sync cursor.
-- Fixed Pipeline dashboard panels so their opportunity data loads reliably.
-- Full-page chat keeps the active conversation when moving to and from the sidebar.
+- A half-typed number or date no longer saves as empty — the field says it cannot read the value and keeps what the record already had.
+- A new pipeline board now opens with stage columns, a summable amount, and each card's values copied from the record it was added from
+- Moving a record or list entry into a stage that was retired or never declared is now refused with the reason and the stages you can pick, and a stage somebody else moved in the meantime is reported instead of being overwritten
+- Retyping a record field now replaces the old value instead of appending to it, wherever the field is edited.
+- Retyping a value on the record page now replaces it instead of merging with the old text.
+- The proposal review now shows the field that actually changed instead of reading "Empty" on both sides.
+
+For the full list of updates, see the [changelog folder](./changelog/).

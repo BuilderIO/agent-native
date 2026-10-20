@@ -36,7 +36,7 @@ Analytics result or direct the user to an Extensions page.
 
 ### Step 1: Understand the Question (catalog-first, clarify-first)
 
-Orient before gathering data. Consult the injected `<data-dictionary>` and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
+Orient before gathering data. Consult the preloaded `<resource scope="analytics-catalog">` references (else one `find-data`) and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
 
 - What is being analyzed? (deals, users, campaigns, errors, etc.)
 - What time range?
@@ -63,7 +63,7 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 **Tips for data gathering:**
 
 - Start with the primary source (e.g., HubSpot for deals), then enrich with secondary sources
-- For named deal/account deep dives, call `account-deep-dive` first with the
+- For the CRM side of named deal/account deep dives, call `account-deep-dive` first (ask what was said in Gong calls with `run-gong-native-insight`) with the
   account, company, domain, deal, or opportunity name. It returns HubSpot deals,
   associated companies/contacts/tickets/notes/emails, Gong call detail, compact
   transcript excerpts, coverage counts, and gaps. Use targeted `hubspot-records`
@@ -98,28 +98,42 @@ Don't just dump raw data. Synthesize findings:
 - Make the evidence trail explicit enough to audit: source(s), time window,
   filters, sample size or row count, join/match method, caveats/gaps, and
   recommended next action when useful.
+- Unstructured source records (Pylon tickets, Jira issues, Gong calls and
+  transcripts, Slack messages) are valid evidence: code them for themes, mention
+  counts, sentiment, and objections, state the inspected sample size, and do not
+  imply unsupported statistical certainty.
+- The words all, total, or exact do not by themselves call for cross-source
+  validation when one structured query fully covers the requested source and
+  filters.
+- If the user challenges coverage, asks why more records were not included, or
+  asks for the updated answer, rerun the source query or revise from the
+  corrected cohort and put the updated answer in the response. Do not claim a
+  dashboard was revised unless the revised answer is saved with
+  `update-dashboard` or `mutate-dashboard`.
 
 ### Step 4: Generate Charts (when useful)
 
-When the analysis benefits from a visual — trends over time, distributions, comparisons between categories — call `generate-chart` before formatting the report. The action returns a `url` you embed directly in the markdown.
+When the analysis benefits from a visual — trends over time, distributions, or
+comparisons between categories — query the data first, then use the live
+`/chart` embed described in `data-querying` for an in-chat answer. Do not call
+`generate-chart` for a one-off chat result: it produces a static image for
+saved artifacts, requires pre-stringified JSON, and does not count as a real
+data query for the final response guard.
 
-```
-generate-chart
-  --title "Closed-lost deals by month"
-  --type bar
-  --labels '["Jan","Feb","Mar"]'
-  --data '[18, 22, 14]'
-```
+For a stacked multi-series bar chart, keep the query in long form and emit a
+panel with `chartType: "bar"`, `config.pivot` containing `xKey`, `seriesKey`,
+and `valueKey`, plus `config.stacked: true`. The live chart route pivots the
+rows and renders one stack per x-axis category. See `data-querying`'s
+"Inline Charts In Chat" section for the exact `embed` fence and encoding.
 
-Embed the returned URL in `resultMarkdown` using standard markdown image syntax:
+Only use `generate-chart` when a saved analysis artifact explicitly needs a
+static image. If it returns an error while answering in chat, switch to the
+live embed instead of retrying reformatted `labels` or `data` parameters.
 
-```markdown
-![Closed-lost deals by month](/api/media/closed-lost-deals-by-month-1234567890.png?v=1234567890)
-```
-
-You can include multiple charts in one analysis. Reach for a chart when it communicates the finding faster than a table — don't force visuals on every analysis.
-
-Include the re-generation step in your saved `instructions` so re-runs produce fresh charts.
+You can include multiple live charts in one analysis. Reach for a chart when it
+communicates the finding faster than a table - don't force visuals on every
+analysis. Include the query and embed configuration in saved `instructions` so
+re-runs produce fresh charts.
 
 ### Step 5: Format Results as Markdown
 
@@ -251,8 +265,13 @@ iteration independent.
 
 ## After Completing an Analysis — Record Discoveries
 
-After completing a significant analysis, update `LEARNINGS.md` (via the
-`resources` tool) or `save-memory` with newly confirmed:
+After completing a significant analysis, record newly confirmed findings when
+they will help future work. First check whether a finding applies to the user's
+setup or to the whole organization. Keep setup-specific findings in personal
+memory or the current analysis. Ask the user and get approval before writing
+anything to shared `LEARNINGS.md` or organization memory.
+
+Record approved findings such as:
 
 - Metric definitions (how a metric is actually calculated in this dataset)
 - Provider gotchas discovered during the analysis

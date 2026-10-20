@@ -1,3 +1,4 @@
+import { useRoute, type RouteProp } from "@react-navigation/native";
 import {
   IconCheck,
   IconChevronLeft,
@@ -6,7 +7,6 @@ import {
   IconShare,
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
-import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -36,6 +36,7 @@ import {
   publishKeyboardDictation,
 } from "@/lib/ios-companion";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
+import { useMobileNavigation, type RootStackParamList } from "@/lib/navigation";
 import { persistCaptureFile } from "@/lib/persist-capture";
 import {
   saveMobileDictation,
@@ -47,11 +48,9 @@ import {
 type Phase = "capture" | "transcribing" | "review";
 
 export default function DictationCaptureScreen() {
-  const router = useRouter();
-  const params = useLocalSearchParams<{
-    requestId?: string | string[];
-    source?: string | string[];
-  }>();
+  const navigation = useMobileNavigation();
+  const { params = {} } =
+    useRoute<RouteProp<RootStackParamList, "CaptureDictate">>();
   const routeKeyboardRequestId =
     params.source === "keyboard" &&
     typeof params.requestId === "string" &&
@@ -249,7 +248,7 @@ export default function DictationCaptureScreen() {
       >
         <AudioCaptureView
           kind="dictation"
-          onCancel={() => router.back()}
+          onCancel={navigation.back}
           onCaptured={handleCaptured}
         />
       </SafeAreaView>
@@ -270,7 +269,7 @@ export default function DictationCaptureScreen() {
             accessibilityLabel="Close dictation"
             accessibilityRole="button"
             hitSlop={10}
-            onPress={() => router.replace("/" as never)}
+            onPress={() => navigation.replace("/")}
             className="items-center h-11 justify-center w-11 active:opacity-75"
           >
             <IconChevronLeft color="#f4f4f5" size={24} />
@@ -308,7 +307,7 @@ export default function DictationCaptureScreen() {
               {text ? (
                 <View className="items-center bg-primary rounded-xl flex-row gap-1 px-2.25 py-1.5">
                   <IconCheck color="#0b0b0c" size={14} strokeWidth={2.5} />
-                  <Text className="text-background-dark text-xs font-bold">
+                  <Text className="text-primary-foreground text-xs font-bold">
                     Copied
                   </Text>
                 </View>
@@ -334,7 +333,7 @@ export default function DictationCaptureScreen() {
                 onChangeText={setText}
                 placeholder="Your transcript"
                 placeholderTextColor="#52525b"
-                selectionColor="#c7f36b"
+                selectionColor="#d4d4d8"
                 className="bg-card-dark border border-border-dark rounded-2xl text-text-light flex-1 text-lg leading-6 mt-3.5 p-4"
                 textAlignVertical="top"
                 value={text}
@@ -356,7 +355,7 @@ export default function DictationCaptureScreen() {
                   className="items-center bg-primary rounded-3xl flex-row gap-2 mt-4.5 h-11 px-4.5 active:opacity-75"
                 >
                   <IconRefresh color="#0b0b0c" size={19} />
-                  <Text className="text-background-dark text-sm font-bold">
+                  <Text className="text-primary-foreground text-sm font-bold">
                     Retry
                   </Text>
                 </Pressable>
@@ -390,7 +389,7 @@ export default function DictationCaptureScreen() {
                   ) : (
                     <IconClipboard color="#0b0b0c" size={20} />
                   )}
-                  <Text className="text-background-dark text-base font-bold">
+                  <Text className="text-primary-foreground text-base font-bold">
                     {needsHistoryRetry ? "Copy & Retry" : "Copy"}
                   </Text>
                 </Pressable>

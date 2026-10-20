@@ -4,28 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * Regression guard for the dev-only "server code in the browser" crash.
- *
- * Root cause history: `@agent-native/core/feature-flags` (the server barrel)
- * value-re-exports `store.ts`, which reaches `settings/store` → `db/client` →
- * `request-telemetry`. When app-shared config (imported by client routes)
- * pulled definitions from that barrel, Vite's dev server (no tree-shaking)
- * evaluated the whole server chain in the browser. `request-telemetry`'s
- * top-level `new AsyncLocalStorage()` and `settings/store`'s top-level
- * `new EventEmitter()` then threw against Vite's externalized node-builtin
- * stubs and broke the app on load.
- *
- * Two invariants keep it fixed:
- *  1. `feature-flags/registry.ts` (the client-safe definition entry that
- *     app-shared config imports) must never statically reach the server layer
- *     (`db/`, `settings/`, `server/`, or the feature-flags server modules) or a
- *     Node builtin.
- *  2. The modules that legitimately touch Node builtins in a possibly-browser
- *     graph must not statically value-import them (only `import type`), so the
- *     module can be evaluated anywhere without tripping the externalized stub.
- */
-
 const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const NODE_BUILTINS = new Set([
@@ -70,11 +48,6 @@ function isNodeBuiltin(spec: string): boolean {
   return NODE_BUILTINS.has(spec);
 }
 
-/**
- * Runtime (non-type) static import / re-export specifiers. Whole-statement
- * `import type` / `export type` is skipped (erased at build); dynamic
- * `import()` is intentionally skipped (it does not force eager evaluation).
- */
 function staticSpecifiers(code: string): string[] {
   const specs: string[] = [];
   const fromRe =
@@ -172,6 +145,24 @@ describe("feature-flags/registry is a browser-safe leaf", () => {
       builtinHits.map((h) => `${rel(h.file)} -> ${h.spec}`),
       "registry.ts must stay free of node: builtins",
     ).toEqual([]);
+  });
+});
+
+describe("feature-flags public barrel stays off the HMAC path", () => {
+  const entry = join(SRC_DIR, "feature-flags", "index.ts");
+
+  it("does not re-export plugin or A2A auth", () => {
+    const specs = staticSpecifiers(readFileSync(entry, "utf8"));
+    expect(specs).not.toContain("./plugin.js");
+    expect(specs).not.toContain("./a2a-action-route.js");
+  });
+
+  it("does not statically reach integrations/internal-token", () => {
+    const { visited } = walkGraph(entry);
+    expect(
+      [...visited].map(rel),
+      "the public barrel must not pull Node HMAC into Vite client graphs",
+    ).not.toContain("integrations/internal-token.ts");
   });
 });
 

@@ -1,14 +1,20 @@
 import {
+  isDesignSystemCodeIndexingAllowed,
+  isDesignSystemTierAtMax,
+  readDesignSystemTierLimitFailure,
+  type DesignSystemTierLimit,
+} from "@agent-native/core/client/design-system-tier-limit";
+import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openAgentSidebar } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@agent-native/toolkit/app-shell";
+import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -19,10 +25,10 @@ import {
   IconWorld,
   IconFileDescription,
   IconPhoto,
-  IconPalette,
+  IconComponents,
   IconCheck,
   IconExternalLink,
-  IconChevronDown,
+  IconLock,
 } from "@tabler/icons-react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
@@ -32,17 +38,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { useDesignSystemWorkflowsState } from "@/hooks/use-design-system-workflows";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   uploadAndIndexFigmaFiles,
   pollDecodeJobStatus,
   type DecodeJobStatus,
 } from "@/lib/builder-design-system-upload";
-import { cn } from "@/lib/utils";
+
+import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 
 interface GitHubLink {
   id: string;
   url: string;
+  ref?: string;
+  include?: string[];
 }
 
 interface UploadedFile {
@@ -53,7 +63,15 @@ interface UploadedFile {
   textContent?: string;
 }
 
-type OtherSource = "brand" | "code" | "files" | "existing" | "notes";
+type OtherSource =
+  | "brand"
+  | "code"
+  | "design-md"
+  | "files"
+  | "existing"
+  | "notes";
+
+type BuilderIndexInputSource = "figma" | "github" | "design-md";
 
 interface BuilderIndexResult {
   ok: boolean;
@@ -69,7 +87,76 @@ interface BuilderIndexResult {
   instructions?: string;
 }
 
+interface BuilderIndexInput {
+  projectName?: string;
+  description?: string;
+  githubRepoUrl?: string;
+  githubSources?: Array<{
+    repoUrl: string;
+    ref?: string;
+    include?: string[];
+    exclude?: string[];
+  }>;
+  connectedProjectId?: string;
+  codeFiles?: Array<{
+    filename: string;
+    content: string;
+    mimeType?: string;
+    encoding?: "utf8" | "base64";
+  }>;
+  designMd?: string;
+}
+
+const MAX_INLINE_DESIGN_MD_BYTES = 2 * 1024 * 1024;
+
+function isDesignSystemNameConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errorCode" in error &&
+    error.errorCode === "design_system_name_conflict"
+  );
+}
+
+function designSystemIndexFailureMessage(
+  error: unknown,
+  fallbackMessage: string,
+  nameConflictMessage: string,
+): { message: string; upgradeUrl: string | null } {
+  const tierLimit = readDesignSystemTierLimitFailure(error, fallbackMessage);
+  if (tierLimit) {
+    return { message: tierLimit.message, upgradeUrl: tierLimit.upgradeUrl };
+  }
+  return {
+    message: isDesignSystemNameConflict(error)
+      ? nameConflictMessage
+      : error instanceof Error
+        ? error.message
+        : fallbackMessage,
+    upgradeUrl: null,
+  };
+}
+
 export default function DesignSystemSetup() {
+  const workflowsState = useDesignSystemWorkflowsState();
+  const t = useT();
+  return workflowsState.status === "ready" && workflowsState.enabled ? (
+    <DesignSystemSetupContent />
+  ) : (
+    <div className="flex flex-wrap items-center gap-2">
+      {workflowsState.status === "ready" && !workflowsState.enabled ? (
+        <JoinDesignSystemWaitlistButton />
+      ) : null}
+      <Button asChild variant="outline">
+        <Link to="/design-systems">
+          {t("designSystemSetup.backToDesignSystems")}
+        </Link>
+      </Button>
+    </div>
+  );
+}
+
+function DesignSystemSetupContent() {
   const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -79,8 +166,11 @@ export default function DesignSystemSetup() {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [websiteUrls, setWebsiteUrls] = useState<string[]>([]);
   const [githubUrl, setGithubUrl] = useState("");
+  const [githubRef, setGithubRef] = useState("");
+  const [githubPaths, setGithubPaths] = useState("");
   const [githubLinks, setGithubLinks] = useState<GitHubLink[]>([]);
   const [codeFiles, setCodeFiles] = useState<UploadedFile[]>([]);
+  const [designMdFiles, setDesignMdFiles] = useState<UploadedFile[]>([]);
   const [docFiles, setDocFiles] = useState<UploadedFile[]>([]);
   const [imageFiles, setImageFiles] = useState<UploadedFile[]>([]);
   const [assets, setAssets] = useState<UploadedFile[]>([]);
@@ -88,32 +178,48 @@ export default function DesignSystemSetup() {
   const [notes, setNotes] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [sourcePanel, setSourcePanel] = useState<"figma" | "other">("figma");
+  const [tierLimitUpgradeUrl, setTierLimitUpgradeUrl] = useState<string | null>(
+    null,
+  );
+  const [sourcePanel, setSourcePanel] = useState<"figma" | "other">("other");
   const [otherSource, setOtherSource] = useState<OtherSource | null>(null);
+
+  const { data: tierLimit } = useActionQuery<DesignSystemTierLimit>(
+    "get-design-system-tier-limit",
+  );
+  const atMax = isDesignSystemTierAtMax(tierLimit);
+  const codeIndexingAllowed = isDesignSystemCodeIndexingAllowed(tierLimit);
 
   const docInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
+  const designMdInputRef = useRef<HTMLInputElement>(null);
+  const designMdUploadGenerationRef = useRef(0);
   const appliedSourceIdRef = useRef<string | null>(null);
 
   const { data: designsData } = useActionQuery<{
     designs: Array<{ id: string; title: string; designSystemId?: string }>;
-  }>("list-designs");
+  }>("list-designs", { includeAll: true });
 
   const { data: designSystemsData } = useActionQuery<{
     designSystems: Array<{ id: string; title: string }>;
   }>("list-design-systems");
   const updateSystemMutation = useActionMutation("update-design-system");
+  const indexSystemMutation = useActionMutation<
+    BuilderIndexResult,
+    BuilderIndexInput
+  >("index-design-system-with-builder");
 
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];
 
-  // --- Figma .fig import (Builder design-system indexing) -----------------
   const realFigInputRef = useRef<HTMLInputElement>(null);
   const [builderIndexing, setBuilderIndexing] = useState(false);
   const [builderIndexResult, setBuilderIndexResult] =
     useState<BuilderIndexResult | null>(null);
+  const [builderIndexInputSource, setBuilderIndexInputSource] =
+    useState<BuilderIndexInputSource | null>(null);
   const [builderIndexError, setBuilderIndexError] = useState<string | null>(
     null,
   );
@@ -174,10 +280,8 @@ export default function DesignSystemSetup() {
     [],
   );
 
-  const handleBuilderIndexUpload = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
+  const processBuilderIndexFile = useCallback(
+    async (file: File | undefined) => {
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
         setBuilderIndexError(t("designSystemSetup.errors.chooseFig"));
@@ -185,6 +289,8 @@ export default function DesignSystemSetup() {
       }
       setBuilderIndexError(null);
       setBuilderIndexResult(null);
+      setBuilderIndexInputSource("figma");
+      setTierLimitUpgradeUrl(null);
       stopDecodePolling();
       setDecodeStatus(null);
       setBuilderIndexing(true);
@@ -205,15 +311,41 @@ export default function DesignSystemSetup() {
           setBuilderIndexing(false);
         }
       } catch (err) {
-        setBuilderIndexError(
-          err instanceof Error
-            ? err.message
-            : t("designSystemSetup.errors.parseFig"),
+        const failure = designSystemIndexFailureMessage(
+          err,
+          t("designSystemSetup.errors.parseFig"),
+          t("designSystemSetup.errors.nameConflict"),
         );
+        if (failure.upgradeUrl) {
+          setValidationError(failure.message);
+          setTierLimitUpgradeUrl(failure.upgradeUrl);
+          setBuilderIndexError(null);
+        } else {
+          setBuilderIndexError(failure.message);
+          setValidationError(null);
+          setTierLimitUpgradeUrl(null);
+        }
         setBuilderIndexing(false);
       }
     },
     [companyInfo, t, startDecodePolling, stopDecodePolling],
+  );
+
+  const handleBuilderIndexUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      void processBuilderIndexFile(e.target.files?.[0]);
+      e.target.value = "";
+    },
+    [processBuilderIndexFile],
+  );
+
+  const handleBuilderIndexDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void processBuilderIndexFile(e.dataTransfer.files?.[0]);
+    },
+    [processBuilderIndexFile],
   );
 
   useEffect(() => {
@@ -223,24 +355,27 @@ export default function DesignSystemSetup() {
       existingProjects.some((project) => project.id === sourceId);
     if (!sourceExists) return;
     setSelectedProjectId(sourceId);
+    setSourcePanel("other");
+    setOtherSource("existing");
     appliedSourceIdRef.current = sourceId;
   }, [sourceId, existingProjects, existingSystems]);
 
   const hasAnySources = useMemo(() => {
-    return (
+    return Boolean(
       companyInfo.trim() ||
       websiteUrl.trim() ||
       websiteUrls.length > 0 ||
       githubUrl.trim() ||
       githubLinks.length > 0 ||
       codeFiles.length > 0 ||
+      designMdFiles.length > 0 ||
       builderIndexResult ||
       docFiles.length > 0 ||
       imageFiles.length > 0 ||
       assets.length > 0 ||
       selectedProjectId ||
       notes.trim() ||
-      customInstructions.trim()
+      customInstructions.trim(),
     );
   }, [
     companyInfo,
@@ -249,6 +384,7 @@ export default function DesignSystemSetup() {
     githubUrl,
     githubLinks,
     codeFiles,
+    designMdFiles,
     builderIndexResult,
     docFiles,
     imageFiles,
@@ -260,7 +396,7 @@ export default function DesignSystemSetup() {
 
   const selectOtherSource = useCallback((source: OtherSource) => {
     setSourcePanel("other");
-    setOtherSource((current) => (current === source ? null : source));
+    setOtherSource(source);
   }, []);
 
   const addWebsiteUrl = useCallback(() => {
@@ -288,10 +424,24 @@ export default function DesignSystemSetup() {
       setValidationError(t("designSystemSetup.errors.githubUrl"));
       return;
     }
-    setGithubLinks((prev) => [...prev, { id: crypto.randomUUID(), url }]);
+    const include = githubPaths
+      .split(/[\n,]/)
+      .map((path) => path.trim().replace(/^\/+|\/+$/g, ""))
+      .filter(Boolean);
+    setGithubLinks((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        url,
+        ...(githubRef.trim() ? { ref: githubRef.trim() } : {}),
+        ...(include.length > 0 ? { include: [...new Set(include)] } : {}),
+      },
+    ]);
     setGithubUrl("");
+    setGithubRef("");
+    setGithubPaths("");
     setValidationError(null);
-  }, [githubUrl, t]);
+  }, [githubPaths, githubRef, githubUrl, t]);
 
   const removeGithubLink = useCallback((id: string) => {
     setGithubLinks((prev) => prev.filter((l) => l.id !== id));
@@ -330,7 +480,7 @@ export default function DesignSystemSetup() {
         newFiles.push(file);
       });
 
-      Promise.all(promises).then(() => {
+      void Promise.all(promises).then(() => {
         setter((prev) => [...prev, ...newFiles]);
       });
     },
@@ -346,49 +496,140 @@ export default function DesignSystemSetup() {
     [readTextFiles],
   );
 
-  const handleDocUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newFiles: UploadedFile[] = Array.from(e.target.files).map((f) => ({
+  const processDesignMdFile = useCallback(
+    (file: File | undefined) => {
+      if (!file) return;
+      const uploadGeneration = ++designMdUploadGenerationRef.current;
+      setDesignMdFiles([]);
+      if (!isMarkdownFile({ name: file.name })) {
+        setValidationError(t("designSystemSetup.errors.chooseDesignMd"));
+        return;
+      }
+      if (file.size > MAX_INLINE_DESIGN_MD_BYTES) {
+        setValidationError(t("designSystemSetup.errors.designMdTooLarge"));
+        return;
+      }
+      const uploadedFile: UploadedFile = {
         id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type || f.name.split(".").pop() || "",
-        size: f.size,
-      }));
-      setDocFiles((prev) => [...prev, ...newFiles]);
+        name: file.name,
+        type: file.type || "text/markdown",
+        size: file.size,
+      };
+      file
+        .text()
+        .then((text) => {
+          if (designMdUploadGenerationRef.current !== uploadGeneration) {
+            return;
+          }
+          setDesignMdFiles([{ ...uploadedFile, textContent: text }]);
+          setValidationError(null);
+        })
+        .catch(() => {
+          if (designMdUploadGenerationRef.current !== uploadGeneration) {
+            return;
+          }
+          setValidationError(t("designSystemSetup.errors.readDesignMd"));
+        });
+    },
+    [t],
+  );
+
+  const handleDesignMdUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      processDesignMdFile(e.target.files?.[0]);
       e.target.value = "";
     },
-    [],
+    [processDesignMdFile],
   );
+
+  const handleDesignMdDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processDesignMdFile(e.dataTransfer.files?.[0]);
+    },
+    [processDesignMdFile],
+  );
+
+  const processDocFiles = useCallback((files: FileList) => {
+    const newFiles: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type || f.name.split(".").pop() || "",
+      size: f.size,
+    }));
+    setDocFiles((prev) => [...prev, ...newFiles]);
+  }, []);
+
+  const handleDocUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files) processDocFiles(e.target.files);
+      e.target.value = "";
+    },
+    [processDocFiles],
+  );
+
+  const handleDocDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processDocFiles(e.dataTransfer.files);
+    },
+    [processDocFiles],
+  );
+
+  const processImageFiles = useCallback((files: FileList) => {
+    const newFiles: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type,
+      size: f.size,
+    }));
+    setImageFiles((prev) => [...prev, ...newFiles]);
+  }, []);
 
   const handleImageUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newFiles: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      }));
-      setImageFiles((prev) => [...prev, ...newFiles]);
+      if (e.target.files) processImageFiles(e.target.files);
       e.target.value = "";
     },
-    [],
+    [processImageFiles],
   );
+
+  const handleImageDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processImageFiles(e.dataTransfer.files);
+    },
+    [processImageFiles],
+  );
+
+  const processAssetFiles = useCallback((files: FileList) => {
+    const newAssets: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type,
+      size: f.size,
+    }));
+    setAssets((prev) => [...prev, ...newAssets]);
+  }, []);
 
   const handleAssetUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newAssets: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      }));
-      setAssets((prev) => [...prev, ...newAssets]);
+      if (e.target.files) processAssetFiles(e.target.files);
       e.target.value = "";
     },
-    [],
+    [processAssetFiles],
+  );
+
+  const handleAssetDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processAssetFiles(e.dataTransfer.files);
+    },
+    [processAssetFiles],
   );
 
   const handleFolderDrop = useCallback(
@@ -421,15 +662,118 @@ export default function DesignSystemSetup() {
     const normalizedWebsiteUrls = pendingWebsiteUrl
       ? [...websiteUrls, pendingWebsiteUrl]
       : websiteUrls;
+    const pendingGithubInclude = githubPaths
+      .split(/[\n,]/)
+      .map((path) => path.trim().replace(/^\/+|\/+$/g, ""))
+      .filter(Boolean);
     const normalizedGithubLinks = pendingGithubUrl
-      ? [...githubLinks, { id: "pending", url: pendingGithubUrl }]
+      ? [
+          ...githubLinks,
+          {
+            id: "pending",
+            url: pendingGithubUrl,
+            ...(githubRef.trim() ? { ref: githubRef.trim() } : {}),
+            ...(pendingGithubInclude.length > 0
+              ? { include: [...new Set(pendingGithubInclude)] }
+              : {}),
+          },
+        ]
       : githubLinks;
+
+    const isGithubOnlySource =
+      normalizedGithubLinks.length > 0 &&
+      normalizedWebsiteUrls.length === 0 &&
+      codeFiles.length === 0 &&
+      designMdFiles.length === 0 &&
+      !builderIndexResult &&
+      docFiles.length === 0 &&
+      imageFiles.length === 0 &&
+      assets.length === 0 &&
+      !selectedProjectId;
+
+    if (isGithubOnlySource) {
+      setValidationError(null);
+      setTierLimitUpgradeUrl(null);
+      try {
+        const result = await indexSystemMutation.mutateAsync({
+          projectName: companyInfo.trim() || undefined,
+          description:
+            [notes.trim(), customInstructions.trim()]
+              .filter(Boolean)
+              .join("\n\n") || undefined,
+          githubSources: normalizedGithubLinks.map((link) => ({
+            repoUrl: link.url,
+            ...(link.ref ? { ref: link.ref } : {}),
+            ...(link.include?.length ? { include: link.include } : {}),
+          })),
+        });
+        setBuilderIndexInputSource("github");
+        setBuilderIndexResult(result);
+        toast.success(t("designSystemSetup.githubIndexStarted"));
+      } catch (error) {
+        const failure = designSystemIndexFailureMessage(
+          error,
+          t("designSystemSetup.errors.githubIndex"),
+          t("designSystemSetup.errors.nameConflict"),
+        );
+        setValidationError(failure.message);
+        setTierLimitUpgradeUrl(failure.upgradeUrl);
+      }
+      return;
+    }
+
     const readableCodeFiles = codeFiles.filter((f) => f.textContent);
-    const designMdFiles = readableCodeFiles.filter(isDesignMdFile);
+    const codeDesignMdFiles = readableCodeFiles.filter(isDesignMdFile);
     const builderCodeFiles = readableCodeFiles.filter(
       (file) => !isDesignMdFile(file),
     );
     const unreadableCodeFiles = codeFiles.filter((f) => !f.textContent);
+    const readableDesignMdFiles = designMdFiles.filter(
+      (file) => file.textContent,
+    );
+
+    if (designMdFiles.length > 0 && readableDesignMdFiles.length === 0) {
+      setValidationError(t("designSystemSetup.errors.readDesignMd"));
+      return;
+    }
+
+    const isDesignMdOnlySource =
+      readableDesignMdFiles.length > 0 &&
+      normalizedGithubLinks.length === 0 &&
+      normalizedWebsiteUrls.length === 0 &&
+      codeFiles.length === 0 &&
+      !builderIndexResult &&
+      docFiles.length === 0 &&
+      imageFiles.length === 0 &&
+      assets.length === 0 &&
+      !selectedProjectId;
+
+    if (isDesignMdOnlySource) {
+      setValidationError(null);
+      setTierLimitUpgradeUrl(null);
+      try {
+        const result = await indexSystemMutation.mutateAsync({
+          projectName: companyInfo.trim() || undefined,
+          description:
+            [notes.trim(), customInstructions.trim()]
+              .filter(Boolean)
+              .join("\n\n") || undefined,
+          designMd: readableDesignMdFiles[0]?.textContent,
+        });
+        setBuilderIndexInputSource("design-md");
+        setBuilderIndexResult(result);
+        toast.success(t("designSystemSetup.designMdIndexStarted"));
+      } catch (error) {
+        const failure = designSystemIndexFailureMessage(
+          error,
+          t("designSystemSetup.errors.designMdIndex"),
+          t("designSystemSetup.errors.nameConflict"),
+        );
+        setValidationError(failure.message);
+        setTierLimitUpgradeUrl(failure.upgradeUrl);
+      }
+      return;
+    }
 
     const parts: string[] = [];
     parts.push(
@@ -450,7 +794,15 @@ export default function DesignSystemSetup() {
 
     if (normalizedGithubLinks.length > 0) {
       parts.push(
-        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings instead of asking me to paste repository credentials into chat.`,
+        `\n## Connect Code: GitHub Repositories\nMake one call to \`index-design-system-with-builder\` with \`githubSources\` set to this JSON array:\n\n\`\`\`json\n${JSON.stringify(
+          normalizedGithubLinks.map((link) => ({
+            repoUrl: link.url,
+            ...(link.ref ? { ref: link.ref } : {}),
+            ...(link.include?.length ? { include: link.include } : {}),
+          })),
+          null,
+          2,
+        )}\n\`\`\`\n\nBuilder is the source of truth for repo/code design-system indexing. The action creates one local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to use Builder.io (free tier available) from Settings instead of asking me to paste repository credentials into chat.`,
       );
     }
 
@@ -465,11 +817,11 @@ export default function DesignSystemSetup() {
           );
         }
       }
-      if (designMdFiles.length > 0) {
+      if (codeDesignMdFiles.length > 0) {
         parts.push(
-          `\n## Optional design.md (${designMdFiles.length} file${designMdFiles.length === 1 ? "" : "s"})\nPass this content as the \`designMd\` argument to \`index-design-system-with-builder\` alongside any Figma/code sources:`,
+          `\n## Optional design.md (${codeDesignMdFiles.length} file${codeDesignMdFiles.length === 1 ? "" : "s"})\nPass this content as the \`designMd\` argument to \`index-design-system-with-builder\` alongside any Figma/code sources:`,
         );
-        for (const f of designMdFiles) {
+        for (const f of codeDesignMdFiles) {
           parts.push(
             `\n### ${f.name}\n\`\`\`md\n${f.textContent!.slice(0, 5000)}\n\`\`\``,
           );
@@ -478,6 +830,17 @@ export default function DesignSystemSetup() {
       if (unreadableCodeFiles.length > 0) {
         parts.push(
           `\nBinary code files (could not read):\n${unreadableCodeFiles.map((f) => `- ${f.name}`).join("\n")}`,
+        );
+      }
+    }
+
+    if (designMdFiles.length > 0) {
+      parts.push(
+        `\n## design.md\nPass this content as the \`designMd\` argument to \`index-design-system-with-builder\` alongside any Figma/code sources:`,
+      );
+      for (const f of readableDesignMdFiles) {
+        parts.push(
+          `\n### ${f.name}\n\`\`\`md\n${f.textContent!.slice(0, 5000)}\n\`\`\``,
         );
       }
     }
@@ -548,28 +911,35 @@ export default function DesignSystemSetup() {
     }
 
     parts.push(
-      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for Builder-indexed Figma/code/design.md sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
+      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for sources Builder indexed successfully. If \`index-design-system-with-builder\` fails or reports Builder DSI unavailable, do not finish with nothing created: call \`create-design-system\` with tokens and guidance derived from those same sources, and tell me Builder indexing was skipped and why. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
         customInstructions.trim()
           ? " AND the verbatim --customInstructions string from above"
           : ""
       }. Present a summary for review.`,
     );
 
+    const message =
+      parts[0] ?? "Set up a design system from the selected sources.";
+    const context = parts.slice(1).join("\n");
     openAgentSidebar();
     sendToDesignAgentChat({
-      message: parts.join("\n"),
+      message,
+      context,
       submit: true,
       newTab: true,
     });
-    navigate("/design-systems");
+    void navigate("/design-systems");
   }, [
     hasAnySources,
     companyInfo,
     websiteUrl,
     websiteUrls,
     githubUrl,
+    githubRef,
+    githubPaths,
     githubLinks,
     codeFiles,
+    designMdFiles,
     builderIndexResult,
     docFiles,
     imageFiles,
@@ -582,7 +952,10 @@ export default function DesignSystemSetup() {
     navigate,
     t,
     updateSystemMutation,
+    indexSystemMutation,
   ]);
+
+  const isSubmitting = builderIndexing || indexSystemMutation.isPending;
 
   useSetPageTitle(
     <div className="flex items-center gap-2 min-w-0">
@@ -603,12 +976,68 @@ export default function DesignSystemSetup() {
     <Button
       size="sm"
       onClick={handleContinue}
-      aria-disabled={!hasAnySources}
-      className="cursor-pointer aria-disabled:opacity-50"
+      disabled={!hasAnySources || isSubmitting || atMax}
+      aria-busy={isSubmitting}
+      className="cursor-pointer"
     >
-      {t("designSystemSetup.continue")}
+      {isSubmitting ? (
+        <>
+          <Spinner className="size-3.5" />
+          {t("designSystemSetup.starting")}
+        </>
+      ) : (
+        t("designSystemSetup.continue")
+      )}
     </Button>,
   );
+
+  if (atMax) {
+    return (
+      <div className="min-h-full bg-background">
+        <main className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+          <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-6">
+              <IconLock className="w-7 h-7 text-primary" />
+            </div>
+            <h1 className="text-xl font-semibold text-foreground mb-2">
+              {t("designSystems.tierLimitTitle")}
+            </h1>
+            <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
+              {tierLimit?.current != null &&
+              tierLimit?.max != null &&
+              tierLimit?.plan
+                ? t("designSystems.tierLimitDescriptionWithCount", {
+                    current: tierLimit.current,
+                    max: tierLimit.max,
+                    plan: tierLimit.plan,
+                  })
+                : t("designSystems.tierLimitDescription")}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button asChild variant="outline" className="cursor-pointer">
+                <Link to="/design-systems">
+                  {t("designSystemSetup.backToDesignSystems")}
+                </Link>
+              </Button>
+              <Button asChild className="cursor-pointer">
+                <a
+                  href={
+                    tierLimit?.upgradeUrl ??
+                    "https://builder.io/account/subscription"
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <IconExternalLink className="w-4 h-4" />
+                  {t("designSystems.tierLimitUpgrade")}
+                </a>
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -628,20 +1057,106 @@ export default function DesignSystemSetup() {
               role="alert"
               className="mb-6 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
             >
-              {validationError}
+              <p>{validationError}</p>
+              {tierLimitUpgradeUrl && (
+                <a
+                  href={tierLimitUpgradeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 font-medium text-destructive underline-offset-2 hover:underline"
+                >
+                  <IconExternalLink className="w-3.5 h-3.5" />
+                  {t("designSystems.tierLimitUpgrade")}
+                </a>
+              )}
             </div>
           )}
 
+          {builderIndexResult && builderIndexInputSource !== "figma" ? (
+            <div className="mb-6">
+              <BuilderIndexPreview
+                result={builderIndexResult}
+                decodeStatus={null}
+                source={builderIndexInputSource ?? "design-md"}
+                displayTitle={companyInfo.trim()}
+                onReset={() => {
+                  setDecodeStatus(null);
+                  setBuilderIndexResult(null);
+                  setBuilderIndexInputSource(null);
+                  setBuilderIndexError(null);
+                }}
+              />
+            </div>
+          ) : null}
+
           <div className="space-y-5">
+            <section className="rounded-lg border border-border bg-card p-4">
+              <div className="mb-3">
+                <h2 className="text-sm font-medium text-foreground/90">
+                  {t("designSystemSetup.chooseSourcePrompt")}
+                </h2>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <SourceChoice
+                  icon={IconBrandFigma}
+                  title={t("designSystemSetup.sections.figma.title")}
+                  selected={sourcePanel === "figma"}
+                  onClick={() => {
+                    setSourcePanel("figma");
+                    setOtherSource(null);
+                  }}
+                />
+                <SourceChoice
+                  icon={IconWorld}
+                  title={t("designSystemSetup.sections.company.title")}
+                  selected={sourcePanel === "other" && otherSource === "brand"}
+                  onClick={() => selectOtherSource("brand")}
+                />
+                <SourceChoice
+                  icon={IconBrandGithub}
+                  title={t("designSystemSetup.sections.code.title")}
+                  selected={sourcePanel === "other" && otherSource === "code"}
+                  onClick={() => selectOtherSource("code")}
+                  locked={!codeIndexingAllowed}
+                  lockedMessage={t(
+                    "designSystemSetup.codeIndexingEnterpriseOnly",
+                  )}
+                />
+                <SourceChoice
+                  icon={IconFileDescription}
+                  title={t("designSystemSetup.sections.designMd.title")}
+                  selected={
+                    sourcePanel === "other" && otherSource === "design-md"
+                  }
+                  onClick={() => selectOtherSource("design-md")}
+                />
+                <SourceChoice
+                  icon={IconFileDescription}
+                  title={t("designSystemSetup.sections.designFiles.title")}
+                  selected={sourcePanel === "other" && otherSource === "files"}
+                  onClick={() => selectOtherSource("files")}
+                />
+                {(existingProjects.length > 0 ||
+                  existingSystems.length > 0) && (
+                  <SourceChoice
+                    icon={IconComponents}
+                    title={t("designSystemSetup.sections.importExisting.title")}
+                    selected={
+                      sourcePanel === "other" && otherSource === "existing"
+                    }
+                    onClick={() => selectOtherSource("existing")}
+                  />
+                )}
+                <SourceChoice
+                  icon={IconFileDescription}
+                  title={t("designSystemSetup.sections.notes.title")}
+                  selected={sourcePanel === "other" && otherSource === "notes"}
+                  onClick={() => selectOtherSource("notes")}
+                />
+              </div>
+            </section>
+
             {/* Start from a Figma file via Builder DSI. */}
-            <SourceAccordionRow
-              icon={IconBrandFigma}
-              title={t("designSystemSetup.sections.figma.title")}
-              description={t("designSystemSetup.sections.figma.description")}
-              expanded={sourcePanel === "figma"}
-              onClick={() => setSourcePanel("figma")}
-              panelId="design-system-figma-source"
-            />
             <Section
               title={t("designSystemSetup.sections.figma.title")}
               description={t("designSystemSetup.sections.figma.description")}
@@ -655,6 +1170,8 @@ export default function DesignSystemSetup() {
                   <button
                     type="button"
                     onClick={() => realFigInputRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handleBuilderIndexDrop}
                     disabled={builderIndexing}
                     className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-[#609FF8]/40 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                   >
@@ -707,94 +1224,12 @@ export default function DesignSystemSetup() {
                     stopDecodePolling();
                     setDecodeStatus(null);
                     setBuilderIndexResult(null);
+                    setBuilderIndexInputSource(null);
                     setBuilderIndexError(null);
                   }}
                 />
               )}
             </Section>
-
-            <SourceAccordionRow
-              icon={IconPalette}
-              title={t("designSystemSetup.otherSources")}
-              description={t("designSystemSetup.otherSourcesDescription")}
-              expanded={sourcePanel === "other"}
-              onClick={() => setSourcePanel("other")}
-              panelId="design-system-other-sources"
-            />
-            {sourcePanel === "other" && (
-              <div
-                id="design-system-other-sources"
-                className="overflow-hidden rounded-lg border border-border"
-              >
-                <div className="border-b border-border px-4 py-3">
-                  <p className="text-xs font-medium text-foreground/70">
-                    {t("designSystemSetup.chooseSourcePrompt")}
-                  </p>
-                </div>
-                <div className="divide-y divide-border">
-                  <SourceAccordionRow
-                    className="rounded-none border-0"
-                    icon={IconPalette}
-                    title={t("designSystemSetup.sections.company.title")}
-                    description={t(
-                      "designSystemSetup.sections.company.description",
-                    )}
-                    expanded={otherSource === "brand"}
-                    onClick={() => selectOtherSource("brand")}
-                    panelId="design-system-brand-source"
-                  />
-                  <SourceAccordionRow
-                    className="rounded-none border-0"
-                    icon={IconBrandGithub}
-                    title={t("designSystemSetup.sections.code.title")}
-                    description={t(
-                      "designSystemSetup.sections.code.description",
-                    )}
-                    expanded={otherSource === "code"}
-                    onClick={() => selectOtherSource("code")}
-                    panelId="design-system-code-source"
-                  />
-                  <SourceAccordionRow
-                    className="rounded-none border-0"
-                    icon={IconFileDescription}
-                    title={t("designSystemSetup.sections.designFiles.title")}
-                    description={t(
-                      "designSystemSetup.sections.designFiles.description",
-                    )}
-                    expanded={otherSource === "files"}
-                    onClick={() => selectOtherSource("files")}
-                    panelId="design-system-file-source"
-                  />
-                  {(existingProjects.length > 0 ||
-                    existingSystems.length > 0) && (
-                    <SourceAccordionRow
-                      className="rounded-none border-0"
-                      icon={IconPalette}
-                      title={t(
-                        "designSystemSetup.sections.importExisting.title",
-                      )}
-                      description={t(
-                        "designSystemSetup.sections.importExisting.description",
-                      )}
-                      expanded={otherSource === "existing"}
-                      onClick={() => selectOtherSource("existing")}
-                      panelId="design-system-existing-source"
-                    />
-                  )}
-                  <SourceAccordionRow
-                    className="rounded-none border-0"
-                    icon={IconFileDescription}
-                    title={t("designSystemSetup.sections.notes.title")}
-                    description={t(
-                      "designSystemSetup.sections.notes.description",
-                    )}
-                    expanded={otherSource === "notes"}
-                    onClick={() => selectOtherSource("notes")}
-                    panelId="design-system-notes-source"
-                  />
-                </div>
-              </div>
-            )}
 
             {/* Company / Brand */}
             <Section
@@ -900,6 +1335,22 @@ export default function DesignSystemSetup() {
                     {t("designSystemSetup.add")}
                   </Button>
                 </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Input
+                    value={githubRef}
+                    onChange={(e) => setGithubRef(e.target.value)}
+                    placeholder={t("designSystemSetup.githubRef")}
+                    aria-label={t("designSystemSetup.githubRef")}
+                    className="bg-accent/50 border-border"
+                  />
+                  <Input
+                    value={githubPaths}
+                    onChange={(e) => setGithubPaths(e.target.value)}
+                    placeholder={t("designSystemSetup.githubPaths")}
+                    aria-label={t("designSystemSetup.githubPaths")}
+                    className="bg-accent/50 border-border"
+                  />
+                </div>
                 <p className="mt-2 text-xs text-muted-foreground/80">
                   {t("designSystemSetup.privateRepoPrefix")}{" "}
                   <a
@@ -919,6 +1370,13 @@ export default function DesignSystemSetup() {
                       >
                         <IconCheck className="w-3.5 h-3.5 text-green-400/60 shrink-0" />
                         <span className="truncate flex-1">{link.url}</span>
+                        {link.ref || link.include?.length ? (
+                          <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                            {[link.ref, link.include?.join(", ")]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        ) : null}
                         <button
                           onClick={() => removeGithubLink(link.id)}
                           className="text-muted-foreground/70 hover:text-muted-foreground shrink-0 cursor-pointer"
@@ -996,6 +1454,47 @@ export default function DesignSystemSetup() {
               </div>
             </Section>
 
+            {/* Import design.md guidance directly into Builder DSI. */}
+            <Section
+              title={t("designSystemSetup.sections.designMd.title")}
+              description={t("designSystemSetup.sections.designMd.description")}
+              hidden={sourcePanel !== "other" || otherSource !== "design-md"}
+              hideHeading
+              id="design-system-design-md-source"
+              className="rounded-lg border border-border bg-card p-4"
+            >
+              <button
+                type="button"
+                onClick={() => designMdInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDesignMdDrop}
+                className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-foreground/15 cursor-pointer"
+              >
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+                    <IconFileDescription className="size-6 text-primary" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground/90">
+                    {t("designSystemSetup.designMdUpload")}
+                  </p>
+                  <p className="text-xs text-muted-foreground/70">
+                    {t("designSystemSetup.designMdHelp")}
+                  </p>
+                </div>
+              </button>
+              <input
+                ref={designMdInputRef}
+                type="file"
+                accept=".md,.mdx"
+                onChange={handleDesignMdUpload}
+                className="hidden"
+              />
+              <FileList
+                files={designMdFiles}
+                onRemove={() => setDesignMdFiles([])}
+              />
+            </Section>
+
             {/* Design Files */}
             <Section
               title={t("designSystemSetup.sections.designFiles.title")}
@@ -1020,6 +1519,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => docInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDocDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1052,6 +1553,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => imageInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleImageDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1084,6 +1587,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => assetInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleAssetDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1134,7 +1639,7 @@ export default function DesignSystemSetup() {
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
+                        <IconComponents className="w-3.5 h-3.5 text-muted-foreground" />
                         <span className="text-sm text-foreground/70 truncate">
                           {ds.title}
                         </span>
@@ -1213,11 +1718,19 @@ export default function DesignSystemSetup() {
             <div className="pt-4">
               <Button
                 onClick={handleContinue}
-                aria-disabled={!hasAnySources}
-                className="w-full cursor-pointer aria-disabled:opacity-50"
+                disabled={!hasAnySources || isSubmitting}
+                aria-busy={isSubmitting}
+                className="w-full cursor-pointer"
                 size="lg"
               >
-                {t("designSystemSetup.continue")}
+                {isSubmitting ? (
+                  <>
+                    <Spinner className="size-4" />
+                    {t("designSystemSetup.starting")}
+                  </>
+                ) : (
+                  t("designSystemSetup.continue")
+                )}
               </Button>
             </div>
           </div>
@@ -1260,50 +1773,45 @@ function Section({
   );
 }
 
-function SourceAccordionRow({
+function SourceChoice({
   icon: Icon,
   title,
-  description,
-  expanded,
+  selected,
   onClick,
-  panelId,
-  className,
+  locked,
+  lockedMessage,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
-  description: string;
-  expanded: boolean;
+  selected: boolean;
   onClick: () => void;
-  panelId: string;
-  className?: string;
+  locked?: boolean;
+  lockedMessage?: string;
 }) {
   return (
     <button
       type="button"
-      aria-controls={panelId}
-      aria-expanded={expanded}
-      onClick={onClick}
-      className={cn(
-        "flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left transition-[background-color,border-color] duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        expanded && "bg-accent/40",
-        className,
-      )}
+      aria-pressed={selected}
+      aria-disabled={locked}
+      title={locked ? lockedMessage : undefined}
+      onClick={locked ? undefined : onClick}
+      className={`flex min-h-16 items-center gap-2 rounded-lg border px-3 py-2 text-start transition-[background-color,border-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        locked
+          ? "border-border opacity-60 cursor-not-allowed"
+          : selected
+            ? "border-primary/50 bg-primary/5 text-foreground"
+            : "border-border hover:bg-accent/50"
+      }`}
     >
       <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-foreground/90">
-          {title}
-        </span>
-        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-          {description}
-        </span>
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+        {title}
       </span>
-      <IconChevronDown
-        className={cn(
-          "size-4 shrink-0 text-muted-foreground transition-transform duration-150",
-          expanded && "rotate-180",
-        )}
-      />
+      {locked ? (
+        <IconLock className="size-4 shrink-0 text-muted-foreground" />
+      ) : selected ? (
+        <IconCheck className="size-4 shrink-0 text-primary" />
+      ) : null}
     </button>
   );
 }
@@ -1343,32 +1851,38 @@ function FileList({
 function BuilderIndexPreview({
   result,
   decodeStatus,
+  source = "figma",
   displayTitle,
   onReset,
 }: {
   result: BuilderIndexResult;
   decodeStatus: DecodeJobStatus | null;
+  source?: BuilderIndexInputSource;
   displayTitle?: string;
   onReset: () => void;
 }) {
   const t = useT();
   const decodeError =
     decodeStatus?.status === "error" ? decodeStatus.error : null;
+  const SourceIcon =
+    source === "figma"
+      ? IconBrandFigma
+      : source === "github"
+        ? IconBrandGithub
+        : IconFileDescription;
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-4">
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#609FF8]/10">
-          <IconBrandFigma className="h-5 w-5 text-[#609FF8]" />
+          <SourceIcon className="h-5 w-5 text-[var(--design-editor-accent-color)]" />
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-foreground">
             {displayTitle || result.suggestedTitle}
           </h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {
-              "Builder is indexing this Figma file into a reusable design system." /* i18n-ignore Builder indexing status */
-            }
+            {t("designSystemSetup.figmaParsingDescription")}
           </p>
         </div>
       </div>
@@ -1409,8 +1923,17 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-function isDesignMdFile(file: UploadedFile): boolean {
-  const name = file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+function uploadedFileBasename(file: Pick<UploadedFile, "name">): string {
+  return file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+}
+
+function isMarkdownFile(file: Pick<UploadedFile, "name">): boolean {
+  const name = uploadedFileBasename(file);
+  return name.endsWith(".md") || name.endsWith(".mdx");
+}
+
+function isDesignMdFile(file: Pick<UploadedFile, "name">): boolean {
+  const name = uploadedFileBasename(file);
   return name === "design.md" || name === "design.mdx";
 }
 

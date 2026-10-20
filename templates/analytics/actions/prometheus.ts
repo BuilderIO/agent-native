@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -52,6 +52,7 @@ export default defineAction({
     metric: z.string().optional().describe("Metric name for mode=metadata"),
   }),
   readOnly: true,
+  grounding: true,
   run: async (args) => {
     const creds = await requireActionCredentials(
       ["PROMETHEUS_URL"],

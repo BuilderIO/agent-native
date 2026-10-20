@@ -1,4 +1,17 @@
-export { IntegrationsPanel } from "./IntegrationsPanel.js";
+export {
+  startWorkspaceProviderOAuth,
+  workspaceProviderOAuthUrl,
+  type WorkspaceProviderOAuthOptions,
+  type WorkspaceProviderOAuthScope,
+} from "./workspace-provider-oauth.js";
+export { getWorkspaceConnectionProvider } from "../../connections/catalog.js";
+export {
+  channelConnectionState,
+  hasMissingRequiredCredentials,
+  listChannelsForSettings,
+  type ChannelConnectionState,
+  type ChannelCredential,
+} from "./channel-setup.js";
 export { useIntegrationStatus } from "./useIntegrationStatus.js";
 export type { IntegrationStatus } from "./useIntegrationStatus.js";
 export {

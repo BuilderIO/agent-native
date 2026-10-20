@@ -3,6 +3,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { useEffect } from "react";
 import { useParams } from "react-router";
 
 import { RecordActions } from "@/components/crm/RecordActions";
@@ -26,20 +28,39 @@ export default function RecordRoute() {
     ? ({ ...summary, ...(query.data as object) } as CrmRecordDetail)
     : undefined;
 
+  useEffect(() => {
+    if (!detail) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      detail.displayName,
+      "CRM record",
+    )} — CRM`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [detail?.displayName]);
+
   // A read that failed is not a record that is gone. Rendering the "archived or
   // no longer shared" empty state for a transport or permission error would
   // tell the user something we do not know.
-  if (query.error)
+  if (query.error) {
+    const isWithheld =
+      (query.error as { errorCode?: string }).errorCode ===
+      "crm_record_withheld";
     return (
       <div className="p-6">
         <p className="text-sm font-medium">{t("record.loadFailedTitle")}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          {query.error instanceof Error
-            ? query.error.message
-            : t("record.loadFailedDescription")}
+          {isWithheld
+            ? t("record.withheld")
+            : query.error instanceof Error
+              ? query.error.message
+              : t("record.loadFailedDescription")}
         </p>
       </div>
     );
+  }
 
   return (
     <RecordWorkspace

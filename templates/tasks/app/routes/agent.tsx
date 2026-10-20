@@ -1,4 +1,5 @@
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { buildLegacyAgentSettingsRoute } from "@agent-native/core/client/navigation";
+import { Navigate, useLocation } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";
 
@@ -7,5 +8,12 @@ export function meta() {
 }
 
 export default function AgentRoute() {
-  return <AgentTabsPage appName={APP_TITLE} />;
+  const location = useLocation();
+
+  return (
+    <Navigate
+      to={buildLegacyAgentSettingsRoute(location.hash, location.search)}
+      replace
+    />
+  );
 }

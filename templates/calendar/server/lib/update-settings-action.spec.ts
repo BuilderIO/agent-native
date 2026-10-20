@@ -1,0 +1,69 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { z } from "zod";
+
+const getRequestTimezoneMock = vi.hoisted(() => vi.fn());
+const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
+const getUserSettingMock = vi.hoisted(() => vi.fn());
+const putSettingMock = vi.hoisted(() => vi.fn());
+const putUserSettingMock = vi.hoisted(() => vi.fn());
+const mutateUserSettingMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core", () => ({
+  defineAction: <T>(action: T) => action,
+}));
+vi.mock("@agent-native/core/server", () => ({
+  getRequestTimezone: getRequestTimezoneMock,
+  getRequestUserEmail: getRequestUserEmailMock,
+}));
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: getUserSettingMock,
+  mutateUserSetting: mutateUserSettingMock,
+  putSetting: putSettingMock,
+  putUserSetting: putUserSettingMock,
+}));
+
+import action from "../../actions/update-settings";
+
+describe("update-settings timezone validation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getRequestTimezoneMock.mockReturnValue("America/New_York");
+    getRequestUserEmailMock.mockReturnValue("owner@example.com");
+    getUserSettingMock.mockResolvedValue(null);
+    putSettingMock.mockResolvedValue(undefined);
+    putUserSettingMock.mockResolvedValue(undefined);
+    mutateUserSettingMock.mockImplementation(
+      async (
+        _email: string,
+        _key: string,
+        updater: (current: null) => unknown,
+      ) => updater(null),
+    );
+  });
+
+  it("rejects an invalid IANA timezone at the action boundary", () => {
+    const { schema } = action as unknown as { schema: z.ZodTypeAny };
+    expect(schema.safeParse({ timezone: "not-a-timezone" }).success).toBe(
+      false,
+    );
+    expect(schema.safeParse({ timezone: "Europe/Warsaw" }).success).toBe(true);
+  });
+
+  it("saves a valid timezone", async () => {
+    const settings = {
+      timezone: "Europe/Warsaw",
+      bookingPageTitle: "Book a Meeting",
+      bookingPageDescription: "Select a time.",
+      defaultEventDuration: 30,
+    };
+
+    const saved = { ...settings, weekStart: "sunday" };
+    await expect(action.run(settings)).resolves.toMatchObject(saved);
+    expect(mutateUserSettingMock).toHaveBeenCalledWith(
+      "owner@example.com",
+      "calendar-settings",
+      expect.any(Function),
+    );
+    expect(putUserSettingMock).not.toHaveBeenCalled();
+  });
+});

@@ -2,9 +2,10 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
+import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/toolkit/app/chat/chat-first/app-open-actions";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import {
-  IconCalendar,
   IconChevronDown,
   IconChevronRight,
   IconClockHour4,
@@ -13,19 +14,28 @@ import {
   IconEyeOff,
   IconFileText,
   IconKey,
+  IconPin,
+  IconShare3,
   IconSettings,
   IconTrash,
   IconUser,
   IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { cn } from "../lib/utils";
 import {
-  isPendingBuilderHref,
+  isPathMountedWorkspaceApp,
+  isWorkspaceSsoApp,
+  navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
+  workspaceAppDirectHref,
   workspaceAppHref,
+  workspaceAppRoute,
+  workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
@@ -60,18 +70,59 @@ import { AppResourceEffectiveStack } from "./workspace-resource-effective-stack"
 const APP_CARD_ACTION_CLASS =
   "size-7 rounded-md p-0 text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground";
 
+function deferWorkspaceAppOverlayOpen(
+  event: { preventDefault: () => void },
+  closeMenu: () => void,
+  openOverlay: () => void,
+): void {
+  event.preventDefault();
+  closeMenu();
+  if (
+    typeof window !== "undefined" &&
+    typeof window.requestAnimationFrame === "function"
+  ) {
+    window.requestAnimationFrame(() => openOverlay());
+  } else {
+    setTimeout(openOverlay, 0);
+  }
+}
+
+function consumeWorkspaceAppOverlayFocusRestore(
+  pendingOverlayRef: { current: boolean },
+  event: { preventDefault: () => void },
+): void {
+  if (!pendingOverlayRef.current) return;
+  pendingOverlayRef.current = false;
+  event.preventDefault();
+}
+
 export function WorkspaceAppCard({
   app,
   className,
+  isPinned = false,
+  onTogglePinned,
 }: {
   app: WorkspaceAppSummary;
   className?: string;
+  isPinned?: boolean;
+  onTogglePinned?: () => void;
 }) {
   const t = useT();
-  const { formatDate } = useFormatters();
   const href = workspaceAppHref(app);
+  const directHref =
+    app.status !== "pending" &&
+    !isWorkspaceSsoApp(app) &&
+    isPathMountedWorkspaceApp(app)
+      ? workspaceAppDirectHref(
+          app,
+          app.isDispatch ? "/overview" : workspaceAppTargetPath(app),
+        )
+      : null;
   const isPending = app.status === "pending";
   const pendingLabel = app.statusLabel || "Builder branch";
+  const pendingOpenLabel = t("dispatch.pages.openBuilderBranch", {
+    defaultValue: "Open in Builder",
+  });
   const isArchived = !!app.archived;
   const audience = app.audience ?? "internal";
   const [editOpen, setEditOpen] = useState(false);
@@ -134,6 +185,13 @@ export function WorkspaceAppCard({
       description: draftDescription.trim(),
     });
   };
+  const pinLabel = t(
+    isPinned ? "dispatch.pages.unpinApp" : "dispatch.pages.pinApp",
+    {
+      name: app.name,
+      defaultValue: isPinned ? "Unpin this app" : "Pin this app",
+    },
+  );
 
   return (
     <>
@@ -173,16 +231,22 @@ export function WorkspaceAppCard({
                 Public
               </span>
             ) : null}
-            {isPending && app.branchName ? (
-              <span className="min-w-0 truncate">{app.branchName}</span>
-            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <WorkspaceAppOpenActions app={app} href={href} />
+          <WorkspaceAppOpenActions
+            app={app}
+            href={directHref ?? href}
+            openDirectly={Boolean(
+              directHref && shouldOpenWorkspaceAppInTopWindow(),
+            )}
+            isPinned={isPinned}
+            pinLabel={pinLabel}
+            pendingOpenLabel={pendingOpenLabel}
+            onTogglePinned={onTogglePinned}
+          />
           <WorkspaceAppSettings
             app={app}
-            formatDate={formatDate}
             isArchived={isArchived}
             isPending={isPending}
             onEdit={() => setEditOpen(true)}
@@ -192,11 +256,10 @@ export function WorkspaceAppCard({
             onUnarchive={handleUnarchive}
             onRemovePending={handleRemovePending}
             labels={{
-              created: t("agents.dashboardMetadataCreated"),
               createdBy: t("agents.dashboardMetadataCreatedBy"),
               owner: t("dispatch.pages.appMetadataOwner"),
               teams: t("dispatch.pages.appMetadataTeams"),
-              notTracked: t("agents.notTracked"),
+              share: t("share.share", { defaultValue: "Share" }),
             }}
           />
         </div>
@@ -269,11 +332,37 @@ export function WorkspaceAppCard({
 function WorkspaceAppOpenActions({
   app,
   href,
+  openDirectly,
+  isPinned,
+  pinLabel,
+  pendingOpenLabel,
+  onTogglePinned,
 }: {
   app: WorkspaceAppSummary;
   href: string | null;
+  openDirectly: boolean;
+  isPinned: boolean;
+  pinLabel: string;
+  pendingOpenLabel: string;
+  onTogglePinned?: () => void;
 }) {
-  const openInNewTab = isPendingBuilderHref(app);
+  const navigate = useNavigate();
+  const appRoute = workspaceAppRoute(app.id);
+  const isPending = app.status === "pending";
+
+  if (isPending) {
+    return href ? (
+      <Button asChild size="sm" variant="outline">
+        <a href={href} target="_blank" rel="noreferrer">
+          {pendingOpenLabel}
+        </a>
+      </Button>
+    ) : (
+      <Button size="sm" variant="outline" disabled>
+        {pendingOpenLabel}
+      </Button>
+    );
+  }
 
   if (!href) {
     return (
@@ -287,25 +376,36 @@ function WorkspaceAppOpenActions({
     <AppOpenActions
       name={app.name}
       href={href}
-      target={openInNewTab ? "_blank" : undefined}
-      rel={openInNewTab ? "noreferrer" : undefined}
-      showInlineOption
       showNewTabOption
+      onOpen={() => {
+        if (openDirectly && navigateToWorkspaceApp(href)) return;
+        void navigate(appRoute);
+      }}
+      menuItems={
+        onTogglePinned
+          ? [
+              {
+                id: "pin",
+                label: pinLabel,
+                icon: <IconPin size={14} strokeWidth={isPinned ? 2.2 : 1.7} />,
+                onSelect: onTogglePinned,
+              },
+            ]
+          : undefined
+      }
     />
   );
 }
 
 type WorkspaceAppMetadataLabels = {
-  created: string;
   createdBy: string;
   owner: string;
   teams: string;
-  notTracked: string;
+  share: string;
 };
 
 function WorkspaceAppSettings({
   app,
-  formatDate,
   isArchived,
   isPending,
   onEdit,
@@ -317,7 +417,6 @@ function WorkspaceAppSettings({
   labels,
 }: {
   app: WorkspaceAppSummary;
-  formatDate: ReturnType<typeof useFormatters>["formatDate"];
   isArchived: boolean;
   isPending: boolean;
   onEdit: () => void;
@@ -328,120 +427,189 @@ function WorkspaceAppSettings({
   onRemovePending: () => void;
   labels: WorkspaceAppMetadataLabels;
 }) {
+  const [shareOpen, setShareOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+  const pendingShareOverlayRef = useRef(false);
+
+  const handleShareOpenChange = (open: boolean) => {
+    setShareOpen(open);
+    if (open) return;
+
+    const restoreSettingsFocus = () => settingsTriggerRef.current?.focus();
+    if (
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+    ) {
+      window.requestAnimationFrame(restoreSettingsFocus);
+    } else {
+      setTimeout(restoreSettingsFocus, 0);
+    }
+  };
+
   return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label={`Settings for ${app.name}`}
-              className={APP_CARD_ACTION_CLASS}
+    <>
+      <DropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                ref={settingsTriggerRef}
+                aria-label={`Settings for ${app.name}`}
+                className={APP_CARD_ACTION_CLASS}
+              >
+                <IconSettings size={15} />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>App settings</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent
+          align="end"
+          className={cn(APP_ACTION_MENU_CONTENT_CLASS, "min-w-max")}
+          onCloseAutoFocus={(event) =>
+            consumeWorkspaceAppOverlayFocusRestore(
+              pendingShareOverlayRef,
+              event,
+            )
+          }
+        >
+          <DropdownMenuItem onSelect={onEdit}>
+            <IconEdit size={14} aria-hidden="true" />
+            Edit details
+          </DropdownMenuItem>
+          {!isPending ? (
+            <DropdownMenuItem
+              onSelect={(event) =>
+                deferWorkspaceAppOverlayOpen(
+                  event,
+                  () => {
+                    pendingShareOverlayRef.current = true;
+                    setSettingsOpen(false);
+                  },
+                  () => setShareOpen(true),
+                )
+              }
             >
-              <IconSettings size={15} />
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>App settings</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="w-72">
-        <DropdownMenuItem onSelect={onEdit}>
-          <IconEdit size={14} className="mr-2" />
-          Edit details
-        </DropdownMenuItem>
-        {!isPending && !isArchived ? (
-          <>
-            <DropdownMenuItem onSelect={onKeys}>
-              <IconKey size={14} className="mr-2" />
-              Manage keys
+              <IconShare3 size={14} aria-hidden="true" />
+              {labels.share}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onResources}>
-              <IconFileText size={14} className="mr-2" />
-              Agent resources
+          ) : null}
+          {!isPending && !isArchived ? (
+            <>
+              <DropdownMenuItem onSelect={onKeys}>
+                <IconKey size={14} aria-hidden="true" />
+                Manage keys
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onResources}>
+                <IconFileText size={14} aria-hidden="true" />
+                Agent resources
+              </DropdownMenuItem>
+            </>
+          ) : null}
+          {isPending ? (
+            <DropdownMenuItem
+              onSelect={onRemovePending}
+              className="text-destructive focus:text-destructive"
+            >
+              <IconTrash size={14} aria-hidden="true" />
+              Remove from list
             </DropdownMenuItem>
-          </>
-        ) : null}
-        {isPending ? (
-          <DropdownMenuItem
-            onSelect={onRemovePending}
-            className="text-destructive focus:text-destructive"
-          >
-            <IconTrash size={14} className="mr-2" />
-            Remove from list
-          </DropdownMenuItem>
-        ) : isArchived ? (
-          <DropdownMenuItem onSelect={onUnarchive}>
-            <IconEye size={14} className="mr-2" />
-            Restore to list
-          </DropdownMenuItem>
-        ) : (
-          <DropdownMenuItem onSelect={onArchive}>
-            <IconEyeOff size={14} className="mr-2" />
-            Hide from list
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="font-normal">
-          <WorkspaceAppMetadata
-            app={app}
-            formatDate={formatDate}
-            labels={labels}
-          />
-        </DropdownMenuLabel>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          ) : isArchived ? (
+            <DropdownMenuItem onSelect={onUnarchive}>
+              <IconEye size={14} aria-hidden="true" />
+              Restore to list
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={onArchive}>
+              <IconEyeOff size={14} aria-hidden="true" />
+              Hide from list
+            </DropdownMenuItem>
+          )}
+          <WorkspaceAppMetadata app={app} labels={labels} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {!isPending && shareOpen ? (
+        <ShareButton
+          resourceType="workspace-app"
+          resourceId={app.id}
+          resourceTitle={app.name}
+          defaultOpen
+          onOpenChange={handleShareOpenChange}
+          triggerClassName="sr-only"
+        />
+      ) : null}
+    </>
   );
 }
 
 function WorkspaceAppMetadata({
   app,
-  formatDate,
   labels,
 }: {
   app: WorkspaceAppSummary;
-  formatDate: ReturnType<typeof useFormatters>["formatDate"];
   labels: WorkspaceAppMetadataLabels;
 }) {
-  function formatMetadataDate(value: string | null | undefined): string {
-    if (!value) return labels.notTracked;
-    try {
-      return formatDate(value, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      });
-    } catch {
-      return value;
-    }
+  const trackedText = (value: string | null | undefined): string | null => {
+    const normalized = value?.trim();
+    return normalized && normalized.toLowerCase() !== "not tracked"
+      ? normalized
+      : null;
+  };
+  const rows: Array<{
+    id: string;
+    icon: typeof IconUser;
+    label: string;
+    value: string;
+  }> = [];
+
+  const createdBy = trackedText(app.createdBy);
+  if (createdBy) {
+    rows.push({
+      id: "created-by",
+      icon: IconUser,
+      label: labels.createdBy,
+      value: createdBy,
+    });
+  }
+  const owner = trackedText(app.owner);
+  if (owner) {
+    rows.push({
+      id: "owner",
+      icon: IconUser,
+      label: labels.owner,
+      value: owner,
+    });
+  }
+  const teams = app.teams
+    ?.map(trackedText)
+    .filter((team): team is string => Boolean(team))
+    .join(", ");
+  if (teams) {
+    rows.push({
+      id: "teams",
+      icon: IconUsersGroup,
+      label: labels.teams,
+      value: teams,
+    });
   }
 
+  if (rows.length === 0) return null;
+
   return (
-    <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-      <WorkspaceAppMetadataRow
-        icon={IconCalendar}
-        label={labels.created}
-        value={formatMetadataDate(app.createdAt)}
-      />
-      <WorkspaceAppMetadataRow
-        icon={IconUser}
-        label={labels.createdBy}
-        value={app.createdBy || labels.notTracked}
-      />
-      <WorkspaceAppMetadataRow
-        icon={IconUser}
-        label={labels.owner}
-        value={app.owner || labels.notTracked}
-      />
-      <WorkspaceAppMetadataRow
-        icon={IconUsersGroup}
-        label={labels.teams}
-        value={app.teams?.join(", ") || labels.notTracked}
-      />
-    </div>
+    <>
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel className="font-normal">
+        <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+          {rows.map((row) => (
+            <WorkspaceAppMetadataRow key={row.id} {...row} />
+          ))}
+        </div>
+      </DropdownMenuLabel>
+    </>
   );
 }
 
@@ -450,7 +618,7 @@ function WorkspaceAppMetadataRow({
   label,
   value,
 }: {
-  icon: typeof IconCalendar;
+  icon: typeof IconUser;
   label: string;
   value: string;
 }) {

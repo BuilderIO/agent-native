@@ -22,6 +22,19 @@ interface DesktopCapturerLike {
   }): Promise<CaptureSource[]>;
 }
 
+function matchesSourceName(sourceName: string, requestedName: string): boolean {
+  const source = sourceName.trim().toLocaleLowerCase();
+  const requested = requestedName.trim().toLocaleLowerCase();
+  if (!source || !requested) return false;
+  return (
+    source === requested ||
+    source.startsWith(`${requested} - `) ||
+    source.endsWith(` - ${requested}`) ||
+    source.startsWith(`${requested} — `) ||
+    source.endsWith(` — ${requested}`)
+  );
+}
+
 export interface EphemeralFrameDescriptor {
   handle: string;
   taskId: string;
@@ -45,10 +58,6 @@ export interface ScreenObserverOptions {
   maxDimension?: number;
 }
 
-/**
- * Captures bounded PNG frames into process memory. Handles are task-scoped and
- * short-lived; frame bytes are never returned in audit metadata or persisted.
- */
 export class EphemeralScreenObserver {
   private readonly frames = new Map<string, StoredFrame>();
   private readonly now: () => number;
@@ -69,11 +78,12 @@ export class EphemeralScreenObserver {
   async capture(
     taskId: string,
     requestedSourceId?: string,
+    requestedSourceName?: string,
   ): Promise<EphemeralFrameDescriptor> {
     this.purgeExpired();
     if (this.options.permissionStatus().screenRecording !== "granted") {
       throw new Error(
-        "Screen Recording permission is required to view the desktop. Enable Agent Native in System Settings > Privacy & Security > Screen Recording.",
+        "Screen Recording permission is required to view the desktop. Enable Agent-Native in System Settings > Privacy & Security > Screen Recording.",
       );
     }
     const sources = await this.options.desktopCapturer.getSources({
@@ -83,8 +93,12 @@ export class EphemeralScreenObserver {
     });
     const source = requestedSourceId
       ? sources.find((candidate) => candidate.id === requestedSourceId)
-      : (sources.find((candidate) => candidate.id.startsWith("screen:")) ??
-        sources[0]);
+      : requestedSourceName
+        ? sources.find((candidate) =>
+            matchesSourceName(candidate.name, requestedSourceName),
+          )
+        : (sources.find((candidate) => candidate.id.startsWith("screen:")) ??
+          sources[0]);
     if (!source || source.thumbnail.isEmpty()) {
       throw new Error("No capturable desktop source is available.");
     }

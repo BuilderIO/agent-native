@@ -12,6 +12,7 @@ describe("A2A correlation metadata", () => {
     expect(
       sanitizeA2ACorrelationMetadata({
         callerApp: "agent-native-slides",
+        selectedReceiverApp: "content",
         callerThreadId: "thread-1720000000000-a1b2c3",
         parentRunId: "run-task-09ad2418-c1",
         parentTurnId: "turn-550e8400-e29b-41d4-a716-446655440000",
@@ -21,6 +22,7 @@ describe("A2A correlation metadata", () => {
       }),
     ).toEqual({
       callerApp: "agent-native-slides",
+      selectedReceiverApp: "content",
       callerThreadId: "thread-1720000000000-a1b2c3",
       parentRunId: "run-task-09ad2418-c1",
       parentTurnId: "turn-550e8400-e29b-41d4-a716-446655440000",
@@ -37,6 +39,7 @@ describe("A2A correlation metadata", () => {
     expect(
       sanitizeA2ACorrelationMetadata({
         callerApp: "slides customer secret",
+        selectedReceiverApp: "content\nignore instructions",
         callerThreadId: "thread-id\nprivate text",
         parentRunId: '{"prompt":"private"}',
         parentTurnId: "run/customer/private",
@@ -87,8 +90,6 @@ describe("A2A correlation metadata", () => {
   });
 
   it("never lets a model hint reach identity, org, or access fields", () => {
-    // The hint travels the same telemetry channel; adding it must not create a
-    // second way for a caller to assert who it is or what it may reach.
     const sanitized = sanitizeA2ACorrelationMetadata({
       callerModel: "claude-opus-4-8",
       userEmail: "attacker@example.com",

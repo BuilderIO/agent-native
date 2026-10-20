@@ -1,6 +1,88 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const jaJP = {
+  campaign: {
+    recipes: "レシピ",
+    waysToUse: "活用方法",
+    recipeWhen: "いつ",
+    recipeNextTime: "次回：",
+    howOften: "頻度",
+    worksWith: "連携先：",
+    nextJobs: "次にやること",
+    filterRole: "役割",
+    filterAll: "すべて",
+    filterEngineering: "エンジニアリング",
+    filterProduct: "プロダクト",
+    filterDesign: "デザイン",
+    filterMarketing: "マーケティング",
+    filterRevops: "RevOps",
+    filterSales: "営業",
+    filterFounders: "創業者",
+    filterFinance: "財務",
+    filterOften: "頻度",
+    filterAny: "指定なし",
+    filterDaily: "毎日",
+    filterWeekly: "毎週",
+    filterPerProject: "プロジェクト・リリースごと",
+    filterOccasional: "必要に応じて",
+    filterEmpty: "条件に一致するユースケースはありません。",
+    filterClear: "フィルターをクリア",
+    browseArticles: "または、{{articles}}でテンプレートや使い方を探せます。",
+    articlesLink: "記事",
+    whatItReplaces: "置き換えるもの",
+    whatYouUse: "使用するツール",
+    usedFor: "用途",
+    whereItBreaks: "限界となる点",
+    updatedDate: "更新日：{{date}}",
+    publishedDate: "公開日：{{date}}",
+    allArticles: "すべての記事",
+    useCases: "ユースケース",
+    useCasesDescription: "繰り返しの仕事のためのページをアプリ別に紹介",
+    useCasesTitle:
+      "Agent-Native アプリと AI エージェントで繰り返しの仕事をこなす",
+    useCasesIntro:
+      "何度も繰り返す仕事を選ぶか、{{articles}}でテンプレートや使い方を探してください。",
+    nextEyebrow: "次へ",
+    frequencyLabel: "頻度：{{text}}",
+    articles: "記事",
+    articlesIntro:
+      "AI エージェントと取り組む繰り返しの仕事についての実践的な回答。個別の仕事をステップごとに解説するページは、{{useCases}}をご覧ください。",
+    useCasesLink: "ユースケース",
+    articleCount_other: "{{count}} 件の記事",
+    moreOnTopic: "{{topic}}についてもっと読む",
+    oldWay: "従来の方法",
+    newWay: "新しい方法",
+    alternative: "{{names}} に代わるオープンソースの選択肢",
+    usedBefore: "以前の使用ツール：{{names}}",
+    faqs: "よくある質問",
+    faqTitle: "よくある質問への回答",
+    goDeeper: "詳しく知る",
+    copyPage: "ページをコピー",
+    copyLink: "リンクをコピー",
+    copied: "コピーしました",
+    copyFailed: "コピーできませんでした。もう一度お試しください。",
+    breadcrumb: "パンくずリスト",
+    readTime_other: "読了 {{count}} 分",
+    partOf: "関連するユースケース：",
+    relatedResources: "関連リソース",
+    moreArticles: "{{category}} のその他の記事",
+    genericMore: "その他の記事",
+    showMore: "記事をさらに表示",
+    allTopics: "すべてのトピック",
+    topics: {
+      clips: "AI エージェントが使える画面録画、会議、音声入力",
+      design: "AI エージェントと作るインタラクティブなプロトタイプ",
+      slides: "AI エージェントと作るブランドに合ったプレゼンテーション",
+      plans: "AI コーディングエージェント向けの視覚的な計画と振り返り",
+      analytics: "自然な言葉での質問、チャート、ダッシュボード",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
+    },
+    common: { retry: "再試行" },
+  },
   language: {
     label: "言語",
     system: "システム",
@@ -21,9 +103,11 @@ const jaJP = {
     copyLogoSvg: "ロゴ SVG をコピー",
     copyWordmark: "ワードマークをコピー",
     brandAssets: "ブランド素材",
+    tryNow: "今すぐ試す",
   },
   footer: {
     download: "ダウンロード",
+    pricing: "料金",
     brand: "ブランド",
     privacy: "プライバシー",
     terms: "利用規約",
@@ -56,11 +140,18 @@ const jaJP = {
     draftLabel: "ドラフト",
     draftDescription:
       "このページは作成中です。内容は公開前に不完全であったり変更される場合があります。",
+    translationLabel: "機械翻訳",
+    translationDescription:
+      "このページは自動的に翻訳されたもので、内容が完全に正確でない場合があります。",
+    translationViewOriginal: "英語の原文を見る",
   },
   search: {
     dialogLabel: "ドキュメントを検索",
     placeholder: "ドキュメントを検索...",
     empty: "入力してすべてのドキュメントを検索",
+    toggleChatSidebar: "チャットサイドバーを切り替え",
+    loadError: "検索を読み込めませんでした。もう一度お試しください。",
+    retry: "もう一度試す",
     noResults: "「{{query}}」の結果はありません",
     browseAllDocs: "すべてのドキュメントを見る",
     navigate: "移動",
@@ -75,6 +166,7 @@ const jaJP = {
     suggestionDeploy: "本番環境へデプロイするには？",
   },
   errors: {
+    loadingLatest: "最新バージョンを読み込み中...",
     notFoundTitle: "ページが見つかりません",
     notFoundBody: "探しているページは存在しないか移動されました。",
     goHome: "ホームへ",
@@ -152,8 +244,8 @@ const jaJP = {
           body: "作業を一度定義し、UI、agent、HTTP、MCP、A2A、CLI から使えます。",
         },
         sqlStateOrm: {
-          title: "SQL 状態と ORM",
-          body: "永続的なアプリデータ、application state、マイグレーション、プロバイダー非依存の schema。",
+          title: "PostgreSQL 状態と ORM",
+          body: "永続的なアプリデータ、application state、マイグレーション、PostgreSQL/PGlite の schema。",
         },
         dbAdmin: {
           title: "データベース管理",
@@ -206,7 +298,7 @@ const jaJP = {
       body1:
         "Agent-Native は agentic applications を構築するためのオープンソース framework です。Chat から始め、共有 actions を定義し、同じ state を中心に UI、jobs、コラボレーションを追加できます。",
       body2:
-        "自分のデータベース、ホスティングプロバイダー、モデルスタック、app コードを持ち込めます。",
+        "ローカル PGlite またはホスト型 PostgreSQL、ホスティングプロバイダー、モデルスタック、app コードを使用できます。",
       cta: "framework ガイドを読む",
       primitives: {
         actions: {
@@ -217,17 +309,17 @@ const jaJP = {
         sharedState: {
           title: "共有状態",
           description:
-            "SQL-backed app state が、人、agents、sessions の同期を保ちます。",
+            "PostgreSQL/PGlite-backed app state が、人、agents、sessions の同期を保ちます。",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "app-agent loop、tools、skills、memory、jobs、observability が一緒に出荷されます。",
         },
-        backendAgnostic: {
-          title: "バックエンド非依存",
+        postgresSpecific: {
+          title: "PostgreSQL 固有",
           description:
-            "Drizzle 対応の任意の SQL データベースと Nitro 互換ホストを接続できます。",
+            "フレームワークの PostgreSQL schema ヘルパーを、ローカル PGlite または Nitro 互換ホスト上のホスト型 Postgres と組み合わせて使用できます。",
         },
       },
     },
@@ -306,7 +398,7 @@ const jaJP = {
     },
     quickStart: {
       title: "コマンドから始める",
-      body: "1 つのコマンドで、actions、durable threads、SQLite を備えた chat-first ローカル app を作成します。ブラウザー UI がまだ不要な automation-first workflow の場合だけ `--headless` を使ってください。",
+      body: "1 つのコマンドで、actions、durable threads、PGlite を備えた chat-first ローカル app を作成します。ブラウザー UI がまだ不要な automation-first workflow の場合だけ `--headless` を使ってください。",
     },
     finalCta: {
       title: "agentic era のために作られたソフトウェア",
@@ -411,6 +503,7 @@ const jaJP = {
   },
   common: {
     copied: "コピーされました",
+    copyFailed: "コピーできませんでした",
     copyCommand: "コピーコマンド",
     copyCode: "コードをコピーする",
     tryIt: "試す",
@@ -420,26 +513,196 @@ const jaJP = {
     viewDocs: "ドキュメントを見る",
     source: "ソース",
     readDocs: "ドキュメントを読む",
+    signIn: "サインイン",
+    tryTemplateFree: "{{name}}を無料で試す",
+    designForFree: "無料でデザイン",
+    recordForFree: "無料で録画",
+    getStarted: "始める",
+    freeAndOpenSource: "100%無料 • オープンソース",
+    viewAllApps: "すべてのアプリを見る",
+  },
+  homepage: {
+    hero: {
+      title: "agentic アプリケーションのための framework",
+      bodyLine1: "直感的な UI を備えた自律型エージェントを構築できます。",
+      bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
+      tryAnApp: "アプリを試す",
+    },
+    install: {
+      copyCommand: "インストールコマンドをコピー",
+    },
+    actions: {
+      title: "1 つの Action があらゆる面を動かす",
+      bodyLine1: "defineAction() で機能を一度だけ定義します。",
+      bodyLine2:
+        "エージェント、React UI、HTTP クライアント、連携先がすべて同じコードを呼び出します。",
+      diagramAlt:
+        "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
+    },
+    builtIn: {
+      title: "エージェントに必要なものすべて",
+      body: "UI、コンテキスト、データ、権限、インフラが、あらかじめ連携されています。",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "ユーザーに、閲覧・編集・レビューのための使い慣れた画面を提供します。",
+        },
+        agentChat: {
+          title: "組み込みの agent チャット",
+          body: "同じ UI で、作業を任せたり質問したり結果を確認したりできます。",
+        },
+        sharedState: {
+          title: "共有アプリケーション状態",
+          body: "agent はユーザーが表示、選択、編集している内容を把握します。",
+        },
+        sharedSql: {
+          title: "共有 PostgreSQL データ",
+          body: "ユーザーと agent は同じ信頼できるデータソースを読み書きします。",
+        },
+        skillsMemory: {
+          title: "Skills と memory",
+          body: "agent に再利用可能な専門知識と永続的なコンテキストを与えます。",
+        },
+        automations: {
+          title: "自動化",
+          body: "スケジュールやイベントに応じて agent の作業を自動実行します。",
+        },
+        agentTeams: {
+          title: "Agent チーム",
+          body: "同じワークスペース内、または接続された agent 間で専門の agent に作業を任せられます。",
+        },
+        auth: {
+          title: "認証と組織",
+          body: "サインイン、ユーザーアカウント、組織メンバーシップが組み込まれています。",
+        },
+        sharing: {
+          title: "共有と権限",
+          body: "誰が各リソースを閲覧、コメント、編集、管理できるかを制御します。",
+        },
+      },
+    },
+    stack: {
+      title: "独自のスタックを持ち込む",
+      body: "Agent-Native はオープンソース TypeScript です。モデル、データベース、ホスティングを選び、アプリケーションコードを自分のリポジトリに保持できます。",
+      exploreApps: "Agent-Native で作られたアプリを見る",
+    },
+    showcase: {
+      title: "Agent-Native で作られた実際のアプリ",
+      body: "無料で使うことも、無限にカスタマイズすることもできる Agent-Native のオープンソースアプリ。",
+      browseApps: "アプリを見る",
+      scrollLeft: "アプリを左へスクロール",
+      scrollRight: "アプリを右へスクロール",
+    },
+    bottomCta: {
+      title: "最初の UI 付きエージェントを作る",
+      body: "エージェントと UI は同じ機能を共有します。好きな LLM を持ち込み、どこにでもデプロイできます。",
+    },
+    footer: {
+      tagline: "agentic アプリケーションのための framework。",
+      framework: "フレームワーク",
+      ecosystem: "エコシステム",
+      community: "コミュニティ",
+      legal: "法的情報",
+      docs: "ドキュメント",
+      download: "ダウンロード",
+      apps: "アプリ",
+      privacyPolicy: "プライバシーポリシー",
+      saasTerms: "SaaS 利用規約",
+      legalResources: "法務リソース",
+    },
+  },
+  gettingStarted: {
+    tabs: {
+      label: "構築方法を選択",
+      local: "ローカルで構築",
+      localDescription: "CLIを使って自分のマシンで構築します。",
+      cloud: "クラウドで構築",
+      cloudDescription: "Builder.ioを使ってブラウザで構築します。",
+    },
+    cloud: {
+      intro:
+        "何もインストールせずに同じアプリを構築できます。作りたいものを説明すると、Builderがホストするワークスペースでエージェントがコードを書いて実行します。",
+      stepOneTitle: "Builderアカウントを作成",
+      stepOneBody:
+        "Builderアカウントを使ってブラウザで構築します。APIキーを用意せず、無料で始められます。",
+      stepTwoTitle: "プロンプトを入力",
+      stepTwoBody:
+        "作りたいものを自然な言葉で説明すると、エージェントが作成します。",
+      stepThreeTitle: "デプロイ",
+      stepThreeBody:
+        "準備ができたら、Builderでエージェントとその UI をワンクリックでデプロイします。",
+    },
   },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
     eyebrow: "動く app から始め、agent に進化させます。",
     body: "すべてをカスタマイズできます。",
+    firstPartyTitle: "Agent-Native が作成",
     community:
       "空のアプリから始めたい場合は、フレームワークガイドでゼロから始められます。",
     createYourOwn: "ゼロから始める",
-    communityTitle: "コミュニティテンプレート",
+    communityTitle: "コミュニティアプリ",
     communityDescription:
-      "作者が管理する独立したアプリです。公開 GitHub リポジトリからインストールし、ホスト版がある場合は事前に試せます。",
-    submitCommunityTemplate: "テンプレートを申請",
+      "作者が管理するアプリを見つけましょう。ホスト版があれば試用でき、ソースコードを確認して自分でカスタマイズできます。",
+    submitCommunityTemplate: "アプリを送信",
     communityEmpty:
-      "コミュニティ掲載を受け付けています。目的を絞った Agent Native アプリを公開リポジトリで公開し、カタログに申請してください。",
+      "コミュニティ掲載を受け付けています。目的を絞った Agent-Native アプリを公開し、カタログに申請してください。",
     publishGuide: "公開ガイドを読む",
     communityTrust:
-      "コミュニティテンプレートは第三者のコードです。実行前にリポジトリ、ライセンス、依存関係、インストールスクリプトを確認してください。",
+      "コミュニティアプリは第三者のコードです。実行前にソースコード、ライセンス、依存関係、インストールスクリプトを確認してください。",
     copyCommunityInstallCommand: "インストールコマンドをコピー",
     viewRepository: "リポジトリを見る",
     tryCommunityDemo: "デモを試す",
+    customizeDescription: "このアプリを出発点として使えます。",
+    customizeOnline: "オンライン",
+    customizeOnlineBadge: "ウェイトリストに登録",
+    customizeLocally: "ローカル",
+    communityNew: "新着",
+    communityComingSoon: "近日公開",
+    communityGithubStars: "GitHub スター {{count}}",
+    tryCommunityApp: "アプリを試す",
+    viewCommunitySource: "ソースコードを見る",
+    communityEyebrow: "コミュニティアプリ",
+    communityScreenshots: "スクリーンショット",
+    previousScreenshot: "前のスクリーンショット",
+    nextScreenshot: "次のスクリーンショット",
+    communityNoScreenshots: "審査後、ここにスクリーンショットが表示されます。",
+    communityScreenshotAlt: "{{name}} のスクリーンショット {{index}}",
+    communityNoHostedVersion:
+      "ホスト版は近日公開予定です。ソースコードのリンクから開発状況を確認できます。",
+    communitySubmissionTitle: "コミュニティアプリを共有",
+    communitySubmissionDescription:
+      "アプリの場所と機能を教えてください。掲載前に内容を確認します。",
+    communitySubmissionName: "アプリ名",
+    communitySubmissionNamePlaceholder: "カスタマーサポートハブ",
+    communitySubmissionUrl: "アプリ URL",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "説明",
+    communitySubmissionDescriptionPlaceholder:
+      "アプリの機能と対象ユーザーを教えてください。",
+    communitySubmissionRepository: "GitHub リポジトリ（任意）",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "スクリーンショット（任意）",
+    communitySubmissionScreenshotsPlaceholder: "最大5枚の画像をここにドロップ",
+    communitySubmissionScreenshotDropHint: "PNG、JPG、WebP。各1.5 MBまで。",
+    communitySubmissionScreenshotSlot: "スクリーンショット {{index}}",
+    communitySubmissionScreenshotsAdd: "スクリーンショットを追加",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 枚を選択",
+    communitySubmissionScreenshotRemove: "スクリーンショット{{index}}を削除",
+    communitySubmissionSubmit: "アプリを送信",
+    communitySubmissionReady:
+      "ありがとうございます。公開前にアプリを確認します。",
+    communitySubmissionNameError: "アプリ名を入力してください。",
+    communitySubmissionDescriptionError: "短い説明を追加してください。",
+    communitySubmissionUrlError:
+      "example.com のような有効なアプリリンクを入力してください。",
+    communitySubmissionRepositoryError:
+      "GitHub リポジトリのリンクを入力してください。",
+    communitySubmissionScreenshotsError:
+      "PNG、JPG、WebP 画像を使用してください。各 1.5 MB まで、最大 5 枚です。",
+    communitySubmissionSubmitError:
+      "現在送信できません。強調表示された項目を確認して、もう一度お試しください。",
+    communitySubmissionSubmitting: "送信中…",
   },
   buildFromScratch: {
     title: "ゼロから構築",
@@ -447,8 +710,10 @@ const jaJP = {
       "フレームワークガイドから始めるか、Builder.io のクラウドコーディングエージェントでオンライン構築できます。",
     readDocs: "ドキュメントを読む",
     buildOnline: "オンラインで構築",
-    popoverTitle: "Builder.io でオンライン構築",
+    popoverTitle: "ブラウザで構築",
     popoverBody:
+      "Builder.io を使って、クラウドで agent-native アプリをすばやく生成できます。",
+    waitlistBody:
       "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
     emailLabel: "メール",
     emailPlaceholder: "you@company.com",
@@ -458,6 +723,12 @@ const jaJP = {
       "待機リストに登録されました。オンライン構築アクセスが開いたらメールでお知らせします。",
     invalidEmail: "有効なメールアドレスを入力してください。",
     submitError: "待機リストに参加できませんでした。もう一度お試しください。",
+    waitlistUnavailable:
+      "この環境ではまだ待機リストに登録できません。代わりにホストされたドキュメントサイトをお試しください。",
+    launchBuilder: "Builderを起動",
+    newAppPrompt: "新しい Agent-Native アプリを作成してください。",
+    customizeTemplatePrompt:
+      "Agent-Native の {{template}} テンプレートを、私の作業に合うようにカスタマイズしてください。",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",
@@ -476,7 +747,7 @@ const jaJP = {
     clips: {
       replaces: "Loom、Granola、Wisprflow を置き換えまたは拡張",
       description:
-        "ブラウザーのデバッグ キャプチャを使用した画面録画、カレンダーと同期した会議メモ、Fn 保留音声ディクテーション。これらはすべて文字起こし、要約、検索可能で、エージェントが編集できます。",
+        "画面、会議、音声メモを記録し、エージェントが内容を理解して次のアクションを実行できるようにします。",
     },
     plan: {
       replaces:
@@ -485,51 +756,45 @@ const jaJP = {
         "ビジュアル計画を app-backed skill としてインストールします。コーディングエージェントは図、ワイヤーフレーム、プロトタイプ、注釈、コメント、共有レビューリンク付きの構造化プランを開けます。",
     },
     design: {
-      replaces: "デザインプロトタイピングツールを置き換えまたは拡張",
+      replaces: "Agent-Native Design スタジオ",
       description:
-        "Agent-native HTML プロトタイピングスタジオ。インタラクティブな Alpine/Tailwind デザインを生成し、バリアントを比較し、ライブ調整して結果をエクスポートします。",
+        "プロンプトをデザインシステムに沿ったインタラクティブなデザインに変え、エージェントがフィードバックで各画面を磨き上げます。",
     },
     content: {
       replaces: "MDX、Notion、Google Docs の Obsidian を置換または拡張します。",
       description:
-        "Obsidian などのローカル Markdown/MDX ファイルを編集し、豊富な対話型カスタム ブロックを生成し、AI エージェントを使用してドラフト、書き換え、公開します。",
+        "ドキュメントを扱いながら、エージェントがあなたの文体で下書きし、インタラクティブなコンテンツを作成してサイトに公開します。",
     },
     slides: {
       replaces: "Google Slides、Pitch を置換または拡張します",
       description:
-        "プロンプトから完全なプレゼンテーションを生成します。視覚的または会話的に編集します。 AI 画像生成、8 つのレイアウト、およびプレゼンテーション モードが組み込まれています。",
+        "プロンプトや既存のスライドからブランドに沿った編集可能なプレゼンテーションを作成し、エージェントが作成、編集、改善します。",
     },
     analytics: {
       replaces: "Amplitude と FullStory のオープンソース代替品",
       description:
-        "あらゆるデータ ソースに接続し、あらゆるグラフのプロンプトを表示し、再利用可能なダッシュボードを構築します。エージェントは SQL を書き込み、ビジュアライゼーションを生成し、アプリを進化させます。",
+        "データを接続し、エージェントが自然な言葉で質問に答え、結果をグラフやダッシュボードにまとめます。",
     },
     mail: {
       replaces: "Superhuman、Gmail を置換または拡張します",
       description:
-        "キーボード ショートカット、AI トリアージ、マルチアカウント サポート、および電子メール自動化を備えた Superhuman スタイルの電子メール クライアント。受信トレイのワークフローを自分のものにしましょう。",
+        "キーボード中心の受信トレイで、エージェントがメールの優先順位付け、返信の下書き、スレッドの要約、フォローアップを行います。",
     },
     forms: {
       replaces: "Typeform、Google Forms を置換または拡張します",
       description:
         "エージェントネイティブのフォームビルダー。プロンプトからフォームを生成し、フィールドを視覚的または会話的に編集し、送信内容を Slack、Discord、Google Sheets、または Webhook に送信します。",
     },
-    brain: {
-      replaces:
-        "チーム Wiki、Glean スタイルのリコール、および組織の記憶ツールを置き換えまたは強化します",
-      description:
-        "承認済みの Slack、Clips、Granola、GitHub、トランスクリプト ソースからの引用メモリを介した全ページの社内チャット。レビュー ゲート、評価、共有接続の準備が組み込まれています。",
-    },
     assets: {
       replaces:
         "DAMs、ブランド資産ライブラリ、および AI メディア ジェネレーターを置き換えまたは拡張します",
       description:
-        "他のアプリが A2A 経由で呼び出したり、ピッカーとして埋め込んだりできる、アップロード、ブランド ライブラリ、検索可能な参照、およびブランド上の画像/ビデオ生成用のデジタル アセット マネージャー。",
+        "ブランドガイドライン、画像、動画の共有ライブラリをエージェントに提供し、アプリでブランドに沿ったメディアを作成、選択できるようにします。",
     },
     calendar: {
       replaces: "Google Calendar、Calendly を置換または拡張します",
       description:
-        "Google 同期、空き状況管理、公開予約ページを備えた完全なカレンダー。エージェントは空きスロットを見つけてイベントを作成し、スケジュールを管理します。",
+        "複数の Google カレンダーをまとめ、エージェントが空き時間を探し、予定を作成または変更し、予約を管理します。",
     },
     dispatch: {
       replaces: "エージェントネイティブアプリのミッションコントロール",
@@ -543,6 +808,10 @@ const jaJP = {
     },
   },
   templateLanding: {
+    faq: {
+      eyebrow: "よくある質問",
+      title: "よくあるご質問にお答えします",
+    },
     analytics: {
       s001: "Analytics テンプレートのスクリーンショット",
       s002: "データコネクタ",
@@ -550,7 +819,8 @@ const jaJP = {
       s004: "クエリエクスプローラー",
       s005: "自然言語",
       s006: "すべてのテンプレート",
-      s007: "Amplitude と FullStory のオープンソース代替品",
+      s007Primary: "Amplitude と FullStory の",
+      s007Secondary: "オープンソース代替品",
       s008: "任意のデータ ソースに接続し、任意のグラフのプロンプトを表示し、再利用可能なダッシュボードを構築します。AI エージェントが SQL を書き込みます。",
       s009: "試す",
       s010: "できること",
@@ -608,14 +878,117 @@ const jaJP = {
       s062: "テンプレートから始め、データを接続し、ダッシュボードの構築を開始します。",
       s063: "ドキュメントを読む",
       s064: "すべてのテンプレートを表示",
+      heroEyebrow: "Analytics",
+      heroTitle:
+        "質問してください。チャート、クエリ、コンテキストを取得します。",
+      heroDescription:
+        "倉庫、製品、収益のデータを統合します。エージェントはメトリック定義をチェックし、SQL を作成し、その回答を再利用可能なダッシュボードに変換します。",
+      heroCta: "データを探索",
+      useCasesHeading: "メトリックからセッションまでのシグナルを追跡する",
+      useCasesBody:
+        "各結果の横に推論を置いてから、グラフをダッシュボードまたはセッション調査に持ち込んでください。",
+      useCase1Title: "アクティベーションの変更について説明する",
+      useCase1Body:
+        "会話の中でコホートとチャネルを比較します。エージェントは文書化されたメトリック定義を使用し、クエリを作成し、変更の背後にある証拠を示します。",
+      useCase2Title: "生活できる収益の見直しを構築する",
+      useCase2Body:
+        "エージェントに、請求、CRM、または倉庫の指標をダッシュボードに組み合わせるように依頼します。フィルターとパネルは次回のレビューまで保持されます。",
+      useCase3Title: "実際のセッションまでメトリクスをトレースする",
+      useCase3Body:
+        "スパイクまたはエラーからその後のセッションに移行します。コンソールとネットワークのアクティビティを検査し、一時的な診断コンテキストをエージェントと共有します。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "クエリ、可視化、探索に必要なすべて",
+      feature1Title: "接続されたデータ全体で質問する",
+      feature1Body:
+        "倉庫、製品、収益源全体にわたって質問してください。エージェントは回答をグラフに変換し、詳細なフォローアップをサポートします。",
+      feature2Title: "エージェントが編集できるダッシュボード",
+      feature2Body:
+        "エージェントにパネル、フィルタ、およびブレークダウンを追加または再形成してもらいます。変更は、チームが共有できる再利用可能なダッシュボードに保存されます。",
+      feature3Title: "SQL とメトリックのコンテキストを表示",
+      feature3Body:
+        "結果の背後にあるクエリと、結果を書き込むために使用されたメトリック定義を検査します。より詳細な制御が必要な場合は、SQL を調整します。",
+      feature4Title: "データソース用の 1 つのワークスペース",
+      feature4Body:
+        "BigQuery、GA4、製品分析、HubSpot、Stripe に接続し、同じアプリから許可されたデータを探索します。",
+      feature5Title: "エージェントが従う定義",
+      feature5Body:
+        "メトリック ルール、結合、例、既知の注意事項を文書化します。 Analytics は、エージェントがクエリを作成するときにそのコンテキストをエージェントに提供します。",
+      feature6Title: "診断付きセッションリプレイ",
+      feature6Body:
+        "コンソールおよびネットワーク イベントを表示しながら、エラーから記録にジャンプします。エージェントによる調査のために一時的な診断リンクを共有します。",
+      finalCtaHeading: "データについての質問から始めましょう",
+      finalCtaBody:
+        "ソースを接続して、AIエージェントに最初のチャートを頼みましょう。",
+      finalCtaButton: "データを探索",
+      faq: {
+        question1: "Agent-Native Analyticsとは何ですか？",
+        answer1:
+          "Agent-Native Analyticsは無料でオープンソースのAI分析ツールです。接続されたデータについてAIエージェントに質問し、クエリを調べ、再利用可能なダッシュボードを作成できます。セッションリプレイ、エラー追跡、稼働監視も含まれています。",
+        question2: "Analyticsを使うのにSQLの知識は必要ですか？",
+        answer2:
+          "自然な言葉で質問し、AIエージェントにクエリを書かせることができます。BigQueryの場合、Explorerでテーブル、指標、フィルターを選択してチャートを作成することもできます。確認用にSQLは常に利用でき、データに詳しい人がソースの接続や指標の定義を手伝う必要がある場合もあります。",
+        question3: "どのデータソースを接続できますか？",
+        answer3:
+          "対応ソースには、BigQuery、Google Analytics 4、Amplitude、Mixpanel、PostHog、HubSpot、Stripeが含まれます。各ソースには適切な認証情報、またはAnalyticsに付与された共有ワークスペース接続が必要です。得られる回答は、接続するデータと権限によって異なります。",
+        question4: "自分たちの指標定義を使えますか？",
+        answer4:
+          "はい。データディクショナリを使って、定義、テーブルと列の名前、クエリ例、社内アカウントの除外などの例外をドキュメント化できます。AIエージェントはクエリを書く際にそれらの定義を利用できます。ビジネス指標を確認する際は、SQLと結果を確認してください。",
+        question5:
+          "ダッシュボードを共有したり、レポートをスケジュールしたりできますか？",
+        answer5:
+          "はい。閲覧者、編集者、管理者のアクセス権でチームメンバーや組織とダッシュボードを共有できます。現在のダッシュボードの結果をメールレポートとしてスケジュールしたり、追跡したい条件のアラートを設定したりすることもできます。",
+      },
     },
     calendar: {
       s001: "Calendar テンプレートのスクリーンショット",
+      heroEyebrow: "Calendar",
+      heroTitle:
+        "エージェントと時間を見つけて会議を予約し、その日の予定を調整します",
+      heroDescription:
+        "カレンダーは、Google カレンダーと空き状況ルールを統合して、エージェントが共有の空き状況を見つけたり、予約を準備したり、イベントの更新を支援したりできるようにします。",
+      heroCta: "スケジュールを開始",
+      useCasesHeading: "スケジュールの詳細はエージェントに任せましょう",
+      useCasesBody:
+        "カレンダー全体で実際の空き状況を確認し、会議を作成または移動する前に明確な提案を確認します。",
+      useCase1Title: "予約リンクを準備済みの会議に変える",
+      useCase1Body:
+        "労働時間、通知、バッファーを考慮した時間のみを提供します。必要な詳細を収集し、ゲストが予約するときにビデオリンクを追加します。",
+      useCase2Title: "誰でも作れるスロットを探す",
+      useCase2Body:
+        "エージェントに、出席者の空き時間と予定表のオーバーレイを比較するよう依頼します。共有開始とチェックしたカレンダーを返します。",
+      useCase3Title: "スレッドを失わずにスケジュールを変更する",
+      useCase3Body:
+        "後で時間をリクエストし、エージェントにゲストを確認させ、会議の詳細を保存し、レビュー用に更新された招待状を準備させます。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "スケジュール、予約、変更に必要なすべて",
+      feature1Title: "自然言語によるスケジューリング",
+      feature1Body:
+        "エージェントに空き状況を確認し、時間を提案し、ゲストと会議の詳細を含むイベントを作成または移動するように依頼します。",
+      feature2Title: "アカウント間での可用性",
+      feature2Body:
+        "接続されている Google カレンダーをまとめて表示し、読み取り専用フィードをスケジュール コンテキストとして含めます。",
+      feature3Title: "インテーク付きの予約ページ",
+      feature3Body:
+        "さまざまな会議タイプのリンクを作成し、期間と予約に関する質問を設定し、ゲストが利用可能なスロットを選択できるようにします。",
+      feature4Title: "すべてのスロットを形作るルール",
+      feature4Body:
+        "勤務時間、バッファー、通知、タイムゾーン、予約期間を設定して、提案された公開時刻がスケジュールに適合するようにします。",
+      feature5Title: "実際のマルチホストチェック",
+      feature5Body:
+        "時間を指定する前に、必要な共同ホストを追加し、空き状況を確認してください。カレンダーは、構成時に共有の勤務時間オーバーレイも考慮します。",
+      feature6Title: "エージェントが管理する会議のフォロースルー",
+      feature6Body:
+        "エージェントがイベントの変更や招待状の更新を準備する間、Google Meet または Zoom の詳細を添付したままにしておきます。",
+      finalCtaHeading: "次のミーティングをカレンダーに登録しましょう",
+      finalCtaBody:
+        "AIエージェントで時間を見つけるか、予約リンクを送りましょう。",
+      finalCtaButton: "スケジュールを開始",
       s002: "Calendar ビュー",
       s003: "エージェントのアクション",
       s004: "予約リンクのタイプ",
       s005: "すべてのテンプレート",
-      s006: "オープンソースの Google Calendar および Calendly の代替案",
+      s006Primary: "オープンソースの",
+      s006Secondary: "Google Calendar および Calendly の代替案",
       s007: "マルチアカウント Google Calendar 同期、設定可能な空き状況、およびカスタマイズ可能な Calendly スタイルの予約リンク - ユーザーに代わってスケジュールを設定する AI エージェントを使用します。",
       s008: "試す",
       s009: "サインインでは基本的な Google ID のみが使用されますが、Calendar 同期の接続にはカレンダーへのアクセスが要求されます。一部のワークスペース管理者は、ホストされたデモに対して承認を必要とする場合があります。ローカルで実行して、独自の Google OAuth クライアントを使用します。",
@@ -668,17 +1041,147 @@ const jaJP = {
       s056: "すべてのテンプレートを表示",
       s057: "ホスト版デモの注意",
       s058: "双方向同期",
+      faq: {
+        question1: "Agent-Native Calendar とは何ですか？",
+        answer1:
+          "Agent-Native Calendar は、Google Calendar と連携する無料のオープンソース AI スケジューリングアシスタントです。AI エージェントで予定を管理したり空き時間を探したりできるほか、予約リンクを共有して他の人に予約してもらうこともできます。",
+        question2: "どのカレンダーを接続できますか？",
+        answer2:
+          "複数の Google アカウントを接続して、それぞれの予定をまとめて表示できます。新規・更新された予定は、選択したアカウントのメインカレンダーに書き込まれます。読み取り専用の ICS や webcal フィードを表示することもできますが、これらは Outlook や Apple カレンダーとの双方向連携ではありません。共有された Google カレンダーは表示のみで、予約の空き状況をブロックすることはありません。",
+        question3: "AI エージェントは私のカレンダーで何ができますか？",
+        answer3:
+          "AI エージェントは予定を確認し、空いている時間を見つけ、予定の作成や変更ができます。時間を探すよう依頼すると、あなたの空き状況ルールと既存の予定に加え、アクセス可能な場合は指定した参加者の空き/予定ありの情報も確認します。予約が確定する前に、提案された時間をあなたが選びます。",
+        question4: "私に会うための予約に相手のアカウントは必要ですか？",
+        answer4:
+          "いいえ。公開の予約リンクを持つ人は誰でも、サインインせずに空いている時間を選び、予約に関する質問に答えられます。予約後は、予定の変更やキャンセルができる非公開のリンクが送られます。",
+        question5: "予約リンクで複数のホストの空き状況を確認できますか？",
+        answer5:
+          "はい。必須の共同ホストを追加すると、Calendar は時間を提示する前に共同ホストの空き/予定ありの情報を確認します。各共同ホストが設定した勤務時間も考慮するには、あなたとその共同ホストが互いのカレンダーをオーバーレイとして追加する必要があります。この相互共有がない場合、Calendar は空き/予定ありの情報のみを確認します。",
+      },
+    },
+    assets: {
+      faq: {
+        question1: "Agent-Native Assetsとは何ですか？",
+        answer1:
+          "Agent-Native Assetsは、AIによる画像・動画生成機能を備えた無料でオープンソースのブランドアセットライブラリです。既存のメディアを整理し、ブランドリファレンスを与えて、AIエージェントと一緒に複数のプロジェクトでアセットを生成、編集、再利用できます。",
+        question2: "Assetsは私のブランドガイドラインをどのように使いますか？",
+        answer2:
+          "ロゴ、参考画像、カラー、スタイルメモをブランドキットに追加します。再利用可能なテンプレートは特定のコンテンツ種別向けの指示を提供します。AIエージェントはそのコンテキストを使って生成を導き、保存前に結果を確認・調整できます。",
+        question3: "既存の画像や動画をアップロードして整理できますか？",
+        answer3:
+          "はい。既存のメディアをアップロードするか、URLからアセットをインポートし、生成したコンテンツと一緒にライブラリとフォルダで整理できます。ライブラリの閲覧や検索、アセットを参照として再利用、他のプロジェクト用にエクスポートすることもできます。",
+        question4: "AIエージェントは他のアプリからAssetsを利用できますか？",
+        answer4:
+          "はい。対応エージェントをAssetsのMCP連携経由で接続すれば、チャットからメディアの検索、生成、選択ができます。Agent-Nativeアプリもアセットをリクエストしたり、ピッカーを埋め込んだりできます。利用できる体験は、ホストアプリとAssetsとの連携内容によって異なります。",
+        question5: "Assetsは生成画像に実際のロゴを使えますか？",
+        answer5:
+          "はい。ブランドキットで正規のロゴを設定し、生成時にロゴコンポジットを有効にします。Assetsは生成後に元のロゴを画像に配置するため、画像モデルがロゴを描き直すことはありません。使用前に配置と周囲の画像を確認してください。",
+      },
+      s001: "Assets アプリのスクリーンショット",
+      imageCredits: "画像のクレジット",
+      heroEyebrow: "Assets",
+      heroTitle: "会話の中でブランドイメージを生成する",
+      heroDescription:
+        "必要なものを説明し、エージェントにブランド キットまたはリファレンスを渡し、会話中に生成されたバリエーションを比較します。",
+      heroCta: "画像を生成",
+      useCasesHeading: "Assetsでできること",
+      useCasesBody:
+        "キャンペーン用の画像を作成したり、既存のビジュアルを新しいプロジェクト向けに調整したり、チームとAIエージェントで共有ブランドライブラリを持てます。",
+      useCase1Title: "キャンペーンビジュアルを作成する",
+      useCase1Body:
+        "ブランドリファレンスを使って、ブログ画像、ソーシャル用グラフィック、ローンチビジュアルをAIエージェントに依頼しましょう。複数の候補を比較し、選んだものを仕上げられます。",
+      useCase2Title: "画像を新しいプロジェクト向けに調整する",
+      useCase2Body:
+        "既存の画像をAIエージェントに渡し、背景を変える、見出し用のスペースを空けるなど、必要な変更を伝えましょう。",
+      useCase3Title: "業務全体でブランドアセットを共有する",
+      useCase3Body:
+        "ロゴ、製品画像、ブランドリファレンスをまとめて管理すれば、チームメンバーや接続されたAIエージェントがプレゼンテーション、Webサイト、その他のプロジェクト用にメディアを見つけられます。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "生成、調整、再利用に必要なすべて",
+      feature1Title: "ブランドアセットライブラリ",
+      feature1Body:
+        "アップロードしたメディアや生成したメディアをライブラリとフォルダで整理できます。ロゴ、参考画像、スタイルメモを追加し、AIエージェントに使わせられます。",
+      feature2Title: "AIによる画像・動画生成",
+      feature2Body:
+        "必要なメディアを説明し、ブランドリファレンスを選びましょう。画像の候補や短い動画を生成し、保存前に結果を確認できます。",
+      feature3Title: "画像編集",
+      feature3Body:
+        "AIエージェントに画像の編集やスタイル変更を依頼しましょう。既存のアセットを参照として使い、フィードバックを通じて仕上げていけます。",
+      feature4Title: "再利用可能なテンプレート",
+      feature4Body:
+        "ブログのカバー画像やソーシャル用グラフィックなど、繰り返し発生する作業向けに生成指示を保存できます。テンプレートをブランドキットに関連付ければ、そのリファレンスを再利用できます。",
+      feature5Title: "オリジナルロゴの配置",
+      feature5Body:
+        "ブランドキットのロゴを設定し、生成した画像に追加できます。ロゴコンポジットは新しく生成する代わりに、元のファイルをそのまま配置します。",
+      feature6Title: "エージェントアクセス",
+      feature6Body:
+        "AIエージェントを接続すれば、ライブラリの検索、メディアの生成、チャットからのアセット選択ができます。対応アプリはアセットピッカーを埋め込むこともできます。",
+      finalCtaHeading: "次のブランドアセットを作成しましょう",
+      finalCtaBody:
+        "リファレンスを選んで、必要なものをAIエージェントに伝えましょう。",
+      finalCtaButton: "画像を生成",
     },
     clips: {
       s001: "Clips テンプレートのスクリーンショット",
+      heroEyebrow: "Clips",
+      heroTitle: "AIエージェントが見て、聞ける画面録画",
+      heroDescription:
+        "Clipsは無料でオープンソースの画面録画ツールです。バグ、フィードバック、手順の説明をAIエージェントと共有できます。",
+      heroCta: "クリップを録画",
+      useCasesHeading: "Clipsでできること",
+      useCasesBody:
+        "自分で録画したクリップや共有されたクリップから始めましょう。AIエージェントにコンテキストを渡し、必要なことを伝えてください。",
+      useCase1Title: "録画されたフィードバックに対応する",
+      useCase1Body:
+        "録画したフィードバックをAIエージェントに渡し、プランにまとめてもらうか、依頼した変更の実装を手伝ってもらいましょう。",
+      useCase2Title: "報告されたバグを調査する",
+      useCase2Body:
+        "バグの録画をAIエージェントと共有し、何が問題だったのかを調査して次のステップを考えてもらいましょう。",
+      useCase3Title: "録画された指示から作成する",
+      useCase3Body:
+        "録画したブリーフを使って、プレゼンテーション、デザイン、コンテンツ、アプリの変更を作成するようAIエージェントに指示しましょう。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "録画、文字起こし、共有に必要なすべて",
+      feature1Title: "エージェントが読める録画",
+      feature1Body:
+        "1つのエージェント読み取り可能なリンクを通じて、クリップの文字起こしとタイムスタンプ付き画像をAIエージェントと共有します。",
+      feature2Title: "自動文字起こし",
+      feature2Body:
+        "録画、ミーティング、口述の文字起こしを取得します。文字起こしの行をクリックすると、その瞬間に移動して再生できます。",
+      feature3Title: "ブラウザのデバッグログ",
+      feature3Body:
+        "Clips Chrome拡張機能で、録画と一緒にコンソールエラーや失敗したリクエストをキャプチャします。",
+      feature4Title: "内蔵AIエージェント",
+      feature4Body:
+        "内蔵のAIエージェントに1つのクリップやライブラリ全体について質問し、チャットで文字起こしを編集させることもできます。",
+      feature5Title: "検索可能な録画ライブラリ",
+      feature5Body:
+        "文字起こしを検索してクリップを見つけましょう。フォルダ、タグ、チームスペースで録画を整理できます。",
+      feature6Title: "プッシュトゥトーク方式の口述入力",
+      feature6Body:
+        "デスクトップアプリでFnキーを押しながら、他のアプリに口述入力できます。文字起こしと整形済みのテキストは履歴で確認できます。",
+      teammatesLine:
+        "チームメンバーもプレーヤーで同じ録画を見ることができます。",
+      teammatesLinkLabel: "エージェント共有ガイドを読む",
+      seeInActionHeading: "Clipsの活用例を見る",
+      seeInActionBody:
+        "ブラウザのワークフローを録画する様子から、AIエージェントにタスクの手順を示す様子まで、Clipsの使用例をご覧ください。",
+      watchClipLabel: "クリップを見る",
+      finalCtaHeading: "次のクリップを役立てましょう",
+      finalCtaBody:
+        "説明を録画するか、共有されたクリップをAIエージェントに渡しましょう。",
+      finalCtaButton: "クリップを録画",
       s002: "画面録画",
       s003: "ブラウザのデバッグログ",
       s004: "口述する",
       s005: "見える + 聞こえる",
       s006: "すべてのテンプレート",
-      s007: "Loom のオープンソース代替品",
-      s008: "Clips リンクをエージェントに貼り付けると、そのモデルが生のビデオや音声を取り込むことができない場合でも、トランスクリプトを聞いたり、概要を読んだり、タイムスタンプ付きのフレームを表示したりできます。",
-      s009: "試す",
+      s007Primary: "AI が見て聞ける",
+      s007Secondary: "画面録画。",
+      s008: "ブラウザーのデバッグ ログを取得し、文字起こしを作成し、組み込みのディクテーションを使用できます。100% 無料、オープンソース、カスタマイズ可能。",
+      s063: "パーソナライズされた提案を受け取る",
+      s064: "このプロンプトを Claude、ChatGPT、または Cursor に貼り付けて、Clips がワークフローにどのような効果をもたらすかを確認してください。",
+      s009: "試してみる",
       s010: "できること",
       s011: "サブスクリプション スタックを必要とせずに、1 つのアプリ、1 つのライブラリで記録、文字起こし、デバッグを行います。",
       s012: "ワンクリックで画面を録画",
@@ -721,20 +1224,92 @@ const jaJP = {
       s049: "データの所有権",
       s050: "ベンダーのストレージ",
       s051: "ベンダーのクラウド",
-      s052: "コードの所有者はあなたです",
+      s052: "データだけでなく、アプリのコードそのものもあなたのものです。",
       s053: "価格設定",
       s054: "1 ユーザーあたり月額 $15-30",
       s055: "無料層と有料層",
       s056: "1 ユーザーあたり月額 $18-25",
       s057: "1 ユーザーあたり月額 $12-15",
       s058: "無料＆オープンソース",
-      s059: "数分で始められます",
-      s060: "テンプレートから始め、ストレージを接続し、チームが実際に所有するクリップの記録を開始します。",
-      s061: "ドキュメントを読む",
+      s059: "今すぐ始める",
+      s060: "キャプチャする内容を選択して、Clips で録画を開始します。",
       s062: "すべてのテンプレートを表示",
+      faq: {
+        question1: "Agent-Native Clipsとは何ですか?",
+        answer1:
+          "Agent-Native Clipsは、バグ、フィードバック、手順の説明をAIエージェントと共有するための無料でオープンソースの画面録画ツールです。録画の文字起こしとタイムスタンプ付き画像をAIエージェントに提供し、人も同じクリップを視聴できます。",
+        question2: "Claude、ChatGPT、Cursorと録画を共有できますか?",
+        answer2:
+          "Clipsはエージェントが読み取れるリンクを提供し、文字起こしとタイムスタンプ付きの画像が含まれます。両方を利用するには、エージェントがリンク先のコンテンツを開き、画像を読み取れる必要があります。一部のチャットモードは文字起こしは読めますが、画像は別途アップロードする必要があります。",
+        question3: "画面を録画するのにChrome拡張機能は必要ですか?",
+        answer3:
+          "いいえ。Clipsのウェブアプリで録画できます。録画するタブのコンソールメッセージやネットワーク診断情報も必要な場合は、Chrome拡張機能を使ってください。",
+        question4: "AIエージェントは私の画面録画を見ることができますか?",
+        answer4:
+          "Clipsでは、対応するAIエージェントが文字起こしとタイムスタンプ付き画像を通じて録画を理解できます。動画を再生するのではなくテキストと画像を使用するため、何が起きたかを質問したり、録画に基づいたタスクをAIエージェントに依頼したりできます。",
+        question5: "共有された録画には誰がアクセスできますか?",
+        answer5:
+          "組織が設定を変更しない限り、録画はデフォルトで公開リンクを使用します。リンクを知っている人は誰でもアクセスできます。プライベートおよび組織限定のアクセスオプションも用意されており、プライベートなクリップは録画を公開せずに、一時的なリンクを通じてエージェントと共有できます。",
+      },
+      quickStart: {
+        recordingMode: "録画モード",
+        modeScreenCamera: "画面 + カメラ",
+        modeScreenOnly: "画面のみ",
+        modeCameraOnly: "カメラのみ",
+        captureSource: "キャプチャ対象",
+        surfaceWindow: "ウィンドウ",
+        surfaceBrowser: "ブラウザタブ",
+        surfaceScreen: "画面",
+        audioSource: "音声ソース",
+        defaultMicrophone: "デフォルトのマイク",
+        startRecording: "録画を開始",
+        uploadVideo: "動画をアップロード",
+        importLoom: "Loom からインポート",
+      },
     },
     content: {
       s001: "Content テンプレートのスクリーンショット",
+      heroEyebrow: "Content",
+      heroTitle: "AIエージェントで作業を作成・整理する",
+      heroDescription:
+        "Content は、ドキュメント、タスクリスト、データベースのための無料でオープンソースのワークスペースです。あなたとAIエージェントが一緒に読み書きできます。",
+      heroCta: "作業を整理",
+      useCasesHeading: "Content でできること",
+      useCasesBody:
+        "下書きに取り組んだり、やるべきことを管理したり、新しい依頼の詳細を集めたりできます。",
+      useCase1Title: "コンテンツを書いてレビューする",
+      useCase1Body:
+        "AIエージェントにページの下書きや文章の修正、コメントの追加を依頼しましょう。どのように手伝ってもらうかは自分で選べます。",
+      useCase2Title: "エージェントと一緒に作業を管理する",
+      useCase2Body:
+        "タスク、ステータス、次のステップを共有テーブルにまとめておきましょう。プロジェクトを進める中で、接続したAIエージェントに更新を依頼できます。",
+      useCase3Title: "プロジェクトの依頼を集める",
+      useCase3Body:
+        "デザイン依頼やその他のチーム業務用にテーブルを用意しましょう。各フィールドに指示を書いておけば、AIエージェントが不足している詳細を尋ねられます。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "書く、整理する、共同作業するために必要なすべて",
+      feature1Title: "AIによる執筆とレビュー",
+      feature1Body:
+        "最初の下書きを作成したり、選択したテキストの変更を依頼したり、コメントを求めたりできます。AIエージェントはドキュメント内で直接作業します。",
+      feature2Title: "ドキュメントとネストされたページ",
+      feature2Body:
+        "見出し、テーブル、画像、コードブロックを使ってページを書けます。関連ドキュメントをプロジェクトの下にまとめ、タイトルや内容で検索して見つけられます。",
+      feature3Title: "データベースとビュー",
+      feature3Body:
+        "作業をテーブル、ボード、カレンダーで整理できます。担当者、日付、ステータス用のフィールドを追加でき、各行の背後には完全なドキュメントがあります。",
+      feature4Title: "ページとフィールドの指示",
+      feature4Body:
+        "ページやデータベースのフィールドに何を含めるべきかを記述しましょう。求める情報や形式についてAIエージェントに指示を与えられます。",
+      feature5Title: "接続されたAIエージェント",
+      feature5Body:
+        "Claude Code、Codex、Cursor などのツールからエージェントを接続し、組み込みのエージェントと並んでドキュメントやデータベースの読み書きができるようにします。",
+      feature6Title: "チームでの共同作業",
+      feature6Body:
+        "ページを一緒に編集し、文章にコメントを残し、スレッドで返信できます。特定の人や組織と共有し、アクセスレベルを選択できます。",
+      finalCtaHeading: "次のプロジェクトを Content で始めましょう",
+      finalCtaBody:
+        "ドキュメント、タスクリスト、またはチームがすでに使っているテーブルから始めましょう。",
+      finalCtaButton: "作業を整理",
       s002: "すべてのテンプレート",
       s003: "MDX 用のオープンソース Obsidian",
       s004: "Obsidian などのローカル Markdown/MDX ファイルを編集し、豊富な対話型カスタム ブロックを生成し、ドキュメントを認識する AI エージェントを使用して書き込みます。",
@@ -796,16 +1371,77 @@ const jaJP = {
       s060: "MDX ドキュメントを持参し、インタラクティブなブロックを生成し、AI で作成を開始します。",
       s061: "ドキュメントを読む",
       s062: "すべてのテンプレートを表示",
+      faq: {
+        question1: "Agent-Native Content とは何ですか？",
+        answer1:
+          "Agent-Native Content は、ドキュメント、タスク、データベースのための無料でオープンソースのワークスペースです。AI ドキュメントエディターと、構造化されたテーブルや共有ページを組み合わせており、人と接続された AI エージェントが一緒に読み書きできます。",
+        question2: "Content で自分の AI エージェントを使えますか？",
+        answer2:
+          "はい。Content は Claude Code、Codex、Cursor などの対応ツール向けに MCP 接続を提供します。接続してアクセスを許可すると、エージェントは利用可能なドキュメントやデータベースを操作できるようになります。Content 組み込みのエージェントも利用できます。",
+        question3:
+          "書き直さずに、AI に文章をレビューしてもらうことはできますか？",
+        answer3:
+          "はい。AI エージェントにドキュメントや箇所へのコメントを依頼できます。フィードバックを読んで自分で修正することも、エージェントにテキストの編集を頼むこともできます。コメントを依頼するだけなら、執筆をエージェントに任せる必要はありません。",
+        question4:
+          "Content でタスクの管理やチームからの依頼の収集はできますか？",
+        answer4:
+          "はい。担当者、ステータス、納期、次のステップといったフィールドを持つデータベースを作成できます。各フィールドに何を入力すべきかの説明を加えておくと、その説明がエントリーの作成・更新時に AI エージェントの手がかりとなり、不足している情報を尋ねることもできます。",
+        question5:
+          "誰が編集できるかを管理し、以前のバージョンに戻すことはできますか？",
+        answer5:
+          "はい。新しいドキュメントは初期設定で非公開です。閲覧者、編集者、管理者のいずれかのアクセス権で共有でき、ページのバージョン履歴を使って以前のスナップショットに復元できます。スナップショットを復元すると、ページの現在の内容が置き換わります。",
+      },
     },
     design: {
       s001: "Design テンプレートのスクリーンショット",
+      heroEyebrow: "Design",
+      heroTitle: "AIエージェントでインタラクティブなプロトタイプをデザイン",
+      heroDescription:
+        "Designは無料でオープンソースのAIデザイン・プロトタイピングツールです。ブランドに沿ったページや製品インターフェースを作成し、デザインは自分で編集できます。",
+      heroCta: "無料でデザイン",
+      useCasesHeading: "Designでできること",
+      useCasesBody:
+        "構築する前に、新しいページやプロダクトフロー、インターフェースを検討しましょう。要件と重要なポイントをAIエージェントに伝えてください。",
+      useCase1Title: "ランディングページのアイデアを検討する",
+      useCase1Body:
+        "キャンペーンや製品の要件を、ランディングページのプロトタイプに変換しましょう。メッセージ、レイアウト、CTAをチームでレビューできます。",
+      useCase2Title: "プロダクトフローを検討する",
+      useCase2Body:
+        "オンボーディング、サインアップ、チェックアウトのフローをプロトタイプ化しましょう。実装に着手する前に、各ステップを確認して体験を磨き上げられます。",
+      useCase3Title: "ダッシュボードや社内ツールをデザインする",
+      useCase3Body:
+        "ワークフローの要件を、ダッシュボードや管理画面に変換しましょう。ユーザーが情報を見つけ、日々のタスクを完了する流れを検討できます。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "デザイン、プロトタイプ作成、共有に必要なすべて",
+      feature1Title: "インタラクティブなプロトタイプ",
+      feature1Body:
+        "必要なページやフローを説明するだけです。AIエージェントが、プレビューで試せるインタラクション付きのHTMLプロトタイプを作成します。",
+      feature2Title: "AIとビジュアル編集",
+      feature2Body:
+        "ビジュアルコントロールでテキスト、間隔、スタイルを調整するか、AIエージェントにレイアウトやインタラクションの変更を依頼できます。",
+      feature3Title: "デザインバリエーションの比較",
+      feature3Body:
+        "AIエージェントに複数のデザインの方向性を依頼しましょう。キャンバス上で比較し、方針を選んでさらに磨き込めます。",
+      feature4Title: "再利用可能なブランドスタイル",
+      feature4Body:
+        "色、タイポグラフィ、スタイルを含むデザインシステムをリンクしましょう。プロジェクト全体で、新しいデザインや修正の指針として利用できます。",
+      feature5Title: "デザインレビューのコメント",
+      feature5Body:
+        "特定の要素にフィードバックをピン留めして、文脈を明確に保てます。コメントをAIエージェントに送るだけで、修正を進められます。",
+      feature6Title: "HTMLエクスポートとコードの引き継ぎ",
+      feature6Body:
+        "HTMLまたはデザインファイルのZIPをエクスポートできます。開発者やコーディングエージェントにプロトタイプとコンテキストを渡せば、実装を引き継げます。",
+      finalCtaHeading: "次のデザインを始めましょう",
+      finalCtaBody:
+        "要件を持ち込んでください。可能性を探り、細部を磨き上げましょう。",
+      finalCtaButton: "無料でデザイン",
       s002: "説明する",
       s003: "生成する",
       s004: "絞り込む",
       s005: "すべてのテンプレート",
-      s006: "オープンソースの AI HTML プロトタイピング スタジオ",
-      s007: "プロンプトからインタラクティブな Alpine/Tailwind プロトタイプを生成し、バリアントを比較し、コントロールを微調整して調整し、所有する実際のファイルをエクスポートします。",
-      s008: "試す",
+      s006: "オープンソースのデザインワークスペース",
+      s007: "インタラクティブなデザインとプロトタイプを作成できます。使い慣れたツールで調整するか、会話の編集で仕上げられます。どこへでもエクスポートできます。",
+      s008: "何かをデザインする",
       s009: "仕組み",
       s010: "必要なものすべて",
       s011: "ソースを作成して改良するエージェントを備えたプロトタイプ スタジオ。",
@@ -858,9 +1494,68 @@ const jaJP = {
       s058: "テンプレートから始め、ソースを編集するエージェントを使用して対話型プロトタイプの生成を開始します。",
       s059: "ドキュメントを読む",
       s060: "すべてのテンプレートを表示",
+      s061: "100% 無料、オープンソース、カスタマイズ可能。",
+      faq: {
+        question1: "Agent-Native Designとは何ですか？",
+        answer1:
+          "Agent-Native Designは、無料でオープンソースのAIデザイン・プロトタイピングツールです。AIエージェントとインタラクティブなHTMLプロトタイプを作成し、ブランドを適用して、ビジュアルコントロールやチャットでデザインを調整できます。仕上がりをフィードバック用に共有したり、開発用にエクスポートしたりできます。",
+        question2: "AIが生成した後でもデザインを編集できますか？",
+        answer2:
+          "はい。ビジュアルコントロールでテキスト、間隔、スタイルを調整するか、AIエージェントにデザインの変更を依頼できます。複数の方向性を比較し、選んだものをさらに磨き続けられます。",
+        question3: "自社のデザインシステムを使用できますか？",
+        answer3:
+          "はい。デザインシステムをリンクすると、色、タイポグラフィ、スタイル、ブランドの指示を反映できます。複数のデザインで再利用でき、AIエージェントによる修正のコンテキストとしても使用できます。",
+        question4: "Figmaのデザインを扱えますか？",
+        answer4:
+          "はい。DesignはFigmaのインポートワークフローと、Figma対応の専用SVGエクスポートに対応しています。デザインを移行した後は、フォント、レイアウト、編集可能な要素を確認してください。互換性は元データとエクスポート形式に依存します。",
+        question5: "何をエクスポートできますか？完成したアプリになりますか？",
+        answer5:
+          "HTMLまたはデザインファイルのZIPをエクスポートできるほか、コーディングエージェントへの引き継ぎを準備できます。プロトタイプは開発の出発点となるものであり、アプリケーションロジック、連携、テスト、デプロイには引き続き実装とレビューが必要です。HTMLエクスポートは外部のランタイムリソースを使用する場合があります。",
+      },
     },
     dispatch: {
       s001: "Dispatch テンプレートのスクリーンショット",
+      heroEyebrow: "Dispatch",
+      heroTitle: "AI エージェントを一箇所でまとめて調整",
+      heroDescription:
+        "Dispatch は、接続された Agent-Native アプリへの作業の委任、定期タスクのスケジュール設定、共有接続の管理を行う、無料のオープンソース AI エージェントオーケストレーションアプリです。",
+      heroCta: "タスクを委任",
+      useCasesHeading: "Dispatch でできること",
+      useCasesBody:
+        "接続されたアプリにサポートを依頼したり、定期的な更新を設定したり、対応が必要なエージェントの実行を調査したりできます。",
+      useCase1Title: "1 つの会話から作業を委任する",
+      useCase1Body:
+        "指標のサマリーや返信の下書きを依頼します。Dispatch が接続された Analytics または Mail エージェントにリクエストを渡し、結果を返します。",
+      useCase2Title: "定期的なチーム更新を設定する",
+      useCase2Body:
+        "接続されたアプリから日次の指標サマリーや週次ダイジェストをスケジュールします。結果の送信先となる設定済みのチャンネルまたは受信箱を選択します。",
+      useCase3Title: "エージェントの活動を調査する",
+      useCase3Body:
+        "タスクの直近の実行結果とエラーを確認します。利用可能なスレッドやモニタリングの詳細を使って、対応が必要なワークフローで何が起きたかを調査します。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "委任、スケジュール設定、モニタリングに必要なすべて",
+      feature1Title: "アプリ間の委任",
+      feature1Body:
+        "その作業を処理できる接続済みアプリにリクエストを送信します。各アプリは独自のエージェント、アクション、データを使って応答します。",
+      feature2Title: "メッセージ連携",
+      feature2Body:
+        "Slack や Telegram などのチャンネルを接続してリクエストを送信し、返信を受け取ります。ID を連携させることで、Dispatch はどのワークスペースユーザーが依頼しているかを把握します。",
+      feature3Title: "スケジュールされたタスク",
+      feature3Body:
+        "定期的な作業にスケジュールを設定します。タスクが有効かどうか、直近の実行日時、次回の実行日時、記録されたエラーを確認できます。",
+      feature4Title: "保存済みの送信先",
+      feature4Body:
+        "Slack チャンネル、Telegram チャット、メールアドレスを送信先として保存します。スケジュール結果に再利用し、送信状況を確認できます。",
+      feature5Title: "共有インテグレーション",
+      feature5Body:
+        "プロバイダー接続を一度設定し、それを必要とするアプリにアクセス権を付与します。Dispatch で共有接続とアプリのアクセス権を管理します。",
+      feature6Title: "ワークスペース変更の承認",
+      feature6Body:
+        "共有リソースや設定に対する Dispatch 自身の変更について、別の管理者によるレビューを必須にします。チームのワークスペースで保留中のリクエストをレビューし、承認または却下します。",
+      finalCtaHeading: "1 つの連携タスクから始めましょう",
+      finalCtaBody:
+        "必要なアプリを選んで、Dispatch に作業の調整を依頼しましょう。",
+      finalCtaButton: "タスクを委任",
       s002: "+ Telegram 対応",
       s003: "エージェント間",
       s004: "記憶",
@@ -914,14 +1609,73 @@ const jaJP = {
       s052: "テンプレートから始め、Slack または Telegram に接続し、すべての会話にエージェントを入れます。",
       s053: "ドキュメントを読む",
       s054: "すべてのテンプレートを表示",
+      faq: {
+        question1: "Agent-Native Dispatch とは何ですか？",
+        answer1:
+          "Agent-Native Dispatch は、Agent-Native ワークスペース向けの無料のオープンソース AI エージェントオーケストレーションアプリです。接続されたアプリ間のリクエストを調整し、対応チャンネルからのメッセージを受信し、定期タスクをスケジュールし、共有インテグレーションを管理します。",
+        question2: "Dispatch はどのアプリと連携できますか？",
+        answer2:
+          "Dispatch は、ワークスペース内で接続され利用可能なアプリ（Analytics や Mail など）に作業を委任します。各アプリは自身のタスクとデータを処理します。Dispatch にそれらのアプリを使わせる前に、関連する接続と権限を設定してください。",
+        question3: "Slack や Telegram から Dispatch を使えますか？",
+        answer3:
+          "はい。必要に応じてメッセージングチャンネルを設定し、ID をワークスペースアカウントに連携させます。Dispatch はそのチャンネルを通じてリクエストを受け取り、結果を返すことができます。チャンネルを接続しても、すべての送信者にすべてのアプリへのアクセス権が自動的に付与されるわけではありません。",
+        question4: "エージェントはスケジュールに沿ってタスクを実行できますか？",
+        answer4:
+          "はい。定期タスクを設定し、必要に応じてその結果の送信先を設定します。Dispatch はタスクの直近の実行、次回の実行、エラー状態を表示するので、正常に実行されたかどうかを確認できます。",
+        question5:
+          "Dispatch の承認は、エージェントが行うすべての操作をカバーしますか？",
+        answer5:
+          "いいえ。チームのワークスペースでは、Dispatch は共有リソースや設定に対する自身の変更についてレビューを必須にできます。メール送信など、接続されたアプリ内部のアクションは、それぞれのアプリ自体の制御に従います。Dispatch の承認キューは、すべてのエージェント操作に対する万能なゲートではありません。",
+      },
     },
     forms: {
       s001: "Forms テンプレートのスクリーンショット",
+      heroEyebrow: "Forms",
+      heroTitle: "AIエージェントでフォームを作成",
+      heroDescription:
+        "Formsは、アンケートや申込みフォーム、依頼フォームを作成できる無料のオープンソースAIフォームビルダーです。質問は自分で編集でき、回答の分析はAIエージェントが手伝います。",
+      heroCta: "フォームを作成",
+      useCasesHeading: "Formsでできること",
+      useCasesBody:
+        "顧客からのフィードバックを集めたり、イベントの参加者を登録したり、チームが依頼対応に必要な情報を集めたりできます。",
+      useCase1Title: "顧客からのフィードバックを集める",
+      useCase1Body:
+        "評価、選択式の質問、記述式の回答で顧客の体験を尋ねます。集まったフィードバックの要約をAIエージェントに任せられます。",
+      useCase2Title: "申込みや登録を集める",
+      useCase2Body:
+        "ウェビナー、イベント、製品の順番待ちリスト用のフォームを作成します。連絡先や希望条件を集め、後で送信内容を確認・エクスポートできます。",
+      useCase3Title: "プロジェクトの依頼を集める",
+      useCase3Body:
+        "デザイン依頼、プロジェクトの概要、社内サポートなどのためのフォームを用意します。締め切りや要件など、チームに必要な情報を尋ねられます。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "作成から共有、確認までに必要なすべて",
+      feature1Title: "AIによるフォーム生成",
+      feature1Body:
+        "集めたい内容を説明すると、AIエージェントがフォームを作成します。質問の追加や既存フィールドの修正も依頼できます。",
+      feature2Title: "ビジュアルなフィールド編集",
+      feature2Body:
+        "ラベル、選択肢、必須項目、質問の順序を自分で編集できます。テキスト、メール、複数選択、日付、評価、スケールなどのフィールドタイプを選べます。",
+      feature3Title: "条件分岐の質問",
+      feature3Body:
+        "前の回答が条件に一致したときに追加の質問を表示します。たとえば「その他」を選んだ場合に詳細を尋ねられます。",
+      feature4Title: "公開フォームリンク",
+      feature4Body:
+        "フォームを公開してリンクを共有します。完了メッセージやリダイレクトを設定し、回答の受付をやめるときはフォームを閉じられます。",
+      feature5Title: "回答の分析とエクスポート",
+      feature5Body:
+        "テーブルで送信内容を確認したり、AIエージェントに要約や傾向をまとめてもらったりできます。回答テーブルはCSVとしてダウンロードできます。",
+      feature6Title: "送信内容の連携",
+      feature6Body:
+        "Slack、Discord、Googleスプレッドシート、またはWebhookへの配信を設定します。新しい回答は、そのフォームに設定した送信先へ届きます。",
+      finalCtaHeading: "次のフォームを作成しましょう",
+      finalCtaBody: "集めたい内容をAIエージェントに伝えてください。",
+      finalCtaButton: "フォームを作成",
       s002: "説明する",
       s003: "生成する",
       s004: "ルート",
       s005: "すべてのテンプレート",
-      s006: "Typeform および Google Forms に代わるオープンソースの AI",
+      s006Primary: "Typeform および Google Forms に代わる",
+      s006Secondary: "オープンソースの AI",
       s007: "プロンプトから完全なフォームを生成し、会話形式でフィールドを調整し、送信を Slack、Discord、Google Sheets、または Webhook にルーティングします。データとワークフローを所有します。回答ごとに料金はかかりません。",
       s008: "試す",
       s009: "仕組み",
@@ -975,15 +1729,94 @@ const jaJP = {
       s057: "テンプレートから始めて、完全に所有する提出物の収集を開始します。",
       s058: "ドキュメントを読む",
       s059: "すべてのテンプレートを表示",
+      faq: {
+        question1: "Agent-Native Formsとは何ですか？",
+        answer1:
+          "Agent-Native Formsは無料でオープンソースのAIフォームビルダーです。AIエージェントでフォームやアンケートを作成し、フィールドを視覚的に編集し、公開リンクを発行して、同じアプリ内で回答を確認・分析できます。",
+        question2: "AIが作成したフォームを後から編集できますか？",
+        answer2:
+          "はい。質問、ラベル、選択肢、必須項目、フィールドの順序をビジュアルエディターで変更するか、AIエージェントに変更を依頼できます。どちらの方法でも同じフォームが更新されます。以前の回答に基づいて条件付きの質問を追加することもできます。",
+        question3: "フォームに回答するのにアカウントは必要ですか？",
+        answer3:
+          "いいえ。公開されたフォームの公開リンクを持つ人は誰でもアカウントなしで回答を送信できます。下書き状態のフォームは公開されず、締め切ったフォームは新しい回答を受け付けなくなります。",
+        question4: "匿名でフィードバックを集めることはできますか？",
+        answer4:
+          "はい。匿名モードを有効にすると、回答者の身元や送信元のメタデータが省略されます。氏名やメールアドレスなど本人を特定できる情報を尋ねる質問を外しておけば、回答を匿名のままにできます。",
+        question5:
+          "回答をGoogleスプレッドシートやSlackに送ることはできますか？",
+        answer5:
+          "はい。フォームの送信先を設定すれば可能です。SlackとDiscordはWebhook URLを使用します。GoogleスプレッドシートはデプロイされたGoogle Apps Scriptエンドポイントが送信内容を受け取る必要があり、スプレッドシートのリンクだけでは機能しません。Webhookを使うか、回答をCSVとしてエクスポートすることもできます。すべての回答をCSVまたはJSONでエージェントがエクスポートするには、接続済みのファイルストレージが必要です。",
+      },
     },
     mail: {
+      faq: {
+        question1: "Agent-Native Mailとは何ですか？",
+        answer1:
+          "Agent-Native Mailは、AIメールアシスタントを備えた、無料でオープンソースのGmail用メールクライアントです。メッセージを読んで検索したり、会話を要約したり、返信を下書きしたり、受信トレイやAIエージェントを通じてメールを整理したりできます。",
+        question2: "既存のGmailアカウントでMailを使えますか？",
+        answer2:
+          "はい。既存のGmailアカウントを接続すれば、Mailでメールの読み書きができます。複数のGmailアカウントを接続して、まとめて検索することもできます。Mailは新しいメールアドレスを提供するものではなく、現時点ではOutlookなど他のメールプロバイダーではなくGmailに対応しています。",
+        question3: "AIエージェントは承認なしにメールを送信しますか？",
+        answer3:
+          "チャットでAIエージェントにメール送信を依頼した場合、送信には承認が必要です。自動化によってトリガーされる送信も、Mailの設定で自動送信を明示的に有効にしない限り、承認が必要です。送信前に下書きを確認・編集できます。",
+        question4: "AIは受信トレイを自動的に整理できますか？",
+        answer4:
+          "はい。受信したメッセージにラベルを付けたり、アーカイブしたり、スターを付けたり、既読にしたりするルールを自然な言葉で作成できます。Mailは送信者や件名などの条件によるネイティブのGmailフィルタにも対応しています。Gmailフィルタは Gmail上で動作するため、Mailを閉じていても機能し続けます。",
+        question5:
+          "チームメンバーが自分の代わりにメールを準備してレビューを依頼できますか？",
+        answer5:
+          "はい。チームメンバーが下書きをリクエストすると、あなたのレビューキューに表示されます。それを開いてメッセージを編集し、準備ができたら送信できます。依頼した本人があなたに代わって送信することはできません。送信を管理するのは下書きの所有者、または組織の管理者です。",
+      },
       s001: "Mail テンプレートのスクリーンショット",
+      heroEyebrow: "Mail",
+      heroTitle: "Jevで受信トレイを思いどおりに",
+      heroDescription:
+        "Jevに自然な言葉で大切なことを伝えましょう。人が書いたGitHubのコメントを残し、上司のメールを優先し、ボット通知を整理して、あなたの修正から学習します。",
+      heroCta: "受信トレイを管理",
+      mobileArchiveToast: "ボット通知1,167件をアーカイブ · PRコメント4件を保持",
+      useCasesHeading: "Jevが支える、もっと賢い受信トレイ",
+      useCasesBody:
+        "自然な言葉でルールを設定できます。Jevが大切な人や会話を優先し、適切なラベルを付け、繰り返し届くメールを受信時にアーカイブします。",
+      useCase1Title: "人からの返信を残し、ボット通知を整理",
+      useCase1Body:
+        "重要な内容をJevに伝えましょう。GitHubのプルリクエストへの人からのコメントはProductに残し、ボット通知はアーカイブして、上司のメールはImportantに移動します。プロンプトでルールを調整し、フィードバックで迷惑メールの判定も改善できます。",
+      useCase2Title: "すべてのメールに最適なラベルを",
+      useCase2Body:
+        "Jevはキーワードだけでなく会話の意味に基づいて分類するため、顧客メモ、領収書、調査メールを適切な場所に整理できます。",
+      useCase3Title: "定型業務を自動化する",
+      useCase3Body:
+        "バックグラウンドで新しいメールにラベルを付けたりアーカイブしたりするルールを設定し、いつでも必要なときに実行履歴を確認できます。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "メールの読み書きと整理に必要なすべて",
+      feature1Title: "優先ソート",
+      feature1Body:
+        "受信したスレッドを緊急度とコンテキストに基づいてランク付けすることで、期限や返信を待っている人が上位に表示されます。",
+      feature2Title: "コンテキストAIラベル",
+      feature2Body:
+        "会話の内容ごとにメッセージを分類し、類似したメールが到着するたびにグループ化します。",
+      feature3Title: "エージェント主導の受信トレイ",
+      feature3Body:
+        "エージェントに、表示している受信トレイからの検索、要約、ラベル付け、アーカイブ、スター付け、または返信の準備を依頼します。",
+      feature4Title: "バックグラウンドの自動化",
+      feature4Body:
+        "受信メッセージに平易なルールを適用し、メールが実行したアクションを検査します。",
+      feature5Title: "送信する前に確認してください",
+      feature5Body:
+        "エージェントに返信の下書きまたは修正を依頼し、受信トレイから送信される前に確認して編集します。",
+      feature6Title: "使うほど賢くなる迷惑メールフィルター",
+      feature6Body:
+        "誤って除外されたメールを必要なものとして戻すか、不要なメールを報告してください。Jevは修正内容を学び、似たメールにも反映します。",
+      finalCtaHeading: "次のメールから始めましょう",
+      finalCtaBody:
+        "会話を開いて、AIエージェントに要約や返信の下書きを頼んでみましょう。",
+      finalCtaButton: "受信トレイを管理",
       s002: "キーボードファースト",
       s003: "受信トレイのトリアージ",
       s004: "ビュー",
       s005: "カスタマイズ可能",
       s006: "すべてのテンプレート",
-      s007: "Superhuman および Gmail のオープンソース代替品",
+      s007Primary: "Superhuman および Gmail の",
+      s007Secondary: "オープンソース代替品",
       s008: "試す",
       s009: "ホストされたデモは、Gmail アクセスに Agent-Native の共有 Google アプリを使用するため、Google は続行する前に確認を求める場合があります。ローカルで実行して、独自の Google OAuth クライアントを使用します。",
       s010: "できること",
@@ -1039,99 +1872,127 @@ const jaJP = {
       s060: "ホスト版デモの注意",
     },
     plan: {
-      s001: "計画テンプレートのスクリーンショット",
-      s002: "ブロックの種類",
-      s003: "エージェントの統合",
-      s004: "共有可能なリンク",
-      s005: "試作ランナー",
-      s006: "スキルを追加する",
-      s007: "1 つのコマンドで、計画スキルを Claude Code、Codex、Pi、Cursor、OpenCode、GitHub Copilot / VS Code、および同様のエージェント プロジェクトにインストールします。個別のアプリを展開する必要はありません。",
-      s008: "エージェントがプランを開く",
-      s009: "エージェントに機能の計画を依頼してください。 /visual-plan を呼び出すと、プランがブラウザーまたは VS Code (マークダウンの壁ではなく、構造化されたブロック) で開きます。",
-      s010: "レビュー＆コメント",
-      s011: "Pin は任意のブロックにコメントします。質問したり、懸念事項を報告したり、セクションを承認したりできます。エージェントはすべてのフィードバックを確認できます。",
-      s012: "エージェントが反復する",
-      s013: "エージェントはあなたのコメントを読み、その場で計画を更新します。差分は、何が変更されたのか、そしてなぜ変更されたのかを正確に示します。",
-      s014: "すべてのテンプレート",
-      s015: "Codex、Claude Code、およびコーディング エージェントのビジュアル プラン",
-      s016: "1 つのコマンドでインストールします。エージェントは、ターミナルにマークダウンの壁を放り込むのではなく、ワイヤーフレーム、図、注釈付きコード、共有可能なレビュー リンクを含む構造化された計画を開きます。",
-      s017: "試す",
-      s018: "エージェントができること",
-      s019: "すべてのブロック タイプは、生の HTML ではなく構造化データであるため、エージェントは作業の進行に合わせて計画を読み取り、更新できます。",
-      s020: "ワイヤーフレーム",
-      s021: "一般的なデスクトップのプレースホルダーではなく、実際の製品に基づいた大まかな UI モックアップ。",
-      s022: "図表",
-      s023: "インラインでレンダリングされたアーキテクチャ フローチャート、データ モデル、シーケンス図。",
-      s024: "注釈付きコード",
-      s025: "生のコード ダンプではなく、行ごとのメモ、差分、および変更の根拠を含む実際のソース ファイル。",
-      s026: "共有可能なリンク",
-      s027: "すべてのプランにはパブリック URL が付与されます。非同期レビュー、コメント、承認のためにチームメイトと共有します。",
-      s028: "デスクトップファイル同期",
-      s029: "アプリを複製したり CLI を実行したりせずに、ホストされたプランを Agent Native Desktop からローカルの MDX ファイルにミラーリングします。",
-      s030: "なので、レビューはコードの横にあります。",
-      s031: "仕組み",
-      s032: "計画は共有アプリ内に存在します。あなたとエージェントの両方が、機能のライフサイクル全体を通じて計画を読み取り、更新できます。",
-      s033: "豊富なブロックライブラリ",
-      s034: "プランは、自由形式の HTML ではなく、構造化されたブロックで構成されます。エージェントは各ブロックのスキーマを知っており、それらを正確に作成、更新、推論できます。",
-      s035: "注釈付きコード",
-      s036: "挿入前に所有者を検証する",
-      s037: "オートメーション用のイベントを発行する",
-      s038: "追加する",
-      s039: "比較してみると",
-      s040: "端末の Markdown",
-      s041: "ビジュアルレンダリング",
-      s042: "No",
-      s043: "基本",
-      s044: "豊富なブロック、ワイヤーフレーム、図",
-      s045: "エージェントは読み取りと更新が可能",
-      s046: "はい、生のテキストです",
-      s047: "限定",
-      s048: "はい、構造化スキーマ",
-      s049: "共有可能なリンク",
-      s050: "はい",
-      s051: "はい、コメントあり",
-      s052: "ライブ Alpine.js サンドボックス",
-      s053: "Codex / Claude Code / Pi で動作します",
-      s054: "はい、コマンド 1 つでインストールできます",
-      s055: "オープンソース",
-      s056: "はい、MIT ライセンスを取得しています",
-      s057: "数秒で始められます",
-      s058: "1 つのコマンドで、Claude Code、Codex、Pi、Cursor、OpenCode、GitHub Copilot / VS Code、および同様のエージェント プロジェクトに視覚的な計画を追加します。個別の展開は必要ありません。",
-      s059: "ドキュメントを読む",
-      s060: "すべてのテンプレートを表示",
-      s061: "VS Code ハンドオフ",
-      s062: "次を使って VS Code のサイドパネルでプランリンクを開きます:",
-      s063: "Agent Native Plans 拡張機能",
-      s064: "ワイヤーフレーム — コンポーネント枠付きのラフな UI モックアップ",
-      s065: "注釈付きコード — 行ごとのメモ付きソースファイル",
-      s066: "図 — フロー、シーケンス、またはアーキテクチャ",
-      s067: "プロトタイプ — iframe 内のライブ Alpine.js サンドボックス",
-      s068: "決定 — 根拠付きの確定した選択",
-      s069: "API エンドポイント — メソッド、パス、リクエスト/レスポンス型",
-      s070: "データモデル — フィールド注釈付きスキーマ",
-      s071: "ファイルツリー — パスごとのメモ付きプロジェクト構造",
-      s072: "// プランブロックの例",
-      s073: "ChatGPT Canvas と Notion",
-      s074: "該当なし",
+      faq: {
+        question1: "Agent-Native Plans とは何ですか？",
+        answer1:
+          "Agent-Native Plans は、AI コーディングエージェント向けの無料・オープンソースのビジュアル計画ツールです。図、ワイヤーフレーム、注釈付きコード、コメントを使って実装プランをレビューしたり、完了した変更のビジュアルな振り返りを生成したりできます。",
+        question2: "自分のコーディングエージェントで Plans を使うには？",
+        answer2:
+          "`npx @agent-native/core@latest skills add visual-plan` を実行して、計画スキルとコネクタをインストールし、お使いのクライアントで認証を済ませてください。インストールガイドでは Claude Code や Codex などのクライアントを取り上げています。`/visual-plan` を使うと、エージェントにビジュアルな実装プランを依頼できます。",
+        question3:
+          "エージェントは自分のコメントをもとにプランを修正できますか？",
+        answer3:
+          "できます。テキストにコメントを残すか、ビジュアルの特定の箇所にピン留めし、エージェントにそのフィードバックを読んで対応するよう依頼してください。エージェントはプランを更新し、レビュー用のスレッドに返信できます。これはレビュープロセスを支援するものであり、エージェントによるコード変更を自動的に止めるものではありません。",
+        question4: "すでに書かれたコードのレビューに Plans を使えますか？",
+        answer4:
+          "使えます。`/visual-recap` にプルリクエスト、コミット、ブランチ、または差分を渡すと、その変更をビジュアルに説明してもらえます。振り返りを手がかりに、実際のコードとテストをレビューしてください。",
+        question5: "プランはどこに保存され、共有できますか？",
+        answer5:
+          "デフォルトのインストールでは、エージェントはホスト型の Plans アプリに接続されます。新しくホストされたプランは、共有するまで非公開です。チームメイトはブラウザで共有されたプランをレビューできますが、コメントにはアカウントが必要です。セットアップガイドからローカルでの運用も選べます。",
+      },
+      s001: "Plans アプリのスクリーンショット",
+      heroEyebrow: "Plans",
+      heroTitle:
+        "AI コーディングエージェントが何を作ろうとしているかを可視化する",
+      heroDescription:
+        "Plans は無料・オープンソースのビジュアル計画ツールです。図、ワイヤーフレーム、注釈付きコードを通じて、コーディングエージェントの進め方をレビューし、フィードバックを送り、コードの変更内容を理解できます。",
+      heroCta: "ビジュアルで計画",
+      useCasesHeading: "Plans でできること",
+      useCasesBody:
+        "実装アプローチをレビューしたり、画面案を検討したり、AI コーディングエージェントと一緒に完了した変更を理解したりできます。",
+      useCase1Title: "実装前にアーキテクチャをレビューする",
+      useCase1Body:
+        "コーディングエージェントに、提案する機能やリファクタリングの図を作ってもらいましょう。実装が始まる前に、データフロー、依存関係、失敗しうる経路を確認できます。",
+      useCase2Title: "画面案を一緒に検討する",
+      useCase2Body:
+        "提案された画面やユーザーフローをコーディングエージェントと一緒にレビューします。不足している状態や操作を指摘し、プランの修正を依頼できます。",
+      useCase3Title: "完了したコード変更を理解する",
+      useCase3Body:
+        "コーディングエージェントに、プルリクエスト、コミット、ブランチのビジュアルな振り返りを依頼しましょう。挙動の変化と影響を受けたファイルを確認できます。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "可視化・レビュー・議論に必要なものすべて",
+      feature1Title: "アーキテクチャ図",
+      feature1Body:
+        "プラン内でリクエストフロー、システム間の関係、データモデルを示せます。方針が変わったら、AI コーディングエージェントに図の更新を依頼してください。",
+      feature2Title: "ワイヤーフレームとプロトタイプ",
+      feature2Body:
+        "実装プランと合わせて、画面レイアウトやインタラクティブなプロトタイプの選択肢をレビューできます。エージェントに実装を依頼する前に、提案された画面についてフィードバックを送れます。",
+      feature3Title: "注釈付きコードウォークスルー",
+      feature3Body:
+        "行ごとのメモと変更の説明付きでソースファイルを読めます。ファイルツリーで、提案された作業がコードベースのどこに位置づけられるかも確認できます。",
+      feature4Title: "コメントと注釈",
+      feature4Body:
+        "テキストにコメントするか、ビジュアルの特定箇所にフィードバックをピン留めできます。質問はエージェントにもチームメイトにも直接送れます。",
+      feature5Title: "ビジュアルなコード振り返り",
+      feature5Body:
+        "`/visual-recap` を使えば、既存のプルリクエスト、コミット、ブランチ、差分を、図と変更内容の説明付きウォークスルーに変換できます。",
+      feature6Title: "共有とエクスポート",
+      feature6Body:
+        "チームメイトがブラウザでレビューできるようプランを共有できます。別途コピーが必要な場合は、HTML、Markdown、JSON、MDX としてエクスポートできます。",
+      finalCtaHeading: "次のコーディングタスクをビジュアルにレビューする",
+      finalCtaBody:
+        "エージェントにプランを依頼し、細部を一緒に詰めていきましょう。",
+      finalCtaButton: "ビジュアルで計画",
     },
     slides: {
       s001: "Slides テンプレートのスクリーンショット",
+      heroEyebrow: "Slides",
+      heroTitle: "AIエージェントでプレゼンテーションを作成",
+      heroDescription:
+        "Slidesは無料でオープンソースのAIプレゼンテーション作成ツールです。アイデアや参考資料からブランドに沿ったデッキを作成し、スライドは自分で編集できます。",
+      heroCta: "スライドを作成",
+      useCasesHeading: "Slidesでできること",
+      useCasesBody:
+        "ピッチを準備したり、プランを発表したり、アップデートを共有したり。資料と想定オーディエンスをAIエージェントに伝えましょう。",
+      useCase1Title: "営業・ピッチ資料を作成する",
+      useCase1Body:
+        "製品概要を、見込み客や投資家向けのデッキに変換しましょう。話す相手に合わせてストーリーを調整できます。",
+      useCase2Title: "プランや戦略を発表する",
+      useCase2Body:
+        "戦略資料やローンチプランをAIエージェントに渡し、方向性と次のステップを説明するスライドにまとめてもらいましょう。",
+      useCase3Title: "業務アップデートを共有する",
+      useCase3Body:
+        "プロジェクトのメモや実績レポートを、進捗を示し、結果を説明し、注意が必要な点を強調するプレゼンテーションに変換しましょう。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "作成、編集、発表に必要なすべて",
+      feature1Title: "AIプレゼンテーション生成",
+      feature1Body:
+        "プロンプト、ドキュメント、参考デッキから始めましょう。トピックとオーディエンスをAIエージェントに伝えれば、それを軸にプレゼンテーションを作成します。",
+      feature2Title: "AIとビジュアル編集",
+      feature2Body:
+        "テキストを選択してAIエージェントに修正させるか、スライド上でテキスト、レイアウト、スタイルを直接自分で編集できます。",
+      feature3Title: "再利用可能なブランドスタイル",
+      feature3Body:
+        "色、フォント、ロゴをデザインシステムとして保存しましょう。複数のデッキに適用して、プレゼンテーションをブランドに一貫させられます。",
+      feature4Title: "画像とロゴ",
+      feature4Body:
+        "AIエージェントに画像の生成や写真の検索、会社ロゴの検索を依頼して、スライドに使用できます。",
+      feature5Title: "チームコラボレーション",
+      feature5Body:
+        "チームメンバーとデッキを共同編集し、特定のスライドにコメントを残し、必要なときは以前のバージョンに復元できます。",
+      feature6Title: "発表とエクスポート",
+      feature6Body:
+        "スピーカーノート付きで全画面発表したり、閲覧用リンクを共有したり、デッキをPowerPointファイルとしてエクスポートできます。",
+      finalCtaHeading: "次のプレゼンテーションを始めましょう",
+      finalCtaBody: "アイデア、資料、または既存のデッキを持ち込んでください。",
+      finalCtaButton: "スライドを作成",
       s002: "説明する",
       s003: "生成する",
       s004: "絞り込む",
       s005: "すべてのテンプレート",
-      s006: "PowerPoint と Canva に代わるオープンソースの AI",
-      s007: "プロンプトから完全なデッキを生成し、会話的に調整したり、視覚的に編集したりできます。",
+      s006Primary: "AI エージェントが作るスライド。",
+      s006Secondary: "ブランドに沿って編集も自在",
+      s007: "AIエージェントでブランドに沿ったプレゼンテーションを生成し、スライドは自分で編集して、どこへでもエクスポートできます。",
       s008: "試す",
       s009: "仕組み",
       s010: "必要なものすべて",
       s011: "AI が組み込まれた完全なプレゼンテーション スタジオ。",
-      s012: "8 つのスライド レイアウト",
-      s013: "タイトル、セクション、コンテンツ、2 列、画像、ステートメント、フルブリード、空白。",
+      s012: "用意されたスライド レイアウト",
+      s013: "スターター スライド テンプレートをご利用ください。独自のスライド テンプレートを作成して、後から再利用できます。",
       s014: "ビジュアル + コード編集",
       s015: "クリックしてスタイルを編集し、ダブルクリックしてテキストを表示します。完全な制御を行うには、生の HTML に切り替えます。",
-      s016: "AI 画像の生成",
-      s017: "Gemini で画像を生成します。ブランドの一貫性を保つためのスタイルリファレンス。選べる3つのバリエーション。",
+      s016: "シームレスな画像生成",
+      s017: "スタイルやブランド ガイドラインを参照。Gemini AI が生成した候補から選べます。",
       s018: "ロゴと画像の検索",
       s019: "Logo.dev または Brandfetch で会社のロゴを検索します。 Google ストックフォト用の画像。",
       s020: "ドラッグ＆ドロップで並べ替える",
@@ -1169,10 +2030,171 @@ const jaJP = {
       s052: "無料 / 座席ごと",
       s053: "定期購入",
       s054: "無料＆オープンソース",
-      s055: "数分で始められます",
-      s056: "テンプレートから始め、AI を使用してプレゼンテーションの作成を開始します。",
+      s055: "今すぐスライドデッキを作成",
+      s056: "デザインの好みとプロンプトを選んで始めましょう。いつでも無料です。",
       s057: "ドキュメントを読む",
       s058: "すべてのテンプレートを表示",
+      faq: {
+        question1: "Agent-Native Slidesとは何ですか？",
+        answer1:
+          "Agent-Native Slidesは無料でオープンソースのAIプレゼンテーション作成ツールです。アイデアや参考資料からAIエージェントでブランドに沿ったデッキを作成し、スライドを自分で編集したり、発表したり、PowerPointにエクスポートしたりできます。",
+        question2: "AIが生成した後でもスライドを編集できますか？",
+        answer2:
+          "はい。ビジュアルエディタでテキスト、レイアウト、スタイルを直接編集するか、AIエージェントに選択したスライドの修正を依頼できます。最初のドラフトの後も、プレゼンテーションを改善し続けられます。",
+        question3:
+          "既存のデッキやドキュメントからプレゼンテーションを作成できますか？",
+        answer3:
+          "はい。デッキやドキュメントを新しいプレゼンテーションの参考資料として添付できます。既存のデッキ自体を編集したい場合は、明示的にインポートしてください。インポートしたスライドはレイアウトの変化や画像の欠落がないか確認しましょう。",
+        question4: "自分のブランドカラー、フォント、ロゴを使用できますか？",
+        answer4:
+          "はい。ブランドの色、タイポグラフィ、ロゴを含むデザインシステムを適用し、複数のデッキで再利用できます。参考プレゼンテーションを提供して、AIエージェントのデザイン選択の指針にすることもできます。",
+        question5:
+          "プレゼンテーションをPowerPointやGoogleスライドで使用できますか？",
+        answer5:
+          "PPTXファイルをエクスポートしてPowerPointで開けます。Googleスライドで使用するには、そこにそのファイルをインポートしてください。エディタによって表示が異なる場合があるため、エクスポート後にフォントとレイアウトを確認してください。",
+      },
+      howItWorksDescribe:
+        "トピック、対象者、トーンを説明してください。参考用のスライドデッキを添付してください。UI または独自の AI ワークフローから始められます。",
+      signInIntegration:
+        "サインインすると、Webhook、MCP、または A2A 連携経由で Slides にアクセスできます。",
+      signIn: "サインイン",
+      tryNow: {
+        step: "ステップ {{current}} / {{total}}",
+        q1: "どんなスライド デッキが必要ですか？",
+        q1Pitch: "投資家向けピッチ デッキ",
+        q1Sales: "顧客向けの営業プレゼン",
+        q1Talk: "講演や授業用の資料",
+        q1Other: "その他",
+        q1OtherPlaceholder: "デッキの種類を説明してください",
+        q2Pitch: "会社と調達内容を教えてください",
+        q2Sales: "何を、誰に売りますか？",
+        q2Talk: "講演の内容と聴衆を教えてください",
+        q2Other: "デッキで扱う内容は何ですか？",
+        q2Detail: "メモを入力するか、ウェブサイトの URL を教えてください",
+        q2Placeholder: "メモ、または https://example.com",
+        q3: "参考にするスタイルを教えてください",
+        q3Detail:
+          "参考にしたいウェブサイトを貼り付けるか、雰囲気を選んでください",
+        q3Placeholder: "https://example.com",
+        q3VibeToggle: "ウェブサイトがない場合は雰囲気を選択",
+        q3VibeMinimal: "ミニマルでエディトリアル",
+        q3VibeBold: "大胆でハイコントラスト",
+        q3VibeWarm: "温かみのある人間味",
+        q3VibeTechnical: "技術的でデータ重視",
+        answerAction: "プロンプトに追加",
+        composerLabel: "あなたのプロンプト",
+        composerPlaceholder:
+          "作りたいデッキを説明するか、上の質問に答えてください。",
+        promptTip: "プロンプトのヒント",
+        promptPlaceholder:
+          "具体的にしてください。誰のためか、メモを貼り付けるか、参考にしたいウェブサイトのデザインを挙げてください...",
+        submit: "デッキを生成",
+        readyHint:
+          "プロンプトの準備ができました。エージェントに送信してください。",
+        promptDeck: "{{deck}}を作成してください。",
+        promptSubject: "扱う内容は次のとおりです: {{subject}}",
+        promptStyleSite: "{{style}} の見た目と雰囲気に合わせてください。",
+        promptStyleVibe: "スタイル: {{style}}。",
+        promptClose:
+          "スピーカー ノート付きでデッキ全体を作成し、その後アウトラインを説明してください。",
+        deckPitch: "投資家向けピッチ デッキ",
+        deckSales: "顧客向けの営業プレゼン",
+        deckTalk: "講演用の補助デッキ",
+        designReference: "デザインの参考",
+        websiteUrl: "ウェブサイトの URL",
+        websiteUrlPlaceholder: "https://example.com",
+        crawlWebsite: "ウェブサイトを確認",
+        crawlError:
+          "このサイトを確認できませんでした。自動アクセスがブロックされている可能性があります。別の URL を試すか、デザイン資料をアップロードしてください。",
+        or: "または",
+        uploadDesignReference: "デザインの参考資料をアップロード",
+        importDesignSystem: "デザインシステムをインポート",
+        loginDesignSystems: "ログインしてデザインシステムを管理してください。",
+        promptCreatePrefix: "次の種類の",
+        deckTypeLabel: "デッキの種類",
+        deckCapitalRaise: "資金調達",
+        deckOfferingMemorandum: "オファリング・メモランダム",
+        deckB2bSales: "B2B 営業提案",
+        deckTeamMeeting: "チーム会議のアジェンダ",
+        deckLiveTalk: "ライブ講演用補助",
+        promptDeckFor: "デッキを作成してください。テーマ：",
+        promptTextShouldBe: "テキストは",
+        textAmountLabel: "テキスト量",
+        textMinimal: "最小限に",
+        textBrief: "簡潔に",
+        textThorough: "詳しく",
+        findingTitle: "タイトル",
+        findingDescription: "説明",
+        findingColors: "カラー",
+        findingFonts: "フォント",
+        findingPrimaryColor: "メインカラー",
+        findingAccentColor: "アクセントカラー",
+        findingHeadingFont: "見出しフォント",
+        findingBodyFont: "本文フォント",
+        styleGuidePrefix: "次のサイト向けのスタイルガイド：",
+      },
+    },
+    chat: {
+      faq: {
+        question1: "Agent-Native Chat とは何ですか？",
+        answer1:
+          "Agent-Native Chat は開発者向けの無料でオープンソースの AI チャットアプリの土台です。保存されたスレッド、エージェントチャットインターフェース、認証、共有 actions、ライブ同期を備えています。アプリケーション固有のデータと振る舞いはあなたが追加します。",
+        question2: "Chat は完成した AI アシスタントですか？",
+        answer2:
+          "Chat は動作する会話インターフェースとその基盤となるフレームワークを提供します。サンプルの action を含みますが、業務ワークフローやプロバイダー連携はあなた自身で実装・設定するものです。",
+        question3: "チャットインターフェース以外の画面を追加できますか？",
+        answer3:
+          "はい。ワークフローに必要なリスト、キュー、エディタなどのビュー向けにルートとコンポーネントを追加してください。エージェントが使うのと同じ actions とアプリケーションデータに接続できます。",
+        question4: "Chat には業務ツールとの連携が含まれますか？",
+        answer4:
+          "この最小構成のテンプレートには、特定ドメイン向けのプロバイダー連携は含まれません。アプリに必要な連携とアクセスルールを追加してください。ワークフローに合う既存の Agent-Native アプリがあれば、そちらのテンプレートの方が適した出発点になる場合があります。",
+        question5: "自分の版をカスタマイズしてデプロイできますか？",
+        answer5:
+          "はい。CLI でコピーを作成し、actions、データ、インターフェースを追加してから、アプリケーションをデプロイしてください。環境に合わせて認証とプロバイダーアクセスを設定し、追加したワークフローをユーザーに共有する前にテストしてください。",
+      },
+      s001: "Chat アプリのスクリーンショット",
+      heroEyebrow: "Chat",
+      heroTitle: "自分だけの AI チャットアプリを作ろう",
+      heroDescription:
+        "耐久性のあるスレッド、認証、共有アクション、および独自のツールや画面で拡張できるエージェントを備えた、無料のオープンソースのチャット スターターです。",
+      heroCta: "チャットを構築",
+      heroSecondaryCta: "Chat を開く",
+      useCasesHeading: "会話を実用的なアシスタントに変える",
+      useCasesBody:
+        "アクション、データ、画面を追加すると、エージェントが質問に答えて作業を進めることができます。",
+      useCase1Title: "チームの状況を踏まえて質問に答える",
+      useCase1Body:
+        "アクションを通じてアプリに必要なソースを接続し、エージェントがメモ、ファイル、プロジェクトの詳細を 1 つの返信にまとめます。",
+      useCase2Title: "エージェントに行動するためのツールを提供する",
+      useCase2Body:
+        "チャットでワークフローのプロトタイプを作成し、定義したアクションを呼び出して、エージェントが各ステップを処理する方法を調整します。",
+      useCase3Title: "結果を活用できるようにする",
+      useCase3Body:
+        "オープン エージェントはキュー、テーブル、またはエディターで作業するため、ユーザーは同じ共有データを検査して続行できます。",
+      keyFeaturesEyebrow: "主な機能",
+      keyFeaturesHeading: "エージェントとそのインターフェースのための出発点",
+      feature1Title: "永続的な会話",
+      feature1Body:
+        "付属の履歴サイドバーからスレッドを作成、再度開き、名前変更、固定、アーカイブできます。",
+      feature2Title: "フルページのエージェントチャット",
+      feature2Body:
+        "チャット サーフェスとランタイムから始めて、独自の指示、ツール、ワークフローの準備を整えます。",
+      feature3Title: "独自のサービスを接続する",
+      feature3Body:
+        "Granola、Linear、Drive、Notion などのツールにプロバイダー アクションと接続フローを追加します。スターターはそれらの統合をアプリに残します。",
+      feature4Title: "共有アクション",
+      feature4Body:
+        "エージェント ツールとインターフェイスの操作を同じアクション サーフェイス上で維持します。",
+      feature5Title: "ライブワークスペースの状態",
+      feature5Body:
+        "ユーザーとエージェントの現在のナビゲーションと選択した作業の同期を維持します。",
+      feature6Title: "カスタム画面",
+      feature6Body:
+        "会話にキュー、エディター、またはその他のドメイン インターフェイスが必要な場合は、集中ビューを追加します。",
+      finalCtaHeading: "最初のエージェントワークフローを作ろう",
+      finalCtaBody:
+        "コピーを作成し、ユーザーに必要な最初の action を追加しましょう。",
+      finalCtaButton: "チャットを構築",
     },
   },
   skillsPage: {
@@ -1223,34 +2245,45 @@ const jaJP = {
     },
   },
   downloadPage: {
-    title: "Agent Native をダウンロード",
-    body: "すべての agent-native アプリを 1 つのデスクトップシェルに集約。プロダクションアプリを内蔵し、ローカル開発向けの dev モード切り替えも備えています。",
-    openDesktop: "Agent Native を開く",
+    title: "Agent-Native をダウンロード",
+    body: "会議、デザイン、プレゼンテーション、データ、スケジューリング、メールなど向けのエージェント型アプリを、1 つのデスクトップアプリでお試しください。",
+    openDesktop: "Agent-Native を開く",
     downloadInstaller: "インストーラーをダウンロード",
-    viewInstallers: "インストーラーを表示",
-    viewInstallersOnGithub: "GitHub でインストーラーを表示",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "最新のデスクトップリリースを読み込めませんでした。releases ページにすべてのインストーラーがあります。",
+    downloadStarted: "ダウンロードを開始しました",
+    downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
+    loadError: "最新のデスクトップインストーラーを読み込めませんでした。",
+    mountError:
+      "デスクトップのダウンロードページでワークスペース内のパスを特定できませんでした。ワークスペース管理者にアプリのマウント設定を確認してもらってください。",
     checkingRelease: "最新のデスクトップリリースを確認しています...",
-    runFromSource: "またはソースから実行",
+    retry: "再試行",
+    unavailable: "このプラットフォームではインストーラーを利用できません",
+    allPlatforms: "すべてのプラットフォーム",
+    stable: "安定版",
+    nightly: "Nightly",
+    runFromSource: "自分で構築する",
     runFromSourceBody:
-      "お使いのプラットフォーム向けインストーラーがまだない場合、または CLI を使いたい場合は、npm で新しいアプリを作成してローカル実行できます。macOS、Windows、Linux で動作します。",
-    viewAllReleases: "GitHub ですべての releases を表示",
+      "コマンドラインから Agent-Native アプリを作成し、macOS、Windows、Linux でローカルに実行します。",
     platforms: {
       mac: {
         primary: "Apple Silicon 向けをダウンロード",
         alternative: "Intel Mac 版",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Windows 向けをダウンロード",
         alternative: "ARM64",
+        gridPrimary: "x64 インストーラー",
+        gridAlternative: "Arm64 インストーラー",
         note: "Windows 10 以降。",
       },
       linux: {
         primary: "Linux アーカイブをダウンロード",
         appImage: "AppImage をダウンロード",
         deb: ".deb をダウンロード",
+        gridPrimary: "x86_64",
+        gridAppImage: "汎用",
+        gridDeb: "Debian / Ubuntu",
         note: "アーカイブは FUSE なしで動作します。一部のディストリビューションでは AppImage に FUSE 2 が必要な場合があります。",
       },
     },
@@ -1288,6 +2321,35 @@ const jaJP = {
   },
   legal: {
     lastUpdated: "最終更新日: {{date}}",
+    resources: {
+      eyebrow: "法務リソース",
+      title: "Agent-Native の法務リソース",
+      intro:
+        "Agent-Native のホスト型アプリケーションとサービスに適用される独立した法務ポリシーです。",
+      agentNative: {
+        title: "Agent-Native のポリシー",
+        body: "これらのページは、共通のポリシーを Agent-Native のオープンソースプロジェクトとホスト型サンプル向けに調整したものです。",
+        terms: "Agent-Native 利用規約",
+        privacy: "Agent-Native プライバシーポリシー",
+      },
+      builder: {
+        title: "ホスト型サービスの追加ポリシー",
+        body: "利用規約、AI 機能、プラットフォームルール、停止と削除、著作権、法執行機関からの要請に関するローカルコピーです。英語版が優先されます。",
+      },
+      links: {
+        terms: "SaaS サービス契約",
+        privacy: "プライバシーポリシー",
+        acceptableUse: "許容利用ポリシー",
+        aiTerms: "AI 利用規約",
+        platformRules: "プラットフォームルール",
+        takedown: "停止・削除・データ処理ポリシー",
+        lawEnforcement: "法執行機関からの要請ポリシー",
+      },
+      notIncluded: {
+        title: "含まれない商用条件",
+        body: "Agent-Native には有料プランもエンタープライズ契約もありません。エンタープライズ SLA、サポート条件、DPA、セキュリティ補遺、プロフェッショナルサービス条件、料金などの商用資料は含まれません。",
+      },
+    },
     privacy: {
       eyebrow: "プライバシーポリシー",
       title: "Agent-Native ホスト型アプリケーション",
@@ -1310,6 +2372,7 @@ const jaJP = {
       sections: {
         scope: "範囲",
         information: "当社が収集する情報",
+        cookies: "Cookie と分析",
         clipsExtension: "Agent-Native Clips Chrome 拡張機能",
         use: "情報の使用方法",
         sharing: "共有とサードパーティ",
@@ -1325,6 +2388,8 @@ const jaJP = {
           "このポリシーは、Builder.io の広範なポリシーを補足することを目的としています。",
         scope2Suffix:
           "Agent-Native ホストされたアプリケーションの動作について。",
+        cookies:
+          "Agent-Native のドキュメントサイトとホスト型アプリケーションでは、認証とセキュリティ、言語やテーマなどの設定の保存、構成された分析技術のために必要な Cookie を使用する場合があります。ドキュメントサイトでは、デプロイで設定されている場合に Google Analytics または Google Tag Manager を読み込むことがあり、ホスト型サービスでは信頼性や機能の利用状況を測定するためにファーストパーティ分析を使用する場合があります。ホスト型アプリケーションのコンテンツを第三者広告には使用しません。Cookie はブラウザ設定で管理できますが、必要な Cookie を無効にするとサインインなどの機能が使えなくなる場合があります。",
         clips1:
           "Agent-Native Clips Chrome extension は、ブラウザベースの録画を開始し、有効になっている場合はブラウザ診断をクリップに添付するのに役立ちます。 It may collect the selected capture source, camera and microphone media you choose to include, the active tab title and URL, and authentication state needed to connect the extension to hosted Clips.",
         clips2:
@@ -1382,6 +2447,55 @@ const jaJP = {
         builderPrivacyFull: "Builder.io プライバシー ポリシー",
       },
     },
+    about: {
+      eyebrow: "Agent-Native について",
+      title: "エージェントと人のためのオープンソースアプリ",
+      intro:
+        "Agent-Native は、AI エージェントとユーザーインターフェースが同じアクション、データ、アプリケーション状態を共有するアプリを構築するためのオープンソースフレームワークです。",
+      sections: {
+        project: {
+          title: "共有された実行モデル",
+          body: "Agent-Native ではエージェントとインターフェースを対等なパートナーとして扱います。1つのアクションが UI コントロール、エージェントツール、HTTP エンドポイント、MCP または A2A の機能、CLI コマンド、監査可能なワークフローを支えます。共有 SQL 状態によって人とエージェントの表示が一致します。",
+        },
+        openSource: {
+          title: "標準でオープンソース",
+          body: "ソースコードは MIT ライセンスで BuilderIO/agent-native リポジトリから利用できます。実装の確認、ローカル実行、データベースやモデルプロバイダーの選択、製品への適応が可能です。ホスト型サービスは fork や自己ホストのデプロイとは別に運用されます。",
+        },
+        hosted: {
+          title: "ホスト型と自己ホスト型",
+          body: "Builder.io は agent-native.com で Agent-Native のホスト型アプリとドキュメントを運用しています。自分でアプリをデプロイし保守したいチームにも対応します。アクション契約、アクセス境界、エージェント指示、公開プロトコルはコードとドキュメントで確認できます。",
+        },
+        community: {
+          title: "公開開発",
+          body: "このプロジェクトは GitHub の issue、pull request、ドキュメント、Agent-Native コミュニティを通じて公開で開発されています。ドキュメントで設計を学び、コードで実装を確認し、ユースケースを相談したり変更に貢献したりできます。",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "お問い合わせ",
+      title: "Agent-Native について Builder.io に連絡する",
+      intro:
+        "Agent-Native に関する質問、問題の報告、改善提案、安全性に関する懸念には、以下のサポート、ソース、コミュニティの窓口をご利用ください。",
+      emailLabel: "support@builder.io にメールする",
+      sections: {
+        support: {
+          title: "製品とホスト型サービスのサポート",
+          body: "ホスト型アプリ、アカウントアクセス、ドキュメントの問題、解決できない動作については support@builder.io にご連絡ください。公開 URL、再現できる最小の説明、関連するリクエストや実行 ID を含めてください。パスワード、API キー、Bearer トークン、非公開の顧客データは送らないでください。",
+        },
+        source: {
+          title: "オープンソースプロジェクトとコミュニティ",
+          body: "ソースコードのバグ、機能提案、pull request、実装の議論には GitHub リポジトリをご利用ください。ほかの開発者との対話が役立つ質問には Discord が適しています。まず issue とドキュメントを検索し、メンテナーが必要な背景を把握できるようにしてください。",
+        },
+        security: {
+          title: "セキュリティ報告",
+          body: "未修正の脆弱性を公開 issue やチャットで開示しないでください。利用可能なセキュリティ窓口から Builder.io に連絡し、再現と評価に必要な情報だけを提供してください。認証情報、非公開データ、悪用手順は通常のサポート依頼に含めないでください。",
+        },
+        legal: {
+          title: "法律とプライバシー",
+          body: "プライバシーに関する質問は、サポートへ連絡する前に Agent-Native のプライバシーポリシーと Builder.io の法務リソースをご確認ください。Builder.io, Inc. の住所は 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States です。ホスト型サービスの規約と自己ホストの責任は利用規約に記載されています。",
+        },
+      },
+    },
     terms: {
       eyebrow: "利用規約",
       title: "Agent-Native ホスト型アプリケーション",
@@ -1421,6 +2535,8 @@ const jaJP = {
         scope2Middle: "そしてAgent-Native",
         scope2Suffix:
           "企業または組織を代表してホストされた Agent-Native アプリを使用する場合、その組織に対してこれらの規約に同意する権限があることを表明することになります。",
+        scope3:
+          "Agent-Native には有料プランや有料のホスティングサブスクリプションはありません。注文書、料金、エンタープライズサポート、サービスレベル、データ処理に関する追加条項などの Builder.io の商用条件は、別途書面で合意されない限り、この提供内容には含まれません。",
         hostedService:
           "Builder.io は、ホストされた Agent-Native アプリケーション、テンプレート、デモ、共有ワークスペース、ブラウザ拡張機能、および関連するエージェント ワークフローを提供する場合があります。 The hosted service may be updated, limited, suspended, or discontinued as the product evolves.",
         accounts1:
@@ -1483,17 +2599,19 @@ const jaJP = {
     usingYourAgent: "Agent を使う",
     agentResources: "エージェント リソース",
     integrations: "連携",
-    buildApps: "アプリを構築",
     advancedRuntime: "高度: ランタイムを拡張",
     templatesSection: "アプリ",
     gettingStarted: "はじめに",
+    createWithAgent: "エージェントで作成",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native とは？",
     agentSurfaces: "Agent サーフェス",
+    agentNativeConfig: "Agent-Native Config",
     keyConcepts: "主要概念",
     agentNativeToolkit: "ツールキット",
     toolkitOverview: "概要",
+    toolkitFoundations: "基盤",
     toolkitUiPrimitives: "UIプリミティブ",
     customDesignSystem: "カスタムデザインシステム",
     toolkitEditorsCanvases: "エディターとキャンバス",
@@ -1506,6 +2624,10 @@ const jaJP = {
     toolkitCommandNavigation: "コマンドとナビゲーション",
     toolkitResources: "リソース",
     toolkitAgentUx: "エージェント体験",
+    toolkitDashboard: "ダッシュボード",
+    toolkitChatHistory: "チャット履歴",
+    toolkitAgentPage: "エージェントページ",
+    toolkitNotifications: "通知",
     toolkitHistory: "履歴",
     toolkitCommentsReview: "コメントとレビュー",
     toolkitObservability: "可観測性",
@@ -1514,6 +2636,7 @@ const jaJP = {
     capabilityPackages: "Capability パッケージ",
     capabilityPackagesOverview: "概要",
     packageLifecycle: "パッケージライフサイクル",
+    versioningAndStability: "バージョンと安定性",
     templatesOverview: "テンプレート",
     pureAgentApps: "自動化ファーストアプリ",
     faq: "FAQ",
@@ -1523,26 +2646,67 @@ const jaJP = {
     serverPlugins: "プラグイン",
     serverRoutes: "ルート",
     client: "クライアント",
+    clientOverview: "概要",
+    clientDataSync: "データと同期",
+    clientAgentChat: "Agent チャット",
+    clientAdvanced: "高度",
+    clientSyncInternals: "同期の内部",
+    clientEntryPoints: "エントリーポイント",
     routing: "ルーティング",
     actions: "アクション",
-    humanApproval: "人による承認",
+    actionsOverview: "概要",
+    actionsDefining: "アクションを定義する",
+    actionsAccessControl: "アクセスと認可",
+    actionsRunContext: "実行コンテキスト",
+    actionsOtherSurfaces: "その他のサーフェス",
+    actionsAdvanced: "高度な機能とレガシー",
+    actionsAgentTools: "本番環境でのエージェントアクセス",
     publicAgentWeb: "公開 Agent Web",
     database: "データベース",
+    databaseProviders: "データベースプロバイダー",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
+    databasePostgres: "Plain Postgres",
     internationalization: "国際化",
     localFileMode: "ローカルファイルモード",
     fileUploads: "ファイルアップロード",
     deployment: "デプロイ",
+    deploymentOverview: "概要",
+    deploymentProviders: "ホスティングプロバイダー",
+    deploymentProduction: "本番環境と高度な設定",
+    deployAnApp: "アプリをデプロイ",
+    workspaceDeployment: "ワークスペースのデプロイ",
+    deploymentNodeDocker: "Node.js",
+    deploymentDocker: "Docker",
+    deploymentVercel: "Vercel",
+    deploymentNetlify: "Netlify",
+    deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
+    deploymentDenoDeploy: "Deno Deploy",
+    deploymentAzureStaticWebApps: "Azure Static Web Apps",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
+    deploymentOtherPlatforms: "その他のプラットフォーム",
+    ssrCaching: "SSRキャッシュ",
+    deploymentEnvironmentVariables: "デプロイ: 環境変数",
+    updatingUiInProduction: "本番環境でのUI更新",
     environmentVariables: "環境変数",
     progress: "進行状況",
     authentication: "認証",
     multiTenancy: "マルチテナンシー",
     organizationsTeamsPermissions: "組織、チーム、権限",
+    administeredDeployments: "管理デプロイ",
     securityDataScoping: "セキュリティとデータスコープ",
     sharingPrivacy: "共有とプライバシー",
     trackingAnalytics: "トラッキングと分析",
     auditLog: "監査ログ",
     doctorCodeChecks: "Doctor (コードチェック)",
     observability: "可観測性",
+    recorder: "レコーダー",
     observationalMemory: "観測メモリ",
     ciEvalGate: "CI 評価ゲート",
     usingYourAgentOverview: "概要",
@@ -1552,12 +2716,11 @@ const jaJP = {
     dropInAgent: "Drop-in Agent の追加",
     componentApi: "コンポーネント API",
     nativeChatUi: "ネイティブチャット UI",
+    agentkit: "AgentKit",
     generativeUi: "生成 UI",
     realTimeCollaboration: "リアルタイム共同編集",
     agentResourcesOverview: "エージェント リソースの概要",
     skills: "スキル",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "カスタム Agents とチーム",
     workspaceGovernance: "Workspace ガバナンス",
     recurringJobs: "定期ジョブ",
@@ -1570,6 +2733,7 @@ const jaJP = {
     messagingRecipes: "メッセージング レシピ",
     messagingInternals: "メッセージングの内部",
     dispatch: "Dispatch",
+    portal: "Portal",
     a2aProtocol: "A2A プロトコル",
     mcpClients: "MCP クライアント (ツール追加)",
     httpApi: "HTTP API (アクション呼び出し)",
@@ -1577,6 +2741,7 @@ const jaJP = {
     externalAgents: "外部 Agents (ホスト接続)",
     externalAgentsCatalog: "外部 Agents カタログ",
     mcpApps: "MCP Apps (インライン UI)",
+    webMcp: "WebMCP (ブラウザ ツール)",
     crossAppSso: "クロスアプリ SSO",
     notifications: "通知",
     automationConnectors: "ワークフローコネクタ",
@@ -1585,7 +2750,6 @@ const jaJP = {
     syncingTemplateChanges: "テンプレート変更の同期",
     writingAgentInstructions: "Agent 指示を書く",
     embeddingSdk: "埋め込み SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native コード UI",
     harnessAgents: "Harness エージェント",
     adapters: "アダプター",
@@ -1596,18 +2760,20 @@ const jaJP = {
     blueprintInstaller: "Blueprint インストーラー",
     chat: "チャット",
     chatOverview: "概要",
-    chatFirstEdits: "最初の機能",
+    chatFeatures: "機能",
+    chatAgent: "Agent との対話",
+    chatIntegrations: "クロスアプリ利用",
     chatDevelopers: "開発者ガイド",
     calendar: "カレンダー",
     calendarOverview: "概要",
     calendarAgent: "Agent との対話",
-    calendarScheduling: "予定と空き時間",
-    calendarBookingLinks: "予約リンク",
+    calendarFeatures: "機能",
+    calendarIntegrations: "クロスアプリ利用",
     calendarDevelopers: "開発者ガイド",
     content: "コンテンツ",
     contentOverview: "概要",
     contentEditing: "執筆と整理",
-    contentDatabases: "データベースとフォーム",
+    contentDatabases: "コレクションとフォーム",
     contentSync: "ローカルファイルと同期",
     contentDevelopers: "開発者ガイド",
     plans: "Plans",
@@ -1616,13 +2782,14 @@ const jaJP = {
     planAutomations: "イベントと自動化",
     planLocalAndDesktop: "ローカルファイルとデスクトップ",
     planDevelopers: "開発者ガイド",
+    turnIntoApp: "アプリに変換",
     prVisualRecap: "PR ビジュアル回顧",
     planPluginMarketplace: "Plan プラグインとマーケットプレイス",
     slides: "スライド",
     slidesOverview: "概要",
+    slidesFeatures: "機能",
     slidesAgent: "Agent との対話",
-    slidesEditing: "デッキの生成と編集",
-    slidesDesignAndMedia: "デザインシステムとメディア",
+    slidesIntegrations: "クロスアプリ利用",
     slidesDevelopers: "開発者ガイド",
     analytics: "分析",
     analyticsOverview: "概要",
@@ -1638,40 +2805,37 @@ const jaJP = {
     mailDevelopers: "開発者ガイド",
     clips: "クリップ",
     clipsOverview: "概要",
-    clipsCaptureEverywhere: "どこでもキャプチャ",
-    clipsAiAndEditing: "AI と編集",
-    clipsSharingAndTeams: "共有とチーム",
+    clipsFeatures: "機能",
+    clipsAgent: "Agent との対話",
+    clipsIntegrations: "クロスアプリ利用",
     clipsDevelopers: "開発者ガイド",
-    brain: "Brain",
-    brainOverview: "概要",
-    brainSources: "ソースの接続",
-    brainKnowledge: "質問と引用",
-    brainAgent: "Agent との対話",
-    brainDevelopers: "開発者ガイド",
+    clipsEmbed: "Clips を埋め込む",
     assets: "アセット",
     assetsOverview: "概要",
     assetsGeneration: "生成と調整",
     assetsPresets: "プリセット",
     assetsIntegrations: "クロスアプリ利用",
     assetsDevelopers: "開発者ガイド",
-    design: "デザイン",
+    design: "Design",
     designOverview: "概要",
-    designQualityAndComponents: "品質とコンポーネント",
-    designBrandAndFigma: "ブランドと Figma",
-    designCollaborationAndFullApps: "レビューとハンドオフ",
+    designFeatures: "機能",
+    designAgent: "Agent との対話",
+    designIntegrations: "クロスアプリ利用",
     designDevelopers: "開発者ガイド",
     dispatchOverview: "概要",
-    dispatchMessagingRouting: "メッセージングとルーティング",
-    dispatchOperations: "オペレーターコンソール",
-    dispatchVaultIntegrations: "シークレットと連携",
+    dispatchFeatures: "機能",
+    dispatchAgent: "Agent との対話",
+    dispatchIntegrations: "クロスアプリ利用",
     dispatchDevelopers: "開発者ガイド",
+    dispatchReference: "アクションとデータのリファレンス",
     forms: "フォーム",
     formsOverview: "概要",
-    formsBuildingPublishing: "作成と公開",
-    formsResponses: "回答とインサイト",
+    formsFeatures: "機能",
+    formsAgent: "Agent との対話",
+    formsIntegrations: "クロスアプリ利用",
     docsComponents: "Docs Components",
     formsDevelopers: "開発者ガイド",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default jaJP;

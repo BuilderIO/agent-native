@@ -18,11 +18,9 @@ import {
   replayPendingVisualStyleRuntimePatch,
   shouldRedoPendingLiveNonStyleBeforeStyle,
 } from "./pending-edits";
+import { readDesignEditorSource } from "./read-design-editor-source";
 
-const editorSource = readFileSync(
-  new URL("../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+const editorSource = readDesignEditorSource();
 
 function layerStateEdit(
   state: "hidden" | "locked",
@@ -83,10 +81,16 @@ describe("live style runtime history", () => {
   });
 
   it("routes localhost forward styles and undo/redo through the shared targeted helper", () => {
-    const forwardSection = editorSource.slice(
-      editorSource.indexOf('if (activeCanvasSourceType === "localhost")'),
-      editorSource.indexOf(
-        "// Base every patch off the freshest known content",
+    const commitVisualStylesSource = readFileSync(
+      new URL("./commands/commit-visual-styles.ts", import.meta.url),
+      "utf8",
+    );
+    const forwardSection = commitVisualStylesSource.slice(
+      commitVisualStylesSource.indexOf(
+        "if (isRunningAppSourceType(activeCanvasSourceType))",
+      ),
+      commitVisualStylesSource.indexOf(
+        "// Read through the editor's source boundary",
       ),
     );
     const undoReplaySection = editorSource.slice(
@@ -107,10 +111,6 @@ describe("live style runtime history", () => {
   });
 
   it("reverts a localhost style edit through the runtime node-id namespace, not the source projection", () => {
-    // A localhost screen's selection is canonicalized onto the host's own
-    // source projection, so selector/sourceId name nodes the live document has
-    // never carried. Reverting against them resolves nothing and the bridge
-    // returns silently — the reported undo-does-not-revert bug.
     const canonicalized: PendingVisualStyleEdit = {
       screenId: "screen-home",
       filename: "http://localhost:8210/",
@@ -164,6 +164,34 @@ describe("live style runtime history", () => {
     ).toBe(false);
     expect(send).not.toHaveBeenCalled();
   });
+
+  it("preserves interaction-state scope during runtime replay", () => {
+    const send = vi.fn(() => true);
+
+    expect(
+      replayPendingVisualStyleRuntimePatch(
+        {
+          screenId: "screen-home",
+          selector: "#card",
+          sourceId: "card",
+          styles: { backgroundColor: "red" },
+          interactionState: "hover",
+        },
+        send,
+      ),
+    ).toBe(true);
+    expect(send).toHaveBeenCalledWith(
+      "screen-home",
+      "#card",
+      "backgroundColor",
+      "red",
+      {
+        selectorCandidates: ["#card", '[data-agent-native-node-id="card"]'],
+        nodeId: "card",
+        interactionState: "hover",
+      },
+    );
+  });
 });
 
 describe("pending live layer state history", () => {
@@ -204,13 +232,14 @@ describe("pending live layer state history", () => {
   });
 
   it("queues localhost layer state before any snapshot-document write", () => {
-    const section = editorSource.slice(
-      editorSource.indexOf("const handleToggleLayerLocked"),
-      editorSource.indexOf("const handleToggleLayerHidden"),
+    const section = readFileSync(
+      new URL("./commands/toggle-layer-locked.ts", import.meta.url),
+      "utf8",
     );
-    const localhostBranch = section.slice(
-      section.indexOf("resolveOverviewScreenSourceType"),
-      section.indexOf("if (owner?.runtimeOnly)"),
+    const body = section.slice(section.indexOf("export function"));
+    const localhostBranch = body.slice(
+      body.indexOf("resolveOverviewScreenSourceType"),
+      body.indexOf("if (owner?.runtimeOnly)"),
     );
 
     expect(localhostBranch).toContain("recordPendingLiveLayerStateEdit(");

@@ -28,7 +28,7 @@ function getCacheKey(
   return createHash("sha256").update(input).digest("hex");
 }
 
-function getCached(key: string): unknown | null {
+function getCached(key: string): unknown {
   const entry = cache.get(key);
   if (!entry) return null;
   if (Date.now() - entry.createdAt > CACHE_TTL_MS) {

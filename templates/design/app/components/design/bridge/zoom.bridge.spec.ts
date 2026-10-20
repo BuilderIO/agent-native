@@ -1,0 +1,100 @@
+// @vitest-environment happy-dom
+
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { zoomBridgeScript } from "../../../../.generated/bridge/zoom.generated";
+
+describe("zoom bridge payload", () => {
+  let posted: Record<string, unknown>[] = [];
+
+  beforeAll(() => {
+    vi.stubGlobal("parent", {
+      postMessage: (message: Record<string, unknown>) => posted.push(message),
+    });
+    new Function(zoomBridgeScript)();
+  });
+
+  beforeEach(() => {
+    posted = [];
+  });
+
+  function dispatchWheel(init: {
+    deltaY: number;
+    deltaMode: number;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+  }) {
+    const event = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: init.deltaY,
+      deltaMode: init.deltaMode,
+    });
+    Object.defineProperty(event, "ctrlKey", { value: init.ctrlKey ?? true });
+    Object.defineProperty(event, "metaKey", { value: init.metaKey ?? false });
+    Object.defineProperty(event, "clientX", { value: 40 });
+    Object.defineProperty(event, "clientY", { value: 60 });
+    document.documentElement.dispatchEvent(event);
+    return event;
+  }
+
+  it("forwards the delta mode so a line tick is not read as 3px of travel", () => {
+    dispatchWheel({ deltaY: -3, deltaMode: 1 });
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({
+      type: "pinch-zoom-wheel",
+      deltaY: -3,
+      deltaMode: 1,
+      ctrlKey: true,
+      metaKey: false,
+    });
+  });
+
+  it("forwards the modifiers the device classifier reads", () => {
+    dispatchWheel({ deltaY: -8, deltaMode: 0, ctrlKey: false, metaKey: true });
+    expect(posted[0]).toMatchObject({
+      deltaMode: 0,
+      ctrlKey: false,
+      metaKey: true,
+    });
+  });
+
+  it("ignores an unmodified wheel", () => {
+    dispatchWheel({ deltaY: -100, deltaMode: 0, ctrlKey: false });
+    expect(posted).toHaveLength(0);
+  });
+
+  it("leaves a Cmd/Ctrl wheel to the page while Interact owns it", () => {
+    const setInteraction = (interact: boolean) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "set-interaction-mode", interact },
+          source: window.parent,
+        }),
+      );
+
+    setInteraction(true);
+    const interacting = dispatchWheel({ deltaY: -100, deltaMode: 0 });
+    expect(interacting.defaultPrevented).toBe(false);
+    expect(posted).toHaveLength(0);
+
+    setInteraction(false);
+    const designing = dispatchWheel({ deltaY: -100, deltaMode: 0 });
+    expect(designing.defaultPrevented).toBe(true);
+    expect(posted).toHaveLength(1);
+  });
+
+  it("does not cancel a non-cancelable wheel", () => {
+    const event = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: false,
+      deltaY: -100,
+      deltaMode: 0,
+    });
+    Object.defineProperty(event, "ctrlKey", { value: true });
+    const preventDefault = vi.spyOn(event, "preventDefault");
+    document.documentElement.dispatchEvent(event);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(posted).toHaveLength(1);
+  });
+});

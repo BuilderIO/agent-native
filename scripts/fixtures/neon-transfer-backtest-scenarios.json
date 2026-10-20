@@ -1,0 +1,38 @@
+{
+  "note": "Synthetic scenarios reconstructed from the supplied September 1-28 summary. This is not a Neon API export.",
+  "from": "2026-09-01",
+  "to": "2026-09-28",
+  "projects": [
+    {
+      "projectId": "docs-project",
+      "projectName": "Docs",
+      "defaultBytes": 1000000000,
+      "overrides": {
+        "2026-09-03": 1600000000000
+      }
+    },
+    {
+      "projectId": "design-project",
+      "projectName": "Design",
+      "defaultBytes": 40000000000,
+      "overrides": {
+        "2026-09-08": 2400000000000
+      }
+    },
+    {
+      "projectId": "mail-project",
+      "projectName": "Mail",
+      "defaultBytes": 50000000000,
+      "overrides": {
+        "2026-09-20": 25000000000,
+        "2026-09-21": 180000000000,
+        "2026-09-22": 220000000000,
+        "2026-09-23": 260000000000,
+        "2026-09-24": 300000000000,
+        "2026-09-25": 340000000000,
+        "2026-09-26": 370000000000,
+        "2026-09-27": 180000000000
+      }
+    }
+  ]
+}

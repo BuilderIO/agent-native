@@ -352,7 +352,6 @@ export function validateTrustedAcceptanceReaper(
   if (!source.includes("environment: trusted-acceptance"))
     issues.push("reaper must use the protected acceptance environment");
   if (
-    !source.includes("matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}") ||
     !source.includes("group: trusted-acceptance-${{ matrix.workspace }}") ||
     !source.includes("cancel-in-progress: false")
   )
@@ -364,6 +363,88 @@ export function validateTrustedAcceptanceReaper(
     issues.push("reaper must use the generic protected profile mapping");
   if (!source.includes("controller.ts reap"))
     issues.push("reaper must invoke the trusted runtime-authority controller");
+
+  let workflow: unknown;
+  try {
+    workflow = parse(source);
+  } catch {
+    issues.push("reaper must be valid YAML");
+    return { ok: false, issues };
+  }
+  if (!isRecord(workflow) || !isRecord(workflow.jobs)) {
+    issues.push("reaper must define plan and reap jobs");
+    return { ok: false, issues };
+  }
+
+  const plan = workflow.jobs.plan;
+  const reap = workflow.jobs.reap;
+  if (!isRecord(plan) || !isRecord(reap)) {
+    issues.push("reaper must define plan and reap jobs");
+    return { ok: false, issues };
+  }
+
+  const workspaceStep = Array.isArray(plan.steps)
+    ? plan.steps.find((step) => isRecord(step) && step.id === "workspaces")
+    : undefined;
+  const selector =
+    isRecord(workspaceStep) && typeof workspaceStep.run === "string"
+      ? workspaceStep.run
+      : "";
+  const selectorLines = selector
+    .trim()
+    .split("\n")
+    .map((line) => line.trim());
+  const matrixWrite =
+    "fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({include: selected.map(({id}) => ({workspace: id}))})}\\n`);";
+  const hasWorkspacesWrite =
+    "fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=${selected.length > 0}\\n`);";
+  const expectedSelectorLines = [
+    "node - <<'NODE'",
+    'const fs = require("node:fs");',
+    'const config = JSON.parse(fs.readFileSync("scripts/trusted-acceptance-workspaces.json", "utf8"));',
+    'const configured = config.workspaces.filter(workspace => workspace.enabled === true && workspace.runtimeAuthority?.provisioner?.kind === "trusted-lease-v1");',
+    "let selected = configured;",
+    'if (process.env.EVENT_NAME === "workflow_dispatch") {',
+    "selected = configured.filter(workspace => workspace.id === process.env.REQUESTED_WORKSPACE);",
+    'if (selected.length !== 1) throw new Error("Requested workspace has no configured trusted lease authority");',
+    "}",
+    matrixWrite,
+    hasWorkspacesWrite,
+    "NODE",
+  ];
+  if (selectorLines.join("\n") !== expectedSelectorLines.join("\n")) {
+    issues.push(
+      "reaper workspace selector must match the allow-listed trusted planner",
+    );
+  }
+  if (
+    !isRecord(plan.outputs) ||
+    plan.outputs.matrix !== "${{ steps.workspaces.outputs.matrix }}" ||
+    plan.outputs.has_workspaces !==
+      "${{ steps.workspaces.outputs.has_workspaces }}"
+  ) {
+    issues.push(
+      "reaper plan must expose the workspace step's matrix and empty-matrix outputs",
+    );
+  }
+
+  const reapStrategy = isRecord(reap.strategy) ? reap.strategy : undefined;
+  const reapNeedsPlan =
+    reap.needs === "plan" ||
+    (Array.isArray(reap.needs) && reap.needs.includes("plan"));
+  if (
+    !reapNeedsPlan ||
+    !reapStrategy ||
+    reapStrategy.matrix !== "${{ fromJSON(needs.plan.outputs.matrix) }}" ||
+    typeof reap.if !== "string" ||
+    !/^\s*(?:\$\{\{\s*)?needs\.plan\.outputs\.has_workspaces\s*==\s*'true'(?:\s*\}\})?\s*$/.test(
+      reap.if,
+    )
+  ) {
+    issues.push(
+      "reaper job must consume the plan matrix and skip when no workspaces were selected",
+    );
+  }
   return { ok: issues.length === 0, issues };
 }
 

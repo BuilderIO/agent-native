@@ -1,6 +1,7 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { createError } from "h3";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -74,10 +75,14 @@ export default defineAction({
         .from(schema.folders)
         .where(and(...parentWhereClauses))
         .limit(1);
-      if (!parent) throw new Error(`Parent folder not found: ${args.parentId}`);
+      if (!parent) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: `Parent folder not found: ${args.parentId}`,
+        });
+      }
     }
 
-    // Next position within siblings
     const whereClauses = [eq(schema.folders.organizationId, organizationId)];
     if (!args.spaceId) {
       whereClauses.push(

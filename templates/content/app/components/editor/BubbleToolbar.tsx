@@ -1,15 +1,14 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBold,
+  IconCheck,
+  IconChevronDown,
   IconItalic,
+  IconUnderline,
   IconStrikethrough,
   IconCode,
   IconLink,
   IconMessageCircle,
-  IconH1,
-  IconH2,
-  IconH3,
-  IconH4,
 } from "@tabler/icons-react";
 import {
   NodeSelection,
@@ -20,8 +19,13 @@ import {
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -29,7 +33,13 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";
+import {
+  captureAnchor,
+  trimSelectionRange,
+  type CommentTextAnchor,
+} from "./comment-anchors";
+import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
+import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
 export type CommentRange = { from: number; to: number };
 
@@ -40,7 +50,24 @@ export interface BubbleToolbarProps {
     offsetTop: number,
     anchor?: CommentTextAnchor,
     range?: CommentRange,
+    suggestionId?: string,
   ) => void;
+}
+
+// Suggested text exists only in the author's draft, so a page comment anchored
+// to it has nothing to point at once the draft is saved; it belongs on the
+// suggestion's own thread.
+export function draftSuggestionIdInRange(
+  state: EditorState,
+  from: number,
+  to: number,
+) {
+  return suggestionHighlightKey
+    .getState(state)
+    ?.specs.find(
+      (spec) =>
+        spec.editableText && !spec.settling && spec.to > from && to > spec.from,
+    )?.suggestionId;
 }
 
 const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
@@ -55,6 +82,173 @@ type SelectionFillRange = {
   from: number;
   to: number;
 };
+
+type TextStyle = "paragraph" | 1 | 2 | 3 | 4 | 5 | 6;
+type ColorAttribute = "color" | "bgColor";
+type ColorName =
+  | "gray"
+  | "brown"
+  | "orange"
+  | "yellow"
+  | "green"
+  | "blue"
+  | "purple"
+  | "pink"
+  | "red";
+
+const COLOR_NAMES: ColorName[] = [
+  "gray",
+  "brown",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "pink",
+  "red",
+];
+
+export function getSelectionNotionSpanAttribute(
+  editor: Editor,
+  attribute: ColorAttribute | "underline",
+): "mixed" | (string & {}) | null {
+  const { from, to } = editor.state.selection;
+  const markType = editor.state.schema.marks.notionSpan;
+  if (!markType) return null;
+
+  let observed: string | null = null;
+  let hasObserved = false;
+  let mixed = false;
+
+  editor.state.doc.nodesBetween(from, to, (node, _position, parent) => {
+    if (!node.isText || !parent?.type.allowsMarkType(markType)) return;
+    const mark = node.marks.find((candidate) => candidate.type === markType);
+    const value = (mark?.attrs[attribute] as string | null | undefined) ?? null;
+    if (!hasObserved) {
+      observed = value;
+      hasObserved = true;
+    } else if (observed !== value) {
+      mixed = true;
+    }
+  });
+
+  return mixed ? "mixed" : observed;
+}
+
+export function selectionHasColorableText(
+  state: EditorState,
+  from: number,
+  to: number,
+) {
+  const markType = state.schema.marks.notionSpan;
+  if (!markType) return false;
+
+  let hasText = false;
+  state.doc.nodesBetween(from, to, (node, _position, parent) => {
+    if (node.isText && parent?.type.allowsMarkType(markType)) hasText = true;
+    return !hasText;
+  });
+  return hasText;
+}
+
+type ToolbarAction = {
+  icon: React.ElementType;
+  title: string;
+  action: () => void;
+  isActive: () => boolean;
+};
+
+function BubbleActionButton({ item }: { item: ToolbarAction }) {
+  // Calling preventDefault on pointer-down also skips Radix's own close on
+  // press. An action that hides the bubble, like Comment, then leaves the
+  // tooltip open on a detached trigger, pinned to the top-left of the window.
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const { icon: Icon, title, action, isActive } = item;
+  return (
+    <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
+      <TooltipTrigger asChild>
+        <button
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setTooltipOpen(false);
+            action();
+          }}
+          onClick={(event) => {
+            if (event.detail === 0) action();
+          }}
+          aria-label={title}
+          className={cn(
+            "p-2 rounded",
+            isActive()
+              ? "bg-accent text-accent-foreground"
+              : "text-popover-foreground/75 hover:bg-accent hover:text-accent-foreground",
+          )}
+        >
+          <Icon size={16} strokeWidth={2.5} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function toolbarEditChain(editor: Editor) {
+  if (!editor.isEditable) return null;
+  return editor.chain().command(({ tr }) => {
+    tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
+    return true;
+  });
+}
+
+export function setSelectionNotionSpanAttribute(
+  editor: Editor,
+  attribute: ColorAttribute | "underline",
+  value: string | null,
+) {
+  if (!editor.isEditable) return false;
+  const { state } = editor;
+  const { from, to } = state.selection;
+  const markType = state.schema.marks.notionSpan;
+  if (!markType || from === to) return false;
+
+  const transaction = state.tr;
+  if (attribute === "underline" && state.schema.marks.underline) {
+    transaction.removeMark(from, to, state.schema.marks.underline);
+  }
+  state.doc.nodesBetween(from, to, (node, position, parent) => {
+    if (!node.isText || !parent?.type.allowsMarkType(markType)) return;
+    const start = Math.max(from, position);
+    const end = Math.min(to, position + node.nodeSize);
+    if (start >= end) return;
+
+    const existing = node.marks.find((mark) => mark.type === markType);
+    const attrs = { ...existing?.attrs, [attribute]: value };
+    transaction.removeMark(start, end, markType);
+    if (
+      attrs.color ||
+      attrs.bgColor ||
+      attrs.underline ||
+      attrs.href ||
+      (attrs.attrsJson && attrs.attrsJson !== "{}")
+    ) {
+      transaction.addMark(start, end, markType.create(attrs));
+    }
+  });
+
+  if (!transaction.docChanged) return false;
+  transaction.setMeta(LOCAL_FILE_USER_EDIT_META, true);
+  editor.view.dispatch(transaction);
+  editor.commands.focus();
+  return true;
+}
+
+function activeTextStyle(editor: Editor): TextStyle {
+  for (const level of [1, 2, 3, 4, 5, 6] as const) {
+    if (editor.isActive("heading", { level })) return level;
+  }
+  return "paragraph";
+}
 
 const selectionFillPluginKey = new PluginKey<SelectionFillRange | null>(
   "contentSelectionFill",
@@ -104,8 +298,254 @@ export function shouldShowBubbleToolbar({
 
 export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const t = useT();
+  const [bubbleMenuKey] = useState(() => new PluginKey("contentBubbleToolbar"));
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
+  const [textStyleOpen, setTextStyleOpen] = useState(false);
+  const [colorOpen, setColorOpen] = useState(false);
+  const [colorRevision, setColorRevision] = useState(0);
+  const [recentColor, setRecentColor] = useState<{
+    attribute: ColorAttribute;
+    value: string;
+  } | null>(null);
+  const textStyleSelection = useRef<{ from: number; to: number } | null>(null);
+  const colorSelection = useRef<{ from: number; to: number } | null>(null);
+  const textStyleApplied = useRef(false);
+  const colorApplied = useRef(false);
+  const restoreEditorFocusOnClose = useRef(false);
+  const [textStyle, setTextStyle] = useState<TextStyle>(() =>
+    activeTextStyle(editor),
+  );
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const target = editor.view.dom;
+    let previousSize: { width: number; height: number } | undefined;
+    let frame: number | undefined;
+    let disposed = false;
+    const observer = new ResizeObserver((entries) => {
+      if (disposed) return;
+      const entry = entries.find((candidate) => candidate.target === target);
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (previousSize?.width === width && previousSize.height === height)
+        return;
+      previousSize = { width, height };
+      if (frame !== undefined) return;
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        if (disposed || editor.isDestroyed) return;
+        editor.view.dispatch(
+          editor.state.tr.setMeta(bubbleMenuKey, "updatePosition"),
+        );
+      });
+    });
+    observer.observe(target);
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, [editor, bubbleMenuKey]);
+
+  const createCommentFromSelection = useCallback(() => {
+    if (!onComment) return false;
+    const { from, to } = trimSelectionRange(
+      editor.state.doc,
+      editor.state.selection.from,
+      editor.state.selection.to,
+    );
+    const text = editor.state.doc.textBetween(from, to, " ");
+    if (!text.trim()) return false;
+    const anchor = captureAnchor(editor.state.doc, from, to);
+    const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
+    const coords = editor.view.coordsAtPos(from);
+    const scrollContainer = editor.view.dom.closest(
+      ".flex-1.min-h-0.overflow-auto",
+    );
+    const containerTop = scrollContainer
+      ? scrollContainer.getBoundingClientRect().top
+      : 0;
+    const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+    const offsetTop = coords.top - containerTop + scrollTop;
+    editor.commands.setTextSelection(from);
+    onComment(text.trim(), offsetTop, anchor, { from, to }, suggestionId);
+    return true;
+  }, [editor, onComment]);
+
+  useEffect(() => {
+    if (!onComment) return;
+    const dom = editor.view.dom;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() !== "m" ||
+        !event.shiftKey ||
+        (!event.metaKey && !event.ctrlKey)
+      ) {
+        return;
+      }
+      if (createCommentFromSelection()) event.preventDefault();
+    };
+    dom.addEventListener("keydown", handleKeyDown);
+    return () => dom.removeEventListener("keydown", handleKeyDown);
+  }, [createCommentFromSelection, editor, onComment]);
+
+  useEffect(() => {
+    const syncTextStyle = () => {
+      setTextStyle(activeTextStyle(editor));
+      setColorRevision((revision) => revision + 1);
+      const { from, to } = editor.state.selection;
+      if (from !== to) {
+        textStyleSelection.current = { from, to };
+        colorSelection.current = { from, to };
+      }
+    };
+    editor.on("selectionUpdate", syncTextStyle);
+    editor.on("transaction", syncTextStyle);
+    syncTextStyle();
+    return () => {
+      editor.off("selectionUpdate", syncTextStyle);
+      editor.off("transaction", syncTextStyle);
+    };
+  }, [editor]);
+
+  const textStyles = [
+    {
+      value: "paragraph" as const,
+      shortLabel: t("editor.slash.text"),
+      menuLabel: "T",
+      label: t("editor.slash.text"),
+    },
+    {
+      value: 1 as const,
+      shortLabel: "H1",
+      menuLabel: "H1",
+      label: t("editor.heading1"),
+    },
+    {
+      value: 2 as const,
+      shortLabel: "H2",
+      menuLabel: "H2",
+      label: t("editor.heading2"),
+    },
+    {
+      value: 3 as const,
+      shortLabel: "H3",
+      menuLabel: "H3",
+      label: t("editor.heading3"),
+    },
+    {
+      value: 4 as const,
+      shortLabel: "H4",
+      menuLabel: "H4",
+      label: t("editor.heading4"),
+    },
+  ];
+  const selectedTextStyle =
+    textStyles.find((style) => style.value === textStyle) ??
+    (typeof textStyle === "number"
+      ? {
+          value: textStyle,
+          shortLabel: `H${textStyle}`,
+          menuLabel: `H${textStyle}`,
+          label: textStyle === 5 ? t("editor.heading5") : t("editor.heading6"),
+        }
+      : textStyles[0]);
+
+  const applyTextStyle = (style: TextStyle) => {
+    const chain = toolbarEditChain(editor);
+    if (!chain) return;
+    if (textStyleSelection.current) {
+      chain.setTextSelection(textStyleSelection.current);
+    }
+    if (style === "paragraph") {
+      chain.setNode("paragraph").focus().run();
+    } else {
+      chain.setHeading({ level: style }).focus().run();
+    }
+    textStyleApplied.current = true;
+    setTextStyle(style);
+    setTextStyleOpen(false);
+  };
+
+  const applyColor = (attribute: ColorAttribute, value: string | null) => {
+    if (!editor.isEditable) return;
+    if (colorSelection.current) {
+      editor.commands.setTextSelection(colorSelection.current);
+    }
+    if (!setSelectionNotionSpanAttribute(editor, attribute, value)) return;
+    if (value) setRecentColor({ attribute, value });
+    colorApplied.current = true;
+    setColorOpen(false);
+  };
+
+  const activeTextColor = getSelectionNotionSpanAttribute(editor, "color");
+  const activeBackgroundColor = getSelectionNotionSpanAttribute(
+    editor,
+    "bgColor",
+  );
+  void colorRevision;
+
+  const renderColorChoice = (
+    attribute: ColorAttribute,
+    value: string | null,
+  ) => {
+    const sectionLabel = t(
+      attribute === "color" ? "editor.textColor" : "editor.backgroundColor",
+    );
+    const colorName = value?.replace(/_bg$/, "") as ColorName | undefined;
+    const choiceLabel = colorName
+      ? t(`editor.color.${colorName}`)
+      : t("editor.defaultColor");
+    const activeValue =
+      attribute === "color" ? activeTextColor : activeBackgroundColor;
+    const isActive = activeValue !== "mixed" && activeValue === value;
+
+    return (
+      <button
+        key={`${attribute}-${value ?? "default"}`}
+        type="button"
+        role="menuitemradio"
+        aria-checked={isActive}
+        aria-label={`${sectionLabel}: ${choiceLabel}`}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          applyColor(attribute, value);
+        }}
+        onClick={(event) => {
+          if (event.detail === 0) applyColor(attribute, value);
+        }}
+        className={cn(
+          "relative flex size-8 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          isActive && "ring-2 ring-foreground",
+        )}
+      >
+        {attribute === "color" ? (
+          <span
+            className={colorName ? `content-block-color--${colorName}` : ""}
+          >
+            A
+          </span>
+        ) : (
+          <span
+            className={cn(
+              "size-5 rounded border border-border",
+              colorName && `content-block-bg--${colorName}`,
+            )}
+          />
+        )}
+        {isActive ? (
+          <IconCheck
+            aria-hidden="true"
+            className="absolute -end-1 -top-1 rounded-full bg-foreground p-0.5 text-background"
+            size={12}
+            strokeWidth={3}
+          />
+        ) : null}
+      </button>
+    );
+  };
 
   const openLinkInput = useCallback(() => {
     setLinkUrl(editor.getAttributes("link").href || "");
@@ -157,7 +597,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           if (!range || range.from === range.to) return DecorationSet.empty;
           return DecorationSet.create(state.doc, [
             Decoration.inline(range.from, range.to, {
-              class: "notion-selection-fill",
+              class: "content-selection-fill",
             }),
           ]);
         },
@@ -203,77 +643,77 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   }, [editor, openLinkInput]);
 
   const handleSetLink = () => {
+    const chain = toolbarEditChain(editor);
+    if (!chain) return;
     if (linkUrl.trim()) {
-      editor
-        .chain()
+      chain
         .focus()
         .extendMarkRange("link")
         .setLink({ href: linkUrl.trim() })
         .run();
     } else {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
+      chain.focus().extendMarkRange("link").unsetLink().run();
     }
     setShowLinkInput(false);
     setLinkUrl("");
   };
 
   const toggleLink = () => {
-    if (editor.isActive("link")) {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
     openLinkInput();
   };
 
   const items = [
+    { type: "text-style" as const },
+    ...(selectionHasColorableText(
+      editor.state,
+      editor.state.selection.from,
+      editor.state.selection.to,
+    )
+      ? [{ type: "color" as const }]
+      : []),
+    { type: "divider" as const },
     {
       icon: IconBold,
       title: t("editor.bold"),
-      action: () => editor.chain().focus().toggleBold().run(),
+      action: () => toolbarEditChain(editor)?.focus().toggleBold().run(),
       isActive: () => editor.isActive("bold"),
     },
     {
       icon: IconItalic,
       title: t("editor.italic"),
-      action: () => editor.chain().focus().toggleItalic().run(),
+      action: () => toolbarEditChain(editor)?.focus().toggleItalic().run(),
       isActive: () => editor.isActive("italic"),
+    },
+    {
+      icon: IconUnderline,
+      title: t("editor.underline"),
+      action: () => {
+        if (!editor.isEditable) return;
+        const active =
+          editor.isActive("underline") ||
+          getSelectionNotionSpanAttribute(editor, "underline") === "true";
+        editor.commands.focus();
+        setSelectionNotionSpanAttribute(
+          editor,
+          "underline",
+          active ? null : "true",
+        );
+      },
+      isActive: () =>
+        editor.isActive("underline") ||
+        getSelectionNotionSpanAttribute(editor, "underline") === "true",
     },
     {
       icon: IconStrikethrough,
       title: t("editor.strikethrough"),
-      action: () => editor.chain().focus().toggleStrike().run(),
+      action: () => toolbarEditChain(editor)?.focus().toggleStrike().run(),
       isActive: () => editor.isActive("strike"),
     },
     {
       icon: IconCode,
       title: t("editor.code"),
-      action: () => editor.chain().focus().toggleCode().run(),
+      action: () => toolbarEditChain(editor)?.focus().toggleCode().run(),
       isActive: () => editor.isActive("code"),
-    },
-    { type: "divider" as const },
-    {
-      icon: IconH1,
-      title: t("editor.heading1"),
-      action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
-      isActive: () => editor.isActive("heading", { level: 1 }),
-    },
-    {
-      icon: IconH2,
-      title: t("editor.heading2"),
-      action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
-      isActive: () => editor.isActive("heading", { level: 2 }),
-    },
-    {
-      icon: IconH3,
-      title: t("editor.heading3"),
-      action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
-      isActive: () => editor.isActive("heading", { level: 3 }),
-    },
-    {
-      icon: IconH4,
-      title: t("editor.heading4"),
-      action: () => editor.chain().focus().toggleHeading({ level: 4 }).run(),
-      isActive: () => editor.isActive("heading", { level: 4 }),
     },
     { type: "divider" as const },
     {
@@ -288,29 +728,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           {
             icon: IconMessageCircle,
             title: t("editor.comment"),
-            action: () => {
-              const { from, to } = editor.state.selection;
-              const text = editor.state.doc.textBetween(from, to, " ");
-              if (!text.trim()) return;
-              // Capture a robust anchor (quote + surrounding context + offset)
-              // for the exact selection before we collapse it.
-              const anchor = captureAnchor(editor.state.doc, from, to);
-              // Get the Y position of the selection relative to the scroll container
-              const coords = editor.view.coordsAtPos(from);
-              const scrollContainer = editor.view.dom.closest(
-                ".flex-1.min-h-0.overflow-auto",
-              );
-              const containerTop = scrollContainer
-                ? scrollContainer.getBoundingClientRect().top
-                : 0;
-              const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
-              const offsetTop = coords.top - containerTop + scrollTop;
-              // Collapse the selection so the bubble toolbar hides — the pending
-              // highlight (rendered by the CommentHighlight plugin) keeps the
-              // range visible while the comment is composed.
-              editor.commands.setTextSelection(from);
-              onComment(text.trim(), offsetTop, anchor, { from, to });
-            },
+            action: createCommentFromSelection,
             isActive: () => false,
           },
         ]
@@ -320,6 +738,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   return (
     <BubbleMenu
       editor={editor}
+      pluginKey={bubbleMenuKey}
       className="bubble-toolbar"
       updateDelay={0}
       shouldShow={shouldShowBubbleToolbar}
@@ -351,10 +770,27 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           >
             {t("editor.apply")}
           </button>
+          {editor.isActive("link") ? (
+            <button
+              type="button"
+              onClick={() => {
+                toolbarEditChain(editor)
+                  ?.focus()
+                  .extendMarkRange("link")
+                  .unsetLink()
+                  .run();
+                setShowLinkInput(false);
+                setLinkUrl("");
+              }}
+              className="px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {t("editor.removeLink")}
+            </button>
+          ) : null}
         </div>
       ) : (
         <div
-          className="flex items-center gap-0.5 overflow-x-auto"
+          className="flex max-w-[calc(100vw-1rem)] items-center gap-0.5"
           onMouseDown={(e) => e.preventDefault()}
         >
           {items.map((item, i) => {
@@ -363,43 +799,202 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                 <div key={`d-${i}`} className="w-px h-5 bg-border mx-0.5" />
               );
             }
-            const {
-              icon: Icon,
-              title,
-              action,
-              isActive,
-            } = item as {
-              icon: React.ElementType;
-              title: string;
-              action: () => void;
-              isActive: () => boolean;
-            };
-            return (
-              <Tooltip key={title}>
-                <TooltipTrigger asChild>
-                  <button
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      action();
+            if ("type" in item && item.type === "text-style") {
+              return (
+                <Popover
+                  key="text-style"
+                  open={textStyleOpen}
+                  onOpenChange={(open) => {
+                    if (open) {
+                      textStyleApplied.current = false;
+                      restoreEditorFocusOnClose.current = false;
+                      const { from, to } = editor.state.selection;
+                      if (from !== to)
+                        textStyleSelection.current = { from, to };
+                    }
+                    setTextStyleOpen(open);
+                  }}
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`${t("editor.slash.turnInto")}: ${selectedTextStyle.label}`}
+                      className="flex h-8 min-w-14 items-center justify-between gap-1 rounded px-2 text-sm font-medium text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <span>{selectedTextStyle.shortLabel}</span>
+                      <IconChevronDown size={14} strokeWidth={2} />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    portalled={false}
+                    align="start"
+                    sideOffset={24}
+                    className="w-44 p-1"
+                    onEscapeKeyDown={() => {
+                      restoreEditorFocusOnClose.current = true;
+                      window.setTimeout(() => editor.commands.focus(), 0);
                     }}
-                    onClick={(event) => {
-                      if (event.detail === 0) action();
+                    onCloseAutoFocus={(event) => {
+                      if (
+                        textStyleApplied.current ||
+                        restoreEditorFocusOnClose.current
+                      ) {
+                        event.preventDefault();
+                      }
+                      if (restoreEditorFocusOnClose.current) {
+                        editor.commands.focus();
+                      }
+                      textStyleApplied.current = false;
+                      restoreEditorFocusOnClose.current = false;
                     }}
-                    aria-label={title}
-                    className={cn(
-                      "p-2 rounded",
-                      isActive()
-                        ? "bg-accent text-accent-foreground"
-                        : "text-popover-foreground/75 hover:bg-accent hover:text-accent-foreground",
-                    )}
                   >
-                    <Icon size={16} strokeWidth={2.5} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{title}</TooltipContent>
-              </Tooltip>
-            );
+                    <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                      {t("editor.slash.turnInto")}
+                    </div>
+                    <div
+                      role="menu"
+                      aria-label={t("editor.slash.turnInto")}
+                      className="flex flex-col gap-0.5"
+                    >
+                      {textStyles.map((style) => {
+                        const isSelected = style.value === textStyle;
+                        return (
+                          <button
+                            key={style.value}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={isSelected}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              applyTextStyle(style.value);
+                            }}
+                            onClick={(event) => {
+                              if (event.detail === 0) {
+                                applyTextStyle(style.value);
+                              }
+                            }}
+                            className={cn(
+                              "flex h-8 w-full items-center gap-2 rounded px-2 text-left text-sm",
+                              isSelected
+                                ? "bg-accent text-accent-foreground"
+                                : "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
+                            )}
+                          >
+                            <span className="w-6 shrink-0 text-xs font-semibold text-muted-foreground">
+                              {style.menuLabel}
+                            </span>
+                            <span className="flex-1">{style.label}</span>
+                            {isSelected ? (
+                              <IconCheck size={15} strokeWidth={2.25} />
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              );
+            }
+            if ("type" in item && item.type === "color") {
+              return (
+                <Popover
+                  key="color"
+                  open={colorOpen}
+                  onOpenChange={(open) => {
+                    if (open) {
+                      colorApplied.current = false;
+                      restoreEditorFocusOnClose.current = false;
+                      const { from, to } = editor.state.selection;
+                      if (from !== to) colorSelection.current = { from, to };
+                    }
+                    setColorOpen(open);
+                  }}
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("editor.color.label")}
+                      className={cn(
+                        "flex size-8 items-center justify-center rounded text-sm font-semibold text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground",
+                        colorOpen && "bg-accent text-accent-foreground",
+                      )}
+                    >
+                      A
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    portalled={false}
+                    align="start"
+                    sideOffset={24}
+                    className="w-52 p-2"
+                    onEscapeKeyDown={() => {
+                      restoreEditorFocusOnClose.current = true;
+                      window.setTimeout(() => editor.commands.focus(), 0);
+                    }}
+                    onCloseAutoFocus={(event) => {
+                      if (
+                        colorApplied.current ||
+                        restoreEditorFocusOnClose.current
+                      ) {
+                        event.preventDefault();
+                      }
+                      if (restoreEditorFocusOnClose.current) {
+                        editor.commands.focus();
+                      }
+                      colorApplied.current = false;
+                      restoreEditorFocusOnClose.current = false;
+                    }}
+                  >
+                    {recentColor ? (
+                      <div className="mb-2">
+                        <div className="mb-1 text-xs font-medium text-muted-foreground">
+                          {t("editor.color.recentlyUsed")}
+                        </div>
+                        <div role="menu">
+                          {renderColorChoice(
+                            recentColor.attribute,
+                            recentColor.value,
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="mb-2">
+                      <div className="mb-1 text-xs font-medium text-muted-foreground">
+                        {t("editor.textColor")}
+                      </div>
+                      <div
+                        role="menu"
+                        aria-label={t("editor.textColor")}
+                        className="grid grid-cols-5 gap-1"
+                      >
+                        {renderColorChoice("color", null)}
+                        {COLOR_NAMES.map((name) =>
+                          renderColorChoice("color", name),
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-muted-foreground">
+                        {t("editor.backgroundColor")}
+                      </div>
+                      <div
+                        role="menu"
+                        aria-label={t("editor.backgroundColor")}
+                        className="grid grid-cols-5 gap-1"
+                      >
+                        {renderColorChoice("bgColor", null)}
+                        {COLOR_NAMES.map((name) =>
+                          renderColorChoice("bgColor", `${name}_bg`),
+                        )}
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              );
+            }
+            const action = item as ToolbarAction;
+            return <BubbleActionButton key={action.title} item={action} />;
           })}
         </div>
       )}

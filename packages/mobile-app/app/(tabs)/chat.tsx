@@ -1,45 +1,86 @@
-import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
+import { useFocusEffect } from "@react-navigation/native";
 import {
+  IconCheck,
   IconCopy,
   IconGitFork,
   IconHistory,
   IconId,
+  IconMenu2,
+  IconPencil,
+  IconRefresh,
   IconShare2,
   IconSquareRoundedPlus,
+  IconThumbDown,
+  IconThumbUp,
+  IconX,
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
-import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
-  Modal,
+  Linking,
   Pressable,
+  Platform,
   Share,
   Text,
+  TextInput,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import {
+  KeyboardAvoidingView,
+  useReanimatedKeyboardAnimation,
+} from "react-native-keyboard-controller";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
-import AppWebView from "@/components/AppWebView";
 import {
   ChatSettingsSheet,
+  DEFAULT_CHAT_SETTINGS,
   useChatSettings,
 } from "@/components/chat/ChatSettingsSheet";
 import { Composer } from "@/components/chat/Composer";
 import { MessagesList } from "@/components/chat/MessagesList";
+import { MobilePopover } from "@/components/chat/MobilePopover";
+import {
+  MobileWorkspaceControls,
+  type ChatTarget,
+  useMobileThemeColors,
+} from "@/components/chat/MobileWorkspaceControls";
 import { ThreadHistorySheet } from "@/components/chat/ThreadHistorySheet";
+import { VersionHistorySheet } from "@/components/chat/VersionHistorySheet";
+import { ComputerConnectSheet } from "@/components/ComputerConnectSheet";
+import { NativeSignInSheet } from "@/components/NativeSignInSheet";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import { createThreadShareLink, forkChatThread } from "@/lib/agent-chat/api";
+import { buildRemoteChatState } from "@/lib/agent-chat/remote-presentation";
 import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
+import type { AgentChatController } from "@/lib/agent-chat/use-agent-chat";
 import { useAgentChat } from "@/lib/agent-chat/use-agent-chat";
-import { getAppUrl } from "@/lib/get-app-url";
+import {
+  canShowMobileVersionHistory,
+  messageChatScope,
+} from "@/lib/agent-chat/version-history";
+import { inspectNativeSession, NATIVE_AUTH_BASE_URL } from "@/lib/native-auth";
+import { useMobileNavigation } from "@/lib/navigation";
+import {
+  appendRemoteFollowUp,
+  createRemoteRun,
+  decidePendingCommand,
+  getPendingCommand,
+  getRemoteRunDetail,
+  isRemoteRunActive,
+  listPairedHosts,
+  readRemoteTranscript,
+  stopRemoteRun,
+  type RemoteHost,
+  type RemoteRun,
+  type RemoteTranscriptEvent,
+} from "@/lib/remote-sessions-api";
 import { getSessionToken } from "@/lib/session-token-store";
+import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
-const chatApp = TEMPLATE_APPS.find((a) => a.id === "chat")!;
-
-type AuthState = "checking" | "connected" | "signed-out";
+type AuthState = "checking" | "connected" | "signed-out" | "unreachable";
 
 function HeaderButton({
   label,
@@ -66,53 +107,279 @@ function ActionSheetRow({
   label,
   onPress,
   children,
+  disabled = false,
 }: {
   label: string;
   onPress: () => void;
   children: React.ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
-      className="flex-row items-center gap-3 px-4 py-3.5 active:opacity-75"
+      className="flex-row items-center gap-3 px-4 py-3.5 active:opacity-75 disabled:opacity-45"
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled }}
     >
       {children}
-      <Text className="text-white text-[15px]">{label}</Text>
+      <Text className="text-foreground text-[15px]">{label}</Text>
     </Pressable>
   );
 }
 
-// The tabs layout pins the bar to a fixed height; the keyboard overlaps that
-// strip first, so keyboard padding must be reduced by it.
-const TAB_BAR_HEIGHT = 22;
+function ComputerMessages({
+  events,
+  loading,
+  host,
+  onConnect,
+  mutedForeground,
+  run,
+  sending,
+  remoteError,
+  onApprove,
+  onDeny,
+  onMessageActions,
+  onContinueAfterConnection,
+  onOpenConnections,
+  chatEligibility,
+  canChat,
+  refreshChatEligibility,
+  onOpenSettings,
+}: {
+  events: RemoteTranscriptEvent[];
+  loading: boolean;
+  host?: RemoteHost;
+  onConnect: () => void;
+  mutedForeground: string;
+  run: RemoteRun | null;
+  sending: boolean;
+  remoteError: string | null;
+  onApprove: (approvalKey: string) => void;
+  onDeny: (approvalKey?: string) => void;
+  onMessageActions?: (message: ChatMessage) => void;
+  onContinueAfterConnection: (requestId: string, provider: string) => void;
+  onOpenConnections: (provider?: string) => void;
+  chatEligibility: AgentChatController["chatEligibility"];
+  canChat: boolean;
+  refreshChatEligibility: () => void;
+  onOpenSettings: () => void;
+}) {
+  const remoteState = useMemo(
+    () =>
+      buildRemoteChatState({
+        events,
+        run,
+        sending,
+        error: remoteError,
+      }),
+    [events, remoteError, run, sending],
+  );
+  const remoteChat = useMemo<AgentChatController>(
+    () => ({
+      threadId: run?.id ?? events[0]?.runId ?? "remote-chat",
+      baseUrl: "",
+      messages: remoteState.messages,
+      isStreaming: remoteState.isStreaming,
+      activity: remoteState.activity,
+      error: remoteState.error,
+      errorCode: remoteState.errorCode,
+      authRequired: false,
+      historyLoading: loading,
+      chatEligibility,
+      canChat,
+      refreshChatEligibility,
+      send: async () => false,
+      stop: () => {},
+      approve: onApprove,
+      deny: onDeny,
+      retry: () => {},
+      newChat: () => {},
+      openThread: () => {},
+      clearAuthRequired: () => {},
+      continueAfterConnection: onContinueAfterConnection,
+      invokeWidgetAction: async () => {},
+      editMessage: async () => {},
+      regenerateMessage: async () => {},
+      submitFeedback: async () => {},
+      getRunId: () => run?.id ?? null,
+    }),
+    [
+      canChat,
+      chatEligibility,
+      events,
+      loading,
+      onApprove,
+      onDeny,
+      onContinueAfterConnection,
+      refreshChatEligibility,
+      remoteState,
+      run?.id,
+    ],
+  );
+
+  if (
+    events.length === 0 &&
+    (chatEligibility === "missing" || chatEligibility === "unavailable")
+  ) {
+    return (
+      <MessagesList
+        chat={remoteChat}
+        bottomInset={8}
+        onOpenSettings={onOpenSettings}
+        onOpenConnections={onOpenConnections}
+      />
+    );
+  }
+
+  if (loading && events.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center">
+        <ActivityIndicator color={mutedForeground} />
+      </View>
+    );
+  }
+
+  if (events.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center px-7">
+        <Text className="text-foreground text-[22px] font-bold text-center">
+          {host ? "Ready for your computer" : "Connect a computer"}
+        </Text>
+        <Text className="mt-2 max-w-[290px] text-center text-[14px] leading-5 text-text-muted">
+          {host
+            ? `Messages will run on ${host.name}.`
+            : "Pair a computer once, then chat with it here."}
+        </Text>
+        {remoteError ? (
+          <Text className="mt-3 max-w-[300px] text-center text-error-text text-[12px] leading-4">
+            {remoteError}
+          </Text>
+        ) : null}
+        {!host ? (
+          <Pressable
+            className="mt-5 min-h-11 items-center justify-center rounded-xl bg-primary px-5 active:opacity-75"
+            onPress={onConnect}
+            accessibilityRole="button"
+            accessibilityLabel="Connect a computer"
+          >
+            <Text className="text-primary-foreground text-[14px] font-bold">
+              Connect computer
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <MessagesList
+      chat={remoteChat}
+      bottomInset={8}
+      onMessageActions={onMessageActions}
+      onOpenConnections={onOpenConnections}
+    />
+  );
+}
 
 export default function ChatTab() {
-  const [authState, setAuthState] = useState<AuthState>("checking");
+  const { foreground, mutedForeground } = useMobileThemeColors();
+  const mobileNavigation = useMobileNavigation();
+  const { contentInset } = useTabBarLayout();
+  const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
+  const tabBarSpacerStyle = useAnimatedStyle(() => ({
+    height: contentInset * (1 - keyboardProgress.value),
+  }));
+  const previewMode =
+    __DEV__ && Platform.OS === "web" && typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("preview")
+      : null;
+  const isComputerPreview =
+    previewMode === "chat-computer" || previewMode === "chat-computer-complete";
+  const isWebPreview = previewMode === "chat-empty" || isComputerPreview;
+  const computerPreviewComplete = previewMode === "chat-computer-complete";
+  const [authState, setAuthState] = useState<AuthState>(
+    isWebPreview ? "connected" : "checking",
+  );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [connectComputerOpen, setConnectComputerOpen] = useState(false);
   const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(
+    null,
+  );
+  const [editDraft, setEditDraft] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [historyFor, setHistoryFor] = useState<ChatMessage | null>(null);
+  const [historyRestoring, setHistoryRestoring] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [settings, setSettings] = useChatSettings();
+  const [chatTarget, setChatTarget] = useState<ChatTarget>(
+    isComputerPreview ? "computer" : "cloud",
+  );
+  const [remoteHosts, setRemoteHosts] = useState<RemoteHost[]>([]);
+  const [selectedRemoteHostId, setSelectedRemoteHostId] = useState<
+    string | undefined
+  >();
+  const [remoteRun, setRemoteRun] = useState<RemoteRun | null>(null);
+  const [remoteEvents, setRemoteEvents] = useState<RemoteTranscriptEvent[]>([]);
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteSending, setRemoteSending] = useState(false);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
   const chat = useAgentChat(settings);
+  const signInPromptedRef = useRef(false);
 
-  // A model/engine chosen for one app may not exist in another deployment.
-  // Reset the selection to Auto when the active thread's app changes so we
-  // never submit a model the origin can't run; effort/mode stay app-agnostic.
+  const startNewChat = useCallback(() => {
+    setChatTarget("cloud");
+    setRemoteRun(null);
+    setRemoteEvents([]);
+    setRemoteError(null);
+    chat.newChat();
+  }, [chat]);
+
   const prevBaseUrlRef = useRef(chat.baseUrl);
   useEffect(() => {
-    // Guard makes re-runs on unrelated `settings` changes a no-op, so reading
-    // `settings` here is current without resetting the user's fresh pick.
     if (prevBaseUrlRef.current === chat.baseUrl) return;
     prevBaseUrlRef.current = chat.baseUrl;
-    setSettings({ ...settings, model: undefined, engine: undefined });
+    setSettings({ ...DEFAULT_CHAT_SETTINGS, mode: settings.mode });
   }, [chat.baseUrl, settings, setSettings]);
 
   const refreshAuth = useCallback(async () => {
+    if (isWebPreview) {
+      setAuthState("connected");
+      return;
+    }
     const token = await getSessionToken().catch(() => null);
-    setAuthState(token ? "connected" : "signed-out");
-  }, []);
+    if (!token) {
+      setAuthState("signed-out");
+      return;
+    }
+    const result = await inspectNativeSession(token, NATIVE_AUTH_BASE_URL);
+    if (result.status === "valid") {
+      setAuthState("connected");
+    } else if (result.status === "invalid") {
+      setAuthState("signed-out");
+    } else {
+      // "Cannot read the session" is not "signed out" and not "still loading".
+      // Reporting it as either lies: one throws away a good token, the other
+      // spins forever with nothing the user can act on. Stay put once we have
+      // a confirmed session, so a dropped network never kicks anyone out.
+      setAuthState((current) =>
+        current === "connected" ? current : "unreachable",
+      );
+    }
+  }, [isWebPreview]);
+
+  useEffect(() => {
+    if (authState !== "checking" && authState !== "unreachable") return;
+    const retry = setTimeout(
+      () => void refreshAuth(),
+      authState === "unreachable" ? 5_000 : 1_000,
+    );
+    return () => clearTimeout(retry);
+  }, [authState, refreshAuth]);
 
   useFocusEffect(
     useCallback(() => {
@@ -120,8 +387,6 @@ export default function ChatTab() {
     }, [refreshAuth]),
   );
 
-  // While signed out we render the web app so its session bridge can hand us
-  // a token; poll until it lands, then switch to the native chat.
   useEffect(() => {
     if (authState !== "signed-out") return;
     let active = AppState.currentState === "active";
@@ -151,13 +416,338 @@ export default function ChatTab() {
     }
   }, [authRequired, clearAuthRequired]);
 
+  const handledAuthErrorRef = useRef(false);
+  const chatErrorCode = chat.errorCode;
+  useEffect(() => {
+    if (chatErrorCode !== "auth") {
+      handledAuthErrorRef.current = false;
+      return;
+    }
+    if (handledAuthErrorRef.current) return;
+    handledAuthErrorRef.current = true;
+    setAuthState("signed-out");
+  }, [chatErrorCode]);
+
+  useEffect(() => {
+    if (authState === "connected") setSignInOpen(false);
+  }, [authState]);
+
+  useEffect(() => {
+    if (authState === "connected") {
+      signInPromptedRef.current = false;
+      return;
+    }
+    if (authState === "signed-out" && !signInPromptedRef.current) {
+      signInPromptedRef.current = true;
+      setSignInOpen(true);
+    }
+  }, [authState]);
+
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(null), 2000);
     return () => clearTimeout(timer);
   }, [notice]);
 
+  const selectedRemoteHost = remoteHosts.find(
+    (host) => host.id === selectedRemoteHostId,
+  );
+
+  useEffect(() => {
+    if (!isComputerPreview) return;
+    const runId = "preview-remote-run";
+    const hostId = "preview-computer";
+    const baseTime = "2026-08-16T10:00:";
+    const previewEvents: RemoteTranscriptEvent[] = [
+      {
+        id: "preview-user",
+        runId,
+        type: "user",
+        text: "Inspect the workspace and run the checks.",
+        createdAt: `${baseTime}00.000Z`,
+      },
+      {
+        id: "preview-thinking",
+        runId,
+        type: "status",
+        text: "I will inspect the workspace first.",
+        createdAt: `${baseTime}01.000Z`,
+        metadata: { type: "thinking" },
+      },
+      {
+        id: "preview-tool-start",
+        runId,
+        type: "status",
+        text: "Running exec_command.",
+        createdAt: `${baseTime}02.000Z`,
+        metadata: {
+          type: "tool_start",
+          tool: "exec_command",
+          toolCallId: "preview-call",
+          input: { cmd: "pnpm test" },
+        },
+      },
+      ...(computerPreviewComplete
+        ? [
+            {
+              id: "preview-tool-done",
+              runId,
+              type: "status" as const,
+              text: "Finished exec_command.",
+              createdAt: `${baseTime}08.000Z`,
+              metadata: {
+                type: "tool_done",
+                tool: "exec_command",
+                toolCallId: "preview-call",
+                result: "All checks passed.",
+              },
+            },
+            {
+              id: "preview-answer",
+              runId,
+              type: "system" as const,
+              text: "The workspace checks are green.",
+              createdAt: `${baseTime}09.000Z`,
+            },
+          ]
+        : []),
+    ];
+    setRemoteHosts([
+      {
+        id: hostId,
+        name: "Studio Mac",
+        status: "online",
+      },
+    ]);
+    setSelectedRemoteHostId(hostId);
+    setRemoteRun({
+      id: runId,
+      hostId,
+      title: "Remote task",
+      status: computerPreviewComplete ? "completed" : "running",
+      createdAt: `${baseTime}00.000Z`,
+      updatedAt: `${baseTime}${computerPreviewComplete ? "09" : "02"}.000Z`,
+    });
+    setRemoteEvents(previewEvents);
+    setRemoteError(null);
+  }, [computerPreviewComplete, isComputerPreview]);
+
+  const refreshRemoteHosts = useCallback(async () => {
+    const result = await listPairedHosts();
+    if (!result.ok) {
+      setRemoteError(result.error ?? "Could not load connected computers.");
+      return;
+    }
+    const hosts = result.data ?? [];
+    setRemoteHosts(hosts);
+    setSelectedRemoteHostId((current) => {
+      if (current && hosts.some((host) => host.id === current)) return current;
+      return hosts.find((host) => host.status === "online")?.id ?? hosts[0]?.id;
+    });
+    setRemoteError(null);
+  }, []);
+
+  const refreshRemoteTranscript = useCallback(async (runId: string) => {
+    setRemoteLoading(true);
+    try {
+      const [result, runResult] = await Promise.all([
+        readRemoteTranscript(runId),
+        getRemoteRunDetail(runId),
+      ]);
+      if (runResult.ok && runResult.data) {
+        setRemoteRun(runResult.data);
+      }
+      if (result.ok) {
+        setRemoteEvents(result.data ?? []);
+        setRemoteError(null);
+      } else {
+        setRemoteError(result.error ?? "Could not load computer chat.");
+      }
+    } finally {
+      setRemoteLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (
+      isComputerPreview ||
+      authState !== "connected" ||
+      chatTarget !== "computer"
+    )
+      return;
+    void refreshRemoteHosts();
+  }, [authState, chatTarget, isComputerPreview, refreshRemoteHosts]);
+
+  useEffect(() => {
+    if (
+      isComputerPreview ||
+      authState !== "connected" ||
+      chatTarget !== "computer" ||
+      !remoteRun
+    ) {
+      return;
+    }
+    void refreshRemoteTranscript(remoteRun.id);
+    const interval = setInterval(() => {
+      void refreshRemoteTranscript(remoteRun.id);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [
+    authState,
+    chatTarget,
+    isComputerPreview,
+    refreshRemoteTranscript,
+    remoteRun,
+  ]);
+
+  const handleRemoteSend = useCallback(
+    async (text: string): Promise<boolean> => {
+      const prompt = text.trim();
+      if (!prompt || remoteSending || !chat.canChat) return false;
+      if (!selectedRemoteHostId) {
+        setConnectComputerOpen(true);
+        return false;
+      }
+
+      setRemoteSending(true);
+      setRemoteError(null);
+      try {
+        const result =
+          remoteRun && isRemoteRunActive(remoteRun)
+            ? await appendRemoteFollowUp({
+                runId: remoteRun.id,
+                hostId: selectedRemoteHostId,
+                prompt,
+                followUpMode: "immediate",
+              })
+            : await createRemoteRun({
+                prompt,
+                hostId: selectedRemoteHostId,
+                permissionMode: "ask-before-edit",
+                engine: settings.engine,
+                model: settings.model,
+                effort: settings.effort,
+              });
+        if (!result.ok) {
+          if (result.status === 401) setAuthState("signed-out");
+          setRemoteError(result.error ?? "Could not reach the computer.");
+          return false;
+        }
+
+        const responseData = result.data;
+        const createdRun =
+          responseData && "run" in responseData
+            ? (responseData as { run?: RemoteRun }).run
+            : undefined;
+        const nextRun = createdRun ?? remoteRun;
+        if (nextRun) {
+          setRemoteRun(nextRun);
+          await refreshRemoteTranscript(nextRun.id);
+        }
+        const responseEvent = responseData?.event;
+        if (responseEvent) {
+          setRemoteEvents((current) => [
+            ...current.filter((event) => event.id !== responseEvent.id),
+            responseEvent,
+          ]);
+        }
+        return true;
+      } catch {
+        setRemoteError("Could not reach the computer.");
+        return false;
+      } finally {
+        setRemoteSending(false);
+      }
+    },
+    [
+      remoteRun,
+      remoteSending,
+      chat.canChat,
+      refreshRemoteTranscript,
+      selectedRemoteHostId,
+      settings.engine,
+      settings.effort,
+      settings.model,
+    ],
+  );
+
+  const handleRemoteStop = useCallback(() => {
+    if (!remoteRun) return;
+    setRemoteSending(false);
+    void stopRemoteRun(remoteRun.id, selectedRemoteHostId).catch(() => {});
+  }, [remoteRun, selectedRemoteHostId]);
+
+  const handleRemoteApprove = useCallback(
+    (approvalKey: string) => {
+      if (!remoteRun) return;
+      void decidePendingCommand({
+        runId: remoteRun.id,
+        hostId: selectedRemoteHostId,
+        commandId: getPendingCommand(remoteRun)?.id ?? approvalKey,
+        decision: "approve",
+      })
+        .then((result) => {
+          if (!result.ok) {
+            setRemoteError(result.error ?? "Could not approve the command.");
+            return;
+          }
+          setRemoteError(null);
+          void refreshRemoteTranscript(remoteRun.id);
+        })
+        .catch(() => setRemoteError("Could not approve the command."));
+    },
+    [refreshRemoteTranscript, remoteRun, selectedRemoteHostId],
+  );
+
+  const handleRemoteDeny = useCallback(
+    (approvalKey?: string) => {
+      if (!remoteRun) return;
+      void decidePendingCommand({
+        runId: remoteRun.id,
+        hostId: selectedRemoteHostId,
+        commandId: getPendingCommand(remoteRun)?.id ?? approvalKey,
+        decision: "deny",
+        reason: "Denied from mobile chat.",
+      })
+        .then((result) => {
+          if (!result.ok) {
+            setRemoteError(result.error ?? "Could not deny the command.");
+            return;
+          }
+          setRemoteError(null);
+          void refreshRemoteTranscript(remoteRun.id);
+        })
+        .catch(() => setRemoteError("Could not deny the command."));
+    },
+    [refreshRemoteTranscript, remoteRun, selectedRemoteHostId],
+  );
+
   const showNotice = (message: string) => setNotice(message);
+
+  const openBuilderSetup = useCallback(() => {
+    mobileNavigation.push(
+      `/app/chat?path=${encodeURIComponent(
+        "/settings/integrations/builder?builderConnect=1",
+      )}`,
+    );
+  }, [mobileNavigation]);
+
+  const openConnections = useCallback(
+    (provider?: string) => {
+      if (provider?.toLowerCase().includes("builder")) {
+        openBuilderSetup();
+        return;
+      }
+      const url = new URL(
+        "/settings/agent#integrations",
+        chat.baseUrl,
+      ).toString();
+      void Linking.openURL(url).catch(() =>
+        showNotice("Could not open integration settings"),
+      );
+    },
+    [chat.baseUrl, openBuilderSetup],
+  );
 
   const shareThread = () => {
     if (chat.messages.length === 0) return;
@@ -189,6 +779,11 @@ export default function ChatTab() {
     );
   };
 
+  const openVersionHistory = (message: ChatMessage) => {
+    setActionsFor(null);
+    setHistoryFor(message);
+  };
+
   const forkChat = () => {
     setActionsFor(null);
     void forkChatThread(chat.threadId, chat.baseUrl)
@@ -203,74 +798,212 @@ export default function ChatTab() {
       .catch(() => showNotice("Could not fork chat"));
   };
 
-  if (authState === "checking") {
-    return (
-      <SafeAreaView className="flex-1 bg-background-dark">
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#c7f36b" />
-          <Text className="text-status-gray text-[13px] mt-2.5">
-            Opening Chat…
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const beginEditingMessage = (message: ChatMessage) => {
+    setActionsFor(null);
+    setEditingMessage(message);
+    setEditDraft(messageText(message));
+  };
 
-  if (authState === "signed-out") {
-    return (
-      <SafeAreaView className="flex-1 bg-background-dark">
-        <AppWebView url={getAppUrl(chatApp)} captureSessionToken />
-      </SafeAreaView>
-    );
-  }
+  const submitEditedMessage = () => {
+    if (!editingMessage || !editDraft.trim() || editSubmitting) return;
+    setEditSubmitting(true);
+    void chat
+      .editMessage(editingMessage.id, editDraft)
+      .then(() => {
+        setEditingMessage(null);
+        showNotice("Edited message sent in a new chat branch");
+      })
+      .catch(() => showNotice("Could not edit this message"))
+      .finally(() => setEditSubmitting(false));
+  };
+
+  const regenerateMessage = (message: ChatMessage) => {
+    setActionsFor(null);
+    void chat
+      .regenerateMessage(message.id)
+      .then(() => showNotice("Regenerating response in a new chat branch"))
+      .catch(() => showNotice("Could not regenerate this response"));
+  };
+
+  const submitMessageFeedback = (
+    message: ChatMessage,
+    value: "positive" | "negative",
+  ) => {
+    setActionsFor(null);
+    void chat
+      .submitFeedback(message.id, value)
+      .then(() => showNotice("Feedback submitted"))
+      .catch(() => showNotice("Could not submit feedback"));
+  };
+
+  const selectedMessageIndex = actionsFor
+    ? chat.messages.findIndex((message) => message.id === actionsFor.id)
+    : -1;
+  const canEditSelectedMessage =
+    chatTarget === "cloud" &&
+    chat.canChat &&
+    !chat.isStreaming &&
+    actionsFor?.role === "user" &&
+    messageText(actionsFor).trim().length > 0;
+  const canRegenerateSelectedMessage =
+    chatTarget === "cloud" &&
+    chat.canChat &&
+    !chat.isStreaming &&
+    actionsFor?.role === "assistant" &&
+    selectedMessageIndex > 0 &&
+    chat.messages
+      .slice(0, selectedMessageIndex)
+      .some((message) => message.role === "user");
+  const canGiveSelectedFeedback =
+    chatTarget === "cloud" && actionsFor?.role === "assistant";
 
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
-      <View className="flex-row items-center gap-0.5 px-2 py-1.5 border-b border-border-dark">
-        <Text className="flex-1 text-white text-[17px] font-bold pl-2">
-          Chat
-        </Text>
-        <HeaderButton label="Share chat" onPress={shareThread}>
-          <IconShare2 color="#fafafa" size={19} strokeWidth={1.9} />
+      <View className="flex-row items-center gap-0.5 px-2 py-1.5">
+        <HeaderButton
+          label="Open chat history"
+          onPress={() => setHistoryOpen(true)}
+        >
+          <IconMenu2 color={foreground} size={21} strokeWidth={1.9} />
         </HeaderButton>
-        <HeaderButton label="Chat history" onPress={() => setHistoryOpen(true)}>
-          <IconHistory color="#fafafa" size={20} strokeWidth={1.9} />
-        </HeaderButton>
-        <HeaderButton label="New chat" onPress={chat.newChat}>
-          <IconSquareRoundedPlus color="#fafafa" size={20} strokeWidth={1.9} />
-        </HeaderButton>
+        <View className="flex-1" />
+        {chat.messages.length > 0 || remoteEvents.length > 0 ? (
+          <>
+            <HeaderButton label="Share chat" onPress={shareThread}>
+              <IconShare2 color={foreground} size={19} strokeWidth={1.9} />
+            </HeaderButton>
+            <HeaderButton label="New chat" onPress={startNewChat}>
+              <IconSquareRoundedPlus
+                color={foreground}
+                size={20}
+                strokeWidth={1.9}
+              />
+            </HeaderButton>
+          </>
+        ) : null}
       </View>
 
-      <KeyboardAvoidingView
-        behavior="padding"
-        keyboardVerticalOffset={TAB_BAR_HEIGHT}
-        className="flex-1"
-      >
-        {chat.historyLoading ? (
+      <KeyboardAvoidingView behavior="padding" className="flex-1">
+        {authState === "checking" ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#c7f36b" />
+            <ActivityIndicator color={mutedForeground} />
+            <Text className="text-status-gray text-[13px] mt-2.5">
+              Opening Chat…
+            </Text>
+          </View>
+        ) : authState === "unreachable" ? (
+          <View className="flex-1 items-center justify-center px-7">
+            <Text className="text-center text-[22px] font-bold text-foreground">
+              Can't reach sign-in
+            </Text>
+            <Text className="mt-2 max-w-[300px] text-center text-[14px] leading-5 text-text-muted">
+              Your session could not be checked. You are still signed in on this
+              device — this is a connection problem, not a sign-out.
+            </Text>
+            <Pressable
+              accessibilityLabel="Retry checking your session"
+              accessibilityRole="button"
+              onPress={() => void refreshAuth()}
+              className="mt-6 min-h-11 items-center justify-center rounded-xl bg-primary px-5 active:opacity-75"
+            >
+              <Text className="text-[14px] font-bold text-primary-foreground">
+                Retry
+              </Text>
+            </Pressable>
+          </View>
+        ) : authState === "signed-out" ? (
+          <View className="flex-1 items-center justify-center px-7">
+            <Text className="text-center text-[22px] font-bold text-foreground">
+              Sign in to start chatting
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Sign in to Chat"
+              onPress={() => setSignInOpen(true)}
+              className="mt-6 min-h-11 items-center justify-center rounded-xl bg-primary px-5 active:opacity-75"
+            >
+              <Text className="text-[14px] font-bold text-primary-foreground">
+                Sign in
+              </Text>
+            </Pressable>
           </View>
         ) : (
-          <MessagesList
-            chat={chat}
-            bottomInset={8}
-            onMessageActions={setActionsFor}
-          />
+          <>
+            {chatTarget === "computer" ? (
+              <ComputerMessages
+                events={remoteEvents}
+                loading={remoteLoading}
+                host={selectedRemoteHost}
+                onConnect={() => setConnectComputerOpen(true)}
+                mutedForeground={mutedForeground}
+                run={remoteRun}
+                sending={remoteSending}
+                remoteError={remoteError}
+                onApprove={handleRemoteApprove}
+                onDeny={handleRemoteDeny}
+                onMessageActions={setActionsFor}
+                onContinueAfterConnection={(_requestId, provider) =>
+                  handleRemoteSend(
+                    `I connected ${provider}. Continue with my request.`,
+                  )
+                }
+                onOpenConnections={openConnections}
+                chatEligibility={chat.chatEligibility}
+                canChat={chat.canChat}
+                refreshChatEligibility={chat.refreshChatEligibility}
+                onOpenSettings={openBuilderSetup}
+              />
+            ) : chat.historyLoading ? (
+              <View className="flex-1 items-center justify-center">
+                <ActivityIndicator color={mutedForeground} />
+              </View>
+            ) : (
+              <MessagesList
+                chat={chat}
+                bottomInset={8}
+                onMessageActions={setActionsFor}
+                onOpenConnections={openConnections}
+                onSignIn={() => setSignInOpen(true)}
+                onOpenSettings={openBuilderSetup}
+              />
+            )}
+          </>
         )}
-        <Composer
-          isStreaming={chat.isStreaming}
-          settings={settings}
-          baseUrl={chat.baseUrl}
-          onSend={chat.send}
-          onStop={chat.stop}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onToggleMode={() =>
-            setSettings({
-              ...settings,
-              mode: settings.mode === "plan" ? undefined : "plan",
-            })
-          }
-        />
+        {authState === "connected" ? (
+          <>
+            <MobileWorkspaceControls
+              target={chatTarget}
+              hosts={remoteHosts}
+              selectedHostId={selectedRemoteHostId}
+              onTargetChange={setChatTarget}
+              onHostChange={setSelectedRemoteHostId}
+              onConnectComputer={() => setConnectComputerOpen(true)}
+            />
+            <Composer
+              isStreaming={
+                chatTarget === "computer" ? remoteSending : chat.isStreaming
+              }
+              target={chatTarget}
+              isRestoring={historyRestoring}
+              canChat={chat.canChat}
+              chatEligibility={chat.chatEligibility}
+              refreshChatEligibility={chat.refreshChatEligibility}
+              settings={settings}
+              baseUrl={chat.baseUrl}
+              onSend={chatTarget === "computer" ? handleRemoteSend : chat.send}
+              onStop={chatTarget === "computer" ? handleRemoteStop : chat.stop}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onToggleMode={() =>
+                setSettings({
+                  ...settings,
+                  mode: settings.mode === "plan" ? undefined : "plan",
+                })
+              }
+              onSelectMode={(mode) => setSettings({ ...settings, mode })}
+            />
+          </>
+        ) : null}
+        <Animated.View style={tabBarSpacerStyle} />
       </KeyboardAvoidingView>
 
       {notice && (
@@ -279,44 +1012,137 @@ export default function ChatTab() {
         </View>
       )}
 
-      <Modal
+      <MobilePopover
         visible={actionsFor !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setActionsFor(null)}
+        title="Message actions"
+        onClose={() => setActionsFor(null)}
+        bottomClassName="mb-8"
+        overlayClassName="bg-overlay-dark"
+        accessibilityLabel="Dismiss message actions"
       >
-        <Pressable
-          className="flex-1 bg-overlay-dark justify-end"
-          onPress={() => setActionsFor(null)}
-          accessibilityLabel="Dismiss message actions"
+        <ActionSheetRow
+          label="Copy Message"
+          onPress={() => actionsFor && copyMessage(actionsFor)}
         >
-          <View className="mx-3 mb-8 rounded-2xl bg-card-dark border border-border-dark overflow-hidden">
+          <IconCopy color={foreground} size={18} strokeWidth={1.9} />
+        </ActionSheetRow>
+        {canEditSelectedMessage && actionsFor ? (
+          <>
+            <View className="h-px bg-border-dark" />
             <ActionSheetRow
-              label="Copy Message"
-              onPress={() => actionsFor && copyMessage(actionsFor)}
+              label="Edit message"
+              onPress={() => beginEditingMessage(actionsFor)}
             >
-              <IconCopy color="#fafafa" size={18} strokeWidth={1.9} />
+              <IconPencil color={foreground} size={18} strokeWidth={1.9} />
+            </ActionSheetRow>
+          </>
+        ) : null}
+        {canRegenerateSelectedMessage && actionsFor ? (
+          <>
+            <View className="h-px bg-border-dark" />
+            <ActionSheetRow
+              label="Regenerate response"
+              onPress={() => regenerateMessage(actionsFor)}
+            >
+              <IconRefresh color={foreground} size={18} strokeWidth={1.9} />
+            </ActionSheetRow>
+          </>
+        ) : null}
+        {canGiveSelectedFeedback && actionsFor ? (
+          <>
+            <View className="h-px bg-border-dark" />
+            <ActionSheetRow
+              label="Helpful"
+              onPress={() => submitMessageFeedback(actionsFor, "positive")}
+            >
+              <IconThumbUp color={foreground} size={18} strokeWidth={1.9} />
             </ActionSheetRow>
             <View className="h-px bg-border-dark" />
             <ActionSheetRow
-              label="Copy Request ID"
-              onPress={() => actionsFor && copyRequestId(actionsFor)}
+              label="Not helpful"
+              onPress={() => submitMessageFeedback(actionsFor, "negative")}
             >
-              <IconId color="#fafafa" size={18} strokeWidth={1.9} />
+              <IconThumbDown color={foreground} size={18} strokeWidth={1.9} />
             </ActionSheetRow>
+          </>
+        ) : null}
+        {actionsFor && canShowMobileVersionHistory(actionsFor) ? (
+          <>
             <View className="h-px bg-border-dark" />
-            <ActionSheetRow label="Fork Chat" onPress={forkChat}>
-              <IconGitFork color="#fafafa" size={18} strokeWidth={1.9} />
+            <ActionSheetRow
+              label="Version history"
+              onPress={() => actionsFor && openVersionHistory(actionsFor)}
+            >
+              <IconHistory color={foreground} size={18} strokeWidth={1.9} />
             </ActionSheetRow>
-          </View>
-        </Pressable>
-      </Modal>
+          </>
+        ) : null}
+        <View className="h-px bg-border-dark" />
+        <ActionSheetRow
+          label="Copy Request ID"
+          onPress={() => actionsFor && copyRequestId(actionsFor)}
+        >
+          <IconId color={foreground} size={18} strokeWidth={1.9} />
+        </ActionSheetRow>
+        <View className="h-px bg-border-dark" />
+        <ActionSheetRow label="Fork Chat" onPress={forkChat}>
+          <IconGitFork color={foreground} size={18} strokeWidth={1.9} />
+        </ActionSheetRow>
+      </MobilePopover>
+
+      <MobilePopover
+        visible={editingMessage !== null}
+        title="Edit message"
+        onClose={() => setEditingMessage(null)}
+        bottomClassName="mb-8"
+        overlayClassName="bg-overlay-dark"
+        accessibilityLabel="Dismiss message editor"
+      >
+        <View className="gap-2 p-3">
+          <TextInput
+            value={editDraft}
+            onChangeText={setEditDraft}
+            multiline
+            autoFocus
+            textAlignVertical="top"
+            accessibilityLabel="Edited message"
+            className="min-h-24 rounded-xl border border-border-dark bg-background-dark px-3 py-3 text-foreground text-[15px] leading-5"
+          />
+          <ActionSheetRow
+            label="Cancel"
+            onPress={() => setEditingMessage(null)}
+          >
+            <IconX color={foreground} size={18} strokeWidth={1.9} />
+          </ActionSheetRow>
+          <ActionSheetRow
+            label="Send edited message"
+            disabled={!editDraft.trim() || editSubmitting}
+            onPress={submitEditedMessage}
+          >
+            <IconCheck color={foreground} size={18} strokeWidth={1.9} />
+          </ActionSheetRow>
+        </View>
+      </MobilePopover>
+
+      <VersionHistorySheet
+        visible={historyFor !== null}
+        scope={historyFor ? messageChatScope(historyFor) : null}
+        threadId={chat.threadId}
+        baseUrl={chat.baseUrl}
+        canRestore={
+          chatTarget === "cloud" && !chat.isStreaming && !remoteSending
+        }
+        onClose={() => setHistoryFor(null)}
+        onRestoringChange={setHistoryRestoring}
+        onRestored={() => showNotice("Restored an earlier version")}
+      />
 
       <ThreadHistorySheet
         visible={historyOpen}
         activeThreadId={chat.threadId}
         activeBaseUrl={chat.baseUrl}
         onSelect={chat.openThread}
+        onNewChat={chat.newChat}
         onClose={() => setHistoryOpen(false)}
       />
       <ChatSettingsSheet
@@ -324,7 +1150,24 @@ export default function ChatTab() {
         settings={settings}
         baseUrl={chat.baseUrl}
         onChange={setSettings}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => {
+          setSettingsOpen(false);
+          void chat.refreshChatEligibility();
+        }}
+      />
+
+      <NativeSignInSheet
+        visible={signInOpen}
+        onClose={() => setSignInOpen(false)}
+        onSignedIn={async () => {
+          setSignInOpen(false);
+          await refreshAuth();
+        }}
+      />
+      <ComputerConnectSheet
+        visible={connectComputerOpen}
+        onClose={() => setConnectComputerOpen(false)}
+        onRefresh={refreshRemoteHosts}
       />
     </SafeAreaView>
   );

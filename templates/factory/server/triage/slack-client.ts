@@ -1,14 +1,22 @@
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
   getChannelHistory as readChannelHistory,
-  addEyesReaction as writeEyesReaction,
+  addReaction as writeReaction,
+  authTest as readAuthTest,
+  hasReaction as readReaction,
   getThread as readThread,
   getTeamInfo as readTeamInfo,
+  getUserInfo as readUserInfo,
+  postChannelMessage as writeChannelMessage,
   postThreadReply as writeThreadReply,
   type ChannelHistoryResult,
+  type SlackAuthTestResult,
+  type SlackMessage,
   type SlackPostMessageResult,
   type SlackReactionResult,
+  type SlackReactionState,
   type SlackTeamInfo,
+  type SlackUserInfo,
   type SlackTokenResolver,
   type ThreadRepliesResult,
   type Workspace,
@@ -17,6 +25,14 @@ import {
 export interface SlackReaderIdentity {
   ownerEmail: string;
   orgId?: string | null;
+}
+
+const AGENT_NATIVE_SLACK_USER_NAMES = new Set(["agent-native", "agentnative"]);
+
+export function isAgentNativeSlackUserName(value: string): boolean {
+  return AGENT_NATIVE_SLACK_USER_NAMES.has(
+    value.trim().replace(/^@/, "").toLowerCase(),
+  );
 }
 
 function createTokenResolver({
@@ -38,14 +54,37 @@ function createTokenResolver({
 
 export function createSlackReader(identity: SlackReaderIdentity) {
   const tokenResolver = createTokenResolver(identity);
+  const identities = new Map<Workspace, SlackAuthTestResult>();
+
+  async function getAgentNativeIdentity(
+    workspace: Workspace,
+  ): Promise<SlackAuthTestResult> {
+    const existing = identities.get(workspace);
+    if (existing) return existing;
+    const auth = await readAuthTest(workspace, tokenResolver);
+    if (!isAgentNativeSlackUserName(auth.userName)) {
+      throw new Error(
+        `Slack credential authenticated as @${auth.userName}, not @agent-native.`,
+      );
+    }
+    identities.set(workspace, auth);
+    return auth;
+  }
+
+  async function verifyAgentNativeIdentity(
+    workspace: Workspace,
+  ): Promise<void> {
+    await getAgentNativeIdentity(workspace);
+  }
 
   return {
-    getChannelHistory(
+    async getChannelHistory(
       workspace: Workspace,
       channelId: string,
       limit?: number,
       cursor?: string,
     ): Promise<ChannelHistoryResult> {
+      await verifyAgentNativeIdentity(workspace);
       return readChannelHistory(
         workspace,
         channelId,
@@ -54,16 +93,25 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         tokenResolver,
       );
     },
-    getTeamInfo(workspace: Workspace): Promise<SlackTeamInfo> {
+    async getTeamInfo(workspace: Workspace): Promise<SlackTeamInfo> {
+      await verifyAgentNativeIdentity(workspace);
       return readTeamInfo(workspace, tokenResolver);
     },
-    getThread(
+    async getUserInfo(
+      workspace: Workspace,
+      userId: string,
+    ): Promise<SlackUserInfo> {
+      await verifyAgentNativeIdentity(workspace);
+      return readUserInfo(workspace, userId, tokenResolver);
+    },
+    async getThread(
       workspace: Workspace,
       channelId: string,
       threadTs: string,
       limit?: number,
       cursor?: string,
     ): Promise<ThreadRepliesResult> {
+      await verifyAgentNativeIdentity(workspace);
       return readThread(
         workspace,
         channelId,
@@ -73,19 +121,28 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         tokenResolver,
       );
     },
-    addEyesReaction(
+    async addReaction(
       workspace: Workspace,
       channelId: string,
       timestamp: string,
+      name: string,
     ): Promise<SlackReactionResult> {
-      return writeEyesReaction(workspace, channelId, timestamp, tokenResolver);
+      await verifyAgentNativeIdentity(workspace);
+      return writeReaction(
+        workspace,
+        channelId,
+        timestamp,
+        name,
+        tokenResolver,
+      );
     },
-    postThreadReply(
+    async postThreadReply(
       workspace: Workspace,
       channelId: string,
       threadTs: string,
       text: string,
     ): Promise<SlackPostMessageResult> {
+      await verifyAgentNativeIdentity(workspace);
       return writeThreadReply(
         workspace,
         channelId,
@@ -94,5 +151,50 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         tokenResolver,
       );
     },
+    async postChannelMessage(
+      workspace: Workspace,
+      channelId: string,
+      text: string,
+    ): Promise<SlackPostMessageResult> {
+      await verifyAgentNativeIdentity(workspace);
+      return writeChannelMessage(workspace, channelId, text, tokenResolver);
+    },
+    async hasReaction(
+      workspace: Workspace,
+      channelId: string,
+      timestamp: string,
+      name: string,
+    ): Promise<SlackReactionState> {
+      await verifyAgentNativeIdentity(workspace);
+      return readReaction(workspace, channelId, timestamp, name, tokenResolver);
+    },
+    async getCompleteThread(
+      workspace: Workspace,
+      channelId: string,
+      threadTs: string,
+    ): Promise<{ messages: SlackMessage[]; hasMore: boolean }> {
+      const messages: SlackMessage[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 100; page += 1) {
+        const result = await this.getThread(
+          workspace,
+          channelId,
+          threadTs,
+          100,
+          cursor,
+        );
+        messages.push(...result.messages);
+        if (!result.has_more) return { messages, hasMore: false };
+        if (!result.next_cursor) {
+          throw new Error(
+            "Slack thread pagination is incomplete because the provider omitted its next cursor.",
+          );
+        }
+        cursor = result.next_cursor;
+      }
+      return { messages, hasMore: true };
+    },
+    verifyAgentNativeIdentity,
+    getAgentNativeIdentity,
   };
 }

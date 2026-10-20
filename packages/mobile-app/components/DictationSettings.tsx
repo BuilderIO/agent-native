@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 
+import { ModalSafeAreaProvider } from "@/components/uniwind-interop";
 import {
   addDictationVocabularyTerm,
   DICTATION_CLEANUP_STYLES,
@@ -28,8 +29,10 @@ import {
   removeDictationVocabularyTerm,
   saveDictationPreferences,
 } from "@/lib/dictation-preferences";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 export default function DictationSettings() {
+  const colors = useMobileThemeColors();
   const [preferences, setPreferences] = useState<DictationPreferences | null>(
     null,
   );
@@ -121,7 +124,7 @@ export default function DictationSettings() {
   if (!preferences) {
     return (
       <View className="m-4 p-7 rounded-2xl bg-card-dark items-center justify-center">
-        <ActivityIndicator color="#c7f36b" />
+        <ActivityIndicator color={colors.mutedForeground} />
       </View>
     );
   }
@@ -134,7 +137,7 @@ export default function DictationSettings() {
   return (
     <View className="px-4 pt-5 gap-3">
       <View className="flex-row items-start gap-2.5">
-        <IconLanguage color="#c7f36b" size={20} strokeWidth={1.8} />
+        <IconLanguage color={colors.foreground} size={20} strokeWidth={1.8} />
         <View className="flex-1">
           <Text className="text-white text-lg font-bold">Dictation</Text>
           <Text className="text-text-muted text-xs leading-4 mt-0.5">
@@ -156,7 +159,7 @@ export default function DictationSettings() {
           <Text className="text-white text-sm font-medium">
             {languageLabel}
           </Text>
-          <IconChevronDown color="#a1a1aa" size={18} />
+          <IconChevronDown color={colors.mutedForeground} size={18} />
         </Pressable>
         <Text className="text-text-muted text-xs leading-4 mt-1.75">
           System automatically detects language. Choose a BCP-47 locale when
@@ -182,7 +185,9 @@ export default function DictationSettings() {
                   )
                 }
                 className={`flex-row items-center gap-2.5 px-2.75 py-2.5 border border-border-dim rounded-xl bg-background-pure active:opacity-70 ${
-                  selected ? "border-accent-lime-bright/50 bg-[#20251a]" : ""
+                  selected
+                    ? "border-accent-neutral-bright/50 bg-gray-charcoal"
+                    : ""
                 }`}
               >
                 <View className="flex-1">
@@ -196,11 +201,13 @@ export default function DictationSettings() {
                 <View
                   className={`w-5 h-5 rounded-full border border-gray-border-dark items-center justify-center ${
                     selected
-                      ? "bg-accent-lime-bright border-accent-lime-bright"
+                      ? "bg-accent-neutral-bright border-accent-neutral-bright"
                       : ""
                   }`}
                 >
-                  {selected ? <IconCheck color="#111111" size={13} /> : null}
+                  {selected ? (
+                    <IconCheck color={colors.primaryForeground} size={13} />
+                  ) : null}
                 </View>
               </Pressable>
             );
@@ -220,7 +227,7 @@ export default function DictationSettings() {
             )
           }
           placeholder="For example: Keep product updates in short paragraphs."
-          placeholderTextColor="#71717a"
+          placeholderTextColor={colors.mutedForeground}
           className="min-h-20.5 rounded-xl border border-gray-border-medium bg-background-pure text-white text-sm leading-4.5 p-2.75"
           textAlignVertical="top"
           value={preferences.customInstructions}
@@ -233,23 +240,28 @@ export default function DictationSettings() {
             accessibilityRole="button"
             disabled={saving}
             onPress={() => void savePreferences()}
-            className={`min-w-22.5 h-10 px-3.5 rounded-lg bg-accent-lime-bright flex-row items-center justify-center gap-1.5 active:opacity-70 ${
+            className={`min-w-22.5 h-10 px-3.5 rounded-lg bg-accent-neutral-bright flex-row items-center justify-center gap-1.5 active:opacity-70 ${
               saving ? "opacity-45" : ""
             }`}
           >
             {saving ? (
-              <ActivityIndicator color="#111111" size="small" />
+              <ActivityIndicator
+                color={colors.primaryForeground}
+                size="small"
+              />
             ) : (
-              <IconCheck color="#111111" size={17} />
+              <IconCheck color={colors.primaryForeground} size={17} />
             )}
-            <Text className="text-background-pure text-sm font-bold">Save</Text>
+            <Text className="text-primary-foreground text-sm font-bold">
+              Save
+            </Text>
           </Pressable>
         </View>
       </View>
 
       <View className="bg-card-dark border border-border-dark rounded-2xl p-3.5">
         <View className="flex-row items-start gap-2.25 mb-3.25">
-          <IconBook2 color="#f4f4f5" size={18} strokeWidth={1.8} />
+          <IconBook2 color={colors.foreground} size={18} strokeWidth={1.8} />
           <View className="flex-1">
             <Text className="text-white text-sm font-bold">
               Personal vocabulary
@@ -266,7 +278,7 @@ export default function DictationSettings() {
           maxLength={120}
           onChangeText={setTerm}
           placeholder="Word or phrase"
-          placeholderTextColor="#71717a"
+          placeholderTextColor={colors.mutedForeground}
           className="h-11 rounded-lg border border-gray-border-medium bg-background-pure text-white text-sm px-2.75"
           value={term}
         />
@@ -277,7 +289,7 @@ export default function DictationSettings() {
             maxLength={120}
             onChangeText={setReplacement}
             placeholder="Preferred spelling (optional)"
-            placeholderTextColor="#71717a"
+            placeholderTextColor={colors.mutedForeground}
             className="flex-1 h-11 rounded-lg border border-gray-border-medium bg-background-pure text-white text-sm px-2.75"
             value={replacement}
           />
@@ -286,11 +298,15 @@ export default function DictationSettings() {
             accessibilityRole="button"
             disabled={!term.trim() || editingVocabulary}
             onPress={() => void addTerm()}
-            className={`w-11 h-11 rounded-lg bg-accent-lime-bright items-center justify-center active:opacity-70 ${
+            className={`w-11 h-11 rounded-lg bg-accent-neutral-bright items-center justify-center active:opacity-70 ${
               !term.trim() || editingVocabulary ? "opacity-45" : ""
             }`}
           >
-            <IconPlus color="#111111" size={20} strokeWidth={2.2} />
+            <IconPlus
+              color={colors.primaryForeground}
+              size={20}
+              strokeWidth={2.2}
+            />
           </Pressable>
         </View>
 
@@ -300,7 +316,10 @@ export default function DictationSettings() {
           </Text>
         ) : null}
         {loadingVocabulary ? (
-          <ActivityIndicator color="#c7f36b" className="my-4.5" />
+          <ActivityIndicator
+            color={colors.mutedForeground}
+            className="my-4.5"
+          />
         ) : vocabulary.length === 0 && !vocabularyError ? (
           <Text className="text-text-muted text-xs leading-4 text-center px-2.5 py-4.5">
             No terms yet. Add a name or spelling that transcription should
@@ -331,7 +350,11 @@ export default function DictationSettings() {
                   onPress={() => void removeTerm(entry)}
                   className="w-9 h-9 items-center justify-center active:opacity-70"
                 >
-                  <IconTrash color="#f87171" size={18} strokeWidth={1.8} />
+                  <IconTrash
+                    color={colors.errorText}
+                    size={18}
+                    strokeWidth={1.8}
+                  />
                 </Pressable>
               </View>
             ))}
@@ -345,59 +368,61 @@ export default function DictationSettings() {
         transparent
         visible={languageOpen}
       >
-        <View className="flex-1 justify-center bg-black/60 p-5">
-          <View className="max-h-[90%] rounded-2xl border border-gray-border-medium bg-card-dark p-4">
-            <Text className="text-white text-lg font-bold mb-2.5">
-              Spoken language
-            </Text>
-            <ScrollView style={{ maxHeight: 400 }}>
-              <View className="border-t border-border-dark">
-                {DICTATION_LANGUAGE_OPTIONS.map((option) => {
-                  const selected = preferences.language === option.value;
-                  return (
-                    <Pressable
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: selected }}
-                      key={option.value ?? "system"}
-                      onPress={() => {
-                        setPreferences((current) =>
-                          current
-                            ? { ...current, language: option.value }
-                            : current,
-                        );
-                        setLanguageOpen(false);
-                      }}
-                      className="min-h-12 flex-row items-center justify-between border-b border-border-dark px-0.75 active:opacity-70"
-                    >
-                      <View>
-                        <Text className="text-white text-sm font-medium">
-                          {option.label}
-                        </Text>
-                        <Text className="text-text-muted text-xs mt-0.25">
-                          {option.value ?? "Automatic"}
-                        </Text>
-                      </View>
-                      {selected ? (
-                        <IconCheck
-                          color="#c7f36b"
-                          size={18}
-                          strokeWidth={2.2}
-                        />
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </ScrollView>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setLanguageOpen(false)}
-              className="h-10.5 rounded-lg items-center justify-center mt-3 bg-gray-medium-dark active:opacity-70"
-            >
-              <Text className="text-white text-sm font-semibold">Cancel</Text>
-            </Pressable>
+        <ModalSafeAreaProvider style={{ flex: 1 }}>
+          <View className="flex-1 justify-center bg-black/60 p-5">
+            <View className="max-h-[90%] rounded-2xl border border-gray-border-medium bg-card-dark p-4">
+              <Text className="text-white text-lg font-bold mb-2.5">
+                Spoken language
+              </Text>
+              <ScrollView style={{ maxHeight: 400 }}>
+                <View className="border-t border-border-dark">
+                  {DICTATION_LANGUAGE_OPTIONS.map((option) => {
+                    const selected = preferences.language === option.value;
+                    return (
+                      <Pressable
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: selected }}
+                        key={option.value ?? "system"}
+                        onPress={() => {
+                          setPreferences((current) =>
+                            current
+                              ? { ...current, language: option.value }
+                              : current,
+                          );
+                          setLanguageOpen(false);
+                        }}
+                        className="min-h-12 flex-row items-center justify-between border-b border-border-dark px-0.75 active:opacity-70"
+                      >
+                        <View>
+                          <Text className="text-white text-sm font-medium">
+                            {option.label}
+                          </Text>
+                          <Text className="text-text-muted text-xs mt-0.25">
+                            {option.value ?? "Automatic"}
+                          </Text>
+                        </View>
+                        {selected ? (
+                          <IconCheck
+                            color={colors.foreground}
+                            size={18}
+                            strokeWidth={2.2}
+                          />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setLanguageOpen(false)}
+                className="h-10.5 rounded-lg items-center justify-center mt-3 bg-gray-medium-dark active:opacity-70"
+              >
+                <Text className="text-white text-sm font-semibold">Cancel</Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
+        </ModalSafeAreaProvider>
       </Modal>
     </View>
   );

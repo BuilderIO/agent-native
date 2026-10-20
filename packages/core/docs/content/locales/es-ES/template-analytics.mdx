@@ -124,7 +124,7 @@ El resto de este documento es para cualquiera que bifurque la plantilla de Analy
 Cree una nueva aplicación de Analytics desde CLI:
 
 ```bash
-npx @agent-native/core@latest create my-analytics --standalone --template analytics
+npx --yes @agent-native/core@latest create my-analytics --standalone --template analytics
 ```
 
 Desarrollador local:
@@ -365,4 +365,4 @@ Para agregar una nueva fuente de datos, coloque un script en `actions/` que llam
 
 Para agregar un nuevo tipo de gráfico, extienda la unión `ChartType` en `app/pages/adhoc/sql-dashboard/types.ts`, manéjela en `SqlChartCard.tsx` y el agente podrá usarla en cualquier panel.
 
-Para conocer un patrón más amplio sobre cómo ampliar plantillas, consulte [Skills guide](/docs/skills-guide) y [Actions](/docs/actions).
+Para conocer un patrón más amplio sobre cómo ampliar plantillas, consulte [Skills guide](/docs/skills-guide) y [Actions](/docs/actions-overview).

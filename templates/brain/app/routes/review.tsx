@@ -321,9 +321,7 @@ export default function ReviewRoute() {
   return (
     <div className="min-h-full bg-muted/20">
       <PageHeader
-        eyebrow={t("review.eyebrow")}
         title={t("review.title")}
-        description={t("review.description")}
         actions={
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <Badge variant="outline" className="w-fit max-w-full">

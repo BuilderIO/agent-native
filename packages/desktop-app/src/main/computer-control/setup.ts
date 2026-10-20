@@ -17,6 +17,7 @@ interface ComputerSetupDependencies {
   openExternal(url: string): Promise<void>;
   extensionPath(): string;
   pathExists(filePath: string): boolean;
+  prepareBrowserSetup?(): Promise<void>;
   revealExtensionFolder(folderPath: string): Promise<void>;
   openChromeExtensions(): void;
   restart(): void;
@@ -109,13 +110,14 @@ export async function runComputerSetupAction(
           error: "Chrome extension bundle is missing.",
         };
       }
+      await dependencies.prepareBrowserSetup?.();
       await dependencies.revealExtensionFolder(extensionPath);
       dependencies.openChromeExtensions();
       return {
         ok: true,
         action,
         message:
-          "Opened Chrome Extensions and revealed the Agent Native extension folder.",
+          "Opened Chrome Extensions and revealed the Agent-Native extension folder.",
       };
     }
 
@@ -123,7 +125,7 @@ export async function runComputerSetupAction(
     return {
       ok: true,
       action,
-      message: "Restarting Agent Native.",
+      message: "Restarting Agent-Native.",
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

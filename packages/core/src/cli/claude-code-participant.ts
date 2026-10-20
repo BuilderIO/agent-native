@@ -33,8 +33,6 @@ const SAFE_ENVIRONMENT_KEYS = [
   "USER",
   "LOGNAME",
   "SHELL",
-  // Claude Code uses this as its config root; HOME remains required for its
-  // default config and macOS Keychain-backed subscription login.
   "CLAUDE_CONFIG_DIR",
 ] as const;
 
@@ -94,9 +92,17 @@ export interface RunClaudeCodeParticipantOptions {
   prompt: string;
   cwd: string;
   model?: string;
+  effort?: string;
   session?: ClaudeCodeParticipantSession;
-  /** Either the fixed CLI name or an absolute executable path for packaged apps. */
   command?: string;
+  /**
+   * Absolute path to a Claude Code `--mcp-config` file holding the host-scoped
+   * servers for this run. `--strict-mcp-config` stays on, so the user's own
+   * MCP servers are still excluded.
+   */
+  mcpConfigPath?: string;
+  /** Server names in `mcpConfigPath`; the driver pre-approves their tools. */
+  mcpServerNames?: string[];
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
   maxEvents?: number;
@@ -124,6 +130,28 @@ export class ClaudeCodeSubscriptionRequiredError extends Error {
   }
 }
 
+export class ClaudeCodeAuthStatusError extends Error {
+  readonly rawMessage: string;
+
+  constructor(rawMessage: string) {
+    super(
+      "Claude authentication check failed. Run `claude auth login` and try again.",
+    );
+    this.name = "ClaudeCodeAuthStatusError";
+    this.rawMessage = rawMessage;
+  }
+}
+
+function isClaudeUnauthenticatedError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  return [record.stderr, record.stdout].some(
+    (value) =>
+      typeof value === "string" &&
+      /\b(?:not logged in|not authenticated|unauthenticated)\b/i.test(value),
+  );
+}
+
 export interface ClaudeCodeSubscriptionStatusOptions {
   command?: string;
   env?: NodeJS.ProcessEnv;
@@ -134,26 +162,36 @@ export async function readClaudeCodeSubscriptionStatus(
   options: ClaudeCodeSubscriptionStatusOptions = {},
 ): Promise<ClaudeCodeSubscriptionStatus> {
   const execute = options.execute ?? execFile;
-  const { stdout } = await execute(
-    resolveCommand(options.command, "claude"),
-    ["auth", "status", "--json"],
-    {
-      encoding: "utf8",
-      maxBuffer: 128 * 1024,
-      env: safeEnvironment(options.env ?? process.env),
-    },
-  );
-  const parsed = JSON.parse(stdout) as unknown;
-  const status = asRecord(parsed);
-  if (!status || typeof status.loggedIn !== "boolean") {
-    throw new Error("Claude Code returned an invalid authentication status.");
+  try {
+    const { stdout } = await execute(
+      resolveCommand(options.command, "claude"),
+      ["auth", "status", "--json"],
+      {
+        encoding: "utf8",
+        maxBuffer: 128 * 1024,
+        env: safeEnvironment(options.env ?? process.env),
+      },
+    );
+    const parsed = JSON.parse(stdout) as unknown;
+    const status = asRecord(parsed);
+    if (!status || typeof status.loggedIn !== "boolean") {
+      throw new Error("Claude Code returned an invalid authentication status.");
+    }
+    return {
+      loggedIn: status.loggedIn,
+      authMethod: readString(status.authMethod),
+      apiProvider: readString(status.apiProvider),
+      subscriptionType: readString(status.subscriptionType),
+    };
+  } catch (error) {
+    if (error instanceof ClaudeCodeAuthStatusError) throw error;
+    if (isClaudeUnauthenticatedError(error)) {
+      throw new ClaudeCodeAuthStatusError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    throw error;
   }
-  return {
-    loggedIn: status.loggedIn,
-    authMethod: readString(status.authMethod),
-    apiProvider: readString(status.apiProvider),
-    subscriptionType: readString(status.subscriptionType),
-  };
 }
 
 export async function runClaudeCodeParticipant(
@@ -184,7 +222,10 @@ export async function runClaudeCodeParticipant(
 }
 
 export function buildClaudeCodeParticipantArgs(
-  options: Pick<RunClaudeCodeParticipantOptions, "role" | "model" | "session">,
+  options: Pick<
+    RunClaudeCodeParticipantOptions,
+    "role" | "model" | "effort" | "session" | "mcpConfigPath" | "mcpServerNames"
+  >,
 ): string[] {
   const args = [
     "--print",
@@ -213,14 +254,48 @@ export function buildClaudeCodeParticipantArgs(
     args.push("--permission-mode", "acceptEdits", "--tools", DRIVER_TOOLS);
   }
 
+  const mcpConfigPath = readString(options.mcpConfigPath);
+  if (mcpConfigPath) {
+    args.push("--mcp-config", mcpConfigPath);
+    // Plan mode already runs read-only MCP tools and refuses mutating ones.
+    // acceptEdits covers file edits only, so a non-interactive driver would
+    // otherwise be denied every MCP call, reads included.
+    const servers = (options.mcpServerNames ?? []).filter(Boolean);
+    if (options.role === "driver" && servers.length > 0) {
+      args.push(
+        "--allowedTools",
+        servers.map((server) => `mcp__${server}`).join(","),
+      );
+    }
+  }
+
   const model = readString(options.model);
   if (model) args.push("--model", model);
+  const effort = normalizeClaudeEffort(options.effort);
+  if (effort) args.push("--effort", effort);
   const sessionId = readString(options.session?.sessionId);
   const resumeSessionId = readString(options.session?.resumeSessionId);
   if (sessionId) args.push("--session-id", sessionId);
   if (resumeSessionId) args.push("--resume", resumeSessionId);
   if (options.session?.persist !== true) args.push("--no-session-persistence");
   return args;
+}
+
+function normalizeClaudeEffort(effort: string | undefined): string | undefined {
+  switch (effort) {
+    case "low":
+    case "medium":
+    case "high":
+    case "max":
+      return effort;
+    case "minimal":
+    case "none":
+      return "low";
+    case "xhigh":
+      return "high";
+    default:
+      return undefined;
+  }
 }
 
 function collectClaudeCodeParticipantResult(
@@ -439,6 +514,10 @@ function validateInput(options: RunClaudeCodeParticipantOptions): void {
   if (!readString(options.cwd)) throw new Error("Claude Code cwd is required.");
   if (options.session?.sessionId && options.session.resumeSessionId) {
     throw new Error("Choose either a new Claude session id or a resume id.");
+  }
+  const mcpConfigPath = readString(options.mcpConfigPath);
+  if (mcpConfigPath && !isAbsolute(mcpConfigPath)) {
+    throw new Error("Claude Code MCP config must be an absolute file path.");
   }
   resolveCommand(options.command, "claude");
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { useActionQuery } from "../use-action.js";
+import { useActionQuery } from "../use-action.js";
 import {
   DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
   DEFAULT_MEMBER_SUGGESTION_LIMIT,
@@ -14,14 +14,20 @@ import {
 } from "./share-controller-helpers.js";
 
 export type ShareButtonVisibility = "private" | "org" | "public";
-export type ShareButtonRole = "viewer" | "editor" | "admin";
+export type ShareButtonRole = "viewer" | "commenter" | "editor" | "admin";
 
 export interface ShareButtonShare {
   id: string;
-  principalType: "user" | "org";
+  principalType: "user" | "group" | "org";
   principalId: string;
   displayName?: string | null;
   role: ShareButtonRole;
+}
+
+export interface ShareButtonGroup {
+  id: string;
+  name: string;
+  memberEmails?: string[];
 }
 
 export interface ShareButtonSharesResponse {
@@ -29,16 +35,19 @@ export interface ShareButtonSharesResponse {
   orgId: string | null;
   visibility: ShareButtonVisibility | null;
   role?: "owner" | ShareButtonRole;
+  agentReadable?: boolean;
   shares: ShareButtonShare[];
   policy?: {
     allowPublic: boolean;
     requireOrgMemberForUserShares: boolean;
+    supportsGroupShares?: boolean;
   };
 }
 
 export interface ShareButtonOrgMember {
   email: string;
   name?: string | null;
+  image?: string | null;
   role?: string | null;
   joinedAt?: number | null;
 }
@@ -57,11 +66,13 @@ export interface ShareButtonControllerOptions {
   resourceId: string;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onShareSuccess?: () => void;
   shareTabs?: {
     defaultValue?: string;
     onValueChange?: (value: string) => void;
   };
   shareUrl?: string;
+  allowedRoles?: readonly ShareButtonRole[];
   hideInSearchControl?: {
     checked: boolean;
     pending?: boolean;
@@ -83,6 +94,7 @@ export interface ShareButtonController {
   policy: {
     allowPublic: boolean;
     requireOrgMemberForUserShares: boolean;
+    supportsGroupShares?: boolean;
   };
   visibility: ShareButtonVisibility;
   triggerVisibility: ShareButtonVisibility | null;
@@ -91,6 +103,10 @@ export interface ShareButtonController {
   setRole: (role: ShareButtonRole) => void;
   notifyPeople: boolean;
   setNotifyPeople: (notify: boolean) => void;
+  shareMessage: string;
+  setShareMessage: (message: string) => void;
+  messageOpen: boolean;
+  setMessageOpen: (open: boolean) => void;
   shareError: string | null;
   setShareError: (error: string | null) => void;
   suggestionsOpen: boolean;
@@ -98,7 +114,10 @@ export interface ShareButtonController {
   inFlight: Set<string>;
   memberSearch: ShareButtonOrgMemberSearch;
   memberSuggestions: ShareButtonOrgMember[];
+  groupSuggestions: ShareButtonGroup[];
   knownMembers: ShareButtonOrgMember[];
+  selectedGroup: ShareButtonGroup | null;
+  selectGroup: (group: ShareButtonGroup) => void;
   shares: ShareButtonShare[];
   handleVisibility: (visibility: ShareButtonVisibility) => void;
   handleHideInSearch: () => void;
@@ -112,10 +131,17 @@ export function useShareButtonController(
 ): ShareButtonController {
   const [open, setOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState<ShareButtonGroup | null>(
+    null,
+  );
   const shareTabDefaultValue = options.shareTabs?.defaultValue ?? "share";
   const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const [visibilityOverride, setVisibilityOverride] =
     useState<ShareButtonVisibility | null>(null);
+  const visibilitySequenceStartRef = useRef<{
+    visibility: ShareButtonVisibility;
+    shares: ShareButtonSharesResponse | undefined;
+  } | null>(null);
   const appliedDefaultOpenRef = useRef(false);
   const {
     queryKey: shareQueryKey,
@@ -124,12 +150,18 @@ export function useShareButtonController(
   } = useShareQuery<ShareButtonSharesResponse>(
     options.resourceType,
     options.resourceId,
+    open,
+    0,
   );
   const { setVisibility, share, unshare } = useShareMutations();
   const visibilityGuard = useShareMutationGuard();
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
   const [shareError, setShareError] = useState<string | null>(null);
+  const visibility =
+    visibilityOverride ?? data?.visibility ?? ("private" as const);
+  const triggerVisibility =
+    visibilityOverride ?? (data ? (data.visibility ?? "private") : null);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -138,14 +170,17 @@ export function useShareButtonController(
       if (nextOpen) {
         setActiveShareTab(shareTabDefaultValue);
         options.shareTabs?.onValueChange?.(shareTabDefaultValue);
-        if (visibilityOverride === null) sharesQuery.refetch();
       }
     },
-    [options, shareTabDefaultValue, sharesQuery, visibilityOverride],
+    [options, shareTabDefaultValue],
   );
 
   useEffect(() => {
     setInviteEmail("");
+    setSelectedGroup(null);
+    setShareMessage("");
+    setMessageOpen(false);
+    visibilitySequenceStartRef.current = null;
   }, [options.resourceId, options.resourceType]);
 
   useEffect(() => {
@@ -175,6 +210,7 @@ export function useShareButtonController(
           shareQueryKey,
           (prev) => (prev ? { ...prev, visibility: next } : prev),
         );
+      visibilitySequenceStartRef.current ??= { visibility, shares: previous };
       setVisibilityOverride(next);
       return new Promise((resolve, reject) => {
         setVisibility.mutate(
@@ -185,12 +221,19 @@ export function useShareButtonController(
           } as never,
           {
             onSuccess: (result: unknown) => {
+              const resultVisibility =
+                typeof result === "object" &&
+                result !== null &&
+                "visibility" in result &&
+                (result as { visibility?: unknown }).visibility;
               if (visibilityGuard.isLatest(requestId)) {
-                const resultVisibility =
-                  typeof result === "object" &&
-                  result !== null &&
-                  "visibility" in result &&
-                  (result as { visibility?: unknown }).visibility;
+                if (
+                  visibilitySequenceStartRef.current?.visibility ===
+                    "private" &&
+                  (resultVisibility === "org" || resultVisibility === "public")
+                ) {
+                  options.onShareSuccess?.();
+                }
                 optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
                   queryClient,
                   shareQueryKey,
@@ -213,13 +256,21 @@ export function useShareButtonController(
                 .finally(() => {
                   if (visibilityGuard.isLatest(requestId)) {
                     setVisibilityOverride(null);
+                    visibilitySequenceStartRef.current = null;
                   }
                 });
             },
             onError: (error) => {
               if (visibilityGuard.isLatest(requestId)) {
+                const sequenceStart = visibilitySequenceStartRef.current;
                 setVisibilityOverride(null);
-                rollbackShareCache(queryClient, shareQueryKey, previous);
+                visibilitySequenceStartRef.current = null;
+                rollbackShareCache(
+                  queryClient,
+                  shareQueryKey,
+                  sequenceStart ? sequenceStart.shares : previous,
+                );
+                void sharesQuery.refetch();
               }
               reject(error);
             },
@@ -236,6 +287,8 @@ export function useShareButtonController(
       sharesQuery,
       canManage,
       visibilityGuard,
+      options.onShareSuccess,
+      visibility,
     ],
   );
 
@@ -243,14 +296,16 @@ export function useShareButtonController(
     allowPublic: true,
     requireOrgMemberForUserShares: false,
   };
-  const visibility =
-    visibilityOverride ?? data?.visibility ?? ("private" as const);
-  const triggerVisibility =
-    visibilityOverride ?? (data ? (data.visibility ?? "private") : null);
-  // Keep draft and optimistic state in the controller so closing and reopening
-  // the popover cannot drop an in-flight mutation or an unsent invite.
   const [role, setRole] = useState<ShareButtonRole>("viewer");
+  useEffect(() => {
+    const allowedRoles = options.allowedRoles;
+    if (!allowedRoles || allowedRoles.includes(role)) return;
+    const fallbackRole = allowedRoles[0];
+    if (fallbackRole) setRole(fallbackRole);
+  }, [options.allowedRoles, role]);
   const [notifyPeople, setNotifyPeople] = useState(true);
+  const [shareMessage, setShareMessage] = useState("");
+  const [messageOpen, setMessageOpen] = useState(false);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [pendingAdds, setPendingAdds] = useState<ShareButtonShare[]>([]);
   const [pendingRemoves, setPendingRemoves] = useState<Set<string>>(new Set());
@@ -273,18 +328,21 @@ export function useShareButtonController(
     });
   }, []);
 
-  useEffect(() => {
-    sharesQuery.refetch();
-    // The resource identity is intentionally stable for this controller.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const memberSearch = useShareOrgMemberSearch(
     inviteEmail,
     canManage && suggestionsOpen,
     {
       limit: DEFAULT_MEMBER_SUGGESTION_LIMIT,
       debounceMs: DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
+    },
+  );
+  const groupsQuery = useActionQuery<ShareButtonGroup[]>(
+    "list-workspace-user-groups",
+    {},
+    {
+      enabled:
+        canManage && policy.supportsGroupShares === true && suggestionsOpen,
+      staleTime: 30_000,
     },
   );
   const serverShares = data?.shares ?? [];
@@ -310,7 +368,29 @@ export function useShareButtonController(
   const memberSuggestions = memberSearch.members.filter(
     (member) => !excludedMemberEmails.has(member.email.toLowerCase()),
   );
+  const excludedGroupIds = new Set(
+    shares
+      .filter((share) => share.principalType === "group")
+      .map((share) => share.principalId),
+  );
+  const groupSuggestions = (
+    Array.isArray(groupsQuery.data) ? groupsQuery.data : []
+  ).filter(
+    (group) =>
+      !excludedGroupIds.has(group.id) &&
+      (!inviteEmail.trim() ||
+        group.name.toLowerCase().includes(inviteEmail.trim().toLowerCase())),
+  );
   const knownMembers = memberSearch.members;
+
+  const setInviteEmailValue = useCallback((email: string) => {
+    setSelectedGroup(null);
+    setInviteEmail(email);
+  }, []);
+  const selectGroup = useCallback((group: ShareButtonGroup) => {
+    setSelectedGroup(group);
+    setInviteEmail(group.name);
+  }, []);
 
   const handleVisibility = useCallback(
     (next: ShareButtonVisibility) => {
@@ -343,10 +423,15 @@ export function useShareButtonController(
   const handleAdd = useCallback(() => {
     const trimmed = inviteEmail.trim();
     if (!trimmed || !canManage) return;
+    const principalType = selectedGroup ? "group" : "user";
+    const principalId = selectedGroup?.id ?? trimmed;
+    const message =
+      principalType === "user" && notifyPeople ? shareMessage.trim() : "";
     const optimistic: ShareButtonShare = {
-      id: `pending-${trimmed}`,
-      principalType: "user",
-      principalId: trimmed,
+      id: `pending-${principalType}-${principalId}`,
+      principalType,
+      principalId,
+      ...(selectedGroup ? { displayName: selectedGroup.name } : {}),
       role,
     };
     const key = keyOf(optimistic);
@@ -354,6 +439,9 @@ export function useShareButtonController(
     setShareError(null);
     setPendingAdds((previous) => [...previous, optimistic]);
     setInviteEmail("");
+    setSelectedGroup(null);
+    setShareMessage("");
+    setMessageOpen(false);
     setSuggestionsOpen(false);
     addInFlight(key);
     const previous = optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
@@ -366,15 +454,26 @@ export function useShareButtonController(
       {
         resourceType: options.resourceType,
         resourceId: options.resourceId,
-        principalType: "user",
-        principalId: trimmed,
+        principalType,
+        principalId,
         role,
-        notify: notifyPeople,
+        notify: principalType === "user" && notifyPeople,
         resourceUrl: getNotificationUrl(options.shareUrl),
+        ...(message ? { message } : {}),
       } as never,
       {
-        onSuccess: () => {
-          sharesQuery.refetch().then(() => {
+        onSuccess: (result: unknown) => {
+          if (
+            !(
+              typeof result === "object" &&
+              result !== null &&
+              "updated" in result &&
+              (result as { updated?: unknown }).updated === true
+            )
+          ) {
+            options.onShareSuccess?.();
+          }
+          void sharesQuery.refetch().then(() => {
             setPendingAdds((previous) =>
               previous.filter((item) => item.id !== optimistic.id),
             );
@@ -388,6 +487,9 @@ export function useShareButtonController(
           );
           clearInFlight(key);
           setInviteEmail(trimmed);
+          setSelectedGroup(selectedGroup);
+          setShareMessage((current) => current || message);
+          setMessageOpen((current) => current || Boolean(message));
           setShareError(extractShareErrorMessage(error));
         },
       },
@@ -396,13 +498,15 @@ export function useShareButtonController(
     addInFlight,
     canManage,
     clearInFlight,
-    inFlight,
     inviteEmail,
     notifyPeople,
     options.resourceId,
     options.resourceType,
+    options.onShareSuccess,
     options.shareUrl,
     role,
+    selectedGroup,
+    shareMessage,
     share,
     queryClient,
     shareQueryKey,
@@ -445,7 +549,7 @@ export function useShareButtonController(
         } as never,
         {
           onSuccess: () => {
-            sharesQuery.refetch().then(() => {
+            void sharesQuery.refetch().then(() => {
               setRoleOverrides((previous) => {
                 const { [key]: _removed, ...rest } = previous;
                 return rest;
@@ -469,7 +573,6 @@ export function useShareButtonController(
       addInFlight,
       canManage,
       clearInFlight,
-      inFlight,
       options.resourceId,
       options.resourceType,
       queryClient,
@@ -510,7 +613,7 @@ export function useShareButtonController(
         } as never,
         {
           onSuccess: () => {
-            sharesQuery.refetch().then(() => {
+            void sharesQuery.refetch().then(() => {
               setPendingRemoves((previous) => {
                 const next = new Set(previous);
                 next.delete(key);
@@ -536,7 +639,6 @@ export function useShareButtonController(
       addInFlight,
       canManage,
       clearInFlight,
-      inFlight,
       options.resourceId,
       options.resourceType,
       queryClient,
@@ -552,7 +654,7 @@ export function useShareButtonController(
     activeShareTab,
     handleShareTabChange,
     inviteEmail,
-    setInviteEmail,
+    setInviteEmail: setInviteEmailValue,
     sharesQuery,
     visibilityOverride,
     handleVisibilityChange,
@@ -564,6 +666,10 @@ export function useShareButtonController(
     role,
     setRole,
     notifyPeople,
+    shareMessage,
+    setShareMessage,
+    messageOpen,
+    setMessageOpen,
     setNotifyPeople,
     shareError,
     setShareError,
@@ -579,6 +685,9 @@ export function useShareButtonController(
     handleAdd,
     handleChangeRole,
     handleRemove,
+    groupSuggestions,
+    selectedGroup,
+    selectGroup,
   };
 }
 

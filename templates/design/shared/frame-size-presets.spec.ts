@@ -1,0 +1,91 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  allFrameSizePresets,
+  FRAME_SIZE_PRESET_CATEGORIES,
+} from "./frame-size-presets";
+
+describe("frame size presets", () => {
+  it("has at least one category with at least one preset each", () => {
+    expect(FRAME_SIZE_PRESET_CATEGORIES.length).toBeGreaterThan(0);
+    for (const category of FRAME_SIZE_PRESET_CATEGORIES) {
+      expect(category.presets.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("puts Desktop first as the default-visible preset", () => {
+    expect(FRAME_SIZE_PRESET_CATEGORIES[0]?.key).toBe("desktop");
+    expect(
+      FRAME_SIZE_PRESET_CATEGORIES.findIndex(
+        (category) => category.key === "desktop",
+      ),
+    ).toBeLessThan(
+      FRAME_SIZE_PRESET_CATEGORIES.findIndex(
+        (category) => category.key === "phone",
+      ),
+    );
+    expect(FRAME_SIZE_PRESET_CATEGORIES[0]?.presets[0]).toEqual({
+      name: "Desktop",
+      width: 1440,
+      height: 1024,
+    });
+  });
+
+  it("has no duplicate category keys", () => {
+    const keys = FRAME_SIZE_PRESET_CATEGORIES.map((category) => category.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("has no duplicate preset names across the entire list", () => {
+    const names = allFrameSizePresets().map((preset) => preset.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("only contains positive integer widths and heights", () => {
+    for (const preset of allFrameSizePresets()) {
+      expect(Number.isInteger(preset.width)).toBe(true);
+      expect(Number.isInteger(preset.height)).toBe(true);
+      expect(preset.width).toBeGreaterThan(0);
+      expect(preset.height).toBeGreaterThan(0);
+    }
+  });
+
+  it("gives every preset a non-empty name", () => {
+    for (const preset of allFrameSizePresets()) {
+      expect(preset.name.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("sizes Letter and A4 paper presets in 96dpi px, not 72dpi pt", () => {
+    const paper = FRAME_SIZE_PRESET_CATEGORIES.find((c) => c.key === "paper");
+    const letter = paper?.presets.find((p) => p.name === "Letter");
+    const a4 = paper?.presets.find((p) => p.name === "A4");
+    expect(letter).toEqual({ name: "Letter", width: 816, height: 1056 });
+    expect(a4).toEqual({ name: "A4", width: 794, height: 1123 });
+  });
+
+  it("offers the standard IAB ad-unit sizes for non-web ad design", () => {
+    const adUnit = FRAME_SIZE_PRESET_CATEGORIES.find((c) => c.key === "adUnit");
+    const dims = new Set(adUnit?.presets.map((p) => `${p.width}x${p.height}`));
+    expect(dims).toEqual(
+      new Set(["300x250", "728x90", "160x600", "320x50", "970x250"]),
+    );
+  });
+
+  it("includes common social and advertising canvases", () => {
+    const sizes = new Map(
+      allFrameSizePresets().map((preset) => [
+        preset.name,
+        `${preset.width}x${preset.height}`,
+      ]),
+    );
+    expect(sizes.get("LinkedIn Single Image Ad")).toBe("1200x627");
+    expect(sizes.get("Meta Feed Square Ad")).toBe("1080x1080");
+    expect(sizes.get("Meta Feed Landscape Ad")).toBe("1200x628");
+    expect(sizes.get("Instagram Portrait Post")).toBe("1080x1350");
+    expect(sizes.get("Instagram Story")).toBe("1080x1920");
+    expect(sizes.get("Open Graph Image")).toBe("1200x630");
+    expect(sizes.get("YouTube Thumbnail")).toBe("1280x720");
+    expect(sizes.get("Email Header")).toBe("600x200");
+  });
+});

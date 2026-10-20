@@ -3,6 +3,8 @@ import {
   appApiPath,
 } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconExternalLink,
   IconCheck,
@@ -33,8 +35,6 @@ import {
 } from "@/hooks/use-notion";
 import { cn } from "@/lib/utils";
 
-// ─── Notion SVG icon ────────────────────────────────────────────────────────
-
 function NotionIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 100 100" className={cn("notion-logo-icon", className)}>
@@ -51,8 +51,6 @@ function NotionIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-
-// ─── OAuth wizard steps ─────────────────────────────────────────────────────
 
 const OAUTH_STEPS = [
   {
@@ -85,8 +83,6 @@ interface EnvKeyStatus {
   configured: boolean;
 }
 
-// ─── Component ──────────────────────────────────────────────────────────────
-
 export function NotionButton() {
   const t = useT();
   const { data: connection, refetch } = useNotionConnection();
@@ -108,7 +104,7 @@ export function NotionButton() {
   }, []);
 
   useEffect(() => {
-    if (showWizard) fetchEnvStatus();
+    if (showWizard) void fetchEnvStatus();
   }, [showWizard, fetchEnvStatus]);
 
   const oauthConfigured =
@@ -125,7 +121,6 @@ export function NotionButton() {
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Cleanup polling on unmount
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -142,7 +137,7 @@ export function NotionButton() {
       toast.error(t("sidebar.notionOAuthNotConfigured"));
       return;
     }
-    const popup = window.open("about:blank", "_blank");
+    const popup = openOAuthPopup();
     if (!popup) {
       toast.error(t("sidebar.notionOAuthNotConfigured"));
       return;
@@ -161,11 +156,9 @@ export function NotionButton() {
       return;
     }
 
-    // Clear any existing poll before starting a new one
     if (pollRef.current) clearInterval(pollRef.current);
     if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
 
-    // Poll for connection
     pollRef.current = setInterval(async () => {
       if (document.hidden) return;
       const result = await refetch();
@@ -177,7 +170,6 @@ export function NotionButton() {
       }
     }, 2000);
 
-    // Stop polling after 5 minutes
     pollTimeoutRef.current = setTimeout(() => {
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = undefined;
@@ -233,8 +225,6 @@ export function NotionButton() {
       setSaving(false);
     }
   }
-
-  // ─── Wizard UI ──────────────────────────────────────────────────────────
 
   if (showWizard) {
     return (
@@ -355,8 +345,15 @@ export function NotionButton() {
                           <button
                             className="shrink-0 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent"
                             onClick={() => {
-                              navigator.clipboard.writeText(redirectUri);
-                              toast.success(t("sidebar.copied"));
+                              void writeClipboardText(redirectUri).then(
+                                (copied) => {
+                                  if (copied) {
+                                    toast.success(t("sidebar.copied"));
+                                    return;
+                                  }
+                                  toast.error(t("empty.genericError"));
+                                },
+                              );
                             }}
                           >
                             {t("sidebar.copy")}
@@ -377,7 +374,7 @@ export function NotionButton() {
                               className="hidden"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
-                                if (file) handleJsonUpload(file);
+                                if (file) void handleJsonUpload(file);
                               }}
                             />
                           </label>
@@ -449,8 +446,6 @@ export function NotionButton() {
     );
   }
 
-  // ─── Connected state ────────────────────────────────────────────────────
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
@@ -501,7 +496,7 @@ export function NotionButton() {
             <div className="p-2 space-y-0.5">
               <button
                 onClick={() => {
-                  refetch();
+                  void refetch();
                   toast.success(t("sidebar.synced"));
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
@@ -511,7 +506,7 @@ export function NotionButton() {
               </button>
               <button
                 onClick={() => {
-                  handleDisconnect();
+                  void handleDisconnect();
                   setOpen(false);
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md"
@@ -539,7 +534,7 @@ export function NotionButton() {
                 if (needsCredentials) {
                   setShowWizard(true);
                 } else {
-                  handleConnect();
+                  void handleConnect();
                 }
               }}
             >

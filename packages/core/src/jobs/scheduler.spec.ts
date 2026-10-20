@@ -1,20 +1,88 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RunChunkControl } from "../agent/run-manager.js";
+import type { CurrentTurnRunEvent } from "../agent/run-store.js";
 import {
   buildTriggerContent,
   parseTriggerFrontmatter,
 } from "../triggers/dispatcher.js";
 import {
   classifyJobResource,
+  parseJobResource,
   processRecurringJobs,
   runJobNow,
 } from "./scheduler.js";
+
+function createRunChunkControl(signal: AbortSignal): RunChunkControl {
+  return {
+    turnSignal: signal,
+    chunkSignal: signal,
+    chunkBoundaryReason: () => null,
+    beginChunk: () => signal,
+    flushEvents: async () => {},
+  };
+}
+
+function mockBackgroundExecutionJournal() {
+  beginAgentExecutionStepMock.mockResolvedValue({
+    status: "execute",
+    wasDispatched: false,
+  });
+  markAgentExecutionStepDispatchedMock.mockResolvedValue();
+  completeAgentExecutionStepMock.mockResolvedValue();
+}
+
+async function withMockExecutionFence<T>(
+  fence: {
+    threadId: string;
+    turnId: string;
+    runId: string;
+    generation: string;
+  },
+  work: () => Promise<T>,
+): Promise<T> {
+  currentExecutionFenceMock.mockReturnValue(fence);
+  try {
+    return await work();
+  } finally {
+    currentExecutionFenceMock.mockReset();
+  }
+}
+
+const beginAgentExecutionStepMock = vi.hoisted(() => vi.fn());
+const markAgentExecutionStepDispatchedMock = vi.hoisted(() => vi.fn());
+const completeAgentExecutionStepMock = vi.hoisted(() => vi.fn());
+const currentExecutionFenceMock = vi.hoisted(() => vi.fn());
+const getCurrentTurnRunEventsForThreadMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../agent/execution-fence.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/execution-fence.js")>()),
+  currentExecutionFence: currentExecutionFenceMock,
+}));
+
+vi.mock("../agent/run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/run-store.js")>()),
+  beginAgentExecutionStep: beginAgentExecutionStepMock,
+  markAgentExecutionStepDispatched: markAgentExecutionStepDispatchedMock,
+  completeAgentExecutionStep: completeAgentExecutionStepMock,
+  getCurrentTurnRunEventsForThread: getCurrentTurnRunEventsForThreadMock,
+}));
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
+const getThreadMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    id: "thread-1",
+    title: "Job: nightly",
+    preview: "",
+    threadData: "{}",
+    messageCount: 0,
+  })),
+);
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => true));
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
@@ -22,12 +90,23 @@ const getDbExecMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
 const sendMessageToTargetMock = vi.hoisted(() => vi.fn());
 const runAgentLoopWrapperMock = vi.hoisted(() => vi.fn());
+const dispatchRemoteAutomationMock = vi.hoisted(() => vi.fn());
+const finishRemoteAutomationHistoryMock = vi.hoisted(() => vi.fn());
+const getRemoteAutomationStatusMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   runAgentLoopDirectWithSoftTimeout: runAgentLoopWrapperMock,
 }));
 
 vi.mock("../resources/store.js", () => ({
+  ensureTable: vi.fn(async () => {}),
+  SHARED_OWNER: "__shared__",
+  resourcePutIfCurrentInTransaction: async (input: unknown) => {
+    const resource = await resourcePutIfCurrentMock(input);
+    return resource ? { resource, notify: vi.fn() } : null;
+  },
+  organizationResourceOwner: (orgId: string) =>
+    `__organization__:${encodeURIComponent(orgId)}`,
   organizationIdFromResourceOwner: (owner: string) =>
     owner.startsWith("__organization__:")
       ? owner.slice("__organization__:".length)
@@ -45,17 +124,14 @@ vi.mock("../resources/emitter.js", () => ({
 
 vi.mock("../chat-threads/store.js", () => ({
   createThread: createThreadMock,
+  getThread: getThreadMock,
+  updateThreadData: updateThreadDataMock,
+  withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
+    fn(),
 }));
 
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn(() => []));
 
-// `filterInitialEngineTools`'s own filtering semantics are covered directly
-// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
-// rather than via `vi.importActual` on the real module, which would pull in
-// production-agent.ts's full module graph (e.g. its module-scope
-// `registerBuiltinEngines()` call) that this file's narrower mocks don't
-// support. This only needs to prove scheduler.ts WIRES the filter with the
-// right inputs, not re-prove the filter's own correctness.
 function fakeFilterInitialEngineTools(
   tools: Array<{ name: string }>,
   initialToolNames?: string[],
@@ -78,18 +154,42 @@ function fakeFilterInitialEngineTools(
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: actionsToEngineToolsMock,
   getOwnerActiveApiKey: vi.fn(async () => "test-api-key"),
+  resolveOwnerEngineApiKey: vi.fn(async () => ({
+    apiKey: undefined,
+    apiKeyEnvVar: undefined,
+  })),
   runAgentLoop: runAgentLoopMock,
   filterInitialEngineTools: fakeFilterInitialEngineTools,
 }));
 
 vi.mock("../agent/run-manager.js", () => ({
   resolveRunSoftTimeoutMs: vi.fn(() => 0),
+  resolveBackgroundAutomationSoftTimeoutMs: vi.fn(() => 0),
+  resolveBackgroundRunHardTimeoutMs: vi.fn(() => 10 * 60_000),
   startRun: startRunMock,
 }));
 
 vi.mock("../usage/store.js", () => ({
   recordUsage: recordUsageMock,
 }));
+
+vi.mock("./remote-execution.js", () => ({
+  dispatchRemoteAutomation: dispatchRemoteAutomationMock,
+  finishRemoteAutomationHistory: finishRemoteAutomationHistoryMock,
+  getRemoteAutomationStatus: getRemoteAutomationStatusMock,
+}));
+
+const recordAutomationSchedulerHealthMock = vi.hoisted(() =>
+  vi.fn(async () => undefined),
+);
+
+vi.mock("./scheduler-health.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./scheduler-health.js")>();
+  return {
+    ...actual,
+    recordAutomationSchedulerHealth: recordAutomationSchedulerHealthMock,
+  };
+});
 
 vi.mock("../integrations/adapters/index.js", () => ({
   getDefaultAdapter: () => ({
@@ -98,14 +198,16 @@ vi.mock("../integrations/adapters/index.js", () => ({
   }),
 }));
 
-// Partial-mock db/client so the user/membership validation lookup is
-// stubbed (audit 12 #10) but other consumers (auth shim, onboarding HTML
-// loaded transitively via `getDbExec`) still see real exports.
+vi.mock("../server/onboarding-html.js", () => ({
+  getOnboardingHtml: vi.fn(),
+  getResetPasswordHtml: vi.fn(),
+}));
+
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    getDbExec: getDbExecMock,
+    getDbExec: () => actual.getScopedDbExec() ?? getDbExecMock(),
   };
 });
 
@@ -115,17 +217,57 @@ const testEngine = {
   supportedModels: ["test-model"],
 } as any;
 
+/** The built-in user table holds accounts, just not this owner. */
+function mockOwnerMissing() {
+  dbExecuteMock.mockImplementation(async (query: { sql?: string }) => ({
+    rows: query.sql?.includes('FROM "user" LIMIT 1') ? [{ "1": 1 }] : [],
+  }));
+}
+
 describe("processRecurringJobs", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     process.env = { ...originalEnv };
     vi.clearAllMocks();
-    // Default: user exists and (when checked) is an org member. rowsAffected: 1
-    // also lets the background run's self-claim CAS UPDATE (see
-    // background-automation-runner.ts) succeed by default.
+    mockBackgroundExecutionJournal();
+    getCurrentTurnRunEventsForThreadMock.mockImplementation(
+      async (threadId: string, turnId?: string) =>
+        startRunMock.mock.results.flatMap((result, index) => {
+          if (result.type !== "return") return [];
+          const run = result.value as {
+            runId: string;
+            threadId: string;
+            turnId?: string;
+            events?: Array<{
+              seq: number;
+              event: CurrentTurnRunEvent["event"];
+            }>;
+          };
+          const options = startRunMock.mock.calls[index]?.[4] as
+            | { turnId?: string }
+            | undefined;
+          const runTurnId = run.turnId ?? options?.turnId ?? run.runId;
+          if (
+            run.threadId !== threadId ||
+            (turnId !== undefined && runTurnId !== turnId)
+          ) {
+            return [];
+          }
+          return (run.events ?? []).map(({ seq, event }) => ({
+            runId: run.runId,
+            seq,
+            event,
+          }));
+        }),
+    );
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
-    getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
+    getDbExecMock.mockReturnValue({
+      execute: dbExecuteMock,
+      transaction: async (
+        fn: (tx: { execute: typeof dbExecuteMock }) => Promise<unknown>,
+      ) => fn({ execute: dbExecuteMock }),
+    });
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-1",
@@ -148,9 +290,6 @@ Summarize the inbox.`,
         return { id: input.owner + input.path };
       },
     );
-    // Model a real store: a re-read returns whatever was last written. The
-    // scheduler re-reads before recording an outcome, and treats a missing
-    // resource as deleted mid-run.
     resourceGetByPathMock.mockImplementation(
       async (owner: string, path: string) => {
         const latestListCall = resourceListAllOwnersMock.mock.results.at(-1);
@@ -182,8 +321,6 @@ Summarize the inbox.`,
       cacheWriteTokens: 5,
       model: "test-model",
     });
-    // The scheduler runs through the resume wrapper; delegate so the existing
-    // assertions about what the loop was called with still read the same call.
     runAgentLoopWrapperMock.mockImplementation((opts: unknown) =>
       runAgentLoopMock(opts),
     );
@@ -194,19 +331,38 @@ Summarize the inbox.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: { status: string }) => void | Promise<void>,
+        options?: { turnId?: string },
       ) => {
         const abort = new AbortController();
         const activeRun = {
           runId,
           threadId,
+          turnId: options?.turnId ?? runId,
           status: "running",
           abort,
+          finalized: Promise.resolve(),
+          events: [
+            {
+              seq: 0,
+              event: {
+                type: "tool_done",
+                tool: "send-notification",
+                result: "Sent",
+                completedSideEffect: true,
+              },
+            },
+          ],
         };
-        void Promise.resolve().then(async () => {
+        activeRun.finalized = Promise.resolve().then(async () => {
           try {
-            await runFn(vi.fn(), abort.signal);
+            await runFn(
+              vi.fn(),
+              abort.signal,
+              createRunChunkControl(abort.signal),
+            );
             activeRun.status = "completed";
           } catch {
             activeRun.status = "errored";
@@ -217,7 +373,96 @@ Summarize the inbox.`,
       },
     );
     recordUsageMock.mockResolvedValue(undefined);
+    dispatchRemoteAutomationMock.mockResolvedValue({
+      command: { id: "remote-command-1" },
+    });
+    finishRemoteAutomationHistoryMock.mockResolvedValue(undefined);
+    getRemoteAutomationStatusMock.mockResolvedValue({ state: "not-remote" });
   });
+
+  it("queues a host-targeted run without invoking the local agent loop", async () => {
+    const resource = {
+      id: "resource-remote",
+      owner: "alice+jobs@agent-native.test",
+      path: "jobs/nightly.md",
+      content: `---
+schedule: "0 * * * *"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+executionHostId: remote-device-laptop
+executionEngine: claude-cli
+
+---
+
+Inspect the workspace.`,
+    };
+    resourceGetByPathMock.mockResolvedValueOnce(resource);
+
+    const result = await runJobNow(resource.owner, "nightly", {
+      getActions: vi.fn(async () => ({})),
+      getSystemPrompt: vi.fn(async () => ""),
+      apiKey: "test-api-key",
+    });
+
+    expect(result).toEqual({ status: "success", runId: "remote-command-1" });
+    expect(dispatchRemoteAutomationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: resource.owner,
+        meta: expect.objectContaining({
+          executionHostId: "remote-device-laptop",
+          executionEngine: "claude-cli",
+        }),
+        advanceSchedule: false,
+      }),
+    );
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { state: "completed", enabled: true, lastStatus: "success" },
+    { state: "failed", enabled: false, lastStatus: "error" },
+  ] as const)(
+    "reconciles a paused job's remote 'Run now' ($state) instead of leaving it running",
+    async ({ state, enabled, lastStatus }) => {
+      getRemoteAutomationStatusMock.mockResolvedValue({ state });
+      resourceListAllOwnersMock.mockResolvedValue([
+        {
+          id: "resource-paused-remote",
+          owner: "alice+jobs@agent-native.test",
+          path: "jobs/paused-remote.md",
+          content: `---
+schedule: "0 * * * *"
+enabled: false
+createdBy: alice+jobs@agent-native.test
+executionHostId: remote-device-laptop
+remoteCommandId: remote-command-1
+remoteAdvanceSchedule: false
+lastStatus: running
+lastRun: "${new Date().toISOString()}"
+lastErrorCode: "missing_tools"
+consecutiveFailures: 3
+pausedReason: "missing_tools"
+---
+
+Inspect the workspace.`,
+        },
+      ]);
+
+      await processRecurringJobs({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: testEngine,
+      });
+
+      expect(getRemoteAutomationStatusMock).toHaveBeenCalledOnce();
+      const content: string = resourcePutMock.mock.calls.at(-1)![2];
+      const { meta } = parseJobResource(content);
+      expect(meta.lastStatus).toBe(lastStatus);
+      expect(meta.enabled).toBe(enabled);
+      // A manual run never moves the streak, whichever way it ends.
+      expect(meta.consecutiveFailures).toBe(enabled ? undefined : 3);
+    },
+  );
 
   it("does not manually overlap an active automation", async () => {
     const resource = {
@@ -330,6 +575,49 @@ Build the report.`,
     expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
+  it("clears a stale pause without clearing an active run marker", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-stale-pause",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/stale-pause.md",
+        content: `---
+schedule: "* * * * *"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+lastStatus: running
+lastRun: "${new Date().toISOString()}"
+lastErrorCode: "missing_credentials"
+consecutiveFailures: 3
+pausedReason: "missing_credentials"
+pausedAt: "2026-10-01T00:00:00.000Z"
+---
+
+Summarize the inbox.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledOnce();
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    const content: string = resourcePutMock.mock.calls.at(-1)![2];
+    const { meta } = parseJobResource(content);
+    expect(meta.enabled).toBe(true);
+    expect(meta.pausedReason).toBeUndefined();
+    expect(meta.pausedAt).toBeUndefined();
+    expect(meta.lastStatus).toBe("running");
+    expect(meta.lastErrorCode).toBe("missing_credentials");
+    expect(meta.consecutiveFailures).toBe(3);
+  });
+
   it("seeds a scheduled automation without dropping its automation metadata", async () => {
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
@@ -347,6 +635,7 @@ Build the report.`,
             delegatedPolicyId: "calendar-safe:v1",
             createdBy: "alice+jobs@agent-native.test",
             orgId: "org-1",
+            appId: "calendar",
             runAs: "creator",
             originScopeId: "scope-1",
             deliveryPlatform: "slack",
@@ -366,6 +655,7 @@ Build the report.`,
       getSystemPrompt: async () => "system",
       engine: testEngine,
       model: "test-model",
+      appId: "calendar",
     });
 
     expect(resourcePutMock).toHaveBeenCalledOnce();
@@ -400,6 +690,200 @@ Build the report.`,
     expect(createThreadMock).not.toHaveBeenCalled();
   });
 
+  it("does not execute an automation owned by another app", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-calendar-automation",
+        owner: "__organization__:org-1",
+        path: "jobs/calendar-digest.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+triggerType: schedule
+appId: calendar
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Send the calendar digest.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("does not claim an organization job whose app owner is missing", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-unscoped-organization-job",
+        owner: "__organization__:org-1",
+        path: "jobs/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "mail",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("claims a recovered factory-folder org job that lost appId", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-recovered-factory-job",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(resourcePutMock).toHaveBeenCalled();
+    expect(resourcePutMock.mock.calls[0]?.[1]).toBe(
+      "jobs/factories/demo-factory/factory-slack-feedback.md",
+    );
+  });
+
+  it("records scheduler health under the owner org for a recovered Factory job without orgId", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-recovered-factory-job-no-org",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(resourcePutMock).toHaveBeenCalled();
+    expect(recordAutomationSchedulerHealthMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "factory",
+        orgId: "org-1",
+      }),
+    );
+  });
+
+  it("does not claim a personal job on a Factory-looking path", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-personal-factory-path",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("does not claim a Factory-path job whose orgId does not match its owner", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-mismatched-org",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+orgId: org-2
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
   it("creates run history threads owned by the job user", async () => {
     await processRecurringJobs({
       getActions: () => ({}),
@@ -413,6 +897,22 @@ Build the report.`,
       expect.objectContaining({
         title: expect.stringContaining("Job: daily-report"),
       }),
+    );
+    expect(runAgentLoopWrapperMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionCaller: "automation",
+        automation: {
+          triggerId: "resource-1",
+          triggerName: "daily-report",
+        },
+      }),
+      expect.any(Number),
+      expect.any(Object),
+      expect.objectContaining({
+        flushEvents: expect.any(Function),
+        beginChunk: expect.any(Function),
+      }),
+      expect.any(Function),
     );
   });
 
@@ -450,8 +950,14 @@ createdBy: __shared__
 Run the second job.`,
       },
     ]);
-    runAgentLoopWrapperMock.mockImplementation(async () => {
+    runAgentLoopWrapperMock.mockImplementation(async (opts) => {
       runCount += 1;
+      opts.send({
+        type: "tool_done",
+        tool: "send-notification",
+        result: "Sent",
+        completedSideEffect: true,
+      });
       if (runCount === 1) await firstRunGate;
       return {
         inputTokens: 100,
@@ -669,11 +1175,16 @@ Run job ${index}.`,
     });
 
     expect(runCount).toBe(1);
-    expect(
-      resourcePutMock.mock.calls.filter((call) =>
-        String(call[2]).includes("lastStatus: skipped"),
-      ),
-    ).toHaveLength(8);
+    // An owner who no longer exists is permanent: the job is disabled once,
+    // with the typed reason, instead of being re-checked every cooldown.
+    const disabled = resourcePutMock.mock.calls.filter((call) =>
+      String(call[2]).includes('pausedReason: "owner_missing"'),
+    );
+    expect(disabled).toHaveLength(8);
+    for (const call of disabled) {
+      expect(String(call[2])).toContain("enabled: false");
+      expect(String(call[2])).toContain("lastStatus: paused");
+    }
     expect(
       resourcePutMock.mock.calls.some(
         (call) =>
@@ -683,7 +1194,7 @@ Run job ${index}.`,
     ).toBe(true);
   });
 
-  it("rotates past recently recorded identity failures", async () => {
+  it("keeps rotating past identity failures after their cooldown expires", async () => {
     const resources = Array.from({ length: 34 }, (_, index) => {
       const owner =
         index < 33
@@ -722,6 +1233,8 @@ Run job ${index}.`,
         contentByKey.set(`${owner}:${path}`, content);
       },
     );
+    // The owner lookup itself fails (not "the owner is gone"), so these jobs
+    // stay enabled and are retried after the cooldown.
     dbExecuteMock.mockImplementation(
       async (query: { sql?: string; args?: unknown[] }) => {
         const email = query.args?.[0];
@@ -730,7 +1243,7 @@ Run job ${index}.`,
           typeof email === "string" &&
           email.startsWith("blocked-")
         ) {
-          return { rows: [], rowsAffected: 0 };
+          throw new Error("connection terminated");
         }
         return { rows: [{ "1": 1 }], rowsAffected: 1 };
       },
@@ -747,25 +1260,35 @@ Run job ${index}.`,
       };
     });
 
-    await processRecurringJobs({
-      getActions: () => ({}),
-      getSystemPrompt: async () => "system",
-      engine: testEngine,
-      model: "test-model",
-    });
-    await processRecurringJobs({
-      getActions: () => ({}),
-      getSystemPrompt: async () => "system",
-      engine: testEngine,
-      model: "test-model",
-    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const start = Date.parse("2026-09-24T00:00:00.000Z");
+      for (const [minute, expectedRuns] of [
+        [0, 0],
+        [1, 1],
+        [5, 1],
+        [6, 2],
+      ]) {
+        vi.setSystemTime(start + minute * 60_000);
+        await processRecurringJobs({
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+          model: "test-model",
+        });
+        expect(runCount, `completed runs after minute ${minute}`).toBe(
+          expectedRuns,
+        );
+      }
+    } finally {
+      vi.useRealTimers();
+    }
 
-    expect(runCount).toBe(1);
     expect(
       resourcePutMock.mock.calls.filter((call) =>
-        String(call[2]).includes("lastStatus: skipped"),
+        String(call[2]).includes("lastStatus: error"),
       ),
-    ).toHaveLength(33);
+    ).toHaveLength(66);
   });
 
   it("passes persisted MCP capabilities to the background action suppliers", async () => {
@@ -856,28 +1379,19 @@ Import action items.`,
       .sort();
 
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "template-job-action",
       "tool-search",
     ]);
     expect(firstRequestToolNames).not.toContain("list-integration-memory");
     expect(availableToolNames).toEqual([
+      "automation-no-op",
       "list-integration-memory",
       "template-job-action",
       "tool-search",
     ]);
   });
 
-  // The agent-chat plugin now wires `getInitialToolNames` for real (it used
-  // to be unset, making the filter above a no-op) to:
-  //   [...template action names, "manage-jobs", "manage-progress"]
-  // "manage-jobs" and "manage-progress" are taught BY NAME in the shared
-  // framework prompt this job runner reuses from interactive chat (see
-  // FRAMEWORK_CORE's "Recurring jobs" bullet and SHARED_RULE_14 in
-  // server/prompts/*.ts) — both must stay visible on the very first job
-  // request even though jobTools/progressTools are merged into getActions()
-  // alongside a much larger framework-addition surface
-  // (automationTools/notificationTools/fetchTool/webSearchTool/toolActions)
-  // that should stay deferred behind tool-search.
   it("keeps manage-jobs and manage-progress visible on the first request alongside the app's own actions (real plugin wiring shape)", async () => {
     actionsToEngineToolsMock.mockImplementation(
       (actionsMap: Record<string, { tool: { description: string } }>) =>
@@ -900,9 +1414,6 @@ Import action items.`,
         "manage-automations": noopTool("Framework addition — not taught"),
         "manage-notifications": noopTool("Framework addition — not taught"),
       }),
-      // Mirrors agent-chat-plugin.ts's schedulerDeps.getInitialToolNames:
-      // template action names plus the two tool names the shared prompt
-      // teaches by name for this surface.
       getInitialToolNames: () => [
         "template-job-action",
         "manage-jobs",
@@ -920,6 +1431,7 @@ Import action items.`,
       .sort();
 
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "manage-jobs",
       "manage-progress",
       "template-job-action",
@@ -958,9 +1470,8 @@ Import action items.`,
     const firstRequestToolNames = call.tools
       .map((tool: { name: string }) => tool.name)
       .sort();
-    // No filtering applied and no tool-search attached — identical to the
-    // prior behavior when the caller doesn't opt into initial-tool filtering.
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "other-framework-action",
       "template-job-action",
     ]);
@@ -1064,19 +1575,54 @@ Post the digest.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: any) => void | Promise<void>,
+        options?: { turnId?: string },
       ) => {
         const abort = new AbortController();
-        const activeRun = { runId, threadId, status: "running", abort };
-        void Promise.resolve().then(async () => {
-          await runFn(vi.fn(), abort.signal);
-          activeRun.status = "completed";
-          await onComplete?.({
-            ...activeRun,
-            events: [{ seq: 0, event: { type: "text", text: "Digest ready" } }],
-          });
-        });
+        const turnId = options?.turnId ?? runId;
+        const activeRun = {
+          runId,
+          threadId,
+          turnId,
+          status: "running",
+          abort,
+          finalized: Promise.resolve(),
+        };
+        activeRun.finalized = withMockExecutionFence(
+          {
+            threadId,
+            turnId,
+            runId,
+            generation: "1",
+          },
+          async () => {
+            await runFn(
+              vi.fn(),
+              abort.signal,
+              createRunChunkControl(abort.signal),
+            );
+            activeRun.status = "completed";
+            const events = [
+              {
+                seq: 0,
+                event: {
+                  type: "tool_done",
+                  tool: "send-notification",
+                  result: "Sent",
+                  completedSideEffect: true,
+                },
+              },
+              { seq: 1, event: { type: "text", text: "Digest ready" } },
+            ];
+            Object.assign(activeRun, { events });
+            await onComplete?.({
+              ...activeRun,
+              events,
+            });
+          },
+        );
         return activeRun;
       },
     );
@@ -1088,6 +1634,8 @@ Post the digest.`,
       model: "test-model",
     });
 
+    expect(startRunMock).toHaveBeenCalledOnce();
+    expect(beginAgentExecutionStepMock).toHaveBeenCalledOnce();
     expect(sendMessageToTargetMock).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Digest ready" }),
       {
@@ -1099,12 +1647,6 @@ Post the digest.`,
   });
 
   it("marks the job run as background dispatch so the stale reaper uses the background window", async () => {
-    // dispatch_mode NULL falls through to RUN_STALE_MS (15s) in
-    // backgroundAwareStaleCutoffSql — a window sized for a foreground run a
-    // browser is streaming. Nothing streams a job, so it gets reaped mid-run.
-    // dispatch_mode now gets there via the runner's own pre-claim, not via
-    // startRun's options — see background-automation-runner.spec.ts for the
-    // dedicated self-claim regression test.
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
@@ -1113,7 +1655,9 @@ Post the digest.`,
     });
 
     expect(startRunMock).toHaveBeenCalledOnce();
-    expect(startRunMock.mock.calls[0][4]).not.toHaveProperty("dispatchMode");
+    expect(startRunMock.mock.calls[0][4]).toMatchObject({
+      dispatchMode: "background",
+    });
   });
 
   it("runs the job through the resume wrapper instead of calling runAgentLoop raw", async () => {
@@ -1137,9 +1681,6 @@ Post the digest.`,
   });
 
   it("records a run_timeout continuation boundary as an error and suppresses delivery", async () => {
-    // The soft timeout emits auto_continue{run_timeout} and the run row is
-    // still status 'completed'. Without the cut-off check the job is reported
-    // as a success and its truncated partial answer is shipped to Slack.
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
         id: "resource-cutoff",
@@ -1167,23 +1708,37 @@ Post the digest.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: any) => void | Promise<void>,
       ) => {
         const abort = new AbortController();
-        const activeRun = { runId, threadId, status: "running", abort };
-        void Promise.resolve().then(async () => {
-          await runFn(vi.fn(), abort.signal);
+        const activeRun = {
+          runId,
+          threadId,
+          turnId: runId,
+          status: "running",
+          abort,
+          finalized: Promise.resolve(),
+        };
+        activeRun.finalized = Promise.resolve().then(async () => {
+          await runFn(
+            vi.fn(),
+            abort.signal,
+            createRunChunkControl(abort.signal),
+          );
           activeRun.status = "completed";
+          const events = [
+            { seq: 0, event: { type: "text", text: "Half a digest" } },
+            {
+              seq: 1,
+              event: { type: "auto_continue", reason: "run_timeout" },
+            },
+          ];
+          Object.assign(activeRun, { events });
           await onComplete?.({
             ...activeRun,
-            events: [
-              { seq: 0, event: { type: "text", text: "Half a digest" } },
-              {
-                seq: 1,
-                event: { type: "auto_continue", reason: "run_timeout" },
-              },
-            ],
+            events,
           });
         });
         return activeRun;
@@ -1231,26 +1786,62 @@ Post the digest.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: any) => void | Promise<void>,
+        options?: { turnId?: string },
       ) => {
         const abort = new AbortController();
-        const activeRun = { runId, threadId, status: "running", abort };
-        void Promise.resolve().then(async () => {
-          await runFn(vi.fn(), abort.signal);
-          activeRun.status = "completed";
-          await onComplete?.({
-            ...activeRun,
-            events: [
+        const turnId = options?.turnId ?? runId;
+        const activeRun = {
+          runId,
+          threadId,
+          turnId,
+          status: "running",
+          abort,
+          finalized: Promise.resolve(),
+        };
+        activeRun.finalized = withMockExecutionFence(
+          {
+            threadId,
+            turnId,
+            runId,
+            generation: "1",
+          },
+          async () => {
+            await runFn(
+              vi.fn(),
+              abort.signal,
+              createRunChunkControl(abort.signal),
+            );
+            activeRun.status = "completed";
+            const events = [
               {
                 seq: 0,
-                event: { type: "auto_continue", reason: "network_interrupted" },
+                event: {
+                  type: "auto_continue",
+                  reason: "network_interrupted",
+                },
               },
-              { seq: 1, event: { type: "text", text: "Digest ready" } },
-              { seq: 2, event: { type: "done" } },
-            ],
-          });
-        });
+              {
+                seq: 1,
+                event: {
+                  type: "tool_done",
+                  tool: "send-notification",
+                  result: "Sent",
+                  completedSideEffect: true,
+                },
+              },
+              { seq: 2, event: { type: "text", text: "Digest ready" } },
+              { seq: 3, event: { type: "done" } },
+            ];
+            Object.assign(activeRun, { events });
+            await onComplete?.({
+              ...activeRun,
+              events,
+            });
+          },
+        );
         return activeRun;
       },
     );
@@ -1283,7 +1874,6 @@ createdBy: alice+jobs@agent-native.test
 Post the digest.`,
       },
     ]);
-    // Deleted mid-run: the re-read finds nothing.
     resourceGetByPathMock.mockResolvedValue(null);
 
     await processRecurringJobs({
@@ -1293,8 +1883,6 @@ Post the digest.`,
       model: "test-model",
     });
 
-    // The "mark as running" write happened before the delete; the completion
-    // write must not follow it and resurrect the job.
     const writesAfterStart = resourcePutMock.mock.calls.filter((call) =>
       String(call[2]).includes("lastStatus: success"),
     );
@@ -1302,8 +1890,6 @@ Post the digest.`,
   });
 
   it("keeps a schedule edited mid-run instead of restoring the pre-run copy", async () => {
-    // The run holds the frontmatter it started with. Writing that snapshot
-    // back on completion would silently undo the user's edit.
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
         id: "resource-edited",
@@ -1319,20 +1905,25 @@ createdBy: alice+jobs@agent-native.test
 Post the digest.`,
       },
     ]);
-    // While the job runs, the user moves it to 9pm Tokyo and edits the body.
-    resourceGetByPathMock.mockResolvedValue({
-      id: "resource-edited",
-      owner: "alice+jobs@agent-native.test",
-      path: "jobs/channel-digest.md",
-      content: `---
+    resourceGetByPathMock.mockImplementation(async () => {
+      const running = parseJobResource(resourcePutMock.mock.calls[0]![2]).meta;
+      return {
+        id: "resource-edited",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
 schedule: "0 21 * * *"
 timezone: Asia/Tokyo
 nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: alice+jobs@agent-native.test
+lastRun: ${running.lastRun}
+lastHistoryId: ${running.lastHistoryId}
+lastStatus: running
 ---
 
 Post the revised digest.`,
+      };
     });
 
     await processRecurringJobs({
@@ -1344,20 +1935,15 @@ Post the revised digest.`,
 
     const putContent: string = resourcePutMock.mock.calls.at(-1)![2];
     expect(putContent).toContain('schedule: "0 21 * * *"');
-    expect(putContent).toContain('timezone: "Asia/Tokyo"');
+    expect(putContent).toContain("timezone: Asia/Tokyo");
     expect(putContent).toContain("Post the revised digest.");
     expect(putContent).toContain("lastStatus: success");
-    // nextRun follows the edited schedule: 21:00 Tokyo is 12:00 UTC.
     expect(putContent).toContain('nextRun: "');
     expect(putContent).toMatch(/nextRun: "[\d-]+T12:00:00\.000Z"/);
   });
 
   it("resets a job stuck in lastStatus:running after 10+ minutes without executing it", async () => {
-    // P2 stale-running recovery: a serverless kill mid-job leaves
-    // lastStatus:"running" forever. The scheduler must detect runs that have
-    // been "running" for > 10 minutes (stuck-guard) and reset them to "error"
-    // without re-executing, then let the NEXT tick pick them up normally.
-    const stuckLastRun = new Date(Date.now() - 11 * 60 * 1000).toISOString(); // 11 minutes ago
+    const stuckLastRun = new Date(Date.now() - 11 * 60 * 1000).toISOString();
 
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
@@ -1384,22 +1970,19 @@ Do some work.`,
       model: "test-model",
     });
 
-    // The job must NOT have been executed — it should be skipped this tick.
     expect(createThreadMock).not.toHaveBeenCalled();
     expect(runAgentLoopMock).not.toHaveBeenCalled();
 
-    // The resource must have been updated to reset the stuck run to "error".
     expect(resourcePutMock).toHaveBeenCalledOnce();
-    const putCall = resourcePutMock.mock.calls[0][1]; // path argument
+    const putCall = resourcePutMock.mock.calls[0][1];
     expect(putCall).toBe("jobs/stuck-job.md");
-    const putContent: string = resourcePutMock.mock.calls[0][2]; // content argument
+    const putContent: string = resourcePutMock.mock.calls[0][2];
     expect(putContent).toContain("lastStatus: error");
     expect(putContent).toContain("timed out or been recycled");
   });
 
   it("does not reset a job that has been running for less than 10 minutes", async () => {
-    // A job that started < 10 min ago is still running legitimately — leave it.
-    const recentLastRun = new Date(Date.now() - 2 * 60 * 1000).toISOString(); // 2 minutes ago
+    const recentLastRun = new Date(Date.now() - 2 * 60 * 1000).toISOString();
 
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
@@ -1426,16 +2009,12 @@ Do some work.`,
       model: "test-model",
     });
 
-    // Still within 10-minute window — must be skipped without resetting.
     expect(createThreadMock).not.toHaveBeenCalled();
     expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
   it("does not record a lastRun for a tick that never ran the job", async () => {
-    // A job whose run-as user no longer exists is skipped on every tick. It
-    // must not report a run it never performed — the reason goes in lastError
-    // and the evaluation time in lastCheck.
-    dbExecuteMock.mockResolvedValue({ rows: [] });
+    mockOwnerMissing();
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
         id: "resource-blocked",
@@ -1460,18 +2039,20 @@ Do some work.`,
     });
 
     expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
     expect(resourcePutMock).toHaveBeenCalledOnce();
     const content: string = resourcePutMock.mock.calls[0][2];
-    expect(content).toContain("lastStatus: skipped");
+    expect(content).toContain("lastStatus: paused");
+    expect(content).toContain("enabled: false");
+    expect(content).toContain('pausedReason: "owner_missing"');
+    expect(content).toContain('lastErrorCode: "owner_missing"');
     expect(content).toContain("no longer exists");
     expect(content).toContain("lastCheck:");
     expect(content).not.toContain("lastRun:");
   });
 
-  it("stops rewriting a blocked job once its failure state is recorded", async () => {
-    // The skip path used to persist the resource on every 60s tick, churning
-    // the poll stream and moving the displayed timestamp forever.
-    dbExecuteMock.mockResolvedValue({ rows: [] });
+  it("stops rewriting a blocked job once its recent failure state is recorded", async () => {
+    mockOwnerMissing();
     const blocked = {
       id: "resource-blocked",
       owner: "ghost@agent-native.test",
@@ -1481,8 +2062,10 @@ schedule: "* * * * *"
 nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: ghost@agent-native.test
-lastStatus: skipped
+lastStatus: error
+lastErrorCode: owner_missing
 lastError: "user \\"ghost@agent-native.test\\" no longer exists"
+lastCheck: "${new Date(Date.now() - 60_000).toISOString()}"
 ---
 
 Do some work.`,
@@ -1498,5 +2081,99 @@ Do some work.`,
 
     expect(runAgentLoopMock).not.toHaveBeenCalled();
     expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { age: "recent", offset: -60_000, writes: 0 },
+    { age: "expired", offset: -5 * 60_000, writes: 1 },
+    { age: "missing", offset: undefined, writes: 1 },
+  ])(
+    "persists a repeated identity failure with a $age lastCheck only when needed",
+    async ({ offset, writes }) => {
+      mockOwnerMissing();
+      const blocked = {
+        id: "resource-blocked",
+        owner: "ghost@agent-native.test",
+        path: "jobs/blocked-job.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: ghost@agent-native.test
+lastStatus: error
+lastErrorCode: owner_missing
+lastError: "user \\"ghost@agent-native.test\\" no longer exists"
+${offset === undefined ? "" : `lastCheck: "${new Date(Date.now() + offset).toISOString()}"`}
+---
+
+Do some work.`,
+      };
+      resourceGetByPathMock.mockResolvedValueOnce(blocked);
+
+      const result = await runJobNow(blocked.owner, "blocked-job", {
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: testEngine,
+        model: "test-model",
+      });
+
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      expect(result.status).toBe("error");
+      expect(resourcePutMock).toHaveBeenCalledTimes(writes);
+      if (writes > 0) {
+        const content: string = resourcePutMock.mock.calls[0][2];
+        expect(content).toContain("lastCheck:");
+        expect(content).not.toContain("lastRun:");
+        expect(content).toContain('nextRun: "1970-01-01T00:00:00.000Z"');
+      }
+    },
+  );
+
+  it("patches claim and completion status without dropping application-owned frontmatter", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-factory-job",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+triggerType: schedule
+domain: factory
+appId: factory
+orgId: org-1
+factoryId: demo-factory
+displayName: Slack feedback
+maxIterations: 32
+createdBy: alice+jobs@agent-native.test
+---
+
+Observe Slack.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(resourcePutMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of resourcePutMock.mock.calls) {
+      const putContent: string = call[2];
+      expect(putContent).toContain("triggerType: schedule");
+      expect(putContent).toContain("domain: factory");
+      expect(putContent).toContain("appId: factory");
+      expect(putContent).toContain("factoryId: demo-factory");
+      expect(putContent).toContain("displayName: Slack feedback");
+      expect(putContent).toContain("maxIterations: 32");
+      expect(putContent).toContain("Observe Slack.");
+    }
+    expect(resourcePutMock.mock.calls.at(-1)![2]).toContain(
+      "lastStatus: success",
+    );
   });
 });

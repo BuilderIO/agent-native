@@ -1,3 +1,17 @@
+import {
+  isValidWorkspaceAppIdFormat,
+  normalizeTrackingDimension,
+} from "@agent-native/core/shared";
+
+export function normalizeCallerAppId(value: unknown): string | undefined {
+  const normalized = normalizeTrackingDimension(value);
+  return normalized &&
+    normalized.length <= 64 &&
+    isValidWorkspaceAppIdFormat(normalized)
+    ? normalized
+    : undefined;
+}
+
 export const IMAGE_CATEGORIES = [
   "hero",
   "landing",
@@ -13,6 +27,7 @@ export const IMAGE_CATEGORIES = [
 ] as const;
 
 export const MAX_ASSET_UPLOAD_FILES = 20;
+export const MAX_ASSET_UPLOAD_BATCH_BYTES = 4 * 1024 * 1024 - 256 * 1024;
 
 export const ASPECT_RATIOS = [
   "1:1",
@@ -43,12 +58,6 @@ export const IMAGE_MODELS = [
   "gpt-image-2",
 ] as const;
 
-// Per-model aspect-ratio constraints. Mirrors the image service catalog's
-// `supportedAspectRatios` (see the ai-services image-generation catalog). Models
-// omitted here accept the full ASPECT_RATIOS set. GPT image models map each
-// aspect ratio to a fixed OpenAI resolution and support only these three; other
-// ratios are rejected upstream with `unsupported_aspect_ratio`. Keep this in
-// sync with the catalog until the picker sources it dynamically from `/discover`.
 export const MODEL_ASPECT_RATIOS: Partial<
   Record<ImageModel, readonly AspectRatio[]>
 > = {
@@ -198,6 +207,17 @@ export interface PresetReference {
   required: boolean;
 }
 
+export type AssetAccessRole =
+  | "viewer"
+  | "commenter"
+  | "editor"
+  | "admin"
+  | "owner";
+
+export function canApproveWithRole(role: unknown): boolean {
+  return role === "editor" || role === "admin" || role === "owner";
+}
+
 export interface ImageLibrarySummary {
   id: string;
   title: string;
@@ -208,7 +228,7 @@ export interface ImageLibrarySummary {
   canonicalLogoAssetId?: string | null;
   coverAssetId?: string | null;
   visibility?: string;
-  accessRole?: "owner" | "admin" | "editor" | "viewer";
+  accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   archivedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -244,7 +264,7 @@ export interface ImageAssetMetadata {
   colors?: string[];
   contentHash?: string;
   generated?: boolean;
-  intent?: "subject" | string;
+  intent?: "subject" | (string & {});
   sourceAssetId?: string;
   referenceAssetIds?: string[];
   prompt?: string;
@@ -289,6 +309,7 @@ export interface AssetVariantState {
   slots: Array<{
     slotId: string;
     runId?: string;
+    ownerEmail?: string | null;
     status: "pending" | "ready" | "failed";
     assetId?: string;
     previewUrl?: string;
@@ -321,6 +342,18 @@ export interface GenerationPresetSummary {
   sortOrder: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface TemplateSummary extends Omit<
+  GenerationPresetSummary,
+  "libraryId"
+> {
+  libraryId: string | null;
+  scope: "global" | "library";
+  visibility: "private" | "org" | "public";
+  ownerEmail: string;
+  accessRole?: "viewer" | "commenter" | "editor" | "admin" | "owner";
+  libraryTitle?: string | null;
 }
 
 export interface GenerationSessionSummary {

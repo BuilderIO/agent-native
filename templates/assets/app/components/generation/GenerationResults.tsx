@@ -46,11 +46,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
+import { runRefreshRetryDelayMs } from "@/lib/run-refresh-retry";
 
 import type {
   AssetVariantState,
   ImageLibrarySummary,
 } from "../../../shared/api";
+import { looksLikeMachinePayload } from "../../../shared/provider-error";
 
 type LibraryListResult = {
   libraries?: ImageLibrarySummary[];
@@ -62,12 +64,6 @@ function variantStateKey(threadId: string | null) {
   return threadId ? `asset-variants:${threadId}` : "asset-variants";
 }
 
-// Only reconcile a still-pending slot once it is old enough that the run cannot
-// plausibly still be generating. Keep this above the server generation budget
-// (IMAGE_GENERATION_REQUEST_TIMEOUT_MS, default 300s) and in step with
-// STALE_IMAGE_RUN_MS in refresh-generation-run, so a slow-but-healthy run (e.g.
-// gpt-image-2) is not flagged "interrupted" and flipped to an error slot before
-// its finished image arrives.
 const STALE_PENDING_RUN_MS = 10 * 60 * 1000;
 
 function slotTime(slot: VariantSlot): number {
@@ -110,6 +106,12 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   const { data: librariesData } = useActionQuery("list-libraries", {
     compact: true,
   } as any) as { data?: LibraryListResult };
+  const { data: libraryAccess } = useActionQuery(
+    "get-library-access",
+    { libraryId: variants?.libraryId } as any,
+    { enabled: Boolean(variants?.libraryId) },
+  ) as { data?: { canApprove?: boolean } };
+  const canApprove = libraryAccess?.canApprove === true;
   const saveGenerated = useActionMutation("save-generated-image");
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const refreshGeneration = useActionMutation("refresh-generation-run");
@@ -132,9 +134,6 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
         ),
     [variants?.slots],
   );
-  // Variant numbers reflect generation order (oldest = 1), not display order:
-  // refined candidates render first but keep the next number in sequence
-  // instead of stealing "Variant 1" from the newest-first display sort above.
   const variantNumberBySlotId = useMemo(() => {
     const map = new Map<string, number>();
     (variants?.slots ?? [])
@@ -163,12 +162,15 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
     if (!runId) return;
     refreshingRunIds.current.add(runId);
     refreshGeneration.mutate(
-      { runId },
+      { runId, threadId },
       {
-        onSettled: () => {
-          window.setTimeout(() => {
-            refreshingRunIds.current.delete(runId);
-          }, 30_000);
+        onSettled: (_data, error) => {
+          const retryDelayMs = runRefreshRetryDelayMs(error);
+          if (retryDelayMs !== null) {
+            window.setTimeout(() => {
+              refreshingRunIds.current.delete(runId);
+            }, retryDelayMs);
+          }
           void queryClient.invalidateQueries({
             queryKey: stateQueryKey,
             refetchType: "active",
@@ -191,8 +193,6 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   };
 
   useEffect(() => {
-    // Re-measure after the slot list changes size (new/removed candidates)
-    // since that can flip whether either arrow should be enabled.
     updateScrollEdges();
   }, [slots.length]);
 
@@ -342,7 +342,11 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
           if (!open) setPreviewSlotId(null);
         }}
         onSelect={setPreviewSlotId}
-        onSave={(slot) => saveSlot(slot, () => setPreviewSlotId(null))}
+        onSave={
+          canApprove
+            ? (slot) => saveSlot(slot, () => setPreviewSlotId(null))
+            : undefined
+        }
         onRefine={(slot, variantNumber) => {
           refineSlot(slot, variantNumber);
           setPreviewSlotId(null);
@@ -371,6 +375,20 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
                   <Badge variant="secondary" className="shrink-0">
                     {statusSummary}
                   </Badge>
+                  {libraryAccess && !canApprove ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="outline" className="shrink-0">
+                            {t("library.draftsOnly")}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("library.draftsOnlyHint")}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : null}
                 </div>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
                   {libraryTitle || t("library.noBrandKit")} / {variants.prompt}
@@ -406,7 +424,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
                     isSaving={saveGenerated.isPending}
                     isDismissing={dismissSlot.isPending}
                     onPreview={() => setPreviewSlotId(slot.slotId)}
-                    onSave={() => saveSlot(slot)}
+                    onSave={canApprove ? () => saveSlot(slot) : undefined}
                     onRefine={() => refineSlot(slot, variantNumber)}
                     onDismiss={() => dismissSlotById(slot)}
                   />
@@ -455,7 +473,7 @@ function GenerationDraftCard({
   isSaving: boolean;
   isDismissing: boolean;
   onPreview: () => void;
-  onSave: () => void;
+  onSave?: () => void;
   onRefine: () => void;
   onDismiss: () => void;
 }) {
@@ -495,27 +513,29 @@ function GenerationDraftCard({
         {ready ? (
           <TooltipProvider>
             <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t("library.save")}
-                    disabled={isSaving}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onSave();
-                    }}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                  >
-                    {isSaving ? (
-                      <Spinner className="h-4 w-4" />
-                    ) : (
-                      <IconDeviceFloppy className="h-4 w-4" />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("library.save")}</TooltipContent>
-              </Tooltip>
+              {onSave ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("library.save")}
+                      disabled={isSaving}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSave();
+                      }}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                    >
+                      {isSaving ? (
+                        <Spinner className="h-4 w-4" />
+                      ) : (
+                        <IconDeviceFloppy className="h-4 w-4" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("library.save")}</TooltipContent>
+                </Tooltip>
+              ) : null}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -596,7 +616,7 @@ function GenerationPreviewDialog({
   isDismissing: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (slotId: string) => void;
-  onSave: (slot: VariantSlot) => void;
+  onSave?: (slot: VariantSlot) => void;
   onRefine: (slot: VariantSlot, variantNumber: number) => void;
   onDismiss: (slot: VariantSlot) => void;
 }) {
@@ -647,13 +667,19 @@ function GenerationPreviewDialog({
               {variantLabel}
             </p>
             <div className="flex shrink-0 items-center gap-2">
-              <Button
-                size="sm"
-                disabled={isSaving || !slot.assetId}
-                onClick={() => onSave(slot)}
-              >
-                {isSaving ? <Spinner className="h-4 w-4" /> : t("library.save")}
-              </Button>
+              {onSave ? (
+                <Button
+                  size="sm"
+                  disabled={isSaving || !slot.assetId}
+                  onClick={() => onSave(slot)}
+                >
+                  {isSaving ? (
+                    <Spinner className="h-4 w-4" />
+                  ) : (
+                    t("library.save")
+                  )}
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="sm"
@@ -676,8 +702,8 @@ function GenerationPreviewDialog({
               ) : null}
               <Button
                 variant="outline"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                size="icon-sm"
+                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 disabled={isDismissing}
                 onClick={() => onDismiss(slot)}
                 aria-label={t("library.deleteCandidate")}
@@ -753,9 +779,11 @@ function GenerationSlotPreview({ slot }: { slot: VariantSlot }) {
     );
   }
   if (slot.status === "failed") {
+    const failure =
+      slot.error && !looksLikeMachinePayload(slot.error) ? slot.error : null;
     return (
       <div className="flex h-full w-full items-center justify-center p-2 text-center text-[11px] text-destructive">
-        {slot.error || t("library.failed")}
+        {failure || t("library.failed")}
       </div>
     );
   }

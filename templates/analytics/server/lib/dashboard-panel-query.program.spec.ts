@@ -68,7 +68,19 @@ describe("dashboard-panel-query: program source", () => {
     it("throws on a non-object, non-string descriptor", () => {
       expect(() =>
         serializeProgramDescriptorInput(["not", "an", "object"]),
-      ).toThrow(/JSON string or object/);
+      ).toThrow(/program id or a JSON object/);
+    });
+
+    it("accepts a bare program id and stores it as a descriptor", () => {
+      expect(normalizeDashboardPanelQuery("program", "dp_01c5e3d")).toBe(
+        JSON.stringify({ programId: "dp_01c5e3d" }),
+      );
+    });
+
+    it("still rejects a string that is neither a program id nor JSON", () => {
+      expect(() => normalizeDashboardPanelQuery("program", "not json")).toThrow(
+        /program id or a JSON object/,
+      );
     });
   });
 
@@ -139,6 +151,31 @@ describe("dashboard-panel-query: program source", () => {
         expect.objectContaining({
           appId: "app",
           programId: "dp_custom_api",
+        }),
+      );
+    });
+
+    it("keeps org-only credential scope when previewing a data-program panel", async () => {
+      mocks.runDataProgram.mockResolvedValue({
+        ok: true,
+        rows: [{ id: 1 }],
+        schema: [{ name: "id", type: "number" }],
+        truncated: false,
+      });
+
+      await runDashboardPanelQuery({
+        source: "program",
+        query: JSON.stringify({ programId: "dp_customer" }),
+        ctx: { ...ctx, credentialScope: "org" },
+      });
+
+      expect(mocks.runDataProgram).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ctx: {
+            userEmail: ctx.userEmail,
+            orgId: ctx.orgId,
+            credentialScope: "org",
+          },
         }),
       );
     });
@@ -249,8 +286,30 @@ describe("dashboard-panel-query: program source", () => {
           query: "not json",
           ctx,
         }),
-      ).rejects.toThrow(/program panel sql must be a JSON object/);
+      ).rejects.toThrow(
+        /program panel sql must be a program id or a JSON object/,
+      );
       expect(mocks.runDataProgram).not.toHaveBeenCalled();
+    });
+
+    it("resolves a panel whose sql is a bare program id", async () => {
+      mocks.runDataProgram.mockResolvedValue({
+        ok: true,
+        rows: [{ n: 1 }],
+        schema: [{ name: "n", type: "number" }],
+        stale: false,
+        cacheHit: false,
+        asOfMs: Date.now(),
+      });
+      const result = await runDashboardPanelQuery({
+        source: "program",
+        query: "dp_01c5e3d",
+        ctx,
+      });
+      expect(result).toMatchObject({ rows: [{ n: 1 }] });
+      expect(mocks.runDataProgram).toHaveBeenCalledWith(
+        expect.objectContaining({ programId: "dp_01c5e3d" }),
+      );
     });
 
     it("throws a clear error when the descriptor is missing programId", async () => {

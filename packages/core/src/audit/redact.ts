@@ -20,23 +20,14 @@ const MAX_DEPTH = 6;
 const MAX_KEYS = 100;
 const MAX_ARRAY = 100;
 const MAX_JSON = 8000;
-/**
- * Head room reserved for the `…(N more chars)` marker so a truncated summary
- * still fits its caller's cap. Callers below this cannot carry a marker at all.
- */
 const MARKER_SLACK = 32;
 
-/** Heuristic: does a bare string value look like a secret? */
 function looksSecret(value: string): boolean {
   if (/^bearer\s+\S/i.test(value)) return true;
-  // Long, unbroken, high-entropy-ish opaque token (hex/base64url, no spaces).
   if (value.length >= 32 && /^[A-Za-z0-9_\-+/=.]+$/.test(value)) return true;
-  // Common secret prefixes (Stripe, GitHub, OpenAI, Slack, AWS, …).
   if (/^(sk|pk|rk|ghp|gho|xox[baprs]|AKIA|AIza|ya29)[-_]/i.test(value)) {
     return true;
   }
-  // Webhook URLs carry their secret in the path — redact regardless of the key
-  // they arrive under (e.g. a generic `value` field holding a Slack webhook).
   if (
     /^https?:\/\/(hooks\.slack\.com\/|[^/]*\.webhook\.office\.com\/|(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\/|hooks\.zapier\.com\/|maker\.ifttt\.com\/|discord\.com\/api\/webhooks\/)/i.test(
       value,
@@ -92,25 +83,14 @@ function redact(value: unknown, depth: number, maxString: number): unknown {
     }
     return out;
   }
-  // Functions, symbols, bigint, etc. — not serializable / not interesting.
   return undefined;
 }
 
 export interface RedactLimits {
-  /**
-   * Hard cap on the serialized output, INCLUDING the truncation envelope.
-   * Surfaces with their own wire budget (the A2A activity snapshot) pass a
-   * tighter cap than the audit-log default.
-   */
   maxJson?: number;
-  /** Cap on any single string value before it gets a truncation marker. */
   maxString?: number;
 }
 
-/**
- * Redact and serialize call arguments to a capped JSON string, or `null` when
- * there is nothing to record. Never throws.
- */
 export function redactArgsToJson(
   args: unknown,
   limits?: RedactLimits,
@@ -124,11 +104,6 @@ export function redactArgsToJson(
     const json = JSON.stringify(redacted);
     if (json == null) return null;
     if (json.length <= maxJson) return json;
-    // Slicing the serialized JSON would yield an unparseable string. Wrap a
-    // preview in a valid envelope so `get-audit-event` can always JSON.parse
-    // the stored `input`. JSON escaping makes the envelope overhead
-    // content-dependent, so shrink the preview until the whole thing measures
-    // under the cap rather than guessing at the overhead.
     const envelope = (preview: string) =>
       JSON.stringify({
         _auditTruncated: true,
@@ -147,10 +122,6 @@ export function redactArgsToJson(
   }
 }
 
-/**
- * Same bounds as `redactArgsToJson`, returned as a structural value for
- * surfaces whose consumers expect an object (transcript `metadata.input`).
- */
 export function redactArgsToValue(
   args: unknown,
   limits?: RedactLimits,
@@ -164,18 +135,11 @@ export function redactArgsToValue(
   }
 }
 
-/**
- * Bounded, redacted plain-text summary of a tool result. Oversized text keeps
- * its head and gains an explicit `…(N more chars)` marker, so a reader can
- * always tell a short result from a clipped one.
- */
 export function redactTextToSummary(
   text: string,
   maxChars = MAX_STRING,
 ): string | null {
   if (!text) return null;
-  // Only ever walk a bounded head: a multi-megabyte tool result must not be
-  // scanned in full just to produce a preview of it.
   const head = text.slice(0, maxChars + MARKER_SLACK);
   const redactedHead = redactEmbeddedSecrets(head);
   if (looksSecret(redactedHead.trim())) return REDACTED;
@@ -186,7 +150,6 @@ export function redactTextToSummary(
   return `${redactedHead.slice(0, keep)}…(${text.length - keep} more chars)`;
 }
 
-/** Exposed for tests. */
 export const __test = {
   looksSecret,
   redact,

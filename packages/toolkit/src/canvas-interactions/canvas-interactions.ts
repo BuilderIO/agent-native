@@ -1,11 +1,3 @@
-/**
- * Headless canvas interaction primitives shared by visual editors.
- *
- * This module deliberately knows nothing about React, DOM elements, or how an
- * application persists objects. An app supplies its object adapter and turns
- * the returned semantic commands into its own mutations.
- */
-
 export const DEFAULT_CANVAS_DRAG_THRESHOLD = 3;
 export const DEFAULT_CANVAS_NUDGE = 1;
 export const DEFAULT_CANVAS_ACCELERATED_NUDGE = 10;
@@ -71,7 +63,6 @@ export interface CanvasNudgePolicy {
   acceleratedAmount?: number;
 }
 
-/** The interaction surface an app can durably support. */
 export interface CanvasInteractionCapabilities {
   selection: boolean;
   multiSelection: boolean;
@@ -120,7 +111,6 @@ export interface CanvasInteractionConfig {
   shortcuts?: readonly CanvasShortcut[];
 }
 
-/** The only persistence seam required by the shared interaction core. */
 export interface CanvasInteractionAdapter<TObjectId = string> {
   readonly capabilities: CanvasInteractionCapabilities;
   dispatch(command: CanvasCommand<TObjectId>): CanvasCommandDispatchResult;
@@ -183,10 +173,6 @@ export type CanvasShortcutModifier =
 export interface CanvasShortcut {
   command: CanvasCommandId;
   key: string;
-  /**
-   * Optional physical key identity for shifted punctuation. `KeyboardEvent.key`
-   * changes `]` to `}` under Shift, while `KeyboardEvent.code` stays stable.
-   */
   code?: string;
   modifiers?: readonly CanvasShortcutModifier[];
 }
@@ -235,7 +221,7 @@ export type CanvasEscapeResult<TObjectId = string> =
       selectedObjectIds: readonly TObjectId[];
     };
 
-export interface CanvasResizeInput {
+export interface CanvasResizeInput extends CanvasModifiers {
   handle: CanvasResizeHandle;
   delta: CanvasPoint;
   preserveAspectRatio?: boolean;
@@ -255,7 +241,6 @@ export interface CanvasNudgeResult {
   delta: CanvasPoint;
 }
 
-/** A pointer expressed in browser client coordinates. */
 export interface CanvasGesturePointer extends CanvasPoint, CanvasModifiers {}
 
 export type CanvasGestureKind = "move" | "resize";
@@ -264,12 +249,10 @@ export type CanvasGesturePhase = "idle" | "pending" | "active";
 export interface CanvasGestureBase<TObjectId = string> {
   readonly kind: CanvasGestureKind;
   readonly objectIds: readonly TObjectId[];
-  /** Pointer location when the gesture began, in browser client coordinates. */
   readonly startPointer: CanvasGesturePointer;
   readonly pointer: CanvasGesturePointer;
   readonly clientDelta: CanvasPoint;
   readonly canvasDelta: CanvasPoint;
-  /** Whether this gesture should create copies as part of its one final commit. */
   readonly duplicate: boolean;
 }
 
@@ -314,15 +297,10 @@ export type CanvasGestureStart<TObjectId = string> =
   | CanvasMoveGestureStart<TObjectId>
   | CanvasResizeGestureStart<TObjectId>;
 
-/** Typed result returned by host preview, commit, and cancel callbacks. */
 export type CanvasGestureAdapterResult =
   | { handled: true }
   | { handled: false; reason: "unsupported" | "unhandled" };
 
-/**
- * Persistence-neutral callbacks for a single object gesture. Previews are
- * transient; `commit` is invoked at most once after an active gesture ends.
- */
 export interface CanvasGestureAdapter<TObjectId = string> {
   preview?(gesture: CanvasGesture<TObjectId>): CanvasGestureAdapterResult;
   commit(gesture: CanvasGesture<TObjectId>): CanvasGestureAdapterResult;
@@ -444,7 +422,6 @@ function hasOnlyShortcutModifiers(
   );
 }
 
-/** Resolves click-to-edit without attaching event listeners. */
 export function resolveCanvasTextActivation(
   input: CanvasTextActivationInput,
   policy: CanvasTextEditPolicy = {},
@@ -456,10 +433,6 @@ export function resolveCanvasTextActivation(
     : "select";
 }
 
-/**
- * Escape has one explicit owner: editing wins over any box-selection state.
- * The host applies this result before handing Escape to generic UI dismissal.
- */
 export function resolveCanvasEscape<TObjectId>(
   input: CanvasEscapeInput<TObjectId>,
   policy: CanvasTextEditPolicy = {},
@@ -488,7 +461,6 @@ export function resolveCanvasEscape<TObjectId>(
   };
 }
 
-/** Converts a browser client point into unscaled canvas coordinates. */
 export function clientPointToCanvasPoint(
   point: CanvasPoint,
   viewport: CanvasViewport,
@@ -501,7 +473,6 @@ export function clientPointToCanvasPoint(
   };
 }
 
-/** Converts a client-space drag delta to the canvas's unscaled coordinate space. */
 export function clientDeltaToCanvasDelta(
   delta: CanvasPoint,
   viewport: CanvasViewport,
@@ -514,7 +485,6 @@ export function clientDeltaToCanvasDelta(
   };
 }
 
-/** Whether the client pointer crossed the intentional-drag threshold. */
 export function hasCrossedCanvasDragThreshold(
   start: CanvasPoint,
   current: CanvasPoint,
@@ -525,7 +495,6 @@ export function hasCrossedCanvasDragThreshold(
   return dx * dx + dy * dy >= threshold * threshold;
 }
 
-/** Locks a drag to its dominant axis, used for Shift-drag. */
 export function constrainCanvasDragDelta(
   delta: CanvasPoint,
   lockAxis = false,
@@ -536,10 +505,6 @@ export function constrainCanvasDragDelta(
     : { x: 0, y: delta.y };
 }
 
-/**
- * Resizes against the opposite edge. Shift preserves aspect ratio on corners;
- * midpoint handles stay single-axis so their fixed edge remains predictable.
- */
 export function resizeCanvasRect(
   start: CanvasRect,
   input: CanvasResizeInput,
@@ -554,43 +519,73 @@ export function resizeCanvasRect(
     input.handle === "sw" || input.handle === "s" || input.handle === "se";
   const resizesHorizontally = fromWest || fromEast;
   const resizesVertically = fromNorth || fromSouth;
+  const resizeFromCenter = Boolean(input.altKey);
   let width =
-    start.width + (fromWest ? -input.delta.x : fromEast ? input.delta.x : 0);
+    start.width +
+    (fromWest ? -input.delta.x : fromEast ? input.delta.x : 0) *
+      (resizeFromCenter ? 2 : 1);
   let height =
-    start.height + (fromNorth ? -input.delta.y : fromSouth ? input.delta.y : 0);
+    start.height +
+    (fromNorth ? -input.delta.y : fromSouth ? input.delta.y : 0) *
+      (resizeFromCenter ? 2 : 1);
 
   const minWidth = input.minWidth ?? DEFAULT_CANVAS_MIN_SIZE;
   const minHeight = input.minHeight ?? DEFAULT_CANVAS_MIN_SIZE;
+  const preserveAspectRatio =
+    Boolean(input.preserveAspectRatio) && start.width > 0 && start.height > 0;
+  const widthChange = Math.abs(width - start.width);
+  const heightChange = Math.abs(height - start.height);
+  const derivesHeight =
+    preserveAspectRatio && resizesHorizontally && !resizesVertically;
+  const derivesWidth =
+    preserveAspectRatio && resizesVertically && !resizesHorizontally;
 
-  if (
-    input.preserveAspectRatio &&
-    resizesHorizontally &&
-    resizesVertically &&
-    start.width > 0 &&
-    start.height > 0
-  ) {
-    const horizontalScale = width / start.width;
-    const verticalScale = height / start.height;
-    const scale =
-      Math.abs(horizontalScale - 1) >= Math.abs(verticalScale - 1)
-        ? horizontalScale
-        : verticalScale;
-    const minScale = Math.max(minWidth / start.width, minHeight / start.height);
-    width = start.width * Math.max(minScale, scale);
-    height = start.height * Math.max(minScale, scale);
+  if (derivesHeight) {
+    height = width / (start.width / start.height);
+  } else if (derivesWidth) {
+    width = height * (start.width / start.height);
+  } else if (preserveAspectRatio && resizesHorizontally && resizesVertically) {
+    if (widthChange >= heightChange) {
+      height = width / (start.width / start.height);
+    } else {
+      width = height * (start.width / start.height);
+    }
   }
 
+  const widthBelowMinimum = width < minWidth;
+  const heightBelowMinimum = height < minHeight;
   width = Math.max(minWidth, width);
   height = Math.max(minHeight, height);
+  if (preserveAspectRatio) {
+    if (widthBelowMinimum && !heightBelowMinimum) {
+      height = Math.max(minHeight, width / (start.width / start.height));
+    } else if (heightBelowMinimum && !widthBelowMinimum) {
+      width = Math.max(minWidth, height * (start.width / start.height));
+    } else if (widthBelowMinimum && heightBelowMinimum) {
+      width = Math.max(minWidth, minHeight * (start.width / start.height));
+      height = width / (start.width / start.height);
+    }
+  }
+  const centerDerivedHeight = derivesHeight && !resizeFromCenter;
+  const centerDerivedWidth = derivesWidth && !resizeFromCenter;
   return {
-    x: fromWest ? start.x + start.width - width : start.x,
-    y: fromNorth ? start.y + start.height - height : start.y,
+    x:
+      resizeFromCenter || centerDerivedWidth
+        ? start.x + (start.width - width) / 2
+        : fromWest
+          ? start.x + start.width - width
+          : start.x,
+    y:
+      resizeFromCenter || centerDerivedHeight
+        ? start.y + (start.height - height) / 2
+        : fromNorth
+          ? start.y + start.height - height
+          : start.y,
     width,
     height,
   };
 }
 
-/** Whether this drag gesture should duplicate selected objects before moving. */
 export function shouldDuplicateCanvasDrag(
   modifiers: CanvasModifiers,
   duplicateModifier: CanvasDuplicateModifier = "alt",
@@ -607,7 +602,6 @@ export function shouldDuplicateCanvasDrag(
   }
 }
 
-/** Resolves standard arrow-key movement, including Shift's accelerated nudge. */
 export function resolveCanvasNudge(
   input: CanvasNudgeInput,
   policy: CanvasNudgePolicy = {},
@@ -629,7 +623,6 @@ export function resolveCanvasNudge(
   }
 }
 
-/** Looks up a semantic command without referring to platform-specific events. */
 export function resolveCanvasShortcut(
   input: CanvasShortcutInput,
   shortcuts: readonly CanvasShortcut[] = DEFAULT_CANVAS_SHORTCUTS,
@@ -647,7 +640,6 @@ export function resolveCanvasShortcut(
   return shortcut?.command ?? null;
 }
 
-/** Creates a reusable, immutable shortcut lookup for one editor policy. */
 export function createCanvasShortcutRegistry(
   shortcuts: readonly CanvasShortcut[] = DEFAULT_CANVAS_SHORTCUTS,
 ): CanvasShortcutRegistry {
@@ -657,11 +649,6 @@ export function createCanvasShortcutRegistry(
   };
 }
 
-/**
- * Creates an app-configured pure interaction core. `dispatch` is optional so
- * hosts can either use the helpers directly or receive semantic commands via
- * their adapter without the Toolkit owning any state.
- */
 export function createCanvasInteractionCore<TObjectId = string>(
   config: CanvasInteractionConfig = {},
   adapter?: CanvasInteractionAdapter<TObjectId>,
@@ -763,11 +750,6 @@ export function createCanvasInteractionCore<TObjectId = string>(
   };
 }
 
-/**
- * Creates a small state machine for one pointer gesture at a time. It keeps
- * browser coordinates at its boundary, while every emitted preview and commit
- * is in stable canvas coordinates. Hosts own rendering and persistence.
- */
 export function createCanvasGestureController<TObjectId = string>(
   config: CanvasGestureControllerConfig<TObjectId>,
 ) {
@@ -827,6 +809,7 @@ export function createCanvasGestureController<TObjectId = string>(
       rect: core.resize(gestureStart.rect, {
         handle: gestureStart.handle,
         delta: convertedDelta,
+        altKey: pointer.altKey,
         preserveAspectRatio: Boolean(pointer.shiftKey),
       }),
     };

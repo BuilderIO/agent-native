@@ -55,6 +55,7 @@ const providerOptions = [
   "all",
   "slack",
   "granola",
+  "zoom",
   "github",
   "clips",
   "manual",
@@ -148,9 +149,7 @@ export default function SearchRoute() {
   return (
     <div className="min-h-full bg-background">
       <PageHeader
-        eyebrow={t("searchPage.eyebrow")}
         title={t("searchPage.title")}
-        description={t("searchPage.description")}
         actions={
           <Badge variant="outline" className="gap-2">
             <IconSearch className="size-4" />
@@ -899,6 +898,7 @@ function displayLabel(value: string) {
     github: "GitHub",
     drive: "Drive",
     granola: "Granola",
+    zoom: "Zoom",
     manual: "Manual",
     generic: "Generic",
     notion: "Notion",

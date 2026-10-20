@@ -21,6 +21,13 @@ describe("isMcpEmbedSurface (calendar)", () => {
     expect(isMcpEmbedSurface()).toBe(true);
   });
 
+  it("keeps Electron chat-first surfaces out of the MCP embed path", () => {
+    vi.stubGlobal("window", {
+      location: { search: "?embedded=1&chatFirst=1" },
+    });
+    expect(isMcpEmbedSurface()).toBe(false);
+  });
+
   it("ignores ordinary in-app routes without the embed flag", () => {
     vi.stubGlobal("window", { location: { search: "?date=2026-05-23" } });
     expect(isMcpEmbedSurface()).toBe(false);

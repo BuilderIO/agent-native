@@ -21,17 +21,27 @@ export const triageItemStatusSchema = z.enum([
   "pr_observed",
   "auto_approved",
   "merged",
+  "resolved",
 ]);
 export type TriageItemStatus = z.infer<typeof triageItemStatusSchema>;
 
 export const triageRiskSchema = z.enum([
   "unknown",
+  "negligible",
   "low",
   "medium",
   "high",
   "critical",
 ]);
 export type TriageRisk = z.infer<typeof triageRiskSchema>;
+
+export const triageConfidenceSchema = z.enum([
+  "unknown",
+  "low",
+  "medium",
+  "high",
+]);
+export type TriageConfidence = z.infer<typeof triageConfidenceSchema>;
 
 export const triageCoverageSchema = z.enum([
   "complete",
@@ -46,6 +56,7 @@ export const triageDecisionOutcomeSchema = z.enum([
   "needs_manual",
   "propose_fix",
   "propose_review",
+  "auto_approval_claimed",
   "auto_approve",
   "auto_merge",
 ]);
@@ -80,6 +91,8 @@ export const triageGuardCodeSchema = z.enum([
   "diff_too_large",
   "unknown_change",
   "owner_owned",
+  "risk_gate",
+  "confidence_gate",
 ]);
 export type TriageGuardCode = z.infer<typeof triageGuardCodeSchema>;
 

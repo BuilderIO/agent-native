@@ -1,9 +1,11 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -22,7 +24,6 @@ import {
 } from "@tabler/icons-react";
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import {
-  type ChangeEvent,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
   useEffect,
@@ -31,6 +32,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -52,7 +54,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import { imageUploadErrorMessage, uploadImageFile } from "../image-upload";
+import { createImagePickerId } from "../image-upload";
 import type { ContentImageOptions } from "./ImageNode";
 
 type ImageSourceTab = "upload" | "assets" | "link";
@@ -69,7 +71,6 @@ const MIN_IMAGE_WIDTH = 160;
 const MAX_AGENT_IMAGE_DIMENSION = 1600;
 const ALT_TEXT_CONTEXT_WORD_LIMIT = 250;
 const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
-
 interface PickedAssetImagePayload {
   url?: unknown;
   previewUrl?: unknown;
@@ -305,10 +306,9 @@ async function copyImage(
     ]);
     toast.success(copy.copied);
   } catch {
-    try {
-      await navigator.clipboard.writeText(src);
+    if (await writeClipboardText(src)) {
       toast.info(copy.urlCopied);
-    } catch {
+    } else {
       toast.error(copy.failed);
     }
   }
@@ -501,9 +501,13 @@ export function ImageBlock({
   getPos,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourceTab, setSourceTab] = useState<ImageSourceTab>("upload");
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
@@ -515,20 +519,23 @@ export function ImageBlock({
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const altInputRef = useRef<HTMLInputElement>(null);
   const emptyBlockRef = useRef<HTMLDivElement>(null);
   const lightboxImageRef = useRef<HTMLImageElement>(null);
   const mediaBlockRef = useRef<HTMLDivElement>(null);
   const resizeStateRef = useRef<ImageResizeState | null>(null);
-  const isEditable = editor.isEditable;
+  const options = extension.options as ContentImageOptions;
+  const canMutateMediaNow = () =>
+    editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const alt = (node.attrs.alt as string) || "";
-  const isUploading = Boolean(node.attrs.uploadId);
+  const isUploading = String(node.attrs.uploadId ?? "").startsWith(
+    "image-upload-",
+  );
   const width = normalizedImageWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
-  const options = extension.options as ContentImageOptions;
 
   useEffect(() => {
     setImageLoadFailed(false);
@@ -546,6 +553,12 @@ export function ImageBlock({
       ) {
         return;
       }
+      if (
+        !src &&
+        String(node.attrs.uploadId ?? "").startsWith("image-picker-")
+      ) {
+        updateAttributes({ uploadId: null });
+      }
       setSourcePanelOpen(false);
       setSourcePanelDismissed(true);
     }
@@ -553,7 +566,7 @@ export function ImageBlock({
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () =>
       document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [selected, sourcePanelOpen]);
+  }, [node.attrs.uploadId, selected, sourcePanelOpen, src, updateAttributes]);
 
   function handleComment() {
     if (!options.onImageComment) return;
@@ -630,11 +643,13 @@ export function ImageBlock({
   }
 
   function updateAltText(nextAlt: string) {
+    if (!canMutateMediaNow()) return;
     setAltDraft(nextAlt);
     updateAttributes({ alt: nextAlt });
   }
 
   async function handleGenerateAltText() {
+    if (!canMutateMediaNow()) return;
     const documentId = options.documentId;
     if (!documentId) {
       toast.error(t("editor.media.currentDocumentMissing"));
@@ -646,6 +661,10 @@ export function ImageBlock({
 
     try {
       const imageDataUrl = await imageDataUrlForAgent(src);
+      if (editor.isDestroyed || !canMutateMediaNow()) {
+        toast.error(t("empty.genericError"), { id: toastId });
+        return;
+      }
       const imageOccurrence = imageOccurrenceIndex({ editor, getPos, src });
       const articleContext = buildAltTextArticleContext({
         editor,
@@ -693,7 +712,7 @@ export function ImageBlock({
   }, [alt, altPopoverOpen]);
 
   function imageResizeMaxWidth() {
-    const wrapper = mediaBlockRef.current?.closest(".notion-editor");
+    const wrapper = mediaBlockRef.current?.closest(".content-editor");
     const maxWidth =
       wrapper?.getBoundingClientRect().width ??
       mediaBlockRef.current?.parentElement?.getBoundingClientRect().width ??
@@ -706,6 +725,7 @@ export function ImageBlock({
     event: ReactPointerEvent<HTMLButtonElement>,
     direction: ResizeDirection,
   ) {
+    if (!canMutateMediaNow()) return;
     event.preventDefault();
     event.stopPropagation();
     const rect = mediaBlockRef.current?.getBoundingClientRect();
@@ -744,7 +764,7 @@ export function ImageBlock({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       setDragWidth((currentWidth) => {
-        if (currentWidth) {
+        if (currentWidth && canMutateMediaNow()) {
           updateAttributes({ width: currentWidth });
         }
         return null;
@@ -761,24 +781,35 @@ export function ImageBlock({
     };
   }, [updateAttributes]);
 
-  async function handleImageFilePicked(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
+  function restoreEmptyPlaceholderSelection() {
+    if (src || typeof getPos !== "function") return;
+    const position = getPos();
+    if (typeof position !== "number") return;
+    editor.chain().focus().setNodeSelection(position).run();
+  }
 
-    const toastId = toast.loading(t("editor.media.uploadingImage"));
-    try {
-      const nextSrc = await uploadImageFile(file);
-      updateAttributes({ src: nextSrc });
-      setSourcePanelOpen(false);
-      toast.success(t("editor.media.imageAdded"), { id: toastId });
-    } catch (error) {
-      toast.error(imageUploadErrorMessage(error), { id: toastId });
+  function handleImageFileSelectionStart() {
+    if (!canMutateMediaNow()) return;
+    if (isUploading) return;
+    if (!fileStorageConfigured) {
+      setStorageSetupOpen(true);
+      return;
     }
+    if (typeof getPos !== "function") return;
+    const position = getPos();
+    if (typeof position !== "number") return;
+    const pickerId = String(node.attrs.uploadId || createImagePickerId());
+    if (!node.attrs.uploadId) updateAttributes({ uploadId: pickerId });
+    options.onImageFilePickerRequest?.({
+      pickerId,
+      position,
+      attrs: { ...node.attrs, uploadId: pickerId },
+    });
   }
 
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canMutateMediaNow()) return;
     const nextSrc = imageUrl.trim();
     if (!nextSrc) return;
 
@@ -792,7 +823,7 @@ export function ImageBlock({
       return;
     }
 
-    updateAttributes({ src: nextSrc, alt });
+    updateAttributes({ src: nextSrc, alt, uploadId: null });
     setImageUrl("");
     setSourcePanelOpen(false);
   }
@@ -809,8 +840,13 @@ export function ImageBlock({
   }
 
   function handleAssetsPickerMessage(name: string, payload: unknown) {
+    if (!canMutateMediaNow()) return;
     if (name === "close") {
       setAssetsPickerOpen(false);
+      if (!src) {
+        updateAttributes({ uploadId: null });
+        restoreEmptyPlaceholderSelection();
+      }
       return;
     }
 
@@ -824,16 +860,25 @@ export function ImageBlock({
     updateAttributes({
       src: nextSrc,
       alt: pickedAssetImageAlt(payload) ?? alt,
+      uploadId: null,
     });
     setAssetsPickerOpen(false);
     toast.success(t("editor.media.imageAdded"));
+  }
+
+  function handleAssetsPickerOpenChange(open: boolean) {
+    setAssetsPickerOpen(open);
+    if (!open && !src) {
+      updateAttributes({ uploadId: null });
+      restoreEmptyPlaceholderSelection();
+    }
   }
 
   function renderAssetsPickerDialog() {
     return (
       <AssetsPickerDialog
         open={assetsPickerOpen}
-        onOpenChange={setAssetsPickerOpen}
+        onOpenChange={handleAssetsPickerOpenChange}
         url={assetsPickerUrl()}
         title={t("editor.media.assets")}
         embeddedTitle={t("editor.media.assetsImagePicker")}
@@ -856,6 +901,7 @@ export function ImageBlock({
             type="button"
             role="tab"
             aria-selected={sourceTab === "upload"}
+            disabled={isUploading}
             className="media-source-panel__tab"
             onClick={() => setSourceTab("upload")}
           >
@@ -865,6 +911,7 @@ export function ImageBlock({
             type="button"
             role="tab"
             aria-selected={sourceTab === "assets"}
+            disabled={isUploading}
             className="media-source-panel__tab"
             onClick={() => setSourceTab("assets")}
           >
@@ -874,6 +921,7 @@ export function ImageBlock({
             type="button"
             role="tab"
             aria-selected={sourceTab === "link"}
+            disabled={isUploading}
             className="media-source-panel__tab"
             onClick={() => setSourceTab("link")}
           >
@@ -887,14 +935,25 @@ export function ImageBlock({
               type="button"
               variant="outline"
               className="w-full"
-              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              onClick={handleImageFileSelectionStart}
             >
               {t("editor.media.uploadFile")}
             </Button>
+            <FileStorageStatusGate
+              status={fileUploadStatus}
+              open={storageSetupOpen}
+              onOpenChange={setStorageSetupOpen}
+            />
           </div>
         ) : sourceTab === "assets" ? (
           <div className="media-source-panel__body">
-            <Button type="button" className="w-full" onClick={openAssetsPicker}>
+            <Button
+              type="button"
+              className="w-full"
+              disabled={isUploading}
+              onClick={openAssetsPicker}
+            >
               {t("editor.media.chooseFromAssets")}
             </Button>
           </div>
@@ -907,7 +966,7 @@ export function ImageBlock({
               onChange={(event) => setImageUrl(event.target.value)}
               placeholder={t("editor.media.pasteImageLink")}
             />
-            <Button type="submit" className="w-full">
+            <Button type="submit" className="w-full" disabled={isUploading}>
               {replace
                 ? t("editor.media.replaceImage")
                 : t("editor.media.embedImage")}
@@ -955,16 +1014,6 @@ export function ImageBlock({
             </span>
           </button>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            tabIndex={-1}
-            aria-hidden="true"
-            onChange={handleImageFilePicked}
-          />
-
           {showSourcePanel ? renderSourcePanel() : null}
           {renderAssetsPickerDialog()}
         </div>
@@ -973,7 +1022,11 @@ export function ImageBlock({
   }
 
   return (
-    <NodeViewWrapper className="media-block-wrapper" data-drag-handle>
+    <NodeViewWrapper
+      className="media-block-wrapper"
+      data-drag-handle
+      data-image-upload-id={node.attrs.uploadId || undefined}
+    >
       <div
         ref={mediaBlockRef}
         className={`media-block ${selected ? "media-block--selected" : ""}`}
@@ -1016,16 +1069,6 @@ export function ImageBlock({
             }}
           />
         )}
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          tabIndex={-1}
-          aria-hidden="true"
-          onChange={handleImageFilePicked}
-        />
 
         {isEditable && (alt.trim() || altPopoverOpen) ? (
           <Popover open={altPopoverOpen} onOpenChange={setAltPopoverOpen}>
@@ -1281,7 +1324,7 @@ export function ImageBlock({
                     role="menuitem"
                     onClick={() => {
                       setMoreMenuOpen(false);
-                      deleteNode();
+                      if (canMutateMediaNow()) deleteNode();
                     }}
                   >
                     <span
@@ -1304,6 +1347,21 @@ export function ImageBlock({
             data-visible={isHovered ? "true" : undefined}
             aria-hidden={!isHovered}
           >
+            {editor.isEditable && options.onImageComment ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleComment}
+                    className="media-block__toolbar-btn"
+                    aria-label={t("editor.media.commentOnImage")}
+                  >
+                    <IconMessageCircle size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("editor.comment")}</TooltipContent>
+              </Tooltip>
+            ) : null}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button

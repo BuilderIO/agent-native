@@ -8,7 +8,7 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 
 **데이터 프로그램(data program)**은 이름이 지정되고 저장된, 에이전트가 작성한 JS 스크립트로, 데이터를 가져오고, 조인하고, 필터링하거나 집계합니다 — `providerFetch` / `providerFetchAll` / `providerSearchAll`을 통한 provider API, `appAction`을 통한 app 데이터, 또는 Resources 기반 workspace 파일을 사용하며, 결과와 함께 `emit(rows, schema)`를 정확히 한 번 호출합니다. 결과는 SQL에 캐시되며, 어떤 차트/테이블 컴포넌트든 이를 렌더링할 수 있고, 페이지 뷰마다가 아니라 여러분이 선택한 정책에 따라 갱신됩니다.
 
-[`run-code`](/docs/actions)가 사용 가능한 곳이라면 어디서든 자동으로 사용할 수 있습니다 — app별로 마운트하거나 설정할 필요가 없습니다. 여러분의 app에 이미 run-code가 활성화되어 있다면, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program`, `delete-data-program`은 이미 등록된 actions입니다.
+[`run-code`](/docs/actions-overview)가 사용 가능한 곳이라면 어디서든 자동으로 사용할 수 있습니다 — app별로 마운트하거나 설정할 필요가 없습니다. 여러분의 app에 이미 run-code가 활성화되어 있다면, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program`, `delete-data-program`은 이미 등록된 actions입니다.
 
 <Diagram id="doc-block-dp-overview" title={"일회성 쿼리에서 실시간 패널로"} summary={"run-code 스크립트는 emit()을 호출하는 순간 저장된 프로그램이 됩니다. 어떤 dashboard 패널이든 여기에 바인딩할 수 있으며, 이후 캐시/갱신 정책이 이어받습니다."}>
 
@@ -324,6 +324,6 @@ emit(rows, [
 ## 관련 문서 {#related}
 
 - [확장 기능](/docs/extensions) — 데이터 프로그램이 보안 태세와 공유 모델을 공유하지만 자체 UI를 가진 샌드박스화된 mini-app 프리미티브.
-- [Actions](/docs/actions) — 데이터 프로그램이 구축되는 기반이 되는 `run-code` 규약과 샌드박스 전역 객체(`providerFetch`, `appAction` 등).
+- [Actions](/docs/actions-overview) — 데이터 프로그램이 구축되는 기반이 되는 `run-code` 규약과 샌드박스 전역 객체(`providerFetch`, `appAction` 등).
 - [공유 및 개인정보 보호](/docs/sharing) — 데이터 프로그램이 사용하는, 조직 내부로 한정되며 결코 공개되지 않는 공유 모델.
 - [보안](/docs/security) — 프레임워크의 자격 증명 처리 및 접근 범위 지정 불변 조건.

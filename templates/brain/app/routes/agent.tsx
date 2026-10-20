@@ -1,4 +1,5 @@
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { buildLegacyAgentSettingsRoute } from "@agent-native/core/client/navigation";
+import { Navigate, useLocation } from "react-router";
 
 import { messagesByLocale } from "@/i18n-data";
 
@@ -7,5 +8,12 @@ export function meta() {
 }
 
 export default function AgentRoute() {
-  return <AgentTabsPage appName="Brain" />;
+  const location = useLocation();
+
+  return (
+    <Navigate
+      to={buildLegacyAgentSettingsRoute(location.hash, location.search)}
+      replace
+    />
+  );
 }

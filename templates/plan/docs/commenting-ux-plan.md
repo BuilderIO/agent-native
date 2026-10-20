@@ -176,7 +176,7 @@ rewrite, do not re-derive the anchor type, do not rebuild the mention grammar.
 4. **The handoff is one ordered, target-grouped manifest** — per target, the
    human's edit hunk first, then the comments about that target; open +
    agent-targeted first; resolved/human collapsed; orphaned surfaced, never dropped.
-5. **Additive-only, Neon/Postgres-safe, dialect-agnostic.** No drops / renames /
+5. **Additive-only, Neon/Postgres-safe.** No drops / renames /
    truncation. Backfill-on-read; dual-write for one release.
 
 ---
@@ -209,7 +209,7 @@ resolvedAt:    text("resolved_at"),    // ISO timestamp
 > `mentions_json` / `resolved_by` / `resolved_at` are genuinely nullable (null =
 > unknown / unresolved), so they carry no such hazard. Confirm the approach against
 > the repo's migration/startup pattern; additive only, never `drizzle-kit push` at
-> prod, Neon-dialect-agnostic.
+> prod, Neon/Postgres-safe.
 
 - Re-export `PLAN_COMMENT_RESOLUTION_TARGETS` from `shared/types.ts` (it currently
   lives in `comment-context.ts:1`); extend the `PlanComment` interface

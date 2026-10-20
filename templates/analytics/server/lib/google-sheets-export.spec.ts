@@ -35,7 +35,7 @@ describe("google-sheets-export", () => {
       });
   });
 
-  it("creates a sheet through google_drive OAuth and writes schema plus rows", async () => {
+  it("creates a sheet through google_sheets OAuth and writes schema plus rows", async () => {
     const result = await exportDashboardPanelToGoogleSheet({
       dashboardId: "dashboard-1",
       dashboardTitle: "Revenue",
@@ -62,7 +62,7 @@ describe("google-sheets-export", () => {
     });
 
     expect(mocks.executeProviderApiRequest).toHaveBeenNthCalledWith(1, {
-      provider: "google_drive",
+      provider: "google_sheets",
       method: "POST",
       path: "https://sheets.googleapis.com/v4/spreadsheets",
       query: {
@@ -72,7 +72,7 @@ describe("google-sheets-export", () => {
       body: { properties: { title: "Revenue - Recent orders" } },
     });
     expect(mocks.executeProviderApiRequest).toHaveBeenNthCalledWith(2, {
-      provider: "google_drive",
+      provider: "google_sheets",
       method: "PUT",
       path: "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/'Revenue%20-%20Recent%20orders'!A1",
       query: { valueInputOption: "RAW" },
@@ -102,7 +102,7 @@ describe("google-sheets-export", () => {
         columnCount: 4,
         truncated: true,
         bytesProcessed: 2048,
-        provider: "google_drive",
+        provider: "google_sheets",
         updatedCells: 4,
       },
     });

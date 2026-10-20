@@ -70,6 +70,29 @@ export const assetGenerationPresets = table("image_generation_presets", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+export const assetTemplates = table("asset_templates", {
+  id: text("id").primaryKey(),
+  libraryId: text("library_id"),
+  collectionId: text("collection_id"),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category").notNull().default("style-only"),
+  mediaType: text("media_type").notNull().default("image"),
+  promptTemplate: text("prompt_template"),
+  aspectRatio: text("aspect_ratio").notNull().default("16:9"),
+  imageSize: text("image_size").notNull().default("2K"),
+  model: text("model").notNull().default("gemini-3.1-flash-image"),
+  textPolicy: text("text_policy").notNull().default(""),
+  referencePolicy: text("reference_policy").notNull().default("auto"),
+  settings: text("settings").notNull().default("{}"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const assetTemplateShares = createSharesTable("asset_template_shares");
+
 export const assetGenerationSessions = table("image_generation_sessions", {
   id: text("id").primaryKey(),
   libraryId: text("library_id").notNull(),
@@ -150,23 +173,12 @@ export const assetGenerationRuns = table("image_generation_runs", {
   metadata: text("metadata").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
   completedAt: text("completed_at"),
-  // ── audit-log columns (v6-v9 migrations) ──
-  // `source`: who triggered the generation ("chat" | "ui" | "a2a"). Defaulted
-  // to "chat" because that's the historical path; UI button popovers and A2A
-  // callers update this on insert.
   source: text("source").notNull().default("chat"),
-  // `callerAppId`: only set for `source = "a2a"` — the calling app's id
-  // (e.g. "slides", "design"). Lets the audit log filter "all generations
-  // triggered by slides".
   callerAppId: text("caller_app_id"),
-  // Identity columns for org-admin audit. Captured at insert time from the
-  // request context so audit reads don't need to re-resolve who owned the run.
   ownerEmail: text("owner_email"),
   orgId: text("org_id"),
 });
 
-// Legacy export aliases keep existing generated action code and external
-// imports working while the app slug/resource name moves from Images to Assets.
 export const imageLibraries = assetLibraries;
 export const imageLibraryShares = assetLibraryShares;
 export const imageCollections = assetCollections;

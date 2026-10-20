@@ -13,16 +13,18 @@ export interface PeopleSearchResponse {
   scopeRequired?: boolean;
 }
 
+export type PeopleSearchScope = "all" | "directory";
+
 const PEOPLE_CONTACTS_STALE_TIME = 10 * 60_000;
 const PEOPLE_CONTACTS_GC_TIME = 30 * 60_000;
 const PEOPLE_SEARCH_STALE_TIME = 60_000;
 const PEOPLE_SEARCH_GC_TIME = 5 * 60_000;
 
-export const PEOPLE_CONTACTS_QUERY_KEY = [
-  "action",
-  "search-people",
-  { scope: "all" },
-] as const;
+export function peopleContactsQueryKey(scope: PeopleSearchScope = "all") {
+  return ["action", "search-people", { scope }] as const;
+}
+
+export const PEOPLE_CONTACTS_QUERY_KEY = peopleContactsQueryKey();
 
 function sourceRank(source?: PeopleSearchResult["source"]) {
   switch (source) {
@@ -115,13 +117,14 @@ export function filterPeopleResults(
 
 export function prefetchPeopleContacts(
   queryClient: ReturnType<typeof useQueryClient>,
+  scope: PeopleSearchScope = "all",
 ) {
   return queryClient.prefetchQuery({
-    queryKey: PEOPLE_CONTACTS_QUERY_KEY,
+    queryKey: peopleContactsQueryKey(scope),
     queryFn: () =>
       callAction<PeopleSearchResponse>(
         "search-people",
-        { scope: "all" },
+        { scope },
         { method: "GET" },
       ),
     staleTime: PEOPLE_CONTACTS_STALE_TIME,
@@ -129,13 +132,16 @@ export function prefetchPeopleContacts(
   });
 }
 
-export function usePeopleContacts(enabled = true) {
+export function usePeopleContacts(
+  scope: PeopleSearchScope = "all",
+  enabled = true,
+) {
   return useQuery({
-    queryKey: PEOPLE_CONTACTS_QUERY_KEY,
+    queryKey: peopleContactsQueryKey(scope),
     queryFn: () =>
       callAction<PeopleSearchResponse>(
         "search-people",
-        { scope: "all" },
+        { scope },
         { method: "GET" },
       ),
     enabled,
@@ -145,14 +151,18 @@ export function usePeopleContacts(enabled = true) {
   });
 }
 
-export function usePeopleSearch(query: string, enabled = true) {
+export function usePeopleSearch(
+  query: string,
+  enabled = true,
+  scope: PeopleSearchScope = "all",
+) {
   const q = query.trim();
   return useQuery({
-    queryKey: ["action", "search-people", { q, scope: "all" }],
+    queryKey: ["action", "search-people", { q, scope }],
     queryFn: () =>
       callAction<PeopleSearchResponse>(
         "search-people",
-        { q, scope: "all" },
+        { q, scope },
         { method: "GET" },
       ),
     enabled: enabled && q.length > 0,

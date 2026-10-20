@@ -2,8 +2,24 @@ import { resolve } from "path";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react-swc";
-import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
+
+import desktopPackage from "./package.json";
+
+function desktopDependencyExternal(
+  exclude: string[],
+  alwaysExternal: string[],
+) {
+  const packages = [
+    ...Object.keys(desktopPackage.dependencies).filter(
+      (name) => !exclude.includes(name),
+    ),
+    ...alwaysExternal,
+  ];
+  return (id: string) =>
+    packages.some((name) => id === name || id.startsWith(`${name}/`));
+}
 
 const workspaceRendererPackages = [
   "@agent-native/code-agents-ui",
@@ -82,7 +98,6 @@ function inlinePreloadChunksPlugin(): Plugin {
   return {
     name: "agent-native:inline-preload-chunks",
     generateBundle(_options, bundle) {
-      // Sandboxed Electron preloads need to be self-contained inside app.asar.
       const preloadBundle = bundle as PreloadOutputBundle;
       const sharedChunks = Object.entries(preloadBundle).flatMap(
         ([fileName, output]) =>
@@ -169,6 +184,11 @@ function resolveSentryDsn(): string {
 }
 
 const desktopSentryDefines = {
+  __AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL__: JSON.stringify(
+    process.env.AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL === "nightly"
+      ? "nightly"
+      : "production",
+  ),
   __AGENT_NATIVE_DESKTOP_SENTRY_DSN__: JSON.stringify(resolveSentryDsn()),
   __AGENT_NATIVE_DESKTOP_SENTRY_ENVIRONMENT__: JSON.stringify(
     firstNonEmpty(
@@ -196,64 +216,77 @@ const desktopSentryDefines = {
   ),
 };
 
+const desktopBuildChannel =
+  firstNonEmpty(process.env.AGENT_NATIVE_DESKTOP_BUILD_CHANNEL) ||
+  (process.env.CI === "true" || process.env.CI === "1" ? "release" : "dev");
+
+const desktopDefines = {
+  ...desktopSentryDefines,
+  __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__: JSON.stringify(desktopBuildChannel),
+};
+
 export default defineConfig({
   main: {
-    define: desktopSentryDefines,
-    plugins: [
-      externalizeDepsPlugin({
-        exclude: [
-          "@agent-native/code-agents-ui",
-          "@agent-native/code-agents-ui/code-agents",
-          "@agent-native/shared-app-config",
-          "@modelcontextprotocol/sdk",
-          "@sentry/electron",
-          "electron-updater",
-          "zod",
-        ],
-      }),
-      assertElectronIsExternalPlugin(),
-    ],
+    define: desktopDefines,
+    plugins: [assertElectronIsExternalPlugin()],
     resolve: {
       alias: {
         "@shared": resolve("shared"),
       },
     },
     build: {
-      rollupOptions: {
-        external: ["electron", /^electron\/.+/],
+      externalizeDeps: false,
+      rolldownOptions: {
+        external: desktopDependencyExternal(
+          [
+            "@agent-native/code-agents-ui",
+            "@agent-native/code-agents-ui/code-agents",
+            "@agent-native/shared-app-config",
+            "@modelcontextprotocol/core",
+            "@modelcontextprotocol/node",
+            "@modelcontextprotocol/server",
+            "@sentry/electron",
+            "electron-updater",
+            "zod",
+          ],
+          ["electron", "node-pty"],
+        ),
         input: {
           index: resolve("src/main/index.ts"),
           "browser-control-host": resolve(
             "src/native-host/browser-control-host.ts",
           ),
         },
-        output: { format: "cjs", entryFileNames: "[name].js" },
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].js",
+        },
       },
     },
   },
   preload: {
-    define: desktopSentryDefines,
-    plugins: [
-      externalizeDepsPlugin({
-        exclude: [
-          "@agent-native/code-agents-ui",
-          "@agent-native/code-agents-ui/code-agents",
-          "@agent-native/shared-app-config",
-        ],
-      }),
-      inlinePreloadChunksPlugin(),
-    ],
+    define: desktopDefines,
+    plugins: [inlinePreloadChunksPlugin()],
     resolve: {
       alias: {
         "@shared": resolve("shared"),
       },
     },
     build: {
-      rollupOptions: {
-        external: ["electron"],
+      externalizeDeps: false,
+      rolldownOptions: {
+        external: desktopDependencyExternal(
+          [
+            "@agent-native/code-agents-ui",
+            "@agent-native/code-agents-ui/code-agents",
+            "@agent-native/shared-app-config",
+          ],
+          ["electron"],
+        ),
         input: {
           index: resolve("src/preload/index.ts"),
           webview: resolve("src/preload/webview.ts"),
+          "webview-chat": resolve("src/preload/webview-chat.ts"),
         },
         output: {
           format: "cjs",
@@ -263,7 +296,7 @@ export default defineConfig({
     },
   },
   renderer: {
-    define: desktopSentryDefines,
+    define: desktopDefines,
     optimizeDeps: {
       exclude: workspaceRendererPackages,
     },

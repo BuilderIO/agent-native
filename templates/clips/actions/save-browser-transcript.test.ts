@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   rows: [] as Array<Array<Record<string, unknown>>>,
+  lockRows: [] as Array<Record<string, unknown>>,
   update: vi.fn(),
   insert: vi.fn(),
+  track: vi.fn(),
   writeAppState: vi.fn(),
+  listEndedMeetingsForRecording: vi.fn(async () => []),
 }));
 
 const mockDb = {
@@ -12,11 +15,15 @@ const mockDb = {
     from: vi.fn(() => ({
       where: vi.fn(() => ({
         limit: vi.fn(async () => mocks.rows.shift() ?? []),
+        for: vi.fn(async () => mocks.lockRows),
       })),
     })),
   })),
   update: (...args: unknown[]) => mocks.update(...args),
   insert: (...args: unknown[]) => mocks.insert(...args),
+  transaction: vi.fn(async (run: (tx: typeof mockDb) => Promise<unknown>) =>
+    run(mockDb),
+  ),
 };
 
 vi.mock("@agent-native/core", () => ({
@@ -27,8 +34,20 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mocks.track(...args),
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: vi.fn(async () => ({ resource: { id: "rec-1" } })),
+}));
+
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  isNull: vi.fn((column: unknown) => ({ isNull: column })),
+  ne: vi.fn((column: unknown, value: unknown) => ({ ne: [column, value] })),
+  or: vi.fn((...args: unknown[]) => ({ or: args })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -36,10 +55,12 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     recordings: {
       id: "recordings.id",
+      mediaUpdatedAt: "recordings.mediaUpdatedAt",
       title: "recordings.title",
       titleSource: "recordings.titleSource",
       description: "recordings.description",
       status: "recordings.status",
+      durationMs: "recordings.durationMs",
     },
     recordingTranscripts: {
       recordingId: "recordingTranscripts.recordingId",
@@ -58,17 +79,216 @@ vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: vi.fn(() => "owner@example.com"),
 }));
 
+vi.mock("./lib/finalize-ended-meetings.js", () => ({
+  listEndedMeetingsForRecording: (...args: unknown[]) =>
+    mocks.listEndedMeetingsForRecording(...args),
+}));
+
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import saveBrowserTranscript from "./save-browser-transcript";
+
+function insertValues(written = [{ recordingId: "rec-1" }]) {
+  return vi.fn(() => ({
+    onConflictDoUpdate: vi.fn(() => ({
+      returning: vi.fn(async () => written),
+    })),
+  }));
+}
+
+function recordingRow(extra: Record<string, unknown> = {}) {
+  return {
+    mediaUpdatedAt: "media-1",
+    status: "ready",
+    title: "Clip",
+    titleSource: "user",
+    description: "x",
+    durationMs: 1200,
+    ...extra,
+  };
+}
 
 describe("save-browser-transcript", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.rows = [];
+    mocks.lockRows = [{ id: "rec-1" }];
+    mocks.listEndedMeetingsForRecording.mockResolvedValue([]);
+  });
+
+  it("asserts editor access on the recording before mutating", async () => {
+    const { assertAccess } = await import("@agent-native/core/sharing");
+    const values = insertValues();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[recordingRow()], []];
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Testing access",
+      source: "web-speech",
+    });
+
+    expect(assertAccess).toHaveBeenCalledWith("recording", "rec-1", "editor");
+  });
+
+  it("attributes transcript completion to the recording owner without request context", async () => {
+    mocks.rows = [[recordingRow()], []];
+    mocks.insert.mockReturnValue({ values: insertValues() });
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Private transcript text is not asserted here.",
+      source: "web-speech",
+    });
+
+    expect(mocks.track).toHaveBeenCalledWith(
+      "recording_completed",
+      expect.objectContaining({
+        app_name: "clips",
+        recording_attempt_id: "rec-1",
+        output_id: "rec-1",
+      }),
+      { userId: "owner@example.com" },
+    );
+  });
+
+  it("queues ended meeting notes after saving the transcript", async () => {
+    const values = insertValues();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [
+      [recordingRow()],
+      [],
+      [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
+    ];
+    mocks.listEndedMeetingsForRecording.mockResolvedValue([
+      { id: "meeting-1" },
+    ]);
+    vi.mocked(dispatchPostFinalizeJob).mockResolvedValue(undefined);
+
+    const result = await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "A saved transcript.",
+      source: "web-speech",
+    });
+
+    expect(result).toMatchObject({ status: "ready" });
+    expect(mocks.listEndedMeetingsForRecording).toHaveBeenCalledWith(
+      mockDb,
+      "rec-1",
+      { includePending: true },
+    );
+    expect(dispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      requireAccepted: true,
+    });
+  });
+
+  it("best-effort requeues ended meeting notes when an imported transcript is preserved", async () => {
+    mocks.rows = [
+      [recordingRow()],
+      [
+        {
+          status: "ready",
+          fullText: "A usable imported transcript.",
+          segmentsJson: "[]",
+          source: "imported",
+        },
+      ],
+    ];
+    mocks.listEndedMeetingsForRecording.mockResolvedValue([
+      { id: "meeting-1" },
+    ]);
+    vi.mocked(dispatchPostFinalizeJob).mockRejectedValue(
+      new Error("Post-finalize meeting-finalize worker returned HTTP 503"),
+    );
+
+    const result = await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Native text must not replace the import.",
+      source: "web-speech",
+      overwriteReady: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "skipped",
+      reason: "Imported transcript is kept",
+    });
+    expect(mocks.listEndedMeetingsForRecording).toHaveBeenCalledWith(
+      mockDb,
+      "rec-1",
+      { includePending: true },
+    );
+    expect(dispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      requireAccepted: false,
+    });
+  });
+
+  it("best-effort requeues ended meeting notes when an existing ready transcript is kept", async () => {
+    mocks.rows = [
+      [recordingRow()],
+      [
+        {
+          status: "ready",
+          fullText: "A usable native transcript.",
+          segmentsJson: '[{"startMs":0,"endMs":1000,"text":"Ready."}]',
+          source: "web-speech",
+        },
+      ],
+    ];
+    mocks.listEndedMeetingsForRecording.mockResolvedValue([
+      { id: "meeting-1" },
+    ]);
+    vi.mocked(dispatchPostFinalizeJob).mockRejectedValue(
+      new Error("Post-finalize meeting-finalize worker returned HTTP 503"),
+    );
+
+    const result = await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Lower-confidence replacement text.",
+      source: "web-speech",
+    });
+
+    expect(result).toMatchObject({
+      status: "skipped",
+      reason: "Transcript already exists",
+    });
+    expect(dispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      requireAccepted: false,
+    });
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+  });
+
+  it("does not report transcript save success before finalization is accepted", async () => {
+    mocks.insert.mockReturnValue({ values: insertValues() });
+    mocks.rows = [
+      [recordingRow()],
+      [],
+      [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
+    ];
+    mocks.listEndedMeetingsForRecording.mockResolvedValue([
+      { id: "meeting-1" },
+    ]);
+    vi.mocked(dispatchPostFinalizeJob).mockRejectedValue(
+      new Error("Post-finalize meeting-finalize worker returned HTTP 503"),
+    );
+
+    await expect(
+      saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "A saved transcript.",
+        source: "web-speech",
+      }),
+    ).rejects.toThrow("HTTP 503");
   });
 
   it("does not overwrite a pending cloud transcription with an empty native result", async () => {
     mocks.rows = [
+      [recordingRow()],
       [
         {
           recordingId: "rec-1",
@@ -96,7 +316,7 @@ describe("save-browser-transcript", () => {
   });
 
   it("does not create a failed row before recording finalization", async () => {
-    mocks.rows = [[]];
+    mocks.rows = [[recordingRow()], []];
 
     const result = await saveBrowserTranscript.run({
       recordingId: "rec-1",
@@ -116,11 +336,9 @@ describe("save-browser-transcript", () => {
   });
 
   it("keeps a truncated capture out of 'ready' so the cloud fallback still runs", async () => {
-    const values = vi.fn();
+    const values = insertValues();
     mocks.insert.mockReturnValue({ values });
-    // Recording already has a title and summary: only the truncation itself
-    // should still dispatch the transcript job that runs the cloud fallback.
-    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+    mocks.rows = [[recordingRow()], []];
     vi.mocked(dispatchPostFinalizeJob).mockResolvedValue(undefined);
 
     const result = await saveBrowserTranscript.run({
@@ -139,5 +357,173 @@ describe("save-browser-transcript", () => {
       }),
     );
     expect(result).toMatchObject({ status: "failed", truncated: true });
+  });
+
+  it.each([
+    ["macos-native", "mic"],
+    ["web-speech", "mic"],
+  ] as const)(
+    "tags synthesized segments as mic for the %s engine when no segments are supplied",
+    async (source, expectedSpeakerSource) => {
+      const values = insertValues();
+      mocks.insert.mockReturnValue({ values });
+      mocks.rows = [[recordingRow()], []];
+
+      await saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Hello there, this is a test.",
+        source,
+        overwriteReady: true,
+      });
+
+      const inserted = values.mock.calls[0][0] as { segmentsJson: string };
+      const segments = JSON.parse(inserted.segmentsJson);
+      expect(segments.length).toBeGreaterThan(0);
+      for (const segment of segments) {
+        expect(segment.source).toBe(expectedSpeakerSource);
+      }
+    },
+  );
+
+  it("round-trips a caller-supplied diarized speaker into segmentsJson", async () => {
+    const values = insertValues();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[recordingRow()], []];
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Hello there. General Kenobi.",
+      source: "whisper",
+      overwriteReady: true,
+      segments: [
+        { startMs: 0, endMs: 1_000, text: "Hello there.", speaker: "Alice" },
+        {
+          startMs: 1_000,
+          endMs: 2_000,
+          text: "General Kenobi.",
+          source: "system",
+          speaker: "Bob",
+        },
+      ],
+    });
+
+    const inserted = values.mock.calls[0][0] as { segmentsJson: string };
+    expect(JSON.parse(inserted.segmentsJson)).toEqual([
+      expect.objectContaining({ text: "Hello there.", speaker: "Alice" }),
+      expect.objectContaining({ text: "General Kenobi.", speaker: "Bob" }),
+    ]);
+  });
+
+  it("leaves synthesized segments source-less for whisper (mixed mic + system)", async () => {
+    const values = insertValues();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[recordingRow()], []];
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Hello there, this is a test.",
+      source: "whisper",
+      overwriteReady: true,
+    });
+
+    const inserted = values.mock.calls[0][0] as { segmentsJson: string };
+    const segments = JSON.parse(inserted.segmentsJson);
+    expect(segments.length).toBeGreaterThan(0);
+    for (const segment of segments) {
+      expect(segment.source).toBeUndefined();
+    }
+  });
+
+  it("reports a kept import when one lands after the read, not the native text", async () => {
+    mocks.update.mockReturnValue({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({ returning: vi.fn(async () => []) })),
+      })),
+    });
+    mocks.rows = [
+      [recordingRow()],
+      [{ recordingId: "rec-1", status: "pending", segmentsJson: "[]" }],
+      [{ source: "imported", status: "ready", fullText: "Imported text." }],
+    ];
+    mocks.listEndedMeetingsForRecording.mockResolvedValue([
+      { id: "meeting-1" },
+    ]);
+    vi.mocked(dispatchPostFinalizeJob).mockRejectedValue(
+      new Error("Post-finalize meeting-finalize worker returned HTTP 503"),
+    );
+
+    const result = await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Native words.",
+      source: "web-speech",
+    });
+
+    expect(result).toEqual({
+      recordingId: "rec-1",
+      status: "skipped",
+      reason: "Imported transcript is kept",
+    });
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+    expect(dispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      requireAccepted: false,
+    });
+  });
+
+  it("keeps an import that creates the row just before the first insert", async () => {
+    const values = insertValues([]);
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[recordingRow()], [], [{ source: "imported" }]];
+
+    const result = await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Native words.",
+      source: "web-speech",
+    });
+
+    expect(result).toMatchObject({ status: "skipped" });
+    expect(values).toHaveBeenCalledOnce();
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("fails when the transcript row disappears while saving", async () => {
+    mocks.update.mockReturnValue({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({ returning: vi.fn(async () => []) })),
+      })),
+    });
+    mocks.rows = [
+      [recordingRow()],
+      [{ recordingId: "rec-1", status: "pending", segmentsJson: "[]" }],
+      [],
+    ];
+
+    await expect(
+      saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Native words.",
+        source: "web-speech",
+      }),
+    ).rejects.toThrow("was removed while saving");
+  });
+
+  it("does not save a transcript if Rewind changed the media before the row lock", async () => {
+    const values = insertValues();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[recordingRow()], []];
+    mocks.lockRows = [];
+
+    await expect(
+      saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Native words.",
+        source: "web-speech",
+      }),
+    ).rejects.toMatchObject({ errorCode: "recording_media_changed" });
+
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 });

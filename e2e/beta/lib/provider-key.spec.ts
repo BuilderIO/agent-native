@@ -1,0 +1,275 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import type { BrowserContext } from "@playwright/test";
+
+import { LUNA_OPENAI_MODEL } from "./chat";
+import {
+  installOpenAiKey,
+  isConfirmedOpenAiEngineStatus,
+  isConfirmedOpenAiKeyInstall,
+  validateOpenAiKey,
+} from "./provider-key";
+
+test("requires the user-scoped OpenAI install response contract", () => {
+  const valid = {
+    status: 200,
+    body: '{"ok":true,"key":"OPENAI_API_KEY","baseUrlKey":"OPENAI_BASE_URL","scope":"user"}',
+  };
+  assert.equal(isConfirmedOpenAiKeyInstall(valid), true);
+  assert.equal(
+    isConfirmedOpenAiKeyInstall({
+      status: 204,
+      body: "",
+    }),
+    false,
+  );
+  assert.equal(
+    isConfirmedOpenAiKeyInstall({
+      status: 200,
+      body: '{"ok":true,"key":"OPENAI_API_KEY","scope":"org"}',
+    }),
+    false,
+  );
+  assert.equal(
+    isConfirmedOpenAiKeyInstall({
+      status: 200,
+      body: '{"ok":true,"key":"OPENAI_API_KEY","scope":"user"}',
+    }),
+    false,
+  );
+});
+
+test("requires the runtime status to name configured OpenAI", () => {
+  assert.equal(
+    isConfirmedOpenAiEngineStatus({
+      status: 200,
+      body: '{"configured":true,"engine":"ai-sdk:openai"}',
+    }),
+    true,
+  );
+  assert.equal(
+    isConfirmedOpenAiEngineStatus({
+      status: 200,
+      body: '{"configured":true,"engine":"builder"}',
+    }),
+    false,
+  );
+  assert.equal(
+    isConfirmedOpenAiEngineStatus({
+      status: 200,
+      body: '{"configured":false,"engine":"ai-sdk:openai"}',
+    }),
+    false,
+  );
+});
+
+test("passes the canonical endpoint through the browser evaluation boundary", async () => {
+  let evaluateArgs: readonly unknown[] | undefined;
+  const page = {
+    async goto() {},
+    async evaluate(_callback: unknown, args: readonly unknown[]) {
+      evaluateArgs = args;
+      return {
+        status: 200,
+        body: '{"ok":true,"key":"OPENAI_API_KEY","baseUrlKey":"OPENAI_BASE_URL","scope":"user"}',
+        runtimeStatus: {
+          status: 200,
+          body: '{"configured":true,"engine":"ai-sdk:openai"}',
+        },
+      };
+    },
+    async close() {},
+  };
+  const context = {
+    async newPage() {
+      return page;
+    },
+  } as unknown as BrowserContext;
+
+  const result = await installOpenAiKey(
+    context,
+    "https://beta.example.test",
+    "sk-example-dedicated",
+  );
+
+  assert.equal(result.installed, true);
+  assert.deepEqual(evaluateArgs, [
+    "/_agent-native/agent-engine/api-key",
+    "/_agent-native/agent-engine/status",
+    "sk-example-dedicated",
+    "https://api.openai.com/v1",
+    30_000,
+  ]);
+});
+
+test("retries the install on the page that finished navigating", async () => {
+  let evaluations = 0;
+  let settled = 0;
+  const page = {
+    async goto() {},
+    async waitForLoadState() {
+      settled += 1;
+    },
+    async evaluate() {
+      evaluations += 1;
+      if (evaluations === 1) {
+        throw new Error(
+          "page.evaluate: Execution context was destroyed, most likely because of a navigation.",
+        );
+      }
+      return {
+        status: 200,
+        body: '{"ok":true,"key":"OPENAI_API_KEY","baseUrlKey":"OPENAI_BASE_URL","scope":"user"}',
+        runtimeStatus: {
+          status: 200,
+          body: '{"configured":true,"engine":"ai-sdk:openai"}',
+        },
+      };
+    },
+    async close() {},
+  };
+  const context = {
+    async newPage() {
+      return page;
+    },
+  } as unknown as BrowserContext;
+
+  const result = await installOpenAiKey(
+    context,
+    "https://beta.example.test",
+    "sk-example-dedicated",
+  );
+
+  assert.equal(result.installed, true);
+  assert.equal(evaluations, 2);
+  assert.equal(settled, 1);
+});
+
+test("surfaces any other evaluation failure without retrying", async () => {
+  let evaluations = 0;
+  const page = {
+    async goto() {},
+    async waitForLoadState() {},
+    async evaluate() {
+      evaluations += 1;
+      throw new Error("net::ERR_CONNECTION_RESET");
+    },
+    async close() {},
+  };
+  const context = {
+    async newPage() {
+      return page;
+    },
+  } as unknown as BrowserContext;
+
+  await assert.rejects(
+    installOpenAiKey(context, "https://beta.example.test", "sk-example"),
+    /ERR_CONNECTION_RESET/,
+  );
+  assert.equal(evaluations, 1);
+});
+
+test("a host that never answers the in-page install fails instead of hanging", async () => {
+  const page = {
+    async goto() {},
+    evaluate: () => new Promise<never>(() => {}),
+    async close() {},
+  };
+  const context = {
+    async newPage() {
+      return page;
+    },
+  } as unknown as BrowserContext;
+
+  await assert.rejects(
+    installOpenAiKey(
+      context,
+      "https://beta.example.test",
+      "sk-example-dedicated",
+      20,
+    ),
+    /Installing the OpenAI key on https:\/\/beta\.example\.test did not finish/,
+  );
+});
+
+test("does not treat a successful write as an installed key when runtime is missing it", async () => {
+  const page = {
+    async goto() {},
+    async evaluate() {
+      return {
+        status: 200,
+        body: '{"ok":true,"key":"OPENAI_API_KEY","baseUrlKey":"OPENAI_BASE_URL","scope":"user"}',
+        runtimeStatus: {
+          status: 200,
+          body: '{"configured":false}',
+        },
+      };
+    },
+    async close() {},
+  };
+  const context = {
+    async newPage() {
+      return page;
+    },
+  } as unknown as BrowserContext;
+
+  const result = await installOpenAiKey(
+    context,
+    "https://beta.example.test",
+    "sk-example-dedicated",
+  );
+
+  assert.equal(result.installed, false);
+});
+
+test("validates the model execution path, not only the models listing", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; method: string; body?: string }> = [];
+  globalThis.fetch = (async (input, init) => {
+    requests.push({
+      url: String(input),
+      method: init?.method ?? "GET",
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    await validateOpenAiKey("sk-example-dedicated");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(
+    requests.map(({ url, method }) => ({ url, method })),
+    [
+      { url: "https://api.openai.com/v1/models", method: "GET" },
+      { url: "https://api.openai.com/v1/responses", method: "POST" },
+    ],
+  );
+  assert.deepEqual(JSON.parse(requests[1]?.body ?? "{}"), {
+    model: LUNA_OPENAI_MODEL,
+    input: "Reply with OK.",
+    max_output_tokens: 16,
+    store: false,
+  });
+});
+
+test("rejects a key that can list models but cannot execute luna", async () => {
+  const originalFetch = globalThis.fetch;
+  let call = 0;
+  globalThis.fetch = (async () => {
+    call += 1;
+    return new Response("{}", { status: call === 1 ? 200 : 403 });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      validateOpenAiKey("sk-example-restricted"),
+      new RegExp(`${LUNA_OPENAI_MODEL}.*HTTP 403`),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

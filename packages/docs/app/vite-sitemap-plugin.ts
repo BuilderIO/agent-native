@@ -12,22 +12,40 @@ import {
 import {
   DEFAULT_LOCALE,
   isLocaleCode,
+  normalizeLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
+import { getArticleTopics } from "../lib/article-topics";
+import {
+  ARTICLES_BASE,
+  ARTICLES_PAGE_SIZE,
+  USE_CASES_BASE,
+  articleMarkdown,
+  type CampaignContent,
+} from "../lib/campaign-content";
+import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
 import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
 import {
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../lib/docs-source";
+import { communityApps } from "./components/community-apps";
+import {
+  DOCS_LOCALES,
+  docsLocaleFromSegment,
+  docsMarkdownPathForSlug,
+  docsPathForSlug,
+  localizeDocsMarkdownLinks,
+  sitePathForLocale,
+  type DocsLocale,
+} from "./components/docs-locale";
+import { isRedirectedDocsPath } from "./components/docs-slug-redirects";
 import enUS from "./i18n/en-US";
+import { LEGAL_POLICY_METADATA } from "./legal-policy-list";
 
 export const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * Returns the last git commit date for a file path, falling back to fs mtime
- * when git is unavailable (non-git contexts such as Docker/CI without history).
- */
 function gitLastmod(filePath: string): Date {
   try {
     const iso = execSync(`git log -1 --format=%cI -- "${filePath}"`, {
@@ -41,10 +59,6 @@ function gitLastmod(filePath: string): Date {
   return fs.statSync(filePath).mtime;
 }
 
-/**
- * Vite plugin that auto-generates the public agent-web surface for the docs:
- * sitemap.xml, robots.txt, llms files, and Markdown mirrors for crawlable docs.
- */
 export function sitemapPlugin(): Plugin {
   const rootDir = path.resolve(__dirname, "..");
   const pkg = JSON.parse(
@@ -56,22 +70,220 @@ export function sitemapPlugin(): Plugin {
     description:
       "Open source framework for building apps where AI agents and UI share one state model.",
     pages: () => buildAgentWebPages(rootDir),
+    sitemapGroup: sitemapGroupForPage,
+    whenToUse: [
+      "Use Agent-Native when an AI agent and a user-facing UI need to share the same actions, SQL data, and application state.",
+      "Start with the documentation when you are building an agentic app, adding an action, or exposing a safe capability to external agents.",
+      "Connect the MCP server when an external host such as Claude, ChatGPT, Codex, or Cursor should drive the app through its actions.",
+      "Create a standalone Chat app with `npx --yes @agent-native/core@latest create <name> --standalone --template chat`.",
+      "After scaffolding, read AGENTS.md and the `build-an-app` and `adding-a-feature` skills before making changes.",
+    ],
+    developerResources: [
+      {
+        title: "When to use Agent-Native",
+        url: docsPathForSlug("external-agents"),
+        description:
+          "Use Agent-Native when an agent and a UI need to work against the same actions, SQL state, and application state.",
+      },
+      {
+        title: "OpenAPI specification",
+        url: "/openapi.json",
+        description:
+          "Typed HTTP operations, parameters, responses, and structured errors.",
+      },
+      {
+        title: "Authentication",
+        url: docsPathForSlug("authentication"),
+        description: "Browser, MCP OAuth, and hosted-agent authentication.",
+      },
+      {
+        title: "MCP server",
+        url: docsPathForSlug("mcp-protocol"),
+        description:
+          "Connect an MCP-compatible host to the Streamable HTTP server at /mcp.",
+      },
+      {
+        title: "External agents",
+        url: docsPathForSlug("external-agents"),
+        description:
+          "Connect Claude, ChatGPT, Codex, Cursor, or another MCP-compatible host.",
+      },
+      {
+        title: "Webhook and messaging integrations",
+        url: docsPathForSlug("messaging"),
+        description: "Inbound webhook routes and channel integrations.",
+      },
+      {
+        title: "Agent card",
+        url: "/.well-known/agent-card.json",
+        description: "Machine-readable A2A capability discovery.",
+      },
+      {
+        title: "CLI package",
+        url: "https://www.npmjs.com/package/@agent-native/core",
+        description:
+          "Install the official Agent-Native CLI and framework package from npm.",
+      },
+      {
+        title: "Source repository",
+        url: "https://github.com/BuilderIO/agent-native",
+        description: "Open-source framework source and issue tracker.",
+      },
+    ],
     agentWeb: pkg["agent-native"]?.workspaceApp?.agentWeb,
     outputDirs: ["build/client", "dist", "dist/client", "dist/server/public"],
     organization: {
       name: "Builder.io",
       url: "https://builder.io",
       sameAs: ["https://github.com/BuilderIO/agent-native"],
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        email: "support@builder.io",
+        url: `${SITE_URL}${sitePathForLocale("/contact")}`,
+      },
+      address: {
+        "@type": "PostalAddress",
+        streetAddress: "95 3rd Street, 2nd Floor",
+        addressLocality: "San Francisco",
+        addressRegion: "CA",
+        postalCode: "94103",
+        addressCountry: "US",
+      },
     },
   }) as unknown as Plugin;
+}
+
+export function sitemapGroupForPage(page: AgentWebPage): string {
+  const firstSegment = page.path.split("/").filter(Boolean)[0];
+  return (docsLocaleFromSegment(firstSegment) ?? DEFAULT_LOCALE).toLowerCase();
 }
 
 export function buildSitemapPaths(rootDir: string): string[] {
   return buildAgentWebPages(rootDir).map((page) => page.path);
 }
 
+export function buildPrerenderPaths(): string[] {
+  const pages = buildDocsSitePages(path.resolve(__dirname, ".."));
+  const draftSlugs = new Set(
+    pages.filter((page) => page.draft).map((page) => page.docSlug),
+  );
+  return pages
+    .filter(
+      (page) =>
+        !draftSlugs.has(page.docSlug) &&
+        page.docSlug !== "getting-started" &&
+        !isRedirectedDocsPath(page.path) &&
+        !isDynamicCommunityPath(page.path),
+    )
+    .map((page) => page.path);
+}
+
+export function isDynamicCommunityPath(pagePath: string): boolean {
+  const segments = pagePath.split("/").filter(Boolean);
+  const pathWithoutLocale = normalizeLocaleCode(segments[0])
+    ? `/${segments.slice(1).join("/")}`
+    : pagePath;
+  return pathWithoutLocale.startsWith("/apps/community/");
+}
+
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
+  return buildDocsSitePages(rootDir)
+    .filter((page) => !isRedirectedDocsPath(page.path))
+    .map(({ docSlug: _docSlug, draft: _draft, ...page }) => page);
+}
+
+export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
+  const { useCases, articles } = content;
+  const latestDate = (dates: string[]): Date | undefined => {
+    const latest = dates.sort().at(-1);
+    return latest ? new Date(`${latest}T00:00:00Z`) : undefined;
+  };
+  const articleIndex = (
+    base: string,
+    title: string,
+    items: typeof articles,
+  ): AgentWebPage[] =>
+    Array.from(
+      { length: Math.max(1, Math.ceil(items.length / ARTICLES_PAGE_SIZE)) },
+      (_, index) => ({
+        path: index === 0 ? `${base}/` : `${base}/page/${index + 1}/`,
+        title,
+        markdown: `# ${title}\n\n${items
+          .slice(index * ARTICLES_PAGE_SIZE, (index + 1) * ARTICLES_PAGE_SIZE)
+          .map(
+            (article) =>
+              `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
+          )
+          .join("\n")}\n`,
+        lastmod: latestDate(
+          items.map((article) => article.updated ?? article.published),
+        ),
+      }),
+    );
+  const pages: AgentWebPage[] = [
+    {
+      path: `${USE_CASES_BASE}/`,
+      title: "Use cases",
+      markdown: `# Use cases\n\n${useCases.map((item) => `- [${item.title}](${USE_CASES_BASE}/${item.slug}/)`).join("\n")}\n`,
+      lastmod: latestDate(useCases.map((item) => item.updated)),
+    },
+    ...useCases.map((item) => ({
+      path: `${USE_CASES_BASE}/${item.slug}/`,
+      title: item.title,
+      description: item.meta_description,
+      lastmod: new Date(`${item.updated}T00:00:00Z`),
+      markdown:
+        [
+          `# ${item.title}`,
+          item.subhead,
+          `## ${item.old_way.heading}`,
+          item.old_way.body,
+          `## ${item.new_way.heading}`,
+          ...item.new_way.steps.map((step) => `- ${step}`),
+          ...item.faqs.flatMap((faq) => [`## ${faq.q}`, faq.a]),
+        ].join("\n\n") + "\n",
+    })),
+    ...articleIndex(ARTICLES_BASE, "Articles", articles),
+    ...getArticleTopics(articles).map((topic) => {
+      const items = articles.filter((article) => article.topic === topic.slug);
+      return {
+        path: `${ARTICLES_BASE}/topic/${topic.slug}/`,
+        title: topic.name,
+        description: topic.description,
+        markdown: `# ${topic.name}\n\n${topic.description}\n\n${items
+          .map(
+            (article) =>
+              `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
+          )
+          .join("\n")}\n`,
+        lastmod: latestDate(
+          items.map((article) => article.updated ?? article.published),
+        ),
+      };
+    }),
+    ...articles.map((article) => ({
+      path: `${ARTICLES_BASE}/${article.slug}/`,
+      title: article.title,
+      description: article.meta_description,
+      lastmod: new Date(`${article.updated ?? article.published}T00:00:00Z`),
+      markdown: articleMarkdown(article),
+      markdownPath: `${ARTICLES_BASE}/${article.slug}.md`,
+    })),
+  ];
+  return pages;
+}
+
+type DocsSitePage = AgentWebPage & { docSlug?: string; draft?: boolean };
+
+function buildDocsSitePages(rootDir: string): DocsSitePage[] {
   const docsDir = path.resolve(rootDir, "../core/docs/content");
+  const legalPolicyPath = (filename: string) =>
+    path.resolve(rootDir, "app/legal-policies", filename);
+  const legalPolicyMarkdown = (filename: string) =>
+    fs.readFileSync(legalPolicyPath(filename), "utf8");
+  const legalPolicyLastmod = (filename: string) =>
+    gitLastmod(legalPolicyPath(filename));
   const templateCardPath = path.resolve(
     rootDir,
     "app/components/TemplateCard.tsx",
@@ -88,13 +300,18 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
     const raw = fs.readFileSync(filePath, "utf8");
     const { data, body } = parseFrontmatter(raw);
     return {
-      path: slug === "getting-started" ? "/docs" : `/docs/${slug}`,
+      path: docsPathForSlug(slug),
       title: data.title || titleFromSlug(slug),
       description: data.description,
-      markdown: docsBodyToMarkdownMirror(body),
-      markdownPath: `/docs/${slug}.md`,
+      markdown: localizeDocsMarkdownLinks(
+        docsBodyToMarkdownMirror(body),
+        DEFAULT_LOCALE,
+      ),
+      markdownPath: docsMarkdownPathForSlug(slug),
       lastmod: docsLastmod,
-    } satisfies AgentWebPage;
+      docSlug: slug,
+      draft: data.draft === "true",
+    } satisfies DocsSitePage;
   });
 
   const localizedDocsRoot = path.join(docsDir, "locales");
@@ -116,16 +333,18 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
             const raw = fs.readFileSync(filePath, "utf8");
             const { data, body } = parseFrontmatter(raw);
             return {
-              path:
-                slug === "getting-started"
-                  ? `/${locale}/docs`
-                  : `/${locale}/docs/${slug}`,
+              path: docsPathForSlug(slug, locale as DocsLocale),
               title: data.title || titleFromSlug(slug),
               description: data.description,
-              markdown: docsBodyToMarkdownMirror(body),
-              markdownPath: `/${locale}/docs/${slug}.md`,
+              markdown: localizeDocsMarkdownLinks(
+                docsBodyToMarkdownMirror(body),
+                locale as DocsLocale,
+              ),
+              markdownPath: docsMarkdownPathForSlug(slug, locale as DocsLocale),
               lastmod: docsLastmod,
-            } satisfies AgentWebPage;
+              docSlug: slug,
+              draft: data.draft === "true",
+            } satisfies DocsSitePage;
           });
         })
     : [];
@@ -134,7 +353,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
   const templatePages = parseTemplatePages(templateSource).map((template) => {
     const copy = enUS.templates[template.slug];
     return {
-      path: `/apps/${template.slug}`,
+      path: sitePathForLocale(`/apps/${template.slug}`),
       title: `${template.name} app`,
       description: copy.description,
       markdown: [
@@ -153,6 +372,90 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
       lastmod: gitLastmod(templateCardPath),
     };
   });
+  const communityPages = communityApps.map((app) => ({
+    path: sitePathForLocale(`/apps/community/${app.slug}`),
+    title: `${app.name} - Community App`,
+    description: app.description,
+    markdown: [
+      `# ${app.name}`,
+      "",
+      app.description,
+      "",
+      app.demoUrl
+        ? `- Hosted app: ${app.demoUrl}`
+        : "- Hosted app: Coming soon",
+      app.repositoryUrl
+        ? `- GitHub repository: ${app.repositoryUrl}`
+        : undefined,
+      app.sourceUrl ? `- Source: ${app.sourceUrl}` : undefined,
+      "",
+    ]
+      .filter((line): line is string => typeof line === "string")
+      .join("\n"),
+    lastmod: gitLastmod(
+      path.resolve(rootDir, "app/components/community-apps.ts"),
+    ),
+  }));
+
+  const legalHubMarkdown = [
+    `# ${enUS.legal.resources.title}`,
+    "",
+    enUS.legal.resources.intro,
+    "",
+    `## ${enUS.legal.resources.agentNative.title}`,
+    "",
+    enUS.legal.resources.agentNative.body,
+    "",
+    `- [${enUS.legal.resources.agentNative.terms}](${sitePathForLocale("/terms")})`,
+    `- [${enUS.legal.resources.agentNative.privacy}](${sitePathForLocale("/privacy")})`,
+    "",
+    `## ${enUS.legal.resources.builder.title}`,
+    "",
+    enUS.legal.resources.builder.body,
+    "",
+    ...LEGAL_POLICY_METADATA.slice(2).map(
+      ({ key, slug }) =>
+        "- [" +
+        enUS.legal.resources.links[key] +
+        "](" +
+        sitePathForLocale("/legal/" + slug) +
+        ")",
+    ),
+    "",
+    `## ${enUS.legal.resources.notIncluded.title}`,
+    "",
+    enUS.legal.resources.notIncluded.body,
+    "",
+  ].join("\n");
+  const legalLastmod = gitLastmod(
+    path.resolve(rootDir, "app/routes/legal.tsx"),
+  );
+  const localizedLegalPages = DOCS_LOCALES.filter(
+    (locale) => locale !== DEFAULT_LOCALE,
+  ).flatMap((locale) => [
+    {
+      path: sitePathForLocale("/legal", locale),
+      title: enUS.legal.resources.title,
+      description: enUS.legal.resources.intro,
+      markdown: localizeDocsMarkdownLinks(legalHubMarkdown, locale),
+      lastmod: legalLastmod,
+    },
+    ...LEGAL_POLICY_METADATA.map((policy) => ({
+      path: sitePathForLocale(
+        policy.key === "terms" || policy.key === "privacy"
+          ? `/${policy.slug}`
+          : `/legal/${policy.slug}`,
+        locale,
+      ),
+      title: policy.title,
+      description: policy.description,
+      markdown: localizeDocsMarkdownLinks(
+        legalPolicyMarkdown(policy.filename),
+        locale,
+      ),
+      lastmod: legalPolicyLastmod(policy.filename),
+    })),
+  ]);
 
   return sortPages([
     {
@@ -167,15 +470,15 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/_index.tsx")),
     },
     {
-      path: "/download",
-      title: "Download Agent Native",
-      description: "Download the Agent Native desktop app.",
+      path: sitePathForLocale("/download"),
+      title: "Download Agent-Native",
+      description: "Download the Agent-Native desktop app.",
       markdown:
-        "# Download Agent Native\n\nDownload the Agent Native desktop app.\n",
+        "# Download Agent-Native\n\nDownload the Agent-Native desktop app.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/download.tsx")),
     },
     {
-      path: "/brand",
+      path: sitePathForLocale("/brand"),
       title: "Agent-Native Brand Assets",
       description:
         "Download official Agent-Native logos and symbols for articles, presentations, and community projects.",
@@ -184,25 +487,72 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/brand.tsx")),
     },
     {
-      path: "/privacy",
-      title: "Agent-Native Privacy Policy",
-      description:
-        "Privacy policy for Agent-Native hosted applications, apps, and browser extensions.",
-      markdown:
-        "# Agent-Native Privacy Policy\n\nPrivacy policy for Agent-Native hosted applications, apps, and browser extensions. Chrome extension disclosures are included at `/privacy#clips-chrome-extension`.\n",
-      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/privacy.tsx")),
+      path: sitePathForLocale("/about"),
+      title: enUS.legal.about.title,
+      description: enUS.legal.about.intro,
+      markdown: [
+        `# ${enUS.legal.about.title}`,
+        "",
+        enUS.legal.about.intro,
+        "",
+        ...Object.values(enUS.legal.about.sections).flatMap((section) => [
+          `## ${section.title}`,
+          "",
+          section.body,
+          "",
+        ]),
+      ].join("\n"),
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/about.tsx")),
     },
     {
-      path: "/terms",
-      title: "Agent-Native Terms of Service",
-      description:
-        "Terms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.",
-      markdown:
-        "# Agent-Native Terms of Service\n\nTerms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.\n",
-      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/terms.tsx")),
+      path: sitePathForLocale("/contact"),
+      title: enUS.legal.contact.title,
+      description: enUS.legal.contact.intro,
+      markdown: [
+        `# ${enUS.legal.contact.title}`,
+        "",
+        enUS.legal.contact.intro,
+        "",
+        ...Object.values(enUS.legal.contact.sections).flatMap((section) => [
+          `## ${section.title}`,
+          "",
+          section.body,
+          "",
+        ]),
+      ].join("\n"),
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/contact.tsx")),
     },
     {
-      path: "/apps",
+      path: sitePathForLocale("/legal"),
+      title: enUS.legal.resources.title,
+      description: enUS.legal.resources.intro,
+      markdown: legalHubMarkdown,
+      lastmod: legalLastmod,
+    },
+    {
+      path: sitePathForLocale("/privacy"),
+      title: LEGAL_POLICY_METADATA[1].title,
+      description: LEGAL_POLICY_METADATA[1].description,
+      markdown: legalPolicyMarkdown(LEGAL_POLICY_METADATA[1].filename),
+      lastmod: legalPolicyLastmod(LEGAL_POLICY_METADATA[1].filename),
+    },
+    {
+      path: sitePathForLocale("/terms"),
+      title: LEGAL_POLICY_METADATA[0].title,
+      description: LEGAL_POLICY_METADATA[0].description,
+      markdown: legalPolicyMarkdown(LEGAL_POLICY_METADATA[0].filename),
+      lastmod: legalPolicyLastmod(LEGAL_POLICY_METADATA[0].filename),
+    },
+    ...LEGAL_POLICY_METADATA.slice(2).map((policy) => ({
+      path: sitePathForLocale("/legal/" + policy.slug),
+      title: policy.title,
+      description: policy.description,
+      markdown: legalPolicyMarkdown(policy.filename),
+      lastmod: legalPolicyLastmod(policy.filename),
+    })),
+    ...localizedLegalPages,
+    {
+      path: sitePathForLocale("/apps"),
       title: "Agent-Native Apps",
       description: "Cloneable SaaS apps built with Agent-Native.",
       markdown:
@@ -210,7 +560,16 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/templates.tsx")),
     },
     {
-      path: "/skills",
+      path: sitePathForLocale("/pricing"),
+      title: "Pricing — Agent-Native",
+      description:
+        "Agent-Native is MIT licensed and free for unlimited users, apps, and environments. Pay only for the infrastructure you choose.",
+      markdown:
+        "# Pricing\n\nAgent-Native is MIT licensed and free for unlimited users, apps, and environments. Pay only for the infrastructure you choose.\n",
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/pricing.tsx")),
+    },
+    {
+      path: sitePathForLocale("/skills"),
       title: "Agent Skills",
       description:
         "Install app-backed skills your coding agent runs as slash commands: /visual-plan and /visual-recap.",
@@ -218,9 +577,11 @@ Agent-Native is an open source framework for building apps where AI agents and U
         "# Agent Skills\n\nInstall app-backed skills your coding agent runs as slash commands. `/visual-plan` opens structured visual plans before you build; `/visual-recap` turns a PR diff into a high-altitude review. Install with `npx @agent-native/core@latest skills add visual-plan`.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/skills.tsx")),
     },
+    ...buildCampaignPages(loadCampaignContentFromDisk(rootDir)),
     ...docsPages,
     ...localizedDocsPages,
     ...templatePages,
+    ...communityPages,
   ]);
 }
 

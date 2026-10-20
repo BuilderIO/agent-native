@@ -837,13 +837,9 @@ describe("generic task sessions", () => {
     await runCode(["approve", "--last"], { output: output.stream });
 
     const [updated] = listCodeAgentRunRecords("task");
-    // Approved command must have run.
     expect(fs.readFileSync(path.join(cwd, "approved.txt"), "utf-8")).toBe("ok");
-    // Approval metadata should be cleared.
     expect(updated?.needsApproval).toBe(false);
     expect(updated?.metadata?.pendingApproval).toBeUndefined();
-    // After approval the run auto-resumes. In the test environment there is no
-    // LLM provider so it will land on missing-credentials, not needs-approval.
     expect(updated?.status).not.toBe("needs-approval");
     expect(output.read()).toContain("Agent-Native Code approve");
     expect(output.read()).toContain(

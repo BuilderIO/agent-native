@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getLabForLegacyFlag } from "../../labs/registry.js";
+import { getOrgDomain } from "../../org/context.js";
 import { requireFeatureFlagManager } from "../permissions.js";
 import { getFeatureFlagDefinition } from "../registry.js";
 import {
@@ -33,9 +35,6 @@ export default defineAction({
   description:
     "Atomically manage one registered feature flag: enable it for the current user, turn it off immediately for the active scope, or replace its full rules. Organization owner/admin only (or the explicit no-org administrator).",
   schema,
-  // Keep the strict discriminated union for runtime validation, but advertise
-  // an object-shaped schema so agent tool registries can expose the action.
-  // Root-level JSON Schema unions are intentionally rejected by the agent.
   agentInputSchema: z.object({
     operation: z.enum(["enable-for-current-user", "off", "replace-rules"]),
     key: z.string(),
@@ -56,6 +55,18 @@ export default defineAction({
     if (!getFeatureFlagDefinition(args.key)) {
       throw new Error(`Unknown feature flag: ${args.key}`);
     }
+    const movedToLab = getLabForLegacyFlag(args.key);
+    if (movedToLab) {
+      throw new Error(
+        `Feature flag ${args.key} is managed in Labs (${movedToLab.key}).`,
+      );
+    }
+    const orgDomain = manager.orgId
+      ? (await getOrgDomain(manager.orgId))?.trim().toLowerCase() || null
+      : null;
+    if (ctx?.caller === "a2a" && manager.orgId && !orgDomain) {
+      throw new Error("Feature flag organization domain is unavailable.");
+    }
 
     const persistedRules = await mutateFeatureFlagRules(
       args.key,
@@ -69,8 +80,6 @@ export default defineAction({
         } else {
           rules = normalizeFeatureFlagRules({
             ...current,
-            // A globally-on flag already includes this user. Do not
-            // accidentally narrow it to a one-email rollout.
             mode: current.mode === "on" ? "on" : "rules",
             emails: [...current.emails, manager.email],
           });
@@ -79,11 +88,11 @@ export default defineAction({
       },
     );
     return {
-      contractVersion: 1 as const,
+      contractVersion: 2 as const,
       status: "ready" as const,
       key: args.key,
       rules: persistedRules,
-      scope: { orgId: manager.orgId },
+      scope: { orgId: manager.orgId, orgDomain },
     };
   },
 });

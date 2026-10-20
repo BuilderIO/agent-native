@@ -1,33 +1,30 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Real in-memory sqlite behind getDbExec (same setup as executions-store.spec)
-// so the enqueue → claim → execute → finalize lifecycle runs against genuine
-// atomic-claim semantics. Self-dispatch is mocked so the serverless drive path
-// is observable without a network.
-let sqlite: Database.Database;
+import { createTestPglite } from "../../a2a/test-pglite.js";
+import { __resetStoreLedgerSnapshotForTests } from "../../db/store-registry.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let serverless = false;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
   isServerlessRuntime: () => serverless,
   isLocalDatabase: () => true,
@@ -61,6 +58,8 @@ const {
   resolveExecutionSandboxAdapter,
   resetSandboxAdapterForTests,
 } = await import("./index.js");
+const { getRequestRunContext, runWithRequestContext } =
+  await import("../../server/request-context.js");
 
 const OWNER = "alice@example.com";
 
@@ -97,17 +96,19 @@ function okRunner(
   return execute;
 }
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   serverless = false;
   resetSandboxExecutionsStoreForTests();
   resetSandboxBackgroundForTests();
   fireInternalDispatch.mockClear();
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllEnvs();
   resetSandboxAdapterForTests();
+  await pglite.close();
 });
 
 describe("queued adapter selection", () => {
@@ -117,7 +118,6 @@ describe("queued adapter selection", () => {
     const adapter = getSandboxAdapter();
     expect(adapter).toBeInstanceOf(BackgroundQueueAdapter);
     expect(isQueuedSandboxAdapter(adapter)).toBe(true);
-    // Actual module execution must never route into the queue.
     const execAdapter = resolveExecutionSandboxAdapter();
     expect(isQueuedSandboxAdapter(execAdapter)).toBe(false);
     expect(execAdapter.id).toBe("local-child-process");
@@ -193,6 +193,46 @@ describe("processQueuedSandboxExecution", () => {
     expect(done!.finishedAt).not.toBeNull();
   });
 
+  it("restores the queued action surface before a runner resolves bridge actions", async () => {
+    const omittedActionRun = vi.fn(async () => ({ secret: true }));
+    registerSandboxExecutionRunner(
+      {
+        execute: async () => {
+          const allowedNames = getRequestRunContext()?.allowedActionNames;
+          if (!allowedNames || allowedNames.includes("omitted-reader")) {
+            await omittedActionRun();
+            return {
+              stdout: "unexpected action result",
+              stderr: "",
+              exitCode: 0,
+              timedOut: false,
+              bridgeToolsUsed: ["omitted-reader"],
+            };
+          }
+          return {
+            stdout: "",
+            stderr: 'Tool "omitted-reader" is not registered.',
+            exitCode: 1,
+            timedOut: false,
+            bridgeToolsUsed: [],
+          };
+        },
+      },
+      { replace: true },
+    );
+    const row = await makeExecution({
+      allowedActionNames: ["run-code"],
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: OWNER, orgId: "org-1" },
+      () => processQueuedSandboxExecution(row.id),
+    );
+
+    expect(result).toEqual({ status: "completed", finalStatus: "failed" });
+    expect(omittedActionRun).not.toHaveBeenCalled();
+  });
+
   it("maps a timed-out run to timed_out with a structured error", async () => {
     okRunner({ timedOut: true, exitCode: null, stderr: "killed" });
     const row = await makeExecution();
@@ -258,7 +298,6 @@ describe("processQueuedSandboxExecution", () => {
   it("reclaims a lease-expired row and reaps it once attempts are exhausted", async () => {
     okRunner({ stdout: "second try" });
     const row = await makeExecution();
-    // First executor claimed and died (expired lease).
     await claimSandboxExecution(row.id, "dead-token", 1, Date.now() - 10_000);
 
     const retry = await processQueuedSandboxExecution(row.id);
@@ -267,7 +306,6 @@ describe("processQueuedSandboxExecution", () => {
     expect(done!.attemptCount).toBe(2);
     expect(done!.stdout).toBe("second try");
 
-    // Exhausted case: expired lease with no attempts left is reaped to failed.
     const exhausted = await makeExecution();
     await claimSandboxExecution(exhausted.id, "t1", 1, Date.now() - 20_000);
     await claimSandboxExecution(exhausted.id, "t2", 1, Date.now() - 10_000);
@@ -344,16 +382,18 @@ describe("enqueueSandboxExecution", () => {
 describe("drainDueSandboxExecutions", () => {
   it("is a zero-footprint no-op when the table does not exist", async () => {
     expect(await drainDueSandboxExecutions()).toBe(0);
-    const tables = sqlite
-      .prepare(`SELECT name FROM sqlite_master WHERE type='table'`)
-      .all() as Array<{ name: string }>;
+    const tables = (await pglite
+      .prepare(
+        `SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public'`,
+      )
+      .all()) as Array<{ name: string }>;
     expect(tables.map((t) => t.name)).not.toContain("sandbox_executions");
   });
 
   it("re-drives stale queued rows and reaps exhausted expired rows", async () => {
     okRunner({ stdout: "swept" });
     const stale = await makeExecution();
-    sqlite
+    await pglite
       .prepare(`UPDATE sandbox_executions SET updated_at = ? WHERE id = ?`)
       .run(Date.now() - 120_000, stale.id);
 

@@ -3,10 +3,14 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageItems } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { factoryIdSchema } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { safeHttpUrl } from "../server/lib/safe-http-url.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { pullRequestSnapshotToEnvelope } from "../server/triage/github-ingestion.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import type {
@@ -16,7 +20,16 @@ import type {
 
 const reviewSchema: z.ZodType<PullRequestReviewObservation> = z.object({
   author: z.string().min(1),
-  state: z.enum(["approved", "changes_requested", "commented", "pending"]),
+  state: z.enum([
+    "approved",
+    "changes_requested",
+    "commented",
+    "pending",
+    "dismissed",
+  ]),
+  commitSha: z.string().max(128).nullable().optional(),
+  htmlUrl: z.string().url().nullable().optional(),
+  body: z.string().max(4_000).nullable().optional(),
   observedAt: z.string().datetime(),
 });
 
@@ -28,13 +41,20 @@ const checkSchema: z.ZodType<PullRequestCheckObservation> = z.object({
 
 export default defineAction({
   description:
-    "Ingest one read-only GitHub pull-request observation from the existing ai-services boundary into Factory. This action records evidence only and never writes to GitHub.",
+    "Ingest one read-only GitHub pull-request observation into Factory. This action records evidence only and never writes to GitHub.",
   schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
     pullRequestNumber: z.number().int().positive(),
     headSha: z.string().trim().min(1).max(128),
     title: z.string().trim().min(1).max(500),
-    sourceUrl: z.string().url().optional(),
+    sourceUrl: z
+      .string()
+      .url()
+      .refine((value) => safeHttpUrl(value) !== null, {
+        message: "sourceUrl must be an http or https URL.",
+      })
+      .optional(),
     summary: z.string().trim().max(4_000).optional(),
     changedFiles: z.array(z.string().max(500)).max(500).optional(),
     diffLines: z.number().int().nonnegative().optional(),
@@ -49,8 +69,9 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    const envelope = pullRequestSnapshotToEnvelope(input);
-    const id = itemDedupeKey(envelope, orgId);
+    const { factoryId, ...observation } = input;
+    const envelope = pullRequestSnapshotToEnvelope(observation);
+    const id = itemDedupeKey(envelope, orgId, factoryId);
     const now = new Date().toISOString();
     const db = getDb();
 
@@ -76,6 +97,7 @@ export default defineAction({
         updatedAt: now,
         ownerEmail: userEmail,
         orgId,
+        factoryId,
       })
       .onConflictDoUpdate({
         target: triageItems.id,
@@ -89,6 +111,27 @@ export default defineAction({
           updatedAt: now,
         },
       });
+
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "ingest-github-observation",
+        kind: "observed",
+        itemId: id,
+        source: envelope.source,
+        sourceUrl: envelope.sourceUrl,
+        summary: envelope.title,
+        details: {
+          repository: envelope.repository,
+          pullRequestNumber: envelope.pullRequestNumber,
+          coverage: envelope.coverage,
+          reviewCount: observation.reviews.length,
+          checkCount: observation.checks.length,
+        },
+      },
+      factoryId,
+    );
 
     return {
       ok: true,

@@ -1,81 +1,225 @@
 ---
 title: "Erste Schritte"
-description: "Erstellen Sie eine Chat-App und konfigurieren Sie einen Agenten. Erweitern Sie sie anschließend um eine Aktion und eine Seite."
+description: "Erstellen Sie einen Agenten mit einer Chat-UI und rufen Sie dieselbe Aktion über den Agenten und die UI auf."
 ---
 
 # Erste Schritte
 
-Agent-Native-Apps geben dem Agenten und der UI dieselben [Aktionen](/docs/actions),
-SQL-Daten und den Anwendungszustand. Dieser praktische Pfad beginnt mit Chat,
-fügt dann eine Aktion und eine Seite hinzu. SQL ist in Chat bereits konfiguriert
-und wird zum optionalen nächsten Schritt, wenn Ergebnisse dauerhaft gespeichert
-werden müssen.
+<GettingStartedPaths />
 
-<Steps>
+Agent-Native ist ein Open-Source-TypeScript-Framework zum Entwickeln autonomer
+Agenten mit intuitiven Benutzeroberflächen. Sie definieren jede Fähigkeit einmal
+als [Aktion](/docs/actions-overview) – eine typisierte Funktion, die der Agent als
+Tool verwendet und die UI aus Code aufruft.
 
-### Eine Chat-App erstellen und einen Agenten konfigurieren
+In diesem Leitfaden erstellen Sie einen Agenten mit einer Chat-UI und rufen
+dessen enthaltene `hello`-Action über den Agenten und die UI auf.
 
-Erstellen Sie das Chat-Template, installieren Sie die Abhängigkeiten, starten Sie
-den Entwicklungsserver und konfigurieren Sie einen Agenten. Sie erhalten eine
-funktionierende Chat-App, die Sie erweitern können.
-**Hier sind Sie.**
+Lieber einen KI-Agenten die Einrichtung übernehmen lassen? Siehe
+[Eine App mit einem KI-Agenten erstellen](/docs/create-with-an-agent).
 
-### Eine Aktion hinzufügen
+## Voraussetzungen
 
-Definieren Sie einen typisierten Textanalysator und rendern Sie sein Ergebnis im
-Chat als Diagramm.
+- [Node.js](https://nodejs.org) 22.22 oder höher
+- [pnpm](https://pnpm.io), installiert und über Ihren `PATH` verfügbar
+- Bei der Einrichtung optional, zum Ausführen des Agenten erforderlich: Builder.io, ein Anthropic-/OpenAI-Schlüssel oder lokales Ollama
 
-### Eine Seite hinzufügen
+## Einen Agenten erstellen
 
-Erstellen Sie eine React-Route, die dieselbe Aktion außerhalb des Transkripts aufruft.
-
-### Daten in SQL speichern (optional)
-
-Fügen Sie eine Tabelle und Aktionen zur Speicherung hinzu, wenn Ergebnisse über
-Gespräche hinweg erhalten bleiben müssen.
-
-</Steps>
-
-## 1. Eine Chat-App erstellen {#create-your-app}
-
-Sie benötigen [Node.js 22+](https://nodejs.org) und [pnpm](https://pnpm.io).
-
-Öffnen Sie ein Terminal, wechseln Sie in das Verzeichnis, in dem Ihre
-Agent-Native-App erstellt werden soll, und führen Sie Folgendes aus:
+Beginnen Sie in einem neuen Verzeichnis mit dem Chat-Template:
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
+corepack enable
 pnpm install
+```
+
+Das Template gibt Ihrem Agenten eine Browser-UI, Authentifizierung, dauerhafte
+Unterhaltungen, Live-Synchronisierung, Anwendungskontext und ein
+`actions/`-Verzeichnis. Außerdem enthält es eine kleine `hello`-Action, die Sie
+in diesem Leitfaden verwenden werden.
+
+<Callout tone="info">
+
+Wenn diese Befehle mit Fehlern zu Peer-Abhängigkeiten fehlschlagen, liegt das möglicherweise an einer veralteten Kopie eines Pakets in Ihrem npx-Cache. Führen Sie `npx clear-npx-cache` aus, um den Cache zu leeren, und führen Sie die Befehle dann erneut aus.
+
+</Callout>
+
+## Den Entwicklungsserver starten
+
+Starten Sie den Entwicklungsserver:
+
+```bash
 pnpm dev
 ```
 
-Die App wird unter `http://localhost:8080` geöffnet. Wenn der Anmeldebildschirm
-erscheint, registrieren Sie sich mit einem erfundenen Login. Für die lokale
-Entwicklung ist keine E-Mail-Verifizierung erforderlich.
+Die Browser-UI wird automatisch geöffnet. Falls nicht, verwenden Sie die von
+`pnpm dev` ausgegebene lokale URL; der Port wird erhöht, wenn 8080 belegt ist.
 
-Das Chat-Template umfasst dauerhafte Chat-Threads, Authentifizierung,
-Live-Synchronisierung, ein `actions/`-Verzeichnis sowie die Standardaktionen
-`view-screen` und `navigate`.
+<Callout tone="info">
 
-### Einen anderen Ausgangspunkt wählen
+Wählen Sie auf dem Begrüßungsbildschirm **Continue as local dev**. Für die
+lokale Entwicklung müssen Sie keine E-Mail-Adresse und kein Passwort eingeben.
 
-Wenn Chat nicht der richtige Ausgangspunkt ist, führen Sie `create` ohne
-`--template` aus und wählen Sie eine andere Option in der CLI. Weitere Wege
-finden Sie unter [Vorlagen erstellen](/docs/creating-templates).
+</Callout>
 
-## 2. Einen Agenten konfigurieren {#connect-ai}
+## LLM verbinden (optional) {#connect-an-llm}
 
-Das Chat-Template öffnet direkt die Chat-Oberfläche. Wenn der Agent noch nicht
-antwortet, öffnen Sie **Einstellungen > Agent verwalten** oder verwenden Sie
-**Cmd/Ctrl+K > Agent verwalten**, um ein Modell und einen Anbieter zu
-konfigurieren.
+Optional: Verbinden Sie sich mit **Use Builder.io**, fügen Sie über **Custom keys** einen Schlüssel hinzu oder hinterlegen Sie für die lokale Entwicklung einen Provider-Schlüssel in `.env`. Bei selbst gehosteten Deployments kann ein serverseitiger Schlüssel als appweiter Fallback dienen. Weitere Informationen finden Sie unter [LLM-Provider-Schlüssel](/docs/environment-variables#llm-provider-keys).
 
-Sobald der Agent antwortet, fahren Sie mit [Eine Aktion hinzufügen](/docs/getting-started-actions)
-fort.
+## Die Action über den Agenten ausführen
 
-## Verwandte Dokumentation
+Eine Action ist eine typisierte Funktion, die Ihre React-UI aus Code aufrufen
+kann und die Agenten als Tool verwenden können. Das Chat-Template enthält eine
+einfache `hello`-Action, damit Sie dieses Muster ausprobieren können, bevor Sie
+selbst eine schreiben.
 
-- [Was ist Agent-Native?](/docs/what-is-agent-native): die Architektur hinter diesem Pfad.
-- [Chat-Vorlage](/docs/template-chat): die Inhalte der Starter-App.
-- [FAQ](/docs/faq): Antworten zu Modellen, Hosting und Templates.
+Geben Sie im Eingabefeld der Seite **Loslegen** ein:
+
+> Call the hello action for Alex.
+
+Der Agent findet `hello` anhand seiner Beschreibung und seines Eingabeschemas,
+übergibt `Alex` als Eingabe für `name` und antwortet:
+
+```text
+Hello, Alex!
+```
+
+## Die Action ansehen
+
+Öffnen Sie im lokalen Verzeichnis `my-app` die Datei `actions/hello.ts` in Ihrem Code-Editor:
+
+```ts filename="actions/hello.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+Konzentrieren Sie sich zunächst auf vier Teile:
+
+- `description` erklärt dem Agenten, wann er die Action verwenden soll.
+- `schema` validiert die Eingabe und gibt dem Agenten eine typisierte
+  Tool-Definition.
+- `http` stellt diese schreibgeschützte Action über `GET` bereit, damit
+  `useActionQuery` sie aus React aufrufen kann.
+- `run` enthält die Anwendungslogik, die Agent und UI gemeinsam nutzen.
+
+Die vollständige API finden Sie unter [Actions definieren](/docs/actions-defining).
+
+## Die Action über React aufrufen
+
+Das Template enthält `actions/hello.ts`, aber noch keine Seite dafür. Erstellen
+Sie `app/routes/hello.tsx`:
+
+```tsx filename="app/routes/hello.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function HelloRoute() {
+  const [name, setName] = useState("Alex");
+  const { data } = useActionQuery("hello", { name });
+
+  return (
+    <main className="mx-auto grid w-full max-w-xl gap-6 p-6">
+      <h1 className="text-2xl font-semibold">Hello action</h1>
+      <div className="grid gap-2">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <p className="text-xl font-medium">{data?.message}</p>
+    </main>
+  );
+}
+```
+
+<Callout tone="info">
+
+Starten Sie den Entwicklungsserver neu, damit er die neue Route erkennt, und
+öffnen Sie anschließend `http://localhost:<port>/hello`.
+
+</Callout>
+
+Während Sie einen Namen eingeben, ruft `useActionQuery` `hello` auf und zeigt
+das Ergebnis an. Die Eingabe- und Ergebnistypen der Action werden abgeleitet;
+die Seite benötigt daher weder eine eigene API-Route noch eine zweite
+Implementierung der Begrüßung.
+
+## Die Action ändern
+
+Ändern Sie in `actions/hello.ts` den Rückgabewert:
+
+```ts
+return { message: `Welcome, ${name}.` };
+```
+
+Aktualisieren Sie `/hello` und bitten Sie dann den Agenten erneut, `hello`
+aufzurufen. Beide geben die aktualisierte Begrüßung zurück, weil sie dieselbe
+Action aufrufen.
+
+## Actions auf andere Arten aufrufen
+
+Sie haben dieselbe Action über den Agenten und die UI aufgerufen. Dieselbe
+Action lässt sich außerdem aufrufen über:
+
+| Aufruf über                             | Verwenden Sie es, um                                                         |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
+| [HTTP API](/docs/http-api)              | eine Action aus einem Skript, Backend oder einer Integration aufzurufen.     |
+| [CLI](/docs/actions-other-surfaces#cli) | eine Action über das Terminal auszuführen oder zu testen.                    |
+| [MCP](/docs/actions-other-surfaces#mcp) | einen externen KI-Client Actions als Tools entdecken und aufrufen zu lassen. |
+| [A2A](/docs/actions-other-surfaces#a2a) | einen anderen Agenten Arbeit an Ihren delegieren zu lassen.                  |
+
+Jeder Aufrufer verwendet dieselbe Action-Definition. Sie benötigen keine
+separate Implementierung für jeden einzelnen. Dieses gemeinsame Action-Modell
+steht im Zentrum von Agent-Native: Verhalten, Validierung und Berechtigungen
+bleiben in UI, Agenten und Integrationen abgestimmt, wenn Sie Fähigkeiten hinzufügen.
+
+## Was Sie erstellt haben
+
+Sie haben einen Agenten mit einer Chat-UI erstellt, dieselbe `hello`-Action über
+den Agenten und eine React-UI aufgerufen und die Begrüßung einmal geändert,
+woraufhin sich beide aktualisiert haben. Jede Action, die Sie von nun an
+schreiben, folgt demselben Muster.
+
+## Nächste Schritte
+
+<Cards>
+
+### [Was ist Agent-Native?](/docs/what-is-agent-native)
+
+Erfahren Sie, warum UI und Agent Actions, Daten und Kontext gemeinsam nutzen.
+
+### [Grundlegende Konzepte](/docs/key-concepts)
+
+Erfahren Sie, wie Actions, SQL-Daten, Anwendungskontext, Zugriff und Live-Sync
+zusammenwirken.
+
+### [Actions](/docs/actions-overview)
+
+Definieren Sie Actions für Lesevorgänge, Schreibvorgänge und Freigaben und
+rufen Sie sie anschließend über UI, Agenten und externe Clients auf.
+
+### [Eine App bereitstellen](/docs/deploy-an-app)
+
+Wechseln Sie von lokaler Entwicklung zu einer dauerhaften Datenbank,
+Produktions-Authentifizierung und einem unterstützten Ziel.
+
+</Cards>

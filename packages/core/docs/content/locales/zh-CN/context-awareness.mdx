@@ -401,10 +401,14 @@ export function useNavigationState() {
 }
 ```
 
+从 `app/lib/tab-id.ts` 导入的 `TAB_ID` 就是框架的 `getBrowserTabId()` 值。页面本地的 WebMCP 调用也会在 `X-Agent-Native-Browser-Tab` 中发送同一个 id,因此服务器会把按标签页划分的 `navigation`/`selection` 状态精确解析到代理或用户实际正在操作的那个标签页——不存在需要另外保持同步的第二套标签页方案。
+
 | 你写                                            | 框架句柄                                     |
 | ----------------------------------------------- | -------------------------------------------- |
 | `getNavigationState` — 将 URL 映射到语义状态    | `navigation` 写入，制表符范围加上全局后备键  |
 | `getCommandPath` — 将 `navigate` 命令映射到路由 | 命令轮询、读后删除、重复命令保护、请求源标记 |
+
+以字符串返回的路径始终属于当前应用，即使它以另一个工作区应用的挂载路径开头也是如此。若要有意导航到同级应用，请返回包含完整挂载路径的 `{ type: "workspace-app", path: "/seo-application/settings" }`。
 
 `useAgentRouteState` 假定为 React 路由器。当导航不在 URL 中时（向导步骤、画布选择、非路由器 shell），而是下拉到较低级别的 `useSemanticNavigationState`：您将现成的 `state` 值加上 `navigationKeys`/`commandKeys` 和 `onCommand` 回调，并且它与 React 路由器完全无关。
 

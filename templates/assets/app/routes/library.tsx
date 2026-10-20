@@ -1,12 +1,13 @@
 import {
-  AgentToggleButton,
   insertAgentComposerReference,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
   useAgentChatGenerating,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
+  callAction,
   getBrowserTabId,
   readClientAppState,
   useActionMutation,
@@ -14,21 +15,25 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client/hooks";
 import {
-  getEmbedAuthToken,
   isEmbedAuthActive,
   isEmbedMcpChatBridgeActive,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import {
+  createEmbeddedAppBridge,
+  type EmbeddedAppBridge,
+} from "@agent-native/core/embedding/bridge";
 import {
   AGENT_NATIVE_EMBED_MESSAGE_TYPES,
   createAgentNativeEmbedEnvelope,
-  createEmbeddedAppBridge,
-  type EmbeddedAppBridge,
-} from "@agent-native/core/embedding";
+} from "@agent-native/core/embedding/protocol";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  normalizeDocumentTitle,
 } from "@agent-native/core/shared";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import {
   IconAlertTriangle,
   IconArrowUpRight,
@@ -38,9 +43,10 @@ import {
   IconLibraryPhoto,
   IconPhotoPlus,
   IconSearch,
+  IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -60,8 +66,19 @@ import { toast } from "sonner";
 
 import { AssetPreviewDialog as SharedAssetPreviewDialog } from "@/components/asset/AssetPreviewDialog";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -77,6 +94,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -85,6 +103,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { assetContentUrl } from "@/lib/asset-urls";
 import {
   sortLibrariesByUsage,
   type ImageLibrarySummary,
@@ -98,7 +117,11 @@ import type {
   ImageQualityTier,
   StyleStrength,
 } from "../../shared/api";
-import { MODEL_ASPECT_RATIOS } from "../../shared/api";
+import {
+  MODEL_ASPECT_RATIOS,
+  normalizeCallerAppId,
+  type AssetAccessRole,
+} from "../../shared/api";
 import {
   DEFAULT_LIBRARY_PRESETS,
   LibraryPreset,
@@ -110,6 +133,8 @@ import {
 } from "./brand-kits.$id";
 
 type AssetTab = "all" | "generated" | "drafts" | "references";
+
+const LIBRARY_SEARCH_DEBOUNCE_MS = 300;
 
 function isGeneratedAsset(asset: Asset) {
   const role = asset.role ?? "";
@@ -175,6 +200,7 @@ type Library = {
   id: string;
   title: string;
   description?: string | null;
+  accessRole?: AssetAccessRole;
 };
 
 type GenerationConfig = {
@@ -213,8 +239,6 @@ type HostConfig = {
   candidateRunIds?: string[];
 };
 
-// Preselect the library whose title/description best matches a free-text brand
-// or use-case hint. Falls back to no match (caller uses the first library).
 function matchLibraryByHint(
   libraries: Library[],
   hint: string | undefined,
@@ -428,28 +452,11 @@ function shouldUseContentProxyForPreview(asset: Asset) {
   );
 }
 
-function embedTokenParam() {
-  if (typeof window === "undefined") return null;
-  const externalToken =
-    typeof (window as any).__AGENT_NATIVE_EXTERNAL_EMBED?.token === "string"
-      ? (window as any).__AGENT_NATIVE_EXTERNAL_EMBED.token
-      : null;
-  if (externalToken) return externalToken;
-  return (
-    getEmbedAuthToken() ??
-    new URLSearchParams(window.location.search).get("__an_embed_token")
-  );
-}
-
-function assetContentUrl(asset: Asset, variant?: "thumb") {
-  const params = new URLSearchParams();
-  if (variant === "thumb") params.set("variant", "thumb");
-  const embedToken = embedTokenParam();
-  if (embedToken) params.set("__an_embed_token", embedToken);
-  const query = params.toString();
-  return absoluteAssetUrl(
-    `/api/assets/${asset.id}/content${query ? `?${query}` : ""}`,
-  );
+function assetContentPreviewUrl(asset: Asset, variant?: "thumb") {
+  return assetContentUrl(asset.id, {
+    variant,
+    origin: absoluteAppUrl("/"),
+  });
 }
 
 function uniqueSources(sources: Array<string | undefined>) {
@@ -464,8 +471,8 @@ function uniqueSources(sources: Array<string | undefined>) {
 function assetThumbnailSources(asset: Asset) {
   if (shouldUseContentProxyForPreview(asset)) {
     return uniqueSources([
-      assetContentUrl(asset, asset.thumbnailUrl ? "thumb" : undefined),
-      assetContentUrl(asset),
+      assetContentPreviewUrl(asset, asset.thumbnailUrl ? "thumb" : undefined),
+      assetContentPreviewUrl(asset),
     ]);
   }
   return uniqueSources(
@@ -477,7 +484,7 @@ function assetThumbnailSources(asset: Asset) {
 
 function assetOverlaySources(asset: Asset) {
   if (shouldUseContentProxyForPreview(asset)) {
-    return uniqueSources([assetContentUrl(asset)]);
+    return uniqueSources([assetContentPreviewUrl(asset)]);
   }
   return uniqueSources(
     [asset.previewUrl, asset.downloadUrl, asset.url, asset.thumbnailUrl].map(
@@ -500,15 +507,6 @@ function previewFetchCredentials(
   }
 }
 
-/**
- * True when `url` points at a different origin than the current document.
- * Inline embeds load under `Cross-Origin-Embedder-Policy: require-corp`, which
- * blocks cross-origin `<img>` subresources unless they opt in via CORS. Marking
- * cross-origin previews `crossOrigin="anonymous"` makes the browser CORS-fetch
- * them (the asset CDN sends `Access-Control-Allow-Origin: *`), satisfying COEP.
- * Same-origin and `data:`/`blob:` URLs return false so their cookies / inline
- * bytes are untouched.
- */
 function isCrossOriginPreview(url: string | undefined): boolean {
   if (!url || typeof window === "undefined") return false;
   if (url.startsWith("data:") || url.startsWith("blob:")) return false;
@@ -530,7 +528,7 @@ function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
   const displayTitle = assetDisplayTitle(asset);
   const fallbackLabel = assetTitle || assetPrompt || displayTitle || asset.id;
   const embeddedContentUrl = shouldUseContentProxyForPreview(asset)
-    ? assetContentUrl(asset)
+    ? assetContentPreviewUrl(asset)
     : undefined;
   const previewUrl = absoluteAssetUrl(embeddedContentUrl ?? asset.previewUrl);
   const url = absoluteAssetUrl(
@@ -592,7 +590,6 @@ function selectedAssetFollowUpMessage(
     .join("\n");
 }
 
-/** Compact, agent-usable context — not the full internal payload. */
 function selectedAssetContext(payload: ReturnType<typeof assetPayload>) {
   const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
   const width = Number(payload.width);
@@ -852,7 +849,7 @@ function EmptyLibraryStarter({ onCreateBlank }: { onCreateBlank: () => void }) {
       {
         onSuccess: (library: any) => {
           setCreatingPresetId(null);
-          navigate(`/library/${library.id}`);
+          void navigate(`/library/${library.id}`);
         },
         onError: (error: Error) => {
           setCreatingPresetId(null);
@@ -912,7 +909,7 @@ function LibraryShellHeader({
   return (
     <header className="border-b border-border bg-background px-4 py-3 md:px-6">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <LibraryKitSelector
             selectedLibraryId={selectedLibraryId}
             libraries={libraries}
@@ -935,11 +932,7 @@ function LibraryShellHeader({
               aria-label={t("library.primaryKitActions")}
             />
           ) : null}
-          <Button
-            size="sm"
-            className="h-8 shrink-0 gap-1.5"
-            onClick={onCreateKit}
-          >
+          <Button size="sm" className="shrink-0 gap-1.5" onClick={onCreateKit}>
             <IconPhotoPlus className="h-4 w-4" />
             {t("library.newKit")}
           </Button>
@@ -994,7 +987,7 @@ function LibraryKitSelector({
 
   function selectLibrary(libraryId: string | null) {
     setOpen(false);
-    navigate(libraryId ? `/library/${libraryId}` : "/library");
+    void navigate(libraryId ? `/library/${libraryId}` : "/library");
   }
   const titleTrigger = triggerStyle === "title";
 
@@ -1021,7 +1014,7 @@ function LibraryKitSelector({
           <Button
             variant="outline"
             size="sm"
-            className="h-8 max-w-[18rem] gap-1.5 px-2.5"
+            className="max-w-[18rem] gap-1.5 px-2.5"
           >
             <IconLibraryPhoto className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate">
@@ -1119,7 +1112,7 @@ function LibraryKitSelector({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 w-full justify-start gap-2"
+            className="w-full justify-start gap-2"
             onClick={() => {
               setOpen(false);
               onCreateKit();
@@ -1140,14 +1133,10 @@ function AllAssetsBrowser({
   foldersByLibraryId?: Record<string, any[]>;
 }) {
   const t = useT();
-  const navigate = useNavigate();
+
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
-  // The root Library view keeps its tab/search in the URL so deep links,
-  // refreshes, and agent `navigate` commands are honored (the framework's
-  // useNavigationState reads the same `?tab=`/`?q=` params). Absent a tab param,
-  // default to Drafts.
   const urlAssetTab = useMemo<AssetTab>(() => {
     const tab = new URLSearchParams(searchParamsKey).get("tab");
     return tab === "drafts" || tab === "generated" || tab === "references"
@@ -1158,18 +1147,32 @@ function AllAssetsBrowser({
     () => new URLSearchParams(searchParamsKey).get("q") ?? "",
     [searchParamsKey],
   );
+  const routeRequestsSearchFocus = useMemo(
+    () => new URLSearchParams(searchParamsKey).get("focus") === "search",
+    [searchParamsKey],
+  );
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(urlQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(urlQuery);
   const [assetTab, setAssetTab] = useState<AssetTab>(urlAssetTab);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
   > | null>(null);
   const [standaloneCopyOk, setStandaloneCopyOk] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [optimisticallyDeletedAssetIds, setOptimisticallyDeletedAssetIds] =
+    useState<Set<string>>(() => new Set());
+  const [deletingAssetIds, setDeletingAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
+  const deleteAssets = useActionMutation("delete-assets");
 
   const isDraftsTab = assetTab === "drafts";
 
-  // The Drafts tab renders its own candidate queries via LibraryCandidateStage,
-  // so skip the cross-library asset scan while it is the active tab.
   const {
     data: assetData,
     isLoading,
@@ -1179,7 +1182,7 @@ function AllAssetsBrowser({
   } = useActionQuery(
     "list-assets",
     {
-      query: query.trim() || undefined,
+      query: debouncedQuery.trim() || undefined,
     } as any,
     { enabled: !isDraftsTab } as any,
   ) as {
@@ -1195,9 +1198,17 @@ function AllAssetsBrowser({
     () => allAssets.filter((asset) => assetMatchesTab(asset, assetTab)),
     [allAssets, assetTab],
   );
-  const visibleAssetCount = assets.length;
-  // The badge only renders on the Generated/References tabs, which are always a
-  // filtered subset, so report the shown count rather than the library total.
+  const visibleAssets = useMemo(
+    () =>
+      assets.filter((asset) => !optimisticallyDeletedAssetIds.has(asset.id)),
+    [assets, optimisticallyDeletedAssetIds],
+  );
+  const selectedCount = selectedAssetIds.size;
+  const allVisibleSelected =
+    visibleAssets.length > 0 &&
+    visibleAssets.every((asset) => selectedAssetIds.has(asset.id));
+  const deleting = deleteAssets.isPending || deletingAssetIds.size > 0;
+  const visibleAssetCount = visibleAssets.length;
   const assetCountLabel = isLoading
     ? t("library.loading")
     : t("library.shownCount", { count: visibleAssetCount });
@@ -1230,27 +1241,167 @@ function AllAssetsBrowser({
 
   function chooseAsset(asset: Asset) {
     const payload = assetPayload(asset, "image");
+    trackEvent("asset_selected", {
+      asset_id: asset.id,
+      output_id: asset.id,
+      output_type: asset.mediaType,
+      library_id: asset.libraryId,
+    });
     setStandaloneSelection(payload);
     setStandaloneCopyOk(false);
     void copyStandaloneSelection(payload);
   }
 
-  // Keep local state in sync when the URL changes externally (back/forward,
-  // agent navigation, deep links) since the component stays mounted.
+  function toggleAsset(assetId: string, checked: boolean) {
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(assetId);
+      else next.delete(assetId);
+      return next;
+    });
+  }
+
+  function toggleAllVisible(checked: boolean) {
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      for (const asset of visibleAssets) {
+        if (checked) next.add(asset.id);
+        else next.delete(asset.id);
+      }
+      return next;
+    });
+  }
+
+  function confirmDelete(ids: string[]) {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length) setConfirmDeleteIds(uniqueIds);
+  }
+
+  function markDeleting(ids: string[]) {
+    setDeletingAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    setOptimisticallyDeletedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  function finishDeleting(ids: string[]) {
+    setDeletingAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  function restoreAfterDeleteError(ids: string[]) {
+    finishDeleting(ids);
+    setOptimisticallyDeletedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+
+  function handleDeleteConfirmed() {
+    if (!confirmDeleteIds.length || deleting) return;
+    const ids = [...confirmDeleteIds];
+    setConfirmDeleteIds([]);
+    markDeleting(ids);
+    deleteAssets.mutate(
+      { ids },
+      {
+        onSuccess: (result: any) => {
+          finishDeleting(ids);
+          void refetch();
+          const count = Number(result?.deletedCount ?? ids.length);
+          toast.success(
+            count === 1
+              ? t("library.deletedAsset")
+              : t("library.deletedAssets", { count }),
+          );
+        },
+        onError: (error) => {
+          restoreAfterDeleteError(ids);
+          toast.error(
+            error.message || t("library.couldNotDeleteSelectedAssets"),
+          );
+        },
+      },
+    );
+  }
+
   useEffect(() => {
     setAssetTab(urlAssetTab);
   }, [urlAssetTab]);
   useEffect(() => {
     setQuery(urlQuery);
   }, [urlQuery]);
-
+  useEffect(() => {
+    if (!routeRequestsSearchFocus || isDraftsTab) return;
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("focus");
+          return next;
+        },
+        { replace: true },
+      );
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isDraftsTab, routeRequestsSearchFocus, setSearchParams]);
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedQuery(query);
+      const trimmedQuery = query.trim();
+      if (trimmedQuery.length >= 2 && query !== urlQuery) {
+        trackEvent("asset_search_used", {
+          app_name: "assets",
+          template_name: "assets",
+          asset_tab: assetTab,
+          query_length_bucket: trimmedQuery.length <= 10 ? "2_10" : "11_plus",
+        });
+      }
+      if (query === urlQuery) return;
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (query.trim()) next.set("q", query);
+          else next.delete("q");
+          return next;
+        },
+        { replace: true },
+      );
+    }, LIBRARY_SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [assetTab, query, setSearchParams, urlQuery]);
   const handleAssetTabChange = useCallback(
     (value: AssetTab) => {
+      trackEvent("asset_library_tab_changed", {
+        app_name: "assets",
+        template_name: "assets",
+        tab: value,
+      });
       setAssetTab(value);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          // Drafts is the default, so keep it out of the URL for clean links.
           if (value === "drafts") next.delete("tab");
           else next.set("tab", value);
           return next;
@@ -1261,24 +1412,10 @@ function AllAssetsBrowser({
     [setSearchParams],
   );
 
-  const handleQueryChange = useCallback(
-    (value: string) => {
-      setQuery(value);
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          if (value.trim()) next.set("q", value);
-          else next.delete("q");
-          return next;
-        },
-        { replace: true },
-      );
-    },
-    [setSearchParams],
-  );
+  const handleQueryChange = useCallback((value: string) => {
+    setQuery(value);
+  }, []);
 
-  // The Drafts tab's candidate queries live inside LibraryCandidateStage;
-  // refetch them by key so the error state offers a working retry.
   const retryDrafts = useCallback(() => {
     void queryClient.refetchQueries({
       queryKey: ["app-state", assetVariantStateKey(null)],
@@ -1295,7 +1432,7 @@ function AllAssetsBrowser({
               value={assetTab}
               onValueChange={(value) => handleAssetTabChange(value as AssetTab)}
             >
-              <TabsList className="h-9">
+              <TabsList>
                 <TabsTrigger value="drafts">{t("library.drafts")}</TabsTrigger>
                 <TabsTrigger value="generated">
                   {t("library.generated")}
@@ -1313,16 +1450,34 @@ function AllAssetsBrowser({
                 {assetCountLabel}
               </Badge>
             )}
+            {!isDraftsTab && visibleAssets.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="shrink-0 px-2 text-xs"
+                onClick={() => toggleAllVisible(!allVisibleSelected)}
+                disabled={deleting}
+                aria-pressed={allVisibleSelected}
+                aria-label={
+                  allVisibleSelected
+                    ? t("library.deselectAll")
+                    : t("library.selectAllVisibleAssets")
+                }
+              >
+                {allVisibleSelected
+                  ? t("library.deselectAll")
+                  : t("library.selectAll")}
+              </Button>
+            )}
           </div>
           {!isDraftsTab && (
             <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
               <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
               <input
+                ref={searchInputRef}
                 type="search"
                 value={query}
-                onInput={(event) =>
-                  handleQueryChange(event.currentTarget.value)
-                }
                 onChange={(event) => handleQueryChange(event.target.value)}
                 placeholder={t("library.searchAssets")}
                 className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
@@ -1349,7 +1504,7 @@ function AllAssetsBrowser({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 shrink-0 gap-1.5"
+                className="shrink-0 gap-1.5"
                 onClick={() => copyStandaloneSelection(standaloneSelection)}
               >
                 {standaloneCopyOk ? (
@@ -1363,7 +1518,7 @@ function AllAssetsBrowser({
                 asChild
                 variant="ghost"
                 size="sm"
-                className="h-8 shrink-0 gap-1.5"
+                className="shrink-0 gap-1.5"
               >
                 <Link
                   to={`/asset/${encodeURIComponent(
@@ -1376,10 +1531,10 @@ function AllAssetsBrowser({
               </Button>
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 title={t("library.close")}
                 aria-label={t("library.close")}
-                className="h-8 w-8 shrink-0"
+                className="shrink-0"
                 onClick={() => {
                   setStandaloneSelection(null);
                   setStandaloneCopyOk(false);
@@ -1401,6 +1556,90 @@ function AllAssetsBrowser({
             />
           </details>
         </section>
+      )}
+
+      <AlertDialog
+        open={confirmDeleteIds.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDeleteIds([]);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmDeleteIds.length > 1
+                ? t("library.deleteAssetsTitle", {
+                    count: confirmDeleteIds.length,
+                  })
+                : t("library.deleteAssetTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("assetDetail.deleteDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("library.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                handleDeleteConfirmed();
+              }}
+            >
+              {deleting ? (
+                <Spinner className="h-4 w-4" />
+              ) : (
+                t("assetDetail.delete")
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {!isDraftsTab && (selectedCount > 0 || deletingAssetIds.size > 0) && (
+        <div className="mx-4 mb-1 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-md border border-border/70 bg-background px-3 py-2 md:mx-6">
+          {deletingAssetIds.size > 0 ? (
+            <div
+              className="flex min-w-0 items-center gap-2 text-sm font-medium"
+              role="status"
+              aria-live="polite"
+            >
+              <Spinner className="h-4 w-4" />
+              <span className="truncate">
+                {t("library.deletingAssets", {
+                  count: deletingAssetIds.size,
+                })}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm font-medium">
+              {t("library.selectedCount", { count: selectedCount })}
+            </span>
+          )}
+          {deletingAssetIds.size === 0 && (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedAssetIds(new Set())}
+              >
+                {t("library.clear")}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() => confirmDelete([...selectedAssetIds])}
+                disabled={deleting}
+              >
+                <IconTrash className="h-4 w-4" />
+                {t("assetDetail.delete")}
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
       <main className="p-4 md:p-6">
@@ -1449,7 +1688,7 @@ function AllAssetsBrowser({
               {t("brandKitDetail.refresh")}
             </Button>
           </div>
-        ) : assets.length === 0 ? (
+        ) : visibleAssets.length === 0 ? (
           <div className="flex min-h-64 items-center justify-center text-center">
             <div className="max-w-sm text-sm text-muted-foreground">
               {query
@@ -1459,72 +1698,104 @@ function AllAssetsBrowser({
           </div>
         ) : (
           <div className="assets-library-grid grid grid-cols-2 gap-4">
-            {assets.map((asset) => (
-              <div
-                key={asset.id}
-                className="group relative overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25 hover:bg-muted/10 focus-within:ring-2 focus-within:ring-ring"
-              >
-                <button
-                  type="button"
-                  aria-label={t("library.selectAsset", {
-                    title: assetDisplayTitle(asset),
-                  })}
-                  onClick={() => setPreviewAsset(asset)}
-                  title={assetDisplayTitle(asset)}
-                  className="block w-full text-left focus-visible:outline-none"
+            {visibleAssets.map((asset) => {
+              const selected = selectedAssetIds.has(asset.id);
+              return (
+                <div
+                  key={asset.id}
+                  className={cn(
+                    "group relative overflow-hidden rounded-lg border border-border/80 bg-background transition-[border-color,background-color,box-shadow] hover:border-foreground/25 hover:bg-muted/10 focus-within:ring-2 focus-within:ring-ring",
+                    selected && "border-primary ring-1 ring-primary/30",
+                  )}
                 >
-                  <div className="aspect-[4/3] bg-muted/40">
-                    {asset.mediaType === "video" ||
-                    asset.mimeType?.startsWith("video/") ? (
-                      <video
-                        src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
-                        poster={asset.thumbnailUrl}
-                        muted
-                        playsInline
-                        className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-                      />
-                    ) : (
-                      <AssetThumbnail asset={asset} />
+                  <div
+                    className={cn(
+                      "absolute start-2 top-2 z-10 flex size-9 items-center justify-center rounded-md bg-background/90 shadow-sm backdrop-blur transition-[opacity]",
+                      "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100",
+                      selected && "opacity-100 sm:opacity-100",
                     )}
-                  </div>
-                </button>
-                {(asset as any).libraryTitle ? (
-                  <Link
-                    to={`/library/${asset.libraryId}`}
-                    className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:bg-background"
                   >
-                    {(asset as any).libraryTitle}
-                  </Link>
-                ) : null}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={t("library.copyToClipboard")}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          chooseAsset(asset);
-                        }}
-                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
-                      >
-                        <IconClipboard className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("library.copyToClipboard")}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            ))}
+                    <Checkbox
+                      checked={selected}
+                      disabled={deleting}
+                      onCheckedChange={(checked) =>
+                        toggleAsset(asset.id, checked === true)
+                      }
+                      aria-label={t("library.selectAsset", {
+                        title: assetDisplayTitle(asset),
+                      })}
+                      className="size-5"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`${t("library.openDetails")}: ${assetDisplayTitle(asset)}`}
+                    onClick={() => {
+                      trackEvent("asset_preview_opened", {
+                        app_name: "assets",
+                        template_name: "assets",
+                        media_type: asset.mediaType,
+                      });
+                      setPreviewAsset(asset);
+                    }}
+                    title={assetDisplayTitle(asset)}
+                    className="block w-full text-left focus-visible:outline-none"
+                  >
+                    <div className="aspect-[4/3] bg-muted/40">
+                      {asset.mediaType === "video" ||
+                      asset.mimeType?.startsWith("video/") ? (
+                        <video
+                          src={
+                            asset.previewUrl ?? asset.downloadUrl ?? asset.url
+                          }
+                          poster={asset.thumbnailUrl}
+                          muted
+                          playsInline
+                          className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                        />
+                      ) : (
+                        <AssetThumbnail asset={asset} />
+                      )}
+                    </div>
+                  </button>
+                  {(asset as any).libraryTitle ? (
+                    <Link
+                      to={`/library/${asset.libraryId}`}
+                      className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:bg-background"
+                    >
+                      {(asset as any).libraryTitle}
+                    </Link>
+                  ) : null}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={t("library.copyToClipboard")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            chooseAsset(asset);
+                          }}
+                          className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-100 shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                        >
+                          <IconClipboard className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("library.copyToClipboard")}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              );
+            })}
           </div>
         )}
       </main>
 
       <AssetPreviewDialog
         asset={previewAsset}
-        assets={assets}
+        assets={visibleAssets}
         onAssetChange={setPreviewAsset}
       />
     </div>
@@ -1753,9 +2024,38 @@ function LibraryCandidateStage({
         .sort((left, right) => String(right.id).localeCompare(String(left.id))),
     [libraryAssets, liveAssetIds],
   );
+  const stageLibraryIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (activeLibraryId) ids.add(activeLibraryId);
+    if (liveLibraryId) ids.add(liveLibraryId);
+    for (const asset of draftAssets) {
+      if (asset.libraryId) ids.add(asset.libraryId);
+    }
+    return Array.from(ids);
+  }, [activeLibraryId, liveLibraryId, draftAssets]);
+  const libraryAccessResults = useQueries({
+    queries: stageLibraryIds.map((id) => ({
+      queryKey: ["action", "get-library-access", { libraryId: id }],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        callAction<{ libraryId: string; canApprove: boolean }>(
+          "get-library-access",
+          { libraryId: id } as never,
+          { method: "GET", signal },
+        ),
+    })),
+  });
+  const approvableLibraryIds = useMemo(() => {
+    const approvable = new Set<string>();
+    for (const result of libraryAccessResults) {
+      if (result.data?.canApprove) approvable.add(result.data.libraryId);
+    }
+    return approvable;
+  }, [libraryAccessResults]);
+  const canApproveLibrary = useCallback(
+    (id?: string | null) => Boolean(id && approvableLibraryIds.has(id)),
+    [approvableLibraryIds],
+  );
   const totalCount = slots.length + draftAssets.length;
-  // Don't flash the empty state before the candidate sources have resolved, and
-  // don't misreport a load failure as "no drafts".
   const candidatesLoading =
     variantsLoading || (isAllAssetsStage && allCandidatesLoading);
   const candidatesError =
@@ -1951,6 +2251,7 @@ function LibraryCandidateStage({
         foldersByLibraryId={foldersByLibraryId}
         savingSlotId={savingCandidateSlotId}
         promotingReferenceKeys={promotingReferenceKeys}
+        canApproveLibrary={canApproveLibrary}
         onSave={(slot, folderId) => {
           void handleSaveLiveCandidate(slot, folderId);
         }}
@@ -2026,6 +2327,19 @@ export function LibraryWorkspace({
         : null,
     [libraries, routeSelectedLibraryId],
   );
+
+  useEffect(() => {
+    if (!currentLibrary?.title) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      currentLibrary.title,
+      "Library",
+    )} — Assets`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [currentLibrary?.title]);
 
   useEffect(() => {
     if (!routeSelectedLibraryId || !currentLibrary?.title) return;
@@ -2117,9 +2431,6 @@ export function AssetPickerSurface() {
       ? tab
       : null;
   }, [searchParamsKey]);
-  // The active tab is the only host-irrelevant search param. Exclude it from the
-  // host-config key so toggling tabs (which writes `?tab=`) doesn't retrigger the
-  // effect that resets media type / query / library from the URL.
   const hostParamsKey = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey);
     params.delete("tab");
@@ -2195,11 +2506,6 @@ export function AssetPickerSurface() {
   const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
     string[]
   >(() => hostConfig.candidateRunIds ?? []);
-  // The picker generates with the composer's default image model
-  // (`imageGenerationModel`); it does not pick a model itself. Read that default
-  // so the aspect-ratio choices can be constrained for models that only support
-  // a subset (e.g. gpt-image-2 → 1:1 / 2:3 / 3:2). Read-once is enough here: the
-  // embedded picker has no image-model control of its own.
   const [imageModelDefault, setImageModelDefault] = useState<ImageModel | null>(
     null,
   );
@@ -2216,9 +2522,6 @@ export function AssetPickerSurface() {
       cancelled = true;
     };
   }, []);
-  // Only override the picker's curated ratio list when the selected image model
-  // actually restricts ratios; otherwise keep the full curated set. Video mode
-  // is unaffected by the image model.
   const ratioOptions = useMemo<readonly string[]>(() => {
     if (mediaType !== "image") return ASPECT_RATIOS;
     return (
@@ -2241,15 +2544,10 @@ export function AssetPickerSurface() {
   }, [urlHostConfig]);
 
   useEffect(() => {
-    // Reset to "all" when the tab param is removed (e.g. back/forward nav)
-    // since the component stays mounted across search-param changes.
     setAssetTab(urlAssetTab ?? "all");
   }, [urlAssetTab]);
 
   useEffect(() => {
-    // If the current ratio isn't valid for the selected model (e.g. a 16:9
-    // default while gpt-image-2 is active), snap to the first supported ratio so
-    // the picker can't submit an unsupported pairing.
     if (!ratioOptions.includes(aspectRatio)) {
       setAspectRatio(ratioOptions[0]);
     }
@@ -2258,8 +2556,6 @@ export function AssetPickerSurface() {
   const handleAssetTabChange = useCallback(
     (value: AssetTab) => {
       setAssetTab(value);
-      // Keep the tab reflected in the URL so it survives refresh/share and
-      // stays consistent with the `?tab=` deep link from the home page.
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -2332,16 +2628,17 @@ export function AssetPickerSurface() {
     isLoading: presetsLoading,
     isPending: presetsPending,
   } = useActionQuery(
-    "list-generation-presets",
+    "list-templates",
     { libraryId: selectedLibraryId } as any,
     { enabled: Boolean(selectedLibraryId) && !usingStarterLibrary } as any,
   ) as {
-    data?: { presets?: GenerationPreset[] };
+    data?: { templates?: GenerationPreset[] };
     isLoading?: boolean;
     isPending?: boolean;
   };
   const generationPresets =
-    presetData?.presets?.filter((preset) => preset.mediaType !== "video") ?? [];
+    presetData?.templates?.filter((preset) => preset.mediaType !== "video") ??
+    [];
   const selectedPreset =
     presetId === "none"
       ? null
@@ -2367,15 +2664,12 @@ export function AssetPickerSurface() {
     () => ({
       libraryId: selectedLibraryId,
       mediaType,
-      // Drafts are exactly generated candidates — filter them server-side
-      // instead of fetching the whole library and filtering on the client.
       role: viewingDrafts ? "generated" : undefined,
       status: viewingDrafts ? "candidate" : undefined,
       query: query.trim() || undefined,
       includeCandidates:
         viewingDrafts ||
         (mediaType === "image" && visibleCandidateRunIds.length > 0),
-      // The Drafts tab shows every unsaved draft, not just the latest run batch.
       candidateRunIds:
         !viewingDrafts && visibleCandidateRunIds.length > 0
           ? visibleCandidateRunIds
@@ -2542,6 +2836,23 @@ export function AssetPickerSurface() {
 
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
+    trackEvent("asset_selected", {
+      asset_id: asset.id,
+      output_id: asset.id,
+      output_type: asset.mediaType,
+      library_id: asset.libraryId,
+      selection_surface: "picker",
+    });
+    const callerAppId = normalizeCallerAppId(hostConfig.callerAppId);
+    if (callerAppId) {
+      trackEvent("pulled_by_app", {
+        asset_id: asset.id,
+        output_id: asset.id,
+        output_type: asset.mediaType,
+        source_app: "assets",
+        target_app: callerAppId,
+      });
+    }
     if (embedded) {
       if (!mcpChatBridgeActive) {
         postEmbeddedSelectionMessage("chooseAsset", payload);
@@ -2591,8 +2902,6 @@ export function AssetPickerSurface() {
         setQuery("");
       },
       onError: (error: Error) => {
-        // Allow the auto-create effect to retry after a transient failure;
-        // otherwise the picker stays stuck on "Preparing..." until reload.
         autoCreateLibraryRef.current = false;
         toast.error(error.message || t("library.couldNotPrepareImageLibrary"));
       },
@@ -2659,7 +2968,6 @@ export function AssetPickerSurface() {
           presetTitle: selectedPreset?.title ?? null,
           tier: hostConfig.tier,
           styleStrength: hostConfig.styleStrength ?? "balanced",
-          // Omit when unset so the selected preset's logo setting drives it.
           includeLogo: hostConfig.includeLogo,
         }),
         submit: true,
@@ -2684,7 +2992,6 @@ export function AssetPickerSurface() {
       })),
       tier: hostConfig.tier,
       styleStrength: hostConfig.styleStrength ?? "balanced",
-      // Omit when unset so the selected preset's logo setting drives it.
       includeLogo: hostConfig.includeLogo,
       source: "ui",
       callerAppId: hostConfig.callerAppId,
@@ -2935,7 +3242,11 @@ export function AssetPickerSurface() {
                 size="icon"
                 title={t("library.openAssets")}
               >
-                <a href={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
+                <a
+                  href={absoluteAppUrl("/home")}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   <IconArrowUpRight className="h-4 w-4" />
                 </a>
               </Button>
@@ -3089,7 +3400,11 @@ export function AssetPickerSurface() {
                 className="h-7 shrink-0 px-2 text-xs"
               >
                 <a
-                  href={absoluteAppUrl("/settings")}
+                  href={absoluteAppUrl(
+                    buildSettingsRoute("app", null, {
+                      anchor: "asset-generation-setup",
+                    }),
+                  )}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -3139,7 +3454,7 @@ export function AssetPickerSurface() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 shrink-0 gap-1.5"
+                className="shrink-0 gap-1.5"
                 onClick={() => copyStandaloneSelection(standaloneSelection)}
               >
                 {standaloneCopyOk ? (
@@ -3154,7 +3469,7 @@ export function AssetPickerSurface() {
                   asChild
                   variant="ghost"
                   size="sm"
-                  className="h-8 shrink-0 gap-1.5"
+                  className="shrink-0 gap-1.5"
                 >
                   <Link
                     to={`/asset/${encodeURIComponent(
@@ -3168,10 +3483,10 @@ export function AssetPickerSurface() {
               )}
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 title={t("library.close")}
                 aria-label={t("library.close")}
-                className="h-8 w-8 shrink-0"
+                className="shrink-0"
                 onClick={() => {
                   setStandaloneSelection(null);
                   setStandaloneCopyOk(false);
@@ -3237,7 +3552,7 @@ export function AssetPickerSurface() {
                 >
                   <SelectTrigger
                     className={cn(
-                      "h-9 w-full border-border/70 bg-background",
+                      "w-full border-border/70 bg-background",
                       !verticalLayout && "sm:w-48",
                     )}
                   >
@@ -3286,7 +3601,7 @@ export function AssetPickerSurface() {
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={t("library.searchMedia", { mediaLabel })}
                 className={cn(
-                  "h-9 border-border/70 bg-background",
+                  "border-border/70 bg-background",
                   !verticalLayout && "sm:max-w-xs",
                 )}
               />

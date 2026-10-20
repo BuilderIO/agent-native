@@ -1,19 +1,13 @@
-/**
- * Toggle or set the resolved state on a comment.
- *
- * Usage:
- *   pnpm action resolve-comment --id=<id>             # toggle
- *   pnpm action resolve-comment --id=<id> --resolved=true
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
+import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 const cliBoolean = z.preprocess((value) => {
   if (value === "true") return true;
@@ -40,10 +34,36 @@ export default defineAction({
       .limit(1);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    // Any signed-in viewer of the recording can resolve a comment.
-    await assertAccess("recording", existing.recordingId, "viewer");
-    if (!getRequestUserEmail()) {
+    const userEmail = getRequestUserEmail();
+    if (!userEmail) {
       throw new Error("Sign in required to resolve comments.");
+    }
+
+    const access = await assertAccess(
+      "recording",
+      existing.recordingId,
+      "viewer",
+    );
+    if (
+      isRecordingExpiredForViewer({
+        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
+      throw new ForbiddenError("Recording has expired");
+    }
+
+    if (!sameOwnerEmail(existing.authorEmail, userEmail)) {
+      try {
+        await assertAccess("recording", existing.recordingId, "editor");
+      } catch (err) {
+        if (err instanceof ForbiddenError) {
+          throw new ForbiddenError(
+            "Only the comment author or a recording editor can resolve this comment.",
+          );
+        }
+        throw err;
+      }
     }
 
     const next = args.resolved ?? !existing.resolved;

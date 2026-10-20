@@ -33,7 +33,7 @@ const tmpRoot = fs.mkdtempSync(
 );
 const port = Number(process.env.DISPATCH_AUTOMATIONS_SMOKE_PORT || 9331);
 const runId = Date.now().toString(36);
-const qaEmail = "qa-dispatch-automations-smoke@example.test";
+const qaEmail = "qa-dispatch-automations-smoke+autoz@example.test";
 const qaPassword = "local-dev-account";
 const jobName = `qa-automation-${runId}`;
 const jobPath = `jobs/${jobName}.md`;
@@ -73,8 +73,8 @@ function workspaceAppsManifest(baseUrl: string): string {
   });
 }
 
-function dispatchEnv(baseUrl: string, dbPath: string): NodeJS.ProcessEnv {
-  const databaseUrl = `file:${dbPath}`;
+function dispatchEnv(baseUrl: string, dataDir: string): NodeJS.ProcessEnv {
+  const databaseUrl = `pglite:${dataDir}`;
   return {
     ...process.env,
     APP_NAME: "dispatch",
@@ -86,9 +86,7 @@ function dispatchEnv(baseUrl: string, dbPath: string): NodeJS.ProcessEnv {
     AUTH_SKIP_EMAIL_VERIFICATION: "1",
     BETTER_AUTH_SECRET: "dispatch-automations-smoke-secret",
     DATABASE_URL: databaseUrl,
-    DATABASE_AUTH_TOKEN: "",
     DISPATCH_DATABASE_URL: databaseUrl,
-    DISPATCH_DATABASE_AUTH_TOKEN: "",
     AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsManifest(baseUrl),
     NETLIFY: "",
     VERCEL: "",
@@ -126,7 +124,7 @@ async function waitForReady(baseUrl: string, logs: string[]) {
 
 async function startDispatch(): Promise<RunningDispatch> {
   const baseUrl = `http://127.0.0.1:${port}`;
-  const dbPath = path.join(tmpRoot, "dispatch.db");
+  const dataDir = path.join(tmpRoot, "dispatch-pglite");
   const logs: string[] = [];
   const child = spawn(
     "pnpm",
@@ -143,7 +141,7 @@ async function startDispatch(): Promise<RunningDispatch> {
     ],
     {
       cwd: repoRoot,
-      env: dispatchEnv(baseUrl, dbPath),
+      env: dispatchEnv(baseUrl, dataDir),
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -395,6 +393,45 @@ async function runSmoke(page: Page, baseUrl: string) {
   assert.equal(enabled.enabled, true);
 
   assert.deepEqual(consoleErrors, [], "overview must not log console errors");
+
+  const moduleRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.resourceType() === "script") moduleRequests.push(request.url());
+  });
+  await page.evaluate(() =>
+    localStorage.setItem("agent-native:chat-first-mode:v1", "true"),
+  );
+  await page.reload({ waitUntil: "commit", timeout: 60_000 });
+  await waitVisible(
+    page.locator("[data-chat-first-apps-rail]"),
+    "chat-first apps rail",
+  );
+  await waitVisible(
+    page.getByRole("tablist", { name: "Primary navigation" }),
+    "chat-first primary navigation",
+  );
+
+  assert.ok(
+    moduleRequests.some((url) =>
+      /chat-first\/apps-rail(?:\.(?:tsx?|mjs|js))?(?:[?]|$)/.test(url),
+    ),
+    `expected apps-rail module import; requested: ${moduleRequests.join(", ")}`,
+  );
+  assert.ok(
+    moduleRequests.some((url) =>
+      /chat-first\/primary-nav(?:\.(?:tsx?|mjs|js))?(?:[?]|$)/.test(url),
+    ),
+    `expected primary-nav module import; requested: ${moduleRequests.join(", ")}`,
+  );
+  assert.deepEqual(
+    moduleRequests.filter((url) =>
+      /(?:app\/chat\/index|chat-first(?:\/index|\/(?:agents-pane|app-pane|browser-pane|session-watch-pane|surface-tabs|surface-panel|ChatFirstAgentActivityPanel|ChatFirstSurfacePanelToggle)))(?:\.(?:tsx?|mjs|js))?(?:[/?]|$)/.test(
+        url,
+      ),
+    ),
+    [],
+    "overview must not request chat-first pane or barrel modules",
+  );
 }
 
 async function main() {

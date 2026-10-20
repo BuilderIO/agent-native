@@ -31,6 +31,20 @@ export type SkippedAssetUploadDuplicate = {
   title?: string | null;
 };
 
+export const ASSET_DEDUPE_BATCH_SIZE = 100;
+export const ASSET_DEDUPE_MAX_CANDIDATES = 200;
+export const ASSET_DEDUPE_MAX_PAGES = 2;
+export const ASSET_DEDUPE_MAX_CANDIDATE_BYTES = 64 * 1024 * 1024;
+
+export class AssetDedupeSearchLimitError extends Error {
+  constructor() {
+    super(
+      "Asset duplicate checking reached its safety limit. No new assets were created.",
+    );
+    this.name = "AssetDedupeSearchLimitError";
+  }
+}
+
 export function hashAssetBuffer(buffer: Buffer | Uint8Array): string {
   return createHash("sha256").update(Buffer.from(buffer)).digest("hex");
 }
@@ -116,7 +130,10 @@ export async function filterDuplicateAssetUploads(input: {
           legacyHash = await input
             .readExistingAssetBuffer(candidate)
             .then((buffer) => hashAssetBuffer(buffer))
-            .catch(() => null);
+            .catch((error: unknown) => {
+              if (error instanceof AssetDedupeSearchLimitError) throw error;
+              return null;
+            });
           legacyHashByAssetId.set(candidate.id, legacyHash);
         }
 
@@ -142,4 +159,128 @@ export async function filterDuplicateAssetUploads(input: {
   }
 
   return { files, skippedDuplicates };
+}
+
+export async function filterDuplicateAssetUploadsAcrossBatches(input: {
+  files: PreparedAssetUpload[];
+  existingAssets: ExistingAssetForDuplicateCheck[];
+  readExistingAssetHashes: (
+    files: PreparedAssetUpload[],
+  ) => Promise<ExistingAssetForDuplicateCheck[]>;
+  readExistingAssetBatch: (
+    afterId: string | null,
+    files: PreparedAssetUpload[],
+    limit: number,
+  ) => Promise<ExistingAssetForDuplicateCheck[]>;
+  readExistingAssetBuffer: (
+    asset: ExistingAssetForDuplicateCheck,
+  ) => Promise<Buffer>;
+  maxCandidates?: number;
+  maxPages?: number;
+  maxCandidateBytes?: number;
+  batchSize?: number;
+}): Promise<{
+  files: PreparedAssetUpload[];
+  skippedDuplicates: SkippedAssetUploadDuplicate[];
+}> {
+  const unique = await filterDuplicateAssetUploads({
+    files: input.files,
+    existingAssets: [],
+  });
+  let pendingFiles = unique.files;
+  let afterId: string | null = null;
+  let candidatesRead = 0;
+  let pagesRead = 0;
+  let candidateBytesRead = 0;
+  const maxCandidates = input.maxCandidates ?? ASSET_DEDUPE_MAX_CANDIDATES;
+  const maxPages = input.maxPages ?? ASSET_DEDUPE_MAX_PAGES;
+  const maxCandidateBytes =
+    input.maxCandidateBytes ?? ASSET_DEDUPE_MAX_CANDIDATE_BYTES;
+  const batchSize = input.batchSize ?? ASSET_DEDUPE_BATCH_SIZE;
+  const duplicateByFingerprint = new Map<string, SkippedAssetUploadDuplicate>();
+
+  const readExistingAssetBuffer = async (
+    asset: ExistingAssetForDuplicateCheck,
+  ) => {
+    const expectedBytes = asset.sizeBytes ?? 0;
+    if (expectedBytes > maxCandidateBytes - candidateBytesRead) {
+      throw new AssetDedupeSearchLimitError();
+    }
+    const buffer = await input.readExistingAssetBuffer(asset);
+    if (buffer.byteLength > maxCandidateBytes - candidateBytesRead) {
+      throw new AssetDedupeSearchLimitError();
+    }
+    candidateBytesRead += buffer.byteLength;
+    return buffer;
+  };
+  const processBatch = async (
+    existingAssets: ExistingAssetForDuplicateCheck[],
+  ) => {
+    if (!pendingFiles.length || !existingAssets.length) return;
+    const result = await filterDuplicateAssetUploads({
+      files: pendingFiles,
+      existingAssets,
+      readExistingAssetBuffer,
+    });
+    const remainingFingerprints = new Set(
+      result.files.map((file) =>
+        uploadFingerprint(file.mediaType, file.contentHash),
+      ),
+    );
+    let duplicateIndex = 0;
+    for (const file of pendingFiles) {
+      const fingerprint = uploadFingerprint(file.mediaType, file.contentHash);
+      if (remainingFingerprints.has(fingerprint)) continue;
+      const duplicate = result.skippedDuplicates[duplicateIndex++];
+      if (duplicate) duplicateByFingerprint.set(fingerprint, duplicate);
+    }
+    pendingFiles = result.files;
+  };
+  await processBatch(input.existingAssets);
+  if (pendingFiles.length) {
+    const hashMatches = await input.readExistingAssetHashes(pendingFiles);
+    await processBatch(hashMatches);
+  }
+  while (pendingFiles.length) {
+    if (candidatesRead >= maxCandidates || pagesRead >= maxPages) {
+      const moreCandidates = await input.readExistingAssetBatch(
+        afterId,
+        pendingFiles,
+        1,
+      );
+      if (moreCandidates.length) {
+        // Fail closed when the bounded scan cannot prove there is no legacy duplicate.
+        throw new AssetDedupeSearchLimitError();
+      }
+      break;
+    }
+    const pageLimit = Math.min(batchSize, maxCandidates - candidatesRead);
+    const existingAssets = await input.readExistingAssetBatch(
+      afterId,
+      pendingFiles,
+      pageLimit,
+    );
+    if (!existingAssets.length) break;
+    if (existingAssets.length > pageLimit) {
+      throw new Error(
+        "Asset duplicate query exceeded its requested row limit.",
+      );
+    }
+    pagesRead += 1;
+    candidatesRead += existingAssets.length;
+    await processBatch(existingAssets);
+    afterId = existingAssets[existingAssets.length - 1].id;
+    if (existingAssets.length < pageLimit) break;
+  }
+
+  const skippedDuplicates = [
+    ...unique.skippedDuplicates,
+    ...unique.files.flatMap((file) => {
+      const duplicate = duplicateByFingerprint.get(
+        uploadFingerprint(file.mediaType, file.contentHash),
+      );
+      return duplicate ? [duplicate] : [];
+    }),
+  ];
+  return { files: pendingFiles, skippedDuplicates };
 }

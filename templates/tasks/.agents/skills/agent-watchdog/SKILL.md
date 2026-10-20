@@ -1,6 +1,7 @@
 ---
 name: agent-watchdog
 description: Use when asked to watch, babysit, audit, review, compare, or fix another agent's work from a Codex session ID, Claude Code session/transcript, chat/thread link, PR, branch, log, or pasted run summary. Monitor until the other agent is done or blocked, reconstruct what the user asked, inspect what the agent actually changed and verified, report gaps, and optionally make scoped fixes when the user authorizes repair.
+scope: dev
 ---
 
 # Agent Watchdog
@@ -76,8 +77,13 @@ Classify each issue as:
 When the user authorized repair:
 
 1. Fix only gaps with clear evidence.
-2. Preserve unrelated local changes and do not move branches unless explicitly
-   asked for that branch operation.
+2. Preserve unrelated local changes in the existing checkout. When isolation
+   is useful, create a separate task-owned worktree from fresh `origin/main` if
+   it contains the audited task's commits; otherwise base it on the resolved
+   task or PR head. If the audited changes are uncommitted, keep working in the
+   source checkout or carry only those task-owned paths over after verifying
+   them; a new worktree will not include them. Do not move or overwrite the
+   source or a peer's branch to create it.
 3. Use existing repo patterns and targeted tests.
 4. Re-run the smallest useful validation after each meaningful fix.
 5. If a fix would require a product decision, credential, destructive action, or

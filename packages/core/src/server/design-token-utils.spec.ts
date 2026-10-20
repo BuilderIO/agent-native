@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addFont,
   analyzeCodeFile,
+  analyzeCodeFiles,
+  CODE_MAX_TOTAL_BYTES,
   classifyFile,
   createCodeAnalysisState,
   detectStylingFramework,
@@ -12,6 +14,7 @@ import {
   fetchGitHubJsonResult,
   fetchGitHubRaw,
   parseCss,
+  parseGitHubRepoReference,
   parseOwnerRepo,
   parseTailwindConfig,
   suggestionsForType,
@@ -49,6 +52,29 @@ describe("design-token GitHub helpers", () => {
     ).toEqual({ owner: "builderio", repo: "agent-native" });
   });
 
+  it("retains branch and folder scope from GitHub tree/blob URLs", () => {
+    expect(
+      parseGitHubRepoReference(
+        "https://github.com/acme/ui/tree/feature%2Fbrand/src/styles?tab=files",
+      ),
+    ).toEqual({
+      owner: "acme",
+      repo: "ui",
+      ref: "feature/brand",
+      subpath: "src/styles",
+    });
+    expect(
+      parseGitHubRepoReference(
+        "https://github.com/acme/ui/blob/main/design.md#readme",
+      ),
+    ).toEqual({
+      owner: "acme",
+      repo: "ui",
+      ref: "main",
+      subpath: "design.md",
+    });
+  });
+
   it("sends the GitHub token only when one is provided", async () => {
     const fetchSpy = vi.fn(async () => {
       return new Response(JSON.stringify([{ name: "package.json" }]), {
@@ -68,6 +94,21 @@ describe("design-token GitHub helpers", () => {
       Authorization: "Bearer github-secret",
       Accept: "application/vnd.github.v3+json",
     });
+  });
+
+  it("encodes GitHub content paths while preserving ref slashes", async () => {
+    const fetchSpy = vi.fn(async () => {
+      return new Response(JSON.stringify([]), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await fetchGitHubJsonResult("acme", "ui", "src/#tokens.css", {
+      ref: "feature/brand",
+    });
+
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+      "https://api.github.com/repos/acme/ui/contents/src/%23tokens.css?ref=feature%2Fbrand",
+    );
   });
 
   it("returns classified GitHub JSON errors without throwing", async () => {
@@ -116,9 +157,6 @@ describe("design-token GitHub helpers", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// SSRF pre-filter — the highest-value security invariant in this module.
-// ---------------------------------------------------------------------------
 describe("validateUrl (SSRF pre-filter)", () => {
   it("accepts public http(s) URLs", () => {
     expect(() => validateUrl("https://example.com/path")).not.toThrow();
@@ -175,16 +213,11 @@ describe("validateUrl (SSRF pre-filter)", () => {
   });
 
   it("does not block public hosts that merely start with a private-looking octet", () => {
-    // 10.x is blocked by prefix, but a public IP like 100.x must pass — the
-    // guard must not over-block legitimate public addresses.
     expect(() => validateUrl("http://100.20.30.40")).not.toThrow();
     expect(() => validateUrl("http://11.0.0.1")).not.toThrow();
   });
 });
 
-// ---------------------------------------------------------------------------
-// Tailwind config parser
-// ---------------------------------------------------------------------------
 describe("parseTailwindConfig", () => {
   it("extracts colors, fontFamily, spacing, and borderRadius blocks", () => {
     const config = `
@@ -221,9 +254,6 @@ module.exports = {
   });
 });
 
-// ---------------------------------------------------------------------------
-// CSS parser
-// ---------------------------------------------------------------------------
 describe("parseCss", () => {
   it("extracts custom properties and @font-face / Google Fonts families", () => {
     const css = `
@@ -243,7 +273,6 @@ describe("parseCss", () => {
       "--space-2": "0.5rem",
     });
     expect(result.fonts).toContain("Custom Sans");
-    // Google Fonts family is URL-decoded and '+' becomes a space.
     expect(result.fonts).toContain("Inter Tight");
   });
 
@@ -254,14 +283,10 @@ describe("parseCss", () => {
 `;
     const result = parseCss(css);
     expect(result.fonts).toEqual(["Dup"]);
-    // No CSS variables present → undefined, not an empty object.
     expect(result.cssCustomProperties).toBeUndefined();
   });
 });
 
-// ---------------------------------------------------------------------------
-// Styling framework detection
-// ---------------------------------------------------------------------------
 describe("detectStylingFramework", () => {
   it("detects tailwind from dependencies or devDependencies", () => {
     expect(
@@ -307,14 +332,11 @@ describe("detectStylingFramework", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Code analysis state + helpers
-// ---------------------------------------------------------------------------
 describe("addFont", () => {
   it("normalizes quotes/whitespace and dedupes case-insensitively", () => {
     const state = createCodeAnalysisState();
     addFont(state, '  "Inter" ', "a.css");
-    addFont(state, "inter", "b.css"); // duplicate (case-insensitive)
+    addFont(state, "inter", "b.css");
     addFont(state, "Roboto");
     expect(state.fonts).toEqual([
       { family: "Inter", source: "a.css" },
@@ -341,18 +363,15 @@ describe("extractCssVars", () => {
         --z-index: 10;
       }`,
     );
-    // Everything goes into cssCustomProperties…
     expect(Object.keys(state.cssCustomProperties)).toEqual([
       "--primary-color",
       "--gap-md",
       "--radius-lg",
       "--z-index",
     ]);
-    // …and color/spacing/radius are also bucketed by name heuristics.
     expect(state.colors["--primary-color"]).toBe("#ff0000");
     expect(state.spacing["--gap-md"]).toBe("12px");
     expect(state.borderRadius["--radius-lg"]).toBe("8px");
-    // Unclassifiable var stays only in the generic map.
     expect(state.colors["--z-index"]).toBeUndefined();
     expect(state.spacing["--z-index"]).toBeUndefined();
   });
@@ -419,9 +438,33 @@ describe("analyzeCodeFile (routing by filename)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Document analysis helpers
-// ---------------------------------------------------------------------------
+describe("analyzeCodeFiles", () => {
+  it("preserves import-code caps and returns the action payload shape", () => {
+    expect(
+      analyzeCodeFiles([
+        {
+          filename: "theme.css",
+          content: ":root { --brand: #123456; }",
+        },
+      ]),
+    ).toMatchObject({
+      source: "code",
+      fileCount: 1,
+      filesAnalyzed: ["theme.css"],
+      colors: { "#123456": "#123456" },
+    });
+  });
+
+  it("counts UTF-8 bytes and stops before an oversized next file", () => {
+    const first = "a".repeat(CODE_MAX_TOTAL_BYTES);
+    const result = analyzeCodeFiles([
+      { filename: "first.css", content: first },
+      { filename: "second.css", content: "b" },
+    ]);
+    expect(result.filesAnalyzed).toEqual(["first.css"]);
+  });
+});
+
 describe("document helpers", () => {
   it("unique trims and dedupes", () => {
     expect(unique([" a ", "a", "b "])).toEqual(["a", "b"]);

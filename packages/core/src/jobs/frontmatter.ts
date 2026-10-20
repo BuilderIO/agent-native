@@ -1,34 +1,43 @@
-export type JobLastStatus = "success" | "error" | "running" | "skipped";
-export type JobTriggerType = "schedule" | "event" | "manual";
+import {
+  isReasoningEffort,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
+
+export type JobLastStatus =
+  | "success"
+  | "error"
+  | "running"
+  | "skipped"
+  | "paused";
+export type JobTriggerType = "schedule" | "event" | "manual" | "webhook";
 export type JobExecutionMode = "agentic" | "deterministic";
 
-/**
- * Every persisted field understood by either recurring jobs or automations.
- *
- * Automation-only fields stay optional so legacy recurring jobs can remain
- * distinguishable from explicitly defined schedule automations.
- */
 export interface JobFrontmatter {
   schedule: string;
   enabled: boolean;
-  /**
-   * IANA zone the cron fields are read in. Absent means the schedule predates
-   * timezone support and keeps its original host-relative meaning.
-   */
   timezone?: string;
   createdBy?: string;
   orgId?: string;
   runAs?: "creator" | "shared";
-  /** Last time the automation actually started executing. */
   lastRun?: string;
-  /**
-   * Last time a tick evaluated this automation and declined to run it. Kept
-   * distinct from `lastRun` so a blocked automation cannot report a run it
-   * never performed.
-   */
+  lastHistoryId?: string;
+  lastRunManual?: boolean;
+  lastRunAdvanceSchedule?: boolean;
   lastCheck?: string;
   lastStatus?: JobLastStatus;
   lastError?: string;
+  /** Typed code of the last failure; `consecutiveFailures` counts this code. */
+  lastErrorCode?: string;
+  consecutiveFailures?: number;
+  /** The event whose failure the streak last counted; its retries do not count again. */
+  lastFailedEventId?: string;
+  /**
+   * Set together with `enabled: false` when the framework paused the
+   * automation after repeated identical failures. Absent for a pause the
+   * owner chose.
+   */
+  pausedReason?: string;
+  pausedAt?: string;
   nextRun?: string;
   originScopeId?: string;
   deliveryPlatform?: string;
@@ -36,22 +45,84 @@ export interface JobFrontmatter {
   deliveryThreadRef?: string;
   deliveryTenantId?: string;
   model?: string;
-  /** Explicit MCP tool capabilities available to this background run. */
+  reasoningEffort?: ReasoningEffort;
+  maxIterations?: number;
+  maxRunInputTokens?: number;
   mcpTools?: string[];
-  /** Present only for resources explicitly defined as automations. */
   triggerType?: JobTriggerType;
-  /** For event automations: the event name to subscribe to. */
   event?: string;
-  /** Natural-language condition evaluated before dispatch. */
+  webhookToken?: string;
   condition?: string;
   mode?: JobExecutionMode;
-  /** Domain tag for filtering in per-template UIs. */
   domain?: string;
-  /**
-   * Optional application-owned policy id carried into actions by the trusted
-   * trigger dispatcher. It is not model-supplied action input.
-   */
+  appId?: string;
+  executionHostId?: string;
+  executionEngine?: string;
+  executionCwd?: string;
+  remoteRequestId?: string;
+  remoteCommandId?: string;
+  remoteRunId?: string;
+  remoteAutomationRunId?: string;
+  remoteAdvanceSchedule?: boolean;
   delegatedPolicyId?: string;
+}
+
+export function jobBelongsToApp(
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
+  appId: string | null | undefined,
+): boolean {
+  const ownerAppId = meta.appId?.trim();
+  if (ownerAppId) {
+    const schedulerAppId = appId?.trim();
+    return Boolean(schedulerAppId && ownerAppId === schedulerAppId);
+  }
+  return !meta.orgId?.trim();
+}
+
+function isFactoryAutomationPath(path: string): boolean {
+  return (
+    /^jobs\/factories\/[^/]+\/[^/]+\.md$/.test(path) ||
+    /^jobs\/factory-[^/]+\.md$/.test(path)
+  );
+}
+
+function organizationIdFromOwner(
+  owner: string | null | undefined,
+): string | null {
+  if (!owner?.startsWith("__organization__:")) return null;
+  const encoded = owner.slice("__organization__:".length);
+  if (!encoded) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    // coercion-ok: a malformed owner key is not an organization id
+    return null;
+  }
+}
+
+export function recoveredFactoryOwnerOrgId(
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
+  path: string,
+  owner: string | null | undefined,
+): string | null {
+  if (!isFactoryAutomationPath(path)) return null;
+  const ownerOrgId = organizationIdFromOwner(owner);
+  if (!ownerOrgId) return null;
+  const ownerAppId = meta.appId?.trim();
+  if (ownerAppId && ownerAppId !== "factory") return null;
+  const declaredOrgId = meta.orgId?.trim();
+  if (declaredOrgId && declaredOrgId !== ownerOrgId) return null;
+  return ownerOrgId;
+}
+
+export function isRecoveredFactoryJob(
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
+  path: string,
+  actorAppId: string | null | undefined,
+  owner: string | null | undefined,
+): boolean {
+  if (actorAppId?.trim() !== "factory") return false;
+  return recoveredFactoryOwnerOrgId(meta, path, owner) !== null;
 }
 
 export interface JobResourceClassification {
@@ -70,6 +141,107 @@ const MAX_JOB_MCP_TOOLS = 64;
 const JOB_MCP_TOOL_NAME_RE = /^mcp__[^\s]+__[^\s]+$/;
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/;
 const DELEGATED_POLICY_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
+const EXECUTION_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
+const REMOTE_ID_RE = /^[a-z0-9][a-z0-9@+._:/-]{0,511}$/i;
+const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+const EXTRA_FRONTMATTER_LINES = "_extraFrontmatterLines";
+const KNOWN_FRONTMATTER_FIELDS = new Set([
+  "schedule",
+  "enabled",
+  "timezone",
+  "createdBy",
+  "orgId",
+  "runAs",
+  "lastRun",
+  "lastHistoryId",
+  "lastRunManual",
+  "lastRunAdvanceSchedule",
+  "lastCheck",
+  "lastStatus",
+  "lastError",
+  "lastErrorCode",
+  "consecutiveFailures",
+  "lastFailedEventId",
+  "pausedReason",
+  "pausedAt",
+  "nextRun",
+  "originScopeId",
+  "deliveryPlatform",
+  "deliveryDestination",
+  "deliveryThreadRef",
+  "deliveryTenantId",
+  "model",
+  "reasoningEffort",
+  "maxIterations",
+  "maxRunInputTokens",
+  "mcpTools",
+  "triggerType",
+  "event",
+  "webhookToken",
+  "condition",
+  "mode",
+  "domain",
+  "appId",
+  "executionHostId",
+  "executionEngine",
+  "executionCwd",
+  "remoteRequestId",
+  "remoteCommandId",
+  "remoteRunId",
+  "remoteAutomationRunId",
+  "remoteAdvanceSchedule",
+  "delegatedPolicyId",
+]);
+
+type JobFrontmatterWithExtras = JobFrontmatter & {
+  [EXTRA_FRONTMATTER_LINES]?: string[];
+};
+
+function assertBoundedFrontmatterValue(
+  value: string | undefined,
+  label: string,
+  pattern: RegExp,
+): void {
+  if (value === undefined) return;
+  if (!pattern.test(value)) {
+    throw new Error(`${label} must be a bounded opaque identifier.`);
+  }
+}
+
+export function assertDelegatedPolicyId(value: string | undefined): void {
+  if (!value) return;
+  if (!DELEGATED_POLICY_ID_RE.test(value)) {
+    throw new Error(
+      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
+    );
+  }
+}
+
+export function assertJobExecutionTargetFields(
+  meta: Pick<
+    JobFrontmatter,
+    "executionHostId" | "executionEngine" | "executionCwd"
+  >,
+): void {
+  assertBoundedFrontmatterValue(
+    meta.executionHostId,
+    "Execution host IDs",
+    EXECUTION_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.executionEngine,
+    "Execution engine IDs",
+    EXECUTION_ID_RE,
+  );
+  if (
+    meta.executionCwd !== undefined &&
+    (meta.executionCwd.length > 1024 || /[\r\n]/.test(meta.executionCwd))
+  ) {
+    throw new Error(
+      "Execution workspace paths must be at most 1024 characters.",
+    );
+  }
+}
 
 /**
  * Normalize the non-secret MCP capability references persisted with a job.
@@ -131,6 +303,11 @@ function parseScalar(rawValue: string): string {
   return value;
 }
 
+function parsePositiveInteger(rawValue: string): number | undefined {
+  const parsed = Number(parseScalar(rawValue));
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 function parseKnownField(
   meta: JobFrontmatter,
   key: string,
@@ -160,6 +337,15 @@ function parseKnownField(
     case "lastRun":
       meta.lastRun = value;
       break;
+    case "lastHistoryId":
+      meta.lastHistoryId = value || undefined;
+      break;
+    case "lastRunManual":
+      meta.lastRunManual = value === "true";
+      break;
+    case "lastRunAdvanceSchedule":
+      meta.lastRunAdvanceSchedule = value !== "false";
+      break;
     case "lastCheck":
       meta.lastCheck = value;
       break;
@@ -168,6 +354,21 @@ function parseKnownField(
       break;
     case "lastError":
       meta.lastError = value;
+      break;
+    case "lastErrorCode":
+      meta.lastErrorCode = value || undefined;
+      break;
+    case "consecutiveFailures":
+      meta.consecutiveFailures = parsePositiveInteger(value);
+      break;
+    case "lastFailedEventId":
+      meta.lastFailedEventId = value || undefined;
+      break;
+    case "pausedReason":
+      meta.pausedReason = value || undefined;
+      break;
+    case "pausedAt":
+      meta.pausedAt = value || undefined;
       break;
     case "nextRun":
       meta.nextRun = value;
@@ -190,6 +391,15 @@ function parseKnownField(
     case "model":
       meta.model = value;
       break;
+    case "reasoningEffort":
+      meta.reasoningEffort = isReasoningEffort(value) ? value : undefined;
+      break;
+    case "maxIterations":
+      meta.maxIterations = parsePositiveInteger(value);
+      break;
+    case "maxRunInputTokens":
+      meta.maxRunInputTokens = parsePositiveInteger(value);
+      break;
     case "mcpTools":
       meta.mcpTools = normalizeJobMcpTools(value);
       break;
@@ -197,10 +407,15 @@ function parseKnownField(
       // The field's presence is the durable legacy-job/automation boundary.
       // Preserve that marker even if an old writer stored an invalid value.
       meta.triggerType =
-        value === "event" || value === "manual" ? value : "schedule";
+        value === "event" || value === "manual" || value === "webhook"
+          ? value
+          : "schedule";
       break;
     case "event":
       meta.event = value;
+      break;
+    case "webhookToken":
+      if (WEBHOOK_TOKEN_RE.test(value)) meta.webhookToken = value;
       break;
     case "condition":
       meta.condition = value;
@@ -212,6 +427,33 @@ function parseKnownField(
       break;
     case "domain":
       meta.domain = value;
+      break;
+    case "appId":
+      meta.appId = value || undefined;
+      break;
+    case "executionHostId":
+      meta.executionHostId = value || undefined;
+      break;
+    case "executionEngine":
+      meta.executionEngine = value || undefined;
+      break;
+    case "executionCwd":
+      meta.executionCwd = value || undefined;
+      break;
+    case "remoteRequestId":
+      meta.remoteRequestId = value || undefined;
+      break;
+    case "remoteCommandId":
+      meta.remoteCommandId = value || undefined;
+      break;
+    case "remoteRunId":
+      meta.remoteRunId = value || undefined;
+      break;
+    case "remoteAutomationRunId":
+      meta.remoteAutomationRunId = value || undefined;
+      break;
+    case "remoteAdvanceSchedule":
+      meta.remoteAdvanceSchedule = value !== "false";
       break;
     case "delegatedPolicyId":
       meta.delegatedPolicyId = value || undefined;
@@ -241,15 +483,24 @@ export function parseJobResource(content: string): ParsedJobResource {
     };
   }
 
-  const meta: JobFrontmatter = { schedule: "", enabled: true };
+  const meta: JobFrontmatterWithExtras = { schedule: "", enabled: true };
+  const extraLines: string[] = [];
   for (const line of match[1].split(/\r?\n/)) {
     const colonIdx = line.indexOf(":");
-    if (colonIdx === -1) continue;
-    parseKnownField(
-      meta,
-      line.slice(0, colonIdx).trim(),
-      line.slice(colonIdx + 1),
-    );
+    if (colonIdx === -1) {
+      if (line.trim()) extraLines.push(line);
+      continue;
+    }
+    const key = line.slice(0, colonIdx).trim();
+    if (key === EXTRA_FRONTMATTER_LINES) continue;
+    if (!KNOWN_FRONTMATTER_FIELDS.has(key)) {
+      extraLines.push(line);
+      continue;
+    }
+    parseKnownField(meta, key, line.slice(colonIdx + 1));
+  }
+  if (extraLines.length) {
+    meta[EXTRA_FRONTMATTER_LINES] = extraLines;
   }
 
   if (meta.triggerType === "manual") {
@@ -291,14 +542,28 @@ export function buildJobResourceContent(
   meta: JobFrontmatter,
   body: string,
 ): string {
-  if (
-    meta.delegatedPolicyId &&
-    !DELEGATED_POLICY_ID_RE.test(meta.delegatedPolicyId)
-  ) {
-    throw new Error(
-      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
-    );
-  }
+  assertDelegatedPolicyId(meta.delegatedPolicyId);
+  assertJobExecutionTargetFields(meta);
+  assertBoundedFrontmatterValue(
+    meta.remoteRequestId,
+    "Remote request IDs",
+    REMOTE_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.remoteCommandId,
+    "Remote command IDs",
+    REMOTE_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.remoteRunId,
+    "Remote run IDs",
+    REMOTE_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.remoteAutomationRunId,
+    "Remote automation run IDs",
+    REMOTE_ID_RE,
+  );
 
   const lines = [
     "---",
@@ -312,10 +577,18 @@ export function buildJobResourceContent(
   }
   if (meta.mode) lines.push(`mode: ${meta.mode}`);
   pushString(lines, "domain", meta.domain);
+  pushString(lines, "appId", meta.appId);
   pushString(lines, "delegatedPolicyId", meta.delegatedPolicyId);
-  // Keep the long-standing human-readable owner shape used by existing
-  // resources and diagnostics; values that can contain free-form text use
-  // JSON quoting below.
+  pushString(lines, "executionHostId", meta.executionHostId);
+  pushString(lines, "executionEngine", meta.executionEngine);
+  pushString(lines, "executionCwd", meta.executionCwd);
+  pushString(lines, "remoteRequestId", meta.remoteRequestId);
+  pushString(lines, "remoteCommandId", meta.remoteCommandId);
+  pushString(lines, "remoteRunId", meta.remoteRunId);
+  pushString(lines, "remoteAutomationRunId", meta.remoteAutomationRunId);
+  if (meta.remoteAdvanceSchedule !== undefined) {
+    lines.push(`remoteAdvanceSchedule: ${meta.remoteAdvanceSchedule}`);
+  }
   pushString(lines, "createdBy", meta.createdBy, false);
   pushString(lines, "orgId", meta.orgId);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
@@ -323,21 +596,220 @@ export function buildJobResourceContent(
     pushString(lines, "timezone", meta.timezone);
   }
   pushString(lines, "lastRun", meta.lastRun);
+  pushString(lines, "lastHistoryId", meta.lastHistoryId);
+  if (meta.lastRunManual !== undefined)
+    lines.push(`lastRunManual: ${meta.lastRunManual}`);
+  if (meta.lastRunAdvanceSchedule !== undefined)
+    lines.push(`lastRunAdvanceSchedule: ${meta.lastRunAdvanceSchedule}`);
   pushString(lines, "lastCheck", meta.lastCheck);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
   pushString(lines, "lastError", meta.lastError);
-  if (meta.triggerType !== "manual") {
+  if (meta.triggerType !== "manual" && meta.triggerType !== "webhook") {
     pushString(lines, "nextRun", meta.nextRun);
   }
+  pushString(lines, "lastErrorCode", meta.lastErrorCode);
+  if (meta.consecutiveFailures !== undefined) {
+    lines.push(`consecutiveFailures: ${meta.consecutiveFailures}`);
+  }
+  pushString(lines, "lastFailedEventId", meta.lastFailedEventId);
+  pushString(lines, "pausedReason", meta.pausedReason);
+  pushString(lines, "pausedAt", meta.pausedAt);
   pushString(lines, "originScopeId", meta.originScopeId);
   pushString(lines, "deliveryPlatform", meta.deliveryPlatform);
   pushString(lines, "deliveryDestination", meta.deliveryDestination);
   pushString(lines, "deliveryThreadRef", meta.deliveryThreadRef);
   pushString(lines, "deliveryTenantId", meta.deliveryTenantId);
   pushString(lines, "model", meta.model);
+  if (meta.reasoningEffort) {
+    lines.push(`reasoningEffort: ${meta.reasoningEffort}`);
+  }
+  if (meta.maxIterations !== undefined) {
+    lines.push(`maxIterations: ${meta.maxIterations}`);
+  }
+  if (meta.maxRunInputTokens !== undefined) {
+    lines.push(`maxRunInputTokens: ${meta.maxRunInputTokens}`);
+  }
   if (meta.mcpTools?.length) {
     lines.push(`mcpTools: ${JSON.stringify(meta.mcpTools)}`);
   }
+  lines.push(
+    ...((meta as JobFrontmatterWithExtras)[EXTRA_FRONTMATTER_LINES] ?? []),
+  );
   lines.push("---", "", body);
   return lines.join("\n");
+}
+
+export type JobExecutionFrontmatterPatch = {
+  lastRun?: string;
+  lastHistoryId?: string;
+  lastRunManual?: boolean;
+  lastRunAdvanceSchedule?: boolean;
+  lastCheck?: string;
+  lastStatus?: JobLastStatus;
+  lastError?: string;
+  lastErrorCode?: string;
+  consecutiveFailures?: number;
+  lastFailedEventId?: string;
+  pausedReason?: string;
+  pausedAt?: string;
+  nextRun?: string;
+  remoteRequestId?: string;
+  remoteCommandId?: string;
+  remoteRunId?: string;
+  remoteAutomationRunId?: string;
+  remoteAdvanceSchedule?: boolean;
+};
+
+export const JOB_EXECUTION_FRONTMATTER_KEYS: ReadonlySet<string> = new Set<
+  keyof JobExecutionFrontmatterPatch
+>([
+  "lastRun",
+  "lastCheck",
+  "lastStatus",
+  "lastError",
+  "lastErrorCode",
+  "consecutiveFailures",
+  "lastFailedEventId",
+  "pausedReason",
+  "pausedAt",
+  "nextRun",
+  "remoteRequestId",
+  "remoteCommandId",
+  "remoteRunId",
+  "remoteAutomationRunId",
+  "remoteAdvanceSchedule",
+]);
+
+const FRONTMATTER_KEY_RE = /^([A-Za-z][A-Za-z0-9_]*):/;
+
+function frontmatterKeys(content: string): Set<string> {
+  const keys = new Set<string>();
+  const match = content.match(FRONTMATTER_RE);
+  if (!match) return keys;
+  for (const line of match[1].split(/\r?\n/)) {
+    const key = FRONTMATTER_KEY_RE.exec(line)?.[1];
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * Frontmatter keys present in `before` and gone from `after`, ignoring the
+ * execution bookkeeping a run adds and clears. A job whose file loses its
+ * editor-owned fields still schedules and runs, so nothing else notices.
+ */
+export function droppedJobFrontmatterKeys(
+  before: string,
+  after: string,
+): string[] {
+  const kept = frontmatterKeys(after);
+  return [...frontmatterKeys(before)].filter(
+    (key) => !kept.has(key) && !JOB_EXECUTION_FRONTMATTER_KEYS.has(key),
+  );
+}
+
+function jobFrontmatterBounds(content: string): {
+  newline: string;
+  opener: string;
+  closer: string;
+  end: number;
+} {
+  const newline = content.startsWith("---\r\n")
+    ? "\r\n"
+    : content.startsWith("---\n")
+      ? "\n"
+      : null;
+  if (!newline) {
+    throw new Error(
+      "Job resource is missing frontmatter; cannot patch the stored document.",
+    );
+  }
+  const opener = `---${newline}`;
+  const closer = `${newline}---`;
+  const end = content.indexOf(closer, opener.length);
+  if (end === -1) {
+    throw new Error(
+      "Job resource is missing frontmatter; cannot patch the stored document.",
+    );
+  }
+  return { newline, opener, closer, end };
+}
+
+function setOrRemoveFrontmatterField(
+  content: string,
+  key: string,
+  serialized: string | undefined,
+): string {
+  const { newline, opener, end } = jobFrontmatterBounds(content);
+  const frontmatter = content.slice(opener.length, end);
+  const pattern = new RegExp(`^${key}:.*(?:\\r?\\n)?`, "m");
+  if (serialized === undefined) {
+    if (!pattern.test(frontmatter)) return content;
+    const nextFrontmatter = frontmatter.replace(pattern, "").trimEnd();
+    return nextFrontmatter
+      ? `${opener}${nextFrontmatter}${content.slice(end)}`
+      : `${opener}${content.slice(end)}`;
+  }
+  if (pattern.test(frontmatter)) {
+    return `${opener}${frontmatter.replace(pattern, `${key}: ${serialized}${newline}`)}${content.slice(end)}`;
+  }
+  return `${content.slice(0, end)}${newline}${key}: ${serialized}${content.slice(end)}`;
+}
+
+const UNQUOTED_STRING_FRONTMATTER_KEYS = new Set([
+  "lastStatus",
+  "triggerType",
+  "mode",
+  "runAs",
+  "reasoningEffort",
+]);
+
+export type JobFrontmatterPatchValue =
+  | string
+  | number
+  | boolean
+  | readonly string[]
+  | undefined;
+
+export type JobFrontmatterPatch = {
+  [key: string]: JobFrontmatterPatchValue;
+};
+
+function serializeFrontmatterPatchValue(
+  key: string,
+  value: string | number | boolean | readonly string[],
+): string {
+  if (typeof value === "boolean" || typeof value === "number") {
+    return String(value);
+  }
+  if (Array.isArray(value)) return JSON.stringify(value);
+  if (UNQUOTED_STRING_FRONTMATTER_KEYS.has(key) && typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value);
+}
+
+export function patchJobFrontmatterFields(
+  content: string,
+  fields: JobFrontmatterPatch,
+): string {
+  let next = content;
+  for (const key of Object.keys(fields)) {
+    if (key === EXTRA_FRONTMATTER_LINES) continue;
+    if (!Object.hasOwn(fields, key)) continue;
+    const value = fields[key];
+    next = setOrRemoveFrontmatterField(
+      next,
+      key,
+      value === undefined
+        ? undefined
+        : serializeFrontmatterPatchValue(key, value),
+    );
+  }
+  return next;
+}
+
+export function replaceJobResourceBody(content: string, body: string): string {
+  const { newline, closer, end } = jobFrontmatterBounds(content);
+  return `${content.slice(0, end + closer.length)}${newline}${newline}${body}`;
 }

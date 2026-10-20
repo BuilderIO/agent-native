@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createCollabPlugin, normalizeCollabAccess } from "./collab-plugin.js";
+import {
+  createCollabSourceSeeder,
+  createCollabPlugin,
+  normalizeCollabAccess,
+} from "./collab-plugin.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -120,5 +124,50 @@ describe("createCollabPlugin access warning", () => {
     });
 
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCollabPlugin lazy seeding configuration", () => {
+  it("accepts a reverse source mapping for document IDs", () => {
+    expect(() =>
+      createCollabPlugin({
+        table: `mapped_collab_${Date.now()}`,
+        resolveSourceIdFromCollabDocumentId: (docId) =>
+          docId.startsWith("dash-") ? docId.slice("dash-".length) : docId,
+        access: { mode: "all-authenticated" },
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("createCollabSourceSeeder", () => {
+  it("coalesces a concurrent first load and preserves an empty source", async () => {
+    let releaseSource!: () => void;
+    const sourceReady = new Promise<void>((resolve) => {
+      releaseSource = resolve;
+    });
+    const hasState = vi.fn(async () => false);
+    const loadSource = vi.fn(async () => {
+      await sourceReady;
+      return "";
+    });
+    const seed = vi.fn(async () => {});
+    const ensureSeeded = createCollabSourceSeeder({
+      hasState,
+      loadSource,
+      seed,
+    });
+
+    const requests = Array.from({ length: 12 }, () =>
+      ensureSeeded("design-file-1"),
+    );
+
+    expect(hasState).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(loadSource).toHaveBeenCalledOnce());
+    releaseSource();
+    await Promise.all(requests);
+
+    expect(seed).toHaveBeenCalledOnce();
+    expect(seed).toHaveBeenCalledWith("design-file-1", "");
   });
 });

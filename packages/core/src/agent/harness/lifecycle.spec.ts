@@ -167,6 +167,21 @@ describe("agent harness lifecycle", () => {
     expect(result).toMatchObject({ ok: false, errorCode: "owner_mismatch" });
   });
 
+  it("fails closed on organization mismatch for approvals", async () => {
+    stored.pendingApproval = approvalEvent("approval-org-mismatch");
+    const session = fakeSession();
+    register(stored, session);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: "approval-org-mismatch", approved: true },
+      scope: { ownerEmail: stored.ownerEmail!, orgId: "org-2" },
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "owner_mismatch" });
+    expect(session.approve).not.toHaveBeenCalled();
+  });
+
   it("treats a repeated resolution for the same approval as idempotent", async () => {
     stored.pendingApproval = null;
     stored.resolvedApprovalIds = ["approval-1"];

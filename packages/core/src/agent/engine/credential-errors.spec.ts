@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatLlmCredentialErrorMessage,
+  GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+  gatewayVisitorFacingError,
   isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_MESSAGE,
   userFacingLlmCredentialError,
@@ -21,11 +23,29 @@ describe("LLM credential error helpers", () => {
     ).toBe(true);
   });
 
+  it.each(["http_401", "http_403", "invalid_api_key"])(
+    "detects a provider-rejected credential from %s",
+    (errorCode) => {
+      expect(
+        isLlmCredentialError(new Error("provider rejected request"), errorCode),
+      ).toBe(true);
+    },
+  );
+
   it("does not treat an unreadable credential store as a setup failure", () => {
     expect(
       isLlmCredentialError(
         new Error("Could not read your saved connections"),
         "credential_store_unavailable",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat a transient provider rejection as a credential error", () => {
+    expect(
+      isLlmCredentialError(
+        new Error("The AI provider temporarily refused this request."),
+        "provider_transient_rejection",
       ),
     ).toBe(false);
   });
@@ -38,10 +58,40 @@ describe("LLM credential error helpers", () => {
     expect(isLlmCredentialError("Credentials are not configured")).toBe(false);
   });
 
+  it("keeps the real reason on the error code while rewriting the message", () => {
+    expect(gatewayVisitorFacingError("credits-limit-reached")).toStrictEqual({
+      error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+      errorCode: "credits-limit-reached",
+    });
+    expect(gatewayVisitorFacingError()).toStrictEqual({
+      error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+    });
+  });
+
+  it("gives a visitor the one line instead of owner setup instructions", () => {
+    expect(formatLlmCredentialErrorMessage({ visitorFacing: true })).toBe(
+      GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+    );
+    expect(
+      formatLlmCredentialErrorMessage({
+        agentName: "Slides",
+        visitorFacing: true,
+      }),
+    ).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+    expect(
+      userFacingLlmCredentialError(new Error("ANTHROPIC_API_KEY is not set"), {
+        visitorFacing: true,
+      }),
+    ).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+    expect(formatLlmCredentialErrorMessage({ visitorFacing: false })).toBe(
+      LLM_MISSING_CREDENTIALS_MESSAGE,
+    );
+  });
+
   it("formats agent-specific copy without provider env vars", () => {
     const message = formatLlmCredentialErrorMessage({ agentName: "Slides" });
     expect(message).toContain("Slides agent");
-    expect(message).toContain("Manage agent > LLM");
+    expect(message).toContain("Settings > Agent > AI providers");
     expect(message).not.toContain("ANTHROPIC_API_KEY");
   });
 });

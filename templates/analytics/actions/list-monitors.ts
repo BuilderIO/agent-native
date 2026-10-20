@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -12,6 +12,7 @@ export default defineAction({
     "List the current user's uptime monitors with their latest status, latency, and 24h/7d uptime percentage.",
   schema: z.object({}),
   http: { method: "GET" },
+  grounding: true,
   run: async () => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

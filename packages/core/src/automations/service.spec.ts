@@ -9,6 +9,8 @@ const resourceDeleteWithDbMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourcePutWithDbMock = vi.hoisted(() => vi.fn());
+const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 const listAccessibleAutomationsMock = vi.hoisted(() => vi.fn());
 const resolveAutomationAccessMock = vi.hoisted(() => vi.fn());
@@ -59,6 +61,7 @@ vi.mock("../db/client.js", () => ({
 vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn(),
   ensureIndexExists: vi.fn(),
+  ensureColumnExists: vi.fn(),
 }));
 
 vi.mock("../settings/user-settings.js", () => ({
@@ -66,6 +69,7 @@ vi.mock("../settings/user-settings.js", () => ({
 }));
 
 vi.mock("../resources/store.js", () => ({
+  SHARED_OWNER: "__shared__",
   organizationIdFromResourceOwner: (owner: string) =>
     owner.startsWith("__organization__:")
       ? owner.slice("__organization__:".length)
@@ -98,6 +102,8 @@ vi.mock("../resources/store.js", () => ({
   resourceGetByPath: resourceGetByPathMock,
   resourceList: resourceListMock,
   resourcePutWithDb: resourcePutWithDbMock,
+  resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
 }));
 
 vi.mock("../jobs/run-history.js", () => ({
@@ -110,9 +116,12 @@ vi.mock("../jobs/run-history.js", () => ({
   ) => ({ sql: "history-delete", args: [owner, name, guard] }),
 }));
 
+import { nextOccurrence } from "../jobs/cron.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import {
   automationMatchesEventOwner,
+  canQueueAutomationRunNow,
+  canUpdateAutomationResource,
   defineAutomation,
   deleteAutomation,
   listAccessibleAutomationDefinitions,
@@ -121,7 +130,7 @@ import {
   updateAutomation,
 } from "./service.js";
 
-const actor = { userEmail: "Alice@Example.com", orgId: "org-1" };
+const actor = { userEmail: "Alice@Example.com", orgId: "org-1", appId: "mail" };
 const orgOwner = "__organization__:org-1";
 
 function resource(
@@ -189,6 +198,7 @@ event: mail.received
 mode: agentic
 createdBy: alice@example.com
 orgId: "org-1"
+appId: mail
 runAs: creator
 model: "claude-sonnet"
 mcpTools: ["mcp__mail__read"]
@@ -207,6 +217,7 @@ condition: only for urgent messages
 mode: agentic
 createdBy: alice@example.com
 orgId: "org-1"
+appId: mail
 runAs: creator
 ---
 
@@ -218,12 +229,27 @@ function batchResults(count: number, successIndex: number, affected = 1) {
     rowsAffected: index === successIndex ? affected : 1,
   }));
 }
+const factoryAutomation = `---
+schedule: "*/5 * * * *"
+enabled: true
+triggerType: schedule
+mode: agentic
+createdBy: alice@example.com
+orgId: "org-1"
+appId: factory
+domain: factory
+runAs: creator
+---
+
+Observe Slack.`;
 
 describe("automation domain service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbRuntime.dialect = "sqlite";
-    atomicBatchMock.mockResolvedValue([]);
+    atomicBatchMock.mockRejectedValue(
+      new Error("This database does not support atomic batches."),
+    );
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
     transactionExecuteMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
     transactionMock.mockImplementation(async (work) =>
@@ -244,8 +270,27 @@ describe("automation domain service", () => {
     replaceSharingMock.mockResolvedValue(undefined);
     deleteSharingMock.mockResolvedValue(undefined);
     deleteRunsWithDbMock.mockResolvedValue(undefined);
+    resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => ({
+        id: "automation-1",
+        owner: input.owner,
+        path: input.path,
+        content: input.content,
+      }),
+    );
     getUserSettingMock.mockResolvedValue(null);
     listAccessibleAutomationsMock.mockResolvedValue([]);
+    resolveAutomationAccessMock.mockImplementation(
+      async (_actor: unknown, resourceId: string) => {
+        const latest = resourceGetByPathMock.mock.results.at(-1);
+        const automationResource =
+          latest?.type === "return" ? await latest.value : null;
+        return automationResource?.id === resourceId
+          ? accessible(automationResource, "owner")
+          : null;
+      },
+    );
   });
 
   it("maps the centralized access result into the unified service list", async () => {
@@ -287,6 +332,7 @@ describe("automation domain service", () => {
     expect(listAccessibleAutomationsMock).toHaveBeenCalledWith({
       userEmail: "alice@example.com",
       orgId: "org-1",
+      appId: "mail",
     });
     expect(result[0]).toMatchObject({
       scope: "organization",
@@ -313,7 +359,6 @@ describe("automation domain service", () => {
     });
 
     expect(definition.meta.timezone).toBe("America/New_York");
-    // 8am Eastern is 12:00 or 13:00 UTC depending on DST, never 08:00 UTC.
     expect(definition.meta.nextRun).toBeTruthy();
     expect(new Date(definition.meta.nextRun as string).getUTCHours()).not.toBe(
       8,
@@ -352,6 +397,29 @@ describe("automation domain service", () => {
     expect(content).not.toMatch(/^(event|condition|nextRun|timezone):/m);
   });
 
+  it("defaults a new scheduled automation to an hourly cadence", async () => {
+    resourceGetByPathMock
+      .mockResolvedValueOnce(null)
+      .mockImplementation(async (owner: string) =>
+        resource(resourcePutWithDbMock.mock.calls.at(-1)?.[3] as string, owner),
+      );
+
+    const definition = await defineAutomation(actor, {
+      name: "hourly-check",
+      scope: "organization",
+      triggerType: "schedule",
+      body: "Check for changed work.",
+    });
+
+    expect(definition.meta.schedule).toBe("0 * * * *");
+    expect(resourcePutWithDbMock).toHaveBeenCalledWith(
+      expect.objectContaining({ execute: transactionExecuteMock }),
+      orgOwner,
+      "jobs/hourly-check.md",
+      expect.stringContaining('schedule: "0 * * * *"'),
+    );
+  });
+
   it("creates an organization event automation owned by the org but run as its creator", async () => {
     resourceGetByPathMock
       .mockResolvedValueOnce(null)
@@ -375,13 +443,14 @@ describe("automation domain service", () => {
       orgOwner,
       "jobs/notify.md",
       expect.stringMatching(
-        /createdBy: alice@example\.com[\s\S]*orgId: "org-1"[\s\S]*runAs: creator/,
+        /appId: "mail"[\s\S]*createdBy: alice@example\.com[\s\S]*orgId: "org-1"[\s\S]*runAs: creator/,
       ),
     );
     expect(definition.meta).toMatchObject({
       triggerType: "event",
       createdBy: "alice@example.com",
       orgId: "org-1",
+      appId: "mail",
       runAs: "creator",
       model: "claude-sonnet",
       mcpTools: ["mcp__mail__read"],
@@ -517,7 +586,11 @@ describe("automation domain service", () => {
 
     await expect(
       updateAutomation(
-        { userEmail: "collaborator@example.com", orgId: "org-1" },
+        {
+          userEmail: "collaborator@example.com",
+          orgId: "org-1",
+          appId: "mail",
+        },
         {
           resourceId: "automation-1",
           sharing: { kind: "personal" },
@@ -689,14 +762,14 @@ describe("automation domain service", () => {
 
     executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
     const adminItems = await listAutomationDefinitions(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       "organization",
     );
     expect(adminItems[0]?.canUpdate).toBe(true);
 
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
     const memberItems = await listAutomationDefinitions(
-      { userEmail: "member@example.com", orgId: "org-1" },
+      { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
       "organization",
     );
     expect(memberItems[0]?.canUpdate).toBe(false);
@@ -714,7 +787,11 @@ describe("automation domain service", () => {
     });
 
     const updated = await updateAutomation(
-      { userEmail: "collaborator@example.com", orgId: "org-1" },
+      {
+        userEmail: "collaborator@example.com",
+        orgId: "org-1",
+        appId: "mail",
+      },
       {
         resourceId: "automation-1",
         enabled: false,
@@ -730,19 +807,22 @@ describe("automation domain service", () => {
       model: "claude-opus",
       mcpTools: ["mcp__mail__read", "mcp__mail__send"],
     });
-    expect(transactionExecuteMock).toHaveBeenCalledWith(
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        sql: "resource-update",
-        args: [
-          "automation-1",
-          expect.stringContaining("createdBy: alice@example.com"),
-        ],
+        owner: orgOwner,
+        path: "jobs/notify.md",
+        expectedId: "automation-1",
+        content: expect.stringContaining("createdBy: alice@example.com"),
       }),
     );
 
     await expect(
       deleteAutomation(
-        { userEmail: "collaborator@example.com", orgId: "org-1" },
+        {
+          userEmail: "collaborator@example.com",
+          orgId: "org-1",
+          appId: "mail",
+        },
         { resourceId: "automation-1" },
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
@@ -768,17 +848,67 @@ describe("automation domain service", () => {
     );
   });
 
+  it("lets an org admin update or delete without retargeting the creator", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      {
+        name: "notify",
+        scope: "organization",
+        enabled: false,
+        model: "claude-opus",
+        reasoningEffort: "high",
+        mcpTools: ["mcp__mail__read", "mcp__mail__send"],
+      },
+    );
+    expect(updated.meta).toMatchObject({
+      createdBy: "alice@example.com",
+      orgId: "org-1",
+      runAs: "creator",
+      enabled: false,
+      model: "claude-opus",
+      reasoningEffort: "high",
+      mcpTools: ["mcp__mail__read", "mcp__mail__send"],
+    });
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: orgOwner,
+        path: "jobs/notify.md",
+        content: expect.stringContaining("createdBy: alice@example.com"),
+      }),
+    );
+
+    const updatedContent = resourcePutIfCurrentMock.mock.calls[0][0]
+      .content as string;
+    expect(updatedContent).toContain('deliveryPlatform: "slack"');
+    expect(updatedContent).toContain('deliveryDestination: "channel-1"');
+    expect(updatedContent).toContain("mcp__mail__send");
+    expect(updatedContent.indexOf("deliveryPlatform:")).toBeGreaterThan(
+      updatedContent.indexOf("mcpTools:"),
+    );
+
+    await deleteAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      "organization",
+      "notify",
+    );
+    expect(transactionExecuteMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: "resource-delete",
+        args: ["automation-1"],
+      }),
+    );
+  });
+
   it("rejects a stale non-D1 update as a 409 conflict without writing sharing", async () => {
     const automationResource = resource(eventAutomation);
     resolveAutomationAccessMock.mockResolvedValue(
       accessible(automationResource, "owner"),
     );
-    transactionExecuteMock.mockImplementation(async (statement: any) => {
-      if (statement?.sql === "resource-update") {
-        return { rows: [], rowsAffected: 0 };
-      }
-      return { rows: [{ id: "automation-1" }], rowsAffected: 1 };
-    });
+    resourceGetByPathMock.mockResolvedValue(automationResource);
+    resourcePutIfCurrentMock.mockResolvedValue(null);
 
     await expect(
       updateAutomation(actor, { resourceId: "automation-1", enabled: false }),
@@ -847,13 +977,521 @@ describe("automation domain service", () => {
 
     await expect(
       updateAutomation(
-        { userEmail: "member@example.com", orgId: "org-1" },
+        { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
         {
           resourceId: "automation-1",
           enabled: false,
         },
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
+    expect(resourcePutWithDbMock).not.toHaveBeenCalled();
+  });
+
+  it("lifts a framework pause when the owner enables the automation again", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const pausedAutomation = eventAutomation
+      .replace("enabled: true", "enabled: false")
+      .replace(
+        "runAs: creator",
+        [
+          "runAs: creator",
+          "lastStatus: paused",
+          'lastError: "Paused after 3 consecutive missing_tools failures: gone."',
+          'lastErrorCode: "missing_tools"',
+          "consecutiveFailures: 3",
+          'pausedReason: "missing_tools"',
+          'pausedAt: "2026-10-01T12:00:00.000Z"',
+        ].join("\n"),
+      );
+    resourceGetByPathMock.mockResolvedValue(resource(pausedAutomation));
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: true },
+    );
+
+    const content = resourcePutIfCurrentMock.mock.calls[0][0].content as string;
+    expect(content).toContain("enabled: true");
+    for (const field of [
+      "lastStatus",
+      "lastError",
+      "lastErrorCode",
+      "consecutiveFailures",
+      "pausedReason",
+      "pausedAt",
+    ]) {
+      expect(content).not.toContain(`${field}:`);
+    }
+    expect(updated.meta.pausedReason).toBeUndefined();
+    expect(updated.meta.enabled).toBe(true);
+  });
+
+  it("keeps a healthy automation's last status when it is enabled while already enabled", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(
+      resource(
+        eventAutomation.replace(
+          "runAs: creator",
+          "runAs: creator\nlastStatus: success",
+        ),
+      ),
+    );
+
+    await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: true },
+    );
+
+    expect(resourcePutIfCurrentMock.mock.calls[0][0].content).toContain(
+      "lastStatus: success",
+    );
+  });
+
+  it("re-applies an update over run state written while it was read", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const withRun = (status: string, runAt: string) =>
+      resource(
+        eventAutomation.replace(
+          "runAs: creator",
+          `runAs: creator\nlastStatus: ${status}\nlastRun: "${runAt}"`,
+        ),
+      );
+    const before = withRun("success", "2026-10-01T00:00:00.000Z");
+    const concurrentRun = {
+      ...withRun("running", "2026-10-07T09:00:00.000Z"),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(before)
+      .mockResolvedValueOnce(concurrentRun);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrentRun,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: false },
+    );
+
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(2);
+    const written = resourcePutIfCurrentMock.mock.calls[1][0].content as string;
+    expect(written).toContain("enabled: false");
+    expect(written).toContain("lastStatus: running");
+    expect(written).toContain("2026-10-07T09:00:00.000Z");
+    // The caller reports what landed, not the pre-conflict snapshot.
+    expect(updated.meta.enabled).toBe(false);
+    expect(updated.meta.lastStatus).toBe("running");
+    expect(updated.resource.content).toBe(written);
+  });
+
+  it("re-derives nextRun over a schedule another writer changed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-10T12:00:00.000Z"));
+    try {
+      executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+      const scheduled = (schedule: string) =>
+        resource(`---
+schedule: "${schedule}"
+timezone: UTC
+enabled: true
+triggerType: schedule
+mode: agentic
+createdBy: alice@example.com
+orgId: "org-1"
+appId: mail
+runAs: creator
+---
+
+Send the digest.`);
+      const before = scheduled("0 9 * * *");
+      const concurrentSchedule = { ...scheduled("0 21 * * *"), updatedAt: 2 };
+      resourceGetByPathMock
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(concurrentSchedule);
+      resourcePutIfCurrentMock
+        .mockResolvedValueOnce(null)
+        .mockImplementationOnce(
+          async (input: { owner: string; path: string; content: string }) => ({
+            ...concurrentSchedule,
+            content: input.content,
+          }),
+        );
+
+      await updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        { name: "notify", scope: "organization", timezone: "Asia/Tokyo" },
+      );
+
+      const written = resourcePutIfCurrentMock.mock.calls[1][0]
+        .content as string;
+      const { meta } = parseJobResource(written);
+      expect(meta.schedule).toBe("0 21 * * *");
+      expect(meta.timezone).toBe("Asia/Tokyo");
+      expect(meta.nextRun).toBe(
+        nextOccurrence("0 21 * * *", undefined, "Asia/Tokyo").toISOString(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves a failure recorded after the update was read alone", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const scheduled = (failure: string) =>
+      resource(`---
+schedule: "0 9 * * *"
+timezone: UTC
+enabled: false
+triggerType: schedule
+mode: agentic
+createdBy: alice@example.com
+orgId: "org-1"
+appId: mail
+runAs: creator
+${failure}
+---
+
+Send the digest.`);
+    const before = scheduled(
+      [
+        "lastStatus: paused",
+        'lastErrorCode: "missing_credentials"',
+        "consecutiveFailures: 3",
+        'pausedReason: "missing_credentials"',
+        'pausedAt: "2026-10-01T00:00:00.000Z"',
+      ].join("\n"),
+    );
+    const concurrentFailure = {
+      ...scheduled(
+        [
+          "lastStatus: error",
+          'lastErrorCode: "http_502"',
+          "consecutiveFailures: 1",
+          'pausedReason: "http_502"',
+          'pausedAt: "2026-10-10T00:00:00.000Z"',
+        ].join("\n"),
+      ),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(before)
+      .mockResolvedValueOnce(concurrentFailure);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrentFailure,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: true },
+    );
+
+    expect(updated.meta.enabled).toBe(true);
+    const written = resourcePutIfCurrentMock.mock.calls[1][0].content as string;
+    expect(written).toContain('lastErrorCode: "http_502"');
+    expect(written).toContain("consecutiveFailures: 1");
+    expect(written).toContain('pausedReason: "http_502"');
+    expect(written).not.toContain("missing_credentials");
+  });
+
+  it("does not report a change another writer already applied", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const requestedBody = "Updated digest.";
+    const concurrent = {
+      ...resource(
+        eventAutomation.replace("Send the notification.", requestedBody),
+      ),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(resource(eventAutomation))
+      .mockResolvedValueOnce(concurrent);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrent,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", body: requestedBody },
+    );
+
+    expect(updated.changed).toBe(false);
+    expect(updated.body).toBe(requestedBody);
+  });
+
+  it("lifts the pause but keeps an active run marker on update", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const scheduled = (status: string) =>
+      resource(`---
+schedule: "0 9 * * *"
+timezone: UTC
+enabled: false
+triggerType: schedule
+mode: agentic
+createdBy: alice@example.com
+orgId: "org-1"
+appId: mail
+runAs: creator
+lastStatus: ${status}
+lastErrorCode: "missing_credentials"
+consecutiveFailures: 3
+pausedReason: "missing_credentials"
+pausedAt: "2026-10-01T00:00:00.000Z"
+---
+
+Send the digest.`);
+    const concurrentRun = { ...scheduled("running"), updatedAt: 2 };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(scheduled("paused"))
+      .mockResolvedValueOnce(concurrentRun);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrentRun,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: true },
+    );
+
+    expect(updated.meta.enabled).toBe(true);
+    expect(updated.meta.lastStatus).toBe("running");
+    expect(updated.meta.lastErrorCode).toBe("missing_credentials");
+    expect(updated.meta.pausedReason).toBeUndefined();
+    expect(updated.meta.pausedAt).toBeUndefined();
+  });
+
+  it("reports a change when the edit restores a value another writer changed", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const requestedBody = "Send the notification.";
+    const concurrent = {
+      ...resource(
+        eventAutomation.replace(requestedBody, "Changed by another writer."),
+      ),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(resource(eventAutomation))
+      .mockResolvedValueOnce(concurrent);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrent,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", body: requestedBody },
+    );
+
+    expect(updated.changed).toBe(true);
+    expect(updated.body).toBe(requestedBody);
+  });
+
+  it("does not attribute a concurrent pause to a no-op update", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const concurrentPaused = {
+      ...resource(
+        eventAutomation.replace(
+          "enabled: true",
+          'enabled: false\nlastStatus: paused\npausedReason: "http_502"',
+        ),
+      ),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(resource(eventAutomation))
+      .mockResolvedValueOnce(concurrentPaused);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrentPaused,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      {
+        name: "notify",
+        scope: "organization",
+        body: "Send the notification.",
+      },
+    );
+
+    expect(updated.changed).toBe(false);
+    expect(updated.meta.enabled).toBe(false);
+  });
+
+  it("rejects the retry when the automation is no longer an automation", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const legacyJob = `---
+schedule: "0 9 * * *"
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+appId: mail
+---
+
+Run this as a recurring job.`;
+    resourceGetByPathMock
+      .mockResolvedValueOnce(resource(eventAutomation))
+      .mockResolvedValueOnce({ ...resource(legacyJob), updatedAt: 2 });
+    resourcePutIfCurrentMock.mockResolvedValueOnce(null);
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        { name: "notify", scope: "organization", enabled: false },
+      ),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("denies the retry when the automation no longer belongs to the app", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const concurrentOtherApp = {
+      ...resource(eventAutomation.replace("appId: mail", "appId: calendar")),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(resource(eventAutomation))
+      .mockResolvedValueOnce(concurrentOtherApp);
+    resourcePutIfCurrentMock.mockResolvedValueOnce(null);
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        { name: "notify", scope: "organization", enabled: false },
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects with a conflict when the automation keeps changing", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+    resourcePutIfCurrentMock.mockResolvedValue(null);
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        { name: "notify", scope: "organization", enabled: false },
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unrecognized reasoningEffort value", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          name: "notify",
+          scope: "organization",
+          reasoningEffort: "extreme" as never,
+        },
+      ),
+    ).rejects.toThrow(/Invalid reasoning effort/);
+  });
+
+  it("patches Factory extras in place instead of rebuilding the job document", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(
+      resource(`---
+enabled: true
+slackChannelId: C0BUK2293SA
+displayName: Slack feedback
+triggerType: schedule
+schedule: "*/5 * * * *"
+createdBy: alice@example.com
+orgId: "org-1"
+appId: factory
+runAs: creator
+---
+
+Observe Slack.`),
+    );
+
+    await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "factory" },
+      {
+        name: "notify",
+        scope: "organization",
+        enabled: false,
+      },
+    );
+
+    const updatedContent = resourcePutIfCurrentMock.mock.calls[0][0]
+      .content as string;
+    expect(updatedContent).toContain("enabled: false");
+    expect(updatedContent).toContain("slackChannelId: C0BUK2293SA");
+    expect(updatedContent).toContain("displayName: Slack feedback");
+    expect(updatedContent.indexOf("slackChannelId: C0BUK2293SA")).toBeLessThan(
+      updatedContent.indexOf("triggerType: schedule"),
+    );
+  });
+
+  it("rejects an invalid delegatedPolicyId on update without rewriting the job", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          name: "notify",
+          scope: "organization",
+          delegatedPolicyId: "crm-safe\nenabled: false",
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringMatching(/Delegated automation policy IDs/),
+    });
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an ordinary org member mutating another creator's automation", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+    resolveAutomationAccessMock.mockResolvedValue(null);
+
+    await expect(
+      updateAutomation(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
+        {
+          resourceId: "automation-1",
+          enabled: false,
+        },
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
     expect(resourcePutWithDbMock).not.toHaveBeenCalled();
   });
 
@@ -907,6 +1545,28 @@ describe("automation domain service", () => {
     ).resolves.toMatchObject({
       ok: false,
       reason: expect.stringContaining("no longer a member"),
+      code: "owner_missing",
+    });
+  });
+
+  it("marks a verified personal owner so background execution can preserve personal scope", async () => {
+    const result = await resolveAutomationExecutionIdentity(
+      "alice@example.com",
+      {
+        schedule: "",
+        enabled: true,
+        triggerType: "event",
+        createdBy: "alice@example.com",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      identity: {
+        userEmail: "alice@example.com",
+        orgScope: "personal",
+        eventOwner: "alice@example.com",
+      },
     });
   });
 
@@ -923,6 +1583,7 @@ describe("automation domain service", () => {
     ).resolves.toEqual({
       ok: false,
       reason: "Organization automations must run as their creator.",
+      code: "config_invalid",
     });
     expect(executeMock).not.toHaveBeenCalled();
   });

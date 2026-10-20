@@ -4,17 +4,10 @@ import {
   canonicalizeNfm,
   collapseExactRepeatedNfm,
   docToNfm,
+  inspectNfmFidelity,
   nfmToDoc,
 } from "./nfm";
 
-/**
- * Every fixture below is a byte-exact sample of what Notion's
- * `/pages/{id}/markdown` API actually emits (captured from a live round-trip
- * probe). The whole contract of the converter is that these are FIXPOINTS:
- * canonicalizeNfm(x) === x and docToNfm(nfmToDoc(x)) === x. If a fixture is not
- * a fixpoint, a pull/edit/push cycle would mutate the document — the exact drift
- * bug this module exists to prevent.
- */
 const L = (...lines: string[]) => lines.join("\n");
 
 describe("collapseExactRepeatedNfm", () => {
@@ -317,6 +310,144 @@ describe("nfm converter — structural parsing", () => {
     expect(table.content?.[1].content?.[0].type).toBe("tableCell");
     expect(table.content?.[1].content?.[0].attrs?.color).toBe("red");
   });
+
+  it("promotes a GFM pipe table without losing adjacent MDX or Mermaid", () => {
+    const source = L(
+      '<Aside type="note">',
+      "Critical rollout note.",
+      "</Aside>",
+      "",
+      "## Responsibilities",
+      "",
+      "| Component | Responsibility |",
+      "| --- | --- |",
+      "| Publish app | Composer and progress |",
+      "| Publish MCP | Authorization boundary |",
+      "",
+      "```mermaid",
+      "flowchart TD",
+      "  App --> Agent",
+      "  Agent --> MCP",
+      "```",
+      "",
+      "After diagram.",
+    );
+
+    const doc = nfmToDoc(source);
+    expect(doc.content.map((node) => node.type)).toEqual([
+      "localMdxComponent",
+      "heading",
+      "table",
+      "codeBlock",
+      "paragraph",
+    ]);
+    expect(doc.content[0].attrs?.__raw).toBe(
+      '<Aside type="note">\nCritical rollout note.\n</Aside>',
+    );
+    expect(doc.content[2].content?.map((row) => row.type)).toEqual([
+      "tableRow",
+      "tableRow",
+      "tableRow",
+    ]);
+    expect(doc.content[2].content?.[0].content?.[0].type).toBe("tableHeader");
+    expect(doc.content[2].content?.[1].content?.[0].type).toBe("tableCell");
+    expect(doc.content[3].attrs?.language).toBe("mermaid");
+
+    const normalized = docToNfm(doc);
+    expect(normalized).toContain('<Aside type="note">');
+    expect(normalized).toContain('<table header-row="true">');
+    expect(normalized).toContain("```mermaid\nflowchart TD");
+    expect(normalized.endsWith("After diagram.")).toBe(true);
+    expect(inspectNfmFidelity(source)).toEqual({
+      status: "transformed",
+      normalizedChanged: true,
+      conversions: [{ kind: "gfm-pipe-table-to-content-table", count: 1 }],
+      unresolved: [],
+    });
+  });
+
+  it("keeps escaped and code-span pipes inside their table cells", () => {
+    const doc = nfmToDoc(
+      "| Name | Example |\n| --- | --- |\n| A \\| B | `left | right` |",
+    );
+    const cells = doc.content[0].content?.[1].content;
+    expect(cells).toHaveLength(2);
+    expect(docToNfm(doc)).toContain("A \\| B");
+    expect(docToNfm(doc)).toContain("`left | right`");
+  });
+
+  it("treats an unmatched backtick as literal table text", () => {
+    const doc = nfmToDoc(
+      "| Label | Value |\n| --- | --- |\n| unmatched `tick | retained |",
+    );
+
+    expect(doc.content[0].type).toBe("table");
+    expect(docToNfm(doc)).toContain("unmatched \\`tick");
+  });
+
+  it("stops a pipe table before a Markdown heading", () => {
+    const doc = nfmToDoc(
+      "| A | B |\n| --- | --- |\n| 1 | 2 |\n## Next | section",
+    );
+
+    expect(doc.content.map((node) => node.type)).toEqual(["table", "heading"]);
+    expect(docToNfm(doc)).toContain("## Next \\| section");
+  });
+
+  it("promotes aligned pipe tables to editable cells without dropping alignment", () => {
+    const source = "| Left | Right |\n| :--- | --- |\n| A | B |";
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("table");
+    expect(doc.content[0].content?.[0].content?.[0].attrs?.textAlign).toBe(
+      "left",
+    );
+    expect(docToNfm(doc)).toContain('<td align="left">Left</td>');
+    expect(inspectNfmFidelity(source)).toMatchObject({
+      status: "transformed",
+      unresolved: [],
+    });
+  });
+
+  it("promotes aligned ragged tables without losing extra cells", () => {
+    const source =
+      "| Name | Price |\n| :--- | ---: |\n| A | $1 | extra |\n| B |";
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("table");
+    expect(
+      doc.content[0].content?.every((row) => row.content?.length === 3),
+    ).toBe(true);
+    expect(docToNfm(doc)).toContain("extra");
+    expect(docToNfm(doc)).toContain('align="right"');
+  });
+
+  it("pads a ragged pipe table with editable blank cells", () => {
+    const source = "| A | B |\n| --- | --- |\n| only one |";
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("table");
+    expect(doc.content[0].content?.[1].content).toHaveLength(2);
+    expect(inspectNfmFidelity(source)).toMatchObject({
+      status: "transformed",
+      unresolved: [],
+    });
+  });
+
+  it("does not report pipe-table syntax inside fenced code as a conversion", () => {
+    const source = [
+      "```md",
+      "| A | B |",
+      "| --- | --- |",
+      "| one | two |",
+      "```",
+    ].join("\n");
+
+    expect(nfmToDoc(source).content[0].type).toBe("codeBlock");
+    expect(inspectNfmFidelity(source)).toEqual({
+      status: "preserved",
+      normalizedChanged: false,
+      conversions: [],
+      unresolved: [],
+    });
+  });
 });
 
 const HARD_FIXTURES: Array<{ name: string; nfm: string }> = [
@@ -462,8 +593,6 @@ describe("nfm converter — inline round-trips", () => {
 });
 
 describe("bug fixes — reliability sweep", () => {
-  // n1: raw containers (e.g. <meeting-notes>) must survive canonicalization
-  // verbatim instead of being replaced by their tag name.
   describe("n1: raw container verbatim preservation", () => {
     const meetingNotes = L(
       "<meeting-notes>",
@@ -492,8 +621,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n5: inline mention labels must unescape on parse to mirror the escape on
-  // serialize, or every cycle grows an extra "amp;" layer.
   describe("n5: mention label escaping symmetry", () => {
     it("does not double-escape an entity already in the label", () => {
       const nfm =
@@ -521,8 +648,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n6: backslash-escaped literal braces at the end of a line must not be
-  // read as a block-attribute list.
   describe("n6: escape-aware splitBlockAttrs", () => {
     it("keeps a literal escaped brace in a paragraph as text, not a color attr", () => {
       const nfm = 'Set \\{color="red"\\}';
@@ -557,8 +682,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n7: a code block whose body contains a bare ``` line must not be split
-  // apart; fences must use CommonMark-style variable length.
   describe("n7: variable-length code fences", () => {
     it("keeps a ``` line inside the code body intact", () => {
       const nfm = L("````markdown", "example:", "```", "inner", "````");
@@ -598,8 +721,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n8: table cells must preserve every child block, not just the first
-  // paragraph.
   describe("n8: multi-block table cells", () => {
     it("serializes both paragraphs in a cell joined by <br>", () => {
       const doc = {
@@ -706,8 +827,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n9: a plain "underline" mark (StarterKit Cmd+U) must serialize to the
-  // same <span underline="true"> form notionSpan already round-trips.
   describe("n9: plain underline mark serialization", () => {
     it('serializes a bare underline mark to <span underline="true">', () => {
       const doc = {
@@ -755,8 +874,190 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n17: link/image parsing must balance parens and respect escapes so URLs
-  // with literal parens and alts with escaped brackets survive.
+  describe("protective whitespace spans", () => {
+    it.each([
+      "<span>\tactual-tab text</span>",
+      "<span>  </span>",
+      "<span>\t</span>",
+      "- Parent\n\t<span>\tactual-tab text</span>",
+      "- Parent\n\t<span>  </span>",
+    ])("round-trips %j without interpreting text as block syntax", (nfm) => {
+      const doc = nfmToDoc(nfm);
+      const serialized = docToNfm(doc);
+
+      expect(nfmToDoc(serialized)).toEqual(doc);
+      expect(serialized).toBe(nfm);
+      expect(canonicalizeNfm(serialized)).toBe(serialized);
+    });
+
+    it.each([
+      ["a leading tab", "\tactual-tab text"],
+      ["only spaces", "  "],
+      ["only a tab", "\t"],
+    ])("keeps unmarked text with %s", (_label, text) => {
+      const doc = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "before" }] },
+          { type: "paragraph", content: [{ type: "text", text }] },
+          { type: "paragraph", content: [{ type: "text", text: "after" }] },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const paragraphs = nfmToDoc(serialized).content ?? [];
+
+      expect(serialized).toBe(`before\n<span>${text}</span>\nafter`);
+      expect(
+        paragraphs.map((node) =>
+          (node.content ?? []).map((child) => child.text).join(""),
+        ),
+      ).toEqual(["before", text, "after"]);
+      expect(docToNfm(nfmToDoc(serialized))).toBe(serialized);
+    });
+
+    it("leaves whitespace inside a line unwrapped", () => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "One", marks: [{ type: "bold" }] },
+              { type: "text", text: " " },
+              { type: "text", text: "\tTwo" },
+              { type: "text", text: "\n", marks: [{ type: "code" }] },
+            ],
+          },
+        ],
+      } as any;
+
+      expect(docToNfm(doc)).toBe("**One** \tTwo`<br>`");
+    });
+
+    it.each([
+      ["a newline", "\n"],
+      ["a space and a newline", " \n"],
+      ["a tab and a newline", "\t\n"],
+    ])("never wraps text with %s in a span", (_label, text) => {
+      const doc = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "before" }] },
+          { type: "paragraph", content: [{ type: "text", text }] },
+          { type: "paragraph", content: [{ type: "text", text: "after" }] },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const texts = (nfmToDoc(serialized).content ?? []).flatMap((node) =>
+        (node.content ?? []).map((child) => child.text ?? ""),
+      );
+
+      expect(serialized).not.toContain("<span>");
+      expect(texts.join("")).not.toContain("span>");
+    });
+
+    it.each([
+      ["bold", "\tfoo", "**\tfoo**"],
+      ["italic", "\tfoo", "*\tfoo*"],
+    ])("leaves %s text that starts a line unwrapped", (mark, text, nfm) => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text, marks: [{ type: mark }] }],
+          },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const marks = nfmToDoc(serialized).content?.[0]?.content?.flatMap(
+        (child) => (child.marks ?? []).map((m) => m.type),
+      );
+
+      expect(serialized).toBe(nfm);
+      expect(marks).not.toContain("notionSpan");
+    });
+  });
+
+  describe("dual inline colors", () => {
+    it("serializes inline code without losing its color", () => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "inline",
+                marks: [
+                  { type: "code" },
+                  {
+                    type: "notionSpan",
+                    attrs: { color: "red", bgColor: null },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as any;
+
+      expect(docToNfm(doc)).toBe('<span color="red">`inline`</span>');
+    });
+
+    it("keeps established single-color spellings stable", () => {
+      expect(canonicalizeNfm('<span color="red">text</span>')).toBe(
+        '<span color="red">text</span>',
+      );
+      expect(canonicalizeNfm('<span color="yellow_bg">text</span>')).toBe(
+        '<span color="yellow_bg">text</span>',
+      );
+    });
+
+    it("round-trips foreground and background without losing either", () => {
+      const nfm = '<span color="red" bg_color="yellow_bg">text</span>';
+      const doc = nfmToDoc(nfm);
+      const mark = doc.content[0].content?.[0]?.marks?.find(
+        (candidate) => candidate.type === "notionSpan",
+      );
+
+      expect(mark?.attrs).toMatchObject({
+        color: "red",
+        bgColor: "yellow_bg",
+      });
+      expect(docToNfm(doc)).toBe(nfm);
+    });
+
+    it("does not serialize unsupported color values", () => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "safe",
+                marks: [
+                  {
+                    type: "notionSpan",
+                    attrs: {
+                      color: "var(--arbitrary)",
+                      bgColor: "chartreuse",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as any;
+
+      expect(docToNfm(doc)).toBe("safe");
+    });
+  });
+
   describe("n17: paren- and escape-aware link/image parsing", () => {
     it("keeps the full href for a link URL containing parens", () => {
       const nfm = "[wiki](https://en.wikipedia.org/wiki/Foo_(bar))";
@@ -800,9 +1101,34 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n18: toggle/details summaries must round-trip verbatim (as raw NFM
-  // source), not be escaped on write after being stored unescaped.
   describe("n18: toggle summary verbatim round-trip", () => {
+    it("preserves an open details toggle", () => {
+      const nfm = L(
+        "<details open>",
+        "<summary>Expanded</summary>",
+        "\tBody",
+        "</details>",
+      );
+      expect(canonicalizeNfm(nfm)).toBe(nfm);
+    });
+
+    it("canonicalizes a quoted open boolean without closing the toggle", () => {
+      const nfm = L(
+        '<details open="">',
+        "<summary>Expanded</summary>",
+        "\tBody",
+        "</details>",
+      );
+      expect(canonicalizeNfm(nfm)).toBe(
+        L(
+          "<details open>",
+          "<summary>Expanded</summary>",
+          "\tBody",
+          "</details>",
+        ),
+      );
+    });
+
     it("keeps inline formatting inside a <details><summary> intact", () => {
       const nfm = L(
         "<details>",
@@ -829,14 +1155,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n26: a toggle heading's summary shares one serialized line with the real
-  // trailing `{toggle="true" ...}` attrs. Notion-emitted summaries (raw NFM,
-  // round-tripped verbatim) never end in an odd backslash run — but the
-  // editor's plain summary <input> writes untouched plain text into the same
-  // `summary` attr, and a plain-text summary ending in an odd number of
-  // backslashes (e.g. a Windows path) made the parser treat the whole
-  // `{toggle="true"}` suffix as escaped literal text, degrading the toggle
-  // into a heading containing that literal attrs string.
   describe("n26: toggle-heading summary corruption resistance", () => {
     const headingToggleDoc = (summary: string, headingLevel = 2): any => ({
       type: "doc",
@@ -856,7 +1174,6 @@ describe("bug fixes — reliability sweep", () => {
       expect(doc2.content[0].type).toBe("notionToggle");
       expect(doc2.content[0].attrs?.summary).toBe("b\\");
       expect(doc2.content[0].attrs?.headingLevel).toBe(2);
-      // The real toggle attrs must not have degraded into literal text.
       expect(docToNfm(doc2)).toBe(nfm);
     });
 
@@ -913,8 +1230,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n19: an unclosed container tag must not silently swallow every
-  // following same-indent line to EOF.
   describe("n19: unterminated container fallback", () => {
     it("preserves content after an unclosed <callout>", () => {
       const nfm = L('<callout icon="x">', "Hello after", "World after");
@@ -954,9 +1269,277 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n20: canonicalization must never apply the editor-only
-  // terminal-filler-paragraph trim, or intentional Notion empty blocks are
-  // deleted (and nesting must not apply the trim at all).
+  describe("details bodies authored as ordinary Markdown", () => {
+    it("preserves supported unindented block children inside a native toggle", () => {
+      const source = L(
+        "<details>",
+        "<summary>Planned revisions</summary>",
+        "Paragraph with `inline code`.",
+        "## Heading",
+        "- bullet",
+        "> quote",
+        "```ts",
+        "\tconst answer = 42;",
+        "```",
+        "![diagram](https://example.com/diagram.png)",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.type).toBe("notionToggle");
+      expect(toggle?.content?.map((node) => node.type)).toEqual([
+        "paragraph",
+        "heading",
+        "bulletList",
+        "blockquote",
+        "codeBlock",
+        "image",
+      ]);
+      expect(toggle?.content?.[4]?.content?.[0]?.text).toBe(
+        "\tconst answer = 42;",
+      );
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>Planned revisions</summary>",
+          "\tParagraph with `inline code`.",
+          "\t## Heading",
+          "\t- bullet",
+          "\t> quote",
+          "\t```ts",
+          "\t\tconst answer = 42;",
+          "\t```",
+          "\t![diagram](https://example.com/diagram.png)",
+          "</details>",
+        ),
+      );
+    });
+
+    it("keeps already-canonical and mixed-indentation details content nested", () => {
+      const source = L(
+        "<details>",
+        "<summary>Mixed</summary>",
+        "\tCanonical child",
+        "Unindented child",
+        "\t- canonical list",
+        "</details>",
+      );
+
+      const expected = L(
+        "<details>",
+        "<summary>Mixed</summary>",
+        "\tCanonical child",
+        "\tUnindented child",
+        "\t- canonical list",
+        "</details>",
+      );
+      expect(canonicalizeNfm(source)).toBe(expected);
+      expect(canonicalizeNfm(expected)).toBe(expected);
+    });
+
+    it.each([
+      {
+        name: "callout",
+        open: '<callout icon="💡">',
+        close: "</callout>",
+        childType: "notionCallout",
+      },
+      {
+        name: "synced block",
+        open: '<synced_block url="https://www.notion.so/s">',
+        close: "</synced_block>",
+        childType: "notionSyncedBlock",
+      },
+    ])(
+      "preserves an ordinary nested $name body",
+      ({ open, close, childType }) => {
+        const source = L(
+          "<details>",
+          "<summary>Nested container</summary>",
+          open,
+          "Inside nested container",
+          close,
+          "</details>",
+        );
+
+        const toggle = nfmToDoc(source).content[0];
+        expect(toggle?.content?.[0]).toMatchObject({
+          type: childType,
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "Inside nested container" }],
+            },
+          ],
+        });
+        const canonical = canonicalizeNfm(source);
+        expect(canonical).toContain(
+          L(`\t${open}`, "\t\tInside nested container", `\t${close}`),
+        );
+        expect(canonicalizeNfm(canonical)).toBe(canonical);
+      },
+    );
+
+    it("preserves ordinary nested columns and their column children", () => {
+      const source = L(
+        "<details>",
+        "<summary>Nested columns</summary>",
+        "<columns>",
+        "<column>",
+        "Inside column",
+        "</column>",
+        "</columns>",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.content?.[0]).toMatchObject({
+        type: "notionColumns",
+        content: [
+          {
+            type: "notionColumn",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "Inside column" }],
+              },
+            ],
+          },
+        ],
+      });
+      const canonical = canonicalizeNfm(source);
+      expect(canonical).toContain(
+        L(
+          "\t<columns>",
+          "\t\t<column>",
+          "\t\t\tInside column",
+          "\t\t</column>",
+          "\t</columns>",
+        ),
+      );
+      expect(canonicalizeNfm(canonical)).toBe(canonical);
+    });
+
+    it("does not absorb later toggle content into an unclosed nested container", () => {
+      const source = L(
+        "<details>",
+        "<summary>Malformed nested container</summary>",
+        '<callout icon="💡">',
+        "Still a sibling",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.content?.map((node) => node.type)).toEqual([
+        "paragraph",
+        "paragraph",
+      ]);
+      expect(toggle?.content?.[1]?.content?.[0]?.text).toBe("Still a sibling");
+    });
+
+    it("does not close a nested container from inside fenced code", () => {
+      const source = L(
+        "<details>",
+        "<summary>Nested fenced example</summary>",
+        '<callout icon="💡">',
+        "```html",
+        "</callout>",
+        "```",
+        "After fenced example",
+        "</callout>",
+        "</details>",
+      );
+
+      const callout = nfmToDoc(source).content[0]?.content?.[0];
+      expect(callout).toMatchObject({
+        type: "notionCallout",
+        content: [
+          {
+            type: "codeBlock",
+            content: [{ type: "text", text: "</callout>" }],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "After fenced example" }],
+          },
+        ],
+      });
+      const canonical = canonicalizeNfm(source);
+      expect(canonical).toContain(
+        L(
+          '\t<callout icon="💡">',
+          "\t\t```html",
+          "\t\t</callout>",
+          "\t\t```",
+          "\t\tAfter fenced example",
+          "\t</callout>",
+        ),
+      );
+      expect(canonicalizeNfm(canonical)).toBe(canonical);
+    });
+
+    it("does not treat a details close tag inside fenced code as the container close", () => {
+      const source = L(
+        "<details>",
+        "<summary>HTML example</summary>",
+        "```html",
+        "</details>",
+        "```",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.type).toBe("notionToggle");
+      expect(toggle?.content?.[0]).toMatchObject({
+        type: "codeBlock",
+        content: [{ type: "text", text: "</details>" }],
+      });
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>HTML example</summary>",
+          "\t```html",
+          "\t</details>",
+          "\t```",
+          "</details>",
+        ),
+      );
+    });
+
+    it("normalizes an unindented closing fence after a canonical opening fence", () => {
+      const source = L(
+        "<details>",
+        "<summary>Mixed fence</summary>",
+        "\t```ts",
+        "const answer = 42;",
+        "```",
+        "</details>",
+        "After toggle",
+      );
+
+      const doc = nfmToDoc(source);
+      expect(doc.content.map((node) => node.type)).toEqual([
+        "notionToggle",
+        "paragraph",
+      ]);
+      expect(doc.content[0]?.content?.[0]).toMatchObject({
+        type: "codeBlock",
+        content: [{ type: "text", text: "const answer = 42;" }],
+      });
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>Mixed fence</summary>",
+          "\t```ts",
+          "\tconst answer = 42;",
+          "\t```",
+          "</details>",
+          "After toggle",
+        ),
+      );
+    });
+  });
+
   describe("n20: canonicalization never trims intentional empty blocks", () => {
     it("keeps a trailing <empty-block/> after a heading", () => {
       const nfm = L("# H", "<empty-block/>");
@@ -979,9 +1562,6 @@ describe("bug fixes — reliability sweep", () => {
     });
 
     it("docToNfm (direct editor call) still drops its own terminal filler paragraph", () => {
-      // This is the editor-only heuristic docToNfm's direct callers rely on;
-      // canonicalizeNfm must not apply it (see tests above), but docToNfm on
-      // its own must keep doing so.
       expect(
         docToNfm({
           type: "doc",
@@ -998,11 +1578,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n21: a paragraph whose TEXT (not raw NFM source) starts with a
-  // block-marker pattern must round-trip as a paragraph, not be reparsed as
-  // that block type. This is what the editor produces from a plain-text
-  // paste — a real `paragraph` PM node whose text happens to start with
-  // "- ", "# ", "1. ", or "---".
   describe("n21: leading block-marker escaping in paragraphs", () => {
     const cases = [
       "- not a list",
@@ -1018,15 +1593,12 @@ describe("bug fixes — reliability sweep", () => {
           content: [{ type: "paragraph", content: [{ type: "text", text }] }],
         };
         const nfm = docToNfm(doc);
-        // Re-parsing the serialized NFM must come back as a paragraph with
-        // the exact original text, not as list/heading/divider structure.
         const doc2 = nfmToDoc(nfm);
         expect(doc2.content[0].type).toBe("paragraph");
         const rendered = doc2.content[0].content
           ?.map((n: any) => n.text)
           .join("");
         expect(rendered).toBe(text);
-        // And the round trip is itself stable.
         expect(docToNfm(doc2)).toBe(nfm);
       });
 
@@ -1041,8 +1613,6 @@ describe("bug fixes — reliability sweep", () => {
     }
   });
 
-  // n22: inline code spans containing backticks must use a CommonMark-style
-  // variable-length delimiter instead of corrupting/splitting on write.
   describe("n22: backtick-safe inline code spans", () => {
     it("serializes code text containing a single backtick without truncation", () => {
       const doc = {
@@ -1100,11 +1670,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n23: the divider parser trims the line before testing
-  // (`dedent.trim()` against `/^(---+|\*\*\*+|___+)$/`), so a paragraph whose
-  // text is only a divider-lookalike PLUS leading/trailing whitespace must be
-  // escape-checked against that same trimmed form, or it silently reparses as
-  // a horizontalRule and the whitespace-padded text is lost.
   describe("n23: divider-lookalike paragraphs with padding whitespace", () => {
     const paragraphOnly = (text: string) => {
       const doc: any = {
@@ -1143,11 +1708,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n24: link/image URLs with UNBALANCED parens must be escaped on write so
-  // findMatchingParenClose (paren-balance-aware) doesn't truncate the
-  // destination on the next parse; URLs with BALANCED parens stay verbatim
-  // to preserve Notion's byte-exact fixpoint (e.g. Wikipedia disambiguation
-  // links, which Notion never escapes).
   describe("n24: unbalanced-paren URL escaping in links and images", () => {
     it("round-trips a link href containing an unbalanced closing paren", () => {
       const doc: any = {
@@ -1171,7 +1731,6 @@ describe("bug fixes — reliability sweep", () => {
       expect(linkNode?.marks?.[0]?.type).toBe("link");
       expect(linkNode?.marks?.[0]?.attrs?.href).toBe("https://x.com/a)b");
       expect(linkNode?.text).toBe("t");
-      // No trailing/extra text node absorbing the truncated remainder.
       expect(doc2.content[0].content?.length).toBe(1);
       expect(docToNfm(doc2)).toBe(nfm);
     });
@@ -1245,13 +1804,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n25: inline-code space padding must be symmetric between serialize and
-  // parse. The serializer must pad with a space on each side whenever the
-  // content starts OR ends with a backtick OR a space (not just backtick),
-  // and the parser must strip exactly one pad space per side only when both
-  // ends are padded and the content isn't entirely spaces — otherwise a
-  // leading/trailing space in the actual content is indistinguishable from
-  // serializer-added padding and gets silently deleted on round trip.
   describe("n25: inline-code space padding symmetry", () => {
     const codeDoc = (text: string): any => ({
       type: "doc",
@@ -1319,5 +1871,27 @@ describe("bug fixes — reliability sweep", () => {
       const nfm2 = docToNfm(nfmToDoc(nfm1));
       expect(nfm2).toBe(nfm1);
     });
+  });
+});
+
+describe("docToNfm — long containers", () => {
+  it("serializes a quote holding more blocks than fit in one function call's arguments", () => {
+    const count = 200_000;
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "blockquote",
+          content: Array.from({ length: count }, (_, i) => ({
+            type: "paragraph",
+            content: [{ type: "text", text: `p${i}` }],
+          })),
+        },
+      ],
+    };
+    const lines = docToNfm(doc).split("\n");
+    expect(lines).toHaveLength(count);
+    expect(lines[0]).toBe("> p0");
+    expect(lines[count - 1]).toBe(`\tp${count - 1}`);
   });
 });

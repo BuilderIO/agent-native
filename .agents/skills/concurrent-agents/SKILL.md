@@ -14,9 +14,9 @@ metadata:
 
 Steve runs many Claude Code and Codex sessions against this one checkout on
 purpose, often on the same branch or file. Default assumption on every task:
-any uncommitted change you did not make is a peer's live, in-progress work —
-not clutter, not a mistake, not yours to clean up, revert, or "tidy" away.
-Modified or untracked files you don't recognize are this repo's normal state.
+the working tree is shared branch state. Read existing changes before editing
+them, and never reset, clean, stash, or overwrite local work without explicit
+authorization.
 
 ## Read before you edit
 
@@ -42,53 +42,62 @@ Read the hunks: a revert removes logic and puts nothing equivalent back; a
 refactor removes the same lines and adds different code doing the same job.
 Only the hunks tell you which happened — never `--stat` alone.
 
-## Never move branches without an explicit instruction
+## Shallow or grafted worktrees
 
-Don't create, switch, delete, reset, rebase, stash, or worktree-add a branch
-unless the user asked for that exact operation in the current task — it
-strands every other agent on it. This isn't a tool-level block anymore —
-`.agents/skills/new-branch/SKILL.md` carries it now, through an activation
-guard that refuses to fire unless the user explicitly asked for `/new-branch`
-or a fresh branch. That guard is what took unrequested branch creation from a
-recurring complaint to zero; read it before any branch operation instead of
-assuming a prohibition still lives at the tool layer.
+Shallow clones and grafted worktrees do not have complete ancestry. Treat
+`git log -S` and `git merge-base --is-ancestor` results at their boundary as
+inconclusive; fetch complete history or verify the date through the remote
+commit or pull-request record before calling a change the first occurrence.
 
-## Timing the next branch around in-flight peers
+## Branch operations follow checkout ownership
 
-Unrequested branch creation is solved; the residual risk now is timing.
-Cutting a fresh branch right after your own merge, while other agents are
-still mid-flight on the branch you're about to leave, strands their
-uncommitted work just as surely as an unrequested branch move would. Before
-running `/new-branch`, even on an explicit request, check who else is still
-using the current branch:
+In a dedicated task-owned worktree, create or switch to an available branch
+needed for the task without asking permission. Git worktrees isolate files; the
+Git refs are shared, so never move, rewrite, or delete a branch checked out in
+another worktree. If a branch name is already used, choose another available
+name. Preserve and carry or reapply local changes; do not stash or discard them.
+
+Before creating or switching branches, record `git status --short
+--untracked-files=all` and classify every staged, unstaged, and untracked path.
+A switch carries the whole index and worktree, so proceed only when every dirty
+path belongs to this task. If any path is unrelated or incomplete, keep the
+checkout in place and report the exact paths without asking again.
+
+In a shared checkout, keep its branch unchanged. For an explicit `/ship` or
+PR-publishing request that cannot safely use the current checkout, follow
+`new-branch` to create a managed task-owned worktree from the correct base,
+carry only the requested task's changes, and create its task branch without
+asking. For other work, use the current branch unless the user gave an exact
+branch operation. Keep platform-assigned Builder.io and Fusion branches in
+place.
+
+## Timing the next branch
+
+Before creating a branch, inspect the active worktrees and dirty paths:
 
 ```bash
-git status --short                          # uncommitted changes here — yours or a peer's
-ls -la .claude/leases/ 2>/dev/null           # fresh (<15 min) leases = a session actively editing
-ls .claude/worktrees/ 2>/dev/null            # peers working this branch from a separate worktree
+git status --short
+git worktree list --porcelain
 gh pr list --head "$(git branch --show-current)" --state open
 ```
 
-If any of those show live activity, say so and confirm with the user before
-moving off the branch — don't assume a merge landing means everyone else is
-done with it too.
+In a task-owned worktree, do not require a checkpoint or `ship:push` just to
+create a fresh branch; preserve and carry the current task's changes. For
+post-merge rotation, follow `new-branch`'s dedicated safety checks.
 
-## File leases
-
-`scripts/hooks/file-lease.mjs` claims a file on every edit and denies the next
-write when another live session leased it in the last 15 minutes, or the file
-changed on disk since your session last wrote it. Both mean stop and look, not
-force through: work a different file, or re-read it and build on the landed
-change before writing again. If it's genuinely your file being taken back,
-say so in your response after re-reading.
+For an explicitly authorized branch-wide checkpoint, publish one complete
+snapshot with `corepack pnpm ship:push -m "<specific change>"`. Do not publish
+separate checkpoints for delegates or intermediate edits.
 
 ## Before you ship
 
-Assume another agent may already be committing, pushing, or opening a PR for
-the same fix — "stop shipping, another agent is doing that right now" is a
-real recurring collision. Before you commit, push, or merge, check `git log
---oneline -5`, `git status`, and `gh pr list --head <branch>` for a PR someone
-already opened. If the work you were about to do just landed, say so and stop.
+Before you commit, push, or merge, check `git log --oneline -5`, `git status`,
+and `gh pr list --head <branch>` for the current PR. If the work you were
+about to do just landed, continue from the latest branch snapshot.
+
+Do not rebase or merge `origin/main` just to clear behind status or restart
+checks. Rebase or merge it only when GitHub reports an actual conflict; for a
+shared branch, prefer a normal merge.
 
 ## Reading a Codex peer's intent
 
@@ -105,6 +114,6 @@ a peer's task without interrupting it or the user.
 
 ## Related
 
-- `new-branch` — the one workflow allowed to move branches, only on explicit
-  `/new-branch` invocation.
-- `ship` — the commit/push/PR workflow; check for an in-flight peer first.
+- `new-branch` — safe branch creation in task-owned worktrees and automatic
+  task-worktree isolation for shipping from shared checkouts.
+- `ship` — the commit/push/PR workflow for the complete branch snapshot.

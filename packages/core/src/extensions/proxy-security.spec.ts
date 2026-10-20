@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   MAX_EXTENSION_PROXY_RESPONSE_SIZE,
@@ -82,12 +82,15 @@ describe("readResponseTextWithLimit", () => {
   });
 
   it("rejects up-front when content-length exceeds the limit", async () => {
-    const response = new Response("ignored", {
-      headers: { "content-length": "5000000" },
-    });
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const response = {
+      body: { cancel },
+      headers: new Headers({ "content-length": "5000000" }),
+    } as unknown as Response;
     const out = await readResponseTextWithLimit(response, 1_000_000);
     expect(out.truncated).toBe(true);
     expect(out.text).toContain("response too large");
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("decodes the body normally when under the size budget", async () => {

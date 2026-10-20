@@ -44,6 +44,7 @@ export function createDashboardStorageSchema(
       config: text("config").notNull(),
       createdAt: text("created_at").notNull().default(now()),
       createdBy: text("created_by"),
+      chatContext: text("chat_context"),
       ...ownableColumns(),
     },
     (revision) => ({

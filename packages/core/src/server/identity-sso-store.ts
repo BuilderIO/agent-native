@@ -1,215 +1,313 @@
-/**
- * Framework-table store for the cross-app SSO ("Sign in with Agent-Native")
- * CLIENT side. Backs two pieces of the federated login round-trip:
- *
- *   - `identity_sso_state` — short-lived (10 min), single-use, crypto-random
- *     CSRF `state` values. Minted at `/_agent-native/identity/login`,
- *     consumed exactly once at `/_agent-native/identity/callback`. Carries an
- *     optional same-origin `return` path so the user lands back where they
- *     started after federated sign-in.
- *   - `identity_sso_jti` — replayed-token guard. The hub-issued identity JWT
- *     carries a random `jti`; the first callback that verifies a given `jti`
- *     records it here, and any later callback that presents the same `jti`
- *     is rejected. Best-effort: a DB blip never widens the trust boundary
- *     (signature + exp + scope + single-use state are still enforced), it
- *     only relaxes the extra replay gate.
- *
- * Mirrors `mcp/connect-store.ts`: lazy `ensureTable()`, `getDbExec()`,
- * dialect-agnostic SQL via `intType()`, `isConnectionError()` swallow so a
- * transient Neon WS drop never 500s. `CREATE TABLE IF NOT EXISTS` only —
- * strictly additive, never DROP / ALTER (shared prod DB rule).
- *
- * Node-only (crypto), bundled alongside the other framework auth modules.
- */
-
 import { randomBytes } from "node:crypto";
 
-import {
-  getDbExec,
-  isConnectionError,
-  intType,
-  isPostgres,
-} from "../db/client.js";
+import { getDbExec, isConnectionError } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
+import { IDENTITY_SSO_MIGRATIONS } from "./identity-sso-migrations.js";
 
-let _initPromise: Promise<void> | undefined;
+const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
+const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
+export const CANONICAL_IDENTITY_SSO_HUB_URL =
+  "https://dispatch.agent-native.com";
+export const NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL =
+  "https://beta.dispatch.agent-native.com";
+const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
+  "https://analytics.agent-native.com",
+  "https://assets.agent-native.com",
+  "https://brain.agent-native.com",
+  "https://calendar.agent-native.com",
+  "https://chat.agent-native.com",
+  "https://clips.agent-native.com",
+  "https://content.agent-native.com",
+  "https://crm.agent-native.com",
+  "https://design.agent-native.com",
+  "https://dispatch.agent-native.com",
+  "https://factory.agent-native.com",
+  "https://forms.agent-native.com",
+  "https://mail.agent-native.com",
+  "https://plan.agent-native.com",
+  "https://slides.agent-native.com",
+  "https://tasks.agent-native.com",
+]);
 
-// ---------------------------------------------------------------------------
-// Feature switch — the SINGLE source of truth for whether the federated-SSO
-// client is active. Lives here (a leaf module with no dependency on auth.ts)
-// so BOTH the auth guard and the route handler import the identical
-// validator and can never drift. Pure env read, no I/O — safe on the guard
-// hot path.
-// ---------------------------------------------------------------------------
+export const SSO_STATE_TTL_MS = 10 * 60_000;
+export const SSO_LOGIN_MAX = 60;
+export const SSO_LOGIN_WINDOW_MS = 60_000;
 
-/**
- * Read + normalise `AGENT_NATIVE_IDENTITY_HUB_URL`. Returns `undefined`
- * (feature OFF) unless it is set to a syntactically valid http(s) URL. A
- * malformed value is treated as OFF rather than throwing, so a typo can
- * never brick an app's login — it just behaves as if SSO were unconfigured.
- */
-export function getIdentityHubUrl(): string | undefined {
-  const raw = process.env.AGENT_NATIVE_IDENTITY_HUB_URL?.trim();
-  if (!raw) return undefined;
-  try {
-    const u = new URL(raw);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return undefined;
-    return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, "");
-  } catch {
-    return undefined;
+const STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const CLIENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const CODE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+const CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS = new Set(
+  [...CANONICAL_IDENTITY_SSO_APP_ORIGINS].filter(
+    (origin) => origin !== CANONICAL_IDENTITY_SSO_HUB_URL,
+  ),
+);
+const NETLIFY_PREVIEW_SITE_NAMES = new Set(
+  [...CANONICAL_IDENTITY_SSO_APP_ORIGINS].map((origin) => {
+    const appId = new URL(origin).hostname.split(".")[0];
+    return appId === "chat" ? "agent-native-starter" : `agent-native-${appId}`;
+  }),
+);
+const NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES = new Set(
+  [...NETLIFY_PREVIEW_SITE_NAMES].filter(
+    (siteName) => siteName !== "agent-native-dispatch",
+  ),
+);
+
+function configuredAppOrigin(): string | undefined {
+  for (const raw of [
+    process.env.APP_URL,
+    process.env.BETTER_AUTH_URL,
+    process.env.VITE_APP_URL,
+    process.env.VITE_BETTER_AUTH_URL,
+    process.env.URL,
+    process.env.DEPLOY_PRIME_URL,
+    process.env.DEPLOY_URL,
+  ]) {
+    const value = raw?.trim();
+    if (!value) continue;
+    try {
+      const url = new URL(value);
+      return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
+    } catch (error) {
+      void error;
+    }
   }
+  return undefined;
 }
 
-/**
- * Whether the federated-SSO client is active. When false, NOTHING in the
- * SSO module has any effect: the route 404s, the guard bypass is inert, the
- * login button is not rendered. This is the single switch the
- * env-unset-no-op invariant is asserted against.
- */
+export function getIdentityHubUrl(): string | undefined {
+  const raw = process.env.AGENT_NATIVE_IDENTITY_HUB_URL?.trim();
+  if (raw) {
+    try {
+      const u = new URL(raw);
+      if (
+        u.protocol !== "https:" &&
+        !(u.protocol === "http:" && LOCALHOST_HOSTS.has(u.hostname))
+      ) {
+        return undefined;
+      }
+      if (u.username || u.password || u.search || u.hash) return undefined;
+      return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, "");
+    } catch (error) {
+      void error;
+      return undefined;
+    }
+  }
+
+  const appOrigin = configuredAppOrigin();
+  return isCanonicalIdentitySsoClientOrigin(appOrigin)
+    ? CANONICAL_IDENTITY_SSO_HUB_URL
+    : undefined;
+}
+
+export function isIdentitySsoExplicitlyEnabled(): boolean {
+  return Boolean(
+    process.env.AGENT_NATIVE_IDENTITY_HUB_URL?.trim() && getIdentityHubUrl(),
+  );
+}
+
 export function isIdentitySsoEnabled(): boolean {
   return !!getIdentityHubUrl();
 }
 
-/**
- * The conditional "Sign in with Agent-Native" entry injected into the login
- * page — ONLY when the feature is enabled. Returns an empty string when
- * disabled so the login HTML is byte-for-byte identical to today's output
- * with the env unset (asserted by the env-unset-no-op regression test). Pure
- * string builder, no I/O — safe to call during HTML render. Lives in this
- * leaf module so `onboarding-html.ts` can import it without creating an
- * `auth.ts` ↔ `identity-sso.ts` import cycle.
- */
-export function identitySsoLoginButtonHtml(): string {
-  if (!isIdentitySsoEnabled()) return "";
-  return (
-    `\n  <a class="btn-identity-sso" id="identity-sso-btn" ` +
-    `href="/_agent-native/identity/login" ` +
-    `style="display:flex;align-items:center;justify-content:center;gap:0.5rem;` +
-    `width:100%;padding:0.7rem 1rem;margin-bottom:0.75rem;border-radius:8px;` +
-    `border:1px solid rgba(255,255,255,0.18);background:transparent;` +
-    `color:inherit;font:inherit;font-weight:600;text-decoration:none;` +
-    `cursor:pointer">Sign in with Agent-Native</a>\n`
+export function isDesktopSsoCanaryUserAgent(
+  userAgent: string | undefined,
+): boolean {
+  return DESKTOP_SSO_CANARY_USER_AGENT.test(userAgent ?? "");
+}
+
+export function isDesktopSsoUserAgent(userAgent: string | undefined): boolean {
+  return DESKTOP_SSO_USER_AGENT.test(userAgent ?? "");
+}
+
+export function isCanonicalAgentNativeAppOrigin(
+  origin: string | undefined,
+): boolean {
+  if (!origin) return false;
+  try {
+    const parsed = new URL(origin);
+    return (
+      parsed.protocol === "https:" &&
+      !parsed.username &&
+      !parsed.password &&
+      parsed.pathname === "/" &&
+      !parsed.search &&
+      !parsed.hash &&
+      CANONICAL_IDENTITY_SSO_APP_ORIGINS.has(parsed.origin)
+    );
+  } catch (error) {
+    void error;
+    return false;
+  }
+}
+
+export function isCanonicalIdentitySsoClientOrigin(
+  origin: string | undefined,
+): boolean {
+  return Boolean(origin && CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS.has(origin));
+}
+
+export function isCanonicalIdentitySsoClientConfigured(): boolean {
+  return isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+}
+
+export function isCanonicalAgentNativeAppRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  if (!host || forwardedProtocol !== "https") return false;
+  return isCanonicalAgentNativeAppOrigin(`https://${host}`);
+}
+
+export function isCanonicalIdentitySsoClientRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  if (!host || forwardedProtocol !== "https") return false;
+  return isCanonicalIdentitySsoClientOrigin(`https://${host}`);
+}
+
+export function isNetlifyDeployPermalinkIdentitySsoClientRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkRequestForSites(
+    host,
+    forwardedProtocol,
+    NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES,
   );
 }
 
-/** CSRF state values are valid for 10 minutes. */
-export const SSO_STATE_TTL_MS = 10 * 60_000;
-
-/**
- * Rate limit for `identity/login`: at most this many state rows may be
- * created within `SSO_LOGIN_WINDOW_MS`. The endpoint is reachable without a
- * session (it's the entry point), so keep a coarse global cap to stop table
- * flooding without per-IP plumbing.
- */
-export const SSO_LOGIN_MAX = 60;
-export const SSO_LOGIN_WINDOW_MS = 60_000;
-
-// Build the CREATE SQL lazily (not at module scope) so intType() runs at
-// RUNTIME, not import time — a module-scope call breaks any consumer whose
-// db/client mock doesn't stub intType (e.g. db-admin specs).
-function buildIdentitySsoStateCreateSql(): string {
-  return `
-        CREATE TABLE IF NOT EXISTS identity_sso_state (
-          state TEXT PRIMARY KEY,
-          return_path TEXT,
-          created_at ${intType()},
-          expires_at ${intType()},
-          consumed_at ${intType()}
-        )
-      `;
-}
-function buildIdentitySsoJtiCreateSql(): string {
-  return `
-        CREATE TABLE IF NOT EXISTS identity_sso_jti (
-          jti TEXT PRIMARY KEY,
-          seen_at ${intType()}
-        )
-      `;
+export function isNetlifyDeployPermalinkGoogleOAuthClientRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkRequestForSites(
+    host,
+    forwardedProtocol,
+    NETLIFY_PREVIEW_SITE_NAMES,
+  );
 }
 
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const identitySsoStateCreateSql = buildIdentitySsoStateCreateSql();
-      const identitySsoJtiCreateSql = buildIdentitySsoJtiCreateSql();
-      // Additive only. Never DROP / ALTER — this DB is shared across every
-      // deploy context (preview/branch/prod) for hosted templates.
-      if (isPostgres()) {
-        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
-        await ensureTableExists(
-          "identity_sso_state",
-          identitySsoStateCreateSql,
-        );
-        await ensureTableExists("identity_sso_jti", identitySsoJtiCreateSql);
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(identitySsoStateCreateSql);
-      await client.execute(identitySsoJtiCreateSql);
-    })().catch((err) => {
-      // Don't cache a rejection — let the next caller retry a fresh init.
-      _initPromise = undefined;
-      throw err;
-    });
+function isNetlifyDeployPermalinkRequestForSites(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+  allowedSiteNames: Set<string>,
+): boolean {
+  const requestProtocol = forwardedProtocol?.trim().toLowerCase() || "https";
+  const configuredSiteName = (
+    process.env.SITE_NAME?.trim() || process.env.NETLIFY_SITE_NAME?.trim()
+  )?.toLowerCase();
+  if (
+    !host ||
+    requestProtocol !== "https" ||
+    (configuredSiteName && !allowedSiteNames.has(configuredSiteName))
+  ) {
+    return false;
   }
-  return _initPromise;
+  return isNetlifyDeployPermalinkHost(
+    host,
+    configuredSiteName,
+    allowedSiteNames,
+  );
 }
 
-function numOrNull(v: unknown): number | null {
-  if (v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+function isNetlifyDeployPermalinkHost(
+  host: string,
+  siteName?: string,
+  allowedSiteNames: Set<string> = NETLIFY_PREVIEW_SITE_NAMES,
+): boolean {
+  const normalizedHost = host.toLowerCase();
+  const siteNames = siteName ? [siteName] : [...allowedSiteNames];
+  return siteNames.some((name) =>
+    new RegExp(`^[a-f0-9]{24}--${name}\\.netlify\\.app$`).test(normalizedHost),
+  );
 }
 
-// ---------------------------------------------------------------------------
-// CSRF state
-// ---------------------------------------------------------------------------
+export function isNetlifyDeployPermalinkIdentitySsoClientOrigin(
+  origin: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkOriginForSites(
+    origin,
+    NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES,
+  );
+}
 
-/**
- * Mint a fresh crypto-random `state` value, persist it with an optional
- * same-origin return path, and return it. Rate-limited at creation: at most
- * `SSO_LOGIN_MAX` rows within `SSO_LOGIN_WINDOW_MS`. Throws `RATE_LIMITED`
- * when the cap is exceeded so the route can map it to a 429.
- */
-export async function createSsoState(
-  returnPath: string | null,
-): Promise<string> {
-  await ensureTable();
-  const client = getDbExec();
-  const now = Date.now();
+export function isNetlifyDeployPermalinkGoogleOAuthClientOrigin(
+  origin: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkOriginForSites(
+    origin,
+    NETLIFY_PREVIEW_SITE_NAMES,
+  );
+}
 
+function isNetlifyDeployPermalinkOriginForSites(
+  origin: string | undefined,
+  allowedSiteNames: Set<string>,
+): boolean {
+  if (!origin) return false;
   try {
-    const { rows } = await client.execute({
-      sql: `SELECT COUNT(*) AS n FROM identity_sso_state WHERE created_at > ?`,
-      args: [now - SSO_LOGIN_WINDOW_MS],
-    });
-    const n = Number(rows[0]?.n ?? rows[0]?.["COUNT(*)"] ?? 0);
-    if (Number.isFinite(n) && n >= SSO_LOGIN_MAX) {
-      throw new Error("RATE_LIMITED");
-    }
-  } catch (err: any) {
-    if (err?.message === "RATE_LIMITED") throw err;
-    // A read failure must not block legitimate logins — single-use +
-    // short-TTL state is the primary protection. Continue.
+    const url = new URL(origin);
+    return (
+      url.origin === origin &&
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash &&
+      isNetlifyDeployPermalinkHost(url.hostname, undefined, allowedSiteNames)
+    );
+  } catch {
+    // coercion-ok: malformed origins are rejected as invalid input.
+    return false;
   }
+}
 
-  const state = randomBytes(32).toString("base64url");
-  const expiresAt = now + SSO_STATE_TTL_MS;
-  await client.execute({
-    sql: `INSERT INTO identity_sso_state (state, return_path, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?)`,
-    args: [state, returnPath ?? null, now, expiresAt, null],
-  });
-  // Fire-and-forget: prune fully-expired rows (consumed or abandoned). Without
-  // this the table grows unbounded and the rate-limit COUNT(*) above slows down.
-  void client
-    .execute({
-      sql: `DELETE FROM identity_sso_state WHERE expires_at < ?`,
-      args: [now],
-    })
-    .catch(() => {});
-  return state;
+export function isIdentitySsoAvailableForRequest(
+  options: {
+    requestHost?: string;
+    requestProtocol?: string;
+  } = {},
+): boolean {
+  const canonicalRequest = options.requestHost
+    ? isCanonicalIdentitySsoClientRequest(
+        options.requestHost,
+        options.requestProtocol ?? "https",
+      )
+    : isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+  return canonicalRequest || isIdentitySsoExplicitlyEnabled();
+}
+
+/** @deprecated Browser sign-in with Agent-Native was removed. */
+export function identitySsoLoginButtonHtml(
+  _options: { requestHost?: string } = {},
+): string {
+  return "";
+}
+
+export interface CreateSsoStateInput {
+  returnPath: string | null;
+  appId: string;
+  clientId: string;
+  redirectUri: string;
+  authority: string;
+  codeChallenge: string;
+}
+
+export interface SsoStateBinding {
+  appId: string;
+  clientId: string;
+  redirectUri: string;
+  authority: string;
+  codeChallenge: string;
 }
 
 export interface SsoStateConsumeResult {
@@ -217,88 +315,269 @@ export interface SsoStateConsumeResult {
   returnPath: string | null;
 }
 
-/**
- * Atomically consume a `state` value. Returns `{ ok: true, returnPath }` only
- * when the state existed, had not expired, and had not been consumed before —
- * and this call is the one that transitioned it to consumed (single-use,
- * enforced via a conditional UPDATE so a double callback can't both pass).
- * Any other condition returns `{ ok: false }`.
- */
-export async function consumeSsoState(
-  state: string,
-): Promise<SsoStateConsumeResult> {
-  if (!state) return { ok: false, returnPath: null };
+function buildIdentitySsoFlowStateCreateSql(): string {
+  return `
+        CREATE TABLE IF NOT EXISTS identity_sso_flow_state (
+          state TEXT PRIMARY KEY,
+          return_path TEXT,
+          app_id TEXT NOT NULL,
+          client_id TEXT NOT NULL,
+          redirect_uri TEXT NOT NULL,
+          authority TEXT NOT NULL,
+          code_challenge TEXT NOT NULL,
+          created_at BIGINT,
+          expires_at BIGINT,
+          consumed_at BIGINT
+        )
+      `;
+}
+
+function buildIdentitySsoJtiCreateSql(): string {
+  return `
+        CREATE TABLE IF NOT EXISTS identity_sso_jti (
+          jti TEXT PRIMARY KEY,
+          seen_at BIGINT
+        )
+      `;
+}
+
+export const identitySsoStore = defineStore({
+  id: "identity_sso",
+  // Hosted requests never created these tables on main, release-owned or not.
+  releaseOnly: true,
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(
+          "identity_sso_flow_state",
+          buildIdentitySsoFlowStateCreateSql(),
+        );
+        await ensureTableExists(
+          "identity_sso_jti",
+          buildIdentitySsoJtiCreateSql(),
+        );
+      },
+    },
+    ...fromMigrationEntries(
+      "_identity_sso_migrations",
+      IDENTITY_SSO_MIGRATIONS,
+    ),
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return identitySsoStore.ready();
+}
+
+function numOrNull(value: unknown): number | null {
+  if (value == null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function affectedRows(result: any): number {
+  return Number(result?.rowsAffected ?? result?.rowCount ?? result?.count ?? 0);
+}
+
+function isSafeStateInput(input: CreateSsoStateInput): boolean {
+  if (
+    !input.appId ||
+    !input.clientId ||
+    !input.redirectUri ||
+    !input.authority ||
+    !input.codeChallenge
+  ) {
+    return false;
+  }
+  if (!APP_ID_PATTERN.test(input.appId)) return false;
+  if (!CLIENT_ID_PATTERN.test(input.clientId)) return false;
+  if (!CODE_CHALLENGE_PATTERN.test(input.codeChallenge)) return false;
+  if (
+    CONTROL_CHARS.test(input.redirectUri) ||
+    CONTROL_CHARS.test(input.authority)
+  ) {
+    return false;
+  }
+  try {
+    const redirect = new URL(input.redirectUri);
+    const authority = new URL(input.authority);
+    if (
+      redirect.username ||
+      redirect.password ||
+      authority.username ||
+      authority.password
+    ) {
+      return false;
+    }
+    const secureOrLoopback = (url: URL) =>
+      url.protocol === "https:" ||
+      (url.protocol === "http:" && LOCALHOST_HOSTS.has(url.hostname));
+    if (!secureOrLoopback(redirect) || !secureOrLoopback(authority)) {
+      return false;
+    }
+  } catch (error) {
+    void error;
+    return false;
+  }
+  return true;
+}
+
+export async function createSsoState(
+  input: CreateSsoStateInput,
+): Promise<string> {
+  if (!isSafeStateInput(input)) throw new Error("INVALID_SSO_STATE");
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
 
+  try {
+    const { rows } = await client.execute({
+      sql: "SELECT COUNT(*) AS n FROM identity_sso_flow_state WHERE created_at > ?",
+      args: [now - SSO_LOGIN_WINDOW_MS],
+    });
+    const count = Number(rows[0]?.n ?? rows[0]?.["COUNT(*)"] ?? 0);
+    if (Number.isFinite(count) && count >= SSO_LOGIN_MAX) {
+      throw new Error("RATE_LIMITED");
+    }
+  } catch (error: any) {
+    if (error?.message === "RATE_LIMITED") throw error;
+    // A rate-limit read failure does not widen the auth boundary. The state
+    // remains high entropy, bound, short-lived, and single-use.
+  }
+
+  const state = randomBytes(32).toString("base64url");
+  await client.execute({
+    sql:
+      "INSERT INTO identity_sso_flow_state " +
+      "(state, return_path, app_id, client_id, redirect_uri, authority, code_challenge, created_at, expires_at, consumed_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    args: [
+      state,
+      input.returnPath,
+      input.appId,
+      input.clientId,
+      input.redirectUri,
+      input.authority,
+      input.codeChallenge,
+      now,
+      now + SSO_STATE_TTL_MS,
+      null,
+    ],
+  });
+  void client
+    .execute({
+      sql: "DELETE FROM identity_sso_flow_state WHERE expires_at < ?",
+      args: [now],
+    })
+    .catch(() => {});
+  return state;
+}
+
+/**
+ * Atomically consume state only when every security binding still matches.
+ * A missing or mismatched binding is indistinguishable from an unknown state.
+ */
+export async function consumeSsoState(
+  state: string,
+  expected: SsoStateBinding,
+): Promise<SsoStateConsumeResult> {
+  if (
+    !STATE_PATTERN.test(state) ||
+    !isSafeStateInput({ ...expected, returnPath: null })
+  ) {
+    return { ok: false, returnPath: null };
+  }
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
   const { rows } = await client.execute({
-    sql: `SELECT state, return_path, expires_at, consumed_at FROM identity_sso_state WHERE state = ?`,
+    sql:
+      "SELECT return_path, app_id, client_id, redirect_uri, authority, code_challenge, expires_at, consumed_at " +
+      "FROM identity_sso_flow_state WHERE state = ?",
     args: [state],
   });
   if (rows.length === 0) return { ok: false, returnPath: null };
   const row: any = rows[0];
   const expiresAt = numOrNull(row.expires_at ?? row.expiresAt);
   const consumedAt = numOrNull(row.consumed_at ?? row.consumedAt);
-  if (consumedAt != null) return { ok: false, returnPath: null };
-  if (expiresAt != null && expiresAt < now) {
+  if (consumedAt != null || (expiresAt != null && expiresAt < now)) {
     return { ok: false, returnPath: null };
   }
 
-  // Single-use: only the caller that flips `consumed_at` from NULL wins.
-  const result = await client.execute({
-    sql: `UPDATE identity_sso_state SET consumed_at = ? WHERE state = ? AND consumed_at IS NULL`,
-    args: [now, state],
-  });
-  if (result.rowsAffected === 0) {
-    // Lost the race to a concurrent callback — treat as already consumed.
+  const appId = stringOrNull(row.app_id ?? row.appId);
+  const clientId = stringOrNull(row.client_id ?? row.clientId);
+  const redirectUri = stringOrNull(row.redirect_uri ?? row.redirectUri);
+  const authority = stringOrNull(row.authority);
+  const codeChallenge = stringOrNull(row.code_challenge ?? row.codeChallenge);
+  if (
+    appId !== expected.appId ||
+    clientId !== expected.clientId ||
+    redirectUri !== expected.redirectUri ||
+    authority !== expected.authority ||
+    codeChallenge !== expected.codeChallenge
+  ) {
     return { ok: false, returnPath: null };
   }
-  const returnPath = (row.return_path ?? row.returnPath ?? null) as
-    | string
-    | null;
-  return { ok: true, returnPath };
+
+  const result = await client.execute({
+    sql:
+      "UPDATE identity_sso_flow_state SET consumed_at = ? " +
+      "WHERE state = ? AND consumed_at IS NULL AND app_id = ? AND client_id = ? " +
+      "AND redirect_uri = ? AND authority = ? AND code_challenge = ?",
+    args: [
+      now,
+      state,
+      expected.appId,
+      expected.clientId,
+      expected.redirectUri,
+      expected.authority,
+      expected.codeChallenge,
+    ],
+  });
+  if (affectedRows(result) !== 1) return { ok: false, returnPath: null };
+
+  return {
+    ok: true,
+    returnPath: stringOrNull(row.return_path ?? row.returnPath),
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Replay (jti) guard
-// ---------------------------------------------------------------------------
-
-/**
- * Returns true when the given identity-token `jti` has already been seen
- * (i.e. this is a replay). On the first sighting, records the `jti` and
- * returns false. Best-effort: a store/DB error returns `false` (not a
- * replay) so a transient Neon WS drop never blocks a legitimate first-time
- * sign-in — signature + exp + scope + single-use CSRF state remain the hard
- * gates; this only adds defence in depth against token replay.
- */
-export async function isJtiReplayed(jti: string | undefined): Promise<boolean> {
-  if (!jti) return false;
+export async function consumeOneTimeJti(
+  jti: string | undefined,
+): Promise<boolean> {
+  if (!jti) return true;
   try {
     await ensureTable();
     const client = getDbExec();
+    const now = Date.now();
     await client.execute({
-      sql: `INSERT INTO identity_sso_jti (jti, seen_at) VALUES (?, ?)`,
-      args: [jti, Date.now()],
+      sql: "INSERT INTO identity_sso_jti (jti, seen_at) VALUES (?, ?)",
+      args: [jti, now],
     });
-    // The INSERT completed without throwing → this jti was never seen → not a
-    // replay. (A replay manifests as a PK-conflict *exception*, handled below.)
-    // Don't key off rowsAffected: some drivers report 0 for a successful insert,
-    // which would wrongly flag a legitimate first-time sign-in as a replay.
+    void client
+      .execute({
+        sql: "DELETE FROM identity_sso_jti WHERE seen_at < ?",
+        args: [now - SSO_STATE_TTL_MS],
+      })
+      .catch(() => {});
     return false;
-  } catch (err) {
-    // Primary-key conflict = the jti already exists = replay.
-    const msg = String((err as any)?.message ?? "").toLowerCase();
+  } catch (error) {
+    const message = String((error as any)?.message ?? "").toLowerCase();
     if (
-      msg.includes("unique") ||
-      msg.includes("duplicate") ||
-      msg.includes("constraint")
+      message.includes("unique") ||
+      message.includes("duplicate") ||
+      message.includes("constraint")
     ) {
       return true;
     }
-    // Any other error (incl. connection blips): fail open — do not block a
-    // legitimate first sign-in over a transient DB issue.
-    if (isConnectionError(err)) return false;
-    return false;
+    if (isConnectionError(error)) return true;
+    return true;
   }
 }
+
+export const isJtiReplayed = consumeOneTimeJti;

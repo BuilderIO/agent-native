@@ -3,39 +3,49 @@ import {
   IconPhoto,
   IconFolderOpen,
   IconUpload,
-  IconSearch,
+  IconDownload,
   IconMaximize,
   IconMinimize,
-  IconGlobe,
 } from "@tabler/icons-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+import {
+  IMAGE_OBJECT_POSITION_VALUES,
+  type ImageObjectPosition,
+} from "@/lib/slide-image-replacement";
 
 interface ImageOverlayProps {
   anchorRect: DOMRect;
+  src: string;
   objectFit: "cover" | "contain";
+  objectPosition: ImageObjectPosition;
   onGenerate: () => void;
   onLibrary: () => void;
   onUpload: () => void;
-  onSearch: () => void;
-  onLogo: () => void;
+  onDownload: () => void;
   onToggleObjectFit: () => void;
+  onChangeObjectPosition: (objectPosition: ImageObjectPosition) => void;
   onClose: () => void;
 }
 
 export default function ImageOverlay({
   anchorRect,
+  src,
   objectFit,
+  objectPosition,
   onGenerate,
   onLibrary,
   onUpload,
-  onSearch,
-  onLogo,
+  onDownload,
   onToggleObjectFit,
+  onChangeObjectPosition,
   onClose,
 }: ImageOverlayProps) {
   const t = useT();
   const menuRef = useRef<HTMLDivElement>(null);
+  const [menuHeight, setMenuHeight] = useState(0);
+  const isPlaceholder = src.startsWith("placeholder:");
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -54,6 +64,11 @@ export default function ImageOverlay({
     };
   }, [onClose]);
 
+  useLayoutEffect(() => {
+    const height = menuRef.current?.getBoundingClientRect().height;
+    if (height && height !== menuHeight) setMenuHeight(height);
+  }, [anchorRect, isPlaceholder, menuHeight, objectFit]);
+
   const menuWidth = 180;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -62,13 +77,14 @@ export default function ImageOverlay({
 
   if (vw < 640) {
     left = Math.max(8, (vw - menuWidth) / 2);
-    top = Math.min(anchorRect.bottom + 8, vh - 260);
+    top = anchorRect.bottom + 8;
   } else {
     left = anchorRect.left - menuWidth - 8;
     top = anchorRect.top + anchorRect.height / 2 - 100;
     if (left < 8) left = 8;
   }
-  top = Math.max(8, Math.min(top, vh - 220));
+  const maxTop = Math.max(8, vh - (menuHeight || 220) - 8);
+  top = Math.max(8, Math.min(top, maxTop));
 
   return createPortal(
     <div
@@ -108,33 +124,73 @@ export default function ImageOverlay({
       </button>
       <button
         onClick={() => {
-          onSearch();
+          onDownload();
           onClose();
         }}
         className="image-overlay-btn"
+        disabled={!src}
       >
-        <IconSearch className="w-3.5 h-3.5 text-muted-foreground" />
-        Search
+        <IconDownload className="w-3.5 h-3.5 text-muted-foreground" />
+        Download
       </button>
-      <button
-        onClick={() => {
-          onLogo();
-          onClose();
-        }}
-        className="image-overlay-btn"
-      >
-        <IconGlobe className="w-3.5 h-3.5 text-muted-foreground" />
-        Logo
-      </button>
-      <div className="mx-1.5 border-t border-border" />
-      <button onClick={onToggleObjectFit} className="image-overlay-btn">
-        {objectFit === "cover" ? (
-          <IconMinimize className="w-3.5 h-3.5 text-muted-foreground" />
-        ) : (
-          <IconMaximize className="w-3.5 h-3.5 text-muted-foreground" />
-        )}
-        Fit: {objectFit === "cover" ? "Cover" : "Contain"}
-      </button>
+      {!isPlaceholder && (
+        <>
+          <div className="mx-1.5 border-t border-border" />
+          <button onClick={onToggleObjectFit} className="image-overlay-btn">
+            {objectFit === "cover" ? (
+              <IconMinimize className="w-3.5 h-3.5 text-muted-foreground" />
+            ) : (
+              <IconMaximize className="w-3.5 h-3.5 text-muted-foreground" />
+            )}
+            Fit: {objectFit === "cover" ? "Cover" : "Contain"}
+          </button>
+          {objectFit === "cover" && (
+            <label className="image-overlay-position">
+              <span>{t("styleInspector.position")}</span>
+              <select
+                aria-label={t("styleInspector.position")}
+                value={objectPosition}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  if (
+                    IMAGE_OBJECT_POSITION_VALUES.includes(
+                      value as ImageObjectPosition,
+                    )
+                  ) {
+                    onChangeObjectPosition(value as ImageObjectPosition);
+                  }
+                }}
+              >
+                <option value="left top">
+                  {t("styleInspector.top")} {t("styleInspector.left")}
+                </option>
+                <option value="center top">
+                  {t("styleInspector.top")} {t("styleInspector.center")}
+                </option>
+                <option value="right top">
+                  {t("styleInspector.top")} {t("styleInspector.right")}
+                </option>
+                <option value="left center">{t("styleInspector.left")}</option>
+                <option value="center center">
+                  {t("styleInspector.center")}
+                </option>
+                <option value="right center">
+                  {t("styleInspector.right")}
+                </option>
+                <option value="left bottom">
+                  {t("styleInspector.bottom")} {t("styleInspector.left")}
+                </option>
+                <option value="center bottom">
+                  {t("styleInspector.bottom")} {t("styleInspector.center")}
+                </option>
+                <option value="right bottom">
+                  {t("styleInspector.bottom")} {t("styleInspector.right")}
+                </option>
+              </select>
+            </label>
+          )}
+        </>
+      )}
     </div>,
     document.body,
   );

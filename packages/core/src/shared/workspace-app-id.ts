@@ -27,15 +27,22 @@ export const RESERVED_WORKSPACE_APP_IDS = new Set([
   "auth",
   "dispatch",
   "netlify",
-  // Legacy alias — `tools` was the previous name for `extensions`. Keep it
-  // reserved so a user can't create a workspace app whose mount path collides
-  // with the legacy `/tools` redirect (still served by core-routes-plugin).
   "tools",
   ...DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(([from]) => from),
 ]);
 
 export function isValidWorkspaceAppIdFormat(appId: string): boolean {
-  return /^[a-z][a-z0-9-]*$/.test(appId);
+  return /^[a-z0-9][a-z0-9-]*$/.test(appId);
+}
+
+export function normalizeWorkspaceAppId(appId: string): string {
+  return appId
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/^[^a-z]+/, "")
+    .slice(0, 64);
 }
 
 export function getWorkspaceAppIdValidationError(appId: string): string | null {

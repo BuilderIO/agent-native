@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDbExec: vi.fn(),
-  isPostgres: vi.fn(),
   runWithRequestContext: vi.fn(),
   backfill: vi.fn(),
   saveBackend: vi.fn(),
@@ -10,7 +9,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: mocks.getDbExec,
-  isPostgres: mocks.isPostgres,
 }));
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: mocks.runWithRequestContext,
@@ -21,6 +19,8 @@ vi.mock("../lib/first-party-analytics-backend.js", () => ({
 }));
 
 const {
+  acquireDedicatedFirstPartyAnalyticsBackfillLease,
+  buildBackfillShardRanges,
   getFirstPartyAnalyticsBigQueryBackfillJob,
   queueFirstPartyAnalyticsBigQueryBackfill,
   runFirstPartyAnalyticsBigQueryBackfillOnce,
@@ -44,11 +44,30 @@ const job = {
   updated_at: "2026-08-07T00:00:00.000Z",
 };
 const queuedJob = { ...job, batch_size: 750 };
+const shard = {
+  shard_id: "first-party-analytics:org_builder:2026-08-07",
+  job_id: job.id,
+  org_id: job.org_id,
+  owner_email: job.owner_email,
+  table_ref: job.table_ref,
+  start_at: "2026-08-07T00:00:00.000Z",
+  start_id: "",
+  end_at: "2026-08-08T00:00:00.000Z",
+  end_id: "",
+  end_inclusive: false,
+  batch_size: 750,
+  backfill_cursor_at: null,
+  backfill_cursor_id: null,
+  status: "pending",
+  copied_count: 0,
+  lease_token: null,
+  lease_expires_at: null,
+  next_run_at: "2026-08-07T00:00:00.000Z",
+};
 
 beforeEach(() => {
   vi.unstubAllEnvs();
   mocks.getDbExec.mockReset();
-  mocks.isPostgres.mockReset().mockReturnValue(true);
   mocks.runWithRequestContext
     .mockReset()
     .mockImplementation(async (_context: unknown, fn: () => Promise<unknown>) =>
@@ -63,18 +82,112 @@ afterEach(() => {
 });
 
 describe("durable BigQuery backfill worker", () => {
+  it("can constrain a bounded sweep to one explicit organization", async () => {
+    const db = {
+      execute: vi.fn().mockResolvedValueOnce({ rows: [] }),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+
+    await expect(
+      runFirstPartyAnalyticsBigQueryBackfillOnce(scope),
+    ).resolves.toMatchObject({ status: "idle", batches: 0, copied: 0 });
+
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: [
+          expect.any(String),
+          expect.any(String),
+          scope.orgId,
+          scope.userEmail,
+        ],
+        sql: expect.stringContaining("AND org_id = $3"),
+      }),
+    );
+  });
+
+  it("builds contiguous daily shards from the durable cursor through today", () => {
+    const ranges = buildBackfillShardRanges(
+      {
+        id: job.id,
+        orgId: job.org_id,
+        ownerEmail: job.owner_email,
+        table: job.table_ref,
+        batchSize: 750,
+        cursor: JSON.stringify({
+          receivedAt: "2026-08-10T12:00:00.000Z",
+          id: "evt_cursor",
+        }),
+        status: "pending",
+        copied: 0,
+        leaseToken: null,
+        leaseExpiresAt: null,
+        nextRunAt: job.next_run_at,
+        lastError: null,
+        completedAt: null,
+        updatedAt: job.updated_at,
+      },
+      "2026-08-12T12:00:00.000Z",
+    );
+
+    expect(ranges).toHaveLength(3);
+    expect(ranges[0]).toMatchObject({
+      start: { receivedAt: "2026-08-10T12:00:00.000Z", id: "evt_cursor" },
+      end: { receivedAt: "2026-08-11T00:00:00.000Z", id: "" },
+      endInclusive: false,
+    });
+    expect(ranges[1]?.start).toEqual(ranges[0]?.end);
+    expect(ranges[2]?.end.receivedAt).toBe("2026-08-13T00:00:00.000Z");
+  });
+
+  it("holds a durable lease while the dedicated worker runs", async () => {
+    const db = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rowsAffected: 1 }),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+
+    const release = await acquireDedicatedFirstPartyAnalyticsBackfillLease(
+      scope,
+      job.table_ref,
+    );
+    expect(db.execute).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        sql: expect.stringContaining("SET status = 'running'"),
+      }),
+    );
+
+    await release();
+    expect(db.execute).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        sql: expect.stringContaining("SET status = 'pending'"),
+      }),
+    );
+    const releaseQuery = db.execute.mock.calls[2]?.[0] as {
+      args?: unknown[];
+    };
+    expect(releaseQuery.args?.[0]).toBe(releaseQuery.args?.[1]);
+  });
+
   it("pauses before claiming work when the database has lock waiters", async () => {
     const db = { execute: vi.fn() };
-    db.execute.mockResolvedValue({
-      rows: [
-        {
-          total_sessions: "10",
-          active_sessions: "2",
-          waiting_sessions: "4",
-          lock_waiters: "1",
-        },
-      ],
-    });
+    db.execute
+      .mockResolvedValueOnce({ rows: [job] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            total_sessions: "10",
+            active_sessions: "2",
+            waiting_sessions: "4",
+            lock_waiters: "1",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
     mocks.getDbExec.mockReturnValue(db);
 
     await expect(runFirstPartyAnalyticsBigQueryBackfillOnce()).resolves.toEqual(
@@ -84,20 +197,86 @@ describe("durable BigQuery backfill worker", () => {
         remaining: 1,
       }),
     );
-    expect(db.execute).toHaveBeenCalledTimes(1);
+    const pressureQuery = db.execute.mock.calls[1]?.[0] as { sql?: string };
+    expect(pressureQuery.sql).toContain(
+      "state = 'active' AND wait_event_type IS NOT NULL",
+    );
+    expect(pressureQuery.sql).toContain(
+      "state = 'active' AND wait_event_type = 'Lock'",
+    );
+    expect(db.execute).toHaveBeenCalledTimes(3);
     expect(mocks.backfill).not.toHaveBeenCalled();
   });
 
-  it("fails closed when the pressure probe itself times out", async () => {
+  it("does not pause on active sessions when there are no waiters", async () => {
+    const tx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
+    const db: {
+      execute: ReturnType<typeof vi.fn>;
+      transaction: ReturnType<typeof vi.fn>;
+    } = {
+      execute: vi.fn(),
+      transaction: vi.fn(async (fn: (transaction: typeof tx) => unknown) =>
+        fn(tx),
+      ),
+    };
+    db.execute
+      .mockResolvedValueOnce({ rows: [job] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            total_sessions: "10",
+            active_sessions: "80",
+            waiting_sessions: "0",
+            lock_waiters: "0",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [shard] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            total_sessions: "10",
+            active_sessions: "80",
+            waiting_sessions: "0",
+            lock_waiters: "0",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ remaining: "1" }] });
+    mocks.getDbExec.mockReturnValue(db);
+
+    await expect(runFirstPartyAnalyticsBigQueryBackfillOnce()).resolves.toEqual(
+      expect.objectContaining({
+        status: "idle",
+        batches: 0,
+        remaining: 1,
+      }),
+    );
+    expect(db.execute).toHaveBeenCalledTimes(5);
+    expect(mocks.backfill).not.toHaveBeenCalled();
+  });
+
+  it("continues in a bounded lane when the pressure probe itself times out", async () => {
     const db = {
-      execute: vi.fn().mockRejectedValue(new Error("database timeout")),
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [job] })
+        .mockRejectedValueOnce(new Error("database timeout"))
+        .mockResolvedValueOnce({ rows: [shard] })
+        .mockRejectedValueOnce(new Error("database timeout"))
+        .mockResolvedValueOnce({ rows: [{ remaining: "1" }] }),
+      transaction: vi.fn(async (fn: (transaction: unknown) => unknown) =>
+        fn({ execute: vi.fn().mockResolvedValue({ rows: [] }) }),
+      ),
     };
     mocks.getDbExec.mockReturnValue(db);
 
     await expect(runFirstPartyAnalyticsBigQueryBackfillOnce()).resolves.toEqual(
       expect.objectContaining({
-        status: "paused-pressure",
-        reason: expect.stringContaining("pressure probe failed"),
+        status: "idle",
+        batches: 0,
+        copied: 0,
+        remaining: 1,
       }),
     );
     expect(mocks.backfill).not.toHaveBeenCalled();
@@ -105,15 +284,18 @@ describe("durable BigQuery backfill worker", () => {
 
   it("claims and completes one bounded job batch", async () => {
     vi.stubEnv("ANALYTICS_BIGQUERY_BACKFILL_SWEEP_LIMIT", "1");
+    vi.stubEnv("ANALYTICS_BIGQUERY_BACKFILL_BATCH_SIZE", "750");
+    vi.stubEnv("ANALYTICS_BIGQUERY_BACKFILL_PARALLELISM", "1");
     const tx = {
       execute: vi
         .fn()
-        .mockResolvedValueOnce({ rows: [job] })
+        .mockResolvedValueOnce({ rows: [shard] })
         .mockResolvedValueOnce({ rowsAffected: 1 }),
     };
     const db = {
       execute: vi
         .fn()
+        .mockResolvedValueOnce({ rows: [job] })
         .mockResolvedValueOnce({
           rows: [
             {
@@ -124,6 +306,7 @@ describe("durable BigQuery backfill worker", () => {
             },
           ],
         })
+        .mockResolvedValueOnce({ rows: [shard] })
         .mockResolvedValueOnce({
           rows: [
             {
@@ -133,6 +316,12 @@ describe("durable BigQuery backfill worker", () => {
               lock_waiters: "0",
             },
           ],
+        })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [{ remaining: "0" }] })
+        .mockResolvedValueOnce({ rows: [{ copied_count: "250" }] })
+        .mockResolvedValueOnce({
+          rows: [{ end_at: shard.end_at, end_id: shard.end_id }],
         })
         .mockResolvedValueOnce({ rowsAffected: 1 }),
       transaction: vi.fn(async (fn: (transaction: typeof tx) => unknown) =>
@@ -157,11 +346,28 @@ describe("durable BigQuery backfill worker", () => {
         remaining: 0,
       }),
     );
+    expect(tx.execute).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        sql: expect.stringContaining("WHERE job_id = $1"),
+        args: expect.arrayContaining([job.id]),
+      }),
+    );
     expect(mocks.backfill).toHaveBeenCalledWith(
       scope,
       null,
-      250,
+      750,
       job.table_ref,
+      expect.objectContaining({
+        rangeStart: {
+          receivedAt: shard.start_at,
+          id: shard.start_id,
+        },
+        rangeEnd: {
+          receivedAt: shard.end_at,
+          id: shard.end_id,
+        },
+      }),
     );
     expect(mocks.saveBackend).not.toHaveBeenCalled();
   });
@@ -172,6 +378,7 @@ describe("durable BigQuery backfill worker", () => {
       execute: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [queuedJob] }),
     };
     mocks.getDbExec.mockReturnValue(db);
@@ -189,6 +396,12 @@ describe("durable BigQuery backfill worker", () => {
         args: expect.arrayContaining([scope.orgId, scope.userEmail, 750]),
       }),
     );
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("SET batch_size = $1"),
+        args: [750, job.id, 750],
+      }),
+    );
   });
 
   it("seeds a recovered job with the legacy cursor", async () => {
@@ -200,6 +413,7 @@ describe("durable BigQuery backfill worker", () => {
       execute: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({
           rows: [{ ...job, backfill_cursor: legacyCursor }],
         }),
@@ -223,7 +437,11 @@ describe("durable BigQuery backfill worker", () => {
 
   it("does not reset a pending job when prepare is repeated", async () => {
     const db = {
-      execute: vi.fn().mockResolvedValue({ rows: [job] }),
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [job] })
+        .mockResolvedValueOnce({ rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [job] }),
     };
     mocks.getDbExec.mockReturnValue(db);
 
@@ -234,7 +452,18 @@ describe("durable BigQuery backfill worker", () => {
       status: "pending",
       batchSize: 250,
     });
-    expect(db.execute).toHaveBeenCalledTimes(2);
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("ON CONFLICT (id) DO NOTHING"),
+      }),
+    );
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("SET batch_size = $1"),
+        args: [750, job.id, 750],
+      }),
+    );
+    expect(db.execute).toHaveBeenCalledTimes(3);
   });
 
   it("does not run while explicitly disabled", async () => {

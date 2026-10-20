@@ -1,52 +1,19 @@
-/**
- * First-party template metadata used by the `agent-native` CLI.
- *
- * This file is intentionally inlined here (rather than imported from a
- * separate workspace package) so that the published `@agent-native/core`
- * has no `workspace:*` runtime dependencies. Without this inlining, `npx
- * @agent-native/core create ...` fails on a fresh machine with:
- *
- *   npm error code EUNSUPPORTEDPROTOCOL
- *   npm error Unsupported URL Type "workspace:": workspace:*
- *
- * Keep this list in sync with `packages/shared-app-config/templates.ts`,
- * which serves the same metadata to the desktop / mobile / frame packages
- * that always run inside the workspace. Duplication is intentional: the
- * CLI must remain installable outside the monorepo.
- */
-
 export interface TemplateMeta {
-  /** Directory name under templates/ and package name */
   name: string;
-  /** Display name in pickers */
   label: string;
-  /** One-line description shown in the picker */
   hint: string;
-  /** Longer description (optional) */
   description?: string;
-  /** Tabler icon name used in the desktop sidebar */
   icon: string;
-  /** Hex accent color */
   color: string;
-  /** CSS-safe RGB triplet (e.g. "59 130 246") */
   colorRgb: string;
-  /** Dev server port for desktop `pnpm dev` */
   devPort: number;
-  /** Production URL when running as a first-party app on agent-native.com */
   prodUrl?: string;
-  /** Default URL path when deployed in a workspace (defaults to "/<name>") */
   prodPath?: string;
-  /** Default mode when added to desktop app */
   defaultMode?: "dev" | "prod";
-  /** Hide from pickers but still scaffoldable via explicit --template */
   hidden?: boolean;
-  /** Include as a built-in connected A2A agent even when hidden from pickers */
   defaultAgent?: boolean;
-  /** Always scaffold without prompting (e.g. chat as fallback) */
   alwaysAvailable?: boolean;
-  /** Internal workspace packages this template depends on (e.g. "scheduling") */
   requiredPackages?: string[];
-  /** Core app — featured in the CLI picker, homepage, and docs gallery */
   core?: boolean;
 }
 
@@ -54,7 +21,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "calendar",
     label: "Calendar",
-    hint: "Agent-native Google Calendar — manage events, sync, and public booking",
+    hint: "Agent-Native Google Calendar — manage events, sync, and public booking",
     icon: "CalendarDays",
     color: "#00B5FF",
     colorRgb: "0 181 255",
@@ -82,8 +49,8 @@ export const TEMPLATES: TemplateMeta[] = [
     label: "Plan",
     hint: "Structured visual plans and PR recaps with diagrams, wireframes, prototypes, annotations, and sharing",
     icon: "FileText",
-    color: "#52525B",
-    colorRgb: "82 82 91",
+    color: "#2F6FED",
+    colorRgb: "47 111 237",
     devPort: 8105,
     prodUrl: "https://plan.agent-native.com",
     defaultMode: "prod",
@@ -92,7 +59,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "slides",
     label: "Slides",
-    hint: "Agent-native Google Slides — generate and edit React presentations",
+    hint: "Agent-Native Google Slides — generate and edit React presentations",
     icon: "GalleryHorizontal",
     color: "#EC4899",
     colorRgb: "236 72 153",
@@ -105,7 +72,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "analytics",
     label: "Analytics",
-    hint: "Agent-native provider analytics - connect data sources, prompt for charts and deep dives",
+    hint: "Agent-Native provider analytics - connect data sources, prompt for charts and deep dives",
     icon: "BarChart2",
     color: "#F59E0B",
     colorRgb: "245 158 11",
@@ -118,7 +85,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "mail",
     label: "Mail",
-    hint: "Agent-native Superhuman — email client with keyboard shortcuts and AI triage",
+    hint: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
     icon: "Mail",
     color: "#3B82F6",
     colorRgb: "59 130 246",
@@ -142,7 +109,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "forms",
     label: "Forms",
-    hint: "Agent-native form builder — create, edit, and manage forms",
+    hint: "Agent-Native form builder — create, edit, and manage forms",
     icon: "ClipboardList",
     color: "#06B6D4",
     colorRgb: "6 182 212",
@@ -192,7 +159,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "design",
     label: "Design",
-    hint: "Agent-native design tool — create and edit visual designs with agent assistance",
+    hint: "Agent-Native design tool — create and edit visual designs with agent assistance",
     icon: "Brush",
     color: "#F472B6",
     colorRgb: "244 114 182",
@@ -232,7 +199,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "crm",
     label: "CRM",
-    hint: "Agent-native CRM over native SQL, HubSpot, or Salesforce — typed attributes, lists, pipelines, and evidence-grounded signals",
+    hint: "Agent-Native CRM over native SQL, HubSpot, or Salesforce — typed attributes, lists, pipelines, and evidence-grounded signals",
     icon: "Users",
     color: "#2563EB",
     colorRgb: "37 99 235",
@@ -243,18 +210,6 @@ export const TEMPLATES: TemplateMeta[] = [
     core: false,
   },
   {
-    name: "macros",
-    label: "Macros",
-    hint: "Internal template — not shown in pickers",
-    icon: "Code",
-    color: "#71717A",
-    colorRgb: "113 113 122",
-    devPort: 8093,
-    prodUrl: "https://macros.agent-native.com",
-    hidden: true,
-    defaultMode: "dev",
-  },
-  {
     name: "factory",
     label: "Factory",
     hint: "Build agent factories with gates you control",
@@ -262,26 +217,22 @@ export const TEMPLATES: TemplateMeta[] = [
     color: "#7C3AED",
     colorRgb: "124 58 237",
     devPort: 8108,
-    prodUrl: "https://agent-native-factory.netlify.app",
+    prodUrl: "https://factory.agent-native.com",
     hidden: true,
     defaultMode: "dev",
     core: false,
   },
 ];
 
-/** Return templates visible in user-facing pickers (excludes hidden). */
 export function visibleTemplates(): TemplateMeta[] {
   return TEMPLATES.filter((t) => !t.hidden);
 }
 
-/** Return core templates — the featured set shown in CLI pickers by default. */
 export function coreTemplates(): TemplateMeta[] {
   return TEMPLATES.filter((t) => t.core);
 }
 
-/** Lookup by name. Returns undefined for unknown names. */
 export function getTemplate(name: string): TemplateMeta | undefined {
-  // Tolerate legacy / renamed aliases.
   if (name === "starter") name = "chat";
   if (name === "image" || name === "images" || name === "asset") {
     name = "assets";
@@ -290,7 +241,6 @@ export function getTemplate(name: string): TemplateMeta | undefined {
   return TEMPLATES.find((t) => t.name === name);
 }
 
-/** Names of all templates (including hidden) for validation. */
 export function allTemplateNames(): string[] {
   return TEMPLATES.map((t) => t.name);
 }

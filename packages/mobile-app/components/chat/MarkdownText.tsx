@@ -5,12 +5,6 @@ import {
   TextFadeInStaggeredIfStreaming,
 } from "./StreamingFade";
 
-/**
- * Minimal streaming-safe markdown renderer. Re-parses the full text each
- * render (messages are short enough that this stays cheap) and never throws
- * on incomplete markup, so it can render mid-stream deltas.
- */
-
 const MONO_FONT = Platform.select({ ios: "Menlo", android: "monospace" });
 
 type Block =
@@ -154,7 +148,7 @@ function InlineText({
         cumulativeLength += token.text.length;
         if (token.kind === "bold") {
           return (
-            <Text key={index} className="font-bold text-white">
+            <Text key={index} className="font-bold text-foreground">
               <TextFadeInStaggeredIfStreaming startIndex={tokenStart}>
                 {token.text}
               </TextFadeInStaggeredIfStreaming>
@@ -194,10 +188,10 @@ function InlineText({
 }
 
 const HEADING_CLASSES: Record<number, string> = {
-  1: "text-white text-xl font-bold mt-2",
-  2: "text-white text-lg font-bold mt-2",
-  3: "text-white text-base font-bold mt-1.5",
-  4: "text-white text-[15px] font-semibold mt-1",
+  1: "text-foreground text-xl font-bold mt-2",
+  2: "text-foreground text-lg font-bold mt-2",
+  3: "text-foreground text-base font-bold mt-1.5",
+  4: "text-foreground text-[15px] font-semibold mt-1",
 };
 
 export function MarkdownText({ text }: { text: string }) {
@@ -215,7 +209,7 @@ export function MarkdownText({ text }: { text: string }) {
         } else if (block.kind === "bullet") {
           blockLength = block.items.reduce((acc, item) => acc + item.length, 0);
         }
-        blockOffset += blockLength + 1; // spacing offset
+        blockOffset += blockLength + 1;
 
         if (block.kind === "heading") {
           return (

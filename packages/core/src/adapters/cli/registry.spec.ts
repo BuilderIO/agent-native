@@ -45,7 +45,7 @@ describe("CliRegistry", () => {
 
   it("unregister is a no-op for unknown name", () => {
     const registry = new CliRegistry();
-    registry.unregister("nonexistent"); // should not throw
+    registry.unregister("nonexistent");
     expect(registry.list()).toHaveLength(0);
   });
 

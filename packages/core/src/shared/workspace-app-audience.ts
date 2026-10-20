@@ -3,6 +3,7 @@ export const WORKSPACE_APP_AUDIENCES = ["internal", "public"] as const;
 export type WorkspaceAppAudience = (typeof WORKSPACE_APP_AUDIENCES)[number];
 
 export const DEFAULT_WORKSPACE_APP_AUDIENCE: WorkspaceAppAudience = "internal";
+export const DEFAULT_WORKSPACE_APP_HOME_PATH = "/home";
 
 export interface WorkspaceAppRouteAccess {
   publicPaths: string[];
@@ -15,6 +16,19 @@ export function normalizeWorkspaceAppAudience(
   return value === "public" ? "public" : DEFAULT_WORKSPACE_APP_AUDIENCE;
 }
 
+export function normalizeWorkspaceAppHomePath(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (
+    !raw ||
+    !raw.startsWith("/") ||
+    raw.startsWith("//") ||
+    /[\u0000-\u0020\u007f\\<\>"'?#]/.test(raw)
+  ) {
+    return DEFAULT_WORKSPACE_APP_HOME_PATH;
+  }
+  return raw.replace(/\/+$/, "") || "/";
+}
+
 export function normalizeWorkspaceAppPathList(value: unknown): string[] {
   let rawPaths: unknown[] = [];
   if (Array.isArray(value)) {
@@ -24,9 +38,6 @@ export function normalizeWorkspaceAppPathList(value: unknown): string[] {
     if (!trimmed) return [];
     try {
       const parsed = JSON.parse(trimmed);
-      // When JSON parses to a non-array (e.g. a single quoted string
-      // `"/api"`), use the parsed value, not the original quoted form —
-      // otherwise the `/`-prefix filter below silently drops it.
       rawPaths = Array.isArray(parsed) ? parsed : [parsed];
     } catch {
       rawPaths = trimmed.split(",");
@@ -82,13 +93,6 @@ export function workspaceAppAudienceFromPackageJson(
   return normalizeWorkspaceAppAudience(raw);
 }
 
-/**
- * Per-app route-access config read from a `package.json`. Each field is
- * `undefined` when the corresponding key is fully absent from every
- * supported alias chain — that lets callers distinguish "user didn't say"
- * from "user set [] to clear inherited overrides". `workspaceAppRouteAccess`
- * always emits a full `WorkspaceAppRouteAccess` for runtime consumption.
- */
 export interface WorkspaceAppRouteAccessFromConfig {
   publicPaths?: string[];
   protectedPaths?: string[];
@@ -121,15 +125,6 @@ export function workspaceAppRouteAccessFromPackageJson(
   };
 }
 
-/**
- * Only treat a package.json field as "explicitly set" when its raw value is a
- * supported type — an array, a string, or explicit null. Garbage types like
- * `false`, `0`, or `{}` are ignored (left as undefined) so a typo such as
- * `"publicPaths": false` doesn't silently clear an inherited manifest
- * override. (`normalizeWorkspaceAppPathList` happily turns those into `[]`,
- * which without this guard would be indistinguishable from a deliberate
- * empty array.)
- */
 function isPathConfigValueSet(value: unknown): boolean {
   if (value === undefined) return false;
   if (value === null) return true;

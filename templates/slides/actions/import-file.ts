@@ -1,6 +1,7 @@
 import path from "path";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
+import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
 import {
@@ -14,9 +15,15 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { uploadPptxSlideImages } from "../server/handlers/import/pptx-assets.js";
+import type { PdfStyleDigest } from "../server/handlers/import/pdf-style-digest.js";
+import {
+  assertPptxImagesRenderable,
+  uploadPptxSlideImages,
+} from "../server/handlers/import/pptx-assets.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
 import {
   buildSourceImportMetadata,
   mergeSourceImportMetadata,
@@ -25,28 +32,89 @@ import {
 } from "../server/lib/source-import.js";
 import {
   ASPECT_RATIOS,
+  ASPECT_RATIO_VALUES,
   DEFAULT_ASPECT_RATIO,
   type AspectRatio,
 } from "../shared/aspect-ratios.js";
+import {
+  DEFAULT_IMPORTED_DECK_TITLE,
+  isOpaqueDeckTitle,
+  resolveImportedDeckTitle,
+} from "../shared/deck-title.js";
+import type { SlidesPdfSidecar } from "../shared/pdf-sidecar.js";
+import {
+  normalizeSlideTransition,
+  type SlideTransitionType,
+} from "../shared/slide-transitions.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
 
+// Importing into a deck appends slides to it: a content edit, never a
+// creation (the deck's row, and its deck_created, already exist).
+function trackImportedIntoDeck(
+  deckId: string,
+  format: "pptx" | "docx" | "pdf",
+  slidesAdded: number,
+  source: Parameters<typeof trackSlides>[2],
+): void {
+  trackSlides(
+    "deck_edited",
+    {
+      output_id: deckId,
+      output_type: "deck",
+      edit_mode: `import_${format}`,
+      change_kinds: ["add_slide"],
+      slides_changed: slidesAdded,
+    },
+    source,
+  );
+}
+
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
+
+function rasterImageMediaType(
+  filename: string,
+): "image/jpeg" | "image/png" | "image/gif" | "image/webp" | null {
+  switch (path.extname(filename).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".png":
+      return "image/png";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    default:
+      return null;
+  }
+}
 
 export default defineAction({
   description:
-    "Import a file (PPTX, DOCX, PDF, FIG) and extract content for creating slides or slide design systems. " +
+    "Import a file (PPTX, DOCX, PDF, FIG, or raster image) and extract content for creating slides or slide design systems. " +
     "For PPTX files, returns parsed slides with text and layout info ready for conversion, or writes positioned source-preserving slides when importIntoDeck is true. " +
     "For DOCX files, returns structured sections extracted from the document. " +
-    "For PDF files, returns extracted text organized by page, or source-faithful page-image slides when importIntoDeck is true. " +
+    "For PDF files, returns extracted text organized by page, or editable slides when importIntoDeck is true — a PDF this app exported restores its original slides, and any other PDF is rebuilt as positioned text boxes and images. " +
     "For Figma .fig files, requires Builder.io (free tier available) and starts Builder design-system indexing; the returned Builder job/design-system ids are the source of truth. " +
     "The agent can then use the extracted content to create a deck via create-deck or add-slide, or tell the user where Builder is indexing the design system.",
   schema: z.object({
     filePath: z
       .string()
-      .describe("Uploaded file path or opaque hosted upload reference"),
+      .describe(
+        "Uploaded path, hosted reference, exact current attachment name, or a generic reference such as 'the attached document' when exactly one compatible attachment is attached. Format-specific references must match the requested format.",
+      ),
     format: z
-      .enum(["pptx", "docx", "pdf", "fig", "auto"])
+      .enum(["pptx", "docx", "pdf", "fig", "image", "auto"])
       .optional()
       .default("auto")
       .describe("File format — auto-detected from extension if not specified"),
@@ -59,7 +127,7 @@ export default defineAction({
       .optional()
       .default(false)
       .describe(
-        "If true, append slides to deckId. PDF pages are imported as source-faithful images that preserve their original layout and aspect ratio; use the default false when editable extracted source text is needed.",
+        "If true, append slides to deckId. PDF pages become editable slides — original layers when the PDF came from this app, otherwise positioned text boxes and images reconstructed from the page. Use the default false to read a file's text without writing slides.",
       ),
     maxChars: z.coerce
       .number()
@@ -71,13 +139,20 @@ export default defineAction({
         "Maximum extracted source characters to return when not importing directly into a deck (default 60000).",
       ),
   }),
-  run: async ({ filePath, format, deckId, importIntoDeck, maxChars }) => {
-    const uploaded = await readUserUploadedFile(filePath);
+  run: async ({ filePath, format, deckId, importIntoDeck, maxChars }, ctx) => {
+    const expectedExtensions =
+      format === "auto"
+        ? undefined
+        : format === "image"
+          ? [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]
+          : [`.${format}`];
+    const uploaded = await readUserUploadedFile(filePath, ctx, {
+      expectedExtensions,
+    });
     const sourceLimit = maxChars ?? DEFAULT_MAX_SOURCE_CHARS;
     const fileBuffer = uploaded.data;
     const filename = uploaded.filename;
 
-    // Detect format from extension if auto
     let detectedFormat = format;
     if (detectedFormat === "auto") {
       const ext = path.extname(filename).toLowerCase();
@@ -85,14 +160,50 @@ export default defineAction({
       else if (ext === ".docx") detectedFormat = "docx";
       else if (ext === ".pdf") detectedFormat = "pdf";
       else if (ext === ".fig") detectedFormat = "fig";
+      else if (rasterImageMediaType(filename)) detectedFormat = "image";
       else {
         throw new Error(
-          `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf, .fig`,
+          `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf, .fig, .jpg, .png, .gif, .webp`,
         );
       }
     }
 
+    if (detectedFormat === "image") {
+      if (importIntoDeck) {
+        throw new Error(
+          "Raster image imports are visual references, not slide imports. Use update-slide or add-slide to place the image after inspecting it.",
+        );
+      }
+      const mediaType = rasterImageMediaType(filename);
+      if (!mediaType) {
+        throw new Error(
+          "Vision image imports support only JPEG, PNG, GIF, and WebP files.",
+        );
+      }
+      const imageData = fileBuffer.toString("base64");
+      if (imageData.length > MAX_TOOL_RESULT_IMAGE_BASE64_CHARS) {
+        throw new Error(
+          `Raster image "${filename}" exceeds the ${MAX_TOOL_RESULT_IMAGE_BASE64_CHARS.toLocaleString()}-character vision tool limit. Upload a smaller image and retry.`,
+        );
+      }
+      return {
+        format: "image",
+        filename,
+        contentType: mediaType,
+        byteLength: fileBuffer.length,
+        deckId,
+        _agentImages: [
+          {
+            data: imageData,
+            mediaType,
+            label: filename,
+          },
+        ],
+      };
+    }
+
     if (detectedFormat === "fig") {
+      await assertDesignSystemWorkflowsEnabled();
       if (importIntoDeck) {
         throw new Error(
           "Figma .fig imports start Builder design-system indexing, not slide replacements. Re-run without importIntoDeck.",
@@ -136,14 +247,27 @@ export default defineAction({
     if (detectedFormat === "pptx") {
       const { parsePptx } =
         await import("../server/handlers/import/pptx-parser.js");
-      const presentation = await parsePptx(fileBuffer);
-      const title = presentation.title || titleFromPath(filename);
+      let presentation: Awaited<ReturnType<typeof parsePptx>>;
+      try {
+        presentation = await parsePptx(fileBuffer);
+      } catch (error) {
+        if (importIntoDeck && error instanceof InvalidPptxSourceError) {
+          fail(
+            "Slides could not read this PowerPoint file. No slides were written to the deck.",
+            { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+          );
+        }
+        throw error;
+      }
+      const fallbackTitle = titleFromPath(filename);
+      const title = presentation.title || "";
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
         await assertAccess("deck", deckId, "editor");
         const pptxOwnerEmail = getRequestUserEmail();
         if (!pptxOwnerEmail) throw new Error("no authenticated user");
+        assertPptxImagesRenderable(presentation.slides);
         const pptxThemeFont = presentation.theme?.fonts?.[0];
         const uploadLimit = pLimit(4);
         const pptxResults = await Promise.all(
@@ -158,6 +282,10 @@ export default defineAction({
           (total, r) => total + r.imageSkippedCount,
           0,
         );
+        const tablesDegraded = presentation.slides.reduce(
+          (total, s) => total + (s.tablesDegraded ?? 0),
+          0,
+        );
         const sourceImport = buildSourceImportMetadata({
           format: "pptx",
           slides: pptxResults.map((result) => ({
@@ -168,10 +296,12 @@ export default defineAction({
             editableText: true,
           })),
           imagesSkipped,
+          tablesDegraded,
         });
         if (imagesSkipped > 0) {
-          throw new Error(
+          fail(
             `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No slides were written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+            { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
           );
         }
         const aspectRatio =
@@ -181,28 +311,37 @@ export default defineAction({
                 presentation.slides[0].heightEmu,
               )
             : undefined;
-        await appendDeckSlides(
+        const importedTitle = await appendDeckSlides(
           deckId,
           title,
           slides,
           "import-file:pptx",
           aspectRatio,
           sourceImport,
+          pptxResults[0]?.sourceText,
+          fallbackTitle,
+          presentation.theme,
         );
+        trackImportedIntoDeck(deckId, "pptx", slides.length, ctx);
         return {
           format: "pptx",
-          title,
+          title: importedTitle,
           slideCount: slides.length,
           theme: presentation.theme,
           deckId,
           imported: true,
           ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+          ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
         };
       }
 
       return {
         format: "pptx",
-        title,
+        title: resolveImportedDeckTitle(
+          title,
+          presentation.slides[0]?.texts.map((text) => text.content).join("\n"),
+          fallbackTitle,
+        ),
         slideCount: presentation.slides.length,
         slides: presentation.slides.map((slide, i) => ({
           index: i,
@@ -227,7 +366,8 @@ export default defineAction({
         await import("../server/handlers/import/html-converter.js");
       const doc = await parseDocx(fileBuffer);
       const slideHtmlArray = convertSectionsToSlides(doc.sections);
-      const title = doc.title || titleFromPath(filename);
+      const fallbackTitle = titleFromPath(filename);
+      const title = doc.title || "";
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
@@ -240,10 +380,20 @@ export default defineAction({
           layout: "content",
           notes: "",
         }));
-        await appendDeckSlides(deckId, title, slides, "import-file:docx");
+        const importedTitle = await appendDeckSlides(
+          deckId,
+          title,
+          slides,
+          "import-file:docx",
+          undefined,
+          undefined,
+          doc.text,
+          fallbackTitle,
+        );
+        trackImportedIntoDeck(deckId, "docx", slides.length, ctx);
         return {
           format: "docx",
-          title,
+          title: importedTitle,
           sectionCount: doc.sections.length,
           slideCount: slides.length,
           textLength: doc.text.length,
@@ -254,7 +404,7 @@ export default defineAction({
 
       return {
         format: "docx",
-        title,
+        title: resolveImportedDeckTitle(title, doc.text, fallbackTitle),
         sectionCount: doc.sections.length,
         text: truncateText(doc.text, sourceLimit).text,
         sections: summarizeSections(doc.sections),
@@ -272,30 +422,32 @@ export default defineAction({
       const { PDFParse, canvasFactory } = await setupPdfParse();
       const title = titleFromPath(filename);
 
-      // Reconstruct each page's real layout — positioned text blocks at
-      // their actual sizes plus every embedded image at its actual
-      // placement — instead of flattening the page to one guessed
-      // background photo and a canned text template. Image placement needs
-      // the optional canvas renderer; text positioning does not, so this
-      // still beats the old bullet-text fallback even when canvasFactory is
-      // unavailable in this runtime.
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
-        return importPdfPagesWithFidelity({
+        const imported = await importPdfPagesWithFidelity({
           fileBuffer,
-          title,
+          title: "",
           deckId,
           PDFParse,
           canvasFactory,
+          fallbackTitle: title,
         });
+        trackImportedIntoDeck(deckId, "pdf", imported.slideCount, ctx);
+        return imported;
       }
 
       const pdf = new PDFParse({
         data: new Uint8Array(fileBuffer),
         CanvasFactory: canvasFactory,
       });
-      const result = await pdf.getText().finally(() => pdf.destroy());
-      const pages = normalizePdfPages(result);
+      let pages: { num: number; text: string }[];
+      let style: PdfStyleReadResult;
+      try {
+        pages = normalizePdfPages(await pdf.getText());
+        style = await readPdfStyleDigest(pdf);
+      } finally {
+        await pdf.destroy();
+      }
       const textPages = pages.filter((p) => p.text.trim());
 
       if (textPages.length === 0) {
@@ -321,15 +473,17 @@ export default defineAction({
           totalTextLength > sourceLimit
             ? `Returned the first ${sourceLimit} extracted characters. Re-run with a higher maxChars value if more source context is needed.`
             : undefined,
+        ...style,
         deckId,
       };
     }
 
-    throw new Error(`Unsupported format: ${detectedFormat}`);
+    throw new Error(
+      `Unsupported format: ${typeof detectedFormat === "string" ? detectedFormat : (JSON.stringify(detectedFormat) ?? "unknown")}`,
+    );
   },
 });
 
-/** Closest configured deck aspect ratio to a source image's own dimensions. */
 function nearestAspectRatio(width: number, height: number): AspectRatio {
   const target = width / height;
   let best: AspectRatio = DEFAULT_ASPECT_RATIO;
@@ -345,30 +499,90 @@ function nearestAspectRatio(width: number, height: number): AspectRatio {
   return best;
 }
 
+async function importPdfFromSidecar(args: {
+  sidecar: SlidesPdfSidecar;
+  fallbackTitle: string;
+  deckId: string;
+}) {
+  const { sidecar, fallbackTitle, deckId } = args;
+
+  const slides = sidecar.slides.map((slide) => ({
+    ...slide,
+    id: newSlideId(),
+    layout: slide.layout ?? "content",
+  }));
+
+  const aspectRatio = ASPECT_RATIO_VALUES.includes(
+    sidecar.aspectRatio as AspectRatio,
+  )
+    ? (sidecar.aspectRatio as AspectRatio)
+    : undefined;
+
+  const importedTitle = await appendDeckSlides(
+    deckId,
+    sidecar.title?.trim() || "",
+    slides,
+    "import-file:pdf-sidecar",
+    aspectRatio,
+    undefined,
+    undefined,
+    fallbackTitle,
+  );
+
+  return {
+    format: "pdf",
+    title: importedTitle,
+    pageCount: slides.length,
+    slideCount: slides.length,
+    aspectRatio,
+    deckId,
+    imported: true,
+    restoredFromExport: true,
+  };
+}
+
 async function importPdfPagesWithFidelity(args: {
   fileBuffer: Buffer;
   title: string;
   deckId: string;
+  fallbackTitle: string;
   PDFParse: Awaited<ReturnType<typeof setupPdfParse>>["PDFParse"];
   canvasFactory: object | undefined;
 }) {
-  const { fileBuffer, title, deckId, PDFParse, canvasFactory } = args;
+  const { fileBuffer, title, deckId, fallbackTitle, PDFParse, canvasFactory } =
+    args;
   const { convertToSlideHtml, convertSectionsToSlides } =
     await import("../server/handlers/import/html-converter.js");
   const { parsePdfFidelity } =
     await import("../server/handlers/import/pdf-fidelity-parser.js");
+  const { readSlidesPdfSidecar } =
+    await import("../server/handlers/import/pdf-sidecar-reader.js");
 
   const pdf = new PDFParse({
     data: new Uint8Array(fileBuffer),
     CanvasFactory: canvasFactory,
   });
+  const loadDocument = () => loadPdfDocument(pdf);
+
   let pages: { num: number; text: string }[];
+  let pageCount = 0;
   let fidelityPages: Awaited<ReturnType<typeof parsePdfFidelity>>;
+  let sidecarWarning: string | undefined;
   try {
+    const sidecar = await readSlidesPdfSidecar(await loadDocument());
+    if (sidecar.status === "unreadable") {
+      sidecarWarning = `This PDF was exported from Slides, but its embedded deck source could not be used (${sidecar.reason}). The slides below were rebuilt from the page content instead, so they may differ from the original deck.`;
+      console.warn(`[import-file] ${sidecarWarning}`);
+    }
+    if (sidecar.status === "found") {
+      return await importPdfFromSidecar({
+        sidecar: sidecar.sidecar,
+        fallbackTitle,
+        deckId,
+      });
+    }
+
     pages = normalizePdfPages(await pdf.getText());
-    // Image placement needs the optional canvas renderer to decode pixel
-    // data; skip it (text still gets real positions/sizes) when the native
-    // canvas binding isn't available in this runtime.
     const imageResult = canvasFactory
       ? await pdf
           .getImage({
@@ -385,17 +599,8 @@ async function importPdfPagesWithFidelity(args: {
           })
       : undefined;
 
-    // `pdf-parse` memoizes the loaded pdfjs document behind `load()` (a
-    // TS-only `private` method — a real, callable runtime property).
-    // Reaching into it reuses the exact document `getText`/`getImage` above
-    // already parsed instead of parsing the file a second time.
-    const doc = await (
-      pdf as unknown as {
-        load(): Promise<
-          import("pdfjs-dist/legacy/build/pdf.mjs").PDFDocumentProxy
-        >;
-      }
-    ).load();
+    const doc = await loadDocument();
+    pageCount = doc.numPages;
     // coercion-ok: undefined here means either canvasFactory was absent or
     // getImage() already failed and logged a warning above — text-only
     // fidelity is the intended degrade, not a swallowed failure.
@@ -404,17 +609,23 @@ async function importPdfPagesWithFidelity(args: {
     await pdf.destroy();
   }
 
+  if (!Number.isInteger(pageCount) || pageCount < 1) {
+    throw new Error("The PDF renderer returned an invalid page count.");
+  }
+  if (
+    pages.length !== pageCount ||
+    pages.some((page, index) => page.num !== index + 1)
+  ) {
+    const textByPage = new Map(pages.map((page) => [page.num, page.text]));
+    pages = Array.from({ length: pageCount }, (_, index) => ({
+      num: index + 1,
+      text: textByPage.get(index + 1) ?? "",
+    }));
+  }
   if (pages.length === 0) {
     throw new Error("The PDF renderer returned no importable pages.");
   }
 
-  // A page with neither extracted text nor a fidelity element is only ever
-  // produced when nothing on it could be recovered (e.g. a scanned/image
-  // page and canvas rendering was unavailable or failed) — if that's true of
-  // every page, importing anyway would silently create a deck of blank
-  // placeholder slides and report success, matching the earlier
-  // text-extraction path's "needs OCR" failure keeps that lossy import from
-  // going unnoticed.
   const hasRecoverableContent = pages.some((page) => {
     const fidelity = fidelityPages.find((p) => p.pageNumber === page.num);
     return page.text.trim().length > 0 || (fidelity?.elements.length ?? 0) > 0;
@@ -425,9 +636,6 @@ async function importPdfPagesWithFidelity(args: {
     );
   }
 
-  // Source decks (e.g. Instagram carousel exports) are commonly portrait or
-  // square, not the deck editor's 16:9 default — match the canvas to the
-  // PDF's own real page proportions instead of stretching/cropping it.
   const firstSizedPage = fidelityPages.find((p) => p.widthEmu > 0);
   const aspectRatio = firstSizedPage
     ? nearestAspectRatio(firstSizedPage.widthEmu, firstSizedPage.heightEmu)
@@ -436,9 +644,6 @@ async function importPdfPagesWithFidelity(args: {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");
 
-  // Bounded the same way as the PPTX upload path below — an unbounded
-  // `Promise.all` here would fire one image-upload batch per page at once,
-  // and a large deck can be dozens of pages.
   const uploadLimit = pLimit(4);
   const imported = await Promise.all(
     pages.map((page, index) =>
@@ -446,9 +651,6 @@ async function importPdfPagesWithFidelity(args: {
         const fidelity = fidelityPages.find((p) => p.pageNumber === page.num);
 
         if (!fidelity || fidelity.elements.length === 0) {
-          // Fidelity parsing failed or found nothing placeable on this page
-          // (e.g. a fully blank page) — fall back to plain extracted text
-          // instead of producing a silently blank slide.
           const firstLine = page.text.split(/\r?\n/)[0]?.trim();
           const [content] = convertSectionsToSlides([
             { heading: firstLine || `Page ${page.num}`, content: page.text },
@@ -488,7 +690,6 @@ async function importPdfPagesWithFidelity(args: {
             elements: fidelity.elements,
             widthEmu: fidelity.widthEmu,
             heightEmu: fidelity.heightEmu,
-            // A page with no detected full-page fill is plain paper.
             backgroundColor: fidelity.backgroundColor ?? "#ffffff", // guard:allow-raw-color - fallback plain-paper background, not a design-system token
           },
           uploaded.urls,
@@ -514,29 +715,103 @@ async function importPdfPagesWithFidelity(args: {
     ),
   );
   const slides = imported.map((entry) => entry.slide);
+  const imagesSkipped = fidelityPages.reduce(
+    (total, page) => total + page.imagesSkipped,
+    0,
+  );
   const sourceImport = buildSourceImportMetadata({
     format: "pdf",
     slides: imported.map((entry) => entry.snapshot),
+    imagesSkipped,
   });
+  const firstPageText = imported[0]?.snapshot.text ?? "";
+  const titleSource = hasLikelyPdfTitleEncodingCorruption(firstPageText)
+    ? ""
+    : firstPageText;
 
-  await appendDeckSlides(
+  const importedTitle = await appendDeckSlides(
     deckId,
     title,
     slides,
     "import-file:pdf",
     aspectRatio,
     sourceImport,
+    titleSource,
+    fallbackTitle,
   );
 
   return {
     format: "pdf",
-    title,
+    title: importedTitle,
     pageCount: slides.length,
     slideCount: slides.length,
     aspectRatio,
     deckId,
     imported: true,
+    ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+    ...(sidecarWarning ? { warning: sidecarWarning } : {}),
   };
+}
+
+function hasLikelyPdfTitleEncodingCorruption(value: string): boolean {
+  const firstLine = value.split(/\r?\n/, 1)[0]?.trim() ?? "";
+  if (!firstLine) return false;
+  if (/[\uFFFD\uE000-\uF8FF]/u.test(firstLine)) return true;
+  if (/(?:Ã[\u0080-\u00FF]|Â[\u0080-\u00FF]|â€|ðŸ)/u.test(firstLine)) {
+    return true;
+  }
+
+  const letters = Array.from(firstLine).filter((character) =>
+    /\p{L}/u.test(character),
+  );
+  const extendedLatin = new Set(
+    letters.filter((character) => /[\u00C0-\u024F]/u.test(character)),
+  );
+  return (
+    letters.length <= 4 &&
+    letters.some((character) => /[A-Za-z]/.test(character)) &&
+    extendedLatin.size >= 2 &&
+    /[^\p{L}\p{N}\s]$/u.test(firstLine)
+  );
+}
+
+type LoadablePdf = {
+  load(): Promise<import("pdfjs-dist/legacy/build/pdf.mjs").PDFDocumentProxy>;
+};
+
+function loadPdfDocument(pdf: unknown) {
+  return (pdf as LoadablePdf).load();
+}
+
+interface PdfStyleReadResult {
+  styleDigest: PdfStyleDigest | null;
+  styleDigestUnavailableReason?: string;
+}
+
+async function readPdfStyleDigest(pdf: unknown): Promise<PdfStyleReadResult> {
+  try {
+    const { parsePdfFidelity } =
+      await import("../server/handlers/import/pdf-fidelity-parser.js");
+    const { buildPdfStyleDigest } =
+      await import("../server/handlers/import/pdf-style-digest.js");
+    const fidelityPages = await parsePdfFidelity(
+      await loadPdfDocument(pdf),
+      [],
+    );
+    const styleDigest = buildPdfStyleDigest(fidelityPages);
+    if (!styleDigest) {
+      return {
+        styleDigest: null,
+        styleDigestUnavailableReason:
+          "the PDF renderer returned no pages to analyze",
+      };
+    }
+    return { styleDigest };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn("[import-file] PDF style digest unavailable:", reason);
+    return { styleDigest: null, styleDigestUnavailableReason: reason };
+  }
 }
 
 function newSlideId(): string {
@@ -554,7 +829,7 @@ async function buildPptxSlide(
     content: string;
     layout: string;
     notes?: string;
-    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    transition?: SlideTransitionType;
     splitByParagraph?: boolean;
   };
   imageSkippedCount: number;
@@ -575,7 +850,9 @@ async function buildPptxSlide(
       content: convertToSlideHtml(slide, uploadedImages.urls, themeFont),
       layout: slide.layoutHint ?? "content",
       notes: slide.notes,
-      ...(slide.transition ? { transition: slide.transition } : {}),
+      ...(slide.transition
+        ? { transition: normalizeSlideTransition(slide.transition) }
+        : {}),
       ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
     },
     imageSkippedCount: uploadedImages.imageSkippedCount,
@@ -586,7 +863,7 @@ async function buildPptxSlide(
 
 function titleFromPath(filePath: string): string {
   const base = path.basename(filePath, path.extname(filePath)).trim();
-  return base || "Imported File";
+  return base && !isOpaqueDeckTitle(base) ? base : DEFAULT_IMPORTED_DECK_TITLE;
 }
 
 function normalizePdfPages(result: unknown): { num: number; text: string }[] {
@@ -667,20 +944,20 @@ async function appendDeckSlides(
     content: string;
     layout: string;
     notes?: string;
-    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    transition?: SlideTransitionType;
+    transitionSpeed?: number;
     splitByParagraph?: boolean;
   }>,
   source: string,
   aspectRatio?: AspectRatio,
   sourceImport?: ReturnType<typeof buildSourceImportMetadata>,
-) {
+  titleSource?: unknown,
+  fallbackTitle?: unknown,
+  theme?: import("../server/handlers/import/pptx-parser.js").ParsedPresentation["theme"],
+): Promise<string> {
   await assertAccess("deck", deckId, "editor");
 
-  // Read-modify-write under the shared per-deck lock used by patch-deck /
-  // add-slide / update-slide. Without it, an import running concurrently
-  // with another import or an editor/agent slide mutation on the same deck
-  // could read stale data and clobber the other write when both save the
-  // whole decks.data blob back.
+  let resolvedTitle = title;
   const now = await withDeckLock(deckId, async () => {
     const db = getDb();
     const existing = await db
@@ -693,19 +970,26 @@ async function appendDeckSlides(
       throw new Error(`Deck ${deckId} not found`);
     }
 
-    const writeNow = new Date().toISOString();
+    const writeNow = nextDeckRevision(existing[0].updatedAt);
     const previousData = safeParseDeckData(existing[0].data);
     const previousSlides = Array.isArray(
       (previousData as { slides?: unknown }).slides,
     )
       ? ((previousData as { slides: unknown[] }).slides as typeof slides)
       : [];
-    // Appending onto an existing deck keeps that deck's own title and canvas
-    // shape — the imported file's title/aspect ratio only apply when the deck
-    // had no slides yet, otherwise resizing the canvas mid-deck would distort
-    // every slide already on it.
     const hadExistingSlides = previousSlides.length > 0;
-    const nextTitle = hadExistingSlides ? (existing[0].title ?? title) : title;
+    const nextTitle = hadExistingSlides
+      ? resolveImportedDeckTitle(
+          existing[0].title ?? title,
+          titleSource ?? slides[0]?.content,
+          fallbackTitle ?? title,
+        )
+      : resolveImportedDeckTitle(
+          title,
+          titleSource ?? slides[0]?.content,
+          fallbackTitle,
+        );
+    resolvedTitle = nextTitle;
     const nextSourceImport = sourceImport
       ? mergeSourceImportMetadata(
           sourceImportForDeck(previousData.sourceImport),
@@ -717,24 +1001,27 @@ async function appendDeckSlides(
       title: nextTitle,
       slides: [...previousSlides, ...slides],
       ...(!hadExistingSlides && aspectRatio ? { aspectRatio } : {}),
+      ...(!hadExistingSlides && theme ? { theme } : {}),
       ...(nextSourceImport ? { sourceImport: nextSourceImport } : {}),
       updatedAt: writeNow,
     };
 
-    await db
+    const updateResult = await db
       .update(schema.decks)
       .set({
         title: nextTitle,
         data: JSON.stringify(data),
         updatedAt: writeNow,
       })
-      .where(eq(schema.decks.id, deckId));
+      .where(deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt));
+    assertDeckWriteApplied(updateResult, deckId, "file import");
 
     return writeNow;
   });
 
-  notifyClients(deckId);
+  await notifyClients(deckId);
   await writeAppState("refresh-signal", { ts: now, source });
+  return resolvedTitle;
 }
 
 function safeParseDeckData(raw: string): Record<string, unknown> {

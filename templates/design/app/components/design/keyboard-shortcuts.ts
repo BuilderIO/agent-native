@@ -1,4 +1,5 @@
 import type { UseDesignHotkeysProps } from "@/hooks/useDesignHotkeys";
+import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "@/pages/design-editor/types";
 
 export const DESIGN_SHORTCUT_CATEGORIES = [
   "essential",
@@ -39,19 +40,10 @@ const shortcut = (
   definition: DesignShortcutDefinition,
 ): DesignShortcutDefinition => definition;
 
-/**
- * The user-facing Design shortcut catalog. Every row is tied to a real
- * UseDesignHotkeys handler so the panel cannot quietly advertise a command the
- * canvas does not dispatch. Code-workbench bindings are appended from its own
- * command registry by KeyboardShortcutsPanel.
- */
 export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "show-shortcuts",
     category: "essential",
-    // Literal ctrl, not $mod: on macOS ⌘⇧? is the system Help-menu shortcut and
-    // the browser consumes it before the page sees it, so ⌃⇧? is the only
-    // pressable binding there. Do not "fix" this to $mod.
     bindings: ["ctrl+shift+?"],
     labelKey: "designEditor.keyboardShortcuts.commands.showShortcuts",
     handler: "onShowKeyboardShortcuts",
@@ -81,7 +73,6 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "frame-tool",
     category: "tools",
-    // Figma binds both to the frame tool; A is the one long-time users reach for.
     bindings: ["f", "a"],
     labelKey: "designEditor.keyboardShortcuts.commands.frameTool",
     handler: "onFrameTool",
@@ -124,7 +115,7 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "draw-tool",
     category: "tools",
-    bindings: ["y"],
+    bindings: ["shift+y"],
     labelKey: "designEditor.keyboardShortcuts.commands.drawTool",
     handler: "onDrawTool",
   }),
@@ -136,19 +127,31 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     labelKey: "designEditor.keyboardShortcuts.commands.showLayers",
     handler: "onShowLayersPanel",
   }),
-  shortcut({
-    id: "show-assets",
-    category: "view",
-    bindings: ["alt+2"],
-    labelKey: "designEditor.keyboardShortcuts.commands.showAssets",
-    handler: "onShowAssetsPanel",
-  }),
+  ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
+    ? [
+        shortcut({
+          id: "show-assets",
+          category: "view" as const,
+          bindings: ["alt+2"],
+          labelKey:
+            "designEditor.keyboardShortcuts.commands.showAssets" as const,
+          handler: "onShowAssetsPanel" as const,
+        }),
+      ]
+    : []),
   shortcut({
     id: "toggle-ui",
     category: "view",
-    bindings: ["shift+\\"],
+    bindings: ["$mod+\\"],
     labelKey: "designEditor.keyboardShortcuts.commands.toggleUi",
     handler: "onToggleUi",
+  }),
+  shortcut({
+    id: "toggle-minimal-ui",
+    category: "view",
+    bindings: ["$mod+shift+\\"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleMinimalUi",
+    handler: "onToggleMinimalUi",
   }),
   shortcut({
     id: "toggle-comments",
@@ -156,6 +159,13 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     bindings: ["shift+c"],
     labelKey: "designEditor.keyboardShortcuts.commands.toggleComments",
     handler: "onToggleComments",
+  }),
+  shortcut({
+    id: "toggle-layout-grids",
+    category: "view",
+    bindings: ["ctrl+g", "ctrl+shift+4"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleLayoutGrids",
+    handler: "onToggleLayoutGrids",
   }),
 
   shortcut({
@@ -238,6 +248,20 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     handler: "onArrowTool",
   }),
 
+  shortcut({
+    id: "place-image",
+    category: "shape",
+    bindings: ["$mod+shift+k"],
+    labelKey: "designEditor.keyboardShortcuts.commands.imageVideo",
+    handler: "onPlaceImage",
+  }),
+  shortcut({
+    id: "boolean-subtract",
+    category: "shape",
+    bindings: ["alt+shift+s"],
+    labelKey: "designEditor.keyboardShortcuts.commands.booleanSubtract",
+    handler: "onBooleanSubtract",
+  }),
   shortcut({
     id: "select-all",
     category: "selection",
@@ -381,13 +405,6 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     handler: "onDelete",
   }),
   shortcut({
-    id: "rename",
-    category: "edit",
-    bindings: ["$mod+r"],
-    labelKey: "designEditor.keyboardShortcuts.commands.rename",
-    handler: "onRename",
-  }),
-  shortcut({
     id: "find",
     category: "edit",
     bindings: ["$mod+f"],
@@ -415,6 +432,13 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     bindings: ["shift+x"],
     labelKey: "designEditor.keyboardShortcuts.commands.swapFillStroke",
     handler: "onSwapFillStroke",
+  }),
+  shortcut({
+    id: "eyedropper",
+    category: "edit",
+    bindings: ["i"],
+    labelKey: "designEditor.keyboardShortcuts.commands.eyedropper",
+    handler: "onEyedropper",
   }),
 
   shortcut({
@@ -539,6 +563,31 @@ const KEY_LABELS: Record<string, string> = {
   tab: "Tab",
 };
 
+const UNAVAILABLE_SHORTCUT_IDS = {
+  annotate: ["draw-tool"],
+} as const;
+
+const unavailableShortcutIdCache = new Map<string, readonly string[]>();
+
+/**
+ * Ids of the shortcuts the dialog should not list because their tool is not
+ * available: Draw without the Annotate lab. Equal inputs return the same array,
+ * so the dialog's memoized sections are not rebuilt on every editor render.
+ */
+export function getUnavailableShortcutIds({
+  annotateEnabled,
+}: {
+  annotateEnabled: boolean;
+}): readonly string[] {
+  const cacheKey = String(annotateEnabled);
+  let ids = unavailableShortcutIdCache.get(cacheKey);
+  if (!ids) {
+    ids = annotateEnabled ? [] : UNAVAILABLE_SHORTCUT_IDS.annotate;
+    unavailableShortcutIdCache.set(cacheKey, ids);
+  }
+  return ids;
+}
+
 export function formatShortcutKeycaps(
   binding: string,
   applePlatform: boolean,
@@ -546,11 +595,28 @@ export function formatShortcutKeycaps(
   if (binding === "+") return ["+"];
   const tokens = binding.toLowerCase().split("+");
   const key = tokens.pop() ?? "";
+  const held = (token: string) => tokens.includes(token);
   const keycaps: string[] = [];
-  if (tokens.includes("ctrl")) keycaps.push(applePlatform ? "⌃" : "Ctrl");
-  if (tokens.includes("alt")) keycaps.push(applePlatform ? "⌥" : "Alt");
-  if (tokens.includes("shift")) keycaps.push(applePlatform ? "⇧" : "Shift");
-  if (tokens.includes("$mod")) keycaps.push(applePlatform ? "⌘" : "Ctrl");
+  if (applePlatform) {
+    if (held("ctrl")) keycaps.push("⌃");
+    if (held("alt")) keycaps.push("⌥");
+    if (held("shift")) keycaps.push("⇧");
+    if (held("$mod")) keycaps.push("⌘");
+  } else {
+    if (held("$mod") || held("ctrl")) keycaps.push("Ctrl");
+    if (held("alt")) keycaps.push("Alt");
+    if (held("shift")) keycaps.push("Shift");
+  }
   keycaps.push(KEY_LABELS[key] ?? (key.length === 1 ? key.toUpperCase() : key));
   return keycaps;
+}
+
+export function formatShortcutLabel(
+  binding: string,
+  applePlatform: boolean,
+): string {
+  if (!binding) return "";
+  return formatShortcutKeycaps(binding, applePlatform).join(
+    applePlatform ? "" : "+",
+  );
 }

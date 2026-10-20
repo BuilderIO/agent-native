@@ -1,48 +1,49 @@
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
+import {
+  REMOTE_DEVICE_MIGRATIONS,
+  REMOTE_DEVICE_MIGRATIONS_TABLE,
+} from "./remote-device-migrations.js";
 import type {
   PublicRemoteDevice,
   RemoteComputerCapabilities,
   RemoteDevice,
   RemoteDeviceMetadata,
+  RemoteExecutionCapabilities,
+  RemoteExecutionWorkload,
 } from "./remote-types.js";
 
-let _initPromise: Promise<void> | undefined;
+export const remoteDevicesStore = defineStore({
+  id: "remote_devices",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS integration_remote_devices (
+            id TEXT PRIMARY KEY,
+            owner_email TEXT NOT NULL,
+            org_id TEXT,
+            label TEXT NOT NULL,
+            platform TEXT,
+            app_version TEXT,
+            host_name TEXT,
+            metadata_json TEXT,
+            device_token_hash TEXT NOT NULL,
+            last_seen_at BIGINT,
+            status TEXT NOT NULL,
+            revoked_at BIGINT,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+          )
+        `;
 
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS integration_remote_devices (
-          id TEXT PRIMARY KEY,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          label TEXT NOT NULL,
-          platform TEXT,
-          app_version TEXT,
-          host_name TEXT,
-          metadata_json TEXT,
-          device_token_hash TEXT NOT NULL,
-          last_seen_at ${intType()},
-          status TEXT NOT NULL,
-          revoked_at ${intType()},
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL
-        )
-      `;
-
-      if (isPostgres()) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
         await ensureTableExists("integration_remote_devices", createSql);
         await ensureColumnExists(
           "integration_remote_devices",
@@ -67,7 +68,7 @@ async function ensureTable(): Promise<void> {
         await ensureColumnExists(
           "integration_remote_devices",
           "revoked_at",
-          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS revoked_at ${intType()}`,
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS revoked_at BIGINT`,
         );
         await ensureIndexExists(
           "idx_remote_devices_token_hash",
@@ -77,59 +78,17 @@ async function ensureTable(): Promise<void> {
           "idx_remote_devices_owner",
           `CREATE INDEX IF NOT EXISTS idx_remote_devices_owner ON integration_remote_devices(owner_email, org_id)`,
         );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior verbatim
-      await retryOnDdlRace(() => client.execute(createSql));
-      await addColumnIfMissing("platform", "TEXT");
-      await addColumnIfMissing("app_version", "TEXT");
-      await addColumnIfMissing("host_name", "TEXT");
-      await addColumnIfMissing("metadata_json", "TEXT");
-      await addColumnIfMissing("revoked_at", intType());
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_devices_token_hash ON integration_remote_devices(device_token_hash)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_remote_devices_owner ON integration_remote_devices(owner_email, org_id)`,
-        ),
-      );
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
-}
+      },
+    },
+    ...fromMigrationEntries(
+      REMOTE_DEVICE_MIGRATIONS_TABLE,
+      REMOTE_DEVICE_MIGRATIONS,
+    ),
+  ],
+});
 
-async function addColumnIfMissing(
-  name: string,
-  definition: string,
-): Promise<void> {
-  const sql = isPostgres()
-    ? `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS ${name} ${definition}`
-    : `ALTER TABLE integration_remote_devices ADD COLUMN ${name} ${definition}`;
-  try {
-    await retryOnDdlRace(() => getDbExec().execute(sql));
-  } catch (err) {
-    if (isDuplicateColumnError(err)) return;
-    throw err;
-  }
-}
-
-function isDuplicateColumnError(err: unknown): boolean {
-  const code = String((err as { code?: unknown })?.code ?? "");
-  const message = String((err as { message?: unknown })?.message ?? err)
-    .toLowerCase()
-    .trim();
-  return (
-    code === "42701" ||
-    message.includes("duplicate column") ||
-    message.includes("already exists")
-  );
+export function ensureTable(): Promise<void> {
+  return remoteDevicesStore.ready();
 }
 
 function rowToDevice(row: Record<string, unknown>): RemoteDevice {
@@ -176,6 +135,14 @@ export function getRemoteComputerCapabilities(
   const value = device.metadata?.computerCapabilities;
   if (!value || typeof value !== "object") return null;
   return normalizeComputerCapabilities(value);
+}
+
+export function getRemoteExecutionCapabilities(
+  device: Pick<RemoteDevice, "metadata">,
+): RemoteExecutionCapabilities | null {
+  const value = device.metadata?.executionCapabilities;
+  if (!value || typeof value !== "object") return null;
+  return normalizeExecutionCapabilities(value);
 }
 
 export async function createRemoteDevice(input: {
@@ -424,7 +391,9 @@ function sanitizeOptionalString(
 function parseJson(value: unknown, fallback: unknown): unknown {
   if (value == null) return fallback;
   try {
-    return JSON.parse(String(value));
+    return JSON.parse(
+      typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+    );
   } catch {
     return fallback;
   }
@@ -438,6 +407,11 @@ function serializeRemoteDeviceMetadata(
   if (metadata.computerCapabilities !== undefined) {
     normalized.computerCapabilities = normalizeComputerCapabilities(
       metadata.computerCapabilities,
+    );
+  }
+  if (metadata.executionCapabilities !== undefined) {
+    normalized.executionCapabilities = normalizeExecutionCapabilities(
+      metadata.executionCapabilities,
     );
   }
   const json = JSON.stringify(normalized);
@@ -473,6 +447,56 @@ function normalizeComputerCapabilities(
     };
   }
   return result;
+}
+
+function normalizeExecutionCapabilities(
+  value: RemoteExecutionCapabilities,
+): RemoteExecutionCapabilities {
+  const result: RemoteExecutionCapabilities = {};
+  if (
+    value.backend === "desktop" ||
+    value.backend === "container" ||
+    value.backend === "kubernetes" ||
+    value.backend === "external"
+  ) {
+    result.backend = value.backend;
+  }
+  if (Array.isArray(value.workloads)) {
+    result.workloads = normalizeStringList(value.workloads, 16).filter(
+      (entry): entry is RemoteExecutionWorkload =>
+        entry === "code-agent" ||
+        entry === "scheduled-code" ||
+        entry === "external-agent",
+    );
+  }
+  if (Array.isArray(value.engines)) {
+    result.engines = normalizeStringList(value.engines, 32);
+  }
+  if (typeof value.acceptsScheduledWork === "boolean") {
+    result.acceptsScheduledWork = value.acceptsScheduledWork;
+  }
+  if (
+    value.persistence === "local-files" ||
+    value.persistence === "persistent-volume" ||
+    value.persistence === "ephemeral"
+  ) {
+    result.persistence = value.persistence;
+  }
+  if (Array.isArray(value.adapters)) {
+    result.adapters = normalizeStringList(value.adapters, 32);
+  }
+  return result;
+}
+
+function normalizeStringList(value: unknown[], max: number): string[] {
+  return [
+    ...new Set(
+      value
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim().slice(0, 120))
+        .filter(Boolean),
+    ),
+  ].slice(0, max);
 }
 
 function looksLikeLargeBase64(value: string): boolean {

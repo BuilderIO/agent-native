@@ -3,7 +3,8 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import {
   createApp,
@@ -12,20 +13,33 @@ import {
   _assertSafeCommunityArchiveListing,
   _communityTemplateTarballUrl,
   _communityTemplateTrustMessage,
+  _copyDir,
   _fixPackageJsonName,
   _fixWebManifestName,
+  _ensureScaffoldEmailBrandingConfig,
+  _discoverEnclosingRepo,
   _getCoreDependencyVersion,
+  _extractTarball,
+  _mergeWorkspaceYamlListItems,
+  _mergeWorkspaceYamlSections,
+  _postProcessStandalone,
+  _prepareLocalWorkspaceOverrides,
+  _scaffoldOneAppIntoWorkspace,
+  _CreateWizardCancelledError,
   _parseCommunityTemplateSelection,
   _resolveCommunityTemplateSource,
   _discoverCommunityWorkspaceApps,
   _ensureGuardedScaffold,
   _normalizeCommunityWorkspaceAppDependencies,
+  _materializeArchiveSymlinks,
   _standaloneTemplatePromptOptions,
   _startShapePromptOptions,
   _tarExtractArgs,
   _validateCommunityArchive,
   _workspaceAppNameForTemplateSelection,
 } from "./create.js";
+import { createAgentSymlink } from "./setup-agents.js";
+import { resolveTarExecutable } from "./tar-command.js";
 
 let tmpDir: string;
 
@@ -39,15 +53,308 @@ function allDeps(pkg: Record<string, any>): Record<string, string> {
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-create-test-"));
-  // createApp resolves relative to cwd
   process.chdir(tmpDir);
 });
 
 afterEach(() => {
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(tmpDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  });
+  vi.restoreAllMocks();
 });
 
 describe("createApp", { timeout: 30000 }, () => {
+  it("keeps commented workspace override sections intact when merging", () => {
+    const workspaceYaml = [
+      "overrides: # Application-specific pins",
+      '  nf3: "0.3.17"',
+      "# Keep the local package override below with this section.",
+      '  local-lib: "file:./local-lib"',
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlSections(workspaceYaml, {
+      overrides: {
+        nf3: '"0.3.17"',
+        "new-lib": '"1.0.0"',
+      },
+    });
+
+    expect(merged.match(/^overrides:/gm)).toHaveLength(1);
+    expect(merged.match(/^  nf3:/gm)).toHaveLength(1);
+    expect(merged).toContain(
+      "# Keep the local package override below with this section.",
+    );
+    expect(merged).toContain('  new-lib: "1.0.0"');
+  });
+
+  it("recognizes quoted override keys at the workspace's existing indentation", () => {
+    const workspaceYaml = [
+      "overrides:",
+      "    '@agent-native/core': '1.2.3'",
+      "    other: 4.5.6",
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlSections(workspaceYaml, {
+      overrides: {
+        "@agent-native/core": "'1.2.3'",
+        "@agent-native/agentkit": "'2.3.4'",
+      },
+    });
+
+    expect(merged.match(/^    '@agent-native\/core':/gm)).toHaveLength(1);
+    expect(merged).toContain("    @agent-native/agentkit: '2.3.4'");
+  });
+
+  it("merges missing entries into flow-style workspace mappings", () => {
+    const workspaceYaml = [
+      'overrides: { nf3: "0.3.17" }',
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlSections(workspaceYaml, {
+      overrides: { "new-lib": '"1.0.0"' },
+    });
+
+    expect(merged.match(/^overrides:/gm)).toHaveLength(1);
+    expect(parseYaml(merged)).toMatchObject({
+      overrides: { nf3: "0.3.17", "new-lib": "1.0.0" },
+    });
+  });
+
+  it("merges and deduplicates quoted entries in flow-style lists", () => {
+    const workspaceYaml = [
+      'minimumReleaseAgeExclude: ["@agent-native/toolkit"]',
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlListItems(
+      workspaceYaml,
+      "minimumReleaseAgeExclude",
+      ['"@agent-native/toolkit"', '"@agent-native/recap-cli"'],
+    );
+
+    expect(merged.match(/^minimumReleaseAgeExclude:/gm)).toHaveLength(1);
+    expect(parseYaml(merged).minimumReleaseAgeExclude).toEqual([
+      "@agent-native/toolkit",
+      "@agent-native/recap-cli",
+    ]);
+  });
+
+  it("fails clearly for scalar values in sections it needs to merge", () => {
+    expect(() =>
+      _mergeWorkspaceYamlSections("overrides: null", {
+        overrides: { "new-lib": '"1.0.0"' },
+      }),
+    ).toThrow(/Convert it to block style before scaffolding/);
+  });
+
+  it("does not corrupt commented flow-style YAML collections", () => {
+    expect(() =>
+      _mergeWorkspaceYamlSections(
+        'overrides: { nf3: "0.3.17", # keep this pin documented\n  }',
+        { overrides: { "new-lib": '"1.0.0"' } },
+      ),
+    ).toThrow(/Convert it to block style before scaffolding/);
+  });
+
+  it("surfaces unsupported workspace YAML while post-processing", () => {
+    const targetDir = path.join(tmpDir, "unsupported-yaml");
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(targetDir, "package.json"),
+      JSON.stringify({ name: "unsupported-yaml" }),
+    );
+    fs.writeFileSync(
+      path.join(targetDir, "pnpm-workspace.yaml"),
+      'overrides: { nf3: "0.3.17", # keep this pin documented\n  }\n',
+    );
+
+    expect(() =>
+      _postProcessStandalone("unsupported-yaml", targetDir, "chat"),
+    ).toThrow(/Convert it to block style before scaffolding/);
+  });
+
+  it("does not persist local package overrides when a community picker cancels", async () => {
+    const previousLocalCore = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+    const workspaceRoot = path.join(tmpDir, "workspace");
+    const workspaceYaml = 'packages:\n  - "apps/*"\n';
+    fs.mkdirSync(path.join(workspaceRoot, "apps"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "pnpm-workspace.yaml"),
+      workspaceYaml,
+    );
+    const clack = {
+      cancel: () => {},
+      note: () => {},
+      outro: () => {},
+      spinner: () => ({ start: () => {}, stop: () => {} }),
+    } as unknown as typeof import("@clack/prompts");
+    const appPicker = async () => {
+      throw new _CreateWizardCancelledError();
+    };
+    const scaffoldTemplate: typeof _scaffoldAppTemplate = async (
+      _targetDir,
+      _template,
+      options,
+    ) => {
+      await options?.selectCommunityWorkspaceApp?.([
+        { name: "dashboard", label: "Dashboard" },
+      ]);
+      throw new Error("Expected the picker to cancel before scaffolding.");
+    };
+
+    try {
+      await expect(
+        _scaffoldOneAppIntoWorkspace(
+          { workspaceRoot, workspaceCoreName: "@test/shared" },
+          "dashboard",
+          "community:acme/apps",
+          clack,
+          false,
+          appPicker,
+          scaffoldTemplate,
+        ),
+      ).resolves.toBe(false);
+      expect(
+        fs.readFileSync(
+          path.join(workspaceRoot, "pnpm-workspace.yaml"),
+          "utf-8",
+        ),
+      ).toBe(workspaceYaml);
+      expect(fs.existsSync(path.join(workspaceRoot, "apps/dashboard"))).toBe(
+        false,
+      );
+    } finally {
+      if (previousLocalCore === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previousLocalCore;
+      }
+    }
+  });
+
+  it("validates local overrides before mutating an existing workspace", async () => {
+    const workspaceRoot = path.join(tmpDir, "merge-failure-workspace");
+    const workspaceYaml = [
+      'packages:\n  - "apps/*"',
+      'overrides: { nf3: "0.3.17", # keep this pin documented',
+      "  }",
+      "",
+    ].join("\n");
+    const rootPackageJson = JSON.stringify({
+      name: "merge-failure-workspace",
+      scripts: { test: "vitest" },
+    });
+    fs.mkdirSync(path.join(workspaceRoot, "apps"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "pnpm-workspace.yaml"),
+      workspaceYaml,
+    );
+    fs.writeFileSync(path.join(workspaceRoot, "package.json"), rootPackageJson);
+    const clack = {
+      cancel: vi.fn(),
+      note: vi.fn(),
+      outro: vi.fn(),
+      spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
+    } as unknown as typeof import("@clack/prompts");
+    const scaffoldTemplate: typeof _scaffoldAppTemplate = async (appDir) => {
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(appDir, "package.json"),
+        JSON.stringify({ name: "calendar", dependencies: {} }),
+      );
+      return {};
+    };
+    const exit = vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`process.exit(${code ?? 0})`);
+    });
+
+    await expect(
+      _scaffoldOneAppIntoWorkspace(
+        { workspaceRoot, workspaceCoreName: "@test/shared" },
+        "calendar",
+        "calendar",
+        clack,
+        false,
+        undefined,
+        scaffoldTemplate,
+        (targetDir) =>
+          _prepareLocalWorkspaceOverrides(
+            targetDir,
+            { '"@agent-native/toolkit"': '"file:./toolkit.tgz"' },
+            null,
+          ),
+      ),
+    ).rejects.toThrow("process.exit(1)");
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(clack.cancel).toHaveBeenCalledWith(
+      expect.stringMatching(/Convert it to block style before scaffolding/),
+    );
+    expect(fs.existsSync(path.join(workspaceRoot, "apps/calendar"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(workspaceRoot, "packages/scheduling"))).toBe(
+      false,
+    );
+    expect(
+      fs.readFileSync(path.join(workspaceRoot, "package.json"), "utf-8"),
+    ).toBe(rootPackageJson);
+    expect(
+      fs.readFileSync(path.join(workspaceRoot, "pnpm-workspace.yaml"), "utf-8"),
+    ).toBe(workspaceYaml);
+  });
+
+  it("does not treat commented release-age items as configured exceptions", () => {
+    const workspaceYaml = [
+      "minimumReleaseAgeExclude: # Exact internal packages",
+      "  - @agent-native/core",
+      "# Revisit this exception after the next stable release:",
+      "#  - @agent-native/agentkit",
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlListItems(
+      workspaceYaml,
+      "minimumReleaseAgeExclude",
+      ["@agent-native/agentkit"],
+    );
+
+    expect(merged.match(/^minimumReleaseAgeExclude:/gm)).toHaveLength(1);
+    expect(merged.match(/^  - @agent-native\/agentkit$/gm)).toHaveLength(1);
+    expect(merged).toContain("#  - @agent-native/agentkit");
+  });
+
+  it("recognizes quoted release-age entries and preserves list indentation", () => {
+    const workspaceYaml = [
+      "minimumReleaseAgeExclude:",
+      '    - "@agent-native/core" # existing exception',
+      "    - @agent-native/agentkit",
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlListItems(
+      workspaceYaml,
+      "minimumReleaseAgeExclude",
+      ['"@agent-native/core"', '"@agent-native/recap"'],
+    );
+
+    expect(merged.match(/^    - "@agent-native\/core"/gm)).toHaveLength(1);
+    expect(merged).toContain('    - "@agent-native/recap"');
+  });
+
   it("adds the guard contract to a community-style build without overwriting its doctor", () => {
     const root = path.join(tmpDir, "community-app");
     fs.mkdirSync(root, { recursive: true });
@@ -146,6 +453,49 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(pkg.name).not.toContain("{{");
   });
 
+  it("gives generated apps editable transactional email branding", async () => {
+    await createApp("try-marisco", { template: "chat" });
+    const configPath = path.join(
+      tmpDir,
+      "try-marisco",
+      "server",
+      "plugins",
+      "agent-native-email-branding.ts",
+    );
+
+    expect(fs.readFileSync(configPath, "utf-8")).toContain(
+      'name: "Try Marisco"',
+    );
+    expect(fs.readFileSync(configPath, "utf-8")).toContain(
+      'sourceTemplate: "chat"',
+    );
+    expect(fs.readFileSync(configPath, "utf-8")).toContain('homePath: "/home"');
+  });
+
+  it("does not force an authenticated home on headless or community scaffolds", () => {
+    for (const [index, templateName] of [
+      "headless",
+      "community:acme/customer-portal",
+    ].entries()) {
+      const root = path.join(tmpDir, `custom-${index}`);
+      fs.mkdirSync(root, { recursive: true });
+
+      _ensureScaffoldEmailBrandingConfig(root, `custom-${index}`, templateName);
+
+      expect(
+        fs.readFileSync(
+          path.join(
+            root,
+            "server",
+            "plugins",
+            "agent-native-email-branding.ts",
+          ),
+          "utf-8",
+        ),
+      ).not.toContain("homePath");
+    }
+  });
+
   it("keeps the blank scaffold headless instead of generating UI files", async () => {
     await createApp("my-app", { template: "blank" });
     const root = path.join(tmpDir, "my-app");
@@ -171,10 +521,80 @@ describe("createApp", { timeout: 30000 }, () => {
     await createApp("my-app", { template: "blank" });
     const skillsDir = path.join(tmpDir, "my-app", ".agents", "skills");
     if (fs.existsSync(skillsDir)) {
-      // There must be no entry named 'skills' inside the skills directory
-      // as that would create a circular reference that crashes Vite's watcher.
       const entries = fs.readdirSync(skillsDir);
       expect(entries).not.toContain("skills");
+    }
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "preserves an in-tree dangling directory symlink while copying a directory",
+    () => {
+      const source = path.join(tmpDir, "source");
+      const destination = path.join(tmpDir, "destination");
+      const sourceTarget = path.join(source, "missing-target");
+      const sourceLink = path.join(source, "shortcut");
+      const destinationTarget = path.join(destination, "missing-target");
+      const destinationLink = path.join(destination, "shortcut");
+
+      fs.mkdirSync(sourceTarget, { recursive: true });
+      fs.mkdirSync(destinationTarget, { recursive: true });
+      fs.mkdirSync(source, { recursive: true });
+      createAgentSymlink("missing-target", sourceLink, "dir");
+      fs.rmSync(sourceTarget, { recursive: true });
+
+      expect(() => _copyDir(source, destination)).not.toThrow();
+      expect(fs.lstatSync(destinationLink).isSymbolicLink()).toBe(true);
+      expect(fs.statSync(destinationLink).isDirectory()).toBe(true);
+      expect(fs.readdirSync(destinationLink)).toEqual([]);
+    },
+  );
+
+  it("fails rather than guessing the type of a dangling in-tree symlink on Windows", () => {
+    const source = path.join(tmpDir, "source");
+    const destination = path.join(tmpDir, "destination");
+    const destinationLink = path.join(destination, "shortcut");
+    const sourceEntry = {
+      name: "shortcut",
+      isSymbolicLink: () => true,
+    } as fs.Dirent;
+    const originalPlatform = Object.getOwnPropertyDescriptor(
+      process,
+      "platform",
+    );
+
+    fs.mkdirSync(source);
+    const readdir = vi.spyOn(fs, "readdirSync").mockReturnValue([sourceEntry]);
+    const readlink = vi
+      .spyOn(fs, "readlinkSync")
+      .mockReturnValue("missing-file");
+    const danglingStat = Object.assign(new Error("ENOENT"), {
+      code: "ENOENT",
+    });
+    const stat = vi.spyOn(fs, "statSync").mockImplementation(() => {
+      throw danglingStat;
+    });
+    const createSymlink = vi
+      .spyOn(fs, "symlinkSync")
+      .mockImplementation(() => undefined);
+    Object.defineProperty(process, "platform", {
+      ...originalPlatform,
+      value: "win32",
+    });
+
+    try {
+      expect(() => _copyDir(source, destination)).toThrow(
+        /target type is unknown/,
+      );
+      expect(createSymlink).not.toHaveBeenCalled();
+      expect(() => fs.lstatSync(destinationLink)).toThrow();
+    } finally {
+      createSymlink.mockRestore();
+      stat.mockRestore();
+      readlink.mockRestore();
+      readdir.mockRestore();
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
     }
   });
 
@@ -185,6 +605,8 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(fs.readFileSync(gitignore, "utf-8")).toContain(
       "node-compile-cache/",
     );
+    expect(fs.readFileSync(gitignore, "utf-8")).toContain("data/*.lock");
+    expect(fs.readFileSync(gitignore, "utf-8")).toContain(".agent-native/");
   });
 
   it("normalizes @agent-native/core for blank standalone apps", async () => {
@@ -196,6 +618,7 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(pkg.dependencies["@agent-native/core"]).toBe(
       _getCoreDependencyVersion(),
     );
+    expect(pkg.packageManager).toBe("pnpm@10.29.1");
   });
 
   it("scaffolds headless apps with one action primitive and no UI shell", async () => {
@@ -206,11 +629,10 @@ describe("createApp", { timeout: 30000 }, () => {
       path.join(root, "actions", "hello.ts"),
       "utf-8",
     );
-    // Imports from the bare package root, which is server-safe so a headless
-    // app loads it without React / @tanstack/react-query installed.
-    expect(hello).toContain('from "@agent-native/core"');
+    expect(hello).toContain('from "@agent-native/core/action"');
     expect(hello).toContain("defineAction");
     expect(hello).toContain('http: { method: "GET" }');
+    expect(hello).toContain("mcpTool: true");
     expect(hello).toContain("readOnly: true");
 
     const run = fs.readFileSync(path.join(root, "actions", "run.ts"), "utf-8");
@@ -222,7 +644,7 @@ describe("createApp", { timeout: 30000 }, () => {
     );
     const deps = allDeps(pkg);
 
-    expect(pkg.scripts.doctor).toBe("agent-native doctor");
+    expect(pkg.scripts.doctor).toBeUndefined();
     expect(pkg.scripts["agent-native:doctor"]).toBe("agent-native doctor");
     expect(
       JSON.parse(
@@ -249,8 +671,11 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
 
     const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
-    expect(agents).toContain("This is a headless Agent Native app");
-    expect(agents).toContain("This app is not stateless");
+    expect(agents).toContain(
+      "This headless app starts with callable actions, not a browser UI.",
+    );
+    expect(agents).toContain("Runtime state");
+    expect(agents).toMatch(/hosted deployments need persistent\s+PostgreSQL/);
     expect(agents).toContain("Chat template");
     expect(agents).toContain("integration blueprints");
 
@@ -330,7 +755,6 @@ describe("createApp", { timeout: 30000 }, () => {
     fs.mkdirSync(dir);
     process.chdir(dir);
     await createApp(".", { template: "blank" });
-    // No subfolder — files land directly in the current directory.
     expect(fs.existsSync(path.join(dir, "my-inplace-app"))).toBe(false);
     const pkg = JSON.parse(
       fs.readFileSync(path.join(dir, "package.json"), "utf-8"),
@@ -478,6 +902,140 @@ describe("community template selections", () => {
     ]);
   });
 
+  it("adds exact archive symlink exclusions without dropping regular skill files", () => {
+    expect(
+      _tarExtractArgs("/tmp/archive.tar.gz", "/tmp/out", {
+        skipAgentSymlinks: true,
+        additionalExcludes: [
+          "repo/templates/clips/.agents/skills/a2a-protocol",
+        ],
+      }),
+    ).toEqual([
+      "xzf",
+      "/tmp/archive.tar.gz",
+      "--strip-components=1",
+      "--exclude",
+      "*/CLAUDE.md",
+      "--exclude",
+      "*/.claude/skills",
+      "--exclude",
+      "repo/templates/clips/.agents/skills/a2a-protocol",
+      "-C",
+      "/tmp/out",
+    ]);
+  });
+
+  it("materializes first-party archive symlinks from in-archive targets", () => {
+    const extracted = path.join(tmpDir, "extracted");
+    const sharedSkill = path.join(extracted, ".agents", "skills", "actions");
+    fs.mkdirSync(sharedSkill, { recursive: true });
+    fs.writeFileSync(path.join(sharedSkill, "SKILL.md"), "actions\n");
+
+    _materializeArchiveSymlinks(extracted, [
+      {
+        archivePath: "repo/templates/clips/.agents/skills/actions",
+        target: "../../../../.agents/skills/actions",
+      },
+      {
+        archivePath: "repo/templates/clips/.claude/skills",
+        target: "../.agents/skills",
+      },
+    ]);
+
+    expect(
+      fs.readFileSync(
+        path.join(
+          extracted,
+          "templates",
+          "clips",
+          ".agents",
+          "skills",
+          "actions",
+          "SKILL.md",
+        ),
+        "utf-8",
+      ),
+    ).toBe("actions\n");
+    expect(
+      fs.readFileSync(
+        path.join(
+          extracted,
+          "templates",
+          "clips",
+          ".claude",
+          "skills",
+          "actions",
+          "SKILL.md",
+        ),
+        "utf-8",
+      ),
+    ).toBe("actions\n");
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "extracts first-party archives without preserving Windows-incompatible symlinks",
+    () => {
+      const archiveRoot = path.join(tmpDir, "archive-root");
+      const repoRoot = path.join(archiveRoot, "repo");
+      const archivePath = path.join(tmpDir, "template.tar.gz");
+      const sharedSkill = path.join(repoRoot, ".agents", "skills", "actions");
+      fs.mkdirSync(sharedSkill, { recursive: true });
+      fs.writeFileSync(path.join(sharedSkill, "SKILL.md"), "actions\n");
+      const clipsRoot = path.join(repoRoot, "templates", "clips");
+      fs.mkdirSync(path.join(clipsRoot, ".agents", "skills"), {
+        recursive: true,
+      });
+      fs.mkdirSync(path.join(clipsRoot, ".claude"), { recursive: true });
+      fs.writeFileSync(path.join(clipsRoot, "AGENTS.md"), "agents\n");
+      fs.symlinkSync(
+        "../../../../.agents/skills/actions",
+        path.join(clipsRoot, ".agents", "skills", "actions"),
+      );
+      fs.symlinkSync(
+        "../.agents/skills",
+        path.join(clipsRoot, ".claude", "skills"),
+        "dir",
+      );
+      fs.symlinkSync("AGENTS.md", path.join(clipsRoot, "CLAUDE.md"));
+      execFileSync(
+        resolveTarExecutable(),
+        ["czf", archivePath, "-C", archiveRoot, "repo"],
+        { stdio: "pipe" },
+      );
+
+      const extracted = path.join(tmpDir, "extracted");
+      fs.mkdirSync(extracted);
+      _extractTarball(archivePath, extracted, { skipAgentSymlinks: true });
+
+      expect(
+        fs.readFileSync(
+          path.join(
+            extracted,
+            "templates",
+            "clips",
+            ".agents",
+            "skills",
+            "actions",
+            "SKILL.md",
+          ),
+          "utf-8",
+        ),
+      ).toBe("actions\n");
+      expect(
+        fs
+          .lstatSync(
+            path.join(extracted, "templates", "clips", ".claude", "skills"),
+          )
+          .isSymbolicLink(),
+      ).toBe(false);
+      expect(
+        fs
+          .lstatSync(path.join(extracted, "templates", "clips", "CLAUDE.md"))
+          .isSymbolicLink(),
+      ).toBe(false);
+    },
+  );
+
   it("rejects links in untrusted community archives", () => {
     expect(() =>
       _assertSafeCommunityArchiveListing(
@@ -501,12 +1059,12 @@ describe("community template selections", () => {
       _assertSafeCommunityArchiveListing(
         "lrwxr-xr-x  0 user group 0 Jan  1 00:00 repo/secrets -> ../../secrets",
       ),
-    ).toThrow("may only contain Agent Native's canonical internal symlinks");
+    ).toThrow("may only contain Agent-Native's canonical internal symlinks");
     expect(() =>
       _assertSafeCommunityArchiveListing(
         "hrw-r--r--  0 user group 0 Jan  1 00:00 repo/copy link to repo/source",
       ),
-    ).toThrow("may only contain Agent Native's canonical internal symlinks");
+    ).toThrow("may only contain Agent-Native's canonical internal symlinks");
   });
 
   it.skipIf(process.platform === "win32")(
@@ -536,17 +1094,21 @@ describe("community template selections", () => {
         "../.agents/skills",
         path.join(nestedApp, ".claude", "skills"),
       );
-      execFileSync("tar", ["czf", archivePath, "-C", fixtureRoot, "repo"], {
-        stdio: "pipe",
-      });
+      execFileSync(
+        resolveTarExecutable(),
+        ["czf", archivePath, "-C", fixtureRoot, "repo"],
+        { stdio: "pipe" },
+      );
       expect(() => _validateCommunityArchive(archivePath)).not.toThrow();
 
       fs.symlinkSync("../../outside", path.join(repoRoot, "outside"));
-      execFileSync("tar", ["czf", archivePath, "-C", fixtureRoot, "repo"], {
-        stdio: "pipe",
-      });
+      execFileSync(
+        resolveTarExecutable(),
+        ["czf", archivePath, "-C", fixtureRoot, "repo"],
+        { stdio: "pipe" },
+      );
       expect(() => _validateCommunityArchive(archivePath)).toThrow(
-        "may only contain Agent Native's canonical internal symlinks",
+        "may only contain Agent-Native's canonical internal symlinks",
       );
     },
   );
@@ -556,7 +1118,7 @@ describe("community template selections", () => {
       _communityTemplateTrustMessage(
         "community:acme/customer-portal#release/v2",
       ),
-    ).toContain("not reviewed or maintained by Agent Native");
+    ).toContain("not reviewed or maintained by Agent-Native");
     expect(
       _communityTemplateTrustMessage(
         "community:acme/customer-portal#release/v2",
@@ -565,7 +1127,7 @@ describe("community template selections", () => {
     expect(_communityTemplateTrustMessage("chat")).toBeUndefined();
   });
 
-  it("requires an Agent Native package at the repository root", () => {
+  it("requires an Agent-Native package at the repository root", () => {
     const root = path.join(tmpDir, "community-template");
     fs.mkdirSync(root);
 
@@ -883,6 +1445,21 @@ describe("community workspace template sources", () => {
     ).rejects.toThrow("app selectors are only for workspace repositories");
   });
 
+  it("sanitizes community app display names before terminal selection", () => {
+    const root = path.join(tmpDir, "terminal-safe-workspace");
+    writeWorkspaceRoot(root, { workspaceCore: "@source/shared" });
+    writeApp(root, "mail", {
+      displayName: "Inbox\u001b[2J\u009b31m\u202eHidden",
+    });
+
+    const [app] = _discoverCommunityWorkspaceApps(root);
+
+    expect(app?.label).toBe("Inbox�[2J�31m�Hidden");
+    expect(app?.label).not.toMatch(
+      /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/,
+    );
+  });
+
   it("uses explicit app selectors without prompting and errors without a terminal selector", async () => {
     const root = path.join(tmpDir, "scriptable-workspace");
     writeWorkspaceRoot(root, { workspaceCore: "@source/shared" });
@@ -1071,5 +1648,183 @@ describe("community workspace template sources", () => {
         sourceIdentity: { appName: "mail", appTitle: "Mail" },
       }),
     ).toThrow("imports its source shared package");
+  });
+});
+
+describe("findEnclosingRepo", () => {
+  function makeTree(): { root: string; nested: string } {
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "enclosing-repo-")),
+    );
+    const nested = path.join(root, "a", "b", "c");
+    fs.mkdirSync(nested, { recursive: true });
+    return { root, nested };
+  }
+
+  function initRepo(dir: string): void {
+    execFileSync("git", ["init", "-q"], { cwd: dir, stdio: "pipe" });
+  }
+
+  it("finds a repo above the target", () => {
+    const { root, nested } = makeTree();
+    initRepo(root);
+
+    expect(_discoverEnclosingRepo(nested)).toEqual({ state: "inside", root });
+  });
+
+  it("finds the target itself when it is the repo", () => {
+    const { nested } = makeTree();
+    initRepo(nested);
+
+    expect(_discoverEnclosingRepo(nested)).toEqual({
+      state: "inside",
+      root: nested,
+    });
+  });
+
+  it("returns undefined when nothing above the target is a repo", () => {
+    const { nested } = makeTree();
+
+    expect(_discoverEnclosingRepo(nested).state).toBe("outside");
+  });
+
+  it("follows a symlinked path to the real repository", () => {
+    const { root, nested } = makeTree();
+    initRepo(root);
+    const link = path.join(fs.realpathSync(os.tmpdir()), `link-${Date.now()}`);
+    fs.symlinkSync(nested, link, "dir");
+
+    try {
+      expect(_discoverEnclosingRepo(link)).toEqual({ state: "inside", root });
+    } finally {
+      fs.unlinkSync(link);
+    }
+  });
+
+  it("ignores an inherited GIT_DIR pointing at an unrelated repo", () => {
+    const { nested } = makeTree();
+    const unrelated = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "unrelated-repo-")),
+    );
+    initRepo(unrelated);
+
+    process.env.GIT_DIR = path.join(unrelated, ".git");
+    try {
+      expect(_discoverEnclosingRepo(nested).state).toBe("outside");
+    } finally {
+      delete process.env.GIT_DIR;
+    }
+  });
+
+  it("reports unknown, not outside, when discovery fails", () => {
+    const { root, nested } = makeTree();
+    fs.writeFileSync(path.join(root, ".git"), "garbage");
+
+    const discovery = _discoverEnclosingRepo(nested);
+
+    expect(discovery.state).toBe("unknown");
+    expect("reason" in discovery ? discovery.reason : "").toMatch(
+      /invalid gitfile/i,
+    );
+  });
+
+  it("stops where GIT_CEILING_DIRECTORIES says git should", () => {
+    const { root, nested } = makeTree();
+    initRepo(root);
+
+    process.env.GIT_CEILING_DIRECTORIES = path.join(root, "a");
+    try {
+      expect(_discoverEnclosingRepo(nested).state).toBe("outside");
+    } finally {
+      delete process.env.GIT_CEILING_DIRECTORIES;
+    }
+  });
+});
+
+describe("mergeWorkspaceYamlSections", () => {
+  it("writes an allowBuilds entry even when the name appears elsewhere", () => {
+    const yaml = [
+      "overrides:",
+      '  "ffmpeg-static": "5.3.0"',
+      "",
+      "allowBuilds:",
+      "  esbuild: true",
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    const allowBuilds = out.slice(out.indexOf("allowBuilds:"));
+    expect(allowBuilds).toContain("ffmpeg-static: true");
+  });
+
+  // The generator extends node-pty as "node-pty@*" under packageExtensions.
+  it("is not fooled by a key that only appears as part of another", () => {
+    const yaml = [
+      "packageExtensions:",
+      '  "node-pty@*":',
+      "    dependencies:",
+      '      node-gyp: "^12.4.0"',
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "node-pty": "true" },
+    });
+    expect(out).toContain("allowBuilds:\n  node-pty: true");
+  });
+
+  it("does not add a key the section already has", () => {
+    const yaml = "allowBuilds:\n  ffmpeg-static: true\n";
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    expect(out.match(/ffmpeg-static/g)).toHaveLength(1);
+  });
+
+  it("treats a quoted and an unquoted key as the same entry", () => {
+    const yaml = 'overrides:\n  "@assistant-ui/store": ">=0.2.9 <0.2.14"\n';
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      overrides: { '"@assistant-ui/store"': '">=0.2.9 <0.2.14"' },
+    });
+    expect(out.match(/@assistant-ui\/store/g)).toHaveLength(1);
+  });
+
+  it("stops at the section's end rather than reading the next one", () => {
+    const yaml = [
+      "allowBuilds:",
+      "  esbuild: true",
+      "overrides:",
+      '  "ffmpeg-static": "5.3.0"',
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    const allowBuilds = out.slice(
+      out.indexOf("allowBuilds:"),
+      out.indexOf("overrides:"),
+    );
+    expect(allowBuilds).toContain("ffmpeg-static: true");
+  });
+
+  it("reads past a column-zero comment inside the section", () => {
+    const yaml = [
+      "allowBuilds:",
+      "  esbuild: true",
+      "# lifecycle scripts",
+      "  ffmpeg-static: true",
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    expect(out.match(/ffmpeg-static/g)).toHaveLength(1);
+  });
+
+  it("creates the section when the document has none", () => {
+    const out = _mergeWorkspaceYamlSections("", {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    expect(out).toContain("allowBuilds:\n  ffmpeg-static: true");
   });
 });

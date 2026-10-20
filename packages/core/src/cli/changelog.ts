@@ -1,41 +1,28 @@
-/**
- * `agent-native changelog` — author and roll up an app's user-facing changelog.
- *
- * The model mirrors changesets: instead of editing the shared CHANGELOG.md
- * directly (which conflicts when many agents work in parallel), each change
- * drops a small pending entry file under `changelog/`. A later `release` rolls
- * every pending file up into a single dated section of CHANGELOG.md.
- *
- *   agent-native changelog add "Recordings can be trimmed before sharing" --type added
- *   agent-native changelog release           # roll pending → CHANGELOG.md (today)
- *   agent-native changelog list              # show pending + released
- *
- * Runs in the current app directory (process.cwd()).
- */
 import fs from "fs";
 import path from "path";
 
 import {
   parsePendingEntry,
   parseChangelog,
-  rollupChangelog,
+  compactChangelog,
   changelogSlug,
   CHANGELOG_HEADER,
   type ChangelogChangeType,
 } from "../changelog/parse.js";
+import {
+  createAgentNativeConfigContext,
+  loadResolvedAgentNativeConfig,
+} from "../vite/agent-native-config-loader.js";
 
 const CHANGELOG_FILE = "CHANGELOG.md";
 const PENDING_DIR = "changelog";
 
 function todayIso(): string {
-  // Local date in YYYY-MM-DD. The CLI is the one place a wall-clock read is
-  // appropriate (unlike workflow scripts), so `new Date()` is fine here.
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** Minimal flag parser: supports `--key value` and `--key=value`. */
 function parseFlags(args: string[]): {
   flags: Record<string, string>;
   rest: string[];
@@ -73,12 +60,31 @@ function printUsage(): void {
       "  agent-native changelog list",
       "",
       "Entries are user-facing notes. `add` writes a pending file under",
-      `  ${PENDING_DIR}/; \`release\` rolls all pending files into ${CHANGELOG_FILE}.`,
+      `  ${PENDING_DIR}/; \`release\` refreshes the recent window in ${CHANGELOG_FILE}.`,
+      "Generation requires changelog.enabled: true in agent-native.config.ts.",
     ].join("\n"),
   );
 }
 
-function cmdAdd(args: string[]): number {
+async function changelogGenerationEnabled(): Promise<boolean> {
+  const config = await loadResolvedAgentNativeConfig(
+    process.cwd(),
+    createAgentNativeConfigContext("serve", "cli"),
+  );
+  return config.changelog?.enabled === true;
+}
+
+async function requireChangelogGeneration(operation: "add" | "release") {
+  if (await changelogGenerationEnabled()) return true;
+  console.error(
+    `Changelog ${operation} is disabled by default. Set ` +
+      `changelog: { enabled: true } in agent-native.config.ts to enable it.`,
+  );
+  return false;
+}
+
+async function cmdAdd(args: string[]): Promise<number> {
+  if (!(await requireChangelogGeneration("add"))) return 1;
   const { flags, rest } = parseFlags(args);
   const summary = rest.join(" ").trim();
   if (!summary) {
@@ -98,9 +104,6 @@ function cmdAdd(args: string[]): number {
     file = path.join(dir, `${date}-${slug}-${n++}.md`);
   }
 
-  // Blank line after the closing frontmatter delimiter so the generated file
-  // is already Prettier-clean (Markdown requires a blank line before body text)
-  // and never trips the repo fmt check.
   const content = `---\ntype: ${type}\ndate: ${date}\n---\n\n${summary}\n`;
   fs.writeFileSync(file, content, "utf-8");
   console.log(`Added changelog entry: ${path.relative(process.cwd(), file)}`);
@@ -120,7 +123,8 @@ function readPending(): { file: string; content: string }[] {
     }));
 }
 
-function cmdRelease(args: string[]): number {
+async function cmdRelease(args: string[]): Promise<number> {
+  if (!(await requireChangelogGeneration("release"))) return 1;
   const { flags } = parseFlags(args);
   const date = flags.date?.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? todayIso();
 
@@ -130,22 +134,24 @@ function cmdRelease(args: string[]): number {
     return 0;
   }
 
-  const pending = pendingFiles.map((p) => parsePendingEntry(p.content));
+  const pending = pendingFiles.map((p) =>
+    parsePendingEntry(
+      p.content,
+      path.basename(p.file).match(/^(\d{4}-\d{2}-\d{2})(?:-|\.md$)/)?.[1],
+    ),
+  );
   const changelogPath = path.resolve(CHANGELOG_FILE);
   const existing = fs.existsSync(changelogPath)
     ? fs.readFileSync(changelogPath, "utf-8")
     : "";
 
-  const next = rollupChangelog(existing, pending, date);
+  const next = compactChangelog(existing, pending);
   fs.writeFileSync(changelogPath, next, "utf-8");
 
-  // Remove the pending entries now that they're released.
-  for (const p of pendingFiles) fs.rmSync(p.file);
-
   console.log(
-    `Released ${pendingFiles.length} entr${
+    `Refreshed ${CHANGELOG_FILE} from ${pendingFiles.length} folder entr${
       pendingFiles.length === 1 ? "y" : "ies"
-    } into ${CHANGELOG_FILE} (## ${date}).`,
+    } (latest release date: ${date}).`,
   );
   return 0;
 }
@@ -177,9 +183,9 @@ export async function runChangelog(args: string[]): Promise<number> {
   const rest = args.slice(1);
   switch (sub) {
     case "add":
-      return cmdAdd(rest);
+      return await cmdAdd(rest);
     case "release":
-      return cmdRelease(rest);
+      return await cmdRelease(rest);
     case "list":
       return cmdList();
     case undefined:
@@ -195,5 +201,4 @@ export async function runChangelog(args: string[]): Promise<number> {
   }
 }
 
-// Re-export header for callers that want to seed an empty CHANGELOG.md.
 export { CHANGELOG_HEADER };

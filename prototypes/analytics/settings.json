@@ -1,0 +1,177 @@
+{
+ "app": "Analytics",
+ "icon": "chart-bar",
+ "pages": [
+  {
+   "id": "app",
+   "l": "General",
+   "icon": "apps",
+   "sections": [
+    {
+     "h": "Alerts",
+     "empty": {
+      "t": "No alert rules yet",
+      "d": "Create a rule to watch event volume, distinct users, or filtered event slices.",
+      "btn": "New alert"
+     }
+    },
+    {
+     "h": "Data Sources",
+     "rows": [
+      {
+       "l": "Data Source Credentials",
+       "d": "API keys and credentials are managed on the Data Sources page.",
+       "c": {
+        "btn": "Manage Data Sources"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "notifications",
+   "l": "Notifications",
+   "icon": "bell",
+   "sections": [
+    {
+     "h": "Email",
+     "rows": [
+      {
+       "l": "Email new error alerts",
+       "d": "Send an email when a new JavaScript error is captured. Off by default.",
+       "c": {
+        "sw": false
+       }
+      }
+     ]
+    },
+    {
+     "h": "Sound",
+     "rows": [
+      {
+       "l": "Bell sound",
+       "d": "Play a sound when the agent finishes a run. Off by default.",
+       "c": {
+        "sw": false
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "labs",
+   "l": "Labs",
+   "icon": "flask",
+   "sections": [
+    {
+     "h": "Analytics",
+     "rows": [
+      {
+       "l": "Creative context",
+       "d": "Reusable creative context that helps agents stay consistent across work.",
+       "c": {
+        "sw": false,
+        "lab": "creative"
+       }
+      }
+     ]
+    },
+    {
+     "h": null,
+     "foot": "These new, unstable features may have bugs."
+    }
+   ]
+  },
+  {
+   "id": "whats-new",
+   "l": "What's new",
+   "icon": "news",
+   "badge": "Analytics",
+   "sections": [
+    {
+     "h": null,
+     "changelog": [
+      [
+       "2026-09-30",
+       "Improved",
+       [
+        "Removed excess spacing above the sidebar footer"
+       ]
+      ],
+      [
+       "2026-09-30",
+       "Fixed",
+       [
+        "Chat message actions no longer show unavailable request IDs."
+       ]
+      ],
+      [
+       "2026-09-29",
+       "Improved",
+       [
+        "Expand the Analytics chat header across the conversation view",
+        "Analytics date filters support custom date ranges",
+        "Settings pages now share the account layout, with dated updates that load in batches."
+       ]
+      ],
+      [
+       "2026-09-29",
+       "Fixed",
+       [
+        "The chat history menu stays open when opened from the header.",
+        "Chat prompts clear immediately while the assistant thinks.",
+        "App filters now keep retention charts scoped to the selected app.",
+        "Chat stays ready for your next draft while a message is being sent.",
+        "Adding panels now saves without a layout width error.",
+        "Analytics accepts valid field names that contain SQL keywords and digits",
+        "Analytics date filters support custom date ranges across dashboards.",
+        "The Analytics sidebar shows a single divider above Send feedback.",
+        "Sent chat prompts clear immediately, while reply progress appears in the conversation."
+       ]
+      ],
+      [
+       "2026-09-28",
+       "Improved",
+       [
+        "Flags moved to an app's Labs settings no longer appear as editable rollout controls.",
+        "Analytics starts faster on hosted serverless deployments.",
+        "The app canvas now meets the right chat sidebar without a dark seam or rounded corner.",
+        "Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.",
+        "The chat sidebar matches the app navigation color, with tighter composer spacing.",
+        "Ask Analytics now starts with a focused title."
+       ]
+      ],
+      [
+       "2026-09-27",
+       "Improved",
+       [
+        "Ask Analytics now opens with a centered chat and starter guidance.",
+        "Metric cards include their comparison period and change.",
+        "Complete single-number analysis queries show a compact card, and sampled tables are marked.",
+        "The chat home keeps suggested prompts above the composer in a centered layout."
+       ]
+      ],
+      [
+       "2026-09-26",
+       "Improved",
+       [
+        "Human Review shows saved Analytics charts and analysis results inline.",
+        "Loading screens now reflect the app's home layout.",
+        "Saved dashboard charts can be previewed directly in Human Review."
+       ]
+      ],
+      [
+       "2026-09-26",
+       "Changed",
+       [
+        "The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page."
+       ]
+      ]
+     ]
+    }
+   ]
+  }
+ ]
+}

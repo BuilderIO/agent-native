@@ -8,12 +8,6 @@ import {
   type FrameSizePresetCategoryKey,
 } from "../inspector";
 
-/**
- * One collapsible category group in the frame-tool presets panel — e.g.
- * "Phone" or "Tablet". Unlike {@link PanelSection} (used for property
- * sections, which shows no chevron), this renders a leading chevron like
- * Figma's own preset list and LayersPanel's disclosure triangles.
- */
 function FramePresetCategoryGroup({
   title,
   presets,
@@ -31,7 +25,7 @@ function FramePresetCategoryGroup({
     <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
       <button
         type="button"
-        className="flex h-9 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left"
+        className="flex min-h-[var(--design-section-height)] w-full min-w-0 cursor-pointer items-center gap-1.5 px-2 text-left"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
       >
@@ -40,17 +34,17 @@ function FramePresetCategoryGroup({
         ) : (
           <IconChevronRight className="size-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
         )}
-        <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
+        <h3 className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground">
           {title}
         </h3>
       </button>
       {open ? (
-        <div className="pb-1.5">
+        <div className="design-sidebar-control-stack pb-2">
           {presets.map((preset) => (
             <button
               key={preset.name}
               type="button"
-              className="flex h-8 w-full min-w-0 cursor-pointer items-center gap-2 px-3 pl-8 text-left hover:bg-[var(--design-editor-control-hover-bg)]"
+              className="flex min-h-[var(--design-row-height)] w-full min-w-0 cursor-pointer items-center gap-2 px-2 ps-8 text-left hover:bg-[var(--design-editor-control-hover-bg)]"
               onClick={() => onPick(preset)}
             >
               <span className="min-w-0 flex-1 truncate !text-[11px] text-foreground">
@@ -58,7 +52,7 @@ function FramePresetCategoryGroup({
               </span>
               <span className="shrink-0 !text-[11px] tabular-nums text-muted-foreground">
                 {preset.width}
-                {"×" /* × */}
+                {"×"}
                 {preset.height}
               </span>
             </button>
@@ -83,13 +77,6 @@ const FRAME_PRESET_CATEGORY_LABEL_KEYS: Record<
   adUnit: "editPanel.framePresets.categories.adUnit",
 };
 
-/**
- * Figma-parity frame-tool panel: replaces the whole inspector body with a
- * scrollable, categorized list of screen-size presets while the Frame tool
- * is armed. Clicking a row calls `onCreateScreenFromPreset` with the exact
- * size — see the `activeTool`/`onCreateScreenFromPreset` doc comments on
- * `EditPanelProps` for the parent-side creation/tool-revert contract.
- */
 export function FramePresetsPanel({
   onPick,
 }: {
@@ -100,7 +87,7 @@ export function FramePresetsPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex h-10 shrink-0 items-center border-b border-border/90 px-3">
-        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+        <h3 className="design-sidebar-context-title min-w-0 flex-1 truncate text-foreground">
           {t("editPanel.framePresets.title")}
         </h3>
       </div>

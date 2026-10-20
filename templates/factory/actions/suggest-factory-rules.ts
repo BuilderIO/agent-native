@@ -1,9 +1,15 @@
 import { defineAction } from "@agent-native/core/action";
-import { desc, eq } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageDecisions, triageFeedback } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryDecisionFilter,
+  orgFactoryFeedbackFilter,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -13,11 +19,12 @@ export default defineAction({
   description:
     "Mine human feedback on Factory decisions into inspectable rule proposals. This never edits a rule or enables execution.",
   schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     limit: z.coerce.number().int().min(1).max(50).default(10),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ limit }, context) => {
+  run: async ({ factoryId, limit }, context) => {
     const { orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -25,13 +32,13 @@ export default defineAction({
     const decisions = await db
       .select()
       .from(triageDecisions)
-      .where(eq(triageDecisions.orgId, orgId))
+      .where(orgFactoryDecisionFilter(orgId, factoryId))
       .orderBy(desc(triageDecisions.createdAt))
       .limit(500);
     const feedback = await db
       .select()
       .from(triageFeedback)
-      .where(eq(triageFeedback.orgId, orgId))
+      .where(orgFactoryFeedbackFilter(orgId, factoryId))
       .orderBy(desc(triageFeedback.createdAt))
       .limit(500);
     const decisionsById = new Map(

@@ -1,11 +1,159 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  checkCatalogDevelopmentMarkers,
   checkLocalizedDocsCoverage,
+  checkRawVisibleLiteralFile,
   checkStaleBaselineEntries,
+  findCatalogDirs,
+  findCorruptedLocalizedDocsIdentifiers,
   normalizeLocalizedDocSlug,
 } from "./guard-i18n-catalogs";
+
+describe("i18n catalog locations", () => {
+  it("checks Toolkit app catalogs instead of the removed Core UI catalog", () => {
+    const catalogDirs = new Set(
+      findCatalogDirs().map((dir) => path.relative(process.cwd(), dir)),
+    );
+
+    assert.ok(catalogDirs.has("packages/toolkit/src/app/i18n/catalogs"));
+    assert.ok(!catalogDirs.has("packages/core/src/localization/core-messages"));
+  });
+});
+
+describe("localized documentation identifiers", () => {
+  it("does not match a prefix of a legitimate API identifier", () => {
+    assert.deepEqual(
+      findCorruptedLocalizedDocsIdentifiers(
+        "`PromptHomeLibrary`, `PromptHomeLibraryProps`, and `PromptComposer`",
+      ),
+      [],
+    );
+  });
+
+  it("still rejects translated composer identifiers as whole tokens", () => {
+    for (const identifier of ["PromptKomponierer", "PromptGénérateur"]) {
+      assert.deepEqual(
+        findCorruptedLocalizedDocsIdentifiers(`Use \`${identifier}\` here.`),
+        [identifier],
+      );
+    }
+  });
+});
+
+describe("raw visible literal scanning", () => {
+  it("skips generic parameter fragments only in JSX-text candidates", () => {
+    const source = `
+const restore = (
+  current: Record<string, string>,
+  missingFileIds: ReadonlySet<string>,
+  restoredFilesById: ReadonlyMap<string, Snapshot>,
+  meta?: Parameters<StyleChangeHandler>[2],
+) => {};
+function render(callback: () => Promise<{ value: string }>, next: ReadonlySet<string>) {}
+const button = <button>Delete layer</button>;
+const parametersButton = <button>Text parameters</button>;
+const jsxTypeLikeText = <div>, missingFileIds: ReadonlySet</div>;
+const jsxStatus = <div>, status: Ready<Icon /></div>;
+const component = <Button aria-label="Open color picker" />;
+const status = <Button aria-label=", status: Ready" />;
+toast.error(", status: Ready");
+`;
+    const file = "packages/core/src/client/CommandMenu.tsx";
+
+    assert.deepEqual(
+      checkRawVisibleLiteralFile(file, source).map(({ id }) => id),
+      [
+        `${file}|Delete layer`,
+        `${file}|Text parameters`,
+        `${file}|, missingFileIds: ReadonlySet`,
+        `${file}|, status: Ready`,
+        `${file}|Open color picker`,
+        `${file}|, status: Ready`,
+        `${file}|, status: Ready`,
+      ],
+    );
+  });
+
+  it("does not mistake a closing JSX tag for a generic type", () => {
+    const source = `
+const content = <div>Visible text</div>, status: Ready;
+`;
+
+    assert.deepEqual(
+      checkRawVisibleLiteralFile("templates/design/example.tsx", source).map(
+        ({ id }) => id,
+      ),
+      ["templates/design/example.tsx|Visible text"],
+    );
+  });
+
+  it("skips nested TypeScript type arguments while reporting matching UI text", () => {
+    const cases = [
+      {
+        file: "templates/design/nested-types.ts",
+        source: `
+const tokens = new Map<NativePresentationLease<Context>, LeaseState<Context>>();
+const result = task.then<PromiseSettledResult<void>, PromiseSettledResult<void>>(
+  onFulfilled,
+  onRejected,
+);
+`,
+      },
+      {
+        file: "templates/design/nested-types.tsx",
+        source: `
+type Slots = Map<NativePresentationLease<Context>, LeaseState<Context>>;
+const result = task.then<PromiseSettledResult<void>, PromiseSettledResult<void>>();
+const message = <span>, LeaseState</span>;
+const toast = <Button aria-label=", PromiseSettledResult" />;
+toast.error(", LeaseState");
+`,
+      },
+    ];
+
+    assert.deepEqual(
+      cases.flatMap(({ file, source }) =>
+        checkRawVisibleLiteralFile(file, source).map(({ id }) => id),
+      ),
+      [
+        "templates/design/nested-types.tsx|, LeaseState",
+        "templates/design/nested-types.tsx|, PromiseSettledResult",
+        "templates/design/nested-types.tsx|, LeaseState",
+      ],
+    );
+  });
+});
+
+describe("catalog development markers", () => {
+  it("rejects the localization marker from non-English values", () => {
+    assert.deepEqual(
+      checkCatalogDevelopmentMarkers({
+        relDir: "templates/clips/app/i18n",
+        locale: "pt-BR",
+        target: new Map([
+          ["recordRoute.clipsRecorder", "Clips recorder (Localizado)"],
+        ]),
+      }),
+      [
+        'templates/clips/app/i18n/pt-BR: recordRoute.clipsRecorder contains the development-only localization marker "(Localizado)" — remove it before shipping',
+      ],
+    );
+  });
+
+  it("allows ordinary localized values", () => {
+    assert.deepEqual(
+      checkCatalogDevelopmentMarkers({
+        relDir: "templates/clips/app/i18n",
+        locale: "es-ES",
+        target: new Map([["recordRoute.clipsRecorder", "Grabador de Clips"]]),
+      }),
+      [],
+    );
+  });
+});
 
 describe("localized documentation coverage", () => {
   it("normalizes md and mdx extensions to the same slug", () => {

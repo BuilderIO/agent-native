@@ -67,4 +67,41 @@ describe("import-github", () => {
       importGithub.run({ repoUrl: "builderio/private-app" }),
     ).rejects.toThrow(/GITHUB_TOKEN.*Contents: Read-only/);
   });
+
+  it("extracts tokens from a pinned folder scope", async () => {
+    process.env.GITHUB_TOKEN = "github-secret";
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (
+        url.includes("/contents/src/styles?") &&
+        url.includes("ref=feature%2Fbrand")
+      ) {
+        return new Response(
+          JSON.stringify([
+            { path: "src/styles/tokens.css", type: "file", size: 100 },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/contents/src/styles/tokens.css?")) {
+        return new Response(":root { --brand: #123456; }", { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: "Not Found" }), {
+        status: 404,
+      });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await importGithub.run({
+      repoUrl: "https://github.com/builderio/private-app",
+      ref: "feature/brand",
+      include: ["src/styles"],
+    });
+
+    expect(result).toMatchObject({
+      repoUrl: "https://github.com/builderio/private-app",
+      ref: "feature/brand",
+      include: ["src/styles"],
+      colors: { "--brand": "#123456" },
+    });
+  });
 });

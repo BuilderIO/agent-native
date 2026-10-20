@@ -1,8 +1,0 @@
-{
-  "syncFilePatterns": [
-    "data/emails.json",
-    "data/**/*.json",
-    "!data/google-auth.json",
-    "!data/sync-config.json"
-  ]
-}

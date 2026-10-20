@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 
 import { createPlaywrightHostedQaBrowser } from "./playwright-hosted-qa.ts";
 
+const QA_EMAIL = "qa+autoz@example.test";
+
 describe("Playwright hosted-QA adapter", () => {
   it("keeps auth requests and consent on the exact acceptance origin", async () => {
     const calls: string[] = [];
@@ -18,7 +20,7 @@ describe("Playwright hosted-QA adapter", () => {
             return {
               status: () => 200,
               async json() {
-                return { user: { email: "qa@example.test" } };
+                return { user: { email: QA_EMAIL } };
               },
             };
           },
@@ -41,13 +43,13 @@ describe("Playwright hosted-QA adapter", () => {
 
     assert.deepEqual(
       await adapter.postJson("/_agent-native/auth/login", {
-        email: "qa@example.test",
+        email: QA_EMAIL,
         password: "in-memory-only",
       }),
       { status: 200 },
     );
     assert.deepEqual(await adapter.getJson("/_agent-native/auth/session"), {
-      user: { email: "qa@example.test" },
+      user: { email: QA_EMAIL },
     });
     await adapter.authorize?.(
       "https://calendar.acceptance.example.test/mcp/oauth/authorize?state=x",

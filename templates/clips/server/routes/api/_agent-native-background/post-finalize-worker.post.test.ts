@@ -4,12 +4,16 @@ const mockReadBody = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockDispatchPostFinalizeJob = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
-const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
+const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockRunLoomImportJob = vi.hoisted(() => vi.fn());
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
+const mockFinalizeEndedMeetingsForRecording = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
+const mockMarkThumbnailFailed = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec-1" }]),
 );
+const mockNe = vi.hoisted(() => vi.fn((..._args: unknown[]) => "ne"));
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => {
     const builder = {
@@ -21,6 +25,7 @@ const mockDb = vi.hoisted(() => ({
           ownerEmail: "owner@example.test",
           orgId: "org-1",
           status: "processing",
+          uploadAttemptId: "attempt-1",
           uploadGenerationId: "generation-1",
         },
       ]),
@@ -34,6 +39,26 @@ const mockDb = vi.hoisted(() => ({
   })),
 }));
 
+function mockRecordingWithStatus(status: string) {
+  mockDb.select.mockImplementationOnce(() => {
+    const builder = {
+      from: vi.fn(() => builder),
+      where: vi.fn(() => builder),
+      limit: vi.fn(async () => [
+        {
+          id: "rec-1",
+          ownerEmail: "owner@example.test",
+          orgId: "org-1",
+          status,
+          uploadAttemptId: null,
+          uploadGenerationId: null,
+        },
+      ]),
+    };
+    return builder;
+  });
+}
+
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   readBody: (...args: unknown[]) => mockReadBody(...args),
@@ -45,22 +70,43 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(() => "eq"),
   isNull: vi.fn(() => "isNull"),
   lt: vi.fn(() => "lt"),
+  ne: (...args: unknown[]) => mockNe(...args),
   or: vi.fn(() => "or"),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
-  verifyScopedAgentAccessToken: (...args: unknown[]) =>
-    mockVerifyScopedAgentAccessToken(...args),
+  scopedAgentAccessResourceId: (kind: string, id: string) => `${kind}:${id}`,
+  verifyShortLivedToken: (...args: unknown[]) =>
+    mockVerifyShortLivedToken(...args),
 }));
 
 vi.mock("../../../../actions/finalize-recording.js", () => ({
   default: { run: (...args: unknown[]) => mockFinalizeRun(...args) },
 }));
 
+vi.mock("../../../../actions/lib/finalize-ended-meetings.js", () => ({
+  finalizeEndedMeetingsForRecording: (...args: unknown[]) =>
+    mockFinalizeEndedMeetingsForRecording(...args),
+}));
+
 vi.mock("../../../../actions/lib/ensure-seekable-video.js", () => ({
   ensureRecordingSeekable: vi.fn(),
+}));
+
+vi.mock("../../../lib/ensure-recording-thumbnail.js", () => ({
+  ensureRecordingThumbnail: (...args: unknown[]) =>
+    mockEnsureRecordingThumbnail(...args),
+  isRetryableRecordingThumbnailStatus: (status: string) =>
+    [
+      "skipped-media-fetch",
+      "skipped-frame-extraction",
+      "skipped-upload-failed",
+      "skipped-race",
+      "skipped-lease",
+    ].includes(status),
+  markThumbnailFailed: (...args: unknown[]) => mockMarkThumbnailFailed(...args),
 }));
 
 vi.mock("../../../../actions/request-transcript.js", () => ({
@@ -75,6 +121,8 @@ vi.mock("../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       orgId: "recordings.orgId",
       status: "recordings.status",
+      failureCode: "recordings.failureCode",
+      uploadAttemptId: "recordings.uploadAttemptId",
       uploadGenerationId: "recordings.uploadGenerationId",
       loomImportClaimId: "recordings.loomImportClaimId",
       loomImportClaimedAt: "recordings.loomImportClaimedAt",
@@ -97,25 +145,36 @@ vi.mock("../../../../actions/export-to-brain.js", () => ({
   default: { run: vi.fn() },
 }));
 
+import requestTranscript from "../../../../actions/request-transcript.js";
 import handler from "./post-finalize-worker.post";
 
 describe("post-finalize worker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    mockFinalizeEndedMeetingsForRecording.mockReset();
+    mockFinalizeEndedMeetingsForRecording.mockResolvedValue(undefined);
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",
       kind: "media-ready",
       token: "valid-token",
       delayMs: 1_000,
       retryAttempt: 2,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
     });
-    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+    mockVerifyShortLivedToken.mockReturnValue({ ok: true });
     mockRunWithRequestContext.mockImplementation(
       (_context: unknown, callback: () => unknown) => callback(),
     );
     mockDispatchPostFinalizeJob.mockResolvedValue({ accepted: true });
     mockFinalizeRun.mockResolvedValue({ status: "processing" });
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "generated",
+      changed: true,
+      thumbnailUrl: "https://cdn.example.test/thumb.jpg",
+    });
   });
 
   afterEach(() => {
@@ -135,8 +194,82 @@ describe("post-finalize worker", () => {
       recordingId: "rec-1",
       kind: "media-ready",
       retryAttempt: 2,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
       regenerate: undefined,
       requireAccepted: true,
+    });
+  });
+
+  it("requires acceptance when re-dispatching delayed thumbnail work", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+      delayMs: 1_000,
+      retryAttempt: 1,
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+
+    const pending = handler({} as any);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      retryAttempt: 1,
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      retryAttempt: 1,
+      regenerate: undefined,
+      requireAccepted: true,
+    });
+  });
+
+  it("hands a regenerate the import it was accepted against", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "transcript",
+      token: "valid-token",
+      regenerate: true,
+      replaceImportId: "import-1",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          { id: "rec-1", ownerEmail: "owner@example.test", status: "ready" },
+        ]),
+      };
+      return builder;
+    });
+
+    await handler({} as any);
+
+    expect(requestTranscript.run).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      force: true,
+      retryAttempt: undefined,
+      regenerate: true,
+      replaceImportId: "import-1",
     });
   });
 
@@ -161,12 +294,34 @@ describe("post-finalize worker", () => {
     });
   });
 
+  it("does not claim a taken-down Loom import", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "loom-import",
+      token: "valid-token",
+    });
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "loom-import",
+      skipped: true,
+      reason: "loom-import-already-running",
+    });
+
+    expect(mockNe).toHaveBeenCalledWith("recordings.failureCode", "taken_down");
+    expect(mockRunLoomImportJob).not.toHaveBeenCalled();
+  });
+
   it("re-enters finalization with the processing row generation", async () => {
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",
       kind: "media-ready",
       token: "valid-token",
       retryAttempt: 2,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
     });
     await expect(handler({} as any)).resolves.toMatchObject({
       ok: true,
@@ -175,7 +330,550 @@ describe("post-finalize worker", () => {
     expect(mockFinalizeRun).toHaveBeenCalledWith({
       id: "rec-1",
       mediaVerificationRetryAttempt: 2,
+      uploadAttemptId: "attempt-1",
       uploadGenerationId: "generation-1",
+    });
+  });
+
+  it("finalizes ended meetings for a ready recording in its owner context", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+    });
+    mockRecordingWithStatus("ready");
+    mockFinalizeEndedMeetingsForRecording.mockResolvedValue(undefined);
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+    });
+
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      expect.any(Function),
+    );
+    expect(mockFinalizeEndedMeetingsForRecording).toHaveBeenCalledWith(
+      mockDb,
+      "rec-1",
+      { throwOnFailure: true },
+    );
+  });
+
+  it("durably retries meeting finalization while the recording is processing", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      retryScheduled: true,
+      retryAttempt: 1,
+      reason: "recording-processing",
+    });
+
+    expect(mockRunWithRequestContext).not.toHaveBeenCalled();
+    expect(mockFinalizeEndedMeetingsForRecording).not.toHaveBeenCalled();
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      delayMs: 5_000,
+      retryAttempt: 1,
+      requireAccepted: true,
+    });
+  });
+
+  it("keeps ready-transition retries active beyond a long upload", async () => {
+    const delays: number[] = [];
+
+    for (let retryAttempt = 0; retryAttempt < 7; retryAttempt += 1) {
+      mockReadBody.mockResolvedValue({
+        recordingId: "rec-1",
+        kind: "meeting-finalize",
+        token: "valid-token",
+        ...(retryAttempt > 0 ? { retryAttempt } : {}),
+      });
+      mockRecordingWithStatus("processing");
+
+      await expect(handler({} as any)).resolves.toMatchObject({
+        ok: true,
+        kind: "meeting-finalize",
+        retryScheduled: true,
+        retryAttempt: retryAttempt + 1,
+      });
+      const retry = mockDispatchPostFinalizeJob.mock.calls[
+        mockDispatchPostFinalizeJob.mock.calls.length - 1
+      ]?.[0] as {
+        delayMs: number;
+      };
+      delays.push(retry.delayMs);
+    }
+
+    expect(delays.reduce((sum, delay) => sum + delay, 0)).toBeGreaterThan(
+      95_000,
+    );
+
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+      retryAttempt: 7,
+    });
+    mockRecordingWithStatus("processing");
+    await expect(handler({} as any)).rejects.toThrow(
+      "Meeting finalization retries exhausted while recording rec-1 remained processing",
+    );
+  });
+
+  it("keeps stale pending meeting retries alive beyond the two-minute lease", async () => {
+    const delays: number[] = [];
+
+    for (let retryAttempt = 0; retryAttempt < 7; retryAttempt += 1) {
+      mockReadBody.mockResolvedValue({
+        recordingId: "rec-1",
+        kind: "meeting-finalize",
+        token: "valid-token",
+        ...(retryAttempt > 0 ? { retryAttempt } : {}),
+      });
+      mockRecordingWithStatus("ready");
+      mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
+        new Error("Meeting finalization was skipped: already-in-progress"),
+      );
+
+      await expect(handler({} as any)).resolves.toMatchObject({
+        ok: true,
+        kind: "meeting-finalize",
+        retryScheduled: true,
+        retryAttempt: retryAttempt + 1,
+      });
+      const retry = mockDispatchPostFinalizeJob.mock.calls[
+        mockDispatchPostFinalizeJob.mock.calls.length - 1
+      ]?.[0] as {
+        delayMs: number;
+      };
+      delays.push(retry.delayMs);
+    }
+
+    expect(delays).toEqual([
+      5_000, 10_000, 20_000, 30_000, 30_000, 30_000, 30_000,
+    ]);
+    expect(delays.reduce((sum, delay) => sum + delay, 0)).toBeGreaterThan(
+      2 * 60 * 1_000,
+    );
+  });
+
+  it("re-dispatches delayed meeting finalization while still processing", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+      delayMs: 1_000,
+      retryAttempt: 2,
+    });
+
+    const pending = handler({} as any);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      retryAttempt: 2,
+      dispatchedAfterMs: 1_000,
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      retryAttempt: 2,
+      regenerate: undefined,
+      replaceImportId: undefined,
+      requireAccepted: true,
+    });
+  });
+
+  it("schedules a durable retry when meeting summary finalization fails", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+    });
+    mockRecordingWithStatus("ready");
+    mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
+      new Error("summary provider unavailable"),
+    );
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "meeting-finalize",
+      retryScheduled: true,
+      retryAttempt: 1,
+      error: "summary provider unavailable",
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      delayMs: 5_000,
+      retryAttempt: 1,
+      requireAccepted: true,
+    });
+  });
+
+  it("propagates meeting summary failures after durable retries are exhausted", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+      retryAttempt: 7,
+    });
+    mockRecordingWithStatus("ready");
+    mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
+      new Error("summary provider unavailable"),
+    );
+
+    await expect(handler({} as any)).rejects.toThrow(
+      "summary provider unavailable",
+    );
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+  });
+
+  it("retries failed recordings when meeting transcript finalization is not ready", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+    });
+    mockRecordingWithStatus("failed");
+    mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
+      new Error("Meeting finalization was skipped: no-transcript"),
+    );
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      retryScheduled: true,
+      retryAttempt: 1,
+    });
+
+    expect(mockFinalizeEndedMeetingsForRecording).toHaveBeenCalledWith(
+      mockDb,
+      "rec-1",
+      { throwOnFailure: true },
+    );
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      delayMs: 5_000,
+      retryAttempt: 1,
+      requireAccepted: true,
+    });
+  });
+
+  it("finalizes a failed recording when its transcript is saved", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token: "valid-token",
+    });
+    mockRecordingWithStatus("failed");
+    mockFinalizeEndedMeetingsForRecording.mockResolvedValue(undefined);
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+    });
+    expect(mockFinalizeEndedMeetingsForRecording).toHaveBeenCalledWith(
+      mockDb,
+      "rec-1",
+      { throwOnFailure: true },
+    );
+  });
+
+  it("passes captured attempt and generation identities to finalization", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "media-ready",
+      token: "valid-token",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "processing",
+            uploadAttemptId: "attempt-1",
+            uploadGenerationId: "generation-1",
+          },
+        ]),
+      };
+      return builder;
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "media-ready",
+    });
+
+    expect(mockFinalizeRun).toHaveBeenCalledWith({
+      id: "rec-1",
+      mediaVerificationRetryAttempt: 1,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+  });
+
+  it("skips media verification jobs for a replaced upload identity", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "media-ready",
+      token: "valid-token",
+      uploadAttemptId: "attempt-old",
+      uploadGenerationId: "generation-old",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "media-ready",
+      skipped: true,
+      reason: "upload-identity-changed",
+    });
+
+    expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
+  it("skips media verification jobs without a captured upload identity", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "media-ready",
+      token: "valid-token",
+      retryAttempt: 2,
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "media-ready",
+      skipped: true,
+      reason: "upload-identity-missing",
+    });
+    expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
+  it("repairs a missing thumbnail in the owner request context", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      result: { status: "generated" },
+    });
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      expect.any(Function),
+    );
+    expect(mockEnsureRecordingThumbnail).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.test",
+    });
+  });
+
+  it("retries transient thumbnail failures with bounded durable delays", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+      retryAttempt: 2,
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "skipped-media-fetch",
+      changed: false,
+      detail: "temporary storage outage",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      retryScheduled: true,
+      retryAttempt: 3,
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      delayMs: 20_000,
+      retryAttempt: 3,
+      requireAccepted: true,
+    });
+  });
+
+  it("marks the thumbnail failed once retries are exhausted", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+      retryAttempt: 5,
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "skipped-media-fetch",
+      changed: false,
+      detail: "temporary storage outage",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      retryExhausted: true,
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+    expect(mockMarkThumbnailFailed).toHaveBeenCalledWith(
+      "rec-1",
+      "skipped-media-fetch",
+    );
+  });
+
+  it("marks the thumbnail failed once retries are exhausted after an error", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+      retryAttempt: 5,
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+    mockEnsureRecordingThumbnail.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      retryExhausted: true,
+      error: "database unavailable",
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+    expect(mockMarkThumbnailFailed).toHaveBeenCalledWith(
+      "rec-1",
+      "database unavailable",
+    );
+  });
+
+  it("retries thumbnail jobs when generation throws", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+    mockEnsureRecordingThumbnail.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      retryScheduled: true,
+      retryAttempt: 1,
+      error: "database unavailable",
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      delayMs: 5_000,
+      retryAttempt: 1,
+      requireAccepted: true,
     });
   });
 

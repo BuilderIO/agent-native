@@ -1,4 +1,3 @@
-// Force production mode — hides onboarding steps and dev mode toggle
 process.env.AGENT_MODE = "production"; // guard:allow-env-mutation — boot-time mode flag for the docs site, not per-request
 
 import {
@@ -8,9 +7,9 @@ import {
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 
-const SYSTEM_PROMPT = `You are the Agent-Native documentation assistant at agent-native.com.
+export const DOCS_AGENT_SYSTEM_PROMPT = `You are the Agent-Native documentation assistant at agent-native.com.
 
-You help developers learn and use the Agent-Native framework — an open-source framework for building Agent-native applications where agents and UI share state through SQL.
+You help developers learn and use the Agent-Native framework — an open-source framework for building Agent-Native applications where agents and UI share state through SQL.
 
 ## Your capabilities
 - Search and read all documentation pages
@@ -26,6 +25,7 @@ You help developers learn and use the Agent-Native framework — an open-source 
 - When showing code, base it on real patterns from the framework
 - If unsure, search the source code for the actual implementation
 - Keep answers focused and practical
+- Reply in the language of the user's latest message. The browser locale, docs URL locale, UI language, and language of retrieved documentation are context only and must not determine the response language. In particular, answer an English question in English even when the browser or page is set to Portuguese. If the language is unclear, default to English.
 - For questions outside Agent-Native, politely redirect to the docs`;
 
 export default createAgentChatPlugin({
@@ -39,5 +39,5 @@ export default createAgentChatPlugin({
     "search-docs",
     "search-source",
   ],
-  systemPrompt: SYSTEM_PROMPT,
+  systemPrompt: DOCS_AGENT_SYSTEM_PROMPT,
 });

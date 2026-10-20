@@ -8,6 +8,7 @@ description: >-
   assumptions, proceed through implementation and validation, stop only for true
   blockers, and end with a clear recap of decisions, changes, verification, and
   residual risk.
+scope: dev
 ---
 
 # Plow Ahead

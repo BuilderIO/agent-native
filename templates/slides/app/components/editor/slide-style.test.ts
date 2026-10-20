@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   backgroundCssValue,
   formatValue,
+  haveSameSlideStyleControls,
   horizontalAlignPatch,
+  mergeSlideStyleSnapshots,
   resolveHorizontalAlignment,
   resolveVerticalAlignment,
-  rotationTransform,
   verticalAlignPatch,
   type SlideStyleSnapshot,
 } from "./slide-style";
@@ -30,6 +31,7 @@ function snapshot(
     slideWidth: 1280,
     slideHeight: 720,
     color: "#ffffff",
+    fontFamily: "'Poppins', sans-serif",
     backgroundColor: "transparent",
     fontSize: 40,
     fontWeight: "700",
@@ -84,15 +86,49 @@ describe("value formatting", () => {
     expect(formatValue(12)).toBe("12");
     expect(formatValue(12.3456)).toBe("12.35");
   });
+});
 
-  it("builds a rotation transform", () => {
-    expect(rotationTransform(-45.5)).toBe("rotate(-45.5deg)");
+describe("style control snapshot comparison", () => {
+  it("ignores text preview changes while the toolbar controls stay the same", () => {
+    expect(
+      haveSameSlideStyleControls(
+        snapshot({ textPreview: "Draft" }),
+        snapshot({ textPreview: "Draft text" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps changes to style controls and text capability observable", () => {
+    expect(
+      haveSameSlideStyleControls(snapshot(), snapshot({ fontWeight: "400" })),
+    ).toBe(false);
+    expect(
+      haveSameSlideStyleControls(
+        snapshot(),
+        snapshot({ isText: false, textPreview: "" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("compares mixed text controls by value", () => {
+    expect(
+      haveSameSlideStyleControls(
+        snapshot({ mixedTextStyles: ["fontWeight"] }),
+        snapshot({ mixedTextStyles: ["fontWeight"] }),
+      ),
+    ).toBe(true);
+    expect(
+      haveSameSlideStyleControls(
+        snapshot({ mixedTextStyles: ["fontWeight"] }),
+        snapshot({ mixedTextStyles: ["fontStyle"] }),
+      ),
+    ).toBe(false);
   });
 });
 
 describe("slide background parsing", () => {
   it("falls back to the renderer default when unset", () => {
-    expect(backgroundCssValue(undefined)).toBe("#000000");
+    expect(backgroundCssValue(undefined)).toBe("#FFFFFF");
   });
 
   it("unwraps Tailwind arbitrary values", () => {
@@ -107,5 +143,36 @@ describe("slide background parsing", () => {
 
   it("passes raw CSS colors through", () => {
     expect(backgroundCssValue("#abcdef")).toBe("#abcdef");
+  });
+});
+
+describe("multi-selection style snapshots", () => {
+  it("keeps a common text snapshot and marks mixed controls", () => {
+    const merged = mergeSlideStyleSnapshots([
+      snapshot({ fontSize: 40, fontWeight: "700" }),
+      snapshot({ fontSize: 32, fontWeight: "700" }),
+    ]);
+
+    expect(merged?.fontSize).toBe(40);
+    expect(merged?.mixedTextStyles).toEqual(["fontSize"]);
+    expect(merged?.isAbsolute).toBe(false);
+  });
+
+  it("marks font family as mixed when selected text uses different families", () => {
+    const merged = mergeSlideStyleSnapshots([
+      snapshot({ fontFamily: "'Poppins', sans-serif" }),
+      snapshot({ fontFamily: "'Inter', sans-serif" }),
+    ]);
+
+    expect(merged?.mixedTextStyles).toEqual(["fontFamily"]);
+  });
+
+  it("does not expose one style toolbar for mixed object kinds", () => {
+    expect(
+      mergeSlideStyleSnapshots([
+        snapshot(),
+        snapshot({ isText: false, isImage: true, tagName: "IMG" }),
+      ]),
+    ).toBeNull();
   });
 });

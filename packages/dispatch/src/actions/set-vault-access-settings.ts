@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { setVaultAccessSettings } from "../server/lib/vault-store.js";
@@ -13,5 +13,9 @@ export default defineAction({
         "all-apps shares every vault key with every app; manual requires grants",
       ),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => setVaultAccessSettings(args),
 });

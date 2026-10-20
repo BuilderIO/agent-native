@@ -13,7 +13,7 @@ El marco maneja todo esto automáticamente. Los usuarios conectados a Builder (n
 
 Al abrir el micrófono, un menú emergente permite elegir entre **Conversación en tiempo real** y **Dictado editable**. El modo en tiempo real requiere una `OPENAI_API_KEY` de ámbito de usuario y conecta el navegador con `gpt-realtime-2.1` mediante WebRTC. El chat se contrae en un orbe de voz situado abajo a la derecha; al pulsarlo puedes mostrar u ocultar el chat sin finalizar la conversación. El orbe permanece visible sobre el chat aunque este se abra automáticamente, y una forma de onda compacta reacciona a tu voz y a la del asistente.
 
-El modelo de voz utiliza las mismas herramientas autenticadas de Agent Native que el chat, por lo que puede navegar por la aplicación y ejecutar acciones mientras habla. Las acciones que requieren aprobación permanecen en pausa hasta que las apruebes. Solo las intervenciones de texto completadas del usuario y del asistente se añaden al hilo de chat original. Al finalizar el modo de voz, el chat se abre para que puedas continuar por texto; no se guardan el audio ni los fragmentos provisionales. Las sesiones en tiempo real duran como máximo 60 minutos.
+El modelo de voz utiliza las mismas herramientas autenticadas de Agent-Native que el chat, por lo que puede navegar por la aplicación y ejecutar acciones mientras habla. Las acciones que requieren aprobación permanecen en pausa hasta que las apruebes. Solo las intervenciones de texto completadas del usuario y del asistente se añaden al hilo de chat original. Al finalizar el modo de voz, el chat se abre para que puedas continuar por texto; no se guardan el audio ni los fragmentos provisionales. Las sesiones en tiempo real duran como máximo 60 minutos.
 
 ## Cómo funciona {#how-it-works}
 
@@ -77,15 +77,15 @@ La ruta es **solo del mismo origen**: las POST entre sitios se rechazan para que
 
 ## Habilitación de proveedores {#enabling-providers}
 
-Builder es el camino más fácil: conecte Builder.io (nivel gratuito disponible) desde Configuración y el proveedor predeterminado será Builder Gemini Flash-Lite. Para proveedores BYOK, agregue la clave coincidente en Configuración → Claves API.
+Builder es el camino más fácil: use Builder.io (nivel gratuito disponible) desde **Settings → Connections → Integrations** y el proveedor predeterminado será Builder Gemini Flash-Lite. Para proveedores BYOK, agregue la clave de Gemini, Groq u OpenAI correspondiente.
 
 ### Por usuario (recomendado para SaaS)
 
-El usuario establece su propia clave a través de la configuración de la barra lateral del agente UI. Se almacena como un secreto cifrado exclusivo del usuario (a través de `readAppSecret`). Cada usuario paga por su propia transcripción; coste cero para el anfitrión.
+El usuario agrega su propia clave en **Personal providers** de **Settings → Agent → Model**. Se almacena como un secreto cifrado exclusivo del usuario (a través de `readAppSecret`). Cada usuario paga por su propia transcripción; coste cero para el anfitrión.
 
 ### Compartido (para herramientas internas)
 
-Establezca `GEMINI_API_KEY`, `GROQ_API_KEY` o `OPENAI_API_KEY` como una variable de entorno o en la tabla `settings`. La transcripción de cada usuario llega a la clave compartida.
+Establezca `GEMINI_API_KEY`, `GROQ_API_KEY` o `OPENAI_API_KEY` como variable de entorno, o pida a un propietario o administrador que la agregue para la organización en **Organization providers** de **Settings → Agent → Model**. La fila **Voice input** de **Settings → Organization → Infrastructure** elige qué proveedor responde primero. La transcripción de cada usuario usa la clave compartida.
 
 <Callout id="doc-block-xo9p5r" tone="info">
 

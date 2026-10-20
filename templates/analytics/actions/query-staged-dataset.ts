@@ -1,7 +1,3 @@
-/**
- * Thin analytics re-export of the core query-staged-dataset action,
- * pre-bound to appId="analytics".
- */
 import { createQueryStagedDatasetAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 
@@ -38,7 +34,7 @@ const AggregateFieldSchema = z.object({
 export default createQueryStagedDatasetAction({
   description:
     "Run a filter/aggregate/project query over a staged dataset previously written by provider-api-request (stageAs). " +
-    "All aggregation runs in-process — no SQL dialect differences. " +
+    "All aggregation runs in-process. " +
     "Use after staging to compute sums, averages, counts, min/max, or to filter/project rows without re-fetching the provider API. " +
     "For cross-source joins, stage each source first, then aggregate each independently and join the summaries.",
   schema: z.object({

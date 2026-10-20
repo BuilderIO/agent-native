@@ -76,7 +76,7 @@ describe("inferAutoLayoutSuggestion", () => {
     });
   });
 
-  it("uses Figma's column default for a single wide child", () => {
+  it("uses column layout for a single wide child", () => {
     const suggestion = inferAutoLayoutSuggestion({
       container: { id: "container", x: 0, y: 0, width: 300, height: 40 },
       children: [{ id: "wide", x: 0, y: 0, width: 300, height: 40 }],
@@ -86,6 +86,79 @@ describe("inferAutoLayoutSuggestion", () => {
       gap: 10,
       horizontalSizing: "hug",
       verticalSizing: "hug",
+    });
+  });
+
+  it("keeps differently sized column children aligned to their shared start edge", () => {
+    const suggestion = inferAutoLayoutSuggestion({
+      container: { id: "container", x: 0, y: 0, width: 117, height: 50 },
+      children: [
+        { id: "title", x: 0, y: 0, width: 117, height: 24 },
+        { id: "creator", x: 0, y: 32, width: 30, height: 18 },
+      ],
+    });
+    expect(suggestion).toMatchObject({
+      direction: "column",
+      alignItems: "flex-start",
+    });
+  });
+
+  it("does not infer center alignment from differently sized children sharing a start edge", () => {
+    const suggestion = inferAutoLayoutSuggestion({
+      container: { id: "container", x: 0, y: 0, width: 100, height: 30 },
+      children: [
+        { id: "wide", x: 0, y: 0, width: 100, height: 10 },
+        { id: "narrow", x: 0, y: 20, width: 80, height: 10 },
+      ],
+    });
+    expect(suggestion).toMatchObject({
+      direction: "column",
+      alignItems: "flex-start",
+    });
+  });
+
+  it("recognizes differently sized children with shared centers", () => {
+    const suggestion = inferAutoLayoutSuggestion({
+      container: { id: "container", x: 0, y: 0, width: 100, height: 80 },
+      children: [
+        { id: "wide", x: 20, y: 0, width: 60, height: 20 },
+        { id: "narrow", x: 30, y: 40, width: 40, height: 20 },
+      ],
+    });
+    expect(suggestion).toMatchObject({
+      direction: "column",
+      alignItems: "center",
+    });
+  });
+
+  it("recognizes differently sized children with shared end edges", () => {
+    const suggestion = inferAutoLayoutSuggestion({
+      container: { id: "container", x: 0, y: 0, width: 100, height: 80 },
+      children: [
+        { id: "wide", x: 40, y: 0, width: 60, height: 20 },
+        { id: "narrow", x: 60, y: 40, width: 40, height: 20 },
+      ],
+    });
+    expect(suggestion).toMatchObject({
+      direction: "column",
+      alignItems: "flex-end",
+    });
+  });
+
+  it("suggests column flow for a stack of rows wider than the stack is tall", () => {
+    const suggestion = inferAutoLayoutSuggestion({
+      container: { id: "container", x: 0, y: 0, width: 424, height: 176 },
+      children: [
+        { id: "a", x: 12, y: 12, width: 400, height: 40 },
+        { id: "b", x: 12, y: 64, width: 400, height: 40 },
+        { id: "c", x: 12, y: 116, width: 400, height: 40 },
+      ],
+    });
+    expect(suggestion).toMatchObject({
+      direction: "column",
+      orderedChildIds: ["a", "b", "c"],
+      gap: 12,
+      safeToApply: true,
     });
   });
 
@@ -155,8 +228,6 @@ describe("applyAutoLayoutSuggestion", () => {
     expect(history).toHaveLength(1);
     expect(history[0]?.before).toBe(html);
     expect(history[0]?.after).toBe(result.content);
-    // The one entry is exactly what editor undo/redo consumes in each
-    // direction, so the complete reorder/layout/sizing proposal is atomic.
     expect(history[0]?.before).not.toBe(history[0]?.after);
   });
 

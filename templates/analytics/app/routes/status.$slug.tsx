@@ -1,4 +1,9 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
+import {
+  buildResourceSocialMeta,
+  normalizeDocumentTitle,
+} from "@agent-native/core/shared";
 import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { data, useLoaderData, useParams } from "react-router";
@@ -15,6 +20,8 @@ import { PublicStatusView } from "../components/monitoring/PublicStatusView";
 interface StatusLoaderData {
   slug: string;
   page: PublicStatusPage | null;
+  origin: string;
+  basePath: string;
 }
 
 const FOUND_CACHE = {
@@ -26,11 +33,16 @@ export function headers({ loaderHeaders }: HeadersArgs) {
   return loaderHeaders;
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const slug = params.slug ?? "";
   const page = await getPublicStatusPage(slug);
   return data<StatusLoaderData>(
-    { slug, page },
+    {
+      slug,
+      page,
+      origin: new URL(request.url).origin,
+      basePath: getConfiguredAppBasePath(),
+    },
     { status: page ? 200 : 404, headers: page ? FOUND_CACHE : MISSING_CACHE },
   );
 }
@@ -43,17 +55,22 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
       { name: "robots", content: "noindex" },
     ];
   }
+  const pageTitle = normalizeDocumentTitle(page.title, "Status page");
   const description =
     page.description ||
     (page.overall === "operational"
       ? "All systems operational."
       : "Current service status.");
+  const title = `${pageTitle} · Status`;
   return [
-    { title: `${page.title} · Status` },
-    { name: "description", content: description },
-    { property: "og:title", content: `${page.title} · Status` },
-    { property: "og:description", content: description },
-    { property: "og:type", content: "website" },
+    { title },
+    ...buildResourceSocialMeta({
+      title,
+      description,
+      origin: loaderData.origin,
+      basePath: loaderData.basePath,
+      type: "website",
+    }),
   ];
 };
 
@@ -81,8 +98,6 @@ export default function PublicStatusRoute() {
   const params = useParams();
   const slug = loaderData.slug || params.slug || "";
 
-  // SSR gives us the initial page; the client lightly polls the same public
-  // action to keep the banner/uptime fresh without a manual reload.
   const query = useActionQuery<PublicStatusPage>(
     "get-public-status-page",
     { slug },

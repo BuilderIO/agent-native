@@ -1,5 +1,4 @@
 import { createDashboardStorageSchema } from "@agent-native/core/dashboard-storage";
-import { getDialect } from "@agent-native/core/db";
 import {
   createSharesTable,
   integer,
@@ -10,7 +9,6 @@ import {
   text,
 } from "@agent-native/core/db/schema";
 import { customType as pgCustomType } from "drizzle-orm/pg-core";
-import { integer as sqliteInteger } from "drizzle-orm/sqlite-core";
 
 import { CRM_ATTRIBUTE_TYPES } from "../../shared/crm-attributes.js";
 
@@ -23,13 +21,7 @@ const pgIntegerBoolean = pgCustomType<{
   toDriver: (value) => (value ? 1 : 0),
 });
 
-const sqliteBoolean = <TName extends string>(name: TName) =>
-  sqliteInteger(name, { mode: "boolean" });
-
-const portableBoolean: typeof sqliteBoolean = ((name: string) =>
-  getDialect() === "postgres"
-    ? pgIntegerBoolean(name)
-    : sqliteBoolean(name)) as unknown as typeof sqliteBoolean;
+const booleanColumn = pgIntegerBoolean;
 
 export const crmConnections = table("crm_connections", {
   id: text("id").primaryKey(),
@@ -39,8 +31,6 @@ export const crmConnections = table("crm_connections", {
   workspaceConnectionId: text("workspace_connection_id"),
   label: text("label").notNull(),
   accountId: text("account_id"),
-  // `hybrid` is deprecated — kept so existing rows stay valid, treated as
-  // `mirrored`. Per-attribute `authority` replaced it. See shared/crm-contract.ts.
   mode: text("mode", { enum: ["connected", "hybrid", "native"] })
     .notNull()
     .default("connected"),
@@ -76,12 +66,12 @@ export const crmObjects = table("crm_objects", {
   }).notNull(),
   label: text("label").notNull(),
   pluralLabel: text("plural_label").notNull(),
-  custom: portableBoolean("custom").notNull().default(false),
-  queryable: portableBoolean("queryable").notNull().default(true),
-  searchable: portableBoolean("searchable").notNull().default(true),
-  createable: portableBoolean("createable").notNull().default(false),
-  updateable: portableBoolean("updateable").notNull().default(false),
-  deleteable: portableBoolean("deleteable").notNull().default(false),
+  custom: booleanColumn("custom").notNull().default(false),
+  queryable: booleanColumn("queryable").notNull().default(true),
+  searchable: booleanColumn("searchable").notNull().default(true),
+  createable: booleanColumn("createable").notNull().default(false),
+  updateable: booleanColumn("updateable").notNull().default(false),
+  deleteable: booleanColumn("deleteable").notNull().default(false),
   capabilitiesJson: text("capabilities_json").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -108,40 +98,36 @@ export const crmFieldPolicies = table("crm_field_policies", {
   })
     .notNull()
     .default("remote-only"),
-  sensitive: portableBoolean("sensitive").notNull().default(false),
-  readable: portableBoolean("readable").notNull().default(true),
-  createable: portableBoolean("createable").notNull().default(false),
-  updateable: portableBoolean("updateable").notNull().default(false),
-  required: portableBoolean("required").notNull().default(false),
+  sensitive: booleanColumn("sensitive").notNull().default(false),
+  readable: booleanColumn("readable").notNull().default(true),
+  createable: booleanColumn("createable").notNull().default(false),
+  updateable: booleanColumn("updateable").notNull().default(false),
+  required: booleanColumn("required").notNull().default(false),
   metadataJson: text("metadata_json").notNull().default("{}"),
-  // --- typed attribute surface (additive; `crm_field_policies` IS the attribute table) ---
   attributeType: text("attribute_type", { enum: CRM_ATTRIBUTE_TYPES })
     .notNull()
     .default("text"),
   target: text("target", { enum: ["object", "list"] })
     .notNull()
     .default("object"),
-  // `object_type` deliberately mirrors `target_id` for list attributes too, so
-  // the legacy unique index (connection_id, object_type, field_name) keeps
-  // guarding one attribute per target without a second unique index.
   targetId: text("target_id"),
   apiSlug: text("api_slug"),
   description: text("description"),
-  multi: portableBoolean("multi").notNull().default(false),
+  multi: booleanColumn("multi").notNull().default(false),
   inverseAttributeId: text("inverse_attribute_id"),
   authority: text("authority", {
     enum: ["provider", "derived-local", "local-authoritative"],
   })
     .notNull()
     .default("provider"),
-  historyTracked: portableBoolean("history_tracked").notNull().default(true),
+  historyTracked: booleanColumn("history_tracked").notNull().default(true),
   fillMode: text("fill_mode", {
     enum: ["agent-summarize", "agent-classify", "agent-research", "formula"],
   }),
   fillConfigJson: text("fill_config_json").notNull().default("{}"),
   configJson: text("config_json").notNull().default("{}"),
-  uniqueValue: portableBoolean("unique_value").notNull().default(false),
-  archived: portableBoolean("archived").notNull().default(false),
+  uniqueValue: booleanColumn("unique_value").notNull().default(false),
+  archived: booleanColumn("archived").notNull().default(false),
   position: integer("position").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -159,11 +145,9 @@ export const crmAttributeOptions = table("crm_attribute_options", {
   title: text("title").notNull(),
   color: text("color"),
   position: integer("position").notNull().default(0),
-  archived: portableBoolean("archived").notNull().default(false),
-  /** `status` attributes only: stage SLA in days. */
+  archived: booleanColumn("archived").notNull().default(false),
   targetDays: integer("target_days"),
-  /** `status` attributes only. */
-  celebrate: portableBoolean("celebrate").notNull().default(false),
+  celebrate: booleanColumn("celebrate").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -201,7 +185,7 @@ export const crmRecords = table("crm_records", {
   lastSyncedAt: text("last_synced_at"),
   accessScopeKey: text("access_scope_key").notNull(),
   accessScopeJson: text("access_scope_json").notNull().default("{}"),
-  tombstone: portableBoolean("tombstone").notNull().default(false),
+  tombstone: booleanColumn("tombstone").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -209,21 +193,9 @@ export const crmRecords = table("crm_records", {
 
 export const crmRecordShares = createSharesTable("crm_record_shares");
 
-/**
- * Bitemporal attribute values. The current value of an attribute is the row
- * with `activeUntil IS NULL`; every superseded value keeps its own row with the
- * instant it stopped being current. All writes go through
- * `server/lib/record-fields.ts` — a direct insert here bypasses the equality
- * check that keeps mirror syncs from writing a new history row every pass.
- */
 export const crmRecordFields = table("crm_record_fields", {
   id: text("id").primaryKey(),
   recordId: text("record_id").notNull(),
-  /**
-   * Set when this row holds a LIST-ENTRY attribute value rather than a record
-   * attribute value. `recordId` stays populated either way (it is NOT NULL and
-   * cannot be loosened additively), so the discriminator is `entryId IS NULL`.
-   */
   entryId: text("entry_id"),
   fieldPolicyId: text("field_policy_id"),
   attributeId: text("attribute_id"),
@@ -234,15 +206,11 @@ export const crmRecordFields = table("crm_record_fields", {
   }).notNull(),
   stringValue: text("string_value"),
   numberValue: real("number_value"),
-  booleanValue: portableBoolean("boolean_value"),
+  booleanValue: booleanColumn("boolean_value"),
   jsonValue: text("json_value"),
-  // ISO 8601, not the `datetime('now')` SQL default the older timestamp columns
-  // use: this column is ordered against `activeUntil` in history queries, and
-  // `"… 20:56:04"` sorts before `"…T20:56:04Z"` for the same instant.
   activeFrom: text("active_from")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-  /** Null means this row is the current value. */
   activeUntil: text("active_until"),
   actorType: text("actor_type", {
     enum: ["user", "agent", "automation", "provider", "system"],
@@ -250,8 +218,6 @@ export const crmRecordFields = table("crm_record_fields", {
     .notNull()
     .default("system"),
   actorId: text("actor_id"),
-  // Sparse composite sub-fields. Columns, not json_extract: a WHERE clause over
-  // JSON is dialect-divergent, and these are what the grid filters on.
   emailLocal: text("email_local"),
   emailDomain: text("email_domain"),
   emailRootDomain: text("email_root_domain"),
@@ -273,11 +239,6 @@ export const crmRecordFieldShares = createSharesTable(
   "crm_record_field_shares",
 );
 
-/**
- * Lists are local-authoritative on every backend, including HubSpot and
- * Salesforce. `source: "imported"` records where a list came from; it never
- * makes the provider authoritative for its membership.
- */
 export const crmLists = table("crm_lists", {
   id: text("id").primaryKey(),
   connectionId: text("connection_id").notNull(),
@@ -286,7 +247,7 @@ export const crmLists = table("crm_lists", {
   parentObjectType: text("parent_object_type").notNull(),
   description: text("description").notNull().default(""),
   defaultViewId: text("default_view_id"),
-  archived: portableBoolean("archived").notNull().default(false),
+  archived: booleanColumn("archived").notNull().default(false),
   position: integer("position").notNull().default(0),
   source: text("source", { enum: ["local", "imported"] })
     .notNull()
@@ -300,10 +261,6 @@ export const crmLists = table("crm_lists", {
 
 export const crmListShares = createSharesTable("crm_list_shares");
 
-/**
- * A record may hold more than one entry in the same list (two open renewals for
- * one account, say), so there is deliberately no unique `(list_id, record_id)`.
- */
 export const crmListEntries = table("crm_list_entries", {
   id: text("id").primaryKey(),
   listId: text("list_id").notNull(),
@@ -333,7 +290,7 @@ export const crmRelationships = table("crm_relationships", {
   sourceField: text("source_field"),
   remoteRelationshipId: text("remote_relationship_id"),
   remoteRevision: text("remote_revision"),
-  tombstone: portableBoolean("tombstone").notNull().default(false),
+  tombstone: booleanColumn("tombstone").notNull().default(false),
   lastSyncedAt: text("last_synced_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -359,7 +316,7 @@ export const crmInteractions = table("crm_interactions", {
   title: text("title").notNull(),
   summary: text("summary").notNull().default(""),
   occurredAt: text("occurred_at").notNull(),
-  meaningful: portableBoolean("meaningful").notNull().default(true),
+  meaningful: booleanColumn("meaningful").notNull().default(true),
   providerObjectType: text("provider_object_type"),
   providerRemoteId: text("provider_remote_id"),
   sourceApp: text("source_app"),
@@ -402,8 +359,8 @@ export const crmSignalTrackers = table("crm_signal_trackers", {
   kind: text("kind", { enum: ["keyword", "smart"] }).notNull(),
   keywordsJson: text("keywords_json").notNull().default("[]"),
   classifierPrompt: text("classifier_prompt").notNull().default(""),
-  enabled: portableBoolean("enabled").notNull().default(true),
-  isDefault: portableBoolean("is_default").notNull().default(false),
+  enabled: booleanColumn("enabled").notNull().default(true),
+  isDefault: booleanColumn("is_default").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -497,9 +454,6 @@ export const crmSavedViews = table("crm_saved_views", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
-  // `kind` predates typed views and holds the RECORD kind (account/person/
-  // opportunity) that crm-store.ts validates. The table-vs-board discriminator
-  // is `viewKind`; do not repurpose `kind`.
   kind: text("kind"),
   viewKind: text("view_kind", { enum: ["table", "board"] })
     .notNull()
@@ -508,15 +462,12 @@ export const crmSavedViews = table("crm_saved_views", {
     .notNull()
     .default("object"),
   targetId: text("target_id"),
-  /** Board views only; must reference a `status` attribute. */
   groupByAttributeId: text("group_by_attribute_id"),
-  // personal-vs-shared is the framework `visibility` column from
-  // ownableColumns(): "private" is personal, "org" is shared. No second column.
   filtersJson: text("filters_json").notNull().default("{}"),
   columnsJson: text("columns_json").notNull().default("[]"),
   sortJson: text("sort_json").notNull().default("[]"),
   dataProgramId: text("data_program_id"),
-  pinned: portableBoolean("pinned").notNull().default(false),
+  pinned: booleanColumn("pinned").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -612,15 +563,12 @@ export const crmEnrichmentRuns = table("crm_enrichment_runs", {
   })
     .notNull()
     .default("queued"),
-  /** `spend` only: the verify run whose approved evidence built this input set. */
   sourceRunId: text("source_run_id"),
   slotsJson: text("slots_json").notNull().default("[]"),
   inputRecordIdsJson: text("input_record_ids_json").notNull().default("[]"),
-  /** Per-record slot outcomes. Bounded facts and errors only — never payloads. */
   outcomesJson: text("outcomes_json").notNull().default("[]"),
   estimateJson: text("estimate_json").notNull().default("{}"),
   costUnits: real("cost_units"),
-  /** Atomic claim: write a unique nonce, read it back, only the winner proceeds. */
   claimNonce: text("claim_nonce"),
   claimedAt: text("claimed_at"),
   error: text("error"),

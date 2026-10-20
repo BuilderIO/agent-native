@@ -2,14 +2,25 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createClient, type Client } from "@libsql/client";
-/**
- * End-to-end test for the `db-migrate-encrypt-credentials` script against a
- * REAL (temp-file) SQLite database. Validates the command we tell operators to
- * run in production: it encrypts plaintext credential rows in place, leaves
- * already-encrypted and non-credential rows alone, is idempotent, and refuses
- * to run without an encryption key.
- */
+import {
+  createPostgresScriptClient,
+  type PostgresScriptClient,
+} from "./postgres-client.js";
+
+type Client = PostgresScriptClient;
+
+async function createClient({ url }: { url: string }) {
+  const client = await createPostgresScriptClient(url);
+  return {
+    async execute(input: string | { sql: string; args?: unknown[] }) {
+      return client.unsafe(
+        typeof input === "string" ? input : input.sql,
+        typeof input === "string" ? undefined : input.args,
+      );
+    },
+    close: () => client.end(),
+  };
+}
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -20,13 +31,13 @@ import {
 
 const KEY = "migrate-encrypt-spec-key";
 
-describe("db-migrate-encrypt-credentials (e2e, real sqlite)", () => {
+describe("db-migrate-encrypt-credentials (e2e, real postgres)", () => {
   let dir: string;
   let dbFile: string;
   let url: string;
 
   async function withClient<T>(fn: (c: Client) => Promise<T>): Promise<T> {
-    const c = createClient({ url });
+    const c = await createClient({ url });
     try {
       return await fn(c);
     } finally {
@@ -40,7 +51,7 @@ describe("db-migrate-encrypt-credentials (e2e, real sqlite)", () => {
         sql: `SELECT value FROM settings WHERE key = ?`,
         args: [key],
       });
-      const stored = JSON.parse(r.rows[0].value as string);
+      const stored = JSON.parse(r[0].value as string);
       return stored.value as string;
     });
   }
@@ -60,8 +71,8 @@ describe("db-migrate-encrypt-credentials (e2e, real sqlite)", () => {
   beforeEach(async () => {
     vi.stubEnv("SECRETS_ENCRYPTION_KEY", KEY);
     dir = await mkdtemp(path.join(os.tmpdir(), "an-migrate-"));
-    dbFile = path.join(dir, "app.db");
-    url = "file:" + dbFile;
+    dbFile = path.join(dir, "app");
+    url = "pglite:" + dbFile;
     await withClient(async (c) => {
       await c.execute(
         `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
@@ -69,7 +80,6 @@ describe("db-migrate-encrypt-credentials (e2e, real sqlite)", () => {
       const rows: [string, unknown][] = [
         ["u:a@x.com:credential:OPENAI_API_KEY", { value: "sk-plain-AAA" }],
         ["o:org1:credential:STRIPE_KEY", { value: "sk_live_plain" }],
-        // Already encrypted — must be left untouched (idempotent).
         ["u:b@x.com:credential:K", { value: encryptSecretValue("already") }],
         // Non-credential setting — must never be touched.
         ["u:a@x.com:pref:theme", { value: "dark" }],
@@ -110,8 +120,8 @@ describe("db-migrate-encrypt-credentials (e2e, real sqlite)", () => {
   it("leaves already-encrypted and non-credential rows untouched", async () => {
     const beforeEnc = await rawValue("u:b@x.com:credential:K");
     await runMigrate();
-    expect(await rawValue("u:b@x.com:credential:K")).toBe(beforeEnc); // byte-identical
-    expect(await rawValue("u:a@x.com:pref:theme")).toBe("dark"); // plaintext pref
+    expect(await rawValue("u:b@x.com:credential:K")).toBe(beforeEnc);
+    expect(await rawValue("u:a@x.com:pref:theme")).toBe("dark");
   });
 
   it("is idempotent — a second run encrypts nothing new", async () => {
@@ -119,15 +129,16 @@ describe("db-migrate-encrypt-credentials (e2e, real sqlite)", () => {
     const after1 = await rawValue("u:a@x.com:credential:OPENAI_API_KEY");
     await runMigrate();
     const after2 = await rawValue("u:a@x.com:credential:OPENAI_API_KEY");
-    expect(after2).toBe(after1); // not double-encrypted
+    expect(after2).toBe(after1);
     expect(decryptSecretValue(after2)).toBe("sk-plain-AAA");
   });
 
   it("refuses to run without an encryption key", async () => {
     vi.stubEnv("SECRETS_ENCRYPTION_KEY", "");
     vi.stubEnv("BETTER_AUTH_SECRET", "");
-    await expect(runMigrate()).rejects.toThrow(/encryption key/i);
-    // Nothing was modified.
+    await expect(runMigrate()).rejects.toThrow(
+      /SECRETS_ENCRYPTION_KEY|BETTER_AUTH_SECRET/,
+    );
     expect(await rawValue("u:a@x.com:credential:OPENAI_API_KEY")).toBe(
       "sk-plain-AAA",
     );

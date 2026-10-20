@@ -27,7 +27,7 @@ const baseArgs = {
   sourceId: "source-1",
   title: "Product FAQ",
   kind: "document" as const,
-  content: "Agent Native is an application framework.",
+  content: "Agent-Native is an application framework.",
   enqueueDistillation: true,
 };
 

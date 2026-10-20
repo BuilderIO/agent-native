@@ -1,16 +1,25 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { createWorkspaceResource } from "../server/lib/workspace-resources-store.js";
 
 export default defineAction({
   description:
     'Create a workspace-wide skill, instruction, agent profile, reference resource, or MCP server. Set scope to "all" for runtime inheritance by every app, or "selected" to grant per-app. When Dispatch approval policy is enabled, All-app creates queue an approval request before taking effect.',
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     kind: z
-      .enum(["skill", "instruction", "agent", "knowledge", "mcp-server"])
+      .enum([
+        "skill",
+        "instruction",
+        "agent",
+        "agent-file",
+        "knowledge",
+        "mcp-server",
+      ])
       .describe(
-        "Resource kind: skill, instruction, agent, knowledge, or mcp-server",
+        "Resource kind: skill, instruction, agent, agent-file, knowledge, or mcp-server",
       ),
     name: z.string().describe("Human-readable name"),
     description: z.string().optional().describe("Short description"),

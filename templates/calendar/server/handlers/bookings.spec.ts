@@ -5,14 +5,19 @@ import * as googleCalendar from "../lib/google-calendar.js";
 import {
   generateAvailableSlotsForDate,
   getConflictItems,
+  parseBookingAvailabilityDraft,
+  resolveBookingLinkAvailabilityOverrides,
   resolveBookingCalendarAccount,
+  deleteGoogleEventForBooking,
 } from "./bookings";
 
 vi.mock("../lib/google-calendar.js", () => ({
   getFreeBusy: vi.fn(),
   getDefaultAccountSelection: vi.fn(),
+  getOwnedAccountEmails: vi.fn(),
   isConnected: vi.fn(),
   listEvents: vi.fn(),
+  deleteEvent: vi.fn(),
 }));
 
 function availabilityConfig(): AvailabilityConfig {
@@ -40,6 +45,9 @@ describe("booking availability", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-01T12:00:00.000Z"));
     vi.mocked(googleCalendar.isConnected).mockResolvedValue(true);
+    vi.mocked(googleCalendar.getOwnedAccountEmails).mockResolvedValue([
+      "viewer@example.com",
+    ]);
     vi.mocked(googleCalendar.getFreeBusy).mockResolvedValue({
       calendars: {
         "host@example.com": { busy: [] },
@@ -94,6 +102,163 @@ describe("booking availability", () => {
     ]);
   });
 
+  it("offers no slots for a schedule window entirely inside a spring-forward DST gap", () => {
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const config: AvailabilityConfig = {
+      ...availabilityConfig(),
+      timezone: "America/New_York",
+      weeklySchedule: {
+        monday: { enabled: false, slots: [] },
+        tuesday: { enabled: false, slots: [] },
+        wednesday: { enabled: false, slots: [] },
+        thursday: { enabled: false, slots: [] },
+        friday: { enabled: false, slots: [] },
+        saturday: { enabled: false, slots: [] },
+        sunday: { enabled: true, slots: [{ start: "02:00", end: "03:00" }] },
+      },
+    };
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-03-08",
+      duration: 30,
+      config,
+      conflictItems: [],
+    });
+
+    expect(slots).toEqual([]);
+  });
+
+  it("does not offer a slot before the requested start when it falls in a DST gap", () => {
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const config: AvailabilityConfig = {
+      ...availabilityConfig(),
+      timezone: "America/New_York",
+      weeklySchedule: {
+        monday: { enabled: false, slots: [] },
+        tuesday: { enabled: false, slots: [] },
+        wednesday: { enabled: false, slots: [] },
+        thursday: { enabled: false, slots: [] },
+        friday: { enabled: false, slots: [] },
+        saturday: { enabled: false, slots: [] },
+        sunday: { enabled: true, slots: [{ start: "01:30", end: "04:00" }] },
+      },
+    };
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-03-08",
+      duration: 30,
+      config,
+      conflictItems: [],
+    });
+
+    expect(slots.map((slot) => ({ start: slot.start, end: slot.end }))).toEqual(
+      [
+        { start: "2026-03-08T06:30:00.000Z", end: "2026-03-08T07:00:00.000Z" },
+        { start: "2026-03-08T07:00:00.000Z", end: "2026-03-08T07:30:00.000Z" },
+        { start: "2026-03-08T07:30:00.000Z", end: "2026-03-08T08:00:00.000Z" },
+      ],
+    );
+  });
+
+  it("offers a slot after a non-hour DST gap instead of discarding the window", () => {
+    vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
+    const config: AvailabilityConfig = {
+      ...availabilityConfig(),
+      timezone: "Australia/Lord_Howe",
+      weeklySchedule: {
+        monday: { enabled: false, slots: [] },
+        tuesday: { enabled: false, slots: [] },
+        wednesday: { enabled: false, slots: [] },
+        thursday: { enabled: false, slots: [] },
+        friday: { enabled: false, slots: [] },
+        saturday: { enabled: false, slots: [] },
+        sunday: { enabled: true, slots: [{ start: "02:00", end: "02:45" }] },
+      },
+    };
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-10-04",
+      duration: 15,
+      config,
+      conflictItems: [],
+    });
+
+    expect(slots.map((slot) => ({ start: slot.start, end: slot.end }))).toEqual(
+      [{ start: "2026-10-03T15:30:00.000Z", end: "2026-10-03T15:45:00.000Z" }],
+    );
+  });
+
+  it("rejects a calendar date that a time zone skipped entirely", () => {
+    vi.setSystemTime(new Date("2011-11-01T00:00:00.000Z"));
+    const config: AvailabilityConfig = {
+      ...availabilityConfig(),
+      timezone: "Pacific/Apia",
+      weeklySchedule: {
+        monday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        tuesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        wednesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        thursday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        friday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        saturday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        sunday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      },
+    };
+
+    expect(() =>
+      generateAvailableSlotsForDate({
+        date: "2011-12-30",
+        duration: 30,
+        config,
+        conflictItems: [],
+      }),
+    ).toThrow(/does not exist/);
+  });
+
+  it("does not discard an otherwise-valid day when a peer's padding day is skipped", () => {
+    vi.setSystemTime(new Date("2011-11-01T00:00:00.000Z"));
+    const fullWeek = {
+      monday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      tuesday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      wednesday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      thursday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      friday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      saturday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      sunday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+    };
+    const config: AvailabilityConfig = {
+      ...availabilityConfig(),
+      timezone: "UTC",
+      weeklySchedule: {
+        monday: { enabled: false, slots: [] },
+        tuesday: { enabled: false, slots: [] },
+        wednesday: { enabled: false, slots: [] },
+        thursday: { enabled: false, slots: [] },
+        friday: { enabled: false, slots: [] },
+        saturday: {
+          enabled: true,
+          slots: [{ start: "09:00", end: "17:00" }],
+        },
+        sunday: { enabled: false, slots: [] },
+      },
+    };
+
+    expect(() =>
+      generateAvailableSlotsForDate({
+        date: "2011-12-31",
+        duration: 30,
+        config,
+        conflictItems: [],
+        hostSchedules: [
+          {
+            email: "peer@example.com",
+            timezone: "Pacific/Apia",
+            weeklySchedule: fullWeek,
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
   it("offers 60-minute meetings on 30-minute start intervals", () => {
     const slots = generateAvailableSlotsForDate({
       date: "2026-07-20",
@@ -111,8 +276,274 @@ describe("booking availability", () => {
     ]);
   });
 
-  it("marks owner availability unavailable when Google is not connected", async () => {
+  it("omits slots that overlap existing calendar conflicts", () => {
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 30,
+      config: availabilityConfig(),
+      conflictItems: [
+        {
+          start: "2026-07-20T16:30:00.000Z",
+          end: "2026-07-20T17:30:00.000Z",
+        },
+      ],
+    });
+
+    expect(slots.map((slot) => slot.start)).toEqual([
+      "2026-07-20T16:00:00.000Z",
+      "2026-07-20T17:30:00.000Z",
+      "2026-07-20T18:00:00.000Z",
+      "2026-07-20T18:30:00.000Z",
+    ]);
+  });
+
+  it("offers slots from each disjoint availability window", () => {
+    const config = availabilityConfig();
+    config.weeklySchedule.monday.slots = [
+      { start: "09:00", end: "10:00" },
+      { start: "14:00", end: "15:00" },
+    ];
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 30,
+      config,
+      conflictItems: [],
+    });
+
+    expect(slots.map((slot) => slot.start)).toEqual([
+      "2026-07-20T16:00:00.000Z",
+      "2026-07-20T16:30:00.000Z",
+      "2026-07-20T21:00:00.000Z",
+      "2026-07-20T21:30:00.000Z",
+    ]);
+  });
+
+  it("does not publish duplicate slots from overlapping availability windows", () => {
+    const config = availabilityConfig();
+    config.weeklySchedule.monday.slots = [
+      { start: "09:00", end: "12:00" },
+      { start: "11:00", end: "14:00" },
+    ];
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 60,
+      config,
+      conflictItems: [],
+    });
+
+    expect(new Set(slots.map((slot) => `${slot.start}/${slot.end}`)).size).toBe(
+      slots.length,
+    );
+  });
+
+  it("narrows slots to the overlap with an eligible host schedule", () => {
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 30,
+      config: availabilityConfig(),
+      conflictItems: [],
+      hostSchedules: [
+        {
+          email: "peer@example.com",
+          timezone: "America/Los_Angeles",
+          weeklySchedule: {
+            monday: {
+              enabled: true,
+              slots: [{ start: "10:00", end: "11:00" }],
+            },
+            tuesday: { enabled: false, slots: [] },
+            wednesday: { enabled: false, slots: [] },
+            thursday: { enabled: false, slots: [] },
+            friday: { enabled: false, slots: [] },
+            saturday: { enabled: false, slots: [] },
+            sunday: { enabled: false, slots: [] },
+          },
+        },
+      ],
+    });
+
+    expect(slots.map((slot) => slot.start)).toEqual([
+      "2026-07-20T17:00:00.000Z",
+      "2026-07-20T17:30:00.000Z",
+    ]);
+  });
+
+  it("returns no slots when an eligible host schedule does not overlap the day", () => {
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 30,
+      config: availabilityConfig(),
+      conflictItems: [],
+      hostSchedules: [
+        {
+          email: "peer@example.com",
+          timezone: "America/Los_Angeles",
+          weeklySchedule: {
+            monday: { enabled: false, slots: [] },
+            tuesday: { enabled: false, slots: [] },
+            wednesday: { enabled: false, slots: [] },
+            thursday: { enabled: false, slots: [] },
+            friday: { enabled: false, slots: [] },
+            saturday: { enabled: false, slots: [] },
+            sunday: { enabled: false, slots: [] },
+          },
+        },
+      ],
+    });
+
+    expect(slots).toEqual([]);
+  });
+
+  it("leaves slots unchanged for a host with no saved schedule", () => {
+    const withoutHost = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 45,
+      config: availabilityConfig(),
+      conflictItems: [],
+    });
+    const withUnscheduledHost = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 45,
+      config: availabilityConfig(),
+      conflictItems: [],
+      hostSchedules: [{ email: "peer@example.com" }],
+    });
+
+    expect(withUnscheduledHost).toEqual(withoutHost);
+  });
+
+  it("marks availability unavailable when the owner has not connected Google", async () => {
     vi.mocked(googleCalendar.isConnected).mockResolvedValue(false);
+    const existingBooking = {
+      start: "2026-07-20T16:00:00.000Z",
+      end: "2026-07-20T16:30:00.000Z",
+    };
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve([existingBooking]),
+        }),
+      }),
+    } as any;
+
+    const result = await getConflictItems({
+      db,
+      ownerEmail: "host@example.com",
+      hostEmails: ["host@example.com"],
+      conflictSlugs: ["meeting-45"],
+      rangeStartIso: "2026-07-20T07:00:00.000Z",
+      rangeEndIso: "2026-07-21T07:00:00.000Z",
+      timezone: "America/Los_Angeles",
+    });
+
+    expect(result).toEqual({
+      items: [],
+      unavailableReason:
+        "Calendar availability unavailable for host@example.com",
+    });
+    expect(googleCalendar.getFreeBusy).not.toHaveBeenCalled();
+    expect(googleCalendar.listEvents).not.toHaveBeenCalled();
+  });
+
+  it("includes a same-org viewer's calendar and booking conflicts", async () => {
+    vi.mocked(googleCalendar.listEvents)
+      .mockResolvedValueOnce({ events: [], errors: [] })
+      .mockResolvedValueOnce({
+        events: [
+          {
+            start: "2026-07-20T17:00:00.000Z",
+            end: "2026-07-20T17:30:00.000Z",
+          } as any,
+        ],
+        errors: [],
+      });
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () =>
+            Promise.resolve([
+              {
+                start: "2026-07-20T18:00:00.000Z",
+                end: "2026-07-20T18:30:00.000Z",
+              },
+            ]),
+        }),
+      }),
+    } as any;
+
+    const result = await getConflictItems({
+      db,
+      ownerEmail: "host@example.com",
+      hostEmails: ["host@example.com"],
+      conflictSlugs: ["meeting-45"],
+      viewerEmail: "viewer@example.com",
+      viewerOrgId: "org-1",
+      rangeStartIso: "2026-07-20T07:00:00.000Z",
+      rangeEndIso: "2026-07-21T07:00:00.000Z",
+      timezone: "America/Los_Angeles",
+    });
+
+    expect(result).toEqual({
+      items: [
+        {
+          start: "2026-07-20T17:00:00.000Z",
+          end: "2026-07-20T17:30:00.000Z",
+        },
+        {
+          start: "2026-07-20T18:00:00.000Z",
+          end: "2026-07-20T18:30:00.000Z",
+        },
+      ],
+    });
+    expect(googleCalendar.getOwnedAccountEmails).toHaveBeenCalledWith(
+      "viewer@example.com",
+    );
+    expect(googleCalendar.listEvents).toHaveBeenLastCalledWith(
+      "2026-07-20T07:00:00.000Z",
+      "2026-07-21T07:00:00.000Z",
+      "viewer@example.com",
+      { accountEmails: ["viewer@example.com"] },
+    );
+  });
+
+  it("does not use a managed calendar as a viewer's personal conflict source", async () => {
+    vi.mocked(googleCalendar.getOwnedAccountEmails).mockResolvedValue([]);
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve([]),
+        }),
+      }),
+    } as any;
+
+    const result = await getConflictItems({
+      db,
+      ownerEmail: "host@example.com",
+      hostEmails: ["host@example.com"],
+      conflictSlugs: ["meeting-45"],
+      viewerEmail: "viewer@example.com",
+      viewerOrgId: "org-1",
+      rangeStartIso: "2026-07-20T07:00:00.000Z",
+      rangeEndIso: "2026-07-21T07:00:00.000Z",
+      timezone: "America/Los_Angeles",
+    });
+
+    expect(result).toEqual({ items: [] });
+    expect(googleCalendar.listEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks availability unavailable when a Google calendar response contains a per-calendar error", async () => {
+    vi.mocked(googleCalendar.getFreeBusy).mockResolvedValue({
+      calendars: {
+        "host@example.com": {
+          busy: [],
+          errors: [{ reason: "notFound" }],
+        },
+      },
+      errors: [],
+    });
 
     const result = await getConflictItems({
       db: {} as any,
@@ -129,7 +560,6 @@ describe("booking availability", () => {
       unavailableReason:
         "Calendar availability unavailable for host@example.com",
     });
-    expect(googleCalendar.getFreeBusy).not.toHaveBeenCalled();
   });
 
   it("marks owner availability unavailable when Google free/busy reports errors, ignoring any listEvents data", async () => {
@@ -137,10 +567,6 @@ describe("booking availability", () => {
       calendars: {},
       errors: [{ email: "host@example.com", error: "invalid_grant" }],
     });
-    // getConflictItems fetches freeBusy and listEvents in parallel for
-    // performance, but the freeBusy-error path must still take priority and
-    // discard any listEvents data — even when listEvents "succeeds" with
-    // events that would otherwise produce conflict items.
     vi.mocked(googleCalendar.listEvents).mockResolvedValue({
       events: [
         {
@@ -192,6 +618,50 @@ describe("booking availability", () => {
       unavailableReason:
         "Calendar availability unavailable for host@example.com",
     });
+  });
+
+  it("applies draft durations and co-hosts to preview availability", () => {
+    const parsed = parseBookingAvailabilityDraft(
+      JSON.stringify({
+        slug: "updated-meeting",
+        durations: [45, 60],
+        hosts: [{ email: "new-host@example.com" }],
+      }),
+    );
+    expect("draft" in parsed).toBe(true);
+    if (!("draft" in parsed)) return;
+
+    const overrides = resolveBookingLinkAvailabilityOverrides({
+      bookingLink: {
+        ownerEmail: "owner@example.com",
+        hosts: JSON.stringify([{ email: "old-host@example.com" }]),
+        duration: 30,
+        durations: JSON.stringify([30]),
+      } as Parameters<
+        typeof resolveBookingLinkAvailabilityOverrides
+      >[0]["bookingLink"],
+      draft: parsed.draft,
+    });
+
+    expect(overrides.hostEmails).toEqual([
+      "owner@example.com",
+      "new-host@example.com",
+    ]);
+    expect(overrides.durationSource).toEqual({
+      duration: 45,
+      durations: "[45,60]",
+    });
+  });
+
+  it("rejects malformed draft preview payloads", () => {
+    expect(parseBookingAvailabilityDraft("not-json")).toEqual({
+      error: "draft must be valid JSON",
+    });
+    expect(
+      parseBookingAvailabilityDraft(
+        JSON.stringify({ slug: "meeting", durations: [], hosts: [] }),
+      ),
+    ).toEqual({ error: "draft has an invalid booking-link configuration" });
   });
 });
 
@@ -256,6 +726,35 @@ describe("booking calendar account provenance", () => {
 
     expect(googleCalendar.getDefaultAccountSelection).toHaveBeenCalledWith(
       "alice@example.com",
+    );
+  });
+});
+
+describe("booking cancellation provider notifications", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("sends Google cancellation updates to every booking attendee", async () => {
+    vi.mocked(googleCalendar.deleteEvent).mockResolvedValue();
+
+    await deleteGoogleEventForBooking({
+      booking: {
+        id: "booking-1",
+        slug: "alice-meeting",
+        googleEventId: "event-1",
+        ownerEmail: "alice@example.com",
+        calendarAccountId: "primary@example.com",
+      },
+    });
+
+    expect(googleCalendar.deleteEvent).toHaveBeenCalledWith(
+      "event-1",
+      {
+        ownerEmail: "alice@example.com",
+        accountEmail: "primary@example.com",
+      },
+      { sendUpdates: "all" },
     );
   });
 });

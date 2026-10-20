@@ -1,0 +1,11 @@
+.agent-native-motion-text-unit {
+  display: inline-block;
+}
+
+.agent-native-motion-text-space-unit {
+  position: absolute;
+  display: block;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}

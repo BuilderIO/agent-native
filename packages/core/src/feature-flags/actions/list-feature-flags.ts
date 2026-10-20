@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getLabForLegacyFlag } from "../../labs/registry.js";
 import { requireFeatureFlagManager } from "../permissions.js";
 import { listFeatureFlags } from "../registry.js";
 import { evaluateFeatureFlagRules, getFeatureFlagRules } from "../store.js";
@@ -45,6 +46,10 @@ export default defineAction({
         const rules = await getFeatureFlagRules(definition.key, manager);
         return {
           ...definition,
+          ...(getLabForLegacyFlag(definition.key) && {
+            movedToLab: getLabForLegacyFlag(definition.key)?.key,
+            canManage: false,
+          }),
           rules,
           enabledForCurrentUser: evaluateFeatureFlagRules(
             definition.key,

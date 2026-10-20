@@ -21,6 +21,8 @@ export function useGeneratingSlidePreview({
   const [content, setContent] = useState<string | null>(null);
   const activeCallIdRef = useRef<string | null>(null);
   const previousSlideCountRef = useRef(slideCount);
+  const pendingContentRef = useRef<string | null>(null);
+  const rafIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (slideCount !== previousSlideCountRef.current) {
@@ -37,6 +39,18 @@ export function useGeneratingSlidePreview({
       return;
     }
 
+    const flush = () => {
+      rafIdRef.current = null;
+      setContent(pendingContentRef.current);
+    };
+
+    const scheduleFlush = (value: string | null) => {
+      pendingContentRef.current = value;
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(flush);
+      }
+    };
+
     const handleToolInput = (event: Event) => {
       const detail = (event as CustomEvent<ToolInputEventDetail>).detail;
       if (detail?.tool !== "add-slide") return;
@@ -47,7 +61,7 @@ export function useGeneratingSlidePreview({
       if (detail.phase === "start") {
         if (detail.id && activeCallIdRef.current === detail.id) return;
         activeCallIdRef.current = detail.id ?? null;
-        setContent(null);
+        scheduleFlush(null);
         return;
       }
 
@@ -60,13 +74,18 @@ export function useGeneratingSlidePreview({
       }
       if (detail.id) activeCallIdRef.current = detail.id;
       if (parsed.content !== undefined) {
-        setContent(parsed.content || null);
+        scheduleFlush(parsed.content || null);
       }
     };
 
     window.addEventListener("agent-native:tool-input", handleToolInput);
-    return () =>
+    return () => {
       window.removeEventListener("agent-native:tool-input", handleToolInput);
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
   }, [deckId, generating]);
 
   return content;

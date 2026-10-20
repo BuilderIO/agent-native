@@ -1,8 +1,6 @@
 const messages = {
   common: {
     saving: "正在儲存",
-    saveChanges: "儲存更改",
-    saved: "已儲存",
   },
   routeTitles: {
     extension: "擴充功能 - Brain",
@@ -49,24 +47,35 @@ const messages = {
     brainNavigationDescription: "在 Brain 工作介面之間導覽。",
   },
   settings: {
-    pageTitle: "設定",
+    area: {
+      tabBehavior: "行為",
+      tabPublishing: "發布",
+      tabSafety: "安全",
+      tabPrivacy: "隱私",
+      groupNames: "名稱",
+      groupAnswers: "回答",
+      groupDistillation: "提煉",
+      groupReviewQueue: "審核佇列",
+      groupSources: "來源",
+      groupCaptures: "擷取內容",
+      groupAdvanced: "進階",
+      groupScreening: "篩查",
+      edit: "編輯",
+      cancel: "取消",
+      save: "儲存",
+      saveFailed: "無法儲存變更，請再試一次。",
+      loadFailed: "無法載入 Brain 設定。",
+      retry: "再試一次",
+    },
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",
     eyebrow: "自訂",
     title: "自訂 Brain",
     description: "命名助手、塑造語氣，並設定將公司來源轉化為知識時遵循的策略。",
-    languageTitle: "語言",
-    languageDescription: "選取 Brain 的介面語言。",
-    languageLabel: "介面語言",
-    currentPolicy: "目前策略",
-    currentPolicyDescription: "此 Brain 工作區已儲存的有效設定。",
     identityTitle: "身分",
-    identityDescription: "Brain 在描述自身及其所保護的工作空間時使用的名稱。",
     companyName: "公司名稱",
     assistantName: "助手名稱",
-    assistantBehaviorTitle: "助手行為",
-    assistantBehaviorDescription: "答案和提煉知識建議的預設語音和來源姿勢。",
     toneLabel: "語氣",
     sourcePolicyLabel: "來源策略",
     tone: {
@@ -103,8 +112,6 @@ const messages = {
     },
     coreInstructions: "核心指令",
     coreInstructionsDescription: "將原始捕獲轉化為持久的機構知識的指南。",
-    publishingReviewTitle: "發布與審核",
-    publishingReviewDescription: "可見性、核准和連線器節奏的預設值。",
     defaultPublishTier: "預設發布層",
     defaultPublishTierDescription: "設定新擷取的知識的預設可見性。",
     publishTier: {
@@ -113,14 +120,9 @@ const messages = {
       company: "Company",
     },
     connectorPollInterval: "連線器輪詢間隔",
-    requireApproval: "需要公司知識的核准",
-    requireApprovalDescription:
-      "在發布之前對全公司範圍內的知識候選項進行排隊以供人工審核。",
     autoArchiveResolved: "自動存檔已解決的審閱專案",
     autoArchiveResolvedDescription:
       "從活動審核通道中刪除核准或拒絕的佇列專案。",
-    safetyEvidenceTitle: "安全與證據",
-    safetyEvidenceDescription: "離開審核佇列的答案的編輯和引用規則。",
     sanitizeCaptures: "儲存前清理轉錄捕獲",
     sanitizeCapturesDescription:
       "在儲存之前，將 Granola、Clips、webhook 和手動逐字稿匯入過濾為與公司相關的內容。",
@@ -136,44 +138,25 @@ const messages = {
       "詢問 Brain 必須引用經核准的來源行以獲得事實答案。",
     notifySourceErrors: "通知來源錯誤",
     notifySourceErrorsDescription: "審查流程中表面退化或失效的連線器。",
-    policy: {
-      assistant: "Assistant",
-      company: "Company",
-      tone: "Tone",
-      sources: "Sources",
-      publishTier: "發布層",
-      approval: "Approval",
-      redaction: "Redaction",
-      preSaveFilter: "預儲存過濾器",
-    },
-    notSet: "未設定",
-    required: "Required",
-    notRequired: "不需要",
-    enabled: "Enabled",
-    disabled: "Disabled",
-    autoPublishGateTitle: "自動發布門控",
-    autoPublishGateDescription: "公司級知識的執行時策略。",
-    confidenceThreshold: "置信閾值",
-    autoPublishGateDetail:
-      "高可信度的公司知識可以在新的、未經編輯的情況下自動發布，並且不需要明確的建議。",
-    actionsUnavailableTitle: "設定操作尚不可用",
-    actionsUnavailableDetail:
-      "此頁面連線到 get-brain-settings 和 update-brain-settings 並且目前使用預設值。",
     numberFieldRange: "必須介於 {{min}} 到 {{max}} 分鐘之間。",
-    privacySensitivityTitle: "隱私與敏感性",
-    privacySensitivityDescription: "分類器整備狀態與僅保留中繼資料的隔離邊界。",
-    privacyClassifier: "隱私分類器",
     privacyModel: "分類器模型",
-    quarantineRetention: "隔離保留期",
     tightenOnly:
       "敏感性控制只能收緊擷取和處理。隔離材料絕不會提供給來源編輯者或搜尋結果。",
     ready: "已就緒",
     readinessPending: "整備狀態待定",
-    days: "{{count}} 天",
     privacyClassifierModel: "隱私分類器模型",
     privacyClassifierModelPlaceholder: "預設隱私分類器模型",
     privacyClassifierEngine: "分類器引擎",
     privacyClassifierEnginePlaceholder: "預設分類器引擎",
+    privacyClassifierChoice: "敏感度分類器",
+    privacyClassifierJev: "Jev（建議）",
+    privacyClassifierCustom: "自訂模型",
+    privacyClassifierDeterministic: "僅規則篩查",
+    jevCredentialLabel: "Jev 憑證",
+    jevCredentialStoredKey: "已儲存金鑰",
+    jevCredentialGateway: "Builder 連線",
+    jevCredentialNone: "找不到",
+    jevCredentialUnavailable: "查詢失敗",
     quarantineRetentionHours: "隔離保留時數",
     quarantineRetentionHoursDescription:
       "僅含中繼資料的隔離事件將在此期限後刪除。",
@@ -362,7 +345,7 @@ const messages = {
     attempt: "次嘗試",
     attempts: "次嘗試",
     nextCheck: "下一步檢查",
-    waitingForWorker: "等待 Brain 蒸餾工作人員編寫知識或傳送此捕獲以供審核。",
+    waitingForWorker: "等待 Brain 蒸餾工作人員根據此捕獲編寫知識。",
     source: "來源",
     ignore: "忽略",
     noCapturesTitle: "沒有與此檢視匹配的捕獲",
@@ -399,6 +382,14 @@ const messages = {
     slackAccessRuleScopes:
       "Slack 存取應支援 auth.test、conversations.info/history 和 chat.getPermalink。試點私人頻道時新增私人頻道存取。",
     allowedChannels: "允許的頻道",
+    invalidAllowedChannels:
+      "不是有效的 Slack 頻道：{{entries}}。請使用類似 C0123456789 的頻道 ID 或 #channel-name。",
+    invalidSlackDirectMessages:
+      "不支援 Slack 私訊：{{entries}}。Brain 僅同步公開和私人頻道。",
+    invalidGithubRepositories:
+      "不是有效的存放庫：{{entries}}。請使用 owner/repo 或 github.com 存放庫 URL。",
+    missingProviderCredential:
+      "{{keys}} 尚未設定，因此在新增之前此來源無法同步。",
     allowedChannelsDescription:
       "Brain 驗證允許清單，拒絕 DMs/MPIMs，並且從不在來源設定中儲存憑證值。",
     messagesPerPage: "每頁訊息數",
@@ -407,6 +398,17 @@ const messages = {
     initialUpdatedAfter: "初始更新後",
     granolaDescription:
       "Granola Enterprise API 會回傳 Team-space 筆記；私人筆記不在 API 範圍內。",
+    zoomMeetingIds: "已核准的週期性會議系列",
+    zoomMeetingIdsDescription:
+      "必填。每行一個 Zoom 會議 ID，對應主持人已同意加入的週期性會議系列（可包含空格）。每次會議的 ID 保持不變。",
+    zoomLookbackDays: "回溯天數",
+    invalidZoomMeetingIds:
+      "無效的 Zoom 會議 ID：{{entries}}。請使用會議邀請中的號碼，例如 123 4567 8901。",
+    zoomDescription:
+      "Brain 每小時僅從已核准的系列匯入逐字稿。Zoom 帳戶中的其他會議絕不會被下載。變更清單會重新掃描回溯期間。",
+    zoomAdminOnly:
+      "只有組織擁有者和管理員可以變更 Zoom 設定。你仍然可以重新命名此來源。",
+    updatingSource: "正在更新…",
     approvedRepositories: "核准的儲存庫",
     githubRepositoriesDescription:
       "Brain 使用工作區 GitHub 憑證從這些儲存庫匯入有界問題和 pull request 脈絡。",
@@ -422,8 +424,6 @@ const messages = {
       "新來源會收到一次性攝取權杖。現有來源保留其權杖，除非單獨輪換。",
     autoSync: "自動同步",
     autoSyncDescription: "背景輪詢在到期時使用此來源",
-    reviewRequired: "需要審核",
-    reviewRequiredDescription: "在核准之前對擷取的知識進行排隊",
     cancel: "取消",
     saveSource: "儲存來源",
     createSource: "建立來源",
@@ -432,6 +432,25 @@ const messages = {
     nextSync: "下次同步 {{date}}",
     waitingForFirstSync: "等待首次同步",
     manualSync: "手動同步",
+    manualImportTitle: "將 Markdown 匯入 {{source}}",
+    manualImportDescription:
+      "選取資料夾或一批 Markdown 檔案。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
+    chooseMarkdownFolder: "選取 Markdown 資料夾",
+    importMarkdownFiles: "匯入 Markdown 檔案",
+    manualImportNoFiles: "未選取 Markdown 檔案",
+    manualImportFilesSelected: "已選取 {{count}} 個 Markdown 檔案",
+    manualImportFileLimit:
+      "只會匯入 .md 和 .markdown 檔案。資料夾匯入上限為 100 個檔案和 400 萬個字元。",
+    manualImportSkippedFiles: "將略過 {{count}} 個非 Markdown 檔案。",
+    manualImportMoreFiles: "+{{count}} 個其他檔案",
+    manualImportResult:
+      "{{imported}} 個已匯入、{{queued}} 個已排入蒸餾佇列、{{failed}} 個失敗、{{blocked}} 個遭封鎖",
+    manualImportBlocked: "已由 Brain 隱私權政策封鎖。",
+    manualImportMoreIssues: "+{{count}} 個其他檔案需要注意",
+    archiveSource: "封存來源",
+    archiveSourceTitle: "要封存此來源嗎？",
+    archiveSourceDescription:
+      "{{source}} 將離開使用中的來源清單。其捕獲與知識仍可供稽核，不會被硬刪除。",
     queueDistill: "加入提煉佇列",
     retryDistill: "重試提煉",
     captureStatus: {
@@ -603,6 +622,7 @@ const messages = {
     defaultTitle: {
       slack: "Slack 知識管道",
       granola: "Granola 團隊筆記",
+      zoom: "Zoom 會議逐字稿",
       github: "GitHub 產品儲存庫",
       clips: "Clips 出口",
       generic: "通用轉錄 Webhook",
@@ -645,7 +665,7 @@ const messages = {
     notApplicable: "不適用",
     emptyTitle: "還沒有公司知識",
     emptyFilteredDetail: "清除搜尋或篩選器以擴大知識範圍。",
-    emptyDetail: "連線來源或核准審核提案來建立公司知識。",
+    emptyDetail: "連線來源來建立公司知識。",
     updateFailedTitle: "公司脈絡更新失敗",
     updateFailedDetail: "Brain 無法更新工作區脈絡資源。",
     waitingOnSearch: "等待 search-knowledge",

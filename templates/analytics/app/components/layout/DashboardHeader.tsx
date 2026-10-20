@@ -18,7 +18,8 @@ export function DashboardHeader({
 }: DashboardHeaderProps) {
   const { id } = useParams<{ id: string }>();
   const t = useT();
-  const { formatDate } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
 
   const metadata = useMemo(() => {
     return dashboards.find((d) => d.id === id);

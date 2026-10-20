@@ -1,6 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { handleAllDayResizeKeyDown } from "./all-day-resize";
 import { shouldRenderWeekDragSegment } from "./week-drag-segment";
+
+describe("handleAllDayResizeKeyDown", () => {
+  it("stops handled resize keys before they reach calendar navigation", () => {
+    const event = {
+      key: "ArrowUp",
+      shiftKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    };
+    const onHeightChange = vi.fn();
+
+    handleAllDayResizeKeyDown(event, 88, onHeightChange);
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+    expect(onHeightChange).toHaveBeenCalledWith(104);
+  });
+});
 
 describe("shouldRenderWeekDragSegment", () => {
   it("keeps the target day visible for a cross-day drag preview", () => {

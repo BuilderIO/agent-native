@@ -1,23 +1,23 @@
 import { createHash } from "node:crypto";
 
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
-  getDatabaseUrl,
-  getDialect,
   getDbExec,
+  getRuntimeDatabaseUrl,
+  getRuntimeDatabaseSource,
+  isLocalDatabase,
   type DbExec,
-  type Dialect,
 } from "./client.js";
 
 export interface DatabaseRuntimeFingerprint {
   configured: boolean;
   source: string;
-  dialect: Dialect;
   urlHash?: string;
+  fingerprint?: string;
   protocol?: string;
   host?: string;
   database?: string;
   appName?: string;
-  authTokenConfigured: boolean;
   netlifyDatabaseUrlConfigured: boolean;
   neon?: {
     endpointId?: string;
@@ -45,7 +45,6 @@ export interface RequiredSchemaTable {
 export interface DatabaseSchemaHealthResult {
   ok: boolean;
   checked: boolean;
-  dialect: Dialect;
   missingTables: string[];
   missingColumns: Array<{ table: string; column: string }>;
   error?: string;
@@ -105,6 +104,18 @@ export const DEFAULT_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
     table: "application_state",
     columns: ["session_id", "key", "value", "updated_at"],
   },
+  {
+    table: "integration_remote_devices",
+    columns: [
+      "id",
+      "owner_email",
+      "label",
+      "device_token_hash",
+      "status",
+      "created_at",
+      "updated_at",
+    ],
+  },
 ];
 
 function envValue(key: string): string | undefined {
@@ -112,27 +123,33 @@ function envValue(key: string): string | undefined {
   return value || undefined;
 }
 
-function appEnvPrefix(): string | undefined {
-  return envValue("APP_NAME")?.toUpperCase().replace(/-/g, "_");
+export const BETTER_AUTH_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
+  { table: "user", columns: ["id", "email", "name", "email_verified"] },
+  { table: "session", columns: ["id", "user_id", "token", "expires_at"] },
+  {
+    table: "account",
+    columns: ["id", "user_id", "provider_id", "account_id"],
+  },
+  {
+    table: "verification",
+    columns: ["id", "identifier", "value", "expires_at"],
+  },
+  {
+    table: "jwks",
+    columns: ["id", "public_key", "private_key", "alg", "crv"],
+  },
+];
+
+function isAuthDisabled(): boolean {
+  return isTruthyRuntimeValue(envValue("AUTH_DISABLED"));
 }
 
-function databaseUrlSource(): string {
-  const appName = appEnvPrefix();
-  if (appName && envValue(`${appName}_DATABASE_URL`)) {
-    return `${appName}_DATABASE_URL`;
-  }
-  if (envValue("DATABASE_URL")) return "DATABASE_URL";
-  if (envValue("NETLIFY_DATABASE_URL")) return "NETLIFY_DATABASE_URL";
-  return "default";
-}
-
-function databaseAuthTokenConfigured(): boolean {
-  const appName = appEnvPrefix();
-  return Boolean(
-    (appName && envValue(`${appName}_DATABASE_AUTH_TOKEN`)) ||
-    envValue("DATABASE_AUTH_TOKEN") ||
-    envValue("NETLIFY_DATABASE_AUTH_TOKEN"),
-  );
+export function getRequiredSchema(
+  authEnabled: boolean = !isAuthDisabled(),
+): RequiredSchemaTable[] {
+  return authEnabled
+    ? [...DEFAULT_REQUIRED_SCHEMA, ...BETTER_AUTH_REQUIRED_SCHEMA]
+    : DEFAULT_REQUIRED_SCHEMA;
 }
 
 function shortHash(value: string): string | undefined {
@@ -145,11 +162,8 @@ function parseDatabaseUrl(url: string): Partial<DatabaseRuntimeFingerprint> {
   if (url.startsWith("pglite:")) {
     return { protocol: "pglite", database: url.slice("pglite:".length) };
   }
-  if (url.startsWith("file:")) {
-    return { protocol: "file", database: url.slice("file:".length) };
-  }
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
-    return { protocol: "sqlite", database: url };
+    return {};
   }
 
   try {
@@ -177,18 +191,38 @@ function parseDatabaseUrl(url: string): Partial<DatabaseRuntimeFingerprint> {
 }
 
 export function getDatabaseRuntimeFingerprint(): DatabaseRuntimeFingerprint {
-  const url = getDatabaseUrl();
+  const url = getRuntimeDatabaseUrl();
   const parsed = parseDatabaseUrl(url);
   return {
     configured: Boolean(url),
-    source: databaseUrlSource(),
-    dialect: getDialect(),
+    source: getRuntimeDatabaseSource(),
     urlHash: shortHash(url),
+    fingerprint: url
+      ? `postgres:${parsed.database ?? ""}:${
+          parsed.neon?.endpointId ??
+          (parsed.host
+            ? createHash("sha256").update(parsed.host).digest("hex").slice(0, 8)
+            : "")
+        }`
+      : undefined,
     appName: envValue("APP_NAME"),
-    authTokenConfigured: databaseAuthTokenConfigured(),
-    netlifyDatabaseUrlConfigured: Boolean(envValue("NETLIFY_DATABASE_URL")),
+    netlifyDatabaseUrlConfigured: Boolean(
+      envValue("NETLIFY_DATABASE_URL") ||
+      envValue("NETLIFY_DATABASE_URL_UNPOOLED"),
+    ),
     ...parsed,
   };
+}
+
+export function getEffectiveDatabaseEnvStatus(
+  key: string,
+): boolean | undefined {
+  if (!/(?:^|_)DATABASE_URL(?:_UNPOOLED)?$/.test(key)) return undefined;
+
+  const database = getDatabaseRuntimeFingerprint();
+  if (!database.configured || isLocalDatabase()) return false;
+
+  return database.source === key;
 }
 
 export function getRuntimeDebugFingerprint(): RuntimeDebugFingerprint {
@@ -229,42 +263,14 @@ async function postgresTableColumns(
   return new Set(result.rows.map((row) => String(row.column_name)));
 }
 
-async function sqliteTableColumns(
+async function tableColumns(
   exec: DbExec,
   table: string,
 ): Promise<Set<string> | null> {
   assertSafeIdentifier(table);
-  const exists = await exec.execute({
-    sql: `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`,
-    args: [table],
-  });
-  if (!exists.rows.length) return null;
-  const result = await exec.execute(`PRAGMA table_info(${table})`);
-  return new Set(result.rows.map((row) => String(row.name)));
+  return postgresTableColumns(exec, table);
 }
 
-async function tableColumns(
-  exec: DbExec,
-  dialect: Dialect,
-  table: string,
-): Promise<Set<string> | null> {
-  return dialect === "postgres"
-    ? postgresTableColumns(exec, table)
-    : sqliteTableColumns(exec, table);
-}
-
-/**
- * Memo for the default probe, which several client surfaces re-run on every
- * page load at one `information_schema` round trip per required table.
- *
- * Only a clean, completed result is memoized: a probe reporting a missing table
- * or an unreadable database must never be served from cache, or the repair that
- * follows stays invisible for the whole window. Schema changes are additive and
- * applied by migrations, so a clean answer cannot silently go bad — but the
- * window is still kept to seconds, short enough that anything a deploy changes
- * shows up on the next page load rather than being pinned. Callers that
- * override `exec`, `dialect`, or `required` bypass it entirely.
- */
 const SCHEMA_HEALTH_MEMO_MS = 5_000;
 let schemaHealthMemo: {
   at: number;
@@ -274,11 +280,10 @@ let schemaHealthMemo: {
 export async function runDatabaseSchemaHealthCheck(
   options: {
     exec?: DbExec;
-    dialect?: Dialect;
     required?: RequiredSchemaTable[];
   } = {},
 ): Promise<DatabaseSchemaHealthResult> {
-  const memoizable = !options.exec && !options.dialect && !options.required;
+  const memoizable = !options.exec && !options.required;
   if (
     memoizable &&
     schemaHealthMemo &&
@@ -287,18 +292,14 @@ export async function runDatabaseSchemaHealthCheck(
     return schemaHealthMemo.result;
   }
 
-  const dialect = options.dialect ?? getDialect();
   const exec = options.exec ?? getDbExec();
-  const required = options.required ?? DEFAULT_REQUIRED_SCHEMA;
+  const required = options.required ?? getRequiredSchema();
   const missingTables: string[] = [];
   const missingColumns: Array<{ table: string; column: string }> = [];
 
   try {
-    // Independent probes: serially they cost one network round trip each.
     const found = await Promise.all(
-      required.map((requirement) =>
-        tableColumns(exec, dialect, requirement.table),
-      ),
+      required.map((requirement) => tableColumns(exec, requirement.table)),
     );
     required.forEach((requirement, index) => {
       const columns = found[index];
@@ -316,7 +317,6 @@ export async function runDatabaseSchemaHealthCheck(
     return {
       ok: false,
       checked: false,
-      dialect,
       missingTables,
       missingColumns,
       error: err instanceof Error ? err.message : String(err),
@@ -326,7 +326,6 @@ export async function runDatabaseSchemaHealthCheck(
   const result: DatabaseSchemaHealthResult = {
     ok: missingTables.length === 0 && missingColumns.length === 0,
     checked: true,
-    dialect,
     missingTables,
     missingColumns,
   };
@@ -350,7 +349,6 @@ export function formatRuntimeDebugFingerprint(
     fingerprint.siteName ? `site_name: ${fingerprint.siteName}` : "",
     `db_configured: ${db.configured}`,
     `db_source: ${db.source}`,
-    `db_dialect: ${db.dialect}`,
     db.protocol ? `db_protocol: ${db.protocol}` : "",
     db.host ? `db_host: ${db.host}` : "",
     db.database ? `db_database: ${db.database}` : "",
@@ -358,7 +356,6 @@ export function formatRuntimeDebugFingerprint(
     db.neon?.endpointId ? `db_neon_endpoint: ${db.neon.endpointId}` : "",
     db.neon ? `db_neon_pooled: ${db.neon.pooled}` : "",
     db.neon?.projectHost ? `db_neon_project_host: ${db.neon.projectHost}` : "",
-    `db_auth_token_configured: ${db.authTokenConfigured}`,
     `netlify_database_url_configured: ${db.netlifyDatabaseUrlConfigured}`,
   ]
     .filter(Boolean)

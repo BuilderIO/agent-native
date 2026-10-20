@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 
-import { cn } from "./utils";
+import { cn, shortcutModifierLabel } from "./utils";
 
 describe("cn function", () => {
   it("should merge classes correctly", () => {
@@ -29,5 +29,30 @@ describe("cn function", () => {
     expect(cn("base", { conditional: true, "not-included": false })).toBe(
       "base conditional",
     );
+  });
+});
+
+describe("shortcutModifierLabel", () => {
+  const originalUserAgent = navigator.userAgent;
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: originalUserAgent,
+    });
+  });
+
+  it("uses human-readable platform names", () => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Macintosh; Intel Mac OS X)",
+    });
+    expect(shortcutModifierLabel()).toBe("Cmd");
+
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (X11; Linux x86_64)",
+    });
+    expect(shortcutModifierLabel()).toBe("Ctrl");
   });
 });

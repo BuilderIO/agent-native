@@ -9,19 +9,8 @@ import {
   applyDocSurgically,
   defaultParseValue,
   diffTopLevel,
+  reconcileDocAgainstBase,
 } from "./surgical-apply.js";
-
-/**
- * The surgical reconcile must replace ONLY the changed top-level run —
- * unchanged siblings keep their identity (no NodeView teardown, minimal Yjs
- * ops under Collaboration) — and must converge the editor to exactly the
- * document a full setContent would have produced.
- *
- * NOTE: ProseMirror `Node.eq` relies on NodeType identity, which is
- * per-Schema-instance — so target docs in these tests are parsed with the SAME
- * editor's schema via `defaultParseValue`, mirroring production (where
- * `parseValue` always uses the live editor).
- */
 
 function makeEditor(markdown: string): Editor {
   const editor = new Editor({
@@ -38,7 +27,6 @@ function md(editor: Editor): string {
   );
 }
 
-/** Parse markdown into a doc bound to THIS editor's schema. */
 function parse(editor: Editor, markdown: string): ProseMirrorNode {
   const doc = defaultParseValue(editor, markdown);
   if (!doc) throw new Error("defaultParseValue returned null in test setup");
@@ -80,8 +68,8 @@ describe("diffTopLevel", () => {
       const diff = diffTopLevel(editor.state.doc, target);
       expect(diff).not.toBeNull();
       expect(diff!.fromIndex).toBe(1);
-      expect(diff!.oldToIndex).toBe(1); // nothing removed
-      expect(diff!.newToIndex).toBe(2); // one node inserted
+      expect(diff!.oldToIndex).toBe(1);
+      expect(diff!.newToIndex).toBe(2);
     } finally {
       editor.destroy();
     }
@@ -117,8 +105,6 @@ describe("applyDocSurgically", () => {
       expect(result).toBe("applied");
       expect(editor.state.doc.eq(target)).toBe(true);
 
-      // Structure-preserving: the untouched siblings are still node-equal
-      // (same content at the same top-level slots).
       const after = editor.state.doc;
       expect(after.child(0).eq(untouched[0])).toBe(true);
       expect(after.child(2).eq(untouched[1])).toBe(true);
@@ -134,7 +120,6 @@ describe("applyDocSurgically", () => {
       const same = parse(editor, "Alpha\n\nBravo");
       const docBefore = editor.state.doc;
       expect(applyDocSurgically(editor, same)).toBe("noop");
-      // Same state object — no transaction was dispatched.
       expect(editor.state.doc).toBe(docBefore);
     } finally {
       editor.destroy();
@@ -147,15 +132,12 @@ describe("applyDocSurgically", () => {
       const target = parse(editor, "# Totally\n\nDifferent\n\n- list");
       expect(applyDocSurgically(editor, target)).toBe("applied");
 
-      // Serialization converges to what a full setContent would produce…
       const reference = makeEditor("# Totally\n\nDifferent\n\n- list");
       try {
         expect(md(editor)).toBe(md(reference));
       } finally {
         reference.destroy();
       }
-      // …and re-applying the same parsed value is a no-op (stable after one
-      // apply — trailing-cursor-paragraph preservation doesn't oscillate).
       const again = parse(editor, "# Totally\n\nDifferent\n\n- list");
       expect(applyDocSurgically(editor, again)).toBe("noop");
     } finally {
@@ -166,15 +148,12 @@ describe("applyDocSurgically", () => {
   it("preserves the user's trailing empty paragraph across reconciles", () => {
     const editor = makeEditor("Alpha");
     try {
-      // Give the user a trailing cursor line below the content.
       editor.commands.focus("end");
       editor.commands.insertContentAt(editor.state.doc.content.size, {
         type: "paragraph",
       });
       const childCountBefore = editor.state.doc.childCount;
 
-      // Agent rewrites the first paragraph; markdown can't express the
-      // trailing empty paragraph, so the parsed doc lacks it.
       const target = parse(editor, "Alpha CHANGED");
       expect(applyDocSurgically(editor, target)).toBe("applied");
 
@@ -203,7 +182,6 @@ describe("applyDocSurgically", () => {
         expect(result === "applied" || result === "noop").toBe(true);
         expect(editor.state.doc.eq(target)).toBe(true);
 
-        // The serialized output matches what a full setContent would produce.
         const reference = makeEditor(step);
         try {
           expect(md(editor)).toBe(md(reference));
@@ -218,7 +196,7 @@ describe("applyDocSurgically", () => {
 
   it("fails (for setContent fallback) when the doc comes from a foreign schema", () => {
     const editor = makeEditor("Alpha");
-    const foreign = makeEditor("Alpha CHANGED"); // separate Editor → separate Schema
+    const foreign = makeEditor("Alpha CHANGED");
     try {
       expect(applyDocSurgically(editor, foreign.state.doc)).toBe("failed");
       expect(md(editor)).toBe("Alpha");
@@ -244,6 +222,198 @@ describe("applyDocSurgically", () => {
       applyDocSurgically(editor, target);
       expect(sawMeta).toBe(true);
       expect(sawHistoryOff).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("reconcileDocAgainstBase", () => {
+  it.each([
+    { base: "Alpha", server: "Accepted", live: "Accepted" },
+    {
+      base: "Alpha\n\nBravo",
+      server: "Accepted\n\nBravo",
+      live: "Accepted\n\nBravo local",
+    },
+  ])(
+    "acknowledges common replacements without a transaction: $live",
+    ({ base, server, live }) => {
+      const editor = makeEditor(live);
+      try {
+        const before = editor.state.doc;
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, server),
+        );
+        expect(result.status).toBe("noop");
+        expect(editor.state.doc).toBe(before);
+        expect(md(editor)).toBe(live);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    {
+      base: "Alpha\n\nBravo",
+      server: "Accepted\n\nBravo",
+      live: "Different\n\nBravo local",
+    },
+    {
+      base: "Alpha\n\nBravo",
+      server: "Accepted\n\nBravo server",
+      live: "Accepted\n\nBravo local",
+    },
+    {
+      base: "Alpha\n\nBravo",
+      server: "Bravo\n\nAlpha",
+      live: "Bravo\n\nAlpha local",
+    },
+    {
+      base: "Same\n\nMiddle\n\nSame",
+      server: "Accepted\n\nMiddle\n\nSame",
+      live: "Accepted\n\nMiddle local\n\nSame",
+    },
+  ])(
+    "preserves conflicting or ambiguous common-change candidates: $live",
+    ({ base, server, live }) => {
+      const editor = makeEditor(live);
+      try {
+        const before = editor.state.doc;
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, server),
+        );
+        expect(["conflict", "failed"]).toContain(result.status);
+        expect(editor.state.doc).toBe(before);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("applies remaining server changes beside a common replacement and local edit", () => {
+    const editor = makeEditor("Accepted\n\nBravo local\n\nCharlie");
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "Alpha\n\nBravo\n\nCharlie"),
+        parse(editor, "Accepted\n\nBravo\n\nCharlie server"),
+      );
+      expect(result.status).toBe("applied");
+      expect(md(editor)).toBe("Accepted\n\nBravo local\n\nCharlie server");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("merges a server insertion between unchanged blocks with a separate local edit", () => {
+    const editor = makeEditor("Alpha\n\nBravo\n\nCharlie local");
+    try {
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nInserted\n\nBravo\n\nCharlie");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("applied");
+      expect(md(editor)).toBe("Alpha\n\nInserted\n\nBravo\n\nCharlie local");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves non-overlapping local and server changes", () => {
+    const editor = makeEditor("Alpha local\n\nBravo\n\nCharlie");
+    try {
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nBravo\n\nCharlie server");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("applied");
+      expect(md(editor)).toBe("Alpha local\n\nBravo\n\nCharlie server");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("merges separated server changes around a local change", () => {
+    const editor = makeEditor("Alpha\n\nBravo local\n\nCharlie");
+    try {
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha server\n\nBravo\n\nCharlie server");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("applied");
+      expect(md(editor)).toBe("Alpha server\n\nBravo local\n\nCharlie server");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("returns a conflict without mutating an overlapping local draft", () => {
+    const editor = makeEditor("Alpha local\n\nBravo");
+    try {
+      const before = editor.state.doc;
+      const base = parse(editor, "Alpha\n\nBravo");
+      const server = parse(editor, "Alpha server\n\nBravo");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("conflict");
+      expect(editor.state.doc).toBe(before);
+      expect(md(editor)).toBe("Alpha local\n\nBravo");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves a local insertion at the start boundary of a server replacement", () => {
+    const editor = makeEditor(
+      "Alpha\n\nLocal before Bravo\n\nBravo\n\nCharlie",
+    );
+    try {
+      const before = editor.state.doc;
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nBravo server\n\nCharlie");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("conflict");
+      expect(editor.state.doc).toBe(before);
+      expect(md(editor)).toBe(
+        "Alpha\n\nLocal before Bravo\n\nBravo\n\nCharlie",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves a local insertion at the end boundary of a server replacement", () => {
+    const editor = makeEditor("Alpha\n\nBravo\n\nLocal after Bravo\n\nCharlie");
+    try {
+      const before = editor.state.doc;
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nBravo server\n\nCharlie");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("conflict");
+      expect(editor.state.doc).toBe(before);
+      expect(md(editor)).toBe("Alpha\n\nBravo\n\nLocal after Bravo\n\nCharlie");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fails closed when repeated blocks make alignment ambiguous", () => {
+    const editor = makeEditor("Same\n\nLocal\n\nSame");
+    try {
+      const base = parse(editor, "Same\n\nMiddle\n\nSame");
+      const server = parse(editor, "Same\n\nServer\n\nSame");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(["conflict", "failed"]).toContain(result.status);
+      expect(md(editor)).toBe("Same\n\nLocal\n\nSame");
     } finally {
       editor.destroy();
     }

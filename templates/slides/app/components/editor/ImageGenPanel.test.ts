@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildImageGenerationContext } from "./ImageGenPanel";
+import {
+  MAX_GEMINI_REFERENCE_IMAGE_COUNT,
+  MAX_REFERENCE_IMAGE_COUNT,
+} from "../../../shared/api.js";
+import {
+  buildImageGenerationContext,
+  getImageGenerationLabel,
+} from "./ImageGenPanel";
 
 describe("buildImageGenerationContext", () => {
   it("emits an explicit referenceImageUrls instruction for selected style refs", () => {
@@ -27,7 +34,47 @@ describe("buildImageGenerationContext", () => {
       'Target: Slide 1 (id: slide-1) in deck "Brand deck" (id: deck-1).',
     );
     expect(context).toContain(
-      "Pass deckId, slideId, slideContent, and referenceImageUrls to the action so Assets can ground the generation in this slide.",
+      "Pass deckId, slideId, slideContent, and referenceImageUrls to the action for this slide. Do not set useBrandLibrary unless the user requests Assets' brand library or an Assets-exclusive capability.",
+    );
+    expect(context).toContain(
+      "call `import-from-url` for each URL before generating",
+    );
+  });
+
+  it("caps references to the fetch limit and reports omitted URLs", () => {
+    const references = Array.from(
+      { length: MAX_REFERENCE_IMAGE_COUNT + 3 },
+      (_, index) => `https://cdn.example.com/style-${index + 1}.png`,
+    );
+    const context = buildImageGenerationContext({
+      prompt: "a warm editorial hero image",
+      referenceImageUrls: references,
+    });
+    const includedReferences = references.slice(0, MAX_REFERENCE_IMAGE_COUNT);
+
+    expect(context).toContain(
+      `referenceImageUrls set to this exact array: ${JSON.stringify(includedReferences)}.`,
+    );
+    expect(context).toContain(
+      `3 were omitted before generation. Tell the user about the omitted URLs`,
+    );
+    expect(context).toContain(
+      `Gemini submits only the first ${MAX_GEMINI_REFERENCE_IMAGE_COUNT} loaded references`,
+    );
+    expect(context).not.toContain(references[MAX_REFERENCE_IMAGE_COUNT]);
+  });
+});
+
+describe("getImageGenerationLabel", () => {
+  it("preserves nonempty prompt text exactly", () => {
+    expect(getImageGenerationLabel("  a warm editorial hero image  ", 0)).toBe(
+      "  a warm editorial hero image  ",
+    );
+  });
+
+  it("uses the slide fallback for whitespace-only prompts", () => {
+    expect(getImageGenerationLabel("  \n", 1)).toBe(
+      "Generate image for slide 2",
     );
   });
 });

@@ -30,12 +30,6 @@ const messages = {
     pageExtension: "확장 프로그램",
     pageExtensions: "확장 프로그램",
   },
-  settings: {
-    languageTitle: "언어",
-    languageDescription:
-      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
-    languageLabel: "인터페이스 언어",
-  },
   agent: {
     emptyState: "에이전트에게 이 앱을 확인하거나 변경하도록 요청하세요.",
     suggestionCalendar: "캘린더랑 메일을 확인해서 오늘 할 일이 있는지 알려줘",
@@ -156,6 +150,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "대기열 추천",
+    noQueueMatch: "일치하는 대기열 없음",
+    urgentProbability: "긴급 확률 {{percent}}%",
+    applyRoute: "대기열 적용",
+    routingError: "대기열을 추천할 수 없습니다.",
     panelTitle: "필드",
     panelSubtitle: "할 일 상세 정보",
     closeLabel: "필드 패널 닫기",

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -37,6 +37,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async ({ monitorIds, timelineDays, responseWindowHours }) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

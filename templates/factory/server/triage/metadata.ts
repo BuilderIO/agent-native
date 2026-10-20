@@ -42,3 +42,25 @@ export function metadataBoolean(
   const value = metadata[key];
   return typeof value === "boolean" ? value : undefined;
 }
+
+export function metadataNumber(
+  metadata: TriageMetadata,
+  key: string,
+): number | undefined {
+  const value = metadata[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+export function triageItemAuthor(metadataJson: string): string {
+  return metadataString(parseTriageMetadata(metadataJson), "author") ?? "";
+}
+
+export function triageItemAuthorId(metadataJson: string): string {
+  return (
+    metadataString(parseTriageMetadata(metadataJson), "authorId") ??
+    metadataString(parseTriageMetadata(metadataJson), "author") ??
+    ""
+  );
+}

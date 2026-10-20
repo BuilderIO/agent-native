@@ -1,9 +1,7 @@
 ---
 name: cross-source-analysis
 description: >-
-  Use when an analytics question spans multiple data sources (e.g. warehouse
-  events + CRM + support + first-party) and you must stitch identities, remove
-  duplicates, and produce one consolidated answer with per-source provenance.
+  Use when a question spans multiple sources (warehouse + CRM + support + first-party): stitch identities, remove duplicates, give one answer with per-source provenance.
 ---
 
 # Cross-Source Analysis
@@ -29,17 +27,21 @@ For any question about a specific customer account, follow this source order:
 Not every source is needed for every question — start with the primary source
 and add secondary sources only when the question requires them. But do not
 stop at one source for a "deep dive" — at minimum pull CRM + Gong + product
-usage for any account health question.
+usage for any account health question. Read `account-health` for the identity
+lock and contract-metric rules before querying the warehouse.
 
 ## 1. Plan Before You Query (Catalog-First)
 
 Orient before fanning out:
 
-1. Read the injected `<data-dictionary>` and check data-source status to see
+1. Read the preloaded `<resource scope="analytics-catalog">` references (else
+   one `find-data`) and check data-source status to see
    which sources are configured and what each one actually holds.
 2. Map each fact in the question to the one source that owns it. Write a tiny
-   plan: "identities + emails from HubSpot, usage from BigQuery, errors from
-   Sentry." One source per fact; do not pull the same fact from two places.
+   plan: "identities + emails from HubSpot, usage from BigQuery, first-party
+   captured errors from Analytics Monitoring -> Errors, external errors from
+   Sentry when needed." One source per fact; do not pull the same fact from two
+   places.
 3. Decide the join keys up front (see the safe-join rule). If no source carries
    a shared, stable key, say so — a fuzzy join is a caveat, not a silent
    assumption.

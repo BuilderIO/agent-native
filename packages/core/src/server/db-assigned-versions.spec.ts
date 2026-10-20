@@ -2,13 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSyncState, POLL_CHANGE_EVENT } from "./poll.js";
 
-/**
- * Emulates the Postgres side of the DB-assigned version allocator: ddl-guard
- * probes report everything as existing (no DDL), the seed is accepted, and the
- * allocating INSERT advances a shared one-row allocator with
- * GREATEST(v + 1, now, floor) — including the ON CONFLICT winner-version
- * semantics for duplicate deterministic ids.
- */
 function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
   const state = shared ?? { v: 0, ids: new Map<string, number>() };
   const log: Array<{ sql: string; args: unknown[] }> = [];
@@ -16,8 +9,11 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
     state,
     log,
     failAllocation: false,
-    /** Simulates commit-then-timeout: the row lands, then the call throws. */
     failAllocationAfterCommit: false,
+    returnEmptyAllocationOnce: false,
+    returnEmptyAllocationWhileReseedingFails: false,
+    failReseed: false,
+    seedCalls: 0,
     async execute(query: string | { sql: string; args?: unknown[] }) {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : (query.args ?? []);
@@ -29,6 +25,10 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
         return { rows: [{ "1": 1 }], rowsAffected: 0 };
       }
       if (sql.includes("INSERT INTO sync_version")) {
+        db.seedCalls++;
+        if (db.failReseed && db.seedCalls > 1) {
+          throw new Error("allocator reseed unavailable");
+        }
         if (state.v === 0) state.v = Date.now();
         return { rows: [], rowsAffected: 1 };
       }
@@ -44,11 +44,16 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
         };
       }
       if (sql.includes("WITH alloc")) {
+        if (db.returnEmptyAllocationOnce) {
+          if (!db.returnEmptyAllocationWhileReseedingFails) {
+            db.returnEmptyAllocationOnce = false;
+          }
+          return { rows: [], rowsAffected: 0 };
+        }
         if (db.failAllocation) throw new Error("neon unavailable");
         const floor = Number(args[0]);
         const id = String(args[1]);
         const existing = state.ids.get(id);
-        // The allocator row advances even for a conflict loser (burnt gap).
         state.v = Math.max(state.v + 1, Date.now(), floor);
         if (existing !== undefined) {
           return { rows: [{ version: existing }], rowsAffected: 1 };
@@ -59,11 +64,14 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
         }
         return { rows: [{ version: state.v }], rowsAffected: 1 };
       }
-      // Legacy INSERT / DELETE prune / anything else.
       return { rows: [], rowsAffected: 0 };
     },
   };
-  return db;
+  const transactionalDb = db as typeof db & {
+    transaction: (fn: (tx: typeof db) => Promise<unknown>) => Promise<unknown>;
+  };
+  transactionalDb.transaction = async (fn) => fn(db);
+  return transactionalDb;
 }
 
 function baseEvent(extra: Record<string, unknown> = {}) {
@@ -71,8 +79,6 @@ function baseEvent(extra: Record<string, unknown> = {}) {
 }
 
 async function flush() {
-  // The first gated record awaits the whole ensure chain (ddl-guard probes +
-  // seed) — macrotask turns drain arbitrarily deep microtask chains.
   for (let i = 0; i < 3; i++) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
@@ -91,20 +97,6 @@ describe("dbAssignedVersions", () => {
     const db = makeAllocatorDb();
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
-    });
-    s.recordChange(baseEvent());
-    // Synchronous contract: the event is visible before any await.
-    expect(s.getChangesSince(0).events).toHaveLength(1);
-    expect(db.log.some((q) => q.sql.includes("sync_version"))).toBe(false);
-  });
-
-  it("SQLite + gate on: falls through to the synchronous clock path", () => {
-    const db = makeAllocatorDb();
-    const s = new AppSyncState({
-      getDb: () => db as never,
-      isPostgres: () => false,
-      dbAssignedVersions: true,
     });
     s.recordChange(baseEvent());
     expect(s.getChangesSince(0).events).toHaveLength(1);
@@ -115,7 +107,6 @@ describe("dbAssignedVersions", () => {
     const db = makeAllocatorDb();
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const emitted: number[] = [];
@@ -124,7 +115,6 @@ describe("dbAssignedVersions", () => {
     });
 
     s.recordChange(baseEvent());
-    // Deferred emit: nothing is visible synchronously in gated mode.
     expect(s.getChangesSince(0).events).toHaveLength(0);
     await flush();
 
@@ -133,7 +123,6 @@ describe("dbAssignedVersions", () => {
     expect(events[0].version).toBe(db.state.v);
     expect(emitted).toEqual([db.state.v]);
     expect(s.getVersion()).toBe(db.state.v);
-    // The seed ran during ensure.
     expect(db.log.some((q) => q.sql.includes("INSERT INTO sync_version"))).toBe(
       true,
     );
@@ -147,23 +136,18 @@ describe("dbAssignedVersions", () => {
     const dbB = makeAllocatorDb(shared);
     const a = new AppSyncState({
       getDb: () => dbA as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const b = new AppSyncState({
       getDb: () => dbB as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
 
-    // Writer A has a fast clock (60s ahead) and writes FIRST.
     vi.setSystemTime(T + 60_000);
     a.recordChange(baseEvent({ key: "from-a" }));
     await vi.advanceTimersByTimeAsync(0);
     const versionA = a.getChangesSince(0).events[0]?.version;
 
-    // Writer B's clock is 60s behind but its event is LATER. Under clock
-    // allocation this would invert; the shared allocator forbids it.
     vi.setSystemTime(T);
     b.recordChange(baseEvent({ key: "from-b" }));
     await vi.advanceTimersByTimeAsync(0);
@@ -177,18 +161,15 @@ describe("dbAssignedVersions", () => {
     const shared = { v: 0, ids: new Map<string, number>() };
     const a = new AppSyncState({
       getDb: () => makeAllocatorDb(shared) as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
       deterministicEventIds: true,
     });
     const b = new AppSyncState({
       getDb: () => makeAllocatorDb(shared) as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
       deterministicEventIds: true,
     });
 
-    // Same logical out-of-band write detected by both instances.
     a.recordChange(baseEvent(), { dedupeKey: "app-state|500" });
     await flush();
     b.recordChange(baseEvent(), { dedupeKey: "app-state|500" });
@@ -198,7 +179,7 @@ describe("dbAssignedVersions", () => {
     const loser = b.getChangesSince(0).events[0]?.version;
     expect(winner).toBeGreaterThan(0);
     expect(loser).toBe(winner);
-    expect(shared.ids.size).toBe(1); // one durable row
+    expect(shared.ids.size).toBe(1);
   });
 
   it("falls back to clock versions when allocation fails, and still persists", async () => {
@@ -206,7 +187,6 @@ describe("dbAssignedVersions", () => {
     db.failAllocation = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -218,7 +198,6 @@ describe("dbAssignedVersions", () => {
     const events = s.getChangesSince(0).events;
     expect(events).toHaveLength(1);
     expect(events[0].version).toBeGreaterThanOrEqual(before);
-    // The legacy best-effort INSERT ran for the fallback event.
     expect(
       db.log.some(
         (q) =>
@@ -230,12 +209,45 @@ describe("dbAssignedVersions", () => {
     warn.mockRestore();
   });
 
+  it("warns when allocator reseeding fails before retrying allocation", async () => {
+    const db = makeAllocatorDb();
+    db.returnEmptyAllocationOnce = true;
+    db.returnEmptyAllocationWhileReseedingFails = true;
+    db.failReseed = true;
+    const s = new AppSyncState({
+      getDb: () => db as never,
+      dbAssignedVersions: true,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    s.recordChange(baseEvent());
+    await flush();
+
+    expect(warn).toHaveBeenCalledWith(
+      "[agent-native] sync version allocator reseed failed; retrying allocation:",
+      "allocator reseed unavailable",
+    );
+    const events = s.getChangesSince(0).events;
+    expect(events).toHaveLength(1);
+    expect(events[0]?.version).toBeGreaterThan(0);
+    expect(
+      db.log.some(
+        (q) =>
+          q.sql.includes("INSERT INTO sync_events") &&
+          !q.sql.includes("WITH alloc"),
+      ),
+    ).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      "[agent-native] sync version allocation failed; falling back to clock-assigned versions",
+    );
+    warn.mockRestore();
+  });
+
   it("commit-then-timeout recovers the durable row's version instead of clock-falling-back", async () => {
     const db = makeAllocatorDb();
     db.failAllocationAfterCommit = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -244,11 +256,8 @@ describe("dbAssignedVersions", () => {
 
     const events = s.getChangesSince(0).events;
     expect(events).toHaveLength(1);
-    // Emitted version is the COMMITTED allocator version, not a divergent
-    // clock value — and no fallback fired.
     expect(events[0].version).toBe(db.state.v);
     expect(warn).not.toHaveBeenCalled();
-    // No second durable write: recovery, not the legacy fallback insert.
     expect(
       db.log.some(
         (q) =>
@@ -264,7 +273,6 @@ describe("dbAssignedVersions", () => {
     db.failAllocation = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -273,8 +281,6 @@ describe("dbAssignedVersions", () => {
 
     const emitted = s.getChangesSince(0).events[0]?.version ?? 0;
     expect(emitted).toBeGreaterThan(0);
-    // The shared allocator was lifted to the fallback value, so other writers'
-    // next allocations land above the cursors this emit advanced.
     expect(db.state.v).toBeGreaterThanOrEqual(emitted);
     warn.mockRestore();
   });
@@ -283,7 +289,6 @@ describe("dbAssignedVersions", () => {
     const db = makeAllocatorDb();
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -296,8 +301,6 @@ describe("dbAssignedVersions", () => {
     s.recordChange(baseEvent({ key: "second" }));
     await flush();
 
-    // Both events reached the buffer despite the throwing listener; later
-    // events were not silently dropped by a poisoned chain.
     const events = s.getChangesSince(0).events;
     expect(events.map((e) => e.key)).toEqual(["first", "second"]);
     warn.mockRestore();
@@ -308,7 +311,6 @@ describe("dbAssignedVersions", () => {
     db.failAllocation = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -323,8 +325,6 @@ describe("dbAssignedVersions", () => {
     );
     expect(allocAttempt).toBeTruthy();
     expect(legacyInsert).toBeTruthy();
-    // Same durable id on both statements → ON CONFLICT dedupes if the first
-    // actually committed server-side.
     expect(legacyInsert!.args[0]).toBe(allocAttempt!.args[1]);
     warn.mockRestore();
   });
@@ -357,14 +357,11 @@ describe("dbAssignedVersions", () => {
     };
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
 
     await s.seedVersionFromDb();
 
-    // The allocator was aligned to the (skew-ahead) seed, so the next
-    // allocation lands ABOVE the seeded cursor instead of below it.
     expect(db.state.v).toBeGreaterThanOrEqual(skewedUpdatedAt);
     s.recordChange(baseEvent());
     await flush();
@@ -378,7 +375,6 @@ describe("dbAssignedVersions", () => {
     const db = makeAllocatorDb();
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -393,7 +389,6 @@ describe("dbAssignedVersions", () => {
     db.failAllocation = true;
     const s = new AppSyncState({
       getDb: () => db as never,
-      isPostgres: () => true,
       dbAssignedVersions: true,
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -405,8 +400,6 @@ describe("dbAssignedVersions", () => {
 
     const events = s.getChangesSince(0).events;
     expect(events.map((e) => e.key)).toEqual(["first", "second"]);
-    // Recovery: the second version is DB-allocated and above the fallback one
-    // (the floor parameter guarantees local monotonicity).
     expect(events[1].version).toBeGreaterThan(events[0].version);
     warn.mockRestore();
   });

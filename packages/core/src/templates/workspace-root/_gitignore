@@ -12,26 +12,23 @@ packages/*/node_modules/
 packages/*/dist/
 packages/*/build/
 .deploy-tmp/
+.tmp/
+.agent-native/
 
-# Env files — never commit secrets
 .env
 .env.local
 apps/*/.env
 apps/*/.env.local
 packages/*/.env
 
-# Editor / OS
 .DS_Store
 .vscode/
 .idea/
 
-# pnpm
 .pnpm-store/
 pnpm-debug.log*
 node-compile-cache/
 
-# Local workspace data
-data/
+**/data/
 
-# Personal agent memory — per-developer, not shared
 learnings.md

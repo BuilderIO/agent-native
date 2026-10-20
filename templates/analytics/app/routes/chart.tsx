@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useMemo } from "react";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router";
 
 import { SqlChart } from "@/components/dashboard/SqlChart";
@@ -20,8 +21,6 @@ const VALID_CHART_TYPES = new Set([
   "heatmap",
   "callout",
 ]);
-// Embed URLs accept external sources plus the restricted first-party analytics
-// source. They intentionally do not expose arbitrary app database querying.
 const VALID_SOURCES = new Set([
   "bigquery",
   "ga4",
@@ -102,6 +101,17 @@ export default function ChartRoute() {
     if (!raw) return { error: "Missing panel parameter" };
     return decodePanel(raw);
   }, [raw]);
+
+  const panelTitle = "error" in result ? undefined : result.title;
+  useEffect(() => {
+    if (!panelTitle) return;
+    const nextTitle = `${normalizeDocumentTitle(panelTitle, "Chart")} — Analytics`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [panelTitle]);
 
   if ("error" in result) {
     return <ChartError message={result.error} />;

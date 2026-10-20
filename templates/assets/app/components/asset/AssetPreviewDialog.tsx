@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
-import { assetMediaUrl } from "@/lib/asset-urls";
+import { assetMediaUrl, triggerAssetDownload } from "@/lib/asset-urls";
 
 export type PreviewAsset = {
   id: string;
@@ -48,11 +48,6 @@ export type PreviewAsset = {
   lineage?: { label?: string | null } | null;
 };
 
-/**
- * The single side-panel asset preview used everywhere an asset is opened:
- * large media on the left, details on the right, a top toolbar (download,
- * details toggle, close), and previous/next navigation across `assets`.
- */
 export function AssetPreviewDialog({
   asset,
   assets,
@@ -62,7 +57,6 @@ export function AssetPreviewDialog({
   asset: PreviewAsset | null;
   assets: PreviewAsset[];
   onAssetChange: (asset: PreviewAsset | null) => void;
-  /** Optional media renderer (e.g. an embed/COEP-aware image loader). */
   renderImage?: (asset: PreviewAsset) => ReactNode;
 }) {
   const t = useT();
@@ -93,12 +87,19 @@ export function AssetPreviewDialog({
             Boolean(asset.mimeType?.startsWith("video/"));
           const videoSrc = assetPreviewSources(asset)[0];
           const downloadAsset = () => {
-            // Synthetic starter-preset assets aren't database rows, so
-            // export-asset can't resolve them; download the source directly.
+            const startDownload = (url: string | undefined) => {
+              if (!triggerAssetDownload(url)) {
+                toast.error(t("assetDetail.downloadFailed"));
+              }
+            };
+            const downloadUrl = assetMediaUrl(asset.downloadUrl);
+            if (downloadUrl) {
+              startDownload(downloadUrl);
+              return;
+            }
             if (isStarterPreviewAsset(asset)) {
               const directUrl = assetPreviewSources(asset)[0];
-              if (directUrl) window.location.href = directUrl;
-              else toast.error(t("assetDetail.downloadFailed"));
+              startDownload(directUrl);
               return;
             }
             exportAsset.mutate(
@@ -107,8 +108,7 @@ export function AssetPreviewDialog({
                 onSuccess: (result: any) => {
                   const url =
                     assetMediaUrl(result?.downloadUrl) ?? result?.downloadUrl;
-                  if (url) window.location.href = url;
-                  else toast.error(t("assetDetail.downloadFailed"));
+                  startDownload(url);
                 },
                 onError: () => toast.error(t("assetDetail.downloadFailed")),
               },
@@ -151,7 +151,9 @@ export function AssetPreviewDialog({
                   onClick={() => setShowDetails((value) => !value)}
                 >
                   <IconInfoCircle className="h-4 w-4" />
-                  {t("library.viewDetails")}
+                  {showDetails
+                    ? t("library.hideDetails")
+                    : t("library.viewDetails")}
                 </Button>
                 <DialogClose
                   aria-label={t("library.closePreview")}

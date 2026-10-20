@@ -5,7 +5,7 @@ description: "代理本机应用中的 Nitro 服务器层：它的用途、何�
 
 # 服务器
 
-`server/` 目录是代理本机应用的基础设施层。它负责启动任务、身份验证，以及 Actions 无法覆盖的 HTTP 表面。大多数产品行为都应该放在 [Actions](/docs/actions) 中。服务器的作用是让这些 Actions 变得可用。
+`server/` 目录是代理本机应用的基础设施层。它负责启动任务、身份验证，以及 Actions 无法覆盖的 HTTP 表面。大多数产品行为都应该放在 [Actions](/docs/actions-overview) 中。服务器的作用是让这些 Actions 变得可用。
 
 <Diagram id="doc-block-server-overview-1" title="请求如何流经服务器" summary="调用方到达 Nitro 服务器后，大多数请求由 Actions 处理；中间件和路由覆盖 Actions 无法表达的情况。两条路径都可以查询数据库。">
 
@@ -196,7 +196,7 @@ description: "代理本机应用中的 Nitro 服务器层：它的用途、何�
 | ------------------------------------- | -------------------------------------------------------------------------- |
 | **[数据库](/docs/server-database)**   | 使用 `table()` 助手定义 schema、`getDb`，以及可拥有表（ownable table）模式 |
 | **[中间件](/docs/server-middleware)** | `server/middleware/` 中的身份验证守卫，以及为何它运行在此处而非插件中      |
-| **[插件](/docs/server-plugins)**      | 每个应用都自带的三个启动插件：数据库迁移、身份验证和 agent-chat            |
+| **[插件](/docs/server-plugins)**      | 用于身份验证和 agent-chat 的启动插件，以及可选的应用自有数据库迁移         |
 | **[路由](/docs/server-routes)**       | 基于文件的路由、SSR 兜底路由，以及如何将自定义路由限定到请求用户           |
 
 ## Nitro {#nitro}
@@ -204,7 +204,7 @@ description: "代理本机应用中的 Nitro 服务器层：它的用途、何�
 [Nitro](https://nitro.build) 是驱动代理本机 HTTP 层的服务器工具集。你在 `server/` 中配置的大部分内容都属于 Nitro：基于文件的路由、启动插件和中间件。
 
 - **基于文件的路由**：文件名直接映射到 HTTP 方法和 URL 路径，无需注册。`server/routes/api/health.get.ts` 会自动变成 `GET /api/health`。更多细节参见[路由](/docs/server-routes)。
-- **插件**：在服务器启动时、任何请求被处理之前只运行一次的代码。数据库迁移、身份验证配置和 agent-chat 的挂载都发生在 `server/plugins/` 中。更多细节参见[插件](/docs/server-plugins)。
+- **插件**：在服务器启动时注册并加载一次的代码。框架辅助函数会初始化身份验证和 agent-chat；可选的应用自有数据库迁移在第一个请求到达时可能仍在运行。更多细节参见[插件](/docs/server-plugins)。
 - **中间件**：在每个到来的请求到达路由之前都会运行的代码。身份验证守卫就位于 `server/middleware/` 中。更多细节参见[中间件](/docs/server-middleware)。
 
 Nitro 同时与部署环境无关。同一个应用可以零代码改动地部署到 Node.js、Cloudflare Workers、Netlify、Vercel 及其他运行时，只需设置一个预设（preset）。参见[部署](/docs/deployment)。
@@ -221,11 +221,11 @@ Agent-Native 的架构思路有所不同。每当你为应用构思一个新功�
 - 可通过 MCP 和 A2A 调用的工具。
 - 用于开发的 CLI 命令。
 
-只有在你需要路由形态的协议或二进制/流式行为时，才使用自定义的 `/api/*` 路由。更多细节参见 [Actions](/docs/actions)。
+只有在你需要路由形态的协议或二进制/流式行为时，才使用自定义的 `/api/*` 路由。更多细节参见 [Actions](/docs/actions-overview)。
 
 ## 下一步 {#whats-next}
 
-- [**Actions**](/docs/actions)：默认的操作表面。只有在不适用时才考虑自定义路由。
+- [**Actions**](/docs/actions-overview)：默认的操作表面。只有在不适用时才考虑自定义路由。
 - [**数据库**](/docs/server-database)：自定义路由和 Actions 都会导入的 `getDb()`/schema 模式
 - [**中间件**](/docs/server-middleware)：身份验证守卫与 `server/middleware/` 目录
 - [**插件**](/docs/server-plugins)：用于迁移、身份验证和代理的启动插件

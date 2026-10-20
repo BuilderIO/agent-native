@@ -1,6 +1,6 @@
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { IconArrowLeft, IconLogin2 } from "@tabler/icons-react";
 import { Link } from "react-router";
 
@@ -27,7 +27,7 @@ export default function NotFound() {
           </Button>
         )}
         <Button asChild variant="outline" className="cursor-pointer">
-          <Link to="/">
+          <Link to="/home">
             <IconArrowLeft className="size-4 rtl:-scale-x-100" />
             {t("pages.notFoundBackToDesigns")}
           </Link>

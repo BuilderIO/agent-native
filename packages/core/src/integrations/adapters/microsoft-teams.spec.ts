@@ -221,4 +221,25 @@ describe("microsoftTeamsAdapter", () => {
       conversation: { id: "conversation-example" },
     });
   });
+
+  it("reports a missing Bot Framework connector instead of rejecting the webhook", async () => {
+    vi.doMock("botframework-connector", () => {
+      throw Object.assign(
+        new Error(
+          "Cannot find package 'botframework-connector' imported from microsoft-teams.ts",
+        ),
+        { code: "ERR_MODULE_NOT_FOUND" },
+      );
+    });
+
+    await expect(
+      microsoftTeamsAdapter().verifyWebhook(
+        eventWithActivity(messageActivity()),
+      ),
+    ).rejects.toMatchObject({
+      code: "ERR_AGENT_NATIVE_OPTIONAL_PEER",
+      name: "OptionalPeerDependencyError",
+      packageName: "botframework-connector",
+    });
+  });
 });

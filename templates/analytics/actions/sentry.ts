@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -14,8 +14,6 @@ import {
 } from "./_provider-action-utils";
 
 export default defineAction({
-  // Read-only provider query: safe to call from run-code `appAction` and
-  // reusable across continuation retries (no re-fetch on resume).
   readOnly: true,
   description:
     "Query Sentry projects, frequent issues, issue events, and organization error stats. Use this for Sentry error questions; pass statsPeriod like 7d, 30d, or 1y.",
@@ -24,6 +22,10 @@ export default defineAction({
       .enum(["organizations", "projects", "issues", "issue-events", "stats"])
       .default("issues")
       .describe("What to query from Sentry"),
+    connectionId: z
+      .string()
+      .optional()
+      .describe("Workspace connection to use when more than one is available"),
     orgSlug: z
       .string()
       .optional()
@@ -44,12 +46,14 @@ export default defineAction({
       .describe("Sentry stats category for mode=stats; defaults to error"),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async (args) => {
     const credentials = await requireActionCredentials(
       ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"],
       "Sentry",
       {
         mode: "any",
+        connectionId: args.connectionId,
         message:
           "Sentry is not connected for this workspace yet. Add SENTRY_AUTH_TOKEN in Settings -> Data sources, then retry.",
       },
@@ -58,18 +62,22 @@ export default defineAction({
 
     try {
       if (args.mode === "organizations") {
-        const organizations = await listOrganizations();
+        const organizations = await listOrganizations(args.connectionId);
         return { organizations, total: organizations.length };
       }
 
       if (args.mode === "projects") {
-        const projects = await listProjects(args.orgSlug);
+        const projects = await listProjects(args.orgSlug, args.connectionId);
         return { projects, total: projects.length };
       }
 
       if (args.mode === "issue-events") {
         if (!args.issueId) return { error: "issueId is required" };
-        const events = await getIssueEvents(args.issueId, args.orgSlug);
+        const events = await getIssueEvents(
+          args.issueId,
+          args.orgSlug,
+          args.connectionId,
+        );
         return { events, total: events.length };
       }
 
@@ -78,6 +86,7 @@ export default defineAction({
           args.statsPeriod,
           args.category,
           args.orgSlug,
+          args.connectionId,
         );
       }
 
@@ -86,6 +95,7 @@ export default defineAction({
         args.query,
         args.statsPeriod,
         args.orgSlug,
+        args.connectionId,
       );
       return { issues, total: issues.length };
     } catch (err) {

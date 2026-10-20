@@ -10,7 +10,7 @@ function normalizeOrigin(value: unknown): string | null {
 }
 
 function ancestorOrigin(): string | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined" || window.parent === window) return null;
   const origins = (
     window.location as Location & { ancestorOrigins?: DOMStringList }
   ).ancestorOrigins;
@@ -24,6 +24,12 @@ function isStrictBuilderHost(origin: string | null): boolean {
   if (!origin) return false;
   try {
     const hostname = new URL(origin).hostname.toLowerCase();
+    if (
+      hostname === "agent-workspace.builder.io" ||
+      hostname === "beta.agent-workspace.builder.io"
+    ) {
+      return false;
+    }
     return (
       hostname === "builder.io" ||
       hostname.endsWith(".builder.io") ||
@@ -59,18 +65,10 @@ function hasBuilderPreviewParams(): boolean {
   );
 }
 
-/**
- * For *.builder.io / *.builder.my the parent origin alone is sufficient — those
- * are Builder-owned hosts and any iframe they load is by definition a Builder
- * editor session. For localhost we still require the legacy `?builder.*` query
- * params, because "parent is localhost" can mean anything in dev. The params
- * check existed historically as a belt-and-suspenders signal, but Builder's
- * Interact mode tunnels straight to the iframe URL without appending them, so
- * requiring them everywhere caused `isInBuilderFrame()` to return false for
- * real Builder editor sessions and `HomeChatPanel` submissions silently fell
- * through to `agentNative.submitChat` (which Builder ignores).
- */
-export function getBuilderParentOrigin(): string | null {
+let builderFrameDetected = false;
+let builderParentOrigin: string | null = null;
+
+function detectBuilderParentOrigin(): string | null {
   const frameOrigin = getFrameOrigin();
   if (frameOrigin) {
     if (isStrictBuilderHost(frameOrigin)) return frameOrigin;
@@ -88,14 +86,29 @@ export function getBuilderParentOrigin(): string | null {
   return null;
 }
 
+export function getBuilderParentOrigin(): string | null {
+  const detectedOrigin = detectBuilderParentOrigin();
+  if (detectedOrigin) builderParentOrigin = detectedOrigin;
+  return detectedOrigin ?? builderParentOrigin;
+}
+
+if (typeof window !== "undefined") {
+  builderFrameDetected =
+    getBuilderParentOrigin() !== null || hasBuilderPreviewParams();
+}
+
 export function isInBuilderFrame(): boolean {
   if (typeof window === "undefined") return false;
-  if (getBuilderParentOrigin() !== null) return true;
+  if (builderFrameDetected) return true;
 
-  // Electron webviews run the preview as a top-level page, so there is no
-  // parent frame to inspect. Builder still marks those URLs with builder.*
-  // preview params, and sendToBuilderChat will use the console relay.
-  return hasBuilderPreviewParams();
+  builderFrameDetected =
+    getBuilderParentOrigin() !== null || hasBuilderPreviewParams();
+  return builderFrameDetected;
+}
+
+export function _resetBuilderFrameDetectionForTests(): void {
+  builderFrameDetected = false;
+  builderParentOrigin = null;
 }
 
 export function shouldParentFrameOwnAgentPanel(): boolean {
@@ -114,20 +127,23 @@ export function isTrustedBuilderMessage(event: MessageEvent): boolean {
 export interface BuilderChatMessage {
   message: string;
   context?: string;
+  contextLabel?: string;
   submit?: boolean;
   mode?: "act" | "plan";
   requestMode?: "act" | "plan";
+  targetOrigin?: string;
 }
 
 export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
   if (typeof window === "undefined" || !opts.message?.trim()) return false;
   const hasParentFrame = window.parent !== window;
-  const targetOrigin = getBuilderParentOrigin() ?? "*";
+  const targetOrigin = opts.targetOrigin ?? getBuilderParentOrigin() ?? "*";
   const payload = {
     type: "builder.submitChat",
     data: {
       message: opts.message,
       context: opts.context,
+      ...(opts.contextLabel ? { contextLabel: opts.contextLabel } : {}),
       submit: opts.submit,
       ...(opts.mode ? { mode: opts.mode } : {}),
       ...(opts.requestMode ? { requestMode: opts.requestMode } : {}),
@@ -137,8 +153,6 @@ export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
   if (hasParentFrame) {
     window.parent.postMessage(payload, targetOrigin);
   } else {
-    // Builder's Electron/webview relay watches console output for top-level
-    // previews that have no parent frame to receive postMessage.
     try {
       console.log(
         "BUILDER_PARENT_MESSAGE:" +
@@ -150,41 +164,15 @@ export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
   return true;
 }
 
-// Detect "build/create/make/scaffold a new app/agent" style prompts.
-// Within agent-native, "agent" and "app" are synonyms — every agent-native
-// app is an agent, so users phrase build requests either way.
 const BUILD_APP_OR_AGENT_RE =
   /\b(?:build|create|make|scaffold|generate)\b[^.!?\n]*?\b(?:agent[-\s]native\s+)?(?:workspace\s+)?(?:app|agent)\b/i;
 
-/**
- * Returns true if `text` looks like a "build me an app/agent" request that
- * should hand off to the code-writing agent (Builder, local code agent, etc.)
- * rather than be answered by the embedded app's domain agent.
- *
- * Conservative: requires both an imperative build verb AND an explicit
- * "app" / "agent" target word in the same sentence. "Build me a tool",
- * "build a recurring job", "create a destination" do not match — they
- * don't end in "app"/"agent" so they stay on the local agent. "Build me
- * an email app" / "create me an email agent" do match — the target
- * word is "app" / "agent", not "email".
- */
 export function isBuildAppOrAgentRequest(text: string | undefined): boolean {
   const t = (text ?? "").trim();
   if (!t) return false;
   return BUILD_APP_OR_AGENT_RE.test(t);
 }
 
-/**
- * If the user typed a "build me an app/agent" prompt while running inside
- * the Builder.io webview/iframe, hand the prompt up to the parent Builder
- * chat via `builder.submitChat`. Returns true when delegated.
- *
- * Why: Builder is the code-writing agent. When a workspace app (Dispatch,
- * Mail, etc.) is mounted inside Builder's webview and the user asks the
- * embedded chat to "build an app", the user almost certainly means the
- * already-open Builder chat session — not a separate Builder agent run
- * spawned through `start-workspace-app-creation`.
- */
 export function tryDelegateBuildRequestToBuilder(
   text: string | undefined,
 ): boolean {

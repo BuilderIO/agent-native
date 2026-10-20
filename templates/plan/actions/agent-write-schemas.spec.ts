@@ -7,6 +7,7 @@ type JsonSchema = {
   properties?: Record<string, JsonSchema>;
   items?: JsonSchema;
   oneOf?: JsonSchema[];
+  anyOf?: JsonSchema[];
   const?: string;
 };
 
@@ -18,7 +19,7 @@ function advertisedOps(action: { tool: { parameters: unknown } }) {
   const parameters = action.tool.parameters as JsonSchema;
   const patchSchema =
     parameters.properties?.contentPatches ?? parameters.properties?.patches;
-  return (patchSchema?.items?.oneOf ?? [])
+  return (patchSchema?.items?.oneOf ?? patchSchema?.items?.anyOf ?? [])
     .map((option) => option.properties?.op?.const)
     .filter((op): op is string => typeof op === "string");
 }
@@ -33,6 +34,7 @@ describe("Plan agent write schemas", () => {
     expect(properties).not.toHaveProperty("html");
     expect(properties).not.toHaveProperty("markdown");
     expect(properties).not.toHaveProperty("sections");
+    expect(properties).toHaveProperty("allowSurfaceMismatch");
     expect(ops).toContain("append-block");
     expect(ops).toContain("update-rich-text");
     expect(ops).not.toContain("replace-block");

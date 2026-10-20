@@ -1,5 +1,10 @@
 import { getOrgContext } from "@agent-native/core/org";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getMcpOAuthBearerSession,
+  getSession,
+  isCredentialMembershipUnavailable,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import type { H3Event } from "h3";
 
 export interface SlidesRequestAuthContext {
@@ -7,18 +12,52 @@ export interface SlidesRequestAuthContext {
   orgId?: string;
 }
 
+/**
+ * A session lookup that failed outright (DB blip, cookie race) — distinct
+ * from `getSession` resolving to `null`, which means "no session" and is a
+ * legitimate outcome for anonymous callers (public share/deck viewers).
+ * `getSession` only throws on a real backend failure, never merely because a
+ * request carries no session cookie, so this never fires for genuine
+ * anonymous access. Previously this was swallowed into the same
+ * `email: undefined` an anonymous visitor gets, so a transient failure
+ * presented as "unauthorized" on the upload path and as an untraceable error
+ * on deck creation — see `resolveSlidesRequestAuth` for the caller-facing
+ * shape.
+ */
+export class SlidesSessionLookupError extends Error {
+  readonly statusCode = 503;
+  readonly cause: unknown;
+  constructor(cause: unknown) {
+    super("Could not verify your session. Please try again.");
+    this.name = "SlidesSessionLookupError";
+    this.cause = cause;
+  }
+}
+
 export async function resolveSlidesRequestAuthContext(
   event: H3Event,
 ): Promise<SlidesRequestAuthContext> {
-  const session = await getSession(event).catch(() => null);
+  const mcpSession = await getMcpOAuthBearerSession(event);
+  let session: Awaited<ReturnType<typeof getSession>>;
+  if (mcpSession?.email) {
+    session = mcpSession;
+  } else {
+    try {
+      session = await getSession(event);
+    } catch (err) {
+      throw new SlidesSessionLookupError(err);
+    }
+  }
+  // A bearer token that verified but whose organization membership could not
+  // be checked is not an anonymous caller. Answer the retryable 503.
+  if (!session?.email && isCredentialMembershipUnavailable(event)) {
+    throw new SlidesSessionLookupError(
+      new Error("Organization membership could not be verified"),
+    );
+  }
 
-  // Prefer the live active org context over `session.orgId`. Better Auth's
-  // session.orgId is set at sign-in and not refreshed when the user switches
-  // orgs — so reading it directly returns the *previous* active org after
-  // any switch. `getOrgContext()` resolves the user's current active-org-id
-  // user-setting on every request, which is what we actually want.
   let orgId: string | undefined;
-  if (session?.email) {
+  if (session?.email && !mcpSession?.email) {
     try {
       const orgContext = await getOrgContext(event);
       orgId = orgContext.orgId ?? undefined;
@@ -26,9 +65,6 @@ export async function resolveSlidesRequestAuthContext(
       // Org tables can be unavailable during first boot; fall back below.
     }
   }
-  // Last-resort fallback: if `getOrgContext` threw or returned no orgId,
-  // accept the session-embedded value so first-boot / solo deployments
-  // and unauthenticated callers still work.
   if (!orgId && session?.orgId) {
     orgId = session.orgId;
   }
@@ -37,6 +73,26 @@ export async function resolveSlidesRequestAuthContext(
     email: session?.email,
     orgId,
   };
+}
+
+export type SlidesRequestAuthResolution =
+  | { ok: true; context: SlidesRequestAuthContext }
+  | { ok: false; statusCode: number; error: string };
+
+export async function resolveSlidesRequestAuth(
+  event: H3Event,
+): Promise<SlidesRequestAuthResolution> {
+  try {
+    return { ok: true, context: await resolveSlidesRequestAuthContext(event) };
+  } catch (err) {
+    return {
+      ok: false,
+      statusCode:
+        err instanceof SlidesSessionLookupError ? err.statusCode : 500,
+      error:
+        err instanceof Error ? err.message : "Failed to verify your session.",
+    };
+  }
 }
 
 export async function withSlidesRequestContext<T>(

@@ -4,6 +4,8 @@ const MAX_SUBTREE_EXCERPT_LENGTH = 4_000;
 
 export const NODE_REPROMPT_RESOLVED_EVENT = "design:node-reprompt-resolved";
 export const NODE_REPROMPT_PRESENTED_EVENT = "design:node-reprompt-presented";
+export const NODE_REPROMPT_PREVIEW_FAILED_EVENT =
+  "design:node-reprompt-preview-failed";
 
 export type NodeRepromptSendMode = "preview" | "ask";
 
@@ -81,7 +83,7 @@ export function formatNodeRepromptSubmission(
   args: NodeRepromptSubmissionArgs,
 ): { message: string; context: string } {
   return {
-    message: args.instruction.trim(),
+    message: args.instruction,
     context: formatNodeRepromptContext(args),
   };
 }
@@ -91,7 +93,7 @@ export function formatNodeSelectionQuestion(args: NodeSelectionQuestionArgs): {
   context: string;
 } {
   return {
-    message: args.instruction.trim(),
+    message: args.instruction,
     context: [
       "[Selection question]",
       `designId: ${args.designId}`,

@@ -24,11 +24,24 @@ describe("Dispatch agent chat plugin", () => {
       expect.objectContaining({
         appId: "dispatch",
         durableBackgroundRuns: true,
+        initialToolNames: expect.arrayContaining([
+          "list-workspace-apps",
+          "update-workspace-app-metadata",
+          "list-dispatch-usage-metrics",
+        ]),
         mcp: {
           connectorCatalog: expect.arrayContaining([
             "start-workspace-app-creation",
+            "list-dispatch-usage-metrics",
           ]),
         },
+        actionRoutePublicPaths: [
+          "/_agent-native/actions/list-workspace-apps",
+          "/_agent-native/actions/claim-workspace-app-organization",
+        ],
+        actionRouteAuth: expect.objectContaining({
+          resolveCaller: expect.any(Function),
+        }),
       }),
     );
   });

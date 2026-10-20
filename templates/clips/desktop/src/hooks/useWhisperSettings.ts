@@ -48,7 +48,6 @@ export function useWhisperSettings(
 
   const enabled = featureConfig?.whisperModelEnabled !== false;
   const modelId = featureConfig?.whisperModelId ?? "base";
-  const selectedModel = catalog.find((m) => m.id === modelId) ?? null;
   const deletableModels = catalog.filter(
     (m) => m.id !== modelId && downloadedModelIds.includes(m.id),
   );
@@ -162,7 +161,6 @@ export function useWhisperSettings(
     status,
     enabled,
     modelId,
-    selectedModel,
     deletableModels,
     triggerDownload,
     setEnabled,

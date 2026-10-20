@@ -1,21 +1,10 @@
 // @vitest-environment happy-dom
-
-import { type ToolRendererContext } from "@agent-native/core/client/agent-chat";
+import { type ToolRendererContext } from "@agent-native/toolkit/app/chat/chat";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import VisualAnswerInline from "./VisualAnswerInline";
-
-/**
- * The visual-answer chat renderer turns the action result into INLINE plan
- * blocks (diagram/wireframe/api-spec/data-model/rich-text) inside the agent
- * conversation, registry-driven via `planBlockRegistry`. These guard:
- *  - running / empty-content results render nothing (defer to the running pill
- *    or the action's link affordance) instead of a broken empty card, and
- *  - a result with normalized `plan.content.blocks` renders the heading, an
- *    "Open" deep link, and the blocks themselves inline.
- */
 
 class MockResizeObserver {
   observe() {}
@@ -112,7 +101,6 @@ describe("VisualAnswerInline chat renderer", () => {
 
     const body = container.querySelector(".plan-chat-visual-answer");
     expect(body).not.toBeNull();
-    // The block was mapped through PlanBlockView inside the registry provider.
     expect(body?.childElementCount).toBeGreaterThan(0);
     expect(container.textContent).toContain("INLINE_VISUAL_ANSWER_BODY");
   });

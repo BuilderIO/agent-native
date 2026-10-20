@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { getContentCalendarSchema } from "../server/lib/notion";
@@ -11,6 +11,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  grounding: true,
   run: async ({ databaseId }) => {
     return await getContentCalendarSchema(databaseId);
   },

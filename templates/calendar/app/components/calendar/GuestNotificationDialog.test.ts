@@ -35,6 +35,17 @@ describe("guest notification prompt helpers", () => {
     ).toBe(1);
   });
 
+  it("includes additional guests in the notification count", () => {
+    const event = calendarEvent({
+      attendees: [
+        { email: "me@example.com", self: true },
+        { email: "guest@example.com", additionalGuests: 2 },
+      ],
+    });
+
+    expect(getGuestAttendeeCount(event)).toBe(3);
+  });
+
   it("prompts when adding the first guest", () => {
     const event = calendarEvent({ attendees: [] });
 

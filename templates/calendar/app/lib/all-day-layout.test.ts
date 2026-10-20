@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   getAllDaySpan,
   groupAdjacentAllDayPlacements,
+  isCompactCalendarEvent,
   layoutAllDayEvents,
   partitionAllDayEvents,
 } from "./all-day-layout";
@@ -70,6 +71,43 @@ describe("all-day layout", () => {
     });
   });
 
+  it("places a timed event on the day defined by the pinned timezone", () => {
+    const timedEvent: CalendarEvent = {
+      ...event(
+        "tokyo-evening",
+        "2026-07-10T23:00:00.000Z",
+        "2026-07-11T02:00:00.000Z",
+      ),
+      allDay: false,
+    };
+
+    expect(
+      getAllDaySpan(
+        timedEvent,
+        [new Date(2026, 6, 10), new Date(2026, 6, 11)],
+        "Asia/Tokyo",
+      ),
+    ).toEqual({ startCol: 1, endCol: 1 });
+  });
+
+  it("keeps timed events over 24 hours in the compact lane", () => {
+    const longEvent = {
+      ...event("hold", "2026-07-06T09:00:00.000Z", "2026-07-08T10:00:00.000Z"),
+      allDay: false,
+    };
+
+    expect(isCompactCalendarEvent(longEvent)).toBe(true);
+    expect(
+      isCompactCalendarEvent({ ...longEvent, end: "2026-07-07T09:00:00.000Z" }),
+    ).toBe(false);
+    expect(isCompactCalendarEvent({ ...longEvent, end: "invalid" })).toBe(
+      false,
+    );
+    expect(
+      layoutAllDayEvents([longEvent], days, "UTC").placements,
+    ).toMatchObject([{ startCol: 1, endCol: 3, row: 0 }]);
+  });
+
   it("assigns overlapping spans to deterministic non-overlapping rows", () => {
     const layout = layoutAllDayEvents(
       [
@@ -104,6 +142,23 @@ describe("all-day layout", () => {
       workingLocations: [workingLocation],
       regularEvents: [ordinaryEvent],
     });
+  });
+
+  it("keeps same-day working locations in separate all-day rows", () => {
+    const layout = layoutAllDayEvents(
+      [
+        event("home", "2026-07-07", "2026-07-08", "workingLocation"),
+        event("office", "2026-07-07", "2026-07-08", "workingLocation"),
+      ],
+      days,
+      "America/Los_Angeles",
+    );
+
+    expect(layout.rowCount).toBe(2);
+    expect(layout.placements.map((placement) => placement.event.id)).toEqual([
+      "home",
+      "office",
+    ]);
   });
 
   it("groups adjacent placements with the same visual identity", () => {

@@ -1,0 +1,269 @@
+import { expect, test } from "@playwright/test";
+
+import { renderedText, settleAuthGate } from "../lib/app";
+import {
+  isGoogleOnly,
+  originFor,
+  productionHostFor,
+  selectedSites,
+} from "../lib/fleet";
+import { mustRespond, parseJson } from "../lib/http";
+import { SETTINGS_NESTED_ROUTE } from "../lib/settings";
+import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
+
+const sites = selectedSites();
+
+test.beforeEach(async ({ page }) => {
+  await installBetaE2ETrafficMarker(page.context());
+});
+
+test.describe.configure({ mode: "parallel" });
+
+for (const site of sites) {
+  const origin = originFor(site);
+
+  test.describe(`${site.id} auth surface`, () => {
+    test("carries a continuation for the route the visitor asked for", async ({
+      page,
+    }) => {
+      // Landing on the app root after signing in — instead of the page you
+      // asked for — is the return-path regression this catches. A nested
+      // Settings route (`/settings/:page/:sub`) is the deepest shape Settings
+      // links to, so both segments have to survive the round trip.
+      const target = SETTINGS_NESTED_ROUTE;
+      await page.goto(`${origin}${target}`, {
+        waitUntil: "domcontentloaded",
+      });
+
+      const gate = await settleAuthGate(page);
+
+      // A protected route that renders anonymously is an authorization
+      // regression, not a reason to skip the test. The gate must also remain
+      // on the app's own origin so a sign-in cannot be redirected elsewhere.
+      expect(
+        gate.gated,
+        `${site.id} served ${target} without a sign-in surface`,
+      ).toBe(true);
+      expect(
+        new URL(gate.url).origin,
+        `${site.host} bounced an anonymous visitor off its own origin to ${gate.url}`,
+      ).toBe(origin);
+
+      const url = new URL(gate.url);
+      const continuation = [...url.searchParams.entries()].find(([key]) =>
+        ["c", "cb", "return", "returnTo", "redirect"].includes(key),
+      );
+      expect(
+        continuation,
+        `${site.host} sent an anonymous visitor from ${target} to ${gate.url} with no continuation, so signing in would drop them on the app root`,
+      ).toBeTruthy();
+
+      const decoded = (() => {
+        const raw = decodeURIComponent(continuation![1]);
+        try {
+          return decodeURIComponent(
+            Buffer.from(raw, "base64").toString("utf8"),
+          );
+        } catch {
+          return raw;
+        }
+      })();
+      expect(
+        decoded,
+        `${site.host} carried continuation "${continuation![1]}", which does not resolve to ${target}`,
+      ).toContain(target);
+
+      const settled = page.url();
+      await page.waitForTimeout(2_500);
+      expect(
+        page.url(),
+        `${site.host} kept redirecting after settling on ${settled} — this is the sign-in loop users reported`,
+      ).toBe(settled);
+    });
+
+    test("holds still on sign-in and refuses an off-origin continuation", async ({
+      page,
+    }) => {
+      await page.goto(`${origin}/sign-in`, {
+        waitUntil: "domcontentloaded",
+      });
+      await settleAuthGate(page);
+      const settled = page.url();
+      await page.waitForTimeout(2_500);
+      expect
+        .soft(
+          page.url(),
+          `${site.host} moved a visitor off ${settled} after settling — the sign-in loop shape`,
+        )
+        .toBe(settled);
+
+      const hostile = "https://example.com/phish";
+      await page.goto(`${origin}/sign-in?c=${encodeURIComponent(hostile)}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await settleAuthGate(page);
+      expect
+        .soft(
+          new URL(page.url()).origin,
+          `${site.host} followed an off-origin continuation to ${page.url()}`,
+        )
+        .toBe(origin);
+      expect
+        .soft(
+          await page.locator('a[href^="https://example.com"]').count(),
+          `${site.host} rendered a link to the hostile continuation target on its sign-in page`,
+        )
+        .toBe(0);
+    });
+
+    test("renders the shared auth form in its configured layout", async ({
+      page,
+    }) => {
+      await page.goto(`${origin}/sign-in?cb=${Date.now()}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await renderedText(page, `${site.host} auth layout`);
+
+      const authCard = page.locator(
+        ".auth-centered > .card, .auth-marketing-home .form-panel > .card",
+      );
+      await expect(authCard).toHaveCount(1);
+      await expect(authCard).toBeVisible();
+      await expect(page.locator("#heading")).toBeVisible();
+      await expect(page.locator("#google-btn")).toBeVisible();
+
+      if (isGoogleOnly(site)) {
+        await expect(page.locator("#auth-tabs")).toBeHidden();
+        return;
+      }
+
+      const usePasswordLink = page.locator("#use-password-link");
+      if (await usePasswordLink.isVisible()) await usePasswordLink.click();
+
+      const tabs = page.locator("#auth-tabs");
+      await expect(tabs).toBeVisible();
+      await tabs.locator('[data-tab="signup"]').click();
+      await expect(page.locator("#signup-form")).toBeVisible();
+      await expect(page.locator("#s-email")).toBeVisible();
+      await expect(page.locator("#login-form")).toBeHidden();
+
+      await tabs.locator('[data-tab="login"]').click();
+      await expect(page.locator("#login-form")).toBeVisible();
+      await expect(page.locator("#l-email")).toBeVisible();
+      await expect(page.locator("#signup-form")).toBeHidden();
+    });
+
+    test("keeps OAuth popups navigable from every document that opens them", async ({
+      page,
+    }) => {
+      // Sign-in, in-app connect buttons, and the MCP sign-in form all open
+      // their popup on the inert waiting page, then send it to the provider.
+      // If the opener document's COOP is incompatible with the waiting page's,
+      // the browser severs the popup: it stays blank and the opener reports it
+      // closed ("allow popups"). The documents below carry different header
+      // sets, which is how fixing one of them has twice broken the others.
+      // Scripts are blocked so the anonymous shell cannot redirect to sign-in;
+      // every visitor, signed in or not, receives these same cached headers.
+      await page.route(
+        (url) => /\.m?js$/.test(url.pathname),
+        (route) => route.abort(),
+      );
+      for (const path of ["/", "/settings/general", "/mcp/connect"]) {
+        const response = await page.goto(`${origin}${path}`, {
+          waitUntil: "domcontentloaded",
+        });
+        // Only an app that does not mount MCP may lack /mcp/connect; any other
+        // failure would silently drop that opener from coverage.
+        if (path === "/mcp/connect" && response?.status() === 404) continue;
+        expect(
+          response?.ok(),
+          `${site.host}${path} returned ${response?.status()}, so its popup behaviour went untested`,
+        ).toBe(true);
+        if (!response) continue;
+        const [popup, opened] = await Promise.all([
+          page.context().waitForEvent("page"),
+          page.evaluate(() => {
+            const handle = window.open(
+              new URL("/_agent-native/oauth/popup", location.origin).href,
+              "_blank",
+              "width=640,height=760",
+            );
+            (window as { __oauthPopup?: Window | null }).__oauthPopup = handle;
+            return handle !== null;
+          }),
+        ]);
+        expect(opened, `${site.host}${path} could not open a popup`).toBe(true);
+        // The waiting page's COOP only applies once it has committed, so the
+        // opener must not navigate it before then or the check proves nothing.
+        await popup.waitForURL("**/_agent-native/oauth/popup");
+        await popup.waitForLoadState("domcontentloaded");
+        const target = `${origin}/_agent-native/ping`;
+        await page.evaluate((url) => {
+          const handle = (window as { __oauthPopup?: Window | null })
+            .__oauthPopup;
+          if (handle && !handle.closed) handle.location.href = url;
+        }, target);
+        const navigated = await popup
+          .waitForURL(target, { timeout: 15_000 })
+          .then(() => true)
+          .catch(() => false);
+        const closed = await page.evaluate(
+          () =>
+            (window as { __oauthPopup?: Window | null }).__oauthPopup?.closed ??
+            true,
+        );
+        const coop = response.headers()["cross-origin-opener-policy"] ?? "none";
+        expect
+          .soft(
+            closed,
+            `${site.host}${path} (COOP ${coop}) lost its handle to the OAuth popup`,
+          )
+          .toBe(false);
+        expect
+          .soft(
+            navigated,
+            `${site.host}${path} (COOP ${coop}) could not send the OAuth popup on from the waiting page`,
+          )
+          .toBe(true);
+        await popup.close();
+      }
+    });
+
+    test("serves an impersonal, cacheable shell", async () => {
+      const outcome = await mustRespond(`${origin}/`, { redirect: "manual" });
+      const cacheControl =
+        outcome.headers["cache-control"] ??
+        outcome.headers["cdn-cache-control"];
+      expect(
+        cacheControl,
+        `${site.host} served its SSR shell with no cache-control or cdn-cache-control header`,
+      ).toBeTruthy();
+      expect(
+        cacheControl ?? "",
+        `${site.host} served its shell with cache-control "${cacheControl}", which prevents the shared public shell from being cached`,
+      ).not.toMatch(/private|no-store/i);
+      expect
+        .soft(
+          outcome.headers["set-cookie"] ?? "",
+          `${site.host} set a cookie on its cacheable SSR shell`,
+        )
+        .not.toMatch(/session/i);
+    });
+
+    test("sends security headers", async () => {
+      const outcome = await mustRespond(`${origin}/`, { redirect: "manual" });
+      expect
+        .soft(
+          outcome.headers["x-content-type-options"],
+          `${site.host} is missing X-Content-Type-Options`,
+        )
+        .toBe("nosniff");
+      expect
+        .soft(
+          outcome.headers["strict-transport-security"],
+          `${site.host} is missing Strict-Transport-Security`,
+        )
+        .toBeTruthy();
+    });
+  });
+}

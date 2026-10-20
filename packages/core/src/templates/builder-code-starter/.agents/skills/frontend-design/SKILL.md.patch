@@ -1,0 +1,25 @@
+===================================================================
+--- a/.agents/skills/frontend-design/SKILL.md
++++ b/.agents/skills/frontend-design/SKILL.md
+@@ -48,11 +48,18 @@
+ or dialog for a small edit, a focused flow for multi-step work.
+ 
+ ## Use the app's design system
+ 
+-Preserve the existing brand and theme. Prefer semantic color tokens and the
+-app's type system over raw palette colors or a newly invented visual system.
+-Choose an accent and type treatment for a reason; avoid generic gradients,
++This starter ships **no brand system** — the neutral, 0%-saturation tokens in
++`app/global.css` are a placeholder, not a design to preserve. Every app must
++look impressive on first load even when the build prompt gives no design
++direction: commit to one deliberate visual world, set a product-fitting accent
++family in the light and dark tokens, and establish a clear type hierarchy,
++spacing rhythm, and one signature detail. Do not ship the gray placeholder and
++do not average toward generic SaaS. If an app already has a real brand, preserve
++it. Keep shared behavior and semantic token names consistent; palette, density,
++composition, type contrast, and shape language are yours to define. Prefer
++semantic color tokens over raw palette colors, and avoid generic gradients,
+ glass effects, decorative blobs, and hero sections without a product purpose.
+ 
+ Use the app's local UI adapter for standard controls. In an Agent-Native app,
+ check the configured design system and toolkit provider before changing how

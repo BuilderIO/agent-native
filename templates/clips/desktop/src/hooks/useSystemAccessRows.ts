@@ -1,0 +1,116 @@
+import { useCallback, useEffect, useState } from "react";
+
+import {
+  permissionStatusForPane,
+  readPermissionStatuses,
+  requestOrOpenPermission,
+  type MacosPrivacyPane,
+  type PermissionStatuses,
+} from "../lib/permission-status";
+import { isMacPlatform } from "../lib/platform";
+
+export type SystemAccessRow = {
+  key: string;
+  label: string;
+  description: string;
+  granted: boolean | null;
+  onGrant: () => void;
+};
+
+type SystemAccessDefinition = {
+  key: string;
+  label: string;
+  description: string;
+  panes: MacosPrivacyPane[];
+};
+
+export function useSystemAccessRows({
+  includeVoicePaste,
+  includeFnMonitoring,
+  onOpenSettings,
+}: {
+  includeVoicePaste: boolean;
+  includeFnMonitoring: boolean;
+  onOpenSettings: (pane: MacosPrivacyPane) => void;
+}): SystemAccessRow[] {
+  const mac = isMacPlatform();
+  const [statuses, setStatuses] = useState<PermissionStatuses | null>(null);
+
+  const recheck = useCallback(() => {
+    void readPermissionStatuses().then(setStatuses);
+  }, []);
+
+  useEffect(() => {
+    recheck();
+    window.addEventListener("focus", recheck);
+    return () => window.removeEventListener("focus", recheck);
+  }, [recheck]);
+
+  const definitions: SystemAccessDefinition[] = [
+    {
+      key: "screen",
+      label: "Screen Recording",
+      description: "Allows Clips to record your screen",
+      panes: ["screen"],
+    },
+    {
+      key: "microphone",
+      label: "Microphone",
+      description: "Allows Clips to access your microphone",
+      panes: ["microphone"],
+    },
+    {
+      key: "camera",
+      label: "Camera",
+      description: "Allows Clips to access your camera",
+      panes: ["camera"],
+    },
+  ];
+  if (mac) {
+    definitions.push({
+      key: "speech",
+      label: "Speech Recognition",
+      description: "Allows Clips to use speech recognition",
+      panes: ["speech"],
+    });
+  }
+  if (mac && includeVoicePaste) {
+    definitions.push({
+      key: "accessibility",
+      label: "Accessibility",
+      description: "Allows Clips to control this device to paste dictated text",
+      panes: ["accessibility"],
+    });
+  }
+  if (mac && includeFnMonitoring) {
+    definitions.push({
+      key: "input-monitoring",
+      label: "Input Monitoring",
+      description: "Allows Clips to detect the Fn key",
+      panes: ["input-monitoring"],
+    });
+  }
+
+  return definitions.map(({ panes, ...definition }) => {
+    const results = panes.map((pane) =>
+      permissionStatusForPane(pane, statuses),
+    );
+    const granted = results.some((result) => result === null)
+      ? null
+      : results.every(Boolean);
+    return {
+      ...definition,
+      granted,
+      onGrant: () => {
+        const target =
+          panes.find(
+            (pane) => permissionStatusForPane(pane, statuses) === false,
+          ) ?? panes[0];
+        void requestOrOpenPermission(target, {
+          onOpenSettings,
+          onRecheck: recheck,
+        });
+      },
+    };
+  });
+}

@@ -67,7 +67,6 @@ describe("dedupeRepoMessagesById", () => {
         },
       ],
     };
-    // No behavioural change for the common case — identical reference back.
     expect(dedupeRepoMessagesById(repo)).toBe(repo);
   });
 
@@ -103,7 +102,6 @@ describe("dedupeRepoMessagesById", () => {
     };
     const result = dedupeRepoMessagesById(repo)!;
     expect(result.messages!.map((m) => m.message!.id)).toEqual(["b", "a", "c"]);
-    // The surviving "a" carries the later content.
     expect(
       result.messages!.find((m) => m.message!.id === "a")?.message,
     ).toMatchObject({ content: "a2" });
@@ -131,7 +129,6 @@ describe("dedupeRepoMessagesById", () => {
       ],
     };
     const result = dedupeRepoMessagesById(repo)!;
-    // Two id-less entries survive; the duplicated "a" collapses to one.
     expect(result.messages).toHaveLength(3);
     expect(result.messages!.filter((m) => !m.message!.id)).toHaveLength(2);
   });
@@ -335,6 +332,203 @@ describe("shouldImportServerThreadData", () => {
     expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
       false,
     );
+  });
+
+  it("rejects a same-length snapshot that would drop user attachments", () => {
+    const currentRepo: NormalizedRepo = {
+      headId: "user-2",
+      messages: [
+        {
+          parentId: null,
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "file-1",
+                type: "file",
+                name: "deck-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "user-2",
+            role: "user",
+            content: "And the pasted notes",
+            attachments: [
+              {
+                id: "paste-1",
+                type: "file",
+                name: "pasted-text-1.txt",
+                contentType: "text/plain",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const staleServerRepo: NormalizedRepo = {
+      headId: "user-2",
+      messages: [
+        {
+          parentId: null,
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+          },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "user-2",
+            role: "user",
+            content: "And the pasted notes",
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
+      false,
+    );
+  });
+
+  it("rejects a same-length snapshot with different attachment descriptors", () => {
+    const currentRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "file-1",
+                type: "file",
+                name: "deck-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const staleServerRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "file-2",
+                type: "file",
+                name: "different-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
+      false,
+    );
+  });
+
+  it("rejects a longer snapshot that drops an earlier attachment", () => {
+    const currentRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "file-1",
+                type: "file",
+                name: "deck-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const staleServerRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+          },
+        },
+        {
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: "Working on it",
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
+      false,
+    );
+  });
+
+  it("accepts regenerated message and attachment ids for the same descriptor", () => {
+    const currentRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "local-message",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "local-file",
+                type: "file",
+                name: "deck-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const persistedRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "server-message",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "server-file",
+                type: "file",
+                name: "deck-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, persistedRepo)).toBe(true);
   });
 
   it("accepts a same-length snapshot that completes a pending tool call", () => {

@@ -5,29 +5,58 @@ import {
 
 import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
-import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
-import { pivotRows } from "../../app/pages/adhoc/sql-dashboard/pivot";
+import {
+  pivotRows,
+  timeRangeDays,
+} from "../../app/pages/adhoc/sql-dashboard/pivot";
 import type {
   ColumnFormat,
   SqlDashboardConfig,
+  PanelEvent,
   SqlPanel,
   TableColumnConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
-import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
+import {
+  describeFunnelOutcomeProblems,
+  resolveDashboardFunnelRows,
+} from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import {
+  dataNoteIsRecent,
+  dataNotesOnChart,
+  dataNoteTone,
+  formatDataNoteDates,
+  type DataNote,
+  type DataNoteTone,
+} from "../../shared/data-notes";
+import { formatDollars } from "../../shared/format-dollars";
+import { panelEventsWithKeyDates } from "../../shared/key-dates";
+import { resolvePanelEvents } from "../../shared/panel-events";
+import {
+  chartPointLimit,
+  limitChartRows,
+  orderPanelSeries,
+  resolveSeriesColors,
+  seriesColorSlots,
+  type ChartPointLimit,
+} from "../../shared/panel-render-contract";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
+import type { DashboardPanelSource } from "./dashboard-panel-query";
 import {
-  normalizeDashboardPanelQuery,
-  type DashboardPanelSource,
-} from "./dashboard-panel-query";
-import { resolveAnalyticsPanelSource } from "./dashboard-panel-source-resolver";
+  buildPanelQuery,
+  describeError,
+  runResolvedPanel,
+  type ReportPanelData,
+} from "./dashboard-panel-runner";
 import {
   renderReportChartSvg,
   renderFunnelChartSvg,
   REPORT_CHART_FONT_FAMILY,
+  type ReportChartBand,
+  type ReportChartEvent,
   type ReportChartSeries,
   type ReportChartType,
   type ReportChartValueFormatter,
@@ -43,19 +72,14 @@ export type ReportSnapshot = {
   generatedAt: string;
   panelIds: string[];
   panels: SqlDashboardConfig["panels"];
+  /** The dashboard's key dates, drawn on every time chart alongside each panel's own events. */
+  keyDates?: PanelEvent[];
+  /** Each panel's data notes, minus the ones the dashboard hides there; panels without notes are absent. */
+  dataNotesByPanel?: Record<string, DataNote[]>;
   variables?: Record<string, string>;
 };
 
-export type ReportPanelData =
-  | {
-      status: "rows";
-      rows: Array<Record<string, unknown>>;
-      schema: Array<{ name: string; type: string }>;
-      truncated?: boolean;
-    }
-  | { status: "query-failed"; message: string }
-  | { status: "missing-credential"; message: string }
-  | { status: "not-emailable"; message: string };
+export type { ReportPanelData };
 
 export type RenderedReportEmail = {
   html: string;
@@ -67,36 +91,18 @@ export type RenderedReportEmail = {
     contentId: string;
     disposition: "inline";
   }>;
-  /** Panel ids that could not be rendered from real data. Empty === complete. */
   degradedPanelIds: string[];
 };
 
 type ReportAttachment = RenderedReportEmail["attachments"][number];
 
-/**
- * Sits one layer above the panel source's own query timeout so the source's
- * more specific error surfaces first. The heaviest first-party panels on a real
- * dashboard need well over 20s.
- */
 const DEFAULT_PANEL_TIMEOUT_MS = DASHBOARD_REPORT_ACTION_TIMEOUT_MS;
 const EMAIL_TABLE_ROW_CAP = 50;
-const MAX_CHART_POINTS = 400;
 const CHART_WIDTH = 920;
 const CHART_HEIGHT = 360;
 const CHART_RASTER_SCALE = 2;
 const MAX_TOTAL_ATTACHMENT_BYTES = 14 * 1024 * 1024;
 
-/**
- * resvg resolves no CSS custom properties, so email charts cannot reuse the
- * dashboard's `var(--brand-*)` palette.
- */
-/**
- * Mirrors `DEFAULT_COLORS` in `app/components/dashboard/SqlChart.tsx`, including
- * its length — series colors are assigned `index % length`, so a different
- * length would recolor every series past the first cycle relative to the live
- * dashboard. The first two entries resolve `var(--brand-blue)` / `--brand-teal`
- * to hex because resvg cannot read CSS custom properties.
- */
 const CHART_COLORS = [
   "#0284c7",
   "#0d9488",
@@ -113,6 +119,12 @@ const MUTED_COLOR = "#6b7280";
 const BORDER_COLOR = "#e5e7eb";
 const ERROR_BORDER_COLOR = "#dc2626";
 const ERROR_BG_COLOR = "#fef2f2";
+// guard:allow-raw-color — email clients and the rasterized chart can't read the app's CSS theme variables.
+const DATA_NOTE_COLORS: Record<DataNoteTone, string> = {
+  incident: "#dc2626", // guard:allow-raw-color — email copy of --destructive
+  data: "#d97706", // guard:allow-raw-color — email copy of --brand-orange
+  fixed: "#9ca3af", // guard:allow-raw-color — email copy of --muted-foreground
+};
 
 export function reportPanelVariables(
   snapshot: ReportSnapshot,
@@ -124,52 +136,6 @@ export function reportPanelVariables(
   return vars;
 }
 
-const SECRET_PATTERNS: RegExp[] = [
-  /\b(?:bearer|token|api[_-]?key|secret|password|authorization)\b["'\s:=]+\S+/gi,
-  /\b[A-Za-z0-9_-]{32,}\b/g,
-];
-
-function redactSecrets(message: string): string {
-  const redacted = SECRET_PATTERNS.reduce(
-    (acc, pattern) => acc.replace(pattern, "[redacted]"),
-    message,
-  );
-  return redacted.length > 500 ? `${redacted.slice(0, 500)}…` : redacted;
-}
-
-function describeError(error: unknown): string {
-  const raw =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : JSON.stringify(error);
-  return redactSecrets(raw || "Unknown error");
-}
-
-function panelFailureError(result: object): string | null {
-  const error = (result as { error?: unknown }).error;
-  return typeof error === "string" && error ? error : null;
-}
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      timer.unref?.();
-    }),
-  ]).finally(() => {
-    if (timer) clearTimeout(timer);
-    void promise.catch(() => undefined);
-  });
-}
-
 async function fetchOnePanel(
   panel: SqlPanel,
   vars: Record<string, string>,
@@ -179,65 +145,11 @@ async function fetchOnePanel(
   const source = panel.source as DashboardPanelSource;
   let query: string;
   try {
-    query = normalizeDashboardPanelQuery(
-      source,
-      interpolate(serializePanelSql(panel.sql), vars, {
-        failClosedTimeVariables: true,
-      }),
-    );
+    query = buildPanelQuery(panel, vars);
   } catch (error) {
     return { status: "query-failed", message: describeError(error) };
   }
-
-  try {
-    const result = await withTimeout(
-      resolveAnalyticsPanelSource({ source, query, timeoutMs }, ctx),
-      timeoutMs,
-      `Panel query timed out after ${Math.round(timeoutMs / 1000)}s`,
-    );
-    const failure = panelFailureError(result);
-    if (failure === "missing_api_key") {
-      const message = (result as { message?: unknown }).message;
-      return {
-        status: "missing-credential",
-        message: redactSecrets(
-          typeof message === "string" && message
-            ? message
-            : "This panel's data source is not connected",
-        ),
-      };
-    }
-    if (failure) {
-      const message = (result as { message?: unknown }).message;
-      return {
-        status: "query-failed",
-        message: redactSecrets(
-          typeof message === "string" && message ? message : failure,
-        ),
-      };
-    }
-
-    const rows = (result as { rows?: unknown }).rows;
-    if (!Array.isArray(rows)) {
-      return {
-        status: "query-failed",
-        message: "Panel source returned no row set",
-      };
-    }
-    const schema = (result as { schema?: unknown }).schema;
-    return {
-      status: "rows",
-      rows: rows as Array<Record<string, unknown>>,
-      schema: Array.isArray(schema)
-        ? (schema as Array<{ name: string; type: string }>)
-        : [],
-      ...((result as { truncated?: unknown }).truncated
-        ? { truncated: true }
-        : {}),
-    };
-  } catch (error) {
-    return { status: "query-failed", message: describeError(error) };
-  }
+  return runResolvedPanel({ source, query, ctx, timeoutMs });
 }
 
 export async function fetchReportPanelData(args: {
@@ -339,12 +251,16 @@ export async function fetchReportPanelData(args: {
 }
 
 function escapeHtml(value: unknown): string {
-  return String(value ?? "")
+  return (typeof value === "string" ? value : (JSON.stringify(value) ?? ""))
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeMarkdownTableCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
 }
 
 function isNumericLike(value: unknown): boolean {
@@ -369,7 +285,7 @@ function formatYValue(
   value: number,
   formatter?: "number" | "currency" | "percent",
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
@@ -387,14 +303,16 @@ function formatMetricValue(
   const numeric = toNumber(raw);
   return numeric !== null
     ? formatYValue(numeric, formatter)
-    : String(raw ?? "-");
+    : typeof raw === "string"
+      ? raw
+      : (JSON.stringify(raw) ?? "-");
 }
 
 function formatCell(value: unknown, format: ColumnFormat | undefined): string {
   if (value == null) return "";
   if (typeof value === "number") {
     if (format === "number") return value.toLocaleString();
-    if (format === "currency") return `$${value.toLocaleString()}`;
+    if (format === "currency") return formatDollars(value);
     if (format === "percent") {
       const pct = value <= 1 && value >= -1 ? value * 100 : value;
       return `${pct.toFixed(2)}%`;
@@ -404,7 +322,9 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
     }
   }
   if (format === "date") {
-    const date = new Date(String(value));
+    const date = new Date(
+      typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+    );
     if (!Number.isNaN(date.getTime())) {
       return date.toLocaleDateString("en-US", {
         year: "numeric",
@@ -413,7 +333,7 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
       });
     }
   }
-  return String(value);
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
 function safeLinkHref(value: unknown): string | null {
@@ -483,11 +403,13 @@ function detectChartKeys(
   return { xKey, yKeys };
 }
 
-function chartColor(config: SqlPanel["config"], index: number): string {
-  const configured = config?.colors?.[index];
-  return configured && !configured.includes("var(")
-    ? configured
-    : CHART_COLORS[index % CHART_COLORS.length];
+// The image has no CSS, so a configured `var(...)` color takes the palette color in its slot.
+function reportPalette(config: SqlPanel["config"]): string[] {
+  const configured = config?.colors;
+  if (!configured?.length) return CHART_COLORS;
+  return configured.map((color, index) =>
+    color.includes("var(") ? CHART_COLORS[index % CHART_COLORS.length] : color,
+  );
 }
 
 function formatReportSeriesLabel(panel: SqlPanel, value: string): string {
@@ -530,38 +452,38 @@ function formatReportSeriesLabel(panel: SqlPanel, value: string): string {
     : match[1] || value;
 }
 
-/** Legacy saved dashboards still carry `stacked-bar` / `stacked-area`. */
 const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   bar: "bar",
   line: "line",
   area: "area",
+  combo: "combo",
   pie: "pie",
   funnel: "funnel",
   "stacked-bar": "bar",
   "stacked-area": "area",
 };
 
-/**
- * The dashboard pivots before it picks a renderer, so tables, metrics, and
- * heatmaps see wide-form rows too. `fillDateGaps` must stay off for bar charts
- * (on the stored chart type, not the normalized one) because a filled day is a
- * fabricated zero bar, not a measurement.
- */
 function pivotPanelRows(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
+  timeRange?: number,
 ): { rows: Array<Record<string, unknown>>; forcedYKeys?: string[] } {
   if (!panel.config?.pivot || rows.length === 0) return { rows };
   const pivoted = pivotRows(rows, panel.config.pivot, {
     fillDateGaps: panel.chartType !== "bar",
+    timeRange,
   });
   return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
 }
 
 type ChartInput = {
+  events: ReportChartEvent[];
+  bands: ReportChartBand[];
+  /** The notes this chart shows, each written out under it, whether or not it has a band. */
+  dataNotes: DataNote[];
   labels: string[];
   series: ReportChartSeries[];
-  droppedPoints: number;
+  pointLimit: ChartPointLimit | null;
 };
 
 function buildChartInput(
@@ -569,39 +491,83 @@ function buildChartInput(
   rows: Array<Record<string, unknown>>,
   chartType: ReportChartType,
   forcedYKeys: string[] | undefined,
+  keyDates: readonly PanelEvent[] = [],
+  dataNotes: readonly DataNote[] = [],
+  now: number = Date.now(),
 ): ChartInput | null {
   const config = panel.config;
-  const { xKey, yKeys } = detectChartKeys(rows, config, forcedYKeys);
-  if (!xKey || yKeys.length === 0) return null;
+  const detected = detectChartKeys(rows, config, forcedYKeys);
+  const xKey = detected.xKey;
+  if (!xKey || detected.yKeys.length === 0) return null;
 
-  const droppedPoints = Math.max(0, rows.length - MAX_CHART_POINTS);
-  const visible = droppedPoints ? rows.slice(-MAX_CHART_POINTS) : rows;
-  const labels = visible.map((row) => String(row[xKey] ?? ""));
+  const visible = limitChartRows(rows, panel.chartType, xKey);
+  const yKeys = orderPanelSeries(visible, detected.yKeys, panel);
+  const labels = visible.map((row) =>
+    typeof row[xKey] === "string"
+      ? row[xKey]
+      : row[xKey] == null
+        ? ""
+        : (JSON.stringify(row[xKey]) ?? ""),
+  );
   const plotted = chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
+  const colors = resolveSeriesColors(
+    plotted,
+    seriesColorSlots(plotted, detected.yKeys, panel),
+    panel,
+    reportPalette(config),
+  );
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
     dualAxis.formatterFor(key);
+  const barKeys = new Set(config?.barKeys ?? []);
+
+  const events =
+    chartType === "pie"
+      ? []
+      : resolvePanelEvents(
+          panelEventsWithKeyDates(panel, keyDates),
+          visible.map((row) => row[xKey]),
+        ).map(({ index, label, color }) => ({ index, label, color }));
+
+  // A pie has no x axis to place notes on, so it lists the recent ones.
+  const shownNotes = dataNotesOnChart(
+    dataNotes,
+    chartType === "pie" ? [] : visible.map((row) => row[xKey]),
+    { xKey, now },
+  );
 
   return {
+    events,
+    bands: shownNotes.flatMap(({ note, bands }) =>
+      bands.length > 0
+        ? [
+            {
+              label: note.title,
+              color: DATA_NOTE_COLORS[dataNoteTone(note)],
+              runs: bands,
+            },
+          ]
+        : [],
+    ),
+    dataNotes: shownNotes.map(({ note }) => note),
     labels,
     series: plotted.map((key, index) => ({
       label: formatReportSeriesLabel(panel, key),
       data: visible.map((row) => toNumber(row[key])),
-      color: chartColor(config, index),
+      color: colors[index],
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
       ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
+      ...(chartType === "combo"
+        ? { mark: barKeys.has(key) ? ("bar" as const) : ("line" as const) }
+        : {}),
     })),
-    droppedPoints,
+    pointLimit: chartPointLimit(rows, panel.chartType, xKey),
   };
 }
 
 async function rasterizeChartPng(svg: string, width: number): Promise<Buffer> {
   const { Resvg } = await import("@resvg/resvg-js");
   const fontFiles = resolveOgFontFiles();
-  // The fonts are embedded in core and only fail to materialize if tmpdir is
-  // unwritable. Falling back to system fonts would render every label blank on
-  // a Linux serverless runtime and still produce a valid-looking PNG, so refuse
-  // instead — the caller turns this into a visible degraded panel.
   if (!fontFiles?.length) {
     throw new Error(
       "Chart fonts are unavailable (could not materialize the bundled font files), so chart text would render blank",
@@ -650,6 +616,36 @@ function noteHtml(text: string): string {
   return `<p style="margin:6px 0 0;font-size:12px;color:${MUTED_COLOR};">${escapeHtml(text)}</p>`;
 }
 
+function dataNoteDatesText(note: DataNote): string {
+  const dates = formatDataNoteDates(note, "en-US");
+  if (!dates) return "";
+  return dates.kind === "since"
+    ? `since ${dates.text}`
+    : dates.kind === "until"
+      ? `until ${dates.text}`
+      : dates.text;
+}
+
+/** One line per data note under a panel: email has no hover, so the full note is spelled out. */
+function dataNoteLines(notes: readonly DataNote[]): {
+  html: string;
+  text: string;
+} {
+  if (notes.length === 0) return { html: "", text: "" };
+  const lines = notes.map((note) => {
+    const when = dataNoteDatesText(note);
+    const fix = note.status === "fixed" && note.fix ? ` Fix: ${note.fix}` : "";
+    return {
+      html: `<p style="margin:6px 0 0;font-size:12px;color:${TEXT_COLOR};"><span style="color:${DATA_NOTE_COLORS[dataNoteTone(note)]};">&#9632;</span> <strong>${escapeHtml(note.title)}</strong>${when ? ` (${escapeHtml(when)})` : ""}: ${escapeHtml(note.note)}${escapeHtml(fix)}</p>`,
+      text: `! ${note.title}${when ? ` (${when})` : ""}: ${note.note}${fix}`,
+    };
+  });
+  return {
+    html: lines.map((line) => line.html).join(""),
+    text: lines.map((line) => `\n${line.text}`).join(""),
+  };
+}
+
 function renderMetricHtml(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
@@ -688,12 +684,19 @@ function renderCalloutHtml(rows: Array<Record<string, unknown>>): {
   const lines: string[] = [];
   const html = rows
     .map((row) => {
-      const severityRaw = String(row.severity ?? "info").toLowerCase();
+      const severityRaw = (
+        typeof row.severity === "string"
+          ? row.severity
+          : (JSON.stringify(row.severity) ?? "info")
+      ).toLowerCase();
       const severity =
         severityRaw === "critical" || severityRaw === "warning"
           ? severityRaw
           : "info";
-      const message = String(row.message ?? "");
+      const message =
+        typeof row.message === "string"
+          ? row.message
+          : (JSON.stringify(row.message) ?? "");
       lines.push(`${severity.toUpperCase()}: ${message}`);
       const colors = palette[severity];
       return `<p style="margin:0 0 6px;padding:8px 10px;border:1px solid ${colors.border};background:${colors.background};color:${colors.text};font-size:13px;">${escapeHtml(message)}</p>`;
@@ -759,10 +762,14 @@ function renderTableHtml(
       : "";
 
   const text = [
-    columns.map((column) => column.label ?? column.key).join(" | "),
+    columns
+      .map((column) => escapeMarkdownTableCell(column.label ?? column.key))
+      .join(" | "),
     ...visible.map((row) =>
       columns
-        .map((column) => formatCell(row[column.key], column.format))
+        .map((column) =>
+          escapeMarkdownTableCell(formatCell(row[column.key], column.format)),
+        )
         .join(" | "),
     ),
     ...(rows.length > visible.length
@@ -813,8 +820,15 @@ function renderHeatmapHtml(
   const yValues: string[] = [];
   const grid = new Map<string, number>();
   for (const row of rows) {
-    const x = String(row[xKey] ?? "");
-    const y = rowKey ? String(row[rowKey] ?? "") : "";
+    const x =
+      typeof row[xKey] === "string"
+        ? row[xKey]
+        : (JSON.stringify(row[xKey]) ?? "");
+    const y = rowKey
+      ? typeof row[rowKey] === "string"
+        ? row[rowKey]
+        : (JSON.stringify(row[rowKey]) ?? "")
+      : "";
     if (!xValues.includes(x)) xValues.push(x);
     if (!yValues.includes(y)) yValues.push(y);
     const value = toNumber(row[valueKey]);
@@ -869,7 +883,7 @@ function renderHeatmapHtml(
     .join("");
 
   const text = [
-    [rowKey, ...xValues].join(" | "),
+    [rowKey, ...xValues].map(escapeMarkdownTableCell).join(" | "),
     ...yValues.map((y) =>
       [
         y || "—",
@@ -877,7 +891,9 @@ function renderHeatmapHtml(
           const value = grid.get(`${x}\u0000${y}`);
           return value != null ? formatYValue(value, config?.yFormatter) : "";
         }),
-      ].join(" | "),
+      ]
+        .map(escapeMarkdownTableCell)
+        .join(" | "),
     ),
   ].join("\n");
 
@@ -929,45 +945,57 @@ async function renderChartBlock(args: {
   chartType: Exclude<ReportChartType, "funnel">;
   index: number;
   description: string;
+  keyDates?: readonly PanelEvent[];
+  dataNotes?: readonly DataNote[];
+  now: number;
 }): Promise<PanelBlock> {
-  const { panel, rows, chartType, index, description } = args;
-  const input = buildChartInput(panel, rows, chartType, args.forcedYKeys);
+  const { panel, rows, chartType, index, description, now } = args;
+  const input = buildChartInput(
+    panel,
+    rows,
+    chartType,
+    args.forcedYKeys,
+    args.keyDates,
+    args.dataNotes,
+    now,
+  );
   if (!input) {
     const table = renderTableHtml(panel, rows);
+    const notes = dataNoteLines(
+      (args.dataNotes ?? []).filter((note) => dataNoteIsRecent(note, now)),
+    );
     return {
       panelId: panel.id,
       html: panelCardHtml(
         panel,
-        `${table.html}${noteHtml("No chartable columns were returned, so the rows are shown as a table.")}`,
+        `${table.html}${noteHtml("No chartable columns were returned, so the rows are shown as a table.")}${notes.html}`,
       ),
-      text: `${panel.title}\n${table.text}`,
+      text: `${panel.title}\n${table.text}${notes.text}`,
     };
   }
+  const notes = dataNoteLines(input.dataNotes);
 
   const subtitleParts = [description].filter(Boolean);
-  if (input.droppedPoints) {
+  if (input.pointLimit) {
     subtitleParts.push(
-      `showing the last ${input.labels.length} of ${input.labels.length + input.droppedPoints} points`,
+      `showing the ${input.pointLimit.keeps} ${input.pointLimit.shown} of ${input.pointLimit.total} points`,
     );
   }
   const subtitle = subtitleParts.join(" · ");
 
-  // The card heading directly above already names the panel; repeating it here
-  // would read twice in a client that blocks images.
   const alt = `${chartType} chart of ${input.series
     .map((series) => series.label)
     .join(", ")}`;
 
   try {
-    // Title and description stay in the surrounding HTML card: text there is
-    // selectable, wraps instead of truncating, and cannot be duplicated by the
-    // image beneath it.
     const svg = renderReportChartSvg({
       labels: input.labels,
       series: input.series,
       type: chartType,
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
+      events: input.events,
+      bands: input.bands,
       ...(panel.config?.stacked === true ? { stacked: true } : {}),
     });
     const png = await rasterizeChartPng(svg, CHART_WIDTH * CHART_RASTER_SCALE);
@@ -980,9 +1008,9 @@ async function renderChartBlock(args: {
         panel,
         `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />${
           subtitle ? noteHtml(subtitle) : ""
-        }`,
+        }${notes.html}`,
       ),
-      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}`,
+      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}${notes.text}`,
       attachment: {
         filename: `${slug}.png`,
         content: png,
@@ -1011,6 +1039,7 @@ async function renderFunnelChartBlock(args: {
     rows,
     panel.config?.xKey,
     panel.config?.yKey,
+    panel.config?.funnelOutcomes,
   );
   if (funnel.items.length === 0) {
     const table = renderTableHtml(panel, rows);
@@ -1031,6 +1060,7 @@ async function renderFunnelChartBlock(args: {
       title: "",
       subtitle,
       rows: funnel.items,
+      ...(funnel.outcomes ? { outcomes: funnel.outcomes } : {}),
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
       formatter: panel.config?.yFormatter,
@@ -1040,13 +1070,16 @@ async function renderFunnelChartBlock(args: {
     const slug =
       panel.id.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40) || "panel";
     const contentId = `dashboard-report-panel-${index}-${slug}`;
+    const outcomeProblems = funnel.outcomes
+      ? describeFunnelOutcomeProblems(funnel.outcomes)
+      : null;
     return {
       panelId: panel.id,
       html: panelCardHtml(
         panel,
-        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />`,
+        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />${outcomeProblems ? noteHtml(outcomeProblems) : ""}`,
       ),
-      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}`,
+      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}${outcomeProblems ? `\n${outcomeProblems}` : ""}`,
       attachment: {
         filename: `${slug}.png`,
         content: png,
@@ -1105,6 +1138,7 @@ export async function renderReportEmail(args: {
   const vars = reportPanelVariables(snapshot);
   const blocks: PanelBlock[] = [];
   let chartIndex = 0;
+  const now = Date.parse(snapshot.generatedAt);
 
   for (const panel of snapshot.panels ?? []) {
     const description = interpolate(panel.config?.description, vars);
@@ -1157,8 +1191,16 @@ export async function renderReportEmail(args: {
     const truncatedNote = data.truncated
       ? noteHtml("The source truncated this result set.")
       : "";
-    const { rows, forcedYKeys } = pivotPanelRows(panel, data.rows);
+    const { rows, forcedYKeys } = pivotPanelRows(
+      panel,
+      data.rows,
+      timeRangeDays(vars.timeRange),
+    );
 
+    const panelNotes = snapshot.dataNotesByPanel?.[panel.id] ?? [];
+    const recentNotes = dataNoteLines(
+      panelNotes.filter((note) => dataNoteIsRecent(note, now)),
+    );
     const chartType: ReportChartType | undefined =
       REPORT_CHART_TYPES[panel.chartType];
     if (chartType) {
@@ -1170,6 +1212,8 @@ export async function renderReportEmail(args: {
           description,
         });
         if (truncatedNote) block.html += truncatedNote;
+        block.html += recentNotes.html;
+        block.text += recentNotes.text;
         blocks.push(block);
         continue;
       }
@@ -1180,6 +1224,9 @@ export async function renderReportEmail(args: {
         chartType,
         index: chartIndex++,
         description,
+        ...(snapshot.keyDates ? { keyDates: snapshot.keyDates } : {}),
+        dataNotes: panelNotes,
+        now,
       });
       if (truncatedNote) block.html += truncatedNote;
       blocks.push(block);
@@ -1199,9 +1246,9 @@ export async function renderReportEmail(args: {
       panelId: panel.id,
       html: panelCardHtml(
         panel,
-        `${rendered.html}${description ? noteHtml(description) : ""}${truncatedNote}`,
+        `${rendered.html}${description ? noteHtml(description) : ""}${truncatedNote}${recentNotes.html}`,
       ),
-      text: `${panel.title}\n${rendered.text}`,
+      text: `${panel.title}\n${rendered.text}${recentNotes.text}`,
     });
   }
 

@@ -42,7 +42,19 @@ function publicPaths(pluginRel: string): string[] {
   const src = read(pluginRel);
   const match = src.match(/publicPaths:\s*\[([\s\S]*?)\]/);
   if (!match) return [];
-  return [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  const paths = [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  if (src.includes("...PRERENDERED_PUBLIC_PAGE_PATHS")) {
+    const shared = read("templates/clips/shared/prerendered-public-paths.ts");
+    const sharedMatch = shared.match(
+      /PRERENDERED_PUBLIC_PAGE_PATHS\s*=\s*\[([\s\S]*?)\]/,
+    );
+    if (sharedMatch) {
+      paths.push(
+        ...[...sharedMatch[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]),
+      );
+    }
+  }
+  return paths;
 }
 
 function assertPublicPaths(pluginRel: string, expected: string[]) {
@@ -53,6 +65,47 @@ function assertPublicPaths(pluginRel: string, expected: string[]) {
       `${pluginRel} must keep ${path} public for anonymous share/media routes`,
     );
   }
+}
+
+const signInLandingTemplates = [
+  "analytics",
+  "assets",
+  "brain",
+  "calendar",
+  "chat",
+  "clips",
+  "content",
+  "crm",
+  "design",
+  "dispatch",
+  "factory",
+  "forms",
+  "mail",
+  "plan",
+  "slides",
+  "tasks",
+];
+
+for (const template of signInLandingTemplates) {
+  const rootRoute = `templates/${template}/app/routes/_index.tsx`;
+  assertContains(
+    rootRoute,
+    "signInLandingLoader as loader",
+    `${template} / must document-redirect to the shared sign-in page`,
+  );
+  assert.ok(
+    exists(`templates/${template}/app/routes/home.tsx`) ||
+      exists(`templates/${template}/app/routes/_app.home.tsx`),
+    `${template} must have a private /home route`,
+  );
+}
+
+for (const template of ["assets", "chat"]) {
+  assertContains(
+    `templates/${template}/app/routes/chat.$threadId.tsx`,
+    'from "./home"',
+    `${template} chat thread routes must render the private chat home, not the public marketing route`,
+  );
 }
 
 assertFilesExist("slides", [
@@ -72,6 +125,7 @@ assertFilesExist("slides", [
 assertFilesExist("clips", [
   "_index.tsx",
   "_app.tsx",
+  "_app.home.tsx",
   "_app.library._index.tsx",
   "_app.library.folder.$folderId.tsx",
   "_app.spaces.$spaceId.tsx",
@@ -83,7 +137,7 @@ assertFilesExist("clips", [
   "download.tsx",
   "embed.$shareId.tsx",
   "invite.$token.tsx",
-  "r.$recordingId.tsx",
+  "_app.r.$recordingId.tsx",
   "record.tsx",
   "share.$shareId.tsx",
 ]);
@@ -104,13 +158,18 @@ assertFilesExist("design", [
 
 assertMatches(
   "templates/clips/app/routes/_index.tsx",
-  /export function loader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
-  "clips / must keep a server loader redirect to /library",
+  /signInLandingLoader as loader/,
+  "clips / must document-redirect to sign-in",
 );
 assertMatches(
-  "templates/clips/app/routes/_index.tsx",
+  "templates/clips/app/routes/_app.home.tsx",
+  /export function loader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
+  "clips /home must keep a server loader redirect to /library",
+);
+assertMatches(
+  "templates/clips/app/routes/_app.home.tsx",
   /export function clientLoader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
-  "clips / must keep a client loader redirect for SPA navigations",
+  "clips /home must keep a client loader redirect for SPA navigations",
 );
 assertMatches(
   "templates/slides/app/routes/share.$token.tsx",

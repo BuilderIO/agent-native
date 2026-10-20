@@ -7,6 +7,7 @@ import {
   assertAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
+import type { ShareRole } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -45,6 +46,13 @@ import {
 } from "./helpers.js";
 
 type Rank = "canonical" | "exemplar" | "normal";
+type CreativeContextAccessRole = "viewer" | "editor" | "admin" | "owner";
+
+function creativeContextAccessRole(
+  role: "owner" | ShareRole,
+): CreativeContextAccessRole {
+  return role === "commenter" ? "viewer" : role;
+}
 
 function defaultContextScopeKey(actor: {
   ownerEmail: string;
@@ -173,7 +181,6 @@ function normalizedFromDetail(
     colors: detail.item.colors,
     provenance: detail.item.provenance,
     thumbnailBlobRef: detail.item.thumbnailBlobRef ?? undefined,
-    // Keep compiler/reassembly manifests while stripping capability-like metadata.
     metadata: (sanitizePublicMetadata(detail.version.metadata) ?? {}) as Record<
       string,
       unknown
@@ -551,7 +558,6 @@ export async function createCreativeContext(input: {
   return getCreativeContextById(id);
 }
 
-/** Idempotently establishes the actor's governed Default with the currently usable corpus. */
 export async function ensureDefaultCreativeContext(): Promise<CreativeContextSummary | null> {
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
@@ -664,7 +670,7 @@ export async function getCreativeContextById(
   return mapContext(
     access.resource,
     Number(membershipCount?.value ?? 0),
-    access.role,
+    creativeContextAccessRole(access.role),
   );
 }
 
@@ -704,6 +710,7 @@ export async function listCreativeContexts(input: {
   includeArchived?: boolean;
 }) {
   await ensureDefaultCreativeContext();
+  const actor = requireActor();
   const { getDb, schema } = getCreativeContext();
   const filters: any[] = [
     accessFilter(schema.creativeContexts, schema.creativeContextShares),
@@ -752,10 +759,18 @@ export async function listCreativeContexts(input: {
     contexts: page.flatMap((row) => {
       const access = accessById.get(row.id);
       return access
-        ? [mapContext(row, byContext.get(row.id) ?? 0, access.role)]
+        ? [
+            mapContext(
+              row,
+              byContext.get(row.id) ?? 0,
+              creativeContextAccessRole(access.role),
+            ),
+          ]
         : [];
     }),
     nextCursor: rows.length > input.limit ? page.at(-1)?.id : undefined,
+    canCreateContext:
+      !actor.orgId || (await currentRequestUserIsOrgAdmin(actor.orgId)),
   };
 }
 
@@ -771,11 +786,15 @@ export async function updateCreativeContext(
   await assertContextRole(contextId, "admin");
   const { getDb, schema } = getCreativeContext();
   const values = { ...patch, updatedAt: nowIso() };
+  const contextAccess = accessFilter(
+    schema.creativeContexts,
+    schema.creativeContextShares,
+  );
   await getDb().transaction(async (tx: any) => {
     await tx
       .update(schema.creativeContexts)
       .set(values)
-      .where(eq(schema.creativeContexts.id, contextId));
+      .where(and(eq(schema.creativeContexts.id, contextId), contextAccess));
     await appendAudit(tx, contextId, "update", { fields: Object.keys(patch) });
   });
   return getCreativeContextById(contextId);
@@ -784,17 +803,21 @@ export async function updateCreativeContext(
 export async function archiveCreativeContext(contextId: string) {
   await assertContextRole(contextId, "admin");
   const { getDb, schema } = getCreativeContext();
+  const contextAccess = accessFilter(
+    schema.creativeContexts,
+    schema.creativeContextShares,
+  );
   const [context] = await getDb()
     .select({ kind: schema.creativeContexts.kind })
     .from(schema.creativeContexts)
-    .where(eq(schema.creativeContexts.id, contextId))
+    .where(and(eq(schema.creativeContexts.id, contextId), contextAccess))
     .limit(1);
   if (context?.kind === "default")
     throw new Error("The Default Creative Context cannot be archived");
   await getDb()
     .update(schema.creativeContexts)
     .set({ archivedAt: nowIso(), updatedAt: nowIso() })
-    .where(eq(schema.creativeContexts.id, contextId));
+    .where(and(eq(schema.creativeContexts.id, contextId), contextAccess));
   return getCreativeContextById(contextId);
 }
 
@@ -881,9 +904,9 @@ export async function listContextMemberships(input: {
     .limit(input.limit + 1);
   const page = rows.slice(0, input.limit) as Array<{
     membership: any;
-    pendingSubmission: any | null;
+    pendingSubmission: any;
   }>;
-  const canViewPendingSubmission = (submission: any | null) =>
+  const canViewPendingSubmission = (submission: any) =>
     Boolean(
       submission && (canReview || submission.submittedBy === actor.ownerEmail),
     );
@@ -1001,12 +1024,6 @@ export async function listContextMemberships(input: {
   };
 }
 
-/**
- * Resolves private media for a pending submission without making the staged
- * item generally readable. This is intentionally server-only: callers must
- * already have an authenticated request context and can only read the exact
- * staged version they submitted or are allowed to review.
- */
 export async function readPendingCreativeContextMedia(input: {
   mediaId?: string;
   itemId?: string;

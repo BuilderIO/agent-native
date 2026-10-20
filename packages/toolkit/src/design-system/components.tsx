@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import { forwardRef, type ComponentType, type Ref } from "react";
 
 import { useDesignSystemComponent } from "./context.js";
 import { defaultDesignSystemComponents } from "./default-adapter.js";
@@ -52,14 +52,55 @@ function createComponent<Props extends object>(
   return DesignSystemComponent;
 }
 
-export const ActionButton = createComponent<ActionButtonProps>(
-  "ActionButton",
-  defaultDesignSystemComponents.ActionButton,
-);
-export const IconButton = createComponent<IconButtonProps>(
-  "IconButton",
-  defaultDesignSystemComponents.IconButton,
-);
+function mergeElementRefs<Element>(
+  refs: readonly (Ref<Element> | undefined)[],
+): Ref<Element> {
+  return (node: Element | null) => {
+    for (const ref of refs) {
+      if (typeof ref === "function") ref(node);
+      else if (ref) (ref as { current: Element | null }).current = node;
+    }
+  };
+}
+
+function createRefForwardingComponent<
+  Props extends { elementRef?: Ref<Element> },
+  Element,
+>(name: DesignSystemComponentName, DefaultComponent: ComponentType<Props>) {
+  const DesignSystemComponent = forwardRef<Element, Props>((props, ref) => {
+    const CustomComponent = useDesignSystemComponent(name) as
+      | ComponentType<Props>
+      | undefined;
+    const mergedProps = {
+      ...props,
+      elementRef: mergeElementRefs([ref, props.elementRef]),
+    } as Props;
+    const fallback = <DefaultComponent {...mergedProps} />;
+    if (
+      !CustomComponent ||
+      CustomComponent === DefaultComponent ||
+      (CustomComponent as unknown) === DesignSystemComponent
+    ) {
+      return fallback;
+    }
+    return (
+      <DesignSystemErrorBoundary component={name} fallback={fallback}>
+        <CustomComponent {...mergedProps} />
+      </DesignSystemErrorBoundary>
+    );
+  });
+  DesignSystemComponent.displayName = `DesignSystem.${name}`;
+  return DesignSystemComponent;
+}
+
+export const ActionButton = createRefForwardingComponent<
+  ActionButtonProps,
+  HTMLButtonElement
+>("ActionButton", defaultDesignSystemComponents.ActionButton);
+export const IconButton = createRefForwardingComponent<
+  IconButtonProps,
+  HTMLButtonElement
+>("IconButton", defaultDesignSystemComponents.IconButton);
 export const TextField = createComponent<TextFieldProps>(
   "TextField",
   defaultDesignSystemComponents.TextField,

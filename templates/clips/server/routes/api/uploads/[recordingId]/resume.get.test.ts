@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRenewUploadLease = vi.hoisted(() => vi.fn());
 const mockGetResumableSession = vi.hoisted(() => vi.fn());
+const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
+const mockAbortResumableUploadSession = vi.hoisted(() => vi.fn());
 const mockListRecordingChunkKeys = vi.hoisted(() => vi.fn());
 const mockSumRecordingChunkBytes = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
@@ -11,6 +13,7 @@ const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
 const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockUpdateRows = vi.hoisted(() => ({ rows: [{ id: "rec-1" }] }));
+const mockUpdateSets = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
 }));
@@ -24,7 +27,10 @@ const mockDb = vi.hoisted(() => ({
   }),
   update: vi.fn(() => {
     const builder = {
-      set: vi.fn(() => builder),
+      set: vi.fn((values: Record<string, unknown>) => {
+        mockUpdateSets.push(values);
+        return builder;
+      }),
       where: vi.fn(() => builder),
       returning: vi.fn(async () => mockUpdateRows.rows),
     };
@@ -39,8 +45,8 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
-vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: (...args: unknown[]) =>
+vi.mock("../../../../lib/recording-policy.js", () => ({
+  getUploadRecoveryPolicy: (...args: unknown[]) =>
     mockIsFeatureFlagEnabled(...args),
 }));
 
@@ -48,10 +54,17 @@ vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
 }));
 
+vi.mock("node:crypto", () => ({
+  randomUUID: () => "generation-2",
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(() => "and"),
   eq: vi.fn(() => "eq"),
   isNull: vi.fn(() => "is-null"),
+  lte: vi.fn(() => "lte"),
+  ne: vi.fn(() => "ne"),
+  or: vi.fn(() => "or"),
 }));
 
 vi.mock("h3", () => ({
@@ -77,22 +90,42 @@ vi.mock("../../../../lib/recordings.js", () => ({
   ownerEmailMatches: () => "owner-match",
 }));
 
-vi.mock("../../../../lib/recording-upload-state.js", () => ({
-  listRecordingChunkKeys: (...args: unknown[]) =>
-    mockListRecordingChunkKeys(...args),
-  recordingChunkIndexFromKey: (key: string) => {
-    const raw = key.slice(key.lastIndexOf("-") + 1);
-    return /^\d+$/.test(raw) ? Number(raw) : null;
-  },
-  sumRecordingChunkBytes: (...args: unknown[]) =>
-    mockSumRecordingChunkBytes(...args),
-}));
+vi.mock("../../../../lib/recording-upload-state.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../../../lib/recording-upload-state.js")
+    >();
+  return {
+    listRecordingChunkKeys: (...args: unknown[]) =>
+      mockListRecordingChunkKeys(...args),
+    recordingChunkIndexFromKey: (key: string) => {
+      const raw = key.slice(key.lastIndexOf("-") + 1);
+      return /^\d+$/.test(raw) ? Number(raw) : null;
+    },
+    recordingUploadStateMatchesAttempt:
+      actual.recordingUploadStateMatchesAttempt,
+    sumRecordingChunkBytes: (...args: unknown[]) =>
+      mockSumRecordingChunkBytes(...args),
+  };
+});
 
 vi.mock("../../../../lib/resumable-session.js", () => ({
+  deleteResumableSession: (...args: unknown[]) =>
+    mockDeleteResumableSession(...args),
   getResumableSession: (...args: unknown[]) => mockGetResumableSession(...args),
 }));
 
+vi.mock("../../../../lib/resumable-upload-cleanup.js", () => ({
+  abortResumableUploadSession: (...args: unknown[]) =>
+    mockAbortResumableUploadSession(...args),
+}));
+
 vi.mock("../../../../lib/upload-lease.js", () => ({
+  isParkedForStorage: (row: {
+    status?: string;
+    failureReason?: string | null;
+  }) => row.status === "uploading" && Boolean(row.failureReason),
+  UPLOAD_LEASE_MS: 60 * 60 * 1000,
   renewUploadLease: (...args: unknown[]) => mockRenewUploadLease(...args),
   uploadLeaseExpiry: () => "2099-01-01T00:00:00.000Z",
 }));
@@ -106,28 +139,73 @@ describe("/api/uploads/:recordingId/resume route", () => {
     mockGetQuery.mockReturnValue({ attemptId: "client-attempt-0001" });
     mockRenewUploadLease.mockResolvedValue({ held: true });
     mockGetResumableSession.mockResolvedValue(null);
+    mockAbortResumableUploadSession.mockResolvedValue(true);
+    mockDeleteResumableSession.mockResolvedValue(undefined);
     mockListRecordingChunkKeys.mockResolvedValue([]);
     mockSumRecordingChunkBytes.mockResolvedValue(0);
     mockReadAppState.mockResolvedValue({ progress: 50 });
     mockWriteAppState.mockResolvedValue(undefined);
     mockCompareAndSetAppState.mockResolvedValue(true);
     mockUpdateRows.rows = [{ id: "rec-1" }];
+    mockUpdateSets.length = 0;
     mockIsFeatureFlagEnabled.mockResolvedValue(true);
   });
 
-  it("leaves upload state untouched when resumable retry is disabled", async () => {
+  it("leaves legacy upload state untouched when resumable retry is disabled", async () => {
     mockIsFeatureFlagEnabled.mockResolvedValue(false);
 
     await expect(handler({} as any)).resolves.toEqual({
       recoveryEnabled: false,
       resumable: false,
       recordingId: "rec-1",
-      status: null,
+      status: "uploading",
       reason: "feature_disabled",
     });
-    expect(mockDb.select).not.toHaveBeenCalled();
+    expect(mockDb.select).toHaveBeenCalledOnce();
     expect(mockDb.update).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    "does not resume a taken-down recording when recovery is %s",
+    async (recoveryEnabled) => {
+      mockIsFeatureFlagEnabled.mockResolvedValue(recoveryEnabled);
+      mockSelectRows.rows = [
+        { id: "rec-1", status: "failed", failureCode: "taken_down" },
+      ];
+
+      await expect(handler({} as any)).resolves.toEqual({
+        error: "Recording is no longer available.",
+        terminal: true,
+      });
+
+      expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns an existing fence when the flag is disabled", async () => {
+    mockIsFeatureFlagEnabled.mockResolvedValue(false);
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "client-attempt-0001",
+        uploadGenerationId: "generation-1",
+      },
+    ];
+
+    await expect(handler({} as any)).resolves.toEqual({
+      recoveryEnabled: false,
+      resumable: false,
+      recordingId: "rec-1",
+      status: "uploading",
+      reason: "feature_disabled",
+      attemptId: "client-attempt-0001",
+      uploadGenerationId: "generation-1",
+    });
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   it("reports the provider's committed offset for a streaming upload", async () => {
@@ -194,8 +272,18 @@ describe("/api/uploads/:recordingId/resume route", () => {
         failureReason:
           "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
         uploadProgress: 40,
+        uploadAttemptId: "earlier-attempt-0001",
+        uploadGenerationId: "generation-1",
       },
     ];
+    mockReadAppState.mockResolvedValueOnce({
+      recordingId: "rec-1",
+      status: "failed",
+      uploadAttemptId: "earlier-attempt-0001",
+      uploadGenerationId: "generation-1",
+      browserSessionId: "earlier-browser-session",
+      progress: 50,
+    });
     mockGetResumableSession.mockResolvedValue({
       bytesUploaded: 7_864_320,
       lastCommittedIndex: 1,
@@ -218,7 +306,28 @@ describe("/api/uploads/:recordingId/resume route", () => {
         progress: 40,
         bytesReceived: 7_864_320,
         retryableInterruption: false,
+        uploadAttemptId: "client-attempt-0001",
+        uploadGenerationId: "generation-1",
       }),
+    );
+    expect(mockCompareAndSetAppState.mock.calls[0]?.[2]).not.toHaveProperty(
+      "browserSessionId",
+    );
+    expect(mockDb.update).toHaveBeenCalledOnce();
+  });
+
+  it("accepts an interruption with its detailed retryable reason", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "failed",
+        failureReason:
+          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app. Last error: network changed",
+      },
+    ];
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ resumable: true, status: "uploading" }),
     );
     expect(mockDb.update).toHaveBeenCalledOnce();
   });
@@ -254,6 +363,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
       recordingId: "rec-1",
       status: "uploading",
       reason: "retry_already_active",
+      retryAfterMs: 250,
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockWriteAppState).not.toHaveBeenCalled();
@@ -303,6 +413,14 @@ describe("/api/uploads/:recordingId/resume route", () => {
         uploadGenerationId: null,
       },
     ];
+    mockReadAppState.mockResolvedValueOnce({
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "client-attempt-0001",
+      uploadGenerationId: null,
+      browserSessionId: "current-browser-session",
+      progress: 50,
+    });
     mockCompareAndSetAppState.mockResolvedValue(false);
     const consoleInfo = vi
       .spyOn(console, "info")
@@ -319,14 +437,75 @@ describe("/api/uploads/:recordingId/resume route", () => {
     expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
       ts: expect.any(Number),
     });
+    expect(mockCompareAndSetAppState.mock.calls[0]?.[2]).toMatchObject({
+      browserSessionId: "current-browser-session",
+    });
   });
 
-  it("does not let a different claim steal an active retry", async () => {
+  it("returns a bounded typed conflict for a live different retry claim", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-21T12:00:00.000Z"));
+    try {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "uploading",
+          uploadAttemptId: "active-attempt-0001",
+          uploadLeaseExpiresAt: "2026-08-21T12:59:59.000Z",
+        },
+      ];
+
+      await expect(handler({} as any)).resolves.toEqual({
+        resumable: false,
+        recoveryEnabled: true,
+        recordingId: "rec-1",
+        status: "uploading",
+        reason: "retry_already_active",
+        retryAfterMs: 29_000,
+      });
+      expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+      expect(mockDb.update).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("claims a row parked for storage even though its long lease looks live", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-21T12:00:00.000Z"));
+    try {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "uploading",
+          failureReason: "Connect storage to finish saving.",
+          uploadAttemptId: "earlier-attempt-0001",
+          uploadLeaseExpiresAt: "2026-08-28T12:00:00.000Z",
+        },
+      ];
+
+      const result = await handler({} as any);
+
+      expect(result).toMatchObject({ resumable: true });
+      expect(mockSetResponseStatus).not.toHaveBeenCalledWith({}, 409);
+      expect(mockUpdateSets[0]).toMatchObject({
+        status: "uploading",
+        failureReason: null,
+        uploadAttemptId: "client-attempt-0001",
+        uploadLeaseExpiresAt: "2099-01-01T00:00:00.000Z",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails loudly when a different retry claim has unreadable liveness", async () => {
     mockSelectRows.rows = [
       {
         id: "rec-1",
         status: "uploading",
         uploadAttemptId: "active-attempt-0001",
+        uploadLeaseExpiresAt: "not-a-timestamp",
       },
     ];
 
@@ -335,10 +514,106 @@ describe("/api/uploads/:recordingId/resume route", () => {
       recoveryEnabled: true,
       recordingId: "rec-1",
       status: "uploading",
-      reason: "retry_already_active",
+      reason: "retry_claim_liveness_unavailable",
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("invalidates an expired claim's provider session before restarting it", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "stale-attempt-0001",
+        uploadGenerationId: "generation-1",
+        uploadLeaseExpiresAt: "2000-01-01T00:00:00.000Z",
+      },
+    ];
+    mockGetResumableSession.mockResolvedValue({
+      bytesUploaded: 7_864_320,
+      lastCommittedIndex: 1,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        resumable: true,
+        attemptId: "client-attempt-0001",
+        uploadGenerationId: "generation-2",
+        uploadMode: "buffered",
+        bytesReceived: 0,
+        nextChunkIndex: 0,
+      }),
+    );
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
+      "recording-upload-rec-1",
+      expect.anything(),
+      expect.objectContaining({
+        uploadAttemptId: "client-attempt-0001",
+        uploadGenerationId: "generation-2",
+      }),
+    );
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledOnce();
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      "generation-1",
+    );
+  });
+
+  it("keeps the replacement generation fenced when retired-session cleanup fails", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "stale-attempt-0001",
+        uploadGenerationId: "generation-1",
+        uploadLeaseExpiresAt: "2000-01-01T00:00:00.000Z",
+      },
+    ];
+    mockGetResumableSession.mockResolvedValue({
+      bytesUploaded: 7_864_320,
+      lastCommittedIndex: 1,
+    });
+    mockAbortResumableUploadSession.mockResolvedValue(false);
+
+    await expect(handler({} as any)).resolves.toEqual({
+      resumable: false,
+      recoveryEnabled: true,
+      recordingId: "rec-1",
+      status: "uploading",
+      reason: "stale_provider_session_invalidation_failed",
+    });
+    expect(mockUpdateSets).toHaveLength(1);
+    expect(mockUpdateSets[0]).toEqual(
+      expect.objectContaining({
+        uploadAttemptId: "client-attempt-0001",
+        uploadGenerationId: "generation-2",
+      }),
+    );
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("loses a stale-claim takeover race without publishing resume state", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "stale-attempt-0001",
+        uploadLeaseExpiresAt: "2000-01-01T00:00:00.000Z",
+      },
+    ];
+    mockUpdateRows.rows = [];
+
+    await expect(handler({} as any)).resolves.toEqual({
+      resumable: false,
+      recoveryEnabled: true,
+      recordingId: "rec-1",
+      status: "uploading",
+      reason: "retry_already_active",
+      retryAfterMs: 250,
+    });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
   it("lets the same claim re-read its offset after a lost response", async () => {

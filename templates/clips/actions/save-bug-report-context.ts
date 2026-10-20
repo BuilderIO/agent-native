@@ -1,12 +1,4 @@
-/**
- * Attach product bug-report metadata to a recording.
- *
- * The recording itself remains the shareable/access-controlled resource. This
- * action stores only redacted context that helps support and agents reproduce
- * the issue alongside the captured video, transcript, and browser diagnostics.
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";

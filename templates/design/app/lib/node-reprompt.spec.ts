@@ -1,4 +1,3 @@
-import { appendAgentChatContextToMessage } from "@agent-native/core/client/agent-chat";
 import { isNodeRewriteProposal } from "@shared/node-rewrite";
 import { describe, expect, it } from "vitest";
 
@@ -20,18 +19,29 @@ describe("formatNodeRepromptSubmission", () => {
       subtreeHtml: '<section data-node-id="hero">Hero</section>',
     });
 
-    expect(submission.message).toBe("Give this a better background");
+    expect(submission.message).toBe("  Give this a better background  ");
     expect(submission.message).not.toContain("repromptId");
     expect(submission.context).toContain("[Reprompt selection]");
     expect(submission.context).toContain("repromptId: reprompt-1");
     expect(submission.context).toContain("baseVersionHash: 123:abc");
+  });
 
-    const transported = appendAgentChatContextToMessage(
-      submission.message,
-      submission.context,
+  it("preserves the exact selector in the agent target", () => {
+    const submission = formatNodeRepromptSubmission({
+      repromptId: "reprompt-2",
+      designId: "design-1",
+      fileId: "file-1",
+      target: {
+        selector:
+          "source-equivalent:v1:body > main:nth-of-type(1) > button:nth-of-type(2)",
+      },
+      baseVersionHash: "123:abc",
+      instruction: "Make it blue",
+    });
+
+    expect(submission.context).toContain(
+      "targetSelector: source-equivalent:v1:body > main:nth-of-type(1) > button:nth-of-type(2)",
     );
-    expect(transported).toMatch(/^Give this a better background\n\n<context>/);
-    expect(transported).toContain("[Reprompt selection]");
   });
 });
 

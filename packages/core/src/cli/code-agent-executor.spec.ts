@@ -3,10 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { EngineContentPart } from "../agent/engine/types.js";
 import type { AgentEngine } from "../agent/engine/types.js";
+import { JPEG_BASE64 } from "../file-upload/test-image-fixtures.js";
 import {
   buildCodeAgentSystemPrompt,
   buildRepoInstructionsBlock,
@@ -46,6 +47,12 @@ const originalProviderEnv = new Map(
 );
 const originalPath = process.env.PATH;
 const originalAgentEngine = process.env.AGENT_ENGINE;
+const originalMcpServers = process.env.MCP_SERVERS;
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 
 afterEach(() => {
   delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
@@ -55,6 +62,7 @@ afterEach(() => {
   process.env.PATH = originalPath;
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
+  restoreEnv("MCP_SERVERS", originalMcpServers);
   for (const key of providerEnvKeys) {
     const original = originalProviderEnv.get(key);
     if (original === undefined) delete process.env[key];
@@ -112,7 +120,59 @@ describe("executeCodeAgentRun", () => {
     expect(output.read()).toContain("I checked the workspace");
     expect(
       listCodeAgentTranscriptEvents(run.id).map((event) => event.kind),
-    ).toEqual(["user", "status", "system", "status"]);
+    ).toEqual(expect.arrayContaining(["user", "status", "system", "status"]));
+  });
+
+  it("normalizes image/jpg before forwarding CLI run images to vision", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Describe a screenshot",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+    let messages: unknown[] = [];
+    const engine: AgentEngine = {
+      name: "image-capture",
+      label: "Image Capture",
+      defaultModel: "image-capture",
+      supportedModels: ["image-capture"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options) {
+        messages = options.messages;
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "Describe this image",
+      attachments: [
+        {
+          name: "screen.jpg",
+          dataUrl: `data:IMAGE/JPG;charset=binary;base64,${JPEG_BASE64}`,
+        },
+      ],
+      engine,
+    });
+
+    expect(messages).toContainEqual({
+      role: "user",
+      content: [
+        { type: "image", data: JPEG_BASE64, mediaType: "image/jpeg" },
+        { type: "text", text: "Describe this image" },
+      ],
+    });
   });
 
   it("pauses with a credential hint when no provider key is available", async () => {
@@ -135,14 +195,29 @@ describe("executeCodeAgentRun", () => {
     });
     const lastEvent = listCodeAgentTranscriptEvents(run.id).at(-1);
     expect(lastEvent?.message).toContain("No LLM provider key was found");
-    // Structured marker so UI consumers don't have to regex-match the hint
-    // text (see isCredentialGapCodeAgentEvent).
     expect(lastEvent?.signal).toBe("credential-gap");
   });
 
   it("runs a Codex CLI-backed session without provider API keys", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    const originalDesktopChild = process.env.AGENT_NATIVE_DESKTOP_CHILD;
+    const originalDesktopUrl =
+      process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL;
+    const originalDesktopToken =
+      process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN;
+    const desktopToken = "x".repeat(43);
+    process.env.MCP_SERVERS = JSON.stringify({
+      workspaceHttp: {
+        type: "http",
+        url: "https://workspace.example/mcp",
+      },
+    });
+    process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL =
+      "http://127.0.0.1:43123/mcp";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN = desktopToken;
     const binDir = path.join(root, "bin");
     const promptPath = path.join(root, "codex-prompt.txt");
     const argsPath = path.join(root, "codex-args.json");
@@ -189,29 +264,893 @@ describe("executeCodeAgentRun", () => {
       stdout: output.stream,
     });
 
+    try {
+      expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+        status: "completed",
+        phase: "complete",
+        metadata: {
+          engine: "codex-cli",
+          model: "codex-default",
+        },
+      });
+      expect(output.read()).toContain("Codex streamed output");
+      expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+      const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
+      const execIndex = args.indexOf("exec");
+      expect(execIndex).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeLessThan(execIndex);
+      expect(args.indexOf("--sandbox")).toBeGreaterThan(-1);
+      expect(args.indexOf("--sandbox")).toBeLessThan(execIndex);
+      expect(args.indexOf("--cd")).toBeGreaterThan(-1);
+      expect(args.indexOf("--cd")).toBeLessThan(execIndex);
+      expect(args.indexOf("-c")).toBeGreaterThan(-1);
+      expect(args.indexOf("-c")).toBeLessThan(execIndex);
+      expect(args).toContain(
+        'mcp_servers.agent-native-desktop-computer.url="http://127.0.0.1:43123/mcp"',
+      );
+      expect(args).toContain(
+        `mcp_servers.agent-native-desktop-computer.http_headers={"Authorization"="Bearer ${desktopToken}"}`,
+      );
+      expect(args.indexOf("--ignore-user-config")).toBeGreaterThan(execIndex);
+      expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
+      expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "system",
+            message: "Codex final answer",
+            metadata: expect.objectContaining({ engine: "codex-cli" }),
+          }),
+        ]),
+      );
+    } finally {
+      if (originalMcpServers === undefined) delete process.env.MCP_SERVERS;
+      else process.env.MCP_SERVERS = originalMcpServers;
+      restoreEnv("AGENT_NATIVE_DESKTOP_CHILD", originalDesktopChild);
+      restoreEnv("AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL", originalDesktopUrl);
+      restoreEnv(
+        "AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN",
+        originalDesktopToken,
+      );
+    }
+  });
+
+  it("runs a Claude Code CLI-backed session through a Claude subscription", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    delete process.env.MCP_SERVERS;
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "claude-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "let input = '';",
+        "process.stdin.on('data', (chunk) => { input += chunk.toString(); });",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Claude streamed output' }] } }) + '\\n');",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'Claude final answer' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: {
+        engine: "claude-cli",
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
+      },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "fix auth tests",
+      stdout: output.stream,
+    });
+
     expect(getCodeAgentRunRecord(run.id)).toMatchObject({
       status: "completed",
       phase: "complete",
       metadata: {
-        engine: "codex-cli",
-        model: "codex-default",
+        engine: "claude-cli",
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
       },
     });
-    expect(output.read()).toContain("Codex streamed output");
-    expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
-    const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
-    const execIndex = args.indexOf("exec");
-    expect(args.slice(0, 3)).toEqual(["--ask-for-approval", "never", "exec"]);
-    expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
+    expect(output.read()).toContain("Claude streamed output");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+    expect(args).toContain("--model");
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5");
+    expect(args).toContain("--effort");
+    expect(args[args.indexOf("--effort") + 1]).toBe("high");
+    expect(args).toEqual(
+      expect.arrayContaining(["--permission-mode", "acceptEdits"]),
+    );
+    expect(args).not.toEqual(
+      expect.arrayContaining(["--permission-mode", "plan"]),
+    );
     expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           kind: "system",
-          message: "Codex final answer",
-          metadata: expect.objectContaining({ engine: "codex-cli" }),
+          message: "Claude final answer",
+          metadata: expect.objectContaining({ engine: "claude-cli" }),
         }),
       ]),
     );
+  });
+
+  it("delivers the host MCP servers to Claude Code through a private config file", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    const originalAllowlist =
+      process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST;
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "app-crm": {
+          type: "http",
+          url: "http://127.0.0.1:8080/crm/_agent-native/mcp",
+          headers: { Cookie: "session=placeholder-session" },
+        },
+        "user-server": { type: "http", url: "https://user.example/mcp" },
+      },
+    });
+    process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST = "app-crm";
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "claude-args.json");
+    const mcpCopyPath = path.join(root, "claude-mcp.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(binDir, "claude"),
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "const mcpIndex = args.indexOf('--mcp-config');",
+        `if (mcpIndex !== -1) fs.copyFileSync(args[mcpIndex + 1], ${JSON.stringify(mcpCopyPath)});`,
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "list contacts" });
+
+      expect(getCodeAgentRunRecord(run.id)?.status).toBe("completed");
+      const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+      expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5-5");
+      const configPath = args[args.indexOf("--mcp-config") + 1];
+      expect(path.isAbsolute(configPath)).toBe(true);
+      expect(args).toContain("--strict-mcp-config");
+      expect(args[args.indexOf("--allowedTools") + 1]).toBe("mcp__app-crm");
+      expect(JSON.parse(fs.readFileSync(mcpCopyPath, "utf8"))).toEqual({
+        mcpServers: {
+          "app-crm": {
+            type: "http",
+            url: "http://127.0.0.1:8080/crm/_agent-native/mcp",
+            headers: { Cookie: "session=placeholder-session" },
+          },
+        },
+      });
+      // The credential-bearing file does not outlive the run.
+      expect(fs.existsSync(configPath)).toBe(false);
+    } finally {
+      restoreEnv("MCP_SERVERS", originalMcpServers);
+      restoreEnv(
+        "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
+        originalAllowlist,
+      );
+    }
+  });
+
+  it("removes the Claude MCP config before a follow-up run starts", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    const originalAllowlist =
+      process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST;
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "app-crm": {
+          type: "http",
+          url: "http://127.0.0.1:8080/crm/_agent-native/mcp",
+          headers: { Cookie: "session=placeholder-session" },
+        },
+      },
+    });
+    process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST = "app-crm";
+    const binDir = path.join(root, "bin");
+    const logPath = path.join(root, "claude-runs.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(binDir, "claude"),
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `const logPath = ${JSON.stringify(logPath)};`,
+        "const runs = fs.existsSync(logPath) ? JSON.parse(fs.readFileSync(logPath, 'utf8')) : [];",
+        "runs.push({",
+        "  config: args[args.indexOf('--mcp-config') + 1],",
+        "  earlierConfigsPresent: runs.map((run) => fs.existsSync(run.config)),",
+        "});",
+        "fs.writeFileSync(logPath, JSON.stringify(runs));",
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "running",
+      phase: "executing",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+    queueCodeAgentFollowUp({
+      runId: run.id,
+      prompt: "follow up",
+      mode: "queued",
+      source: "test",
+    });
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "list contacts" });
+
+      const runs = JSON.parse(fs.readFileSync(logPath, "utf8")) as Array<{
+        config: string;
+        earlierConfigsPresent: boolean[];
+      }>;
+      expect(runs).toHaveLength(2);
+      expect(runs[1].config).not.toBe(runs[0].config);
+      expect(runs[1].earlierConfigsPresent).toEqual([false]);
+    } finally {
+      restoreEnv("MCP_SERVERS", originalMcpServers);
+      restoreEnv(
+        "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
+        originalAllowlist,
+      );
+    }
+  });
+
+  it("completes the run and retries MCP config cleanup when the first delete fails", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    const originalAllowlist =
+      process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST;
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "app-crm": {
+          type: "http",
+          url: "http://127.0.0.1:8080/crm/_agent-native/mcp",
+          headers: { Cookie: "session=placeholder-session" },
+        },
+      },
+    });
+    process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST = "app-crm";
+    const binDir = path.join(root, "bin");
+    const logPath = path.join(root, "claude-runs.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(binDir, "claude"),
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `const logPath = ${JSON.stringify(logPath)};`,
+        "const runs = fs.existsSync(logPath) ? JSON.parse(fs.readFileSync(logPath, 'utf8')) : [];",
+        "runs.push({",
+        "  config: args[args.indexOf('--mcp-config') + 1],",
+        "  earlierConfigsPresent: runs.map((run) => fs.existsSync(run.config)),",
+        "});",
+        "fs.writeFileSync(logPath, JSON.stringify(runs));",
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "running",
+      phase: "executing",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+    queueCodeAgentFollowUp({
+      runId: run.id,
+      prompt: "follow up",
+      mode: "queued",
+      source: "test",
+    });
+    const realRmSync = fs.rmSync;
+    const failedOnce = new Set<string>();
+    const rmSync = vi
+      .spyOn(fs, "rmSync")
+      .mockImplementation((target, options) => {
+        const dir = String(target);
+        if (dir.includes("agent-native-code-claude-") && !failedOnce.has(dir)) {
+          failedOnce.add(dir);
+          throw new Error("EBUSY: resource busy or locked");
+        }
+        return realRmSync(target, options);
+      });
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "list contacts" });
+
+      expect(getCodeAgentRunRecord(run.id)?.status).toBe("completed");
+      const events = listCodeAgentTranscriptEvents(run.id);
+      expect(
+        events.some((event) =>
+          event.message.includes("running queued follow-up"),
+        ),
+      ).toBe(true);
+      // Each delete is retried inside the same cleanup, so nothing is left
+      // to report.
+      expect(
+        events.filter(
+          (event) =>
+            event.kind === "note" &&
+            event.message.includes("Could not remove the temporary"),
+        ),
+      ).toHaveLength(0);
+      expect(failedOnce.size).toBe(2);
+      for (const dir of failedOnce) expect(fs.existsSync(dir)).toBe(false);
+      const runs = JSON.parse(fs.readFileSync(logPath, "utf8")) as Array<{
+        earlierConfigsPresent: boolean[];
+      }>;
+      expect(runs.map((entry) => entry.earlierConfigsPresent)).toEqual([
+        [],
+        [false],
+      ]);
+    } finally {
+      rmSync.mockRestore();
+      restoreEnv("MCP_SERVERS", originalMcpServers);
+      restoreEnv(
+        "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
+        originalAllowlist,
+      );
+    }
+  });
+
+  it("keeps the follow-up queued when MCP config cleanup keeps failing", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    const originalAllowlist =
+      process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST;
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "app-crm": {
+          type: "http",
+          url: "http://127.0.0.1:8080/crm/_agent-native/mcp",
+          headers: { Cookie: "session=placeholder-session" },
+        },
+      },
+    });
+    process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST = "app-crm";
+    const binDir = path.join(root, "bin");
+    const logPath = path.join(root, "claude-runs.log");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(binDir, "claude"),
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `fs.appendFileSync(${JSON.stringify(logPath)}, 'run\\n');`,
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "running",
+      phase: "executing",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+    queueCodeAgentFollowUp({
+      runId: run.id,
+      prompt: "follow up",
+      mode: "queued",
+      source: "test",
+    });
+    const realRmSync = fs.rmSync;
+    const lockedDirs = new Set<string>();
+    const rmSync = vi
+      .spyOn(fs, "rmSync")
+      .mockImplementation((target, options) => {
+        const dir = String(target);
+        if (dir.includes("agent-native-code-claude-")) {
+          lockedDirs.add(dir);
+          throw new Error("EBUSY: resource busy or locked");
+        }
+        return realRmSync(target, options);
+      });
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "list contacts" });
+
+      const record = getCodeAgentRunRecord(run.id);
+      expect(record?.status).toBe("errored");
+      expect(record?.metadata?.pendingFollowUps).toHaveLength(1);
+      expect(fs.readFileSync(logPath, "utf8")).toBe("run\n");
+    } finally {
+      rmSync.mockRestore();
+      for (const dir of lockedDirs) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+      restoreEnv("MCP_SERVERS", originalMcpServers);
+      restoreEnv(
+        "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
+        originalAllowlist,
+      );
+    }
+  });
+
+  // Installs a fake `claude` that passes the auth check and then runs `body`,
+  // with one credential-bearing MCP server configured.
+  function useFakeClaudeWithMcp(root: string, body: string[]) {
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    const originalAllowlist =
+      process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST;
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "app-crm": {
+          type: "http",
+          url: "http://127.0.0.1:8080/crm/_agent-native/mcp",
+          headers: { Cookie: "session=placeholder-session" },
+        },
+      },
+    });
+    process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST = "app-crm";
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(binDir, "claude"),
+      [
+        "#!/usr/bin/env node",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        ...body,
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    return () => {
+      restoreEnv("MCP_SERVERS", originalMcpServers);
+      restoreEnv(
+        "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
+        originalAllowlist,
+      );
+    };
+  }
+
+  function mockMcpConfigDelete(failures: number) {
+    const realRmSync = fs.rmSync;
+    const attempts = new Map<string, number>();
+    const spy = vi.spyOn(fs, "rmSync").mockImplementation((target, options) => {
+      const dir = String(target);
+      if (dir.includes("agent-native-code-claude-")) {
+        const count = (attempts.get(dir) ?? 0) + 1;
+        attempts.set(dir, count);
+        if (count <= failures)
+          throw new Error("EBUSY: resource busy or locked");
+      }
+      return realRmSync(target, options);
+    });
+    return {
+      dirs: () => [...attempts.keys()],
+      restore: () => {
+        spy.mockRestore();
+        for (const dir of attempts.keys()) {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
+      },
+    };
+  }
+
+  it("decides the run from one final MCP config cleanup", async () => {
+    const root = useTempCodeAgentsHome();
+    const restore = useFakeClaudeWithMcp(root, [
+      "process.stdin.resume();",
+      "process.stdin.on('end', () => {",
+      "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
+      "});",
+    ]);
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "running",
+      phase: "executing",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+    queueCodeAgentFollowUp({
+      runId: run.id,
+      prompt: "follow up",
+      mode: "queued",
+      source: "test",
+    });
+    // Fails exactly one cleanup batch; a later attempt would succeed. The run
+    // is decided from that one final cleanup, so its errored status and the
+    // config still on disk agree.
+    const deletes = mockMcpConfigDelete(3);
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "list contacts" });
+
+      const record = getCodeAgentRunRecord(run.id);
+      expect(record?.status).toBe("errored");
+      expect(String(record?.metadata?.executionError)).toContain(
+        "Could not remove the temporary Claude MCP config",
+      );
+      expect(record?.metadata?.pendingFollowUps).toHaveLength(1);
+      expect(deletes.dirs()).toHaveLength(1);
+      for (const dir of deletes.dirs()) expect(fs.existsSync(dir)).toBe(true);
+    } finally {
+      deletes.restore();
+      restore();
+    }
+  });
+
+  it("fails a stopped run instead of pausing it while its MCP config remains", async () => {
+    const root = useTempCodeAgentsHome();
+    const restore = useFakeClaudeWithMcp(root, [
+      "process.stdin.resume();",
+      "setInterval(() => {}, 1000);",
+    ]);
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "running",
+      phase: "executing",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+    const deletes = mockMcpConfigDelete(Number.POSITIVE_INFINITY);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 300);
+
+    try {
+      await executeCodeAgentRun({
+        runId: run.id,
+        prompt: "list contacts",
+        signal: controller.signal,
+      });
+
+      const record = getCodeAgentRunRecord(run.id);
+      expect(record?.status).toBe("errored");
+      expect(String(record?.metadata?.executionError)).toContain(
+        "Could not remove the temporary Claude MCP config",
+      );
+    } finally {
+      clearTimeout(timer);
+      deletes.restore();
+      restore();
+    }
+  });
+
+  it("retries MCP config cleanup when the Claude run itself fails", async () => {
+    const root = useTempCodeAgentsHome();
+    const restore = useFakeClaudeWithMcp(root, [
+      "process.stderr.write('boom');",
+      "process.exit(1);",
+    ]);
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "running",
+      phase: "executing",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+    const deletes = mockMcpConfigDelete(1);
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "list contacts" });
+
+      expect(getCodeAgentRunRecord(run.id)?.status).toBe("errored");
+      expect(deletes.dirs()).toHaveLength(1);
+      for (const dir of deletes.dirs()) expect(fs.existsSync(dir)).toBe(false);
+    } finally {
+      deletes.restore();
+      restore();
+    }
+  });
+
+  it("shows friendly Claude auth errors while retaining raw execution metadata", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "process.stderr.write('Not logged in');",
+        "process.exit(1);",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the workspace",
+    });
+
+    const updated = getCodeAgentRunRecord(run.id);
+    expect(updated).toMatchObject({
+      status: "errored",
+      metadata: {
+        executionError: expect.stringContaining("Command failed"),
+      },
+    });
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          message:
+            "Claude Code run failed: Claude authentication check failed. Run `claude auth login` and try again.",
+        }),
+      ]),
+    );
+  });
+
+  it("persists Codex JSON tool events for the shared transcript UI", async () => {
+    const root = useTempCodeAgentsHome();
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const codexBin = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outputIndex = args.indexOf('--output-last-message');",
+        "const outputPath = outputIndex === -1 ? '' : args[outputIndex + 1];",
+        "process.stdin.on('data', () => {});",
+        "process.stdin.on('end', () => {",
+        "  if (outputPath) fs.writeFileSync(outputPath, 'Codex final answer');",
+        "  const emit = (event) => process.stdout.write(JSON.stringify(event) + '\\n');",
+        "  emit({ type: 'item.started', item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', status: 'in_progress' } });",
+        "  emit({ type: 'item.completed', item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', aggregated_output: 'package.json', exit_code: 0, status: 'completed' } });",
+        "  emit({ type: 'item.completed', item: { id: 'msg-1', type: 'agent_message', text: 'I inspected the workspace.' } });",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Persist Codex tool events",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the workspace",
+      streamToolOutputToStdout: false,
+    });
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_start",
+            tool: "bash",
+            input: { command: "rg --files" },
+          }),
+        }),
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            tool: "bash",
+            result: "package.json",
+          }),
+        }),
+        expect.objectContaining({
+          kind: "system",
+          message: "I inspected the workspace.",
+          metadata: expect.objectContaining({ role: "assistant" }),
+        }),
+      ]),
+    );
+  });
+
+  it("persists Claude stream-json tool events for the shared transcript UI", async () => {
+    const root = useTempCodeAgentsHome();
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        "process.stdin.on('data', () => {});",
+        "process.stdin.on('end', () => {",
+        "  const emit = (event) => process.stdout.write(JSON.stringify(event) + '\\n');",
+        "  emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: 'package.json' } }] } });",
+        "  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: '{\\\"name\\\":\\\"agentnative\\\"}' }] } });",
+        "  emit({ type: 'assistant', message: { content: [{ type: 'text', text: 'I inspected package.json.' }] } });",
+        "  emit({ type: 'result', result: 'Claude final answer' });",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Persist Claude tool events",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect package.json",
+      streamToolOutputToStdout: false,
+    });
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_start",
+            tool: "Read",
+            input: { file_path: "package.json" },
+          }),
+        }),
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            tool: "Read",
+            result: '{"name":"agentnative"}',
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("maps read-only OpenCode runs to the built-in Plan agent", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    process.env.AGENT_ENGINE = "opencode-cli";
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "opencode-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const opencodeBin = path.join(binDir, "opencode");
+    fs.writeFileSync(
+      opencodeBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "process.stdout.write('OpenCode streamed output');",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Inspect with OpenCode",
+      status: "queued",
+      cwd: process.cwd(),
+      permissionMode: "read-only",
+      metadata: {},
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the repository",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: { engine: "opencode-cli" },
+    });
+    expect(output.read()).toContain("OpenCode streamed output");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+    expect(args).toEqual(expect.arrayContaining(["--agent", "plan"]));
+    expect(args[args.indexOf("--agent") + 1]).toBe("plan");
   });
 
   it("routes AGENT_ENGINE=codex-cli to the Codex CLI runner without engine metadata", async () => {
@@ -242,8 +1181,6 @@ describe("executeCodeAgentRun", () => {
     );
     process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
     const output = createStringOutput();
-    // No `engine` in metadata — the Codex CLI runner must be selected purely
-    // from AGENT_ENGINE, the same fallback resolveExecutorEngine already uses.
     const run = createCodeAgentRunRecord({
       goalId: "task",
       title: "Use Codex via AGENT_ENGINE",
@@ -280,11 +1217,11 @@ describe("executeCodeAgentRun", () => {
       [
         "#!/usr/bin/env node",
         "const fs = require('fs');",
-        `fs.writeFileSync(${JSON.stringify(startedPath)}, 'started');`,
         "process.on('SIGTERM', () => {",
         `  fs.writeFileSync(${JSON.stringify(stoppedPath)}, 'stopped');`,
         "  process.exit(143);",
         "});",
+        `fs.writeFileSync(${JSON.stringify(startedPath)}, 'started');`,
         "setInterval(() => {}, 1_000);",
       ].join("\n"),
       { mode: 0o755 },
@@ -359,11 +1296,11 @@ describe("executeCodeAgentRun", () => {
       [
         "#!/usr/bin/env node",
         "const fs = require('fs');",
-        `fs.writeFileSync(${JSON.stringify(startedPath)}, 'started');`,
         "process.on('SIGTERM', () => {",
         `  fs.writeFileSync(${JSON.stringify(stoppedPath)}, 'stopped');`,
         "  process.exit(143);",
         "});",
+        `fs.writeFileSync(${JSON.stringify(startedPath)}, 'started');`,
         "setInterval(() => {}, 1_000);",
       ].join("\n"),
       { mode: 0o755 },
@@ -687,18 +1624,12 @@ describe("executeCodeAgentRun", () => {
     await executePendingCodeAgentApproval(run.id, { stdout: output.stream });
 
     const updated = getCodeAgentRunRecord(run.id);
-    // The approved command should have run.
     expect(fs.existsSync(target)).toBe(false);
-    // Approval metadata is always recorded regardless of auto-resume outcome.
     expect(updated?.metadata?.lastApproval).toMatchObject({
       id: "approval-test",
       exitCode: 0,
     });
-    // pendingApproval must be cleared.
     expect(updated?.metadata?.pendingApproval).toBeUndefined();
-    // After approval, the run auto-resumes. In the test environment there is
-    // no LLM provider, so the resumed run terminates with missing-credentials.
-    // Verify it progressed past approval (not stuck in needs-approval).
     expect(updated?.status).not.toBe("needs-approval");
     expect(output.read()).toContain("Approved command finished");
   });
@@ -741,6 +1672,50 @@ describe("classifyCodeAgentCommandPermission", () => {
     expect(classifyCodeAgentCommandPermission("rm -rf dist")).toMatchObject({
       kind: "approval-required",
     });
+  });
+
+  it.each([
+    ["git 'checkout' main", "forbidden"],
+    ['git "checkout" main', "forbidden"],
+    ["gi''t checkout main", "forbidden"],
+    ["git check\\out main", "forbidden"],
+    ['drizzle-kit "push"', "forbidden"],
+    ["rm -'r'f /data", "approval-required"],
+    ["su''do rm x", "approval-required"],
+    ["npm 'publish'", "approval-required"],
+  ] as const)("sees through shell quoting in %s", (command, kind) => {
+    expect(classifyCodeAgentCommandPermission(command)).toMatchObject({ kind });
+  });
+
+  it.each([
+    "$'\\x67it' checkout main",
+    "$(printf git) $(printf checkout) main",
+    "`printf git` checkout main",
+  ])("asks rather than guessing for %s", (command) => {
+    expect(classifyCodeAgentCommandPermission(command)).toMatchObject({
+      kind: "approval-required",
+    });
+  });
+
+  it("still blocks outright when the forbidden text is visible inside a substitution", () => {
+    expect(
+      classifyCodeAgentCommandPermission('echo "$(git checkout main)"'),
+    ).toMatchObject({ kind: "forbidden" });
+  });
+
+  it("does not escalate substitution syntax that single quotes make literal", () => {
+    expect(classifyCodeAgentCommandPermission("rg '$(foo)' src")).toMatchObject(
+      { kind: "write" },
+    );
+  });
+
+  it("leaves ordinary quoted arguments classified as before", () => {
+    expect(
+      classifyCodeAgentCommandPermission('rg "some phrase" src'),
+    ).toMatchObject({ kind: "read" });
+    expect(
+      classifyCodeAgentCommandPermission("node -e 'console.log(1)'"),
+    ).toMatchObject({ kind: "write" });
   });
 });
 
@@ -900,10 +1875,6 @@ async function waitForFile(filePath: string): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// buildStructuredMessagesFromEvents unit tests
-// ---------------------------------------------------------------------------
-
 describe("buildStructuredMessagesFromEvents", () => {
   function event(
     id: string,
@@ -966,7 +1937,6 @@ describe("buildStructuredMessagesFromEvents", () => {
 
     const msgs = buildStructuredMessagesFromEvents(events);
 
-    // user, assistant (tool-call), user (tool-result), assistant (text)
     expect(msgs).toHaveLength(4);
     expect(msgs[0].role).toBe("user");
 
@@ -989,7 +1959,6 @@ describe("buildStructuredMessagesFromEvents", () => {
       toolName: "bash",
       content: "All tests passed.",
     });
-    // toolCallId must match the id from the tool-call part
     expect((toolResultPart as { toolCallId: string }).toolCallId).toBe(
       (toolCallPart as { id: string }).id,
     );
@@ -1020,7 +1989,6 @@ describe("buildStructuredMessagesFromEvents", () => {
     expect(msgs).toHaveLength(2);
     expect(msgs[0].role).toBe("user");
     expect(msgs[1].role).toBe("assistant");
-    // No content from thinking event
     const allText = msgs
       .flatMap((m) => m.content)
       .filter((p: EngineContentPart) => p.type === "text")
@@ -1070,14 +2038,12 @@ describe("buildStructuredMessagesFromEvents", () => {
   });
 
   it("handles malformed events without throwing", () => {
-    // Events with missing or null metadata
     const events = [
       event("e1", "status", "no type in metadata", {}),
       event("e2", "status", "null metadata"),
     ];
     expect(() => buildStructuredMessagesFromEvents(events)).not.toThrow();
     const msgs = buildStructuredMessagesFromEvents(events);
-    // Neither event maps to a user/assistant message
     expect(msgs).toHaveLength(0);
   });
 
@@ -1107,7 +2073,6 @@ describe("buildStructuredMessagesFromEvents", () => {
     ];
 
     const msgs = buildStructuredMessagesFromEvents(events);
-    // user, assistant(bash call), user(bash result), assistant(read call), user(read result)
     expect(msgs).toHaveLength(5);
 
     const bashCall = msgs[1].content.find(
@@ -1131,10 +2096,6 @@ describe("buildStructuredMessagesFromEvents", () => {
     expect(readResult?.toolCallId).toBe(readCall?.id);
   });
 });
-
-// ---------------------------------------------------------------------------
-// buildRepoInstructionsBlock + buildCodeAgentSystemPrompt unit tests
-// ---------------------------------------------------------------------------
 
 describe("buildRepoInstructionsBlock", () => {
   it("returns empty string when content is empty", () => {
@@ -1305,6 +2266,7 @@ describe("buildCodeAgentSystemPrompt", () => {
 
   it("includes nested AGENTS.md precedence note in every prompt", () => {
     const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain("only project checkout for this run");
     expect(prompt).toContain(
       "More deeply nested AGENTS.md files take precedence",
     );

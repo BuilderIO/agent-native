@@ -54,6 +54,7 @@ import {
   stringifyJson,
 } from "./helpers.js";
 import { createJob, enqueueContextRebuildJob } from "./jobs.js";
+import { nativeArtifactSummary } from "./native-artifact-summary.js";
 
 function mapItem(row: any): ContextItemSummary {
   return {
@@ -179,11 +180,14 @@ function isUniqueConstraintError(error: unknown): boolean {
   for (let depth = 0; current && depth < 4; depth += 1) {
     if (typeof current !== "object") break;
     const candidate = current as Record<string, unknown>;
-    const code = String(candidate.code ?? candidate.errno ?? "").toUpperCase();
-    const message = String(candidate.message ?? "");
+    const codeValue = candidate.code ?? candidate.errno ?? "";
+    const code = String(codeValue as string | number | boolean).toUpperCase();
+    const message =
+      typeof candidate.message === "object"
+        ? JSON.stringify(candidate.message)
+        : String(candidate.message as string | number | boolean | undefined);
     if (
       code === "23505" ||
-      code.includes("SQLITE_CONSTRAINT") ||
       /unique constraint|unique violation|duplicate key/i.test(message)
     ) {
       return true;
@@ -1142,6 +1146,7 @@ export async function listAccessibleSearchDocuments(
         starred: schema.contextItems.starred,
         indexState: schema.contextItems.indexState,
         parseStatus: schema.contextItemVersions.parseStatus,
+        versionMetadata: schema.contextItemVersions.metadata,
         canonicalUrl: schema.contextItems.canonicalUrl,
         mimeType: schema.contextItems.mimeType,
       })
@@ -1225,6 +1230,7 @@ export async function listAccessibleSearchDocuments(
       score: 0,
       canonicalUrl: row.canonicalUrl ?? null,
       mimeType: row.mimeType ?? null,
+      nativeArtifact: nativeArtifactSummary(row.versionMetadata),
     }),
   );
   if (!documents.length) return documents;
@@ -1387,6 +1393,7 @@ export async function listAccessibleLexicalCandidates(
         body: sql<string>`substr(${schema.contextChunks.text}, 1, 12000)`,
         summary: schema.contextItemVersions.summary,
         metadata: schema.contextItems.metadata,
+        versionMetadata: schema.contextItemVersions.metadata,
         tags: schema.contextItems.tags,
         colors: schema.contextItems.colors,
         curationRank: schema.contextItems.curationRank,
@@ -1454,6 +1461,7 @@ export async function listAccessibleLexicalCandidates(
         sourceName: row.sourceName,
         kind: row.kind,
         title: row.title,
+        nativeArtifact: nativeArtifactSummary(row.versionMetadata),
         excerpt: buildSearchSnippet(row.body, terms, 600),
         score:
           scoreSearchText(

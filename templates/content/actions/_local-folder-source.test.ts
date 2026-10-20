@@ -1,40 +1,40 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  localFolderSourceCapabilities,
-  localFolderSourceId,
-  localFolderSourceMetadata,
-} from "./_local-folder-source";
+  localFolderObservedRevision,
+  localFolderSourceIdentityFromMetadata,
+} from "./_local-folder-source.js";
 
-describe("local folder source metadata", () => {
-  it("uses stable opaque identity without storing a filesystem path", () => {
-    const first = localFolderSourceId("files-db", "desktop-folder-7");
-    const second = localFolderSourceId("files-db", "desktop-folder-7");
-    expect(first).toBe(second);
-    expect(first).not.toContain("desktop-folder-7");
-
-    const metadata = localFolderSourceMetadata({
-      connectionId: "desktop-folder-7",
-      label: "Product docs",
-      truthPolicy: "source_primary",
+describe("local-folder source identity", () => {
+  it("binds an observed revision to both source body and metadata", () => {
+    const baseline = localFolderObservedRevision({
+      contentHash: "content-a",
+      metadataHash: "metadata-a",
     });
-    expect(metadata).toMatchObject({
-      connectionId: "desktop-folder-7",
-      connectionLabel: "Product docs",
-      truthPolicy: "source_primary",
-      readMode: "trusted-local-bridge",
-    });
-    expect(JSON.stringify(metadata)).not.toContain("/Users/");
+    expect(
+      localFolderObservedRevision({
+        contentHash: "content-a",
+        metadataHash: "metadata-a",
+      }),
+    ).toBe(baseline);
+    expect(
+      localFolderObservedRevision({
+        contentHash: "content-a",
+        metadataHash: "metadata-b",
+      }),
+    ).not.toBe(baseline);
   });
 
-  it("advertises local editing without pretending a folder publishes", () => {
-    expect(localFolderSourceCapabilities()).toMatchObject({
-      canRefresh: true,
-      canWriteBody: true,
-      canPublish: false,
-      canRename: true,
-      canReveal: true,
-      canUseLocalComponents: true,
-    });
+  it("does not expose malformed or path-bearing stored local identity", () => {
+    expect(
+      localFolderSourceIdentityFromMetadata({
+        workingCopy: {
+          id: "/Users/alice/worktree",
+          kind: "temporary",
+          name: "Fix local sync",
+          deviceId: "desktop-alice",
+        },
+      }),
+    ).toBeUndefined();
   });
 });

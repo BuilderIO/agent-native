@@ -1,16 +1,19 @@
 import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { describe, expect, it } from "vitest";
 
+import { convertToSlideHtml } from "./html-converter.js";
 import {
   annotateLineDecorations,
   applyPoint,
   contrastingDefaultColor,
+  detectBlockAlignment,
   groupIntoBlocks,
   groupIntoLines,
   groupIntoStyledLines,
   lineSpacingBeforePt,
   mergeLine,
   mergeLineRuns,
+  parsePdfFidelity,
   textItemToBox,
   walkPageGraphics,
   type LinkRect,
@@ -27,7 +30,6 @@ describe("applyPoint", () => {
   });
 
   it("flips y for a top-left/y-down viewport transform", () => {
-    // pdf.js viewports commonly look like this: flip y and offset by page height.
     const viewportTransform: Mat = [1, 0, 0, -1, 0, 792];
     expect(applyPoint(viewportTransform, 0, 792)).toEqual([0, 0]);
     expect(applyPoint(viewportTransform, 0, 0)).toEqual([0, 792]);
@@ -45,7 +47,6 @@ describe("textItemToBox", () => {
     expect(box!.fontSize).toBeCloseTo(12);
     expect(box!.left).toBeCloseTo(100);
     expect(box!.right).toBeCloseTo(140);
-    // Box spans from below the baseline (descent) to above it (ascent).
     expect(box!.top).toBeLessThan(200);
     expect(box!.bottom).toBeGreaterThan(200);
   });
@@ -101,6 +102,8 @@ function box(partial: Partial<TextRunBox>): TextRunBox {
     color: "#000000",
     underline: false,
     href: undefined,
+    fontFamily: undefined,
+    paintOrder: 0,
     ...partial,
   };
 }
@@ -192,6 +195,40 @@ describe("mergeLineRuns", () => {
       box({ text: "regular", left: 40, right: 100, bold: false }),
     ]);
     expect(runs).toHaveLength(2);
+  });
+
+  it("keeps the word gap across a style change so the words don't jam together", () => {
+    const runs = mergeLineRuns([
+      box({
+        text: "7 Air",
+        left: 0,
+        right: 60,
+        fontSize: 40,
+        color: "#ffffff",
+      }),
+      box({
+        text: "purifying",
+        left: 80,
+        right: 200,
+        fontSize: 40,
+        color: "#18b6f6",
+      }),
+    ]);
+    expect(runs.map((r) => r.text).join("")).toBe("7 Air purifying");
+  });
+
+  it("does not double a space that either side already carries", () => {
+    const runs = mergeLineRuns([
+      box({ text: "Nike NYC: ", left: 0, right: 60, fontSize: 40 }),
+      box({
+        text: "Event Details",
+        left: 80,
+        right: 200,
+        fontSize: 40,
+        color: "#18b6f6",
+      }),
+    ]);
+    expect(runs.map((r) => r.text).join("")).toBe("Nike NYC: Event Details");
   });
 });
 
@@ -306,7 +343,9 @@ describe("walkPageGraphics", () => {
       [["#0000ff"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
-    expect(graphics.textRuns).toEqual([{ length: 1, color: "#0000ff" }]);
+    expect(graphics.textRuns).toEqual([
+      { length: 1, color: "#0000ff", paintOrder: 0, invisible: false },
+    ]);
   });
 
   it("skips a zero-glyph showText op instead of pushing a stray color entry, since getTextContent never reports an item for one", async () => {
@@ -322,8 +361,8 @@ describe("walkPageGraphics", () => {
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.textRuns).toEqual([
-      { length: 1, color: "#ffffff" },
-      { length: 1, color: "#18b6f6" },
+      { length: 1, color: "#ffffff", paintOrder: 0, invisible: false },
+      { length: 1, color: "#18b6f6", paintOrder: 1, invisible: false },
     ]);
   });
 
@@ -333,7 +372,9 @@ describe("walkPageGraphics", () => {
       [["Pattern1"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
-    expect(graphics.textRuns).toEqual([{ length: 1, color: undefined }]);
+    expect(graphics.textRuns).toEqual([
+      { length: 1, color: undefined, paintOrder: 0, invisible: false },
+    ]);
   });
 
   it("decodes a resolved hex color from a setFillColorN op (ICCBased/CalRGB/Separation colors routed through scn are pre-resolved to a hex string the same way rg is)", async () => {
@@ -342,7 +383,9 @@ describe("walkPageGraphics", () => {
       [["#ffffff"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
-    expect(graphics.textRuns).toEqual([{ length: 1, color: "#ffffff" }]);
+    expect(graphics.textRuns).toEqual([
+      { length: 1, color: "#ffffff", paintOrder: 0, invisible: false },
+    ]);
   });
 
   it("decodes a resolved hex color from a setFillColorN op, matching a solid black page background set via scn instead of rg/g", async () => {
@@ -487,5 +530,332 @@ describe("annotateLineDecorations", () => {
       [linkRect({ left: 200, top: 200, right: 240, bottom: 212 })],
     );
     expect(annotated.href).toBeUndefined();
+  });
+});
+
+describe("detectBlockAlignment", () => {
+  it("stays left for a single-line block (one line can't disambiguate center from left)", () => {
+    const lines = [box({ left: 40, right: 200 })];
+    expect(detectBlockAlignment(lines, 40, 200)).toBe("left");
+  });
+
+  it("detects centered lines from their shared midpoint", () => {
+    const lines = [box({ left: 10, right: 90 }), box({ left: 30, right: 70 })];
+    expect(detectBlockAlignment(lines, 10, 90)).toBe("center");
+  });
+
+  it("keeps equal-width left-aligned lines left when their midpoint is ambiguous", () => {
+    const lines = [box({ left: 10, right: 90 }), box({ left: 10, right: 90 })];
+    expect(detectBlockAlignment(lines, 10, 90)).toBe("left");
+  });
+
+  it("keeps near-equal widths eligible for midpoint alignment when bounds shift", () => {
+    const lines = [box({ left: 10, right: 90 }), box({ left: 11, right: 89 })];
+    expect(detectBlockAlignment(lines, 10, 90)).toBe("center");
+  });
+
+  it("detects right-aligned lines from their shared right edge", () => {
+    const lines = [
+      box({ left: 50, right: 200 }),
+      box({ left: 20, right: 200 }),
+    ];
+    expect(detectBlockAlignment(lines, 20, 200)).toBe("right");
+  });
+
+  it("defaults to left for ordinary ragged-right paragraph lines", () => {
+    const lines = [
+      box({ left: 10, right: 200 }),
+      box({ left: 10, right: 120 }),
+    ];
+    expect(detectBlockAlignment(lines, 10, 200)).toBe("left");
+  });
+});
+
+describe("textItemToBox: font family", () => {
+  it("strips the subset-tag prefix and passes a plain sans font name through", () => {
+    const result = textItemToBox(
+      {
+        str: "Hi",
+        transform: [12, 0, 0, 12, 0, 0],
+        width: 20,
+        fontName: "MUFUZY+Poppins-Bold",
+      },
+      IDENTITY,
+    );
+    expect(result!.fontFamily).toBe("Poppins");
+  });
+
+  it("maps a serif-keyword font name to a websafe serif family", () => {
+    const result = textItemToBox(
+      {
+        str: "Hi",
+        transform: [12, 0, 0, 12, 0, 0],
+        width: 20,
+        fontName: "ABCDEF+TimesNewRomanPSMT",
+      },
+      IDENTITY,
+    );
+    expect(result!.fontFamily).toBe("Georgia");
+  });
+
+  it("maps a monospace-keyword font name to a websafe monospace family", () => {
+    const result = textItemToBox(
+      {
+        str: "Hi",
+        transform: [12, 0, 0, 12, 0, 0],
+        width: 20,
+        fontName: "ABCDEF+CourierNewPSMT",
+      },
+      IDENTITY,
+    );
+    expect(result!.fontFamily).toBe("Courier New");
+  });
+
+  it("leaves fontFamily undefined when no font name is available", () => {
+    const result = textItemToBox(
+      { str: "Hi", transform: IDENTITY, width: 10 },
+      IDENTITY,
+    );
+    expect(result!.fontFamily).toBeUndefined();
+  });
+});
+
+describe("groupIntoLines: column-aware baseline grouping", () => {
+  it("keeps a two-column page's lines separate even when a column-1 line and a column-2 line share a baseline", () => {
+    const items = [
+      box({ text: "C1L1", left: 0, right: 200, top: 0, bottom: 10 }),
+      box({ text: "C1L2", left: 0, right: 200, top: 20, bottom: 30 }),
+      box({ text: "C1L3", left: 0, right: 200, top: 40, bottom: 50 }),
+      box({ text: "C2L1", left: 340, right: 550, top: 40, bottom: 50 }),
+      box({ text: "C2L2", left: 340, right: 550, top: 60, bottom: 70 }),
+      box({ text: "C2L3", left: 340, right: 550, top: 80, bottom: 90 }),
+    ];
+    const lines = groupIntoLines(items);
+    expect(lines.map((l) => l.text)).toEqual([
+      "C1L1",
+      "C1L2",
+      "C1L3",
+      "C2L1",
+      "C2L2",
+      "C2L3",
+    ]);
+  });
+
+  it("still merges a shared-baseline pair when there's no real recurring column gutter (ordinary wide word gap)", () => {
+    const items = [
+      box({ text: "C1L1", left: 0, right: 200, top: 0, bottom: 10 }),
+      box({ text: "C1L2", left: 0, right: 200, top: 20, bottom: 30 }),
+      box({ text: "C1L3", left: 0, right: 200, top: 40, bottom: 50 }),
+      box({ text: "C2L1", left: 210, right: 420, top: 40, bottom: 50 }),
+      box({ text: "C2L2", left: 0, right: 200, top: 60, bottom: 70 }),
+      box({ text: "C2L3", left: 0, right: 200, top: 80, bottom: 90 }),
+    ];
+    const lines = groupIntoLines(items);
+    expect(lines).toHaveLength(5);
+    expect(lines[2].text).toBe("C1L3 C2L1");
+  });
+});
+
+type FakeTextContentLoader = () => Promise<unknown>;
+
+function fakeFullPage(
+  fnArray: number[],
+  argsArray: unknown[][],
+  getTextContent: FakeTextContentLoader = async () => ({
+    items: [{ str: "Hi", transform: [12, 0, 0, 12, 50, 50], width: 24 }],
+  }),
+) {
+  return {
+    rotate: 0,
+    getViewport: () => ({
+      transform: IDENTITY,
+      width: 200,
+      height: 200,
+    }),
+    getOperatorList: async () => ({ fnArray, argsArray }),
+    getAnnotations: async () => [],
+    getTextContent,
+    commonObjs: { has: () => false, get: () => null },
+  } as unknown as Parameters<typeof walkPageGraphics>[0];
+}
+
+function fakeDoc(
+  fnArray: number[],
+  argsArray: unknown[][],
+  getTextContent?: FakeTextContentLoader,
+) {
+  const page = fakeFullPage(fnArray, argsArray, getTextContent);
+  return {
+    numPages: 1,
+    getPage: async () => page,
+  } as unknown as Parameters<typeof parsePdfFidelity>[0];
+}
+
+describe("parsePdfFidelity: paint order", () => {
+  it("keeps PDF source leading without adding the PPTX line-height default", async () => {
+    const text = ["Heading", "Body"];
+    const doc = fakeDoc(
+      [OPS.showText, OPS.showText],
+      text.map((value) => [Array.from({ length: value.length }, () => ({}))]),
+      async () => ({
+        items: text.map((str, index) => ({
+          str,
+          transform: [12, 0, 0, 12, 10, 100 + index * 14],
+          width: str.length * 6,
+        })),
+      }),
+    );
+
+    const [page] = await parsePdfFidelity(doc, []);
+    const textElement = page.elements.find(
+      (element) => element.kind === "text",
+    );
+    expect(textElement?.kind).toBe("text");
+    if (textElement?.kind !== "text")
+      throw new Error("missing parsed PDF text");
+    expect(
+      textElement.paragraphs?.map((paragraph) => paragraph.lineSpacing),
+    ).toEqual([1, 1]);
+    expect(textElement.paragraphs?.[1]?.spaceBeforePt).toBeCloseTo(2);
+
+    const html = convertToSlideHtml({
+      texts: [],
+      images: [],
+      elements: [textElement],
+      widthEmu: page.widthEmu,
+      heightEmu: page.heightEmu,
+    });
+    expect(html.match(/line-height:1;/g)).toHaveLength(2);
+    expect(html).toContain("margin:10.8px 0 0px");
+  });
+
+  it("sorts a later-painted image after earlier-painted text instead of always putting images first", async () => {
+    const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];
+    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], ["image-1"]];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, [
+      {
+        pageNumber: 1,
+        images: [{ data: new Uint8Array([1, 2, 3]), name: "image-1" }],
+      },
+    ]);
+    expect(pages[0].elements.map((el) => el.kind)).toEqual(["text", "image"]);
+  });
+
+  it("matches extracted image bytes to their named paint rect instead of their filtered array index", async () => {
+    const fnArray = [
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+    ];
+    const argsArray = [
+      [],
+      [100, 0, 0, 100, 10, 10],
+      ["skipped-image"],
+      [],
+      [],
+      [100, 0, 0, 100, 100, 100],
+      ["kept-image"],
+      [],
+    ];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, [
+      {
+        pageNumber: 1,
+        images: [{ data: new Uint8Array([4, 5, 6]), name: "kept-image" }],
+      },
+    ]);
+
+    const image = pages[0].elements.find((element) => element.kind === "image");
+    expect(image).toMatchObject({
+      kind: "image",
+      x: 1_270_000,
+      y: 1_270_000,
+    });
+    expect(image?.kind).toBe("image");
+    expect(image?.image?.data).toEqual(new Uint8Array([4, 5, 6]));
+    expect(pages[0].imagesSkipped).toBe(1);
+  });
+});
+
+describe("parsePdfFidelity: imagesSkipped", () => {
+  it("counts a detected image with no extracted bytes as skipped", async () => {
+    const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];
+    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], ["image-1"]];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, []);
+    expect(pages[0].imagesSkipped).toBe(1);
+    expect(pages[0].elements.map((el) => el.kind)).toEqual(["text"]);
+  });
+
+  it("does not count an extracted image that is intentionally below the placement-size threshold", async () => {
+    const fnArray = [OPS.transform, OPS.paintImageXObject];
+    const argsArray = [[1, 0, 0, 1, 10, 10], ["tiny-image"]];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, [
+      {
+        pageNumber: 1,
+        images: [{ data: new Uint8Array([1, 2, 3]), name: "tiny-image" }],
+      },
+    ]);
+
+    expect(pages[0].imagesSkipped).toBe(0);
+    expect(pages[0].elements.map((el) => el.kind)).toEqual(["text"]);
+  });
+
+  it("counts an empty extracted image buffer as skipped without shifting later named images", async () => {
+    const fnArray = [
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+    ];
+    const argsArray = [
+      [],
+      [100, 0, 0, 100, 10, 10],
+      ["empty-image"],
+      [],
+      [],
+      [100, 0, 0, 100, 100, 100],
+      ["valid-image"],
+      [],
+    ];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, [
+      {
+        pageNumber: 1,
+        images: [
+          { data: new Uint8Array(), name: "empty-image" },
+          { data: new Uint8Array([7, 8, 9]), name: "valid-image" },
+        ],
+      },
+    ]);
+
+    const image = pages[0].elements.find((element) => element.kind === "image");
+    expect(image).toMatchObject({ x: 1_270_000, y: 1_270_000 });
+    expect(image?.image?.data).toEqual(new Uint8Array([7, 8, 9]));
+    expect(pages[0].imagesSkipped).toBe(1);
+  });
+
+  it("marks a page partial when fidelity parsing fails after detecting an image", async () => {
+    const fnArray = [OPS.transform, OPS.paintImageXObject];
+    const argsArray = [[100, 0, 0, 100, 10, 10], ["image-1"]];
+    const doc = fakeDoc(fnArray, argsArray, async () => {
+      throw new Error("text extraction failed");
+    });
+
+    const pages = await parsePdfFidelity(doc, []);
+
+    expect(pages[0].imagesSkipped).toBe(1);
+    expect(pages[0].elements).toEqual([]);
   });
 });

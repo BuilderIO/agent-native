@@ -16,32 +16,27 @@ export default defineAction({
   agentTool: false,
   schema: z
     .object({
-      resourceId: z.string().min(1).optional(),
-      name: z.string().min(1).optional(),
-      scope: scopeSchema.optional(),
+      resourceId: z.string().trim().min(1).optional(),
+      name: z.string().trim().min(1).optional(),
+      scope: scopeSchema.default("personal"),
+      appId: z.string().trim().min(1).optional(),
       limit: z.number().int().min(1).max(100).optional(),
     })
-    .refine((input) => input.resourceId || (input.name && input.scope), {
-      message: "resourceId or name and scope is required.",
+    .refine(({ resourceId, name }) => Boolean(resourceId) !== Boolean(name), {
+      message: "Specify either a resourceId or a name and scope.",
     }),
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
   run: async (
-    { resourceId, name, scope, limit },
+    { resourceId, name, scope, appId: requestedAppId, limit },
     ctx,
   ): Promise<AutomationRun[]> => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
 
-    let resolvedId = resourceId?.trim();
-    if (!resolvedId) {
-      if (!name || !scope) {
-        throw Object.assign(
-          new Error("resourceId or name and scope is required."),
-          { statusCode: 400 },
-        );
-      }
+    let resolvedId = resourceId;
+    if (!resolvedId && name) {
       if (scope === "organization" && !ctx?.orgId) {
         throw Object.assign(new Error("Automation not found."), {
           statusCode: 404,
@@ -63,9 +58,12 @@ export default defineAction({
         statusCode: 404,
       });
     }
+
+    const appId = ctx?.appId === "dispatch" ? requestedAppId : ctx?.appId;
     return listAutomationRuns({
       owners: [access.resource.owner],
       automation: access.name,
+      appId,
       limit,
     });
   },

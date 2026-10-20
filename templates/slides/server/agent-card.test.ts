@@ -47,7 +47,7 @@ describe("slides agent card", () => {
       const card = generateAgentCard(
         {
           name: "Slides",
-          description: "Agent-native slides agent",
+          description: "Agent-Native slides agent",
           skills: Object.entries(actions)
             .filter(([, entry]) => entry.agentTool !== false)
             .map(([name, entry]) => ({
@@ -61,9 +61,15 @@ describe("slides agent card", () => {
       );
 
       expect(card.name).toBe("Slides");
-      expect(card.description).toBe("Agent-native slides agent");
+      expect(card.description).toBe("Agent-Native slides agent");
       const skillIds = card.skills.map((skill) => skill.id);
       expect(skillIds).toEqual(expect.arrayContaining(REQUIRED_SLIDES_ACTIONS));
+      expect(actions["create-deck"]?.tool.description).toContain(
+        "standalone HTML artifact",
+      );
+      expect(actions["add-slide"]?.tool.description).toContain(
+        "standalone HTML artifact",
+      );
       for (const retiredAction of RETIRED_SLIDES_ACTIONS) {
         expect(skillIds).not.toContain(retiredAction);
       }

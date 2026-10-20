@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { getCreativeContext } from "../server/context.js";
 
-const CREATIVE_CONTEXT_LIBRARY_PATH = "/agent#library";
+const CREATIVE_CONTEXT_LIBRARY_PATH = "/settings/library";
 
 export function creativeContextConnectionPath(input: {
   provider: "google_drive" | "figma" | "notion";

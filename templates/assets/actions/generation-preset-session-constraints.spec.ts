@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const assertAccessMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -9,6 +12,34 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+  resolveAccess: vi.fn(async () => ({ role: "owner" })),
+  accessFilter: vi.fn(() => ({ op: "accessFilter" })),
+}));
+const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
+const unrestrictedScope = vi.hoisted(() => ({
+  unrestricted: true,
+  approvableLibraryIds: new Set<string>(),
+  ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
+}));
+
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
+  draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
+  resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
+  unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
+  assertCanUseAssets: vi.fn(),
+  assertCanUseRuns: vi.fn(),
+  canReadDraftAsset: vi.fn(() => true),
+  canReadRun: vi.fn(() => true),
+  draftReadFilter: vi.fn(() => undefined),
+  runReadFilter: vi.fn(() => undefined),
+  sessionReadFilter: vi.fn(() => undefined),
+  canReadSession: vi.fn(() => true),
+  deleteDraftAssetIfUnchanged: deleteDraftMock,
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -26,8 +57,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
   inArray: vi.fn((column, values) => ({ op: "inArray", column, values })),
+  or: vi.fn((...conditions) => ({ op: "or", conditions })),
 }));
 
 vi.mock("nanoid", () => ({
@@ -54,6 +87,13 @@ vi.mock("../server/db/index.js", () => ({
       id: "presets.id",
       libraryId: "presets.library_id",
     },
+    assetLibraries: { id: "libraries.id" },
+    assetTemplates: {
+      id: "templates.id",
+      libraryId: "templates.library_id",
+    },
+    assetTemplateShares: {},
+    assetLibraryShares: {},
     assetGenerationSessions: {
       id: "sessions.id",
       presetId: "sessions.preset_id",
@@ -66,6 +106,7 @@ vi.mock("../server/db/index.js", () => ({
     assetGenerationRuns: {
       id: "runs.id",
       libraryId: "runs.library_id",
+      presetId: "runs.preset_id",
     },
   },
 }));
@@ -88,9 +129,13 @@ function createDb(selectRows: unknown[][]) {
   const deleteFrom = vi.fn(() => ({ where: deleteWhere }));
   const insertValues = vi.fn(async () => undefined);
   const insert = vi.fn(() => ({ values: insertValues }));
-  const select = vi.fn(() => ({
+  const select = vi.fn((selection?: Record<string, unknown>) => ({
     from: vi.fn(() => ({
-      where: vi.fn(() => createWhereResult(selectRows.shift() ?? [])),
+      where: vi.fn(() =>
+        createWhereResult(
+          selection?.id === "libraries.id" ? [] : (selectRows.shift() ?? []),
+        ),
+      ),
     })),
   }));
   return {
@@ -105,6 +150,7 @@ function createDb(selectRows: unknown[][]) {
 describe("generation preset/session constraints", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
   });
 
@@ -135,7 +181,22 @@ describe("generation preset/session constraints", () => {
     getDbMock.mockReturnValue(db);
 
     await expect(deletePresetAction.run({ id: "preset-1" })).rejects.toThrow(
-      /handoff session/,
+      /template-in-use/,
+    );
+
+    expect(db.delete).not.toHaveBeenCalled();
+  });
+
+  it("blocks deleting a template referenced by a generation run", async () => {
+    const db = createDb([
+      [{ id: "template-1", libraryId: "lib-1" }],
+      [],
+      [{ id: "run-1" }],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(deletePresetAction.run({ id: "template-1" })).rejects.toThrow(
+      /template-in-use/,
     );
 
     expect(db.delete).not.toHaveBeenCalled();

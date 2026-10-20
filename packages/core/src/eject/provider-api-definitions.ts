@@ -32,6 +32,7 @@ export const providerApiOverrides: ProviderApiConfig[] = [
   provider("clay"),
   provider("commonroom"),
   provider("dataforseo"),
+  provider("dbt"),
   provider("ga4"),
   provider("gcloud"),
   provider("github"),
@@ -41,11 +42,13 @@ export const providerApiOverrides: ProviderApiConfig[] = [
   provider("gong"),
   provider("google_calendar"),
   provider("google_drive"),
+  provider("google_sheets"),
   provider("google_slides"),
   provider("granola"),
   provider("grafana"),
   provider("hubspot"),
   provider("salesforce"),
+  provider("sigma"),
   provider("jira"),
   provider("mixpanel"),
   provider("notion"),
@@ -80,7 +83,7 @@ export function mergeProviderApiConfigs(
 }
 
 export function getProviderApiConfig(
-  providerId: ProviderApiId | string,
+  providerId: string,
   overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiConfig {
   return getRuntimeProviderApiConfig(providerId, withLocalOverrides(overrides));
@@ -99,7 +102,7 @@ export function listProviderApiIdsForTemplateUse(
 }
 
 export function listProviderApiCatalog(
-  providerId?: ProviderApiId | string,
+  providerId?: string,
   options: Parameters<typeof listRuntimeProviderApiCatalog>[1] = {},
 ) {
   return listRuntimeProviderApiCatalog(providerId, {

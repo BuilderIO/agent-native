@@ -2,23 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { loadRunCodeToolEntries } from "./agent-chat-plugin.js";
 
-/**
- * The agent-chat plugin registers the sandboxed code-execution tools through
- * `loadRunCodeToolEntries` for every registry that gets `run-code` (prod,
- * lean, and dev tool bags). These tests pin the registration contract:
- * `get-code-execution` — the standalone, access-scoped poll tool for durable
- * background executions exported by `createGetCodeExecutionEntry` — is
- * registered ALONGSIDE `run-code`, so the enqueue guidance run-code emits
- * ("check it with get-code-execution") always points at a callable tool.
- *
- * The data-programs actions (`save-data-program`, `preview-data-program`,
- * `run-data-program`, `list-data-programs`, `get-data-program`,
- * `delete-data-program`) are registered identically to run-code — same
- * try/dynamic-import guard — so every registry that gets run-code also gets
- * the data-programs primitive without per-template wiring.
- */
-describe("loadRunCodeToolEntries (run-code + get-code-execution registration)", () => {
-  it("registers get-code-execution and the data-programs actions alongside run-code", async () => {
+describe("loadRunCodeToolEntries (code execution registration)", () => {
+  it("registers tool-orchestration, get-code-execution, and data-program actions alongside run-code", async () => {
     const entries = await loadRunCodeToolEntries(() => ({}));
     expect(Object.keys(entries).sort()).toEqual([
       "delete-data-program",
@@ -29,7 +14,46 @@ describe("loadRunCodeToolEntries (run-code + get-code-execution registration)", 
       "run-code",
       "run-data-program",
       "save-data-program",
+      "tool-orchestration",
     ]);
+  });
+
+  it("leaves names the app defines itself to the app's own actions", async () => {
+    const entries = await loadRunCodeToolEntries(() => ({}), {
+      appActionNames: ["list-data-programs", "get-data-program", "unrelated"],
+    });
+    expect(entries).not.toHaveProperty("list-data-programs");
+    expect(entries).not.toHaveProperty("get-data-program");
+    expect(entries).toHaveProperty("run-code");
+    expect(entries).toHaveProperty("save-data-program");
+  });
+
+  it("registers tool-orchestration as a bounded Act-mode read-only tool", async () => {
+    const entries = await loadRunCodeToolEntries(() => ({}));
+    const entry = entries["tool-orchestration"];
+    expect(entry.readOnly).toBe(true);
+    expect(entry.allowInPlanMode).toBe(false);
+    expect(entry.tool?.parameters).toMatchObject({
+      type: "object",
+      required: ["code"],
+    });
+    expect(
+      (entry.tool?.parameters as { properties?: Record<string, unknown> })
+        .properties,
+    ).toMatchObject({
+      code: expect.any(Object),
+      maxToolCalls: expect.any(Object),
+    });
+  });
+
+  it("describes the production registry as the hardened Run evaluator", async () => {
+    const entries = await loadRunCodeToolEntries(() => ({}), {
+      evaluator: "run",
+    });
+    expect(entries["run-code"].tool?.description).toContain("hardened");
+    expect(entries["tool-orchestration"].tool?.description).toContain(
+      "QuickJS",
+    );
   });
 
   it("registers get-code-execution as a read-only poll tool keyed on executionId", async () => {

@@ -10,11 +10,12 @@ import {
 import actionsRegistry from "../../.generated/actions-registry.js";
 
 function fallbackOwner(incoming: IncomingMessage): string {
-  const tenant = String(
+  const tenantValue =
     incoming.platformContext.teamId ??
-      incoming.platformContext.channelId ??
-      incoming.externalThreadId,
-  );
+    incoming.platformContext.channelId ??
+    incoming.externalThreadId;
+  const tenant =
+    typeof tenantValue === "string" ? tenantValue : JSON.stringify(tenantValue);
   const digest = crypto
     .createHash("sha256")
     .update(`${incoming.platform}:${tenant}:${incoming.senderId ?? ""}`)
@@ -34,13 +35,11 @@ export default createIntegrationsPlugin({
   systemPrompt: `You are the Factory agent responding through Slack.
 
 Use Factory actions to inspect Slack and pull-request evidence, explain decisions,
-record human feedback, and tune rules. If a user asks to start work, first
-inspect the item and its hard guard results. "Do it now" means explicit human
-approval of that one item, so call approve-factory-item with the item and decision
-identified in the thread. Never claim a coding agent, PR, merge, assignment, or
-provider message exists until the returned run state confirms it. If the item
-is protected, incomplete, unreadable, or missing a terminal callback, explain
-that a human must intervene and include the Factory item URL when available.
+record human feedback, and tune rules. Scheduled automations start clear-bug work
+through dispatch-factory-item. Never claim a coding agent, PR, merge, assignment,
+or provider message exists until the returned run state confirms it. If the item
+is protected, incomplete, or unreadable, explain that a human must intervene and
+include the Factory item URL when available.
 
 Keep replies concise and operational.`,
 });

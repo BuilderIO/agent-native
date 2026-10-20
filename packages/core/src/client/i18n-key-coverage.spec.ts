@@ -4,9 +4,19 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { toolkitMessagesForLocale } from "../../../toolkit/src/app/i18n/catalog.js";
+import { coreMessagesForLocale } from "../localization/core-messages.js";
 import defaultEnglishMessages from "../localization/default-messages.js";
 
 const clientDir = path.dirname(fileURLToPath(import.meta.url));
+const toolkitComposerDir = path.resolve(
+  clientDir,
+  "../../../toolkit/src/composer",
+);
+const toolkitContextUiDir = path.resolve(
+  clientDir,
+  "../../../toolkit/src/context-ui",
+);
 
 function walk(dir: string, out: string[] = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -41,7 +51,9 @@ function flattenMessages(value: unknown, prefix = "", out = new Set<string>()) {
   return out;
 }
 
-const englishKeys = flattenMessages(defaultEnglishMessages);
+const englishKeys = flattenMessages(toolkitMessagesForLocale("en-US"));
+flattenMessages(coreMessagesForLocale("en-US"), "", englishKeys);
+flattenMessages(defaultEnglishMessages, "", englishKeys);
 
 function hasCatalogKey(key: string) {
   return (
@@ -56,19 +68,37 @@ function hasCatalogKey(key: string) {
 }
 
 describe("core i18n key coverage", () => {
+  it("keeps the observability expand label in the Agent Chat catalog", () => {
+    const source = fs.readFileSync(
+      path.resolve(
+        clientDir,
+        "../../../toolkit/src/app/observability/ObservabilityDashboard.tsx",
+      ),
+      "utf8",
+    );
+    expect(source).toContain('t("agentChat.common.expand")');
+    expect(hasCatalogKey("agentChat.common.expand")).toBe(true);
+  });
+
   it("keeps Context X-Ray and Snapshots as distinct labels", () => {
     expect(defaultEnglishMessages.contextXray.panelTitle).toBe("Context X-Ray");
     expect(defaultEnglishMessages.contextXray.snapshotsTitle).toBe("Snapshots");
   });
 
-  it("keeps literal useT keys covered by the default English catalog", () => {
+  it("keeps literal useT keys covered by the built-in English catalogs", () => {
     const missing: string[] = [];
 
-    for (const file of walk(clientDir)) {
+    for (const file of [
+      ...walk(clientDir),
+      ...walk(toolkitComposerDir),
+      ...walk(toolkitContextUiDir),
+    ]) {
       const source = fs.readFileSync(file, "utf8");
-      if (!source.includes("useT")) continue;
+      if (!source.includes("useT") && !source.includes("translate(")) continue;
 
-      for (const match of source.matchAll(/\bt\(\s*["']([^"']+)["']/g)) {
+      for (const match of source.matchAll(
+        /\b(?:t|translate)\(\s*["']([^"']+)["']/g,
+      )) {
         const key = match[1];
         if (!key || hasCatalogKey(key)) continue;
         missing.push(`${path.relative(clientDir, file)}: ${key}`);

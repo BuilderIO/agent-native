@@ -1,40 +1,48 @@
-// ---------- Auto-updates ----------
-//
-// In production, electron-updater pulls release metadata from the
-// `publish:` target in electron-builder.yml (currently the BuilderIO/agent-native
-// GitHub repo). We auto-download in the background, surface progress and
-// readiness to the renderer over IPC, and let the user trigger
-// quitAndInstall from a sidebar pill / restart prompt. The app also
-// installs queued updates automatically on quit.
-//
-// In dev, autoUpdater is unsupported (no app signature, no dev-app-update.yml),
-// so we report an "unsupported" status and skip all autoUpdater calls.
-
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
+import { DESKTOP_RELEASE_CHANNEL } from "@shared/release-channel";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
 import { autoUpdater } from "electron-updater";
 
-const IS_DEV = !app.isPackaged;
+import { resolveDesktopUpdateSupport } from "./update-policy.js";
+
+declare const __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__: string | undefined;
+
+const UPDATE_SUPPORT = resolveDesktopUpdateSupport(
+  app.isPackaged,
+  app.getVersion(),
+  typeof __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__ === "string"
+    ? __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__
+    : "release",
+);
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
-// electron-updater's feed request has no built-in timeout; without this, a
-// hung request would pin `updateCheckInFlight` forever and the periodic
-// check's `checkRunning` guard would never release.
 const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 const DEFAULT_DESKTOP_UPDATE_FEED_URL =
-  "https://agent-native.com/api/desktop-updates";
-const DESKTOP_UPDATE_FEED_URL = (
-  process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
-  DEFAULT_DESKTOP_UPDATE_FEED_URL
-).replace(/\/+$/, "");
+  "https://www.agent-native.com/api/desktop-updates";
+const DESKTOP_UPDATE_FEED_URL = [
+  (
+    process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
+    DEFAULT_DESKTOP_UPDATE_FEED_URL
+  ).replace(/\/+$/, ""),
+  ...(DESKTOP_RELEASE_CHANNEL === "nightly" ? ["nightly"] : []),
+].join("/");
 
-let currentUpdateStatus: UpdateStatus = IS_DEV
-  ? { state: "unsupported", reason: "Auto-update is disabled in development" }
+let currentUpdateStatus: UpdateStatus = !UPDATE_SUPPORT.supported
+  ? { state: "unsupported", reason: UPDATE_SUPPORT.reason }
   : { state: "idle" };
 let updateCheckInFlight: Promise<unknown> | null = null;
 let lastUpdateCheckStartedAt = 0;
 let notifiedUpdateVersion: string | null = null;
+let updateInstallInFlight = false;
+let updateQuitOwned = false;
+let quitRequestedDuringUpdatePreparation = false;
+let updateHelpersNeedRestore = false;
+let updateHelpersRestorePromise: Promise<void> | null = null;
+let installingUpdateForRetry: Extract<
+  UpdateStatus,
+  { state: "downloaded" }
+> | null = null;
 let pendingDownloadedUpdate: Extract<
   UpdateStatus,
   { state: "downloaded" }
@@ -43,16 +51,28 @@ let pendingDownloadedUpdate: Extract<
 export interface UpdatesIpcDeps {
   refreshApplicationMenu: () => void;
   focusMainWindow: () => void;
+  prepareForUpdate?: () => Promise<void>;
+  restoreAfterUpdateFailure?: () => Promise<void>;
 }
 
 export interface UpdateCheckOptions {
   notifyOnResult?: boolean;
 }
 
-// Populated by `registerUpdatesIpc` during startup, before any of the
-// functions below can be invoked (autoUpdater events fire only after
-// registration, and the app menu isn't clickable until the app is ready).
 let deps: UpdatesIpcDeps | null = null;
+
+const UPDATE_CHECK_ERROR_MESSAGE =
+  "Couldn't check for updates. Please try again.";
+const UPDATE_DOWNLOAD_ERROR_MESSAGE =
+  "Couldn't download the update. Please try again.";
+const UPDATE_GENERIC_ERROR_MESSAGE =
+  "Couldn't complete the software update. Please try again.";
+
+function updateErrorMessage(error: unknown, message: string): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.warn("[updates] update operation failed:", detail);
+  return message;
+}
 
 function getDeps(): UpdatesIpcDeps {
   if (!deps) {
@@ -61,9 +81,92 @@ function getDeps(): UpdatesIpcDeps {
   return deps;
 }
 
-/** Current cached update status, for callers outside the IPC surface (e.g. the app menu). */
 export function getCurrentUpdateStatus(): UpdateStatus {
   return currentUpdateStatus;
+}
+
+export function requestQuitAfterUpdatePreparation(): void {
+  if (isPreparingDownloadedUpdate()) {
+    quitRequestedDuringUpdatePreparation = true;
+  }
+}
+
+function completeDeferredQuitIfRequested(): void {
+  const shouldQuit = quitRequestedDuringUpdatePreparation;
+  quitRequestedDuringUpdatePreparation = false;
+  if (shouldQuit) {
+    queueMicrotask(() => app.quit());
+  }
+}
+
+async function restoreHelpersAfterFailedUpdate(): Promise<void> {
+  if (!updateHelpersNeedRestore) return;
+  updateHelpersNeedRestore = false;
+  const restore = getDeps().restoreAfterUpdateFailure;
+  if (!restore) return;
+  if (!updateHelpersRestorePromise) {
+    updateHelpersRestorePromise = restore()
+      .catch((error) => {
+        console.warn(
+          "[updates] failed to restore desktop helpers after update handoff:",
+          error instanceof Error ? error.message : error,
+        );
+      })
+      .finally(() => {
+        updateHelpersRestorePromise = null;
+      });
+  }
+  await updateHelpersRestorePromise;
+}
+
+export async function installDownloadedUpdate(): Promise<void> {
+  if (
+    !UPDATE_SUPPORT.supported ||
+    !hasUpdateReadyToInstall() ||
+    updateInstallInFlight
+  ) {
+    return;
+  }
+  installingUpdateForRetry =
+    pendingDownloadedUpdate ||
+    (currentUpdateStatus.state === "downloaded" ? currentUpdateStatus : null);
+  quitRequestedDuringUpdatePreparation = false;
+  updateInstallInFlight = true;
+  updateHelpersNeedRestore = true;
+  try {
+    await getDeps().prepareForUpdate?.();
+    updateQuitOwned = true;
+    quitRequestedDuringUpdatePreparation = false;
+    autoUpdater.quitAndInstall(false, true);
+  } catch (err) {
+    updateInstallInFlight = false;
+    updateQuitOwned = false;
+    await restoreHelpersAfterFailedUpdate();
+    const retryUpdate = installingUpdateForRetry;
+    installingUpdateForRetry = null;
+    if (retryUpdate) {
+      pendingDownloadedUpdate = retryUpdate;
+      console.warn(
+        "[updates] update installation failed; keeping the downloaded update ready for retry:",
+        err,
+      );
+      broadcastUpdateStatus(retryUpdate);
+    } else {
+      broadcastUpdateStatus({
+        state: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    completeDeferredQuitIfRequested();
+  }
+}
+
+export function isInstallingDownloadedUpdate(): boolean {
+  return updateQuitOwned;
+}
+
+export function isPreparingDownloadedUpdate(): boolean {
+  return updateInstallInFlight && !updateQuitOwned;
 }
 
 function broadcastUpdateStatus(status: UpdateStatus) {
@@ -114,11 +217,10 @@ function withUpdateCheckTimeout<T>(promise: Promise<T>): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/** Triggers (or awaits an in-flight) update check. */
 export async function checkForAppUpdates(
   options: UpdateCheckOptions = {},
 ): Promise<UpdateStatus> {
-  if (IS_DEV) return currentUpdateStatus;
+  if (!UPDATE_SUPPORT.supported) return currentUpdateStatus;
   if (hasUpdateReadyToInstall()) return currentUpdateStatus;
 
   if (!updateCheckInFlight) {
@@ -126,14 +228,22 @@ export async function checkForAppUpdates(
     updateCheckInFlight = withUpdateCheckTimeout(
       (async () => {
         const result = await autoUpdater.checkForUpdates();
-        await waitForDownloadedUpdate(result?.downloadPromise);
+        try {
+          await waitForDownloadedUpdate(result?.downloadPromise);
+        } catch (err) {
+          pendingDownloadedUpdate = null;
+          broadcastUpdateStatus({
+            state: "error",
+            message: updateErrorMessage(err, UPDATE_DOWNLOAD_ERROR_MESSAGE),
+          });
+        }
       })(),
     )
       .catch((err) => {
         pendingDownloadedUpdate = null;
         broadcastUpdateStatus({
           state: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: updateErrorMessage(err, UPDATE_CHECK_ERROR_MESSAGE),
         });
       })
       .finally(() => {
@@ -149,7 +259,7 @@ export async function checkForAppUpdates(
 }
 
 function maybeCheckForAppUpdates() {
-  if (IS_DEV) return;
+  if (!UPDATE_SUPPORT.supported) return;
   if (hasUpdateReadyToInstall()) return;
   if (
     updateCheckInFlight ||
@@ -166,8 +276,8 @@ function showUpdateReadyNotification(version: string) {
   notifiedUpdateVersion = version;
 
   const notification = new Notification({
-    title: "Agent Native update ready",
-    body: `Version ${version} is downloaded. Open Agent Native to relaunch and install it.`,
+    title: `${app.getName()} update ready`,
+    body: `Version ${version} is downloaded. Open ${app.getName()} to relaunch and install it.`,
   });
   notification.on("click", (_event) => {
     getDeps().focusMainWindow();
@@ -181,12 +291,12 @@ function showUpdateCheckResultNotification(status: UpdateStatus) {
   const notification =
     status.state === "not-available"
       ? new Notification({
-          title: "Agent Native is up to date",
+          title: "Agent-Native is up to date",
           body: `You're running the latest version (${status.currentVersion}).`,
         })
       : status.state === "error"
         ? new Notification({
-            title: "Could not check for Agent Native updates",
+            title: "Could not check for Agent-Native updates",
             body: status.message,
           })
         : null;
@@ -196,17 +306,10 @@ function showUpdateCheckResultNotification(status: UpdateStatus) {
   notification.show();
 }
 
-/**
- * Registers the auto-update IPC handlers, wires up `autoUpdater` event
- * listeners (production only), and starts the periodic update-check timer.
- */
 export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   deps = ipcDeps;
 
-  if (!IS_DEV) {
-    // The GitHub provider reads the repository-wide latest release feed, which
-    // also contains npm package releases and Clips desktop releases. Use the
-    // Agent Native feed that filters the shared repo down to desktop assets.
+  if (UPDATE_SUPPORT.supported) {
     autoUpdater.setFeedURL({
       provider: "generic",
       url: DESKTOP_UPDATE_FEED_URL,
@@ -245,8 +348,6 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     });
 
     autoUpdater.on("update-downloaded", (info) => {
-      // On macOS this event precedes native Squirrel staging; publish only
-      // after the download promise resolves so the first relaunch can install.
       if (hasUpdateReadyToInstall()) return;
       pendingDownloadedUpdate = {
         state: "downloaded",
@@ -256,29 +357,47 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
       };
     });
 
-    autoUpdater.on("error", (err) => {
+    autoUpdater.on("error", async (err) => {
+      const retryUpdate = updateInstallInFlight
+        ? installingUpdateForRetry
+        : null;
+      updateInstallInFlight = false;
+      updateQuitOwned = false;
+      installingUpdateForRetry = null;
+      await restoreHelpersAfterFailedUpdate();
+      if (retryUpdate) {
+        pendingDownloadedUpdate = retryUpdate;
+        console.warn(
+          "[updates] update installation failed; keeping the downloaded update ready for retry:",
+          err,
+        );
+        broadcastUpdateStatus(retryUpdate);
+        completeDeferredQuitIfRequested();
+        return;
+      }
       pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
-        message: err?.message ?? String(err),
+        message: updateErrorMessage(err, UPDATE_GENERIC_ERROR_MESSAGE),
       });
+      completeDeferredQuitIfRequested();
     });
-
-    app.whenReady().then(() => {
-      void checkForAppUpdates();
-      let checkRunning = false;
-      setInterval(() => {
-        if (checkRunning) return;
-        checkRunning = true;
-        void checkForAppUpdates().finally(() => {
-          checkRunning = false;
-        });
-      }, UPDATE_CHECK_INTERVAL_MS);
-    });
-
-    app.on("browser-window-focus", maybeCheckForAppUpdates);
-    app.on("activate", maybeCheckForAppUpdates);
   }
+
+  void app.whenReady().then(() => {
+    void checkForAppUpdates();
+    let checkRunning = false;
+    setInterval(() => {
+      if (checkRunning) return;
+      checkRunning = true;
+      void checkForAppUpdates().finally(() => {
+        checkRunning = false;
+      });
+    }, UPDATE_CHECK_INTERVAL_MS);
+  });
+
+  app.on("browser-window-focus", maybeCheckForAppUpdates);
+  app.on("activate", maybeCheckForAppUpdates);
 
   ipcMain.handle(
     IPC.UPDATE_GET_STATUS,
@@ -290,23 +409,20 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   });
 
   ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
-    if (IS_DEV || hasUpdateReadyToInstall()) return currentUpdateStatus;
+    if (!UPDATE_SUPPORT.supported || hasUpdateReadyToInstall()) {
+      return currentUpdateStatus;
+    }
     try {
       await waitForDownloadedUpdate(autoUpdater.downloadUpdate());
     } catch (err) {
       pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: updateErrorMessage(err, UPDATE_DOWNLOAD_ERROR_MESSAGE),
       });
     }
     return currentUpdateStatus;
   });
 
-  ipcMain.handle(IPC.UPDATE_INSTALL, () => {
-    if (IS_DEV) return;
-    // isSilent=false so any installer UI shows; isForceRunAfter=true so the
-    // app relaunches after the update completes.
-    autoUpdater.quitAndInstall(false, true);
-  });
+  ipcMain.handle(IPC.UPDATE_INSTALL, () => installDownloadedUpdate());
 }

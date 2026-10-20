@@ -1,5 +1,3 @@
-// View config CRUD: create, normalize, update, add, rename, duplicate, delete, move views.
-// Pure logic — no React, no icons.
 import type {
   ContentDatabaseView,
   ContentDatabaseViewConfig,
@@ -38,6 +36,7 @@ export function createDatabaseView(
     id,
     name: name.trim() || databaseViewDefaultName(normalizedType),
     type: normalizedType,
+    icon: values.icon,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeClientDatabaseFilterMode(values.filterMode),
@@ -47,10 +46,17 @@ export function createDatabaseView(
     endDatePropertyId: values.endDatePropertyId ?? null,
     hiddenPropertyIds: values.hiddenPropertyIds ?? [],
     propertyOrderIds: values.propertyOrderIds ?? [],
+    tableColumnOrderIds: values.tableColumnOrderIds ?? [],
     collapsedGroupIds: values.collapsedGroupIds ?? [],
     hideEmptyGroups: values.hideEmptyGroups === true,
     calculations: values.calculations ?? {},
     wrapCells: values.wrapCells === true,
+    columnWrapOverrides: normalizeClientColumnWrapOverrides(
+      values.columnWrapOverrides,
+    ),
+    frozenThroughColumnId: normalizeClientFrozenThroughColumnId(
+      values.frozenThroughColumnId,
+    ),
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeClientDatabaseFormQuestions(values.formQuestions),
@@ -193,6 +199,7 @@ export function duplicateDatabaseView(
     uniqueDatabaseViewName(normalized.views, `${view.name} copy`),
     createDatabaseViewId(),
     {
+      icon: view.icon,
       sorts: view.sorts,
       filters: view.filters,
       filterMode: view.filterMode,
@@ -202,10 +209,13 @@ export function duplicateDatabaseView(
       endDatePropertyId: view.endDatePropertyId,
       hiddenPropertyIds: view.hiddenPropertyIds,
       propertyOrderIds: view.propertyOrderIds,
+      tableColumnOrderIds: view.tableColumnOrderIds,
       collapsedGroupIds: view.collapsedGroupIds,
       hideEmptyGroups: view.hideEmptyGroups,
       calculations: view.calculations,
       wrapCells: view.wrapCells,
+      columnWrapOverrides: view.columnWrapOverrides,
+      frozenThroughColumnId: view.frozenThroughColumnId,
       rowDensity: view.rowDensity,
       openPagesIn: view.openPagesIn,
       formQuestions: view.formQuestions,
@@ -313,6 +323,7 @@ function normalizeClientDatabaseView(
       : databaseViewDefaultName(type),
     value.id,
     {
+      icon: value.icon,
       sorts: Array.isArray(value.sorts)
         ? value.sorts.filter(isDatabaseSort)
         : [],
@@ -335,10 +346,17 @@ function normalizeClientDatabaseView(
           : null,
       hiddenPropertyIds: normalizeClientStringList(value.hiddenPropertyIds),
       propertyOrderIds: normalizeClientStringList(value.propertyOrderIds),
+      tableColumnOrderIds: normalizeClientStringList(value.tableColumnOrderIds),
       collapsedGroupIds: normalizeClientStringList(value.collapsedGroupIds),
       hideEmptyGroups: value.hideEmptyGroups === true,
       calculations: normalizeClientCalculations(value.calculations),
       wrapCells: value.wrapCells === true,
+      columnWrapOverrides: normalizeClientColumnWrapOverrides(
+        value.columnWrapOverrides,
+      ),
+      frozenThroughColumnId: normalizeClientFrozenThroughColumnId(
+        value.frozenThroughColumnId,
+      ),
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
       openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
       formQuestions: normalizeClientDatabaseFormQuestions(value.formQuestions),
@@ -378,6 +396,21 @@ function normalizeClientCalculations(value: unknown) {
         typeof entry[0] === "string" && isDatabaseColumnCalculation(entry[1]),
     ),
   );
+}
+
+export function normalizeClientColumnWrapOverrides(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, boolean] =>
+        entry[0].length > 0 && typeof entry[1] === "boolean",
+    ),
+  );
+}
+
+export function normalizeClientFrozenThroughColumnId(value: unknown) {
+  if (value === null) return null;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function normalizeClientColumnWidths(value: unknown) {
@@ -496,7 +529,6 @@ export function uniqueDatabaseViewName(
   }
 }
 
-// Normalize helpers used by normalizeClientDatabaseView and createDatabaseView.
 export function normalizeClientDatabaseFilterMode(
   value: unknown,
 ): import("./types").DatabaseFilterMode {

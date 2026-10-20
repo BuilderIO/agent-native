@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
+const mockGetRecordingAccessTokenResourceId = vi.fn(
+  (..._args: unknown[]) => "rec-1:access-version",
+);
+
 vi.mock("@agent-native/core/server", () => ({
   signShortLivedToken: vi.fn(() => "signed-token"),
+}));
+vi.mock("./share-password", () => ({
+  getRecordingAccessTokenResourceId: (...args: unknown[]) =>
+    mockGetRecordingAccessTokenResourceId(...args),
 }));
 
 import { resolvePlayerVideoUrl } from "./player-video-url";
@@ -85,11 +93,17 @@ describe("resolvePlayerVideoUrl", () => {
         {
           id: "rec-1",
           password: "encrypted",
+          sharePasswordVersion: "initial",
           videoUrl: "/api/uploads/rec-1/blob",
         },
         { addPasswordToken: true },
       ),
     ).toBe("/api/video/rec-1?t=signed-token");
+    expect(mockGetRecordingAccessTokenResourceId).toHaveBeenCalledWith(
+      "rec-1",
+      "encrypted",
+      "initial",
+    );
 
     expect(
       resolvePlayerVideoUrl(
@@ -125,5 +139,33 @@ describe("resolvePlayerVideoUrl", () => {
         { addPasswordToken: true },
       ),
     ).toBe("/api/video/rec-3?loomMedia=1&t=signed-token");
+  });
+
+  it("hands YouTube's embed URL to the browser instead of proxying it", () => {
+    expect(
+      resolvePlayerVideoUrl(
+        {
+          id: "rec-1",
+          password: "hash",
+          sourceAppName: "YouTube",
+          sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+          videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+        },
+        {
+          addPasswordToken: true,
+          appPath: (path) => `/clips${path}`,
+          proxyRemoteMedia: true,
+        },
+      ),
+    ).toBe("https://www.youtube.com/embed/jNQXAC9IVRw");
+  });
+
+  it("does not throw when the stored video URL is malformed", () => {
+    expect(
+      resolvePlayerVideoUrl(
+        { id: "rec-1", videoUrl: "http://[" },
+        { proxyRemoteMedia: true },
+      ),
+    ).toBe("/api/video/rec-1");
   });
 });

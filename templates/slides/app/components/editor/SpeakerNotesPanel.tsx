@@ -5,8 +5,6 @@ import { useState, type PointerEvent as ReactPointerEvent } from "react";
 interface SpeakerNotesPanelProps {
   notes: string;
   onChange: (notes: string) => void;
-  slideIndex: number;
-  slideCount: number;
   readOnly?: boolean;
 }
 
@@ -21,16 +19,15 @@ function clampNotesHeight(value: number) {
 export function SpeakerNotesPanel({
   notes,
   onChange,
-  slideIndex,
-  slideCount,
   readOnly = false,
 }: SpeakerNotesPanelProps) {
   const t = useT();
   const [expanded, setExpanded] = useState(() => {
     try {
-      return localStorage.getItem("speaker-notes-expanded") !== "false";
+      return localStorage.getItem("speaker-notes-expanded") === "true";
     } catch {
-      return true;
+      // coercion-ok: browser storage is optional; the collapsed state is the default.
+      return false;
     }
   });
   const [height, setHeight] = useState(() => {
@@ -74,7 +71,7 @@ export function SpeakerNotesPanel({
   };
 
   return (
-    <div className="flex-shrink-0 border-t border-border bg-background">
+    <div className="flex-shrink-0 bg-[var(--slides-editor-surface)]">
       {expanded && (
         <div
           role="separator"
@@ -83,18 +80,15 @@ export function SpeakerNotesPanel({
           className="group flex h-2 cursor-row-resize items-center justify-center"
           onPointerDown={startResize}
         >
-          <div className="h-px w-10 rounded-full bg-border transition-colors group-hover:bg-muted-foreground/70" />
+          <div className="h-px w-10 rounded-full bg-muted-foreground/30 transition-colors group-hover:bg-muted-foreground/70" />
         </div>
       )}
       <button
         onClick={toggle}
-        className="flex w-full cursor-pointer items-center justify-between px-4 py-1.5"
+        className="group flex w-full cursor-pointer items-center justify-between px-4 py-1.5"
       >
-        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-          {t("raw.speakerNotesForSlide", {
-            index: slideIndex + 1,
-            count: slideCount,
-          })}
+        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider transition-colors group-hover:text-foreground/80">
+          {t("raw.speakerNotes")}
         </span>
         {expanded ? (
           <IconChevronDown className="w-3 h-3 text-muted-foreground" />

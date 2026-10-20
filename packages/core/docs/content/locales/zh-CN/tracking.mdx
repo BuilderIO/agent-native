@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -101,13 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
 `source` 可以是直接透传的操作 `ctx`，也可以是没有 `ctx` 的调用方使用的 `{ userId, anonymousId, sessionId }` 元数据对象。
 
-浏览器会话不需要调用方自行提供：它来自环境请求上下文（`RequestContext.browserSessionId`，由操作客户端、聊天和浏览器端 `track()` 都会发送的 `X-Agent-Native-Session-Id` 请求头设置），因此无论事件由界面还是由智能体触发，都会关联到同一次访问。每个提供方都会把它映射到自己的会话字段：PostHog 使用 `$session_id`，从而把事件与会话回放关联起来；Mixpanel 和 Amplitude 使用 `session_id` 属性；Webhook 和 Agent Native Analytics 使用顶层的 `sessionId`。对于没有浏览器的调用方（cron、CLI、MCP、A2A）该值不存在，而元数据对象中的 `sessionId` 会覆盖它。
+浏览器会话不需要调用方自行提供：它来自环境请求上下文（`RequestContext.browserSessionId`，由操作客户端、聊天和浏览器端 `track()` 都会发送的 `X-Agent-Native-Session-Id` 请求头设置），因此无论事件由界面还是由智能体触发，都会关联到同一次访问。每个提供方都会把它映射到自己的会话字段：PostHog 使用 `$session_id`，从而把事件与会话回放关联起来；Mixpanel 和 Amplitude 使用 `session_id` 属性；Webhook 和 Agent-Native Analytics 使用顶层的 `sessionId`。对于没有浏览器的调用方（cron、CLI、MCP、A2A）该值不存在，而元数据对象中的 `sessionId` 会覆盖它。
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -116,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 需要自定义后端、提供程序注册表 API 或批处理/单例内部组件？见最后的[Advanced: custom providers & internals](#advanced)。
@@ -194,11 +194,11 @@ track("checkout.completed", { total: 49.99, items: 3 });
 - **一劳永逸。**它永远不会阻塞 UI，永远不会抛出并吞掉网络错误。
 - **经过身份验证，仅限第一方。** 该路由需要会话和同源/CSRF 标记（由帮助程序自动设置），因此它不能用作开放分析中继。 `name` 的上限为 200 个字符，`properties` 的上限为 ~16KB；过大或格式错误的有效负载将被拒绝。
 
-这与框架的内部浏览器遥测（`trackEvent()` /自动页面浏览量 - 请参阅下面的 [Browser defaults](#browser-defaults)）不同，后者为 Agent Native 自己的产品分析提供支持。将 `track()` 用于您的应用自己的分析事件，这些事件应到达您配置的提供商。
+这与框架的内部浏览器遥测（`trackEvent()` /自动页面浏览量 - 请参阅下面的 [Browser defaults](#browser-defaults)）不同，后者为 Agent-Native 自己的产品分析提供支持。将 `track()` 用于您的应用自己的分析事件，这些事件应到达您配置的提供商。
 
 ## 会话重放 {#session-replay}
 
-Agent Native 应用无需添加第二个分析 SDK，即可接入第一方浏览器会话重放功能。在浏览器根部调用一次 `configureTracking()`，并传入 Analytics 公钥和采集端点：
+Agent-Native 应用无需添加第二个分析 SDK，即可接入第一方浏览器会话重放功能。在浏览器根部调用一次 `configureTracking()`，并传入 Analytics 公钥和采集端点：
 
 ```ts
 import { configureTracking } from "@agent-native/core/client/analytics";
@@ -219,7 +219,7 @@ configureTracking({
 
 当 `sessionReplay.enabled` 为真值时，客户端会在启动后动态导入 `@rrweb/record`，并将重放数据块发送到重放端点。如果 `endpoint` 以 `/api/analytics/track` 或 `/track` 结尾，重放端点会自动推导为 `/api/analytics/replay`。当重放采集器位于其他位置时，可通过 `sessionReplay.endpoint` 显式覆盖。
 
-Agent Native 模板根已经调用了 `configureTracking()`。托管模板部署可以通过 Vite/Netlify 环境变量开启重放，而库使用者则应优先使用上面显式的 `configureTracking({ key, endpoint, sessionReplay })` 形式：
+Agent-Native 模板根已经调用了 `configureTracking()`。托管模板部署可以通过 Vite/Netlify 环境变量开启重放，而库使用者则应优先使用上面显式的 `configureTracking({ key, endpoint, sessionReplay })` 形式：
 
 ```bash
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
@@ -228,7 +228,7 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
 VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
-浏览器端辅助函数还会尽力地、非阻塞地读取当前 Agent Native 认证会话。默认情况下，重放仅限已登录用户：启用 `sessionReplay` 后，除非会话解析出用户邮箱地址，否则不会开始录制。已登录用户的重放会包含基于邮箱的 `userId`/`userEmail` 以及 `orgId`。
+浏览器端辅助函数还会尽力地、非阻塞地读取当前 Agent-Native 认证会话。默认情况下，重放仅限已登录用户：启用 `sessionReplay` 后，除非会话解析出用户邮箱地址，否则不会开始录制。已登录用户的重放会包含基于邮箱的 `userId`/`userEmail` 以及 `orgId`。
 
 仅在有意进行匿名重放部署时，才设置 `sessionReplay.requireSignedInUser: false` 或 `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`。禁用认证门控后，匿名录制仍可按匿名访客、会话、应用/模板、主机名和路径进行查询。
 
@@ -257,6 +257,12 @@ not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
 diagnostics shaping, and access policy inside the Analytics template.
 
 仅在本地开发环境下，当私有 blob 存储不可用时，Analytics 可以回退为使用有上限的 SQL 内联数据块。生产部署应配置私有或加密的 blob 存储，而不是依赖 Postgres 来存放重放数据。
+
+## 测试身份 {#test-identities}
+
+QA 和 E2E 账号在各处照常运行，但永远不计入统计。`track()`、`identify()`、浏览器跟踪和会话回放会在任何提供程序看到之前丢弃测试身份的事件。测试身份的服务器异常会被保留，标记为 `test_identity: true`，并且只发送给设置了 `acceptsTestIdentityExceptions` 的提供程序（Agent-Native Analytics），因此仍可查询，但不会惊动任何人。发给测试身份的非认证类邮件同样会被抑制：`sendEmail()` 返回 `{ status: "suppressed", reason: "test-identity" }` 并记录这次尝试，而登录、验证、重置密码和邀请邮件仍会照常发送。这适用于所有收件人栏：`cc` 和 `bcc` 中的测试身份同样会被移除并记录。当 `to` 是测试身份时，会由 `cc` 中的真实收件人顶替；`bcc` 中的收件人绝不会顶替，否则其余 `bcc` 收件人会看到该地址。如果 `to` 和 `cc` 中都没有剩余收件人，则会抑制整封邮件，并记录每个被移除的地址。
+
+`@agent-native/core/server` 中的 `isTestIdentity(email)` 是唯一的规则。它匹配保留域名 `.test`、`.invalid`、`.localhost` 和 `.example`，以及 QA 标记 `+autoz`。可通过 `AGENT_NATIVE_TEST_IDENTITY_EMAILS` 按部署添加更多身份，值为逗号分隔的精确地址（`qa@corp.com`）或 `@domain` 条目（`@example.com`）。`testIdentitySql(column)` 是同一规则的 PostgreSQL/BigQuery 表达式，用于指标查询。浏览器永远不会收到该列表：会话响应携带由服务器判定的 `testIdentity` 标记，浏览器追踪、会话回放和异常捕获会在内置规则之外遵循该标记；Agent-Native Analytics 的接收端还会应用部署列表。
 
 ## 高级：自定义提供程序和内部结构 {#advanced}
 
@@ -351,12 +357,12 @@ interface TrackingEvent {
 - `llm_connection_source` — `app_secrets`、`settings` 或 `env`
 - `llm_connection_configured` — LLM 连接是否可用
 
-该框架还跟踪来自 Connect Builder CTA 的 `builder connect clicked`，服务器端 Builder 连接路由跟踪已启动/成功/失败的生命周期事件。 `configureTracking()`由框架自动调用；您不需要在自己的模板代码中调用它。
+该框架还跟踪用户选择“使用 Builder.io”CTA 时的 `builder_connect_clicked`，服务器端 Builder 连接路由跟踪已启动/成功/失败的生命周期事件。 一键创建账户会附带 `connect_url_kind: "provision"`；登录弹窗还会记录旧名称 `builder connect clicked`，但它不包含一键创建的点击。 `configureTracking()`由框架自动调用；您不需要在自己的模板代码中调用它。
 
 </details>
 
 ## 下一步是什么
 
-- [**Actions**](/docs/actions) — 大多数跟踪调用的发起位置
-- [**Server Plugins**](/docs/server#server-plugins) - `registerBuiltinProviders()` 在启动时在 core-routes 插件中运行
+- [**Actions**](/docs/actions-overview) — 大多数跟踪调用的发起位置
+- [**Server Plugins**](/docs/server-plugins) - `registerBuiltinProviders()` 在启动时在 core-routes 插件中运行
 - [**安全 — 密钥管理**](/docs/security#secrets) — 管理用于跟踪提供商的 API 密钥

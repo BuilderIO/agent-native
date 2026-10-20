@@ -6,7 +6,7 @@ import { getUserProfile } from "../store.js";
 
 export default defineAction({
   description:
-    "Get the current user's profile, including the display name used across Agent-Native apps.",
+    "Get the current user's profile, including the display name and onboarding role used across Agent-Native apps.",
   schema: z.object({}),
   http: { method: "GET" },
   run: async (_args, ctx): Promise<UserProfile> => {

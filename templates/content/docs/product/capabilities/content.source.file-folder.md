@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.source.file-folder"
 name: "Files and folders as Sources"
-user_promise: "Open a selected file tree as a Source without forcing heterogeneous files into one Database schema."
+user_promise: "Open a selected file tree as a Source without forcing heterogeneous files into one Collection schema."
 primary_user_job: "Browse and work with a local folder through Content while retaining file identity, hierarchy, device limits, and source ownership."
 kind: "primitive"
 state: "exploring"
@@ -22,7 +22,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-08-17"
 ---
 
 # Files and folders as Sources
@@ -38,7 +38,7 @@ A developer selects a documentation folder. Content shows a source-root hierarch
 ## Product contract
 
 - A folder Source retains selected-root, relative hierarchy, file identity, representation kind, baseline, and provenance without exporting raw paths or handles to shared clients.
-- Files may map to different Content representations or remain opaque/unavailable; no common Database schema is assumed.
+- Files may map to different Content representations or remain opaque/unavailable; no common Collection schema is assumed.
 - Physical reads, watches, writes, rename/delete behavior, conflict, and bridge availability follow adapter and local-bridge policy.
 - Removing a connection stops future source access without silently deleting external originals.
 
@@ -58,11 +58,11 @@ Given a browser without bridge authority, when it opens a materialized folder it
 
 ## Current evidence
 
-Donor evidence: `actions/connect-local-folder-source.ts`, `actions/sync-local-folder-source.ts`, `actions/local-folder-source.db.test.ts`, and sidebar source handling establish local-folder substrate. The common heterogeneous folder contract and complete authority/recovery proof remain exploratory.
+Current implementation adds opaque Desktop grants, recursive Markdown materialization, watched reconciliation with a bounded fallback, atomic revision-guarded writes, and local working-copy identity. Focused tests cover the substrate, but packaged real-interface authority, recovery, redaction, and cleanup proof is still pending, and heterogeneous file families remain exploratory. This Capability therefore remains `exploring`.
 
 ## Proof plan
 
-1. Define folder/file representation and hierarchy contract independent of one Database schema.
+1. Define folder/file representation and hierarchy contract independent of one Collection schema.
 2. Test file lifecycle, path redaction, bridge absence, conflicts, and disconnect.
 3. Verify selection, browse, sync, external change, and repair through the interface.
 

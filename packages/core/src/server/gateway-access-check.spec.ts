@@ -72,7 +72,7 @@ describe("gateway access-check endpoint", () => {
 
   it("401s and skips access when the token's project id mismatches this app", async () => {
     process.env.BUILDER_PROJECT_ID = "proj_other";
-    const token = signGatewayAccessToken(CLAIMS, SECRET); // projectId proj_a
+    const token = signGatewayAccessToken(CLAIMS, SECRET);
     const { e } = await invoke({ query: { token } });
     expect(e.status).toBe(401);
     expect(mockResolveAccess).not.toHaveBeenCalled();

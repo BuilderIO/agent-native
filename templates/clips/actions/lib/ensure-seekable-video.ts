@@ -1,42 +1,27 @@
-/**
- * Repair an already-stored recording so it plays back and seeks instantly.
- *
- * This is the fetch-based counterpart to the inline seekable pass in
- * `finalize-recording`. It re-fetches a recording's stored provider media,
- * runs the format-appropriate seekable rewrite (MP4 faststart / WebM Cues
- * remux), and, when that changed the bytes, re-uploads the fixed file and
- * repoints the recording at it.
- *
- * Used by:
- *   - `reprocess-recording` — owner/agent triggered backfill of clips that were
- *     uploaded before the seekable pass existed (or via the streaming path,
- *     which never applied it).
- *   - `finalize-recording` — a best-effort background pass for the resumable
- *     streaming path, whose bytes live at the provider and were never buffered
- *     server-side for an inline rewrite.
- *
- * Everything is best-effort and non-destructive: if we can't fetch, can't
- * improve, or can't re-upload, the existing recording is left exactly as-is.
- */
-
 import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
-import { deleteRecordingMediaObjects } from "../../server/lib/recording-media-cleanup.js";
+import {
+  deleteRecordingMediaObjects,
+  deleteSupersededHostedMedia,
+} from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
+import { fetchS3ObjectByUrl } from "../../server/lib/s3-upload-provider.js";
+import { clearSeekableRepairPending } from "../../server/lib/seekable-media-state.js";
+import { uploadRecordingMedia } from "../../server/lib/upload-recording-media.js";
 import {
   makeSeekable,
   normalizeTimelineToMp4,
   type VideoFormat,
 } from "../../server/lib/video-remux.js";
 import { isLoomRecordingSource } from "../../shared/loom.js";
+import { isYouTubeEmbedBackedRecording } from "../../shared/youtube.js";
 
 const PROVIDER_FETCH_TIMEOUT_MS = 60_000;
 
@@ -60,16 +45,10 @@ export interface EnsureSeekableResult {
   detail?: string;
 }
 
-/** application_state key marking a recording's media as already made seekable. */
 export function seekableMarkerKey(recordingId: string): string {
   return `recording-seekable-${recordingId}`;
 }
 
-/**
- * Record that `videoUrl` for `recordingId` has been made seekable, so later
- * sweeps skip it. Scoped by URL so a re-upload that changes the URL is not
- * mistaken for already-processed.
- */
 export async function markRecordingSeekable(
   recordingId: string,
   videoUrl: string | null | undefined,
@@ -101,13 +80,9 @@ export function isRemoteProviderUrl(
   return typeof videoUrl === "string" && /^https:\/\//i.test(videoUrl.trim());
 }
 
-/**
- * Download stored provider media for server-side processing. Shared with the
- * filmstrip sprite path — both need the same size cap and timeout, and both
- * report the same two failure reasons rather than an empty buffer.
- */
 export async function fetchProviderBytes(
   videoUrl: string,
+  options: { recordingId?: string; storageMode?: "own" | "hosted" | null } = {},
 ): Promise<
   | { ok: true; bytes: Uint8Array }
   | { ok: false; reason: "skipped-fetch-failed" | "skipped-too-large" }
@@ -118,11 +93,25 @@ export async function fetchProviderBytes(
     PROVIDER_FETCH_TIMEOUT_MS,
   );
   try {
-    const res = await fetch(videoUrl, { signal: controller.signal });
-    if (!res.ok) return { ok: false, reason: "skipped-fetch-failed" };
+    const res =
+      options.storageMode === "hosted"
+        ? options.recordingId
+          ? await fetchS3ObjectByUrl(videoUrl, {
+              recordingId: options.recordingId,
+              storageMode: "hosted",
+              timeoutMs: PROVIDER_FETCH_TIMEOUT_MS,
+            })
+          : null
+        : await fetch(videoUrl, { signal: controller.signal });
+    if (!res) return { ok: false, reason: "skipped-fetch-failed" };
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      return { ok: false, reason: "skipped-fetch-failed" };
+    }
 
     const declaredLength = Number(res.headers.get("content-length") ?? "0");
     if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+      await res.body?.cancel().catch(() => {});
       return { ok: false, reason: "skipped-too-large" };
     }
 
@@ -140,11 +129,7 @@ export async function fetchProviderBytes(
   }
 }
 
-/**
- * Ensure a single recording's stored media is seekable. Owner-scoped: pass the
- * resolved owner email so the DB lookup can only touch that owner's rows.
- */
-export async function ensureRecordingSeekable(params: {
+async function ensureRecordingSeekableInternal(params: {
   recordingId: string;
   ownerEmail: string;
   force?: boolean;
@@ -164,6 +149,7 @@ export async function ensureRecordingSeekable(params: {
       status: schema.recordings.status,
       videoUrl: schema.recordings.videoUrl,
       videoFormat: schema.recordings.videoFormat,
+      storageMode: schema.recordings.storageMode,
       sourceAppName: schema.recordings.sourceAppName,
     })
     .from(schema.recordings)
@@ -180,15 +166,12 @@ export async function ensureRecordingSeekable(params: {
   if (rec.status !== "ready") {
     return { recordingId, status: "skipped-not-ready", changed: false };
   }
-  if (isLoomRecordingSource(rec)) {
+  if (isLoomRecordingSource(rec) || isYouTubeEmbedBackedRecording(rec)) {
     return { recordingId, status: "skipped-local-media", changed: false };
   }
   if (!rec.videoUrl) {
     return { recordingId, status: "skipped-no-media", changed: false };
   }
-  // Only provider-hosted media can be re-fetched and re-uploaded. Local/dev
-  // blobs (served from application_state via /api/video) and other relative
-  // URLs are left untouched.
   if (!isRemoteProviderUrl(rec.videoUrl)) {
     return {
       recordingId,
@@ -211,7 +194,10 @@ export async function ensureRecordingSeekable(params: {
     };
   }
 
-  const fetched = await fetchProviderBytes(rec.videoUrl);
+  const fetched = await fetchProviderBytes(rec.videoUrl, {
+    recordingId,
+    storageMode: rec.storageMode,
+  });
   if (!fetched.ok) {
     return { recordingId, status: fetched.reason, changed: false };
   }
@@ -238,7 +224,6 @@ export async function ensureRecordingSeekable(params: {
           "Timeline normalization could not produce a verified MP4; the original recording was left unchanged.",
       };
     }
-    // Already seekable (or unimprovable) — remember so we don't refetch it.
     await markRecordingSeekable(recordingId, rec.videoUrl);
     return {
       recordingId,
@@ -250,7 +235,8 @@ export async function ensureRecordingSeekable(params: {
 
   const outputFormat: VideoFormat = normalizeTimeline ? "mp4" : videoFormat;
   const mimeType = outputFormat === "mp4" ? "video/mp4" : "video/webm";
-  const upload = await uploadFile({
+  const upload = await uploadRecordingMedia({
+    recordingId,
     data: seekable.bytes,
     filename: `${recordingId}.${outputFormat}`,
     mimeType,
@@ -266,7 +252,6 @@ export async function ensureRecordingSeekable(params: {
   });
 
   if (!upload?.url) {
-    // Could not re-upload — do NOT touch the row; the original still plays.
     return {
       recordingId,
       status: "skipped-upload-failed",
@@ -281,6 +266,7 @@ export async function ensureRecordingSeekable(params: {
       videoUrl: upload.url,
       videoFormat: outputFormat,
       videoSizeBytes: seekable.bytes.byteLength,
+      mediaUpdatedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     })
     .where(
@@ -302,7 +288,11 @@ export async function ensureRecordingSeekable(params: {
     updated[0]?.videoFormat !== outputFormat
   ) {
     await deleteRecordingMediaObjects(
-      { id: recordingId, videoUrl: upload.url },
+      {
+        id: recordingId,
+        storageMode: rec.storageMode,
+        videoUrl: upload.url,
+      },
       { protectedUrls: [rec.videoUrl] },
     );
     return {
@@ -314,6 +304,12 @@ export async function ensureRecordingSeekable(params: {
     };
   }
 
+  if (rec.storageMode === "hosted") {
+    await deleteSupersededHostedMedia(rec.videoUrl, {
+      recordingId,
+      replacementUrl: upload.url,
+    });
+  }
   await markRecordingSeekable(recordingId, upload.url);
   await writeAppState("refresh-signal", { ts: Date.now() });
 
@@ -339,4 +335,22 @@ export async function ensureRecordingSeekable(params: {
     changed: true,
     videoUrl: upload.url,
   };
+}
+
+export async function ensureRecordingSeekable(params: {
+  recordingId: string;
+  ownerEmail: string;
+  force?: boolean;
+  normalizeTimeline?: boolean;
+}): Promise<EnsureSeekableResult> {
+  const result = await ensureRecordingSeekableInternal(params);
+  if (result.changed || result.status === "already-optimized") {
+    await clearSeekableRepairPending(params.recordingId).catch((err) => {
+      console.warn("[ensure-seekable-video] failed to clear pending marker", {
+        recordingId: params.recordingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+  return result;
 }

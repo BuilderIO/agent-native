@@ -1,0 +1,27 @@
+---
+title: "نقاط الدخول"
+description: "app/entry.client.tsx وapp/entry.server.tsx: أغلفة الترطيب (hydration) وإقلاع SSR الرقيقة، ومتى تُخصِّص سلوك البث (streaming)."
+---
+
+# نقاط الدخول
+
+يُرطِّب (hydrates) `app/entry.client.tsx` كود HTML المُصيَّر من جانب الخادم في المتصفح، ويُصيِّر `app/entry.server.tsx` ذلك الـ HTML على الخادم. كلاهما أغلفة رقيقة تُولِّدها React Router. نادرًا ما تحتاج إلى تحريرهما.
+
+```ts filename="app/entry.server.tsx"
+import {
+  createDocumentRequestHandler,
+  streamTimeout,
+} from "@agent-native/core/server/entry-server";
+import { ServerRouter } from "react-router";
+
+export default createDocumentRequestHandler(ServerRouter);
+export { streamTimeout };
+```
+
+استخدم هذه فقط لتخصيص SSR المتقدم، على سبيل المثال تغيير سلوك البث. الصفحات، والتخطيط، والبيانات العادية لا تحتاج إلى تغييرات هنا. راجع [التوجيه](/docs/client-routing) لإضافة صفحات بدلًا من ذلك.
+
+## ما هي الخطوة التالية
+
+- [**نظرة عامة**](/docs/client-overview) — أين تقع هذه الملفات في `app/`
+- [**التوجيه**](/docs/client-routing) — إضافة صفحات، الطريقة العادية لتوسيع `app/`
+- [**متقدم**](/docs/client-advanced) — البدائيات الأخرى ذات المستوى الأدنى ومخارج الطوارئ الخاصة بالعميل

@@ -1,14 +1,3 @@
-/**
- * Local Dev Frame — App layout
- *
- * The sidebar always looks the same as the in-app agent panel: Chat | CLI | Workspace.
- * A toggle in the settings cog switches between Dev and Prod mode:
- * - Dev: frame renders its own sidebar; Chat uses code-agent modes only with local code access
- * - Prod: frame sidebar disappears, app's own agent sidebar shows inside iframe
- *
- * When collapsed in dev mode, the sidebar is 100% gone.
- */
-
 import {
   clampAgentSidebarWidth,
   getAgentSidebarWideWidth,
@@ -20,6 +9,7 @@ import {
   getTemplateGatewayAppUrl,
   getTemplateGatewayUrl,
 } from "@agent-native/shared-app-config";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
 import {
   type CSSProperties,
   useState,
@@ -28,10 +18,10 @@ import {
   lazy,
   Suspense,
 } from "react";
+import { flushSync } from "react-dom";
 
 import { installDesktopDesignPreviewRelay } from "./desktop-design-preview";
 
-// Lazy-load the AgentPanel; it provides the full Chat/CLI/Workspace UI.
 const AgentPanel = lazy(() =>
   import("@agent-native/core/client").then((m) => ({
     default: m.AgentPanel,
@@ -55,12 +45,6 @@ function getAppId(): string {
   const params = new URLSearchParams(window.location.search);
   const appId = params.get("app") || "mail";
   const customDevUrl = normalizeCustomDevUrl(params.get("devUrl"));
-  // Set the routing cookie synchronously so the frame proxy routes
-  // `/_agent-native/**` to the correct app backend on the very first
-  // request — including fetches kicked off by child effects (which run
-  // before parent effects in React, so a useEffect here would be too late).
-  // Max-Age ensures a fresh partition or reload doesn't see a stale value
-  // from a different app.
   if (typeof document !== "undefined") {
     document.cookie = `frame_active_app=${appId}; path=/; SameSite=Lax; Max-Age=31536000`;
     if (customDevUrl) {
@@ -226,10 +210,6 @@ export function App() {
     return installDesktopDesignPreviewRelay({ iframeRef, appUrl });
   }, [appId, appUrl]);
 
-  // (The `frame_active_app` cookie is set synchronously by getAppId() on
-  // first render, before any child effect can fetch /_agent-native/**.)
-
-  // Persist state
   useEffect(() => {
     try {
       localStorage.setItem(FRAME_MODE_KEY, frameMode);
@@ -242,7 +222,6 @@ export function App() {
   }, [sidebarOpen]);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
 
-  // Show frame sidebar only in dev mode when open, and not during presentation
   const showFrameSidebar =
     frameMode === "dev" && sidebarOpen && !isPresentationMode;
   const [renderFrameSidebar, setRenderFrameSidebar] =
@@ -266,7 +245,6 @@ export function App() {
     };
   }, [showFrameSidebar]);
 
-  // Notify iframe of sidebar state
   function notifyIframe(
     mode: FrameMode,
     width: number,
@@ -290,8 +268,6 @@ export function App() {
     );
   }
 
-  // Send frame origin + initial state to iframe on load.
-  // Retry a few times to handle slow mounts and HMR reloads.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -334,7 +310,6 @@ export function App() {
     isPresentationMode,
   ]);
 
-  // When mode/open/width changes, notify iframe
   useEffect(() => {
     notifyIframe(
       frameMode,
@@ -360,7 +335,15 @@ export function App() {
   }, [frameMode, sidebarOpen, isPresentationMode]);
 
   useEffect(() => {
-    const toggleHandler = () => setSidebarOpen((prev) => !prev);
+    const toggleHandler = (event: Event) => {
+      const focusOnOpen =
+        (event as CustomEvent<{ focus?: unknown }>).detail?.focus === true;
+      if (focusOnOpen && !sidebarOpen) {
+        focusAgentChat();
+        return;
+      }
+      setSidebarOpen((prev) => !prev);
+    };
     const openHandler = () => setSidebarOpen(true);
     const closeHandler = () => setSidebarOpen(false);
     window.addEventListener("agent-panel:toggle", toggleHandler);
@@ -371,19 +354,20 @@ export function App() {
       window.removeEventListener("agent-panel:open", openHandler);
       window.removeEventListener("agent-panel:close", closeHandler);
     };
-  }, []);
+  }, [sidebarOpen]);
 
   useEffect(() => {
     const keydownHandler = (event: KeyboardEvent) => {
       if (!isAgentSidebarToggleShortcut(event)) return;
       event.preventDefault();
-      window.dispatchEvent(new Event("agent-panel:toggle"));
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),
+      );
     };
     window.addEventListener("keydown", keydownHandler);
     return () => window.removeEventListener("keydown", keydownHandler);
   }, []);
 
-  // Listen for dev mode toggle from AgentPanel settings cog
   useEffect(() => {
     function handler(e: Event) {
       const detail = (e as CustomEvent).detail;
@@ -398,14 +382,15 @@ export function App() {
       window.removeEventListener("agent-panel:dev-mode-change", handler);
   }, []);
 
-  // Listen for messages from iframe
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
       if (!event.data?.type) return;
       if (event.data.type === "agentNative.toggleSidebar") {
         const forceOpen = event.data.data?.open;
+        const focusOnOpen = event.data.data?.focus === true;
         if (forceOpen === true) {
-          setSidebarOpen(true);
+          if (focusOnOpen) focusAgentChat();
+          else setSidebarOpen(true);
         } else if (forceOpen === false) {
           setSidebarOpen(false);
         } else {
@@ -434,10 +419,6 @@ export function App() {
         );
         return;
       }
-      // Relay chat bridge events from the iframe; the agent chat rejects
-      // cross-origin messages, so re-dispatch same-origin so it accepts it.
-      // Only relay from known app dev-server origins to prevent arbitrary
-      // cross-origin pages from injecting agent messages.
       if (event.data.type === "agentNative.presentationMode") {
         setIsPresentationMode(event.data.data?.active === true);
         return;
@@ -474,7 +455,6 @@ export function App() {
     return () => window.removeEventListener("message", handleMessage);
   }, []);
 
-  // Resize — use state so we can show an overlay on the iframe during drag
   const [isDragging, setIsDragging] = useState(false);
   const lastX = useRef(0);
 
@@ -512,6 +492,18 @@ export function App() {
     document.body.style.userSelect = "none";
   }
 
+  const [sidebarMorphing, setSidebarMorphing] = useState(false);
+  function runSidebarMorph(apply: () => void) {
+    flushSync(() => setSidebarMorphing(true));
+    const settle = () => setSidebarMorphing(false);
+    const transition = startAgentChatViewTransition(apply);
+    if (!transition) {
+      settle();
+      return;
+    }
+    transition.finished.then(settle, settle);
+  }
+
   function snapSidebarTo75Percent() {
     if (sidebarDrawerExitTimerRef.current !== null) {
       clearTimeout(sidebarDrawerExitTimerRef.current);
@@ -521,7 +513,7 @@ export function App() {
     const placeholderWidth = sidebarWideDrawer
       ? sidebarDrawerPlaceholderWidth
       : sidebarWidth;
-    startAgentChatViewTransition(() => {
+    runSidebarMorph(() => {
       setSidebarDrawerPlaceholderWidth(placeholderWidth);
       setSidebarWideDrawer(true);
       setSidebarWidth(next);
@@ -541,7 +533,7 @@ export function App() {
     if (!sidebarWideDrawer || sidebarDrawerExitTimerRef.current !== null)
       return;
     const next = sidebarDrawerPlaceholderWidth;
-    startAgentChatViewTransition(() => {
+    runSidebarMorph(() => {
       setSidebarWidth(next);
       try {
         localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
@@ -627,7 +619,9 @@ export function App() {
                 maxHeight: "100vh",
                 minWidth: 0,
                 pointerEvents: showFrameSidebar ? undefined : "none",
-                viewTransitionName: "agent-native-frame-sidebar",
+                ...(sidebarMorphing
+                  ? { viewTransitionName: "agent-native-frame-sidebar" }
+                  : null),
               } as CSSProperties & { "--agent-frame-sidebar-width": string }
             }
             inert={showFrameSidebar ? undefined : true}
@@ -651,14 +645,24 @@ export function App() {
                   onSnapTo75Percent={snapSidebarTo75Percent}
                   isWideDrawer={sidebarWideDrawer}
                   onExitWideDrawer={exitSidebarDrawer}
-                  devAppUrl={appUrl}
                   storageKey={appId}
+                  scope={
+                    appId
+                      ? {
+                          type: "workspace-app",
+                          id: appId,
+                          label: app?.label,
+                          contextKey: `workspace-app:${appId}`,
+                        }
+                      : null
+                  }
+                  isolateHistoryByScope
                   agentChatSurface="dev-frame"
                   codeAccess={{
                     enabled: isDesktop,
                     unavailableTitle: "Open Desktop to use CLI",
                     unavailableDescription:
-                      "Open Agent Native Desktop, click the + button, and add this app with its local dev URL to use CLI.",
+                      "Open Agent-Native Desktop, click the + button, and add this app with its local dev URL to use CLI.",
                     unavailableCtaLabel: "Open Desktop",
                     unavailableCtaHref: OPEN_DESKTOP_URL,
                     unavailableSecondaryCtaLabel: "Download",

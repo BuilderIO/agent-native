@@ -3,11 +3,11 @@ import { createHash } from "node:crypto";
 import type { H3Event } from "h3";
 import { createError, getHeader, readRawBody } from "h3";
 
+import { approvalKeyWithArguments } from "../../agent/approval-key.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import { getRequestContext } from "../../server/request-context.js";
 import { getIntegrationRequestContext } from "../../server/request-context.js";
-import { consumeIntegrationAwaitingInput } from "../awaiting-input-store.js";
 import { createIntegrationControl } from "../controls-store.js";
 import {
   getActiveIntegrationInstallationByKey,
@@ -15,7 +15,6 @@ import {
   listIntegrationInstallations,
   resolveIntegrationTokenBundle,
 } from "../installations-store.js";
-import { hasActivePendingTask } from "../pending-tasks-store.js";
 import { slackInstallationKey } from "../slack-oauth.js";
 import type {
   PlatformAdapter,
@@ -31,21 +30,15 @@ import type {
   IntegrationFileReference,
 } from "../types.js";
 
-/** Slack's max message length */
 const SLACK_MAX_LENGTH = 4000;
 const SLACK_SECTION_TEXT_MAX_LENGTH = 3000;
 const SLACK_API_TIMEOUT_MS = 10_000;
-// Permalink lookup happens on Slack's acknowledgement path, so keep it well
-// inside Slack's three-second Events API deadline. Failure is non-fatal: the
-// normalized message still carries channel/thread ids for replies.
 const SLACK_PERMALINK_TIMEOUT_MS = 1_000;
 const SLACK_CONTEXT_MESSAGE_LIMIT = 15;
 const SLACK_CONTEXT_TEXT_LIMIT = 2_000;
 const SLACK_CALM_PROGRESS_THRESHOLD_SECONDS = 30;
 const SLACK_IDENTITY_TIMEOUT_MS = 1_000;
 const SLACK_IDENTITY_CACHE_TTL_MS = 10 * 60 * 1_000;
-// Failed users.info lookups only get a short negative TTL: a transient Slack
-// API blip must not fail-close a sender's identity (and DMs) for 10 minutes.
 const SLACK_IDENTITY_NEGATIVE_CACHE_TTL_MS = 30 * 1_000;
 const SLACK_IDENTITY_CACHE_MAX_ENTRIES = 1_000;
 const SLACK_TOKEN_IDENTITY_CACHE_TTL_MS = 10 * 60 * 1_000;
@@ -56,6 +49,7 @@ const SLACK_DELIVERY_MARKER_PREFIX = "agent_native_terminal_";
 
 type SlackTokenIdentity = {
   teamId: string | null;
+  botId: string | null;
   appId: string | null;
   valid: boolean;
   expiresAt: number;
@@ -74,15 +68,10 @@ const slackIdentityCache = new Map<
   { identity: SlackUserIdentity | null; expiresAt: number }
 >();
 
-// Deduped system notices send at most once per key per TTL so senders are
-// informed without being spammed per message. Callers pick the window: the
-// anonymous-tier heads-up uses the default day-long TTL; decline replies pass
-// a short TTL so a persistent condition still reminds the sender occasionally.
 const SLACK_SYSTEM_NOTICE_DEDUPE_TTL_MS = 24 * 60 * 60 * 1_000;
 const SLACK_SYSTEM_NOTICE_CACHE_MAX_ENTRIES = 1_000;
 const slackSystemNoticeCache = new Map<string, number>();
 
-/** Returns true when a deduped notice should send now, claiming the slot. */
 function claimSlackSystemNoticeSlot(
   key: string,
   ttlMs = SLACK_SYSTEM_NOTICE_DEDUPE_TTL_MS,
@@ -100,34 +89,46 @@ function claimSlackSystemNoticeSlot(
 }
 
 export interface SlackAdapterOptions {
-  /** Resolve the bot token for the exact Slack installation. */
   resolveBotToken?: (incoming: IncomingMessage) => Promise<string | undefined>;
-  /** Override active-thread detection for hosted adapters/tests. */
-  isThreadActive?: (incoming: IncomingMessage) => Promise<boolean>;
-  /** Override one-shot clarification-window consumption for tests. */
-  consumeAwaitingInput?: (incoming: IncomingMessage) => Promise<boolean>;
 }
 
-/**
- * Create a Slack platform adapter.
- *
- * Required env vars:
- * - SLACK_BOT_TOKEN — Bot user OAuth token (xoxb-...)
- * - SLACK_SIGNING_SECRET — Used to verify webhook signatures
- *
- * Optional env vars:
- * - SLACK_ALLOWED_TEAM_IDS — Comma-separated list of Slack workspace
- *   `team_id` values (e.g. "T012ABCDEF,T034GHIJKL") that this deployment
- *   accepts events from. Required in production and strongly recommended
- *   to prevent cross-workspace event injection (H1 in the webhook audit):
- *   the global `SLACK_SIGNING_SECRET` is the same key for every workspace
- *   the app is installed to, so without an allowlist any installed
- *   workspace can drive the agent. When unset the adapter accepts events
- *   from any workspace in development, but rejects events in production.
- * - SLACK_ALLOWED_API_APP_IDS — Comma-separated list of Slack app IDs
- *   (`api_app_id`) to additionally pin events to. Useful when the same
- *   signing secret rotation surfaces multiple app installs.
- */
+function slackEventInstallationScope(payload: any): {
+  enterpriseId?: string;
+  isEnterpriseInstall: boolean;
+} {
+  const teamId =
+    typeof payload?.team_id === "string" ? payload.team_id : undefined;
+  const authorizations: Record<string, unknown>[] = Array.isArray(
+    payload?.authorizations,
+  )
+    ? payload.authorizations.filter(
+        (value: unknown): value is Record<string, unknown> =>
+          !!value && typeof value === "object" && !Array.isArray(value),
+      )
+    : [];
+  const enterpriseAuthorization = authorizations.find(
+    (authorization) =>
+      authorization.is_enterprise_install === true &&
+      typeof authorization.enterprise_id === "string",
+  );
+  const teamAuthorization = authorizations.find(
+    (authorization) => authorization.team_id === teamId,
+  );
+  const authorization = teamAuthorization ?? enterpriseAuthorization;
+
+  return {
+    enterpriseId:
+      typeof authorization?.enterprise_id === "string"
+        ? authorization.enterprise_id
+        : typeof payload?.enterprise_id === "string"
+          ? payload.enterprise_id
+          : undefined,
+    isEnterpriseInstall:
+      authorization?.is_enterprise_install === true ||
+      payload?.is_enterprise_install === true,
+  };
+}
+
 export function slackAdapter(
   options: SlackAdapterOptions = {},
 ): PlatformAdapter {
@@ -186,17 +187,10 @@ export function slackAdapter(
     async handleVerification(
       event: H3Event,
     ): Promise<{ handled: boolean; response?: unknown }> {
-      // Slack sends url_verification when first setting up the webhook.
-      // readRawBodyCached caches the raw bytes on event.context.__rawBody so
-      // subsequent verifyWebhook + parseIncomingMessage calls re-use them
-      // without re-stringifying a parsed body (M2 in the audit).
       const body = await readRawBodyCached(event);
       try {
         const parsed = JSON.parse(body);
         if (parsed.type === "url_verification") {
-          // Slack's URL verifier expects the raw challenge value in the
-          // response body. Returning JSON works for some clients but the app
-          // settings verifier rejects it as not matching the challenge.
           return { handled: true, response: parsed.challenge };
         }
       } catch {}
@@ -211,7 +205,6 @@ export function slackAdapter(
       const timestamp = getHeader(event, "x-slack-request-timestamp");
       if (!signature || !timestamp) return false;
 
-      // Reject requests older than 5 minutes (replay protection)
       const ts = parseInt(timestamp, 10);
       if (Math.abs(Date.now() / 1000 - ts) > 300) return false;
 
@@ -225,7 +218,6 @@ export function slackAdapter(
           .update(basestring)
           .digest("hex");
 
-      // Timing-safe comparison
       try {
         return crypto.timingSafeEqual(
           Buffer.from(signature),
@@ -247,31 +239,16 @@ export function slackAdapter(
         return null;
       }
 
-      // H1 (webhook audit): cross-workspace event injection. The global
-      // SLACK_SIGNING_SECRET is the same key for every workspace this Slack
-      // app is installed to — without a per-tenant allowlist any installed
-      // workspace can drive the agent. We enforce SLACK_ALLOWED_TEAM_IDS
-      // here AFTER the signature has already been verified by the webhook
-      // handler, so this is purely a tenant-isolation gate (not a forgery
-      // defense). When unset in production we surface a one-time warning
-      // recommending it be configured.
       await enforceWorkspaceAllowlist(payload);
 
-      // Handle Events API wrapper
       if (payload.type === "event_callback") {
         const e = payload.event;
         if (!e) return null;
 
-        // Ignore bot messages
         if (e.bot_id || e.subtype === "bot_message") return null;
-        // Ignore message edits and deletes
         if (e.subtype === "message_changed" || e.subtype === "message_deleted")
           return null;
 
-        // Handle DMs and explicit mentions. Ordinary channel replies are only
-        // accepted while this exact workspace-qualified thread has queued or
-        // executing work; broad message subscriptions must never invoke the
-        // agent for general channel chatter.
         const text = e.text?.trim();
         if (!text) return null;
 
@@ -281,20 +258,18 @@ export function slackAdapter(
           typeof payload.api_app_id === "string"
             ? payload.api_app_id
             : "unknown";
+        const installationScope = slackEventInstallationScope(payload);
         const agentContext = normalizeSlackAgentContext(e.app_context, teamId);
         const isDm =
           typeof e.channel_type === "string"
             ? e.channel_type === "im"
             : typeof e.channel === "string" && e.channel.startsWith("D");
         const isMention = e.type === "app_mention";
-        const isThreadReply = !isDm && !isMention && !!e.thread_ts;
-        if (!isDm && !isMention && !isThreadReply) return null;
+        if (!isDm && !isMention) return null;
 
-        // Remove bot mention from text (e.g., "<@U123> do something" → "do something")
         const cleanText = text.replace(/<@[A-Z0-9]+>/g, "").trim();
         if (!cleanText) return null;
 
-        // Thread ID: use thread_ts if in a thread, otherwise message ts
         const threadTs = e.thread_ts || e.ts;
         const externalThreadId = `${apiAppId}:${teamId}:${e.channel}:${threadTs}`;
         const partialIncoming: IncomingMessage = {
@@ -303,12 +278,9 @@ export function slackAdapter(
           text: cleanText,
           senderName: e.user,
           senderId: e.user,
-          triggerKind: isDm ? "dm" : isMention ? "mention" : "thread_reply",
+          triggerKind: isDm ? "dm" : "mention",
           conversationType: isDm ? "dm" : "unknown",
           tenantId: teamId,
-          // The signed Slack envelope authenticates the workspace, not the
-          // sender's membership tier. `users.info` hydration below is the
-          // authority that may promote this to a verified member.
           actorTrust: { memberType: "unknown", verified: false },
           platformContext: {
             channelId: e.channel,
@@ -317,10 +289,8 @@ export function slackAdapter(
             messageTs: e.ts,
             teamId,
             apiAppId,
-            enterpriseId:
-              typeof payload.enterprise_id === "string"
-                ? payload.enterprise_id
-                : undefined,
+            enterpriseId: installationScope.enterpriseId,
+            isEnterpriseInstall: installationScope.isEnterpriseInstall,
             eventId: payload.event_id,
             ...(agentContext
               ? {
@@ -333,27 +303,6 @@ export function slackAdapter(
           replyRef: e.ts,
           timestamp: Math.floor(parseFloat(e.ts) * 1000),
         };
-
-        if (isThreadReply) {
-          // An ordinary thread reply is narrowly admitted when either work is
-          // still queued or the same Slack user is answering a fresh
-          // integration-originated clarification. Consuming the latter is a
-          // conditional SQL delete, so concurrent replies cannot both reopen
-          // the agent and unrelated channel messages remain ignored.
-          const answeredClarification = options.consumeAwaitingInput
-            ? await options.consumeAwaitingInput(partialIncoming)
-            : options.isThreadActive
-              ? false
-              : await consumeIntegrationAwaitingInput({
-                  platform: "slack",
-                  externalThreadId,
-                  requesterId: e.user,
-                });
-          const active = options.isThreadActive
-            ? await options.isThreadActive(partialIncoming)
-            : await hasActivePendingTask("slack", externalThreadId);
-          if (!active && !answeredClarification) return null;
-        }
 
         const token = await resolveBotToken(partialIncoming);
         const threadPermalink = await resolveSlackThreadPermalink(
@@ -386,10 +335,6 @@ export function slackAdapter(
     async postProcessingPlaceholder(
       incoming: IncomingMessage,
     ): Promise<{ placeholderRef: string } | null> {
-      // No placeholder reply in the thread — Slack's native assistant status
-      // bar and the task stream are the loading affordance. Keep the status
-      // specific about intent instead of presenting the generic thinking
-      // state while the native plan is opening.
       const token = await resolveBotToken(incoming);
       if (!token) return null;
 
@@ -397,10 +342,6 @@ export function slackAdapter(
       const threadTs = incoming.platformContext.threadTs as string;
       if (!channelId || !threadTs) return null;
 
-      // Best-effort: flip the native Agent status bar in the
-      // channel input area. Slack accepts chat:write for this method. The
-      // canonical manifest separately requests assistant:write for Agent View
-      // and app_context_changed events.
       setSlackAssistantStatus(
         token,
         channelId,
@@ -422,7 +363,13 @@ export function slackAdapter(
       incoming: IncomingMessage,
     ): Promise<IncomingMessage> {
       const token = await resolveBotToken(incoming);
-      if (!token) return incoming;
+      if (!token) {
+        const requestContext = getRequestContext();
+        console.error(
+          `[slack] No verified bot token available for identity hydration (requestUser=${requestContext?.userEmail ? "present" : "absent"}, synthetic=${requestContext?.isSyntheticTraffic === true})`,
+        );
+        return incoming;
+      }
       return hydrateSlackIdentity(token, incoming);
     },
 
@@ -463,9 +410,6 @@ export function slackAdapter(
         | undefined;
       const placeholderRef = opts?.placeholderRef;
 
-      // Block-rich path: split text into chunks but render the FIRST chunk as
-      // blocks (so we keep the in-place edit + button) and any overflow as
-      // plain follow-up posts. The vast majority of replies fit in one block.
       const chunks = splitNonEmptyMessage(message.text, SLACK_MAX_LENGTH);
       const hasProvidedBlocks = Array.isArray(blocks) && blocks.length > 0;
       const firstChunk = chunks[0] ?? (hasProvidedBlocks ? "Response" : "");
@@ -478,7 +422,7 @@ export function slackAdapter(
       const restChunks = chunks.slice(1);
       const messageRefs: string[] = [];
       const freshChunkIndexes = [
-        ...(!placeholderRef ? [0] : []),
+        ...(!placeholderRef || opts?.idempotencyKey ? [0] : []),
         ...restChunks.map((_, index) => index + 1),
       ];
       const reconciledRefs =
@@ -512,41 +456,44 @@ export function slackAdapter(
 
       try {
         if (placeholderRef) {
-          // Replace the "thinking…" placeholder in place.
-          const data = (await slackApiJson(
-            "https://slack.com/api/chat.update",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ ...baseBody, ts: placeholderRef }),
-              signal: opts?.signal,
-            },
-          )) as {
-            ok: boolean;
-            error?: string;
-            ts?: string;
-          };
-          if (!data.ok) {
-            console.error("[slack] chat.update error:", data.error);
-            if (opts?.strictTargetRef) {
-              throw new Error(data.error || "chat.update failed");
-            }
-            // Fall back to a fresh post so the user still sees a reply
-            const postedTs = await postFresh(
-              token,
-              channelId,
-              threadTs,
-              opts?.idempotencyKey
-                ? withSlackDeliveryMarker(baseBody, opts.idempotencyKey, 0)
-                : baseBody,
-              opts?.signal,
-            );
-            if (postedTs) messageRefs.push(postedTs);
+          const reconciledRef = reconciledRefs.get(0);
+          if (reconciledRef) {
+            messageRefs.push(reconciledRef);
           } else {
-            messageRefs.push(data.ts || placeholderRef);
+            const data = (await slackApiJson(
+              "https://slack.com/api/chat.update",
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ ...baseBody, ts: placeholderRef }),
+                signal: opts?.signal,
+              },
+            )) as {
+              ok: boolean;
+              error?: string;
+              ts?: string;
+            };
+            if (!data.ok) {
+              console.error("[slack] chat.update error:", data.error);
+              if (opts?.strictTargetRef) {
+                throw new Error(data.error || "chat.update failed");
+              }
+              const postedTs = await postFresh(
+                token,
+                channelId,
+                threadTs,
+                opts?.idempotencyKey
+                  ? withSlackDeliveryMarker(baseBody, opts.idempotencyKey, 0)
+                  : baseBody,
+                opts?.signal,
+              );
+              if (postedTs) messageRefs.push(postedTs);
+            } else {
+              messageRefs.push(data.ts || placeholderRef);
+            }
           }
         } else {
           const reconciledRef = reconciledRefs.get(0);
@@ -566,13 +513,10 @@ export function slackAdapter(
           }
         }
 
-        // Clear the AI-assistant "is thinking…" status now that we've
-        // delivered the final answer. Empty status clears it.
         if (threadTs) {
           setSlackAssistantStatus(token, channelId, threadTs, "");
         }
 
-        // Overflow chunks (rare) — post as plain follow-ups in the same thread
         for (const [index, chunk] of restChunks.entries()) {
           const chunkIndex = index + 1;
           const reconciledRef = reconciledRefs.get(chunkIndex);
@@ -647,8 +591,6 @@ export function slackAdapter(
           mrkdwn: true,
         });
       } catch (error) {
-        // A failed delivery did not inform the sender, so release the slot and
-        // allow the next message to retry instead of suppressing notices for a day.
         if (dedupeKey) slackSystemNoticeCache.delete(dedupeKey);
         throw error;
       }
@@ -658,6 +600,12 @@ export function slackAdapter(
       message: OutgoingMessage,
       target: OutboundTarget,
     ): Promise<void> {
+      const namedInstallation = target.installationKey
+        ? await getActiveIntegrationInstallationByKey(
+            "slack",
+            target.installationKey,
+          )
+        : null;
       const targetContext: IncomingMessage = {
         platform: "slack",
         externalThreadId: `${target.tenantId ?? "unknown"}:${target.destination}:${target.threadRef ?? "root"}`,
@@ -667,18 +615,19 @@ export function slackAdapter(
           threadTs: target.threadRef,
           teamId: target.tenantId,
           installationKey: target.installationKey,
+          apiAppId: namedInstallation?.apiAppId ?? undefined,
         },
         tenantId: target.tenantId,
         timestamp: Date.now(),
       };
       const token = await resolveBotToken(targetContext);
       if (!token) {
-        console.error(
+        const errorMessage =
           "[slack] no bot token for outbound target" +
-            (target.tenantId ? ` (tenant ${target.tenantId})` : "") +
-            "; set SLACK_BOT_TOKEN or pass installationKey to name the app",
-        );
-        return;
+          (target.tenantId ? ` (tenant ${target.tenantId})` : "") +
+          "; set SLACK_BOT_TOKEN or pass installationKey to name the app";
+        console.error(errorMessage);
+        throw new Error(errorMessage);
       }
 
       const chunks = splitNonEmptyMessage(message.text, SLACK_MAX_LENGTH);
@@ -701,9 +650,14 @@ export function slackAdapter(
               },
               body: JSON.stringify(body),
             },
-          )) as { ok: boolean; error?: string };
+          )) as { ok: boolean; error?: string; ts?: string };
           if (!data.ok) {
             throw new Error(data.error || "chat.postMessage failed");
+          }
+          if (!data.ts) {
+            throw new Error(
+              "chat.postMessage returned no message timestamp; delivery was not confirmed",
+            );
           }
         } catch (err) {
           console.error("[slack] Failed to send proactive message:", err);
@@ -769,11 +723,6 @@ export function slackAdapter(
   };
 }
 
-/**
- * Parse a comma-separated env var into a Set of trimmed, non-empty values.
- * Returns null when the env var is unset or empty (so callers can
- * distinguish "no allowlist configured" from "empty allowlist").
- */
 function parseAllowlistEnv(name: string): Set<string> | null {
   const raw = process.env[name];
   if (!raw) return null;
@@ -788,13 +737,27 @@ function parseAllowlistEnv(name: string): Set<string> | null {
 export async function resolveSlackBotTokenForIncoming(
   incoming: IncomingMessage,
 ): Promise<string | undefined> {
-  const managedToken = await resolveManagedSlackBotToken(incoming);
-  if (managedToken) return managedToken;
+  const installationKeyHint =
+    typeof incoming.platformContext.installationKey === "string"
+      ? incoming.platformContext.installationKey
+      : undefined;
+  if (installationKeyHint) {
+    const selectedToken = await resolveManagedSlackBotToken(incoming);
+    if (!selectedToken) return undefined;
+    return (await isSlackTokenForIncoming(selectedToken, incoming))
+      ? selectedToken
+      : undefined;
+  }
 
   const legacyToken = await resolveSecret("SLACK_BOT_TOKEN");
-  if (!legacyToken) return undefined;
-  return (await isSlackTokenForIncoming(legacyToken, incoming))
-    ? legacyToken
+  if (legacyToken && (await isSlackTokenForIncoming(legacyToken, incoming))) {
+    return legacyToken;
+  }
+
+  const managedToken = await resolveManagedSlackBotToken(incoming);
+  if (!managedToken || managedToken === legacyToken) return undefined;
+  return (await isSlackTokenForIncoming(managedToken, incoming))
+    ? managedToken
     : undefined;
 }
 
@@ -813,6 +776,8 @@ async function resolveManagedSlackBotToken(
     typeof incoming.platformContext.enterpriseId === "string"
       ? incoming.platformContext.enterpriseId
       : undefined;
+  const isEnterpriseInstall =
+    incoming.platformContext.isEnterpriseInstall === true;
   const installationKeyHint =
     typeof incoming.platformContext.installationKey === "string"
       ? incoming.platformContext.installationKey
@@ -825,16 +790,20 @@ async function resolveManagedSlackBotToken(
           installationKeyHint,
         )
       : null;
+    if (installationKeyHint && !installation) return undefined;
+    if (installationKeyHint && !installation?.apiAppId) return undefined;
     if (!installation && apiAppId) {
       installation = await getActiveIntegrationInstallationByKey(
         "slack",
-        slackInstallationKey({ teamId, enterpriseId, apiAppId }),
+        slackInstallationKey({
+          teamId,
+          enterpriseId,
+          apiAppId,
+          isEnterpriseInstall,
+        }),
       );
     }
     if (!installation && !apiAppId) {
-      // Without an app id the tenant can match several connected Slack apps.
-      // Sending as an arbitrary one posts under the wrong bot identity, so
-      // only proceed when the tenant resolves to exactly one installation.
       const tenant = teamId ?? enterpriseId!;
       const candidates = await listActiveIntegrationInstallationsForTenant(
         "slack",
@@ -852,7 +821,12 @@ async function resolveManagedSlackBotToken(
     }
     const key =
       installation?.installationKey ??
-      slackInstallationKey({ teamId, enterpriseId, apiAppId });
+      slackInstallationKey({
+        teamId,
+        enterpriseId,
+        apiAppId,
+        isEnterpriseInstall,
+      });
     return (await resolveIntegrationTokenBundle("slack", key))?.accessToken;
   } catch {
     return undefined;
@@ -869,6 +843,21 @@ async function isSlackTokenForIncoming(
 
   const cached = slackTokenIdentityCache.get(token);
   if (cached && cached.expiresAt > Date.now()) {
+    if (cached.valid && apiAppId && !cached.appId && cached.botId) {
+      try {
+        const bot = await slackJson(token, "bots.info", { bot: cached.botId });
+        const appId = slackIdentityValue(bot?.bot?.app_id);
+        if (!appId) {
+          slackTokenIdentityCache.delete(token);
+          return false;
+        }
+        cached.appId = appId;
+        slackTokenIdentityCache.set(token, cached);
+      } catch {
+        slackTokenIdentityCache.delete(token);
+        return false;
+      }
+    }
     return (
       cached.valid &&
       (!teamId || cached.teamId === teamId) &&
@@ -892,6 +881,7 @@ async function isSlackTokenForIncoming(
 
   const identity: SlackTokenIdentity = {
     teamId: authTeamId,
+    botId,
     appId,
     valid,
     expiresAt:
@@ -901,6 +891,19 @@ async function isSlackTokenForIncoming(
         : SLACK_TOKEN_IDENTITY_NEGATIVE_CACHE_TTL_MS),
   };
   slackTokenIdentityCache.set(token, identity);
+
+  if (!valid) {
+    console.error(
+      `[slack] Could not verify bot token identity (auth=${auth ? "ok" : "unavailable"}, bot=${botId ? (appId ? "ok" : "unavailable") : "missing"})`,
+    );
+  } else if (
+    (teamId && identity.teamId !== teamId) ||
+    (apiAppId && identity.appId !== apiAppId)
+  ) {
+    console.error(
+      `[slack] Bot token identity does not match the incoming Slack app (teamMatch=${!teamId || identity.teamId === teamId}, appMatch=${!apiAppId || identity.appId === apiAppId})`,
+    );
+  }
 
   return (
     valid &&
@@ -948,6 +951,7 @@ async function enforceWorkspaceAllowlist(payload: any): Promise<void> {
     typeof payload?.team_id === "string" ? payload.team_id : undefined;
   const apiAppId =
     typeof payload?.api_app_id === "string" ? payload.api_app_id : undefined;
+  const installationScope = slackEventInstallationScope(payload);
 
   const allowedTeamIds = parseAllowlistEnv("SLACK_ALLOWED_TEAM_IDS");
   const allowedAppIds = parseAllowlistEnv("SLACK_ALLOWED_API_APP_IDS");
@@ -956,7 +960,12 @@ async function enforceWorkspaceAllowlist(payload: any): Promise<void> {
     if (process.env.NODE_ENV === "production") {
       let managed = false;
       try {
-        const key = slackInstallationKey({ teamId, apiAppId });
+        const key = slackInstallationKey({
+          teamId,
+          apiAppId,
+          enterpriseId: installationScope.enterpriseId,
+          isEnterpriseInstall: installationScope.isEnterpriseInstall,
+        });
         managed = !!(await getActiveIntegrationInstallationByKey("slack", key));
       } catch {}
       if (!managed) {
@@ -976,7 +985,21 @@ async function enforceWorkspaceAllowlist(payload: any): Promise<void> {
   }
 
   if (allowedTeamIds) {
-    if (!teamId || !allowedTeamIds.has(teamId)) {
+    let allowedEnterpriseInstall = false;
+    if (installationScope.isEnterpriseInstall) {
+      try {
+        const key = slackInstallationKey({
+          teamId,
+          apiAppId,
+          enterpriseId: installationScope.enterpriseId,
+          isEnterpriseInstall: true,
+        });
+        allowedEnterpriseInstall =
+          !!(await getActiveIntegrationInstallationByKey("slack", key));
+        // coercion-ok: lookup failure leaves the enterprise event denied below
+      } catch {}
+    }
+    if ((!teamId || !allowedTeamIds.has(teamId)) && !allowedEnterpriseInstall) {
       throw createError({
         statusCode: 401,
         statusMessage: "Unrecognized Slack workspace",
@@ -1010,9 +1033,6 @@ async function enforceWorkspaceAllowlist(payload: any): Promise<void> {
 async function readRawBodyCached(event: H3Event): Promise<string> {
   const cached = event.context.__rawBody;
   if (typeof cached === "string") return cached;
-  // h3's readRawBody returns the bytes Slack actually sent, defaulting to
-  // utf8-decoded. Returns undefined for empty bodies — we coerce to "" so
-  // the HMAC check can proceed deterministically.
   const raw = (await readRawBody(event)) ?? "";
   event.context.__rawBody = raw;
   return raw;
@@ -1034,7 +1054,6 @@ function prefixWithinUtf8ByteLimit(text: string, maxLength: number): string {
   return text.slice(0, end || 1);
 }
 
-/** Split a message into chunks that fit within the platform's byte limit. */
 function splitMessage(text: string, maxLength: number): string[] {
   if (utf8ByteLength(text) <= maxLength) return [text];
   const chunks: string[] = [];
@@ -1047,10 +1066,8 @@ function splitMessage(text: string, maxLength: number): string[] {
 
     const prefix = prefixWithinUtf8ByteLimit(remaining, maxLength);
 
-    // Try to split at a newline
     let splitIdx = prefix.lastIndexOf("\n");
     if (splitIdx <= 0) {
-      // Try to split at a space
       splitIdx = prefix.lastIndexOf(" ");
     }
     if (splitIdx <= 0) {
@@ -1062,30 +1079,14 @@ function splitMessage(text: string, maxLength: number): string[] {
   return chunks;
 }
 
-/** Split a message and drop chunks Slack would render as blank messages. */
 function splitNonEmptyMessage(text: string, maxLength: number): string[] {
   return splitMessage(text, maxLength).filter(
     (chunk) => chunk.trim().length > 0,
   );
 }
 
-/** Hard cap on input length we feed to the regex-based mrkdwn converter.
- *  L2 in the webhook audit: `\*\*(.+?)\*\*` with the `s` flag on a long
- *  string of asterisks can exhibit super-linear backtracking. Slack
- *  itself caps message bodies at 4000 chars (SLACK_MAX_LENGTH); we cap
- *  the input here at 10x that as a defensive bound for any caller that
- *  passes a longer rendering source through this helper before chunking. */
 const MRKDWN_MAX_LENGTH = 40_000;
 
-/**
- * Convert standard markdown to Slack's mrkdwn dialect.
- * - `[text](url)` → `<url|text>`
- * - `**bold**` → `*bold*` (Slack uses single asterisks for bold)
- *
- * Inputs longer than MRKDWN_MAX_LENGTH are truncated before the regex
- * pass to bound worst-case backtracking on pathological input (L2 in the
- * webhook audit).
- */
 function markdownToSlackMrkdwn(text: string): string {
   const bounded =
     text.length > MRKDWN_MAX_LENGTH ? text.slice(0, MRKDWN_MAX_LENGTH) : text;
@@ -1101,15 +1102,13 @@ function markdownToSlackMrkdwn(text: string): string {
       // Newlines are allowed because `[^*]` excludes only the asterisk
       // itself, so multi-line bold spans still match.
       .replace(/\*\*([^*]{1,5000})\*\*/g, "*$1*")
+      // Agent output sometimes uses Markdown-style bare Slack user IDs.
+      // Leave native `<@...>` mentions untouched while converting the bare
+      // user/member forms Slack expects in mrkdwn.
+      .replace(/(?<![<\w])@([UW][A-Z0-9]+)(?![A-Z0-9])/g, "<@$1>")
   );
 }
 
-/**
- * Optionally set Slack's native Agent status indicator (the small "is
- * thinking…" line under the message composer). The method uses chat:write;
- * Agent View itself is configured separately by the Slack app manifest.
- * Pure best-effort — failures never block the response.
- */
 function setSlackAssistantStatus(
   token: string,
   channelId: string,
@@ -1130,12 +1129,6 @@ function setSlackAssistantStatus(
   }).catch(() => {});
 }
 
-/**
- * Block Kit payload for the final answer. We avoid auto-unfurl previews by
- * separating the deep-link out into a button instead of inlining it as a
- * `<url|text>` markdown link in the section body — that's what was producing
- * the giant "Agent-Native Dispatch" card in every thread reply.
- */
 function buildResponseBlocks(
   text: string,
   opts: { threadDeepLinkUrl?: string },
@@ -1164,10 +1157,6 @@ function buildResponseBlocks(
   return blocks;
 }
 
-/**
- * Post a fresh message to a thread. Used as the placeholder-fallback path
- * (e.g. when chat.update fails) and for follow-up overflow chunks.
- */
 async function postFresh(
   token: string,
   channelId: string,
@@ -1489,12 +1478,34 @@ async function resolveSlackUserIdentity(
   if (cached && cached.expiresAt > Date.now()) return cached.identity;
   if (cached) slackIdentityCache.delete(cacheKey);
 
-  const user = await slackJson(
-    token,
-    "users.info",
-    { user: incoming.senderId! },
-    SLACK_IDENTITY_TIMEOUT_MS,
-  );
+  const userUrl = new URL("https://slack.com/api/users.info");
+  userUrl.searchParams.set("user", incoming.senderId!);
+  let user: Record<string, any> | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const body = await slackApiJson(
+        userUrl.toString(),
+        { headers: { Authorization: `Bearer ${token}` } },
+        SLACK_IDENTITY_TIMEOUT_MS,
+      );
+      if (!body.ok) {
+        console.error(
+          `[slack] users.info rejected identity lookup: ${typeof body.error === "string" ? body.error : "unknown_error"}`,
+        );
+        break;
+      }
+      user = body;
+      break;
+    } catch (error) {
+      console.error(
+        `[slack] users.info identity lookup attempt ${attempt + 1} failed:`,
+        error,
+      );
+      // A cold DNS/TLS connection can consume the first one-second identity
+      // budget. Retry once while the connection is warm instead of turning a
+      // transport blip into a user-facing authentication rejection.
+    }
+  }
   const profile = user?.user?.profile;
   const identity: SlackUserIdentity | null = user?.user
     ? {
@@ -1514,8 +1525,6 @@ async function resolveSlackUserIdentity(
                 : typeof user.user.name === "string" && user.user.name.trim()
                   ? user.user.name.trim()
                   : null,
-        // is_stranger marks Slack Connect DM participants from another
-        // workspace; they must map to "external", never "member".
         memberType:
           user.user.is_stranger || user.user.is_ultra_restricted
             ? "external"
@@ -1549,10 +1558,6 @@ async function hydrateSlackIdentity(
 ): Promise<IncomingMessage> {
   const identity = await resolveSlackUserIdentity(token, incoming);
   if (!identity) {
-    // Context hydration can call users.info again after the webhook identity
-    // pass. A transient failure on that second lookup is not evidence that a
-    // previously verified sender became unverified; preserve the stronger
-    // identity instead of replacing it with a negative-cache result.
     if (
       incoming.senderVerified === true &&
       incoming.senderEmail?.trim() &&
@@ -1607,10 +1612,6 @@ async function hydrateSlackContext(
     senderId ? resolveSlackUserIdentity(token, incoming) : null,
   ]);
 
-  // Agent View can attach the Slack surface the user is currently viewing to
-  // a DM. Treat it only as a context hint: Slack requires us to prove the bot
-  // can access the referenced channel with conversations.info before reading
-  // any history from it.
   const activeContextChannelId =
     typeof incoming.platformContext.activeContextChannelId === "string"
       ? incoming.platformContext.activeContextChannelId
@@ -1743,9 +1744,6 @@ async function hydrateSlackContext(
       ? { senderEmail: profile.email, senderVerified: true }
       : { senderVerified: false }),
     conversationType,
-    // Conversation hydration must not promote a caller when users.info was
-    // unavailable. Preserve the result of the earlier identity-only hydration
-    // unless this request independently resolved the Slack user.
     actorTrust: identity
       ? { memberType: identity.memberType, verified: true }
       : (incoming.actorTrust ?? {
@@ -1864,7 +1862,6 @@ async function startSlackRunProgress(
       ...(incoming.tenantId ? { recipient_team_id: incoming.tenantId } : {}),
       ...(incoming.senderId ? { recipient_user_id: incoming.senderId } : {}),
       task_display_mode: "plan",
-      markdown_text: "I’m looking into this for you.",
       chunks: [
         {
           type: "plan_update",
@@ -1940,7 +1937,6 @@ function createSlackRunProgress(
         await postSlackJson(token, "chat.appendStream", {
           channel,
           ts: streamTs,
-          markdown_text: "Progress updated.",
           chunks: [value],
         });
       } catch (error) {
@@ -2038,7 +2034,11 @@ function createSlackRunProgress(
             channelId: channel,
             messageTs: streamTs,
             runId: context.lineage?.runId ?? null,
-            approvalKey: event.approvalKey,
+            // Approving echoes this key back with no approval record to
+            // check, so it carries the arguments it binds.
+            approvalKey: event.argumentsHash
+              ? approvalKeyWithArguments(event.approvalKey, event.argumentsHash)
+              : event.approvalKey,
             incoming,
           };
           const [approve, deny] = await Promise.all([
@@ -2109,9 +2109,6 @@ function createSlackRunProgress(
             : {}),
         });
       } else if (event.type === "agent_call_progress") {
-        // A2A calls can stay healthy for minutes. Keep the same native Slack
-        // task card alive with each real downstream poll rather than creating
-        // a new card per tick or leaving the user with a stale spinner.
         const id =
           agentTaskIds.get(event.agent) ?? taskId("agent", event.agent);
         agentTaskIds.set(event.agent, id);
@@ -2175,16 +2172,27 @@ function createSlackRunProgress(
             },
           ]
         : [];
+      const terminalBlocks = [...messageBlocks, ...controlBlocks].slice(0, 50);
+      const markedTerminalBlocks = opts?.idempotencyKey
+        ? (withSlackDeliveryMarker(
+            { text: message.text || "Done.", blocks: terminalBlocks },
+            opts.idempotencyKey,
+            0,
+          ).blocks as unknown[])
+        : terminalBlocks;
       await postSlackJson(
         token,
         "chat.stopStream",
         {
           channel,
           ts: streamTs,
-          markdown_text: message.text || "Done.",
-          ...(finalChunks.length ? { chunks: finalChunks } : {}),
-          ...(messageBlocks.length || controlBlocks.length
-            ? { blocks: [...messageBlocks, ...controlBlocks].slice(0, 50) }
+          session_status: "closed",
+          chunks: [
+            ...finalChunks,
+            { type: "markdown_text", text: message.text || "Done." },
+          ],
+          ...(markedTerminalBlocks.length
+            ? { blocks: markedTerminalBlocks }
             : {}),
         },
         opts?.signal,
@@ -2200,7 +2208,13 @@ function createSlackRunProgress(
         {
           channel,
           ts: streamTs,
-          markdown_text: message.slice(0, SLACK_MAX_LENGTH),
+          session_status: "closed",
+          chunks: [
+            {
+              type: "markdown_text",
+              text: message.slice(0, SLACK_MAX_LENGTH),
+            },
+          ],
         },
         opts?.signal,
       ).catch(() => {});

@@ -1,8 +1,3 @@
-// Duplicate detection against a real libsql (SQLite) database with the app's own
-// migrations applied. The whole point of this module is that it reads the sparse
-// sub-field columns the attribute writer populates, so the queries — not a
-// mocked builder — are the thing under test.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +14,7 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-dedupe-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-dedupe-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -149,7 +144,7 @@ async function find(recordIds: string[], minConfidence?: number) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -200,9 +195,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("normalizeCrmDisplayName", () => {
@@ -293,8 +286,6 @@ describe("email matching", () => {
         confidence: 0.2,
       },
     ]);
-    // Below the action's default floor, so a colleague never surfaces as a
-    // duplicate without someone explicitly asking for weak signals.
     expect(candidate.confidence).toBeLessThan(0.4);
   });
 
@@ -336,7 +327,6 @@ describe("domain matching", () => {
     const [candidate] = seedFor(seeds, a).candidates;
     expect(candidate.recordId).toBe(b);
     const reasons = candidate.signals.map((signal) => signal.reason).sort();
-    // Same domain AND the same normalized name — two independent signals.
     expect(reasons).toEqual(["domain", "name-and-location"]);
     expect(candidate.confidence).toBeCloseTo(0.88, 3);
   });
@@ -441,8 +431,6 @@ describe("scope and safety", () => {
     const seeds = await asOther(() =>
       findCrmDuplicateCandidates({ db: getDb(), recordIds: [hidden] }),
     );
-    // An empty seed list is "you cannot see it", which the action reports as
-    // unreadable — distinct from a seed with zero candidates.
     expect(seeds).toEqual([]);
 
     const [row] = await getDb()

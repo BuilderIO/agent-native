@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -80,7 +80,7 @@ export default defineAction({
         documentId: string;
         sourceDisplayKey: string | null;
         sourceValuesJson: string | null;
-        sourceName: string;
+        sourceTable: string;
       };
       const remainingLocalRows: RemainingLocalRow[] = documentIds.length
         ? await tx
@@ -90,7 +90,7 @@ export default defineAction({
                 schema.contentDatabaseSourceRows.sourceDisplayKey,
               sourceValuesJson:
                 schema.contentDatabaseSourceRows.sourceValuesJson,
-              sourceName: schema.contentDatabaseSources.sourceName,
+              sourceTable: schema.contentDatabaseSources.sourceTable,
             })
             .from(schema.contentDatabaseSourceRows)
             .innerJoin(
@@ -152,7 +152,7 @@ export default defineAction({
             sourceMode: "local-files",
             sourceKind: "file",
             sourcePath: relativePath,
-            sourceRootPath: remaining.sourceName,
+            sourceRootPath: remaining.sourceTable,
             sourceUpdatedAt: now,
             updatedAt: now,
           })

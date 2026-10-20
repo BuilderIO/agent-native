@@ -1,35 +1,35 @@
-# Content Databases — Behavioral Reference
+# Content Collections — Behavioral Reference
 
-Notion-style databases layered on top of the normal document model. The SQL
+Notion-style collections layered on top of the normal document model. The SQL
 column shapes are injected separately by the framework schema block — this
 file covers behavior the schema can't convey: what each property type means,
 how views work, and which actions own which mutation.
 
-## Databases are document-backed page-level objects
+## Collections are document-backed page-level objects
 
-A normal document has no properties by default. A row in a database is also a
+A normal document has no properties by default. A row in a collection is also a
 document, linked through `content_database_items`; when that row document
-opens, it shows the database's properties. The database page itself renders as
+opens, it shows the collection's properties. The collection page itself renders as
 a table and owns the schema in `document_property_definitions.database_id`.
-Database row documents and their descendants stay contained by the database
+Collection row documents and their descendants stay contained by the collection
 and are omitted from the ordinary sidebar page tree; users open them from the
-database view or an explicit link. When a row document is open, the editor
-shows a small parent-database breadcrumb above the title so the user can
-return to the containing database without relying on the sidebar. The
-`view-screen` document tree follows the same rule: database row pages are
-omitted from the ordinary tree and counted separately as contained database
+collection view or an explicit link. When a row document is open, the editor
+shows a small parent-collection breadcrumb above the title so the user can
+return to the containing collection without relying on the sidebar. The
+`view-screen` document tree follows the same rule: collection row pages are
+omitted from the ordinary tree and counted separately as contained collection
 items.
 
-When a database row is open in the side preview, navigation state includes
+When a collection row is open in the side preview, navigation state includes
 `databasePreviewDocumentId`, and `view-screen` returns that row as
-`databasePreview` with its content and properties. Database navigation state
+`databasePreview` with its content and properties. Collection navigation state
 also includes the active view type, search query, sort count, the saved
-database view list, active sort/filter definitions, filter match mode, saved
+collection view list, active sort/filter definitions, filter match mode, saved
 column calculations, table cell wrapping state, table row density, collapsed
 group IDs, calendar or timeline date property IDs/names, the visible date
 range for calendar/timeline views, empty-group visibility state, visible
-source summary when attached, and database row preview state. Source-aware
-metadata lives alongside the database model in `content_database_sources`,
+source summary when attached, and collection row preview state. Source-aware
+metadata lives alongside the collection model in `content_database_sources`,
 `content_database_source_fields`, `content_database_source_rows`, and
 `content_database_source_change_sets`; those tables store binding status,
 field mappings, source-qualified row identity/provenance, freshness
@@ -39,38 +39,69 @@ table view.
 Navigation state includes a capped `databaseVisibleItems` summary with row
 item IDs, document IDs, titles, positions, and visible property value
 summaries for the visible rows, plus row count and total row count, so agents
-can tell whether the user is looking at the full database or a constrained
+can tell whether the user is looking at the full collection or a constrained
 slice and can refer to the same rows and cells the user can currently scan;
 for calendar and timeline views this summary is limited to rows in the
-current visible date window plus rows shown in the "No date" section. When
+current visible date window plus rows shown in the "No date" section. Each
+cell summary carries display `text` (cut at 200 characters with
+`textTruncated: true`) and carries `value` only when it differs from that
+text; read the row with `get-content-database` for full values. The row cap
+shrinks to keep the whole navigation state under 48 KB, and
+`databaseVisibleItemLimit` reports the cap actually applied. When
 footer calculations are active, navigation state also includes
 `databaseCalculationResults` with the visible result text for each calculated
 column. When table rows are selected, navigation state also includes
-`databaseSelectedItemCount` and `databaseSelectedItems`, and
+`databaseSelectedItemCount` and `databaseSelectedItems` (under the same
+row cap), and
 `view-screen.databaseCurrentView` mirrors that selected row summary.
 `view-screen` exposes the same slice as `databaseCurrentView` alongside the
-full database payload. Its row property summaries should mirror the active
-database view's property order, hidden-property list, and empty-property
-visibility rules. It also marks database page entries in
-`documentTree.items[].database`, matching the sidebar's database icon
-fallback so agents can distinguish database pages from ordinary pages.
+full collection payload. Its row property summaries should mirror the active
+collection view's property order, hidden-property list, and empty-property
+visibility rules. It also marks collection page entries in
+`documentTree.items[].database`, matching the sidebar's collection icon
+fallback so agents can distinguish collection pages from ordinary pages.
 
-Database views render the row page's custom icon anywhere a row title
+Collection views render the row page's custom icon anywhere a row title
 appears, falling back to the default page icon when the row has no icon. The
-database side preview exposes the same icon picker affordance as a normal
+collection side preview exposes the same icon picker affordance as a normal
 page, so users can set or remove a row page icon without leaving the
-database. The preview is an overlay-free, non-modal side peek so the database
-context stays visible while the row page is open. Background database
+collection. The preview is an overlay-free, non-modal side peek so the collection
+context stays visible while the row page is open. Background collection
 interactions should not dismiss it; use the explicit close control to close
-the preview. Keep it narrow enough on desktop that the underlying database
+the preview. Keep it narrow enough on desktop that the underlying collection
 still reads as the active context. In table views, clicking a row title opens
 that side preview; inline title editing lives behind the hover pencil
 affordance.
 
+## Ordinary collection setup through MCP
+
+Resolve an exact authorized space before creating an ordinary collection. Creation,
+safe property edits, saved table-view edits, and recoverable collection Trash/restore
+use caller intent keys and verified receipts. Repeat an unchanged request with its
+original key after a lost response; a different payload needs a different key.
+
+Collection discovery returns the mutation target, schema revision, configuration
+revision, supported setup operations, and field write restrictions. Use these
+fresh values for the next mutation. Stale revisions require a read and a new
+decision, not an automatic overwrite. Property and view names are labels; their
+stable IDs identify edits. Sparse patches preserve omitted fields, and empty
+lists explicitly clear supported settings.
+
+Ordinary setup supports stored property types, additive options, metadata edits,
+the existing text natural key, and table presentation. It refuses destructive
+type/option changes, source-managed schema edits, and relationship/computed-field
+authoring. Source status is readable, but this surface does not define joins,
+row unions, source bindings, or write-mode changes. Discovery of a source-backed
+row never establishes permission to write its fields.
+
+Read back each changed object separately, then use its Open in Content link.
+Rows retain both membership and Page identity in their links. Trash remains
+recoverable; never substitute permanent deletion for ordinary cleanup.
+
 ## Property types
 
 Document properties are SQL-backed, Notion-style structured metadata rather
-than YAML embedded in the markdown body. Database property definitions
+than YAML embedded in the markdown body. Collection property definitions
 support `text`, `number`, `select`, `multi_select`, `status`, `date`,
 `person`, `place`, `files_media` (`Files & media`), `checkbox`, `url`,
 `email`, `phone`, `blocks` (Capacities-style rich-text body field), plus
@@ -82,26 +113,59 @@ per-row-document JSON values.
 ### Blocks fields
 
 A `blocks` field is independent rich-text content per row — NOT YAML and NOT
-a pointer to the body. Every database is seeded with one primary "Content"
+a pointer to the body. Every collection is seeded with one primary "Content"
 Blocks field whose content is backed by `documents.content` (so it reuses the
 collaborative TipTap/Yjs body editor and existing data migrates for free).
 Each additional Blocks field stores its own content in
 `document_block_field_contents`, keyed by `(document_id, property_id)`, so no
 two Blocks fields ever share content — adding a second Blocks field creates a
 new, empty, independent field. On the page: one Blocks field renders
-chromeless (no header, just the body); two or more each show their name as a
-header and are collapsible and reorderable (the surviving lone field keeps
-its stored name). In table views a Blocks column shows a word count (e.g.
-"412 words"), not the body. A Blocks field can only be deleted from the
-database view's column menu (not from the page body); deleting the last
-Blocks field warns that it removes the body for every object of the type.
+chromeless (no header, just the body); two or more show as a row of tabs that
+sticks to the top while scrolling.
+
+People rarely say "Blocks field". They say tabs, page tabs, document tabs, or
+sections, or name one by its field ("the Notes tab"). Each of those is a Blocks
+field: "add a tab" means adding a `blocks` property with
+`configure-document-property`, "rename the Notes tab" means renaming that
+property, and "what's in my Notes tab" means reading that field. Fields are
+defined on the collection, so adding, renaming, or deleting one changes it on
+every row. Say so before doing it for someone who asked about one page.
+
+Each tab shows the field's name and word count, tabs reorder by dragging, and a
+dot marks a tab that changed since this browser last showed it. People who can
+change the collection's properties also get "+" after the last tab, which adds
+a Blocks field and opens it with its name ready to type, and a menu with Rename
+and Delete on each tab (click the open tab, right-click any tab, or press F2 on
+one to rename it). Only one field shows at a time, but every field's editor
+stays open. `/page/<id>?field=<propertyId>`
+opens a given tab (no `field` means the first), so `navigate` with that path
+shows a person a specific field, and `navigation` reports the open tab as
+`fieldId`. Page comments anchor in the primary field, so their cards show only
+on its tab, and opening a comment switches back to it. The surviving lone field
+keeps its stored name when fields are deleted back down to one. In table views a
+Blocks column shows a word count (e.g. "412 words"), not the body. A Blocks
+field is renamed or deleted from its tab's menu or the collection view's column
+menu. Deleting one can't be undone and removes its text from every row; the
+tab's confirmation warns when the field is the page body.
+
+For one-block agent edits, call `list-content-database-blocks` with the exact
+space, collection, backing document, membership row, row document, and property
+IDs. Preserve its schema, row, and field revisions. Each returned block names
+the operations its kind supports and carries canonical Notion-flavored Markdown
+(NFM) for that one block. Pass all three revisions to
+`mutate-content-database-block`; its `insert`, `update`, `upsert`, `delete`, and
+`reorder` variants preserve unmentioned fields and sibling blocks. A block
+value must contain exactly one top-level block of the declared kind. Reuse an
+idempotency key only for an exact retry. Unsupported kinds, kind conversion,
+tombstone reuse, cross-parent reorder, schema drift, and stale row or field
+revisions fail explicitly.
 
 Formula properties store their expression in property options and support
 `{Property name}` substitution plus simple numeric math such as `{MSV} * 2`.
 
 ## Views
 
-Database views support multiple named table, list, gallery, board, calendar,
+Collection views support multiple named table, list, gallery, board, calendar,
 timeline, and form views saved in `content_databases.view_config_json`. Each
 view has its own stacked sorts, type-aware filters with an all/any match
 mode, per-view hidden property IDs, column widths, and (for table, list,
@@ -109,7 +173,7 @@ gallery, and board views) grouping property or (for calendar/timeline views)
 date property: text-like fields can use contains/exact/empty filters, numbers
 support comparisons, dates support before/after, and checkboxes support
 checked/unchecked. Users can reorder stacked sort and filter conditions from
-the database toolbar menus, and sort priority follows the same top-to-bottom
+the collection toolbar menus, and sort priority follows the same top-to-bottom
 order shown in the menu.
 
 New rows created from a filtered UI view inherit simple editable equality and
@@ -117,7 +181,9 @@ checkbox filters as initial property values, resolving option labels back to
 stable option IDs for select, status, and multi-select filters, so a row
 created under "Status is Published" remains visible instead of immediately
 disappearing. Agents can mirror that behavior by passing
-`--propertyValues '{"propertyId":"value"}'` to `add-database-item`. Filter
+the discovered property IDs in `propertyValues` to `add-database-item`. The
+action also requires the exact space/collection/backing-page target, current
+schema revision, and a caller-stable idempotency key. Filter
 controls are type-aware: option properties choose from their configured
 options, option value editors can search existing options or create a new
 option from the typed query, and property settings can rename option labels
@@ -147,7 +213,7 @@ the grouped property so the new page stays in that group. Grouped table,
 list, and gallery sections can be collapsed individually or all at once per
 view, and views can hide empty groups to reduce option-backed clutter. Active
 search, sort, and filter constraints show as removable chips below the
-toolbar with a clear-all control, and every database view shows a
+toolbar with a clear-all control, and every collection view shows a
 Notion-style page count footer that switches to "count of total" when search
 or filters reduce the result set. Table views can also save per-column
 footer calculations such as count values, count empty, percent empty, sum,
@@ -155,21 +221,23 @@ average, count all rows, count unique values, percent filled, checkbox
 checked/unchecked summaries, percent checked/unchecked, min/max/median/range
 numbers, and earliest/latest/date-range dates in the active view config.
 Empty constrained views show a clear search/filter recovery action in the
-view body. The database Properties menu can search fields and show or hide
+view body. The collection Properties menu can search fields and show or hide
 all fields for the current view, and it includes a New property control for
 adding fields without returning to the table header. The New property picker
 supports searching property types by label or machine name.
 
-In unconstrained table views, row drag handles can reorder database item
+In unconstrained table views, row drag handles can reorder collection item
 pages through `move-database-item`; pass both `databaseId` and `itemId` so the
 membership target is exact, and clear search, sort, and filters before manual
 reordering. Pinned and workspace-root sidebar rows also reorder exact
 memberships, but they are references: moving one never reparents, transfers,
 or changes access to the referenced page. Files sidebar Custom order is
-different again: persist it per user and per database view with
+different again: persist it per user and per collection view with
 `update-content-database-personal-view`, without changing the shared Files
-membership order. Creating a database row returns the created item IDs and
-opens the new row page in the side preview. Duplicating a database row
+membership order. Creating a collection row returns a receipt with stable item
+and document IDs, row link, revisions, affected fields, idempotency outcome,
+and verified read-back, then opens the new row page in the side preview.
+Duplicating a collection row
 returns the duplicate item IDs and opens the copied row in the side preview
 so users can continue editing the new page immediately, including from
 table, list, and gallery row action menus. Board, calendar, and timeline
@@ -194,9 +262,9 @@ date-backed row pages in a horizontally scrollable six-week range, using a
 per-view start date property and optional end date property so cards can
 span multiple days.
 
-Form views render database properties as ordered questions. Each form view
+Form views render collection properties as ordered questions. Each form view
 owns its enabled-question order and required flags, so two forms on the same
-database can collect different information. Use `submit-content-database-form`
+collection can collect different information. Use `submit-content-database-form`
 for agent, Slack, MCP, and UI submissions instead of composing
 `add-database-item` plus several property writes. The action accepts
 property definition IDs or exact property names, accepts select/status
@@ -227,33 +295,51 @@ property definition.
 
 Use `create-content-database`, `create-inline-content-database`,
 `get-content-database`, `list-trashed-content-databases`,
-`restore-content-database`, `add-database-item`, `duplicate-database-item`,
+`restore-content-database`, `add-database-item`, `update-database-item`,
+`patch-database-items`, `upsert-database-item-by-key`, `duplicate-database-item`,
 `duplicate-database-items`, `remove-database-items`, `move-database-item`,
 `update-content-database-view`, `list-document-properties`,
 `configure-document-property`, `set-document-property`,
+`list-content-database-blocks`, `mutate-content-database-block`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
+
+Read `get-content-database.mutationContract` immediately before a single-row
+mutation. Pass its exact target and schema revision to create, exact item and
+document IDs plus the current row revision to sparse update, and a fresh
+idempotency key for each intended effect. Reusing the same key with the same
+payload replays the durable receipt; reusing it with a different payload fails.
+Configure at most one ordinary text property as the collection's natural key,
+then use `upsert-database-item-by-key` with that property. Natural-key upsert
+never accepts an arbitrary property name or silently chooses a field. Blocks,
+computed, system, source-managed, unknown, and relation properties are not
+writable through these actions; use their owning surfaces instead.
 
 For a bounded migration that must rewrite every existing row body while adding
 new property definitions and values, use `migrate-content-database-rows` rather
 than looping the single-row actions. Its `validate` phase is read-only; `apply`
 commits the complete plan with an idempotency receipt or writes nothing. Read
-the database and every row independently after apply, then call its separate
+the collection and every row independently after apply, then call its separate
 `verify` phase with the saved post-apply digest. Only a verified receipt may
 `finalize` the exact legacy property IDs stored in that receipt. `rollback` is
 available before finalize only while the saved post-apply digest still matches,
 so it never overwrites a later edit. The bounded migration accepts ordinary
-databases without attached Sources; source-backed and system databases retain
+collections without attached Sources; source-backed and system collections retain
 their dedicated synchronization actions. If flushing a live row editor changes
 its persisted revision, read the rows again and build a fresh plan.
 
-When targeting more than one database row, call `duplicate-database-items` or
+When targeting more than one collection row, call `duplicate-database-items` or
 `remove-database-items` once with a native JSON array of `itemIds` or
 `documentIds`. Do not loop `duplicate-database-item` or `delete-document` for
-multi-row duplicate or membership-removal requests. Removing a row from a
-database preserves its Page, descendants, other database memberships, and
+multi-row duplicate or membership-removal requests. To give several existing
+rows different values, such as a distinct rank per row, call
+`patch-database-items` once with up to 250 rows, each carrying its own item ID,
+document ID, row revision, and sparse patch from the same fresh read. The batch
+writes every row or none; after a conflict, reread only the rows its error
+lists. Do not loop `update-database-item` for multi-row edits. Removing a row from a
+collection preserves its Page, descendants, other collection memberships, and
 unrelated property values.
 
-Database views follow Notion-style tab labels. When creating or duplicating
+Collection views follow Notion-style tab labels. When creating or duplicating
 views in `viewConfig`, use unique default names (`Table 2`, `SEO copy 2`,
 etc.) instead of appending several tabs with the same label.

@@ -1,0 +1,118 @@
+---
+title: "Courrier : Boîte de réception, recherche et automatisations"
+description: "Lisez, recherchez et triez votre boîte de réception Gmail dans Courrier — raccourcis clavier, nettoyage en masse, règles de triage automatique, filtres Gmail natifs, et contexte CRM sur un fil de discussion."
+---
+
+# Boîte de réception, recherche et automatisations
+
+Cette page couvre le travail quotidien de boîte de réception dans [Courrier](/docs/template-mail) : lire et trier les messages, rechercher dans tous les comptes connectés, nettoyer en masse, et les deux façons d'automatiser le triage récurrent. Elle s'adresse à toute personne qui utilise Courrier, pas seulement aux développeurs.
+
+## Lire et trier
+
+Parcourez votre boîte de réception sans toucher la souris. Le tri par priorité n'est disponible que si vous avez un accès Builder ou une clé personnelle enregistrée. Utilisez ces raccourcis clavier :
+
+| Touche    | Action                                           |
+| --------- | ------------------------------------------------ |
+| `J`       | E-mail suivant                                   |
+| `K`       | E-mail précédent                                 |
+| `Up/Down` | Identique à J/K                                  |
+| `Enter`   | Ouvrir un e-mail ciblé                           |
+| `E`       | Archiver l'e-mail ou le fil de discussion        |
+| `D`       | Corbeille d'un e-mail ou d'un fil de discussion  |
+| `S`       | Ajouter ou retirer une étoile                    |
+| `R`       | Répondre                                         |
+| `U`       | Basculer lecture/non lecture                     |
+| `C`       | Rédiger un nouvel e-mail                         |
+| `/`       | Barre de recherche de focus                      |
+| `Cmd+K`   | Ouvrir la palette de commandes                   |
+| `G I`     | Accéder à la boîte de réception                  |
+| `G S`     | Aller dans Favoris                               |
+| `G T`     | Aller à Envoyés                                  |
+| `G D`     | Accéder aux brouillons                           |
+| `G A`     | Aller aux archives                               |
+| `Esc`     | Fermer le fil de discussion/effacer la recherche |
+
+Tout ce qu'un raccourci fait, vous pouvez aussi le demander : « archiver tous les e-mails des robots Netlify datant de plus d'une semaine », « mettre une étoile sur tout ce qui vient de Priya », « marquer tout ce fil de discussion comme lu ».
+
+## Rechercher dans toutes les boîtes de réception connectées
+
+Tapez dans la barre de recherche, ou demandez à l'agent — une seule requête effectue une recherche dans tous les comptes Gmail connectés à la fois, pas seulement dans l'onglet ouvert. Si vous avez connecté des comptes personnel et professionnel, « trouve la facture d'Acme » vérifie les deux.
+
+## Actions en masse pour le nettoyage de la boîte de réception
+
+Archiver, mettre une étoile, et marquer comme lu fonctionnent tous en masse sur vos véritables comptes Gmail connectés — sélectionnez plusieurs messages (ou demandez à l'agent d'agir sur « tous ceux-ci ») et Courrier regroupe les requêtes par compte au lieu d'un appel par message. Un nettoyage distinct basé sur la date (« archiver tout ce qui date de plus de 30 jours ») et un export JSON d'une vue sont également disponibles, mais tous deux fonctionnent actuellement sur la boîte aux lettres de démonstration locale plutôt que sur un compte Gmail connecté. Après des modifications Gmail, Courrier empêche les réponses plus anciennes ou annulées de remplacer des résultats plus récents.
+
+Pour vider un important arriéré de courrier non lu dans un compte, utilisez « marquer tout ce qui est non lu comme lu » plutôt que de demander à l'agent d'ouvrir et de marquer chaque conversation une par une — Courrier exécute cela comme une seule opération en masse vérifiée et indique combien de messages ont réellement changé.
+
+## Règles de triage automatique vs. filtres Gmail natifs
+
+Courrier propose deux façons distinctes d'automatiser ce qui arrive au courrier entrant — choisissez délibérément :
+
+<Callout tone="info">
+
+**Les règles d'automatisation** comparent le nouveau courrier à une condition en anglais simple que vous rédigez (« provient d'une newsletter », « le sujet contient facture ») grâce à l'IA, et appliquent une action (étiquette, archive, marque de lecture, étoile, corbeille). Elles s'exécutent automatiquement environ une fois par minute dans Courrier.
+
+**Les filtres Gmail** sont le mécanisme natif propre à Gmail — ils s'exécutent à l'intérieur de Gmail lui-même, avant même que les règles d'automatisation ne voient le message, et utilisent la syntaxe de recherche exacte de Gmail (`from:`, `older_than:`, pièce jointe, taille, etc.). Ils continuent de fonctionner même quand Courrier n'est pas ouvert.
+
+Utilisez un filtre Gmail quand la règle est exprimable avec les propres critères de Gmail ; utilisez une règle d'automatisation quand la condition nécessite du jugement (« si cela ressemble à un argumentaire commercial »).
+
+</Callout>
+
+<Diagram id="doc-block-mail4" title="Cycle de vie d'une règle d'automatisation" summary={"Une règle que vous décrivez en anglais simple s'exécute sur le nouveau courrier entrant selon un calendrier récurrent et applique son action automatiquement."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    Vous décrivez une règle<br /><small class="diagram-muted"
+      >« provient d’une newsletter » → archive</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Nouveau courrier entrant</span
+    ><small class="diagram-muted">vérifié chaque minute</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    L'IA fait correspondre la condition<br /><small class="diagram-muted"
+      >par règle, par message</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Action appliquée<br /><small class="diagram-muted"
+      >étiquette · archive · marque de lecture · étoile · corbeille</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Contexte CRM sur un fil de discussion
+
+Ouvrez un fil de discussion et la barre latérale de contact de Courrier peut afficher le contexte CRM de son expéditeur. HubSpot est aujourd'hui la seule intégration connectée de bout en bout — demandez à l'agent « qui est-ce et quelles affaires a-t-il en cours », et il recherche le contact, jusqu'à 5 affaires associées, et jusqu'à 5 tickets associés depuis votre compte HubSpot configuré.
+
+Gong, Pylon, et Apollo apparaissent dans le même panneau latéral, mais uniquement lorsque vous avez ajouté leurs clés API dans Paramètres, et uniquement comme une vue latérale en lecture seule — l'agent ne peut pas encore intégrer un appel Gong ou un ticket Pylon dans le chat aujourd'hui, seulement HubSpot.
+
+## Et ensuite
+
+- [**Rédaction, planification et file d'attente des brouillons**](/docs/template-mail-drafts-and-queue) — répondre à ce que vous venez de trier
+- [**Parler à l'agent**](/docs/template-mail-agent) — les invites par tâche, et quand aller au-delà des actions prédéfinies
+- [**Guide développeur**](/docs/template-mail-developers) — l'inventaire complet des actions derrière cette page
+- [**Vue d'ensemble de Courrier**](/docs/template-mail) — retour au résumé de l'application

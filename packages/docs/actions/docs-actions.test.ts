@@ -8,11 +8,35 @@ import searchSource from "./search-source";
 
 describe("docs actions", () => {
   it("marks documentation reads and searches as read-only", () => {
-    expect(
-      [listDocs, readDoc, readSourceFile, searchDocs, searchSource].map(
-        (action) => action.readOnly,
-      ),
-    ).toEqual([true, true, true, true, true]);
+    const actions = [
+      listDocs,
+      readDoc,
+      readSourceFile,
+      searchDocs,
+      searchSource,
+    ];
+
+    expect(actions.map((action) => action.readOnly)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(actions.map((action) => action.requiresAuth)).toEqual([
+      false,
+      false,
+      undefined,
+      false,
+      undefined,
+    ]);
+    expect(actions.map((action) => action.publicAgent)).toEqual([
+      { expose: true, readOnly: true, requiresAuth: false },
+      { expose: true, readOnly: true, requiresAuth: false },
+      { expose: true, readOnly: true },
+      { expose: true, readOnly: true, requiresAuth: false },
+      { expose: true, readOnly: true },
+    ]);
   });
 
   it("lists the current core docs content", async () => {
@@ -43,8 +67,6 @@ describe("docs actions", () => {
 
     expect(output).toContain("Clips");
     expect(output).toContain("browser logs and network activity");
-    expect(output).toContain(
-      "**Path:** /docs/template-clips-capture-everywhere",
-    );
+    expect(output).toContain("**Path:** /docs/template-clips-features");
   });
 });

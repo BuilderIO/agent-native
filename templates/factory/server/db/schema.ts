@@ -18,6 +18,7 @@ export const triageItems = table(
     summary: text("summary"),
     status: text("status").notNull().default("received"),
     risk: text("risk").notNull().default("unknown"),
+    confidence: text("confidence").notNull().default("unknown"),
     channelId: text("channel_id"),
     threadTs: text("thread_ts"),
     repository: text("repository"),
@@ -31,14 +32,20 @@ export const triageItems = table(
     updatedAt: text("updated_at").notNull().default(now()),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),
+    factoryId: text("factory_id"),
   },
   (item) => ({
-    orgDedupeUnique: uniqueIndex("factory_items_org_dedupe_idx").on(
-      item.orgId,
-      item.dedupeKey,
-    ),
+    orgFactoryDedupeUnique: uniqueIndex(
+      "factory_items_org_factory_dedupe_idx",
+    ).on(item.orgId, item.factoryId, item.dedupeKey),
     orgStatusIdx: index("factory_items_org_status_idx").on(
       item.orgId,
+      item.status,
+      item.updatedAt,
+    ),
+    orgFactoryStatusIdx: index("factory_items_org_factory_status_idx").on(
+      item.orgId,
+      item.factoryId,
       item.status,
       item.updatedAt,
     ),
@@ -58,6 +65,7 @@ export const triageRules = table("factory_rules", {
   updatedAt: text("updated_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  factoryId: text("factory_id"),
 });
 
 export const triageDecisions = table("factory_decisions", {
@@ -73,6 +81,7 @@ export const triageDecisions = table("factory_decisions", {
   createdAt: text("created_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  factoryId: text("factory_id"),
 });
 
 export const triageRuns = table("factory_runs", {
@@ -93,6 +102,7 @@ export const triageRuns = table("factory_runs", {
   error: text("error"),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  factoryId: text("factory_id"),
 });
 
 export const triageFeedback = table("factory_feedback", {
@@ -103,6 +113,7 @@ export const triageFeedback = table("factory_feedback", {
   createdAt: text("created_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  factoryId: text("factory_id"),
 });
 
 export const triageConfig = table("factory_config", {
@@ -110,6 +121,7 @@ export const triageConfig = table("factory_config", {
   slackWorkspace: text("slack_workspace").notNull().default("primary"),
   slackChannelId: text("slack_channel_id"),
   slackChannelName: text("slack_channel_name"),
+  builderSlackUserId: text("builder_slack_user_id"),
   pollingEnabled: integer("polling_enabled").notNull().default(0),
   lastSlackTs: text("last_slack_ts"),
   slackHistoryCursor: text("slack_history_cursor"),
@@ -130,7 +142,49 @@ export const triageConfig = table("factory_config", {
   updatedAt: text("updated_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  factoryId: text("factory_id"),
 });
+
+export const factoryAuditEvents = table(
+  "factory_audit_events",
+  {
+    id: text("id").primaryKey(),
+    automationRunId: text("automation_run_id"),
+    automationThreadId: text("automation_thread_id"),
+    automationName: text("automation_name"),
+    itemId: text("item_id"),
+    source: text("source"),
+    sourceUrl: text("source_url"),
+    action: text("action").notNull(),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    summary: text("summary").notNull(),
+    detailsJson: text("details_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    factoryId: text("factory_id"),
+  },
+  (event) => ({
+    orgCreatedIdx: index("factory_audit_events_org_created_idx").on(
+      event.orgId,
+      event.createdAt,
+    ),
+    orgFactoryCreatedIdx: index(
+      "factory_audit_events_org_factory_created_idx",
+    ).on(event.orgId, event.factoryId, event.createdAt),
+    runCreatedIdx: index("factory_audit_events_run_created_idx").on(
+      event.orgId,
+      event.automationRunId,
+      event.createdAt,
+    ),
+    itemCreatedIdx: index("factory_audit_events_item_created_idx").on(
+      event.orgId,
+      event.itemId,
+      event.createdAt,
+    ),
+  }),
+);
 
 export const factoryDefinitions = table(
   "factory_definitions",
@@ -165,6 +219,7 @@ export const factoryGraphVersions = table(
     changeSummary: text("change_summary").notNull().default(""),
     createdAt: text("created_at").notNull().default(now()),
     createdBy: text("created_by").notNull(),
+    chatContext: text("chat_context"),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),
   },
@@ -179,6 +234,57 @@ export const factoryGraphVersions = table(
       version.factoryId,
       version.createdAt,
     ),
+  }),
+);
+
+export const factoryAutomationVersions = table(
+  "factory_automation_versions",
+  {
+    id: text("id").primaryKey(),
+    automationId: text("automation_id").notNull(),
+    factoryId: text("factory_id").notNull(),
+    version: integer("version").notNull(),
+    rawContent: text("raw_content").notNull(),
+    displayName: text("display_name"),
+    source: text("source").notNull().default("save"),
+    summary: text("summary").notNull().default(""),
+    createdAt: text("created_at").notNull().default(now()),
+    createdBy: text("created_by").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+  },
+  (version) => ({
+    automationVersionUnique: uniqueIndex(
+      "factory_automation_versions_unique_idx",
+    ).on(version.orgId, version.automationId, version.version),
+    automationCreatedIdx: index("factory_automation_versions_created_idx").on(
+      version.orgId,
+      version.automationId,
+      version.createdAt,
+    ),
+  }),
+);
+
+export const factoryPollCursors = table(
+  "factory_poll_cursors",
+  {
+    id: text("id").primaryKey(),
+    factoryId: text("factory_id").notNull(),
+    source: text("source").notNull(),
+    destinationKey: text("destination_key").notNull(),
+    lastSlackTs: text("last_slack_ts"),
+    slackHistoryCursor: text("slack_history_cursor"),
+    lastSentrySeenAt: text("last_sentry_seen_at"),
+    babysitQueueCursor: text("babysit_queue_cursor"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+  },
+  (cursor) => ({
+    orgFactorySourceDestIdx: uniqueIndex(
+      "factory_poll_cursors_org_factory_source_dest_idx",
+    ).on(cursor.orgId, cursor.factoryId, cursor.source, cursor.destinationKey),
   }),
 );
 

@@ -1,9 +1,3 @@
-// Integration tests for the grid's value payload. They run against a real
-// libsql database with the real migrations, the real bitemporal writer, and the
-// real sharing registry — a mocked accessFilter would make the scoping
-// assertion vacuous, and a mocked writer would not produce the closed-out
-// history rows this action has to ignore.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-record-values-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-record-values-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -95,7 +89,7 @@ async function defineAttribute(input: {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -166,7 +160,6 @@ beforeAll(async () => {
         { provider: "hubspot", fieldName: "stage", confidence: 0.9 },
       ]),
     });
-    // A second write closes the first row: only the current one may surface.
     await writeCrmRecordField({
       target: { recordId: RECORD_ID },
       attribute: stage,
@@ -185,9 +178,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("list-crm-record-values", () => {

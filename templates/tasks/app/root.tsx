@@ -1,21 +1,25 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useDbSync } from "@agent-native/core/client/hooks";
-import {
-  AppProviders,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client/hooks";
-import { getLocaleInitScript } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
@@ -25,6 +29,8 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 import { i18nCatalog } from "@/i18n";
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
+
+import changelog from "../CHANGELOG.md?raw";
 
 import stylesheet from "./global.css?url";
 
@@ -85,7 +91,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181B" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -133,18 +138,50 @@ function ThemeToggleItem() {
 
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-        <CommandMenu.Group heading="Actions">
-          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        changelog={changelog}
+        changelogKey="tasks"
+        chatStorageKey="tasks"
+      >
+        <CommandMenu.Group heading={t("sidebar.navigationTitle")}>
+          {location.pathname === "/inbox" ? (
+            <CommandMenu.Item onSelect={() => navigate("/tasks")}>
+              {t("sidebar.navTasks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname === "/tasks" ? (
+            <CommandMenu.Item onSelect={() => navigate("/inbox")}>
+              {t("sidebar.navInbox")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname === "/fields" ? (
+            <CommandMenu.Item onSelect={() => navigate("/tasks")}>
+              {t("sidebar.navTasks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/settings") ? (
+            <CommandMenu.Item onSelect={() => navigate("/inbox")}>
+              {t("sidebar.navInbox")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname === "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/inbox")}>
+              {t("sidebar.navInbox")}
+            </CommandMenu.Item>
+          ) : null}
         </CommandMenu.Group>
         <CommandMenu.Group heading="Appearance">
           <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
-      <Toaster position="bottom-left" />
       <AppLayout>
         <Outlet />
       </AppLayout>
@@ -155,7 +192,12 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+    <AppProviders
+      queryClient={queryClient}
+      skeletonLayout="list"
+      toaster={<Toaster position="bottom-left" />}
+      i18n={{ catalog: i18nCatalog }}
+    >
       <AppToolkitProvider>
         <DbSyncSetup />
         <AppContent />
@@ -164,4 +206,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

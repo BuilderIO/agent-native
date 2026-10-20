@@ -1,20 +1,28 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  getDeckChatScopeLabel,
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
+  isSlidesHomeRoute,
+  isSlidesSettingsRoute,
+  shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 
+describe("Slides settings route policy", () => {
+  it("gives Settings the full width", () => {
+    expect(isSlidesSettingsRoute("/settings")).toBe(true);
+    expect(isSlidesSettingsRoute("/settings/app/general")).toBe(true);
+    expect(isSlidesSettingsRoute("/settingsx")).toBe(false);
+    expect(isSlidesSettingsRoute("/home")).toBe(false);
+  });
+});
+
 describe("Slides layout sidebar route policy", () => {
-  it("uses a contextual label for untitled deck chat scope", () => {
-    expect(getDeckChatScopeLabel("Untitled Deck", "This Deck")).toBe(
-      "This Deck",
-    );
-    expect(getDeckChatScopeLabel("Quarterly Review", "This Deck")).toBe(
-      "Quarterly Review",
-    );
-    expect(getDeckChatScopeLabel(undefined, "This Deck")).toBe("");
+  it("recognizes equivalent home paths", () => {
+    expect(isSlidesHomeRoute("/home")).toBe(true);
+    expect(isSlidesHomeRoute("/home/")).toBe(true);
+    expect(isSlidesHomeRoute("/HOME/")).toBe(true);
+    expect(isSlidesHomeRoute("/home/settings")).toBe(false);
   });
 
   it("recognizes only deck editor routes", () => {
@@ -22,6 +30,11 @@ describe("Slides layout sidebar route policy", () => {
     expect(isSlidesEditorRoute("/deck/deck-1/")).toBe(true);
     expect(isSlidesEditorRoute("/")).toBe(false);
     expect(isSlidesEditorRoute("/deck/deck-1/present")).toBe(false);
+  });
+
+  it("hides the app sidebar on deck editor routes", () => {
+    expect(shouldShowSlidesAppSidebar("/deck/deck-1")).toBe(false);
+    expect(shouldShowSlidesAppSidebar("/")).toBe(true);
   });
 
   it("collapses app navigation by default in the deck editor", () => {

@@ -1,0 +1,121 @@
+---
+title: "Routing"
+description: "React Router v8 を使った agent-native アプリのファイルベース ルーティング: ページ、動的パラメータ、ナビゲーション。"
+---
+
+# Routing
+
+agent-native アプリは、`@react-router/fs-routes` の `flatRoutes()` によるファイルベース ルーティングで **React Router v8** を使用します。`app/routes/` 内のすべてのファイルが URL になります。テンプレートはドット記法の規則を使用します。ドットは単一のファイル名内で URL のセグメントを区切ります。
+
+このページでは、ブラウザ内でレンダリングされるページである、クライアント ルート (`app/routes/` から) を扱います。サーバー ルートは別のシステムです: `server/routes/` の下にある Nitro のファイル ルートと、フレームワーク自身の `/_agent-native/*` エンドポイントです。それらは [Routes](/docs/server-routes) ページにあります。この 2 つはディレクトリ、命名規則、ルーターのいずれも共有していません。そのため、`server/routes/` のファイルがここでページになることはなく、`app/routes/` のファイルがサーバー エンドポイントになることもありません。
+
+<Diagram id="doc-block-client-routing-1" title="ファイル名 → URL" summary="app/routes/ 内の各ファイルが URL になります。ドットはスラッシュになり、$ セグメントは動的パラメータになります。">
+
+```html
+<div class="diagram-filemap">
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">_index.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard_.$ticketId.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard/:ticketId</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-filemap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-filemap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-filemap-row .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## ファイルベース ルーティング {#file-based-routing}
+
+### ファイル → URL のマッピング
+
+| ファイル                   | URL                    | 補足                                                                                         |
+| -------------------------- | ---------------------- | -------------------------------------------------------------------------------------------- |
+| `_index.tsx`               | `/`                    | インデックス ルート                                                                          |
+| `dashboard.tsx`            | `/dashboard`           | 単純なページ                                                                                 |
+| `extensions.$id.tsx`       | `/extensions/:id`      | `extensions.tsx` の `<Outlet/>` 内にネストされます。`$` は動的パラメータです                 |
+| `dashboard_.$ticketId.tsx` | `/dashboard/:ticketId` | 末尾の `_` によって `dashboard.tsx` へのネストがスキップされるため、これは独立したページです |
+| `_app.tsx`                 | (URL セグメントなし)   | パスレス レイアウト。`_` を接頭辞にします                                                    |
+| `inbox/route.tsx`          | `/inbox`               | フォルダ形式。`route.tsx` がインデックスです                                                 |
+
+セグメントに `$` を接頭辞として付けると動的パラメータになります。`_` を接頭辞に付けるとパスレスなレイアウト ルート (URL セグメントなし) になり、ドットの前に末尾の `_` を追加すると、ネストしているように見えるパスをその親のレイアウトへのネストからオプトアウトさせます。テンプレートは `flatRoutes()` を使用します。上記のドット記法のファイルが基本形です。ネストされたフォルダ形式 `inbox/route.tsx` も動作します。
+
+## ページの追加 {#adding-a-page}
+
+ファイルを作成し、デフォルトのコンポーネントをエクスポートします。
+
+```tsx filename="app/routes/settings.tsx"
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+これだけです。開発サーバーは起動時にルートファイルを読み込みます。すでに `pnpm dev`が実行中の場合は、ファイルを追加した後に再起動してください。登録は必要ありません。
+
+## 動的パラメータ {#dynamic-params}
+
+```tsx filename="app/routes/dashboard_.$ticketId.tsx"
+import { useParams } from "react-router";
+
+export default function TicketDetailPage() {
+  const { ticketId } = useParams();
+  return <div>Ticket: {ticketId}</div>;
+}
+```
+
+ドットの前の末尾の `_` によって、このページは `dashboard.tsx` の `<Outlet/>` 内にネストされず、チケット キューのレイアウトの中に表示されるのではなく、`/dashboard/:ticketId` で独立したフルページとしてレンダリングされます。
+
+## ナビゲーション {#navigation}
+
+クライアント側のナビゲーションには `<Link>` を、プログラムによるナビゲーションには `useNavigate()` を使用します。
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/dashboard">Dashboard</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/dashboard/${ticketId}`);
+```
+
+どちらも、それ単独ではエージェントにユーザーが何を見ているかを伝えません。それは別の関心事で、`useAgentRouteState()` が現在のルートをアプリケーション状態に書き込むことで処理されます。[Context Awareness](/docs/context-awareness) を参照してください。
+
+## 次は何ですか
+
+- [**概要**](/docs/client-overview) — `app/routes/` が `app/` と `public/` の残りの中でどこに位置するか
+- [**データと同期**](/docs/client-data) — ルート内からのデータの読み書き
+- [**Agent チャット**](/docs/client-agent-chat) — ルートからのプロンプト送信とコンテキストのステージング
+- [**Routes**](/docs/server-routes) — 別のサーバー ルーティング システム: `server/routes/` 内のファイル ルートとフレームワークの `/_agent-native/` 名前空間
+- [**Context Awareness**](/docs/context-awareness) — エージェントが現在のルートと選択を学習する方法

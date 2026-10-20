@@ -134,7 +134,7 @@ describe("DocsLanguagePicker", () => {
 
     const zhLink = screen.getByRole("link", { name: /简体中文/ });
     expect(zhLink.getAttribute("href")).toBe(
-      "/zh-CN/docs/internationalization?tab=api#overview",
+      "/zh-cn/docs/internationalization/?tab=api#overview",
     );
     expect(zhLink.getAttribute("data-an-prefetch")).toBe("viewport");
   });
@@ -174,7 +174,7 @@ describe("DocsLanguagePicker", () => {
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("fr-FR");
     await waitFor(() => {
       expect(screen.getByTestId("location").textContent).toBe(
-        "/fr-FR/docs/internationalization?tab=api#overview",
+        "/fr-fr/docs/internationalization/?tab=api#overview",
       );
     });
   });
@@ -194,7 +194,7 @@ describe("DocsLanguageSuggestion", () => {
       name: "Switch to Français",
     });
     expect(switchLink.getAttribute("href")).toBe(
-      "/fr-FR/docs/internationalization?tab=api#overview",
+      "/fr-fr/docs/internationalization/?tab=api#overview",
     );
   });
 
@@ -209,7 +209,7 @@ describe("DocsLanguageSuggestion", () => {
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("fr-FR");
     await waitFor(() => {
       expect(screen.getByTestId("location").textContent).toBe(
-        "/fr-FR/docs/internationalization?tab=api#overview",
+        "/fr-fr/docs/internationalization/?tab=api#overview",
       );
     });
   });
@@ -237,6 +237,7 @@ describe("DocsLanguageSuggestion", () => {
   it("keeps localized routes and explicit preferences quiet", () => {
     expect(
       shouldSuggestDocsLocale({
+        pathname: "/",
         routeLocale: "fr-FR",
         browserLocale: "fr-FR",
         storedPreference: null,
@@ -246,6 +247,7 @@ describe("DocsLanguageSuggestion", () => {
 
     expect(
       shouldSuggestDocsLocale({
+        pathname: "/",
         routeLocale: "en-US",
         browserLocale: "fr-FR",
         storedPreference: "en-US",
@@ -255,11 +257,30 @@ describe("DocsLanguageSuggestion", () => {
 
     expect(
       shouldSuggestDocsLocale({
+        pathname: "/",
         routeLocale: "en-US",
         browserLocale: "fr-FR",
         storedPreference: null,
         dismissedTarget: "fr-FR",
       }),
     ).toBe(false);
+  });
+
+  it("stays quiet on English-only campaign pages", () => {
+    const state = {
+      routeLocale: "en-US",
+      browserLocale: "fr-FR",
+      storedPreference: null,
+      dismissedTarget: null,
+    } as const;
+
+    expect(shouldSuggestDocsLocale({ ...state, pathname: "/" })).toBe(true);
+    for (const pathname of [
+      "/articles/",
+      "/articles/topic/agents/",
+      "/use-cases/",
+      "/use-cases/startup-pitch-deck/",
+    ])
+      expect(shouldSuggestDocsLocale({ ...state, pathname })).toBe(false);
   });
 });

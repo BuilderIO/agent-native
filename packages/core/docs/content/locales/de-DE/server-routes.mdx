@@ -51,7 +51,7 @@ Actions decken die überwiegende Mehrheit der App-Operationen ab. Greifen Sie nu
 
 - Vorgänge, die sowohl UI als auch Agent benötigen
 - Lesen oder Schreiben von App-Daten
-- HTTP-förmige Endpunkte (verwenden Sie die Option `http` in [Actions](/docs/actions))
+- HTTP-förmige Endpunkte (verwenden Sie die Option `http` in [Actions](/docs/actions-overview))
 - Alles, was ein Agenten-Tool, MCP-Tool oder CLI-Befehl sein sollte
 - Standard-JSON-Request/Response-APIs
 
@@ -77,7 +77,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
     throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
   }
 
@@ -189,7 +194,7 @@ Jede SSR-Antwort ist eine unpersönliche, öffentliche Shell, die am CDN gecacht
 
 ## Was kommt als nächstes? {#whats-next}
 
-- [**Actions**](/docs/actions): die bevorzugte Oberfläche für App-Operationen; greifen Sie nur dann zu einer Route, wenn sie nicht passt
-- [**Plugins**](/docs/server-plugins): Startup-Plugins, die laufen, bevor Routen bedient werden
+- [**Actions**](/docs/actions-overview): die bevorzugte Oberfläche für App-Operationen; greifen Sie nur dann zu einer Route, wenn sie nicht passt
+- [**Plugins**](/docs/server-plugins): Startup-Plugins und ihr Initialisierungsverhalten
 - [**Middleware**](/docs/server-middleware): Auth-Guards, die alle Routen schützen, einschließlich `/api/*`
 - [**Security**](/docs/security#access-guards): `accessFilter`/`assertAccess` und das vollständige Data-Scoping-Modell

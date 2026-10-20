@@ -7,8 +7,8 @@ import {
   databaseItemBodyHydrationIsPending,
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
-  newDocumentPageChoiceIsDisabled,
   previewBodyHydrationIsPending,
+  previewBodyHydrationTerminalError,
   previewBodyHydrationIsTerminalError,
   previewDraftConflictsWithHydratedBody,
   shouldIgnorePreviewEmptyNormalization,
@@ -274,6 +274,31 @@ describe("body hydration editing gates", () => {
         document: documentWithHydration("error"),
       }),
     ).toBe(true);
+    expect(
+      previewBodyHydrationTerminalError({
+        item,
+        document: {
+          ...documentWithHydration("error"),
+          bodyHydration: {
+            ...documentWithHydration("error").bodyHydration!,
+            hydration: {
+              status: "error",
+              attemptedAt: "2026-08-21T12:00:00.000Z",
+              error: "Builder denied access to this entry.",
+              version: "v2",
+              reason: "access_denied",
+              providerStatus: "http_403",
+              attemptCount: 1,
+              retryable: false,
+            },
+          },
+        },
+      }),
+    ).toMatchObject({
+      reason: "access_denied",
+      providerStatus: "http_403",
+      retryable: false,
+    });
   });
 
   it("keeps a non-empty draft recoverable when Builder hydrates a body over its empty baseline", () => {
@@ -322,41 +347,10 @@ describe("body hydration editing gates", () => {
   it("treats the editor empty block sentinel as empty content", () => {
     expect(isEffectivelyEmptyDocumentContent("")).toBe(true);
     expect(isEffectivelyEmptyDocumentContent(" <empty-block/> ")).toBe(true);
+    expect(
+      isEffectivelyEmptyDocumentContent("<empty-block/>\n <empty-block/>"),
+    ).toBe(true);
     expect(isEffectivelyEmptyDocumentContent("Hydrated body")).toBe(false);
-  });
-
-  it("keeps the page choice usable while collaboration connects", () => {
-    expect(
-      newDocumentPageChoiceIsDisabled({
-        canEdit: true,
-        bodyHydrationPending: false,
-        databaseCreationPending: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("disables the page choice for viewers, body hydration, or database conversion", () => {
-    expect(
-      newDocumentPageChoiceIsDisabled({
-        canEdit: false,
-        bodyHydrationPending: false,
-        databaseCreationPending: false,
-      }),
-    ).toBe(true);
-    expect(
-      newDocumentPageChoiceIsDisabled({
-        canEdit: true,
-        bodyHydrationPending: true,
-        databaseCreationPending: false,
-      }),
-    ).toBe(true);
-    expect(
-      newDocumentPageChoiceIsDisabled({
-        canEdit: true,
-        bodyHydrationPending: false,
-        databaseCreationPending: true,
-      }),
-    ).toBe(true);
   });
 
   it("ignores untouched empty preview normalization before it can dirty-save", () => {

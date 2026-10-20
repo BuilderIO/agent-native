@@ -28,6 +28,7 @@ export const navBridgeScript: string = `"use strict";
         if (!t || !t.closest) return;
         var a = t.closest("a[href], [data-screen]");
         if (!a) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
         var ds = a.getAttribute && a.getAttribute("data-screen");
         if (!ds) {
           var rawHref = a.getAttribute("href");

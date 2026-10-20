@@ -1,3 +1,5 @@
+import { getAppConfig } from "../app-config/index.js";
+
 export const INTEGRATION_DURABLE_DISPATCH_ENV =
   "AGENT_INTEGRATION_DURABLE_DISPATCH";
 export const INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV =
@@ -20,13 +22,5 @@ export function isInIntegrationRecoveryRuntime(): boolean {
 }
 
 export function isIntegrationDurableDispatchConfigured(): boolean {
-  const value = process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return (
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "yes" ||
-    normalized === "on"
-  );
+  return getAppConfig().integrations.durableDispatch === true;
 }

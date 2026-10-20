@@ -16,6 +16,7 @@ import {
   readPendingCreativeContextMedia,
 } from "../store/index.js";
 import { getCreativeContext } from "./context.js";
+import { isCreativeContextLabAvailable } from "./labs.js";
 
 const SAFE_MIME_TYPES = new Set([
   "image/png",
@@ -37,6 +38,14 @@ export function createCreativeContextMediaPlugin(): NitroPluginDef {
       const userEmail = session?.email?.trim().toLowerCase();
       if (!userEmail) {
         return new Response("Authentication required", { status: 401 });
+      }
+      if (
+        !(await isCreativeContextLabAvailable(
+          userEmail,
+          getCreativeContext().labKey,
+        ))
+      ) {
+        return new Response("Not found", { status: 404 });
       }
       const orgId = session?.orgId;
       const url = new URL(

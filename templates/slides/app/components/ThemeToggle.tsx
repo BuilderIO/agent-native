@@ -26,6 +26,7 @@ export function ThemeToggle({ className }: { className?: string }) {
         <Button
           variant="ghost"
           size="icon"
+          aria-label={t("root.toggleTheme")}
           onClick={() => setTheme(isDark ? "light" : "dark")}
           className={cn("h-7 w-7 text-muted-foreground", className)}
         >

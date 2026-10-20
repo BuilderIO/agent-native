@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { getAppConfig } from "../app-config/index.js";
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
+
 const FIRST_PARTY_COOKIE_DOMAIN = "agent-native.com";
 
 export interface AuthCookieNamespace {
@@ -8,6 +11,7 @@ export interface AuthCookieNamespace {
   configuredCookieDomain?: string;
   frameworkCookieDomain?: string;
   frameworkCookieName: string;
+  frameworkCookieNamesToRead: string[];
   frameworkCookieNamesToClear: string[];
   frameworkCookieDomainsToClear: string[];
   betterAuthCookiePrefix: string;
@@ -16,17 +20,27 @@ export interface AuthCookieNamespace {
   isFirstPartyCookieDomain: boolean;
 }
 
+export function frameworkSessionHintCookieName(
+  sessionCookieName: string,
+): string {
+  return `${sessionCookieName}_hint`;
+}
+
 export function resolveAuthCookieNamespace(
   env: Record<string, string | undefined> = process.env,
   cwd = process.cwd(),
 ): AuthCookieNamespace {
   const isWorkspaceMode =
-    env.AGENT_NATIVE_WORKSPACE === "1" ||
-    env.VITE_AGENT_NATIVE_WORKSPACE === "1";
+    env === process.env
+      ? isConfiguredWorkspaceRuntime()
+      : isWorkspaceModeFromEnv(env);
+  const isolatedWorkspaceRealm =
+    isWorkspaceMode && isConfiguredWorkspaceAuthMode(env) === "isolated";
   const configuredCookieDomain = normalizeCookieDomain(env.COOKIE_DOMAIN);
+  const firstPartyUrlIdentity = readFirstPartyAppIdentityFromUrl(env);
   const isFirstPartyCookieDomain =
     normalizeDomainForCompare(configuredCookieDomain) ===
-    FIRST_PARTY_COOKIE_DOMAIN;
+      FIRST_PARTY_COOKIE_DOMAIN || firstPartyUrlIdentity.isFirstPartyHost;
   const shareFirstPartyCookieDomain = isTruthy(
     env.AGENT_NATIVE_SHARE_COOKIE_DOMAIN,
   );
@@ -44,17 +58,25 @@ export function resolveAuthCookieNamespace(
     env.NODE_ENV !== "production" && !isWorkspaceMode && !frameworkCookieDomain;
 
   const explicitAppSlug = slugifyAppName(env.APP_NAME || "");
+  const workspaceAppSlug = isolatedWorkspaceRealm
+    ? slugifyAppName(
+        firstConfiguredValue(
+          env.AGENT_NATIVE_WORKSPACE_APP_ID,
+          env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID,
+          env.APP_NAME,
+        ) || "",
+      )
+    : "";
   const localAppSlug = localIsolatedRealm
     ? slugifyAppName(env.npm_package_name || readPackageJsonName(cwd))
     : "";
-  const firstPartyUrlAppSlug = firstPartyIsolatedRealm
-    ? readFirstPartyAppSlugFromUrl(env)
-    : "";
-  const appSlug = explicitAppSlug || firstPartyUrlAppSlug || localAppSlug;
+  const firstPartyUrlAppSlug = firstPartyUrlIdentity.appSlug;
+  const appSlug =
+    workspaceAppSlug || explicitAppSlug || firstPartyUrlAppSlug || localAppSlug;
 
   if (firstPartyIsolatedRealm && !appSlug) {
     throw new Error(
-      "[agent-native] COOKIE_DOMAIN=.agent-native.com requires an app identifier " +
+      "[agent-native] First-party agent-native.com auth requires an app identifier " +
         "so first-party auth cookies stay isolated. Set APP_NAME, APP_URL, URL, " +
         "DEPLOY_PRIME_URL, or DEPLOY_URL; only set AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1 " +
         "when every subdomain intentionally shares one auth database.",
@@ -64,13 +86,16 @@ export function resolveAuthCookieNamespace(
   const frameworkCookieName = frameworkCookieDomain
     ? "an_session"
     : isWorkspaceMode
-      ? "an_session_workspace"
+      ? isolatedWorkspaceRealm && appSlug
+        ? `an_session_${appSlug}`
+        : "an_session_workspace"
       : appSlug
         ? `an_session_${appSlug}`
         : "an_session";
 
   const isolatedBetterAuthPrefix =
-    !!appSlug && (localIsolatedRealm || firstPartyIsolatedRealm);
+    !!appSlug &&
+    (localIsolatedRealm || firstPartyIsolatedRealm || isolatedWorkspaceRealm);
 
   const frameworkCookieNamesToClear = new Set<string>([
     frameworkCookieName,
@@ -78,23 +103,69 @@ export function resolveAuthCookieNamespace(
   ]);
   if (appSlug) frameworkCookieNamesToClear.add(`an_session_${appSlug}`);
   if (isWorkspaceMode) frameworkCookieNamesToClear.add("an_session_workspace");
+  const frameworkCookieNamesToRead = firstPartyIsolatedRealm
+    ? [frameworkCookieName]
+    : [...frameworkCookieNamesToClear];
 
-  const frameworkCookieDomainsToClear = configuredCookieDomain
-    ? [configuredCookieDomain]
-    : [];
+  const frameworkCookieDomainsToClear = new Set<string>();
+  if (configuredCookieDomain) {
+    frameworkCookieDomainsToClear.add(configuredCookieDomain);
+  }
+  if (firstPartyIsolatedRealm) {
+    frameworkCookieDomainsToClear.add(`.${FIRST_PARTY_COOKIE_DOMAIN}`);
+  }
 
   return {
     appSlug,
     configuredCookieDomain,
     frameworkCookieDomain,
     frameworkCookieName,
+    frameworkCookieNamesToRead,
     frameworkCookieNamesToClear: [...frameworkCookieNamesToClear],
-    frameworkCookieDomainsToClear,
+    frameworkCookieDomainsToClear: [...frameworkCookieDomainsToClear],
     betterAuthCookiePrefix: isolatedBetterAuthPrefix ? `an_${appSlug}` : "an",
     betterAuthCookieDomain: frameworkCookieDomain,
     isWorkspaceMode,
     isFirstPartyCookieDomain,
   };
+}
+
+function isConfiguredWorkspaceRuntime(): boolean {
+  const workspace = getAppConfig().workspace;
+  return (
+    workspace.isWorkspace === true || typeof workspace.appsJson === "string"
+  );
+}
+
+function isConfiguredWorkspaceAuthMode(
+  env: Record<string, string | undefined>,
+): "shared" | "isolated" | undefined {
+  if (env === process.env) return getAppConfig().workspace.authMode;
+  const value = firstConfiguredValue(
+    env.AGENT_NATIVE_WORKSPACE_AUTH_MODE,
+    env.VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE,
+  )?.toLowerCase();
+  return value === "shared" || value === "isolated" ? value : undefined;
+}
+
+function isWorkspaceModeFromEnv(
+  env: Record<string, string | undefined>,
+): boolean {
+  const workspaceFlag = firstConfiguredValue(
+    env.AGENT_NATIVE_WORKSPACE,
+    env.VITE_AGENT_NATIVE_WORKSPACE,
+  );
+  const workspaceApps = firstConfiguredValue(
+    env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
+    env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
+  );
+  return isTruthyRuntimeValue(workspaceFlag) || Boolean(workspaceApps);
+}
+
+function firstConfiguredValue(
+  ...values: Array<string | undefined>
+): string | undefined {
+  return values.find((value) => value?.trim())?.trim();
 }
 
 function readPackageJsonName(cwd: string): string {
@@ -107,9 +178,9 @@ function readPackageJsonName(cwd: string): string {
   }
 }
 
-function readFirstPartyAppSlugFromUrl(
+function readFirstPartyAppIdentityFromUrl(
   env: Record<string, string | undefined>,
-): string {
+): { isFirstPartyHost: boolean; appSlug: string } {
   for (const key of [
     "APP_URL",
     "BETTER_AUTH_URL",
@@ -126,15 +197,20 @@ function readFirstPartyAppSlugFromUrl(
         hostname.endsWith(`.${FIRST_PARTY_COOKIE_DOMAIN}`) &&
         hostname !== `www.${FIRST_PARTY_COOKIE_DOMAIN}`
       ) {
-        return slugifyAppName(
-          hostname.slice(0, -`.${FIRST_PARTY_COOKIE_DOMAIN}`.length),
+        const subdomain = hostname.slice(
+          0,
+          -`.${FIRST_PARTY_COOKIE_DOMAIN}`.length,
         );
+        const appHost = subdomain.startsWith("beta.")
+          ? subdomain.slice("beta.".length)
+          : subdomain;
+        return { isFirstPartyHost: true, appSlug: slugifyAppName(appHost) };
       }
     } catch {
       // Ignore malformed platform URLs.
     }
   }
-  return "";
+  return { isFirstPartyHost: false, appSlug: "" };
 }
 
 function normalizeCookieDomain(value: string | undefined): string | undefined {

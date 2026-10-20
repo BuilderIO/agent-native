@@ -18,7 +18,7 @@ export default function NotFound() {
       <p className="text-muted-foreground max-w-sm">
         {t("common.pageNotFoundDescription")}
       </p>
-      <Link to="/">
+      <Link to="/home">
         <Button variant="default">{t("common.returnToDashboard")}</Button>
       </Link>
     </div>

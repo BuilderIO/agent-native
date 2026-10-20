@@ -13,14 +13,34 @@ export function defaultNativeHostConfigPath(): string {
     homedir(),
     "Library",
     "Application Support",
-    "Agent Native",
+    "Agent-Native",
     "browser-control",
     "native-host.json",
   );
 }
 
-export async function readNativeHostConfig(
-  path = defaultNativeHostConfigPath(),
+export function legacyNativeHostConfigPath(): string {
+  return join(
+    homedir(),
+    "Library",
+    "Application Support",
+    "Agent Native", // agent-native-brand-ok: preserve the legacy native-host config directory.
+    "browser-control",
+    "native-host.json",
+  );
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT"
+  );
+}
+
+async function readNativeHostConfigAtPath(
+  path: string,
 ): Promise<NativeHostConfig> {
   const metadata = await stat(path);
   if ((metadata.mode & 0o077) !== 0) {
@@ -50,4 +70,18 @@ export async function readNativeHostConfig(
     throw new Error("Native host bearer credential is invalid.");
   }
   return { version: 1, baseUrl: url.origin, bearerToken: value.bearerToken };
+}
+
+export async function readNativeHostConfig(
+  configPath = defaultNativeHostConfigPath(),
+): Promise<NativeHostConfig> {
+  const canonicalPath = defaultNativeHostConfigPath();
+  try {
+    return await readNativeHostConfigAtPath(configPath);
+  } catch (error) {
+    if (configPath !== canonicalPath || !isMissingFile(error)) {
+      throw error;
+    }
+    return readNativeHostConfigAtPath(legacyNativeHostConfigPath());
+  }
 }

@@ -1,11 +1,26 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import type { ActionEntry } from "../agent/production-agent.js";
+import { attachToolSearch } from "../agent/tool-search.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import type { FrameworkToolGroup } from "../framework-tools.js";
 import {
   _agentChatPromptSectionsForTests,
+  buildLeanSystemPrompt,
   buildLeanRunPolicyPrompt,
+  filterFrameworkPromptToSurface,
+  filterPromptActionsToSurface,
+  filterRuntimeActionsToSurface,
+  resolveProductionCodeExecutionForActionSurface,
+  resolveObservabilityReviewSummaryActionSurface,
+  resolveConnectSetupInitialToolNames,
+  resolveHostedBuilderHandoff,
+  resolveConfiguredAgentModel,
   resolveInteractiveAgentRunOptions,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
@@ -18,6 +33,17 @@ import {
   buildFrameworkCore,
   buildFrameworkCoreCompact,
 } from "./prompts/index.js";
+import { runWithRequestContext } from "./request-context.js";
+
+const agentChatPluginSourceUrl = new URL(
+  "./agent-chat-plugin.ts",
+  import.meta.url,
+);
+const devScriptSourceUrl = new URL("../scripts/dev/index.ts", import.meta.url);
+const productionAgentSourceUrl = new URL(
+  "../agent/production-agent.ts",
+  import.meta.url,
+);
 
 describe("shouldBlockInProductCodeEditingSurface", () => {
   it("blocks app-rendered chat surfaces, including legacy iframe labels", () => {
@@ -76,9 +102,25 @@ describe("lean production run policy", () => {
     const codeExecution =
       "<code-execution-mode>Sandboxed</code-execution-mode>";
 
-    expect(buildLeanRunPolicyPrompt(restriction, codeExecution)).toBe(
-      restriction + codeExecution,
-    );
+    const policy = buildLeanRunPolicyPrompt(restriction, codeExecution);
+
+    expect(policy.endsWith(restriction + codeExecution)).toBe(true);
+    expect(policy).toContain("emit them in the same step");
+  });
+
+  it("keeps resource-backed AGENTS.md in the lean system prompt", () => {
+    const agents =
+      '<resource name="AGENTS.md" scope="personal" path="AGENTS.md">\n# Saved rule\nAlways preserve the requested format.\n</resource>';
+
+    expect(
+      buildLeanSystemPrompt({
+        basePrompt: "lean base",
+        resources: `\n\n${agents}`,
+        additionalFramework: "policy",
+        cacheSplit: "split",
+        extra: "extra",
+      }),
+    ).toContain(agents);
   });
 });
 
@@ -98,62 +140,630 @@ describe("interactive agent run options", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// `resolveInteractiveAgentRunOptions` echoing its own inputs (above) proves
-// nothing about whether the value it returns actually reaches the run
-// manager — that wiring lives inside `createAgentChatPlugin`'s and
-// `createProductionAgentHandler`'s multi-thousand-line request-handler
-// closures, which have no cheap unit seam (same rationale as the
-// "prompt-caching wiring guards" in runtime-context.spec.ts). These source
-// guards close that gap: they fail if a future call site forgets to spread
-// `resolveInteractiveAgentRunOptions(options)`, or if `startRun` stops
-// receiving `runNoProgressTimeoutMs` as its `noProgressTimeoutMs` option —
-// exactly the class of bug the run-manager's own no-progress-backstop tests
-// (run-manager.spec.ts) cannot see, since they drive `startRun` directly.
-describe("interactive agent run options — wiring guards", () => {
-  it("spreads resolveInteractiveAgentRunOptions(options) into every createProductionAgentHandler call site", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+describe("request-scoped action surface", () => {
+  it("limits summary requests to the two run-bound review actions", async () => {
+    const details = {
+      actionScope: {
+        kind: "observability-review-summary",
+        runId: "run-42",
+      },
+      availableActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-review-summary",
+        "delete-workspace",
+      ],
+    } as any;
+    let hostResolverCalled = false;
+    const hostResolver = () => {
+      hostResolverCalled = true;
+      return { mode: "default" as const };
+    };
+
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface(details, hostResolver),
+    ).resolves.toEqual({
+      allowedActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-review-summary",
+      ],
+      actionScope: { kind: "observability-review-summary", runId: "run-42" },
+    });
+    expect(hostResolverCalled).toBe(false);
+  });
+
+  it("binds each bulk summary surface to its deduplicated run IDs", async () => {
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: {
+          kind: "observability-review-summary-batch",
+          runIds: [" run-1 ", "run-2", "run-1"],
+        },
+        availableActionNames: [
+          "get-observability-review-summary-source",
+          "save-observability-review-summary",
+        ],
+      } as any),
+    ).resolves.toEqual({
+      allowedActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-review-summary",
+      ],
+      actionScope: {
+        kind: "observability-review-summary-batch",
+        runIds: ["run-1", "run-2"],
+      },
+    });
+  });
+
+  it("preserves the host resolver for non-summary requests", async () => {
+    const details = { actionScope: { kind: "host-flow" } } as any;
+    const hostResult = { allowedActionNames: ["host-action"] };
+    let receivedDetails: unknown;
+    const hostResolver = (value: unknown) => {
+      receivedDetails = value;
+      return hostResult;
+    };
+
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface(details, hostResolver),
+    ).resolves.toBe(hostResult);
+    expect(receivedDetails).toBe(details);
+  });
+
+  it("limits feedback improvement to a run-bound instruction draft", async () => {
+    const result = await resolveObservabilityReviewSummaryActionSurface({
+      actionScope: {
+        kind: "observability-feedback-improvement",
+        runId: "run-42",
+      },
+      availableActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-instruction-update",
+        "delete-workspace",
+      ],
+    } as any);
+    expect(result).toEqual({
+      allowedActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-instruction-update",
+      ],
+      actionScope: {
+        kind: "observability-feedback-improvement",
+        runId: "run-42",
+      },
+    });
+  });
+
+  it("rejects malformed summary scopes and missing review actions", async () => {
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: { kind: "observability-review-summary", runId: "" },
+        availableActionNames: [
+          "get-observability-review-summary-source",
+          "save-observability-review-summary",
+        ],
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: { kind: "observability-review-summary", runId: "run-42" },
+        availableActionNames: ["get-observability-review-summary-source"],
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: {
+          kind: "observability-review-summary-batch",
+          runIds: Array.from({ length: 26 }, (_, index) => `run-${index}`),
+        },
+        availableActionNames: [
+          "get-observability-review-summary-source",
+          "save-observability-review-summary",
+        ],
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("does not import the release migration script during dev discovery", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const skipFiles = source.match(
+      /const skipFiles = new Set\(\[[\s\S]*?\]\);/,
+    )?.[0];
+
+    expect(skipFiles).toContain('"migrate-production"');
+  });
+
+  it("restores the durable worker from the persisted turn initiator", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
-    const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
-    const spreadSites = source.match(
-      /\.\.\.resolveInteractiveAgentRunOptions\(options\),\s*\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
+    expect(source).toMatch(
+      /await seedBackgroundAgentRunOwnerContext\(event, prepared\.runId\)/,
+    );
+  });
+
+  it("removes guidance for actions omitted from the request surface", () => {
+    const prompt = [
+      "Keep this general guidance.",
+      "Use `tool-search` before concluding a capability is unavailable.",
+      "Delegate with `agent-teams` for independent work.",
+      "Call `allowed-action` when it matches the request.",
+    ].join("\n");
+    const actions = {
+      "tool-search": {} as ActionEntry,
+      "agent-teams": {} as ActionEntry,
+      "allowed-action": {} as ActionEntry,
+    };
+
+    expect(
+      filterFrameworkPromptToSurface(prompt, actions, ["allowed-action"]),
+    ).toBe(
+      [
+        "Keep this general guidance.",
+        "Call `allowed-action` when it matches the request.",
+      ].join("\n"),
+    );
+  });
+
+  it("removes denied discovery, team, and job guidance from the default framework prompt", () => {
+    const { PROD_FRAMEWORK_PROMPT_COMPACT } =
+      _agentChatPromptSectionsForTests.buildFrameworkPrompts();
+    const filtered = filterFrameworkPromptToSurface(
+      PROD_FRAMEWORK_PROMPT_COMPACT,
+      {
+        "tool-search": {} as ActionEntry,
+        "agent-teams": {} as ActionEntry,
+        "manage-jobs": {} as ActionEntry,
+      },
+      [],
     );
 
-    // Three interactive handlers are created today (prod, anonymous
-    // read-only, dev). If this count changes, a new call site was added or
-    // removed — update this guard alongside it, and confirm the new/changed
-    // site still spreads the run options immediately before
-    // `finalResponseGuard`.
+    expect(filtered).not.toContain("tool-search");
+    expect(filtered).not.toContain("agent-teams");
+    expect(filtered).not.toContain("manage-jobs");
+    expect(filtered).toContain("### How You Work");
+  });
+
+  it("downgrades trusted production code execution to the sandbox for scoped surfaces", () => {
+    expect(
+      resolveProductionCodeExecutionForActionSurface("trusted", true),
+    ).toBe("sandboxed");
+    expect(
+      resolveProductionCodeExecutionForActionSurface("trusted", false),
+    ).toBe("trusted");
+    expect(resolveProductionCodeExecutionForActionSurface("off", true)).toBe(
+      "off",
+    );
+  });
+
+  it("wires the safe code-execution mode into the interactive production registry", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /resolveProductionCodeExecutionForActionSurface\(\s*resolvedProdCodeExec,\s*Boolean\(options\?\.resolveActionSurface\),/,
+    );
+    expect(source).toMatch(
+      /!canToggle && effectiveProdCodeExec === "trusted"\s*\? prodCodingTools/,
+    );
+  });
+
+  it("keeps request-scoped action surfaces out of the dev-native tool switch", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const devNativeBlock = source.match(
+      /const devNative =[\s\S]*?const basePrompt = prodPrompt;/,
+    )?.[0];
+
+    expect(source).toMatch(
+      /const devNative =[\s\S]*options\?\.nativeActionsInDev === true \|\| leanPrompt;/,
+    );
+    expect(devNativeBlock).toBeDefined();
+    expect(devNativeBlock).not.toContain("resolveActionSurface");
+  });
+
+  it("keeps request-scoped dev actions available without exposing them natively", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const requestScopedDevActions = options\?\.resolveActionSurface\s+\? Object\.fromEntries\([\s\S]*?discoveredActions, \.\.\.templateScripts[\s\S]*?agentTool: false/s,
+    );
+    expect(source).toMatch(
+      /\.\.\.requestScopedDevActions,\s+\.\.\.resourceScripts,/,
+    );
+  });
+
+  it("keeps local coding tools in every dev handler variant", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const devScriptRegistry = await createDevScriptRegistry\(\{[\s\S]*?databaseTools: databaseToolsMode,[\s\S]*?\}\);/,
+    );
+    expect(source).toMatch(
+      /leanPrompt\s+\? \{ \.\.\.devScriptRegistry, \.\.\.leanActions \}/,
+    );
+    expect(source).toMatch(
+      /devNative\s+\? \{ \.\.\.devScriptRegistry, \.\.\.prodActions \}/,
+    );
+  });
+
+  it("generates chat tab titles with the shared completion engine", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const start = source.indexOf("`${routePath}/generate-title`");
+    const end = source.indexOf("// ─── Run management endpoints", start);
+    const route = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(route).toContain(
+      'if (titleOwnerContext.anonymous) return { title: "" };',
+    );
+    expect(route).toContain("runWithRequestContext");
+    expect(route).toContain("resolveAgentRunOrgScope({");
+    expect(route).toContain("...orgScope,");
+    expect(route).toContain("const titleRequestContext = {");
+    expect(route).toContain("requestOrigin: getForwardedRequestOrigin(event)");
+    expect(route).toContain("isLoopbackRequest: isLoopbackRequest(event)");
+    expect(route).toContain(
+      "isDirectLoopbackRequest: isDirectLoopbackRequest(event)",
+    );
+    expect(route).toContain("runWithRequestContext(titleRequestContext");
+    expect(route).toContain("requireAgentChatAiSetup()");
+    expect(route).not.toContain("allowChatGPTSubscriptionInOrg");
+    expect(route.indexOf("const now = Date.now();")).toBeLessThan(
+      route.indexOf(
+        "const request = chatTitleRequestFromBody(await readBody(event));",
+      ),
+    );
+    expect(route.indexOf("const now = Date.now();")).toBeLessThan(
+      route.indexOf("requireAgentChatAiSetup()"),
+    );
+    expect(route).toContain(
+      "generateChatTitle({ ...request, appId: options?.appId })",
+    );
+    expect(route).toContain("setResponseStatus(event, 502);");
+    expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
+  });
+
+  it("preserves request context without granting an org entitlement exception", () => {
+    // source-read-ok: This guards the trusted direct-loopback context contract across nested handlers.
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const productionHandler = source.slice(
+      source.indexOf("const prodHandler ="),
+      source.indexOf("const anonymousHandler ="),
+    );
+
+    expect(source).not.toContain("allowChatGPTSubscriptionInOrg");
+    expect(productionHandler).toContain(
+      "assertAiSetupReady: requireAgentChatAiSetup",
+    );
+
+    const queueStart = source.indexOf('isThreadSubroute("queued")');
+    const queueEnd = source.indexOf("let result: Awaited<", queueStart);
+    const queueMutation = source.slice(queueStart, queueEnd);
+    const threadRouteStart = source.indexOf("const threadRouteHandler =");
+    const threadRouteEnd = source.indexOf(
+      "const threadRouteApp",
+      threadRouteStart,
+    );
+    const threadRoute = source.slice(threadRouteStart, threadRouteEnd);
+    expect(queueMutation).toContain(
+      "requestOrigin: getForwardedRequestOrigin(event)",
+    );
+    expect(queueMutation).toContain(
+      "isLoopbackRequest: isLoopbackRequest(event)",
+    );
+    expect(queueMutation).toContain(
+      "isDirectLoopbackRequest: isDirectLoopbackRequest(event)",
+    );
+    expect(threadRoute).toContain(
+      "const orgScope = await resolveAgentRunOrgScope({",
+    );
+    expect(queueMutation).toContain("...orgScope,");
+    const mintStart = source.indexOf("streamTokenPath,");
+    const mintEnd = source.indexOf("if (streamingRuntime)", mintStart);
+    const mintRoute = source.slice(mintStart, mintEnd);
+    const runtimeStart = source.indexOf("if (streamingRuntime)");
+    const streamStart = source.indexOf(
+      "app.use(\n          AGENT_CHAT_STREAM_PATH",
+      runtimeStart,
+    );
+    const streamEnd = source.indexOf(
+      "// ─── Durable background agent-chat run processor",
+      streamStart,
+    );
+    const streamRoute = source.slice(streamStart, streamEnd);
+
+    expect(mintRoute).toContain("resolveAgentRunOrgScope({");
+    expect(mintRoute).toContain('orgScope: "personal" as const');
+    expect(mintRoute).toContain(
+      "Organization scope is temporarily unavailable.",
+    );
+    expect(streamRoute).toContain('orgScope: "personal" as const');
+  });
+
+  it("keeps local coding tools available while scoping app actions in dev", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const devSource = readFileSync(devScriptSourceUrl, {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const localDevActionNames = new Set\(Object\.keys\(devScriptRegistry\)\);/,
+    );
+    expect(source).toMatch(
+      /availableActionNames: appActionNames,[\s\S]*?normalizeAgentActionSurfaceResolution\([\s\S]*?if \(normalizedSurface\.mode === "default"\) return surface;[\s\S]*?if \(normalizedSurface\.actionScope\)[\s\S]*?allowedActionNames: normalizedSurface\.allowedActionNames,[\s\S]*?actionScope: normalizedSurface\.actionScope,[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.normalizedSurface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
+    );
+    expect(devSource).toMatch(
+      /unauthorizedActionFromBash\([\s\S]*?getRequestRunContext\(\)\?\.allowedActionNames/s,
+    );
+  });
+
+  it("removes denied actions before the actions prompt is generated", () => {
+    const actions = {
+      allowed: {
+        tool: {
+          description: "Allowed action",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "allowed",
+        chatUI: { renderer: "core.allowed" },
+      },
+      denied: {
+        tool: {
+          description: "Denied action",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "denied",
+        chatUI: { renderer: "core.denied" },
+      },
+    } as never;
+
+    const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
+      filterPromptActionsToSurface(actions, ["allowed"]),
+      "tool",
+    );
+
+    expect(prompt).toContain("core.allowed");
+    expect(prompt).not.toContain("Denied action");
+    expect(prompt).not.toContain("core.denied");
+  });
+
+  it("wraps the resolver for every interactive production handler", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+
+    expect(
+      source.match(
+        /resolveActionSurface: \(details\) =>\s+resolveObservabilityReviewSummaryActionSurface\(/g,
+      ),
+    ).toHaveLength(2);
+    expect(source).toContain("resolveActionSurface: resolveDevActionSurface");
+  });
+
+  it("filters late-bound sandbox bridge registries to the request surface", async () => {
+    const actions = attachToolSearch({
+      allowed: {
+        tool: {
+          description: "Allowed reader",
+          parameters: { type: "object", properties: {} },
+        },
+        readOnly: true,
+        run: async () => "allowed",
+      },
+      denied: {
+        tool: {
+          description: "Denied reader",
+          parameters: { type: "object", properties: {} },
+        },
+        readOnly: true,
+        run: async () => "denied",
+      },
+    } satisfies Record<string, ActionEntry>);
+
+    await runWithRequestContext(
+      {
+        run: {
+          allowedActionNames: ["allowed", "tool-search", "run-code"],
+        },
+      },
+      async () => {
+        const filtered = filterRuntimeActionsToSurface(actions);
+        expect(Object.keys(filtered)).toEqual(["allowed", "tool-search"]);
+        const search = await filtered["tool-search"].run({});
+        expect(
+          search.results.map((item: { name: string }) => item.name),
+        ).toEqual(["allowed"]);
+      },
+    );
+  });
+
+  it("uses the request-filtered supplier for production, lean, and dev sandbox meta-tools", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+
+    expect(
+      source.match(
+        /\(\) => filterRuntimeActionsToSurface\([^)]*RunCodeToolActions\)/g,
+      ),
+    ).toHaveLength(3);
+  });
+
+  it("filters the action registry before agent-team tasks snapshot it", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const actionsStart = source.indexOf("const buildSubAgentActions");
+    const actionsEnd = source.indexOf("const teamTools", actionsStart);
+    const subAgentActions = source.slice(actionsStart, actionsEnd);
+
+    expect(source).toMatch(
+      /getActions:\s*\(\) =>\s*filterRuntimeActionsToSurface\(buildSubAgentActions\(\)\),/,
+    );
+    expect(subAgentActions.match(/\.\.\.templateScripts,/g)).toHaveLength(2);
+    expect(source).toMatch(
+      /baseSystemPrompt: filterFrameworkPromptToSurface\(\s*basePrompt,\s*prodActions,\s*payload\.allowedActionNames,/,
+    );
+  });
+});
+
+describe("hosted Builder handoff surface", () => {
+  const connectBuilder = {
+    tool: { description: "Render the Builder handoff.", parameters: {} },
+    run: async () => "card",
+  };
+
+  it("promotes connect-builder only for hosted registries", () => {
+    expect(
+      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, false),
+    ).toEqual({ "connect-builder": connectBuilder });
+    expect(
+      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, true),
+    ).toEqual({});
+    expect(resolveHostedBuilderHandoff({}, false)).toEqual({});
+  });
+
+  it("wires the hosted handoff into the first-request and lean registries", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    expect(source).toMatch(
+      /const hostedBuilderHandoff = resolveHostedBuilderHandoff\(\s*browserTools,\s*canToggle,\s*\);/,
+    );
+
+    const initialNamesStart = source.indexOf(
+      "const effectiveInitialToolNames = [",
+    );
+    const initialNamesBlock = source.slice(
+      initialNamesStart,
+      initialNamesStart + 900,
+    );
+    expect(initialNamesBlock).toContain(
+      "...Object.keys(hostedBuilderHandoff),",
+    );
+
+    const leanEntriesStart = source.indexOf(
+      "const leanActionEntries: Record<string, ActionEntry> = {",
+    );
+    const leanEntriesBlock = source.slice(
+      leanEntriesStart,
+      leanEntriesStart + 700,
+    );
+    expect(leanEntriesBlock).toContain("...workspaceFileActions,");
+    expect(leanEntriesBlock).toContain("...hostedBuilderHandoff,");
+  });
+});
+
+describe("connect setup initial tool names", () => {
+  const setupEntry = {
+    tool: { description: "Render a setup card.", parameters: {} },
+    run: async () => "card",
+  } as unknown as ActionEntry;
+
+  it("advertises each setup CTA the registry actually has", () => {
+    expect(
+      resolveConnectSetupInitialToolNames({
+        "connect-file-storage": setupEntry,
+        "connect-builder": setupEntry,
+      }),
+    ).toEqual(["connect-file-storage", "connect-builder"]);
+    expect(
+      resolveConnectSetupInitialToolNames({
+        "connect-file-storage": setupEntry,
+      }),
+    ).toEqual(["connect-file-storage"]);
+    expect(resolveConnectSetupInitialToolNames({})).toEqual([]);
+  });
+
+  it("names connect-builder on the first request outside hosted registries", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const initialNamesStart = source.indexOf(
+      "const effectiveInitialToolNames = [",
+    );
+    const initialNamesBlock = source.slice(
+      initialNamesStart,
+      initialNamesStart + 900,
+    );
+    expect(initialNamesBlock).toContain(
+      "...resolveConnectSetupInitialToolNames(browserTools),",
+    );
+  });
+});
+
+describe("interactive agent run options — wiring guards", () => {
+  it("spreads resolveInteractiveAgentRunOptions(options) into every createProductionAgentHandler call site", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+
+    const handlerCallSites = [
+      ...source.matchAll(/createProductionAgentHandler\(\{/g),
+    ];
+    const handlerBlocks = handlerCallSites.map((handlerCallSite, index) => {
+      const start = handlerCallSite.index ?? 0;
+      const end = handlerCallSites[index + 1]?.index ?? source.length;
+      return source.slice(start, end);
+    });
+
     expect(handlerCallSites).toHaveLength(3);
-    expect(spreadSites).toHaveLength(handlerCallSites?.length ?? 0);
+    for (const handlerBlock of handlerBlocks) {
+      expect(handlerBlock).toContain(
+        "...resolveInteractiveAgentRunOptions(options),",
+      );
+      expect(handlerBlock).toContain(
+        "finalResponseGuard: options?.finalResponseGuard,",
+      );
+    }
   });
 
   it("threads runNoProgressTimeoutMs into startRun's noProgressTimeoutMs option", () => {
-    const source = readFileSync("src/agent/production-agent.ts", {
+    const source = readFileSync(productionAgentSourceUrl, {
       encoding: "utf-8",
     });
 
-    // There is exactly one `startRun(...)` call in production-agent.ts — the
-    // interactive/production run start. Confirm it stays singular so the
-    // adjacency assertion below can't silently start matching a different,
-    // unrelated call site.
     expect(source.match(/\n {4}const startedRun = startRun\(\n/g)).toHaveLength(
       1,
     );
 
-    // `noProgressTimeoutMs` must be set from `options.runNoProgressTimeoutMs`
-    // (not hardcoded, not dropped) and live in the same options object as
-    // `turnId`/`dispatchMode`, which are unambiguously the literal passed as
-    // startRun's final argument.
     expect(source).toMatch(
       /noProgressTimeoutMs: options\.runNoProgressTimeoutMs,\s*(?:\/\/[^\n]*\n\s*)*turnId: effectiveTurnId,/,
     );
   });
 
+  it("reports whether the deployment pays for its own AI on /runs/active", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /terminalReason: run\.terminalReason \?\? null,\s*(?:\/\/[^\n]*\n\s*)*deploymentPaysForAi: isBuilderGatewayDeployConfigured\(\),/,
+    );
+    expect(source).toContain(
+      'const { isBuilderGatewayDeployConfigured } =\n              await import("./credential-provider.js");',
+    );
+  });
+
   it("keeps background workers alive through run-manager finalization", () => {
-    const source = readFileSync("src/agent/production-agent.ts", {
+    const source = readFileSync(productionAgentSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -166,7 +776,7 @@ describe("interactive agent run options — wiring guards", () => {
 
 describe("background automation action surface — wiring guards", () => {
   it("uses one shared background action builder with unattended email tools", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -180,14 +790,19 @@ describe("background automation action surface — wiring guards", () => {
   });
 });
 
-// `frameworkTools` gating happens inside `createAgentChatPlugin`'s multi-
-// thousand-line closure, which has no cheap unit seam (same rationale as the
-// run-options guards above). `framework-tools.spec.ts` proves the filter and
-// resolver in isolation; these source guards prove they are actually wired at
-// the two points that matter, and that the UI's routes stay out of it.
 describe("framework tool gating — wiring guards", () => {
-  const source = readFileSync("src/server/agent-chat-plugin.ts", {
+  const source = readFileSync(agentChatPluginSourceUrl, {
     encoding: "utf-8",
+  });
+
+  it("merges core actions before filtering an explicit agent registry", () => {
+    const merge = source.indexOf(
+      "await mergeCoreSharingActions(templateScriptsAll);",
+    );
+    expect(merge).toBeGreaterThan(source.indexOf("const rawActions ="));
+    expect(merge).toBeLessThan(
+      source.indexOf("filterAgentTools(templateScriptsAll)"),
+    );
   });
 
   it("resolves the framework tool surface once and gates both agent registries", () => {
@@ -195,8 +810,6 @@ describe("framework tool gating — wiring guards", () => {
       "const frameworkTools = resolveFrameworkTools(options);",
     );
 
-    // Both agent-facing registries must be filtered. Missing either one leaves
-    // a disabled kit reachable from that surface.
     for (const set of ["templateScriptsAll", "discoveredActionsAll"]) {
       expect(source, set).toMatch(
         new RegExp(
@@ -206,9 +819,24 @@ describe("framework tool gating — wiring guards", () => {
     }
   });
 
+  it("lets apps hide the raw browser-session tools from every agent surface", () => {
+    const start = source.indexOf(
+      "let browserSessionTools: Record<string, ActionEntry> = {};",
+    );
+    const remoteStart = source.indexOf("let remoteBrowserTools:", start);
+    const remoteEnd = source.indexOf("// Core send-email tool.", remoteStart);
+    const rawTools = source.slice(start, remoteStart);
+    const relayTools = source.slice(remoteStart, remoteEnd);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(rawTools).toMatch(
+      /if \(frameworkTools\.isEnabled\("browserSessions"\)\) \{[\s\S]*createBrowserSessionActionEntries\([\s\S]*?\}\s+\}\s+catch \{\}\s*$/,
+    );
+    expect(relayTools).toContain("createRemoteBrowserActionEntries");
+    expect(relayTools).not.toContain('isEnabled("browserSessions")');
+  });
+
   it("leaves httpActions ungated so the UI keeps its routes", () => {
-    // Disabling `sharing` must not 404 a share dialog that is still on screen:
-    // the UI reaches these through client hooks, not the agent tool surface.
     const start = source.indexOf(
       "const httpActions: Record<string, ActionEntry> = {",
     );
@@ -222,16 +850,28 @@ describe("framework tool gating — wiring guards", () => {
   });
 
   it("reads the deprecated flags only through the resolver", () => {
-    // A second read of `options.databaseTools` / `options.extensionTools` would
-    // bypass the conflict check and split the app's tool surface in two.
     expect(source).not.toContain("options?.databaseTools");
     expect(source).not.toContain("options?.extensionTools");
   });
 });
 
+describe("lean workspace-app surface — wiring guards", () => {
+  it("keeps cross-app discovery and delegation available when enabled", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+
+    expect(source).toContain(
+      "...(a2aAgentDelegationEnabled ? callAgentScript : {}),",
+    );
+    expect(source).toContain('generateActionsPrompt(callAgentScript, "tool")');
+    expect(source).toContain("leanActionsPrompt");
+  });
+});
+
 describe("delegated agent run policy — wiring guards", () => {
   it("forwards non-default delegated budgets to MCP ask_app", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const mcpCallStart = source.indexOf("await runMCPAgentLoop(");
@@ -273,12 +913,6 @@ describe("agent teams prompt guidance", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Token-budget regression tests
-// These assert rough character-count budgets so prompt drift is caught early.
-// Update the snapshot when you intentionally change the prompt content.
-// ---------------------------------------------------------------------------
-
 describe("prompt token-budget regressions", () => {
   const full = buildFrameworkCore();
   const compact = buildFrameworkCoreCompact();
@@ -292,7 +926,6 @@ describe("prompt token-budget regressions", () => {
   });
 
   it("compact prompt is materially smaller than the full prompt", () => {
-    // compact should be at most 75 % of full — if it's bigger, dedup is broken
     expect(compact.length).toBeLessThan(full.length * 0.75);
   });
 
@@ -303,11 +936,6 @@ describe("prompt token-budget regressions", () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// Prompt-content invariants
-// Spot-check that shared rules survived the modularisation.
-// ---------------------------------------------------------------------------
 
 describe("prompt content invariants", () => {
   const full = buildFrameworkCore();
@@ -361,7 +989,6 @@ describe("prompt content invariants", () => {
       ["resources", ["`resources`", "agent_scratch"]],
       ["chat", ["`chat-history`"]],
       ["automation", ["`manage-jobs`", "`manage-progress`"]],
-      // Bold in the full prompt, backticked in the compact one — match both.
       ["workspaceApps", ["call-agent"]],
     ];
 
@@ -382,7 +1009,6 @@ describe("prompt content invariants", () => {
   });
 
   it("keeps the surrounding prose intact when a group is dropped", () => {
-    // Dropping a clause must not leave a dangling list or an empty heading.
     const gated = buildFrameworkCore(undefined, {
       disabledFrameworkGroups: new Set<FrameworkToolGroup>([
         "chat",
@@ -395,7 +1021,6 @@ describe("prompt content invariants", () => {
     expect(gated).not.toMatch(/,\s*,/);
     expect(gated).not.toMatch(/for\s*,/);
     expect(gated).not.toMatch(/,\s*and\s*\./);
-    // The planning rule survives without its tool reference.
     expect(gated).toContain("**Plan and track multi-step work**");
   });
 
@@ -460,11 +1085,6 @@ describe("prompt content invariants", () => {
       { extensionTools: true },
     );
 
-    // The 7-row routing table and worked examples were cut in favor of one
-    // boundary sentence (routing among render-inline-extension/create-extension/
-    // show-extension-inline/update-extension is already derivable from each
-    // tool's own description; the "can't reach native chrome" case is also
-    // restated in connect-builder's own tool description).
     expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
       "they cannot inject UI into arbitrary native components",
     );
@@ -480,13 +1100,10 @@ describe("prompt content invariants", () => {
   });
 
   it("registers extension actions only after an explicit opt-in", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
-    // The default-false decision now lives in `resolveFrameworkTools`, which
-    // folds the deprecated `extensionTools` flag into `frameworkTools`.
-    // `framework-tools.spec.ts` asserts that default behaviorally.
     expect(source).toContain(
       "const extensionToolsEnabled = frameworkTools.extensions;",
     );
@@ -517,9 +1134,6 @@ describe("prompt content invariants", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("manage-progress");
       expect(prompt).toContain("never create single-step plans");
-      // The start/update/complete call sequence belongs to `manage-progress`'s
-      // own tool description, which the model reads before it can call the
-      // tool. Restating it here charges every turn for it.
       expect(prompt).not.toContain('action: "start"');
       expect(prompt).not.toContain('status: "succeeded"');
     }
@@ -577,10 +1191,6 @@ describe("available action prompt rendering", () => {
   });
 
   it("keeps framework kits out of the default first-request tool set", () => {
-    // The kits reach this same registry through autoDiscoverActions, so the
-    // plain "all template actions" default used to promote ~45 framework
-    // schemas into every app's first request. They stay in availableTools and
-    // remain reachable through tool-search.
     const withFrameworkKits = {
       ...(actions as Record<string, unknown>),
       "share-resource": { frameworkGroup: "sharing" },
@@ -593,7 +1203,6 @@ describe("available action prompt rendering", () => {
       ),
     ).toEqual(["common", "rare"]);
 
-    // An app that genuinely wants one on turn one still names it explicitly.
     expect(
       _agentChatPromptSectionsForTests.resolveInitialToolNames(
         withFrameworkKits,
@@ -602,17 +1211,14 @@ describe("available action prompt rendering", () => {
     ).toEqual(["common", "share-resource"]);
   });
 
-  it("points to tool-search for actions omitted from the initial tool set, without re-listing loaded actions (already covered by native tool schemas)", () => {
+  it("leaves deferred actions to the agent loop's Tool index instead of a count", () => {
     const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
       actions,
       "tool",
       ["common"],
     );
 
-    expect(prompt).not.toContain("`common`");
-    expect(prompt).not.toContain("`rare`");
-    expect(prompt).toContain("1 less-common app action is available on demand");
-    expect(prompt).toContain("`tool-search`");
+    expect(prompt).toBe("");
   });
 
   it("returns nothing when every action is already loaded and none has a native widget", () => {
@@ -711,14 +1317,6 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
     expect(names).toEqual(["provider-api-catalog", "query-staged-dataset"]);
 
     const prompt = generateCorpusToolsPrompt(registry);
-    // "Available corpus-capable tools: ..." is the authoritative,
-    // registry-conditional line — this is the invariant
-    // agent-chat-plugin.ts's `effectiveInitialToolNames` wiring depends on
-    // to avoid teaching a tool as available when it isn't in the first
-    // request's active tool set. (The fixed prose below it separately
-    // explains `provider-corpus-job` / run-code usage unconditionally
-    // whenever the block renders at all — that static explanatory text is
-    // pre-existing and out of scope here.)
     const availabilityLine = prompt
       .split("\n")
       .find((line) => line.startsWith("Available corpus-capable tools:"));
@@ -731,6 +1329,19 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
     expect(availabilityLine).not.toContain("`provider-api-request`");
     expect(availabilityLine).not.toContain("`provider-corpus-job`");
     expect(availabilityLine).not.toContain("`run-code`");
+  });
+
+  it("puts the provider-side retrieval ladder before the scan guidance", () => {
+    const prompt = generateCorpusToolsPrompt({
+      "provider-api-request": noopTool,
+      "run-code": noopTool,
+    } as never);
+
+    const ladder = prompt.indexOf("Retrieval ladder");
+    const scan = prompt.indexOf("fetch every relevant page");
+    expect(ladder).toBeGreaterThan(-1);
+    expect(scan).toBeGreaterThan(ladder);
+    expect(prompt).toContain("native search, semantic, or MCP tool");
   });
 
   it("includes every corpus tool name when the full set is registered", () => {
@@ -753,11 +1364,6 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
     ]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Snapshot test — full assembled prompt at default config
-// Run `vitest --update` to regenerate after intentional changes.
-// ---------------------------------------------------------------------------
 
 describe("assembled prompt snapshots", () => {
   it("full prompt (default examples) matches snapshot", () => {
@@ -783,14 +1389,8 @@ describe("delegated tool surfaces in dev", () => {
     ).toBe(false);
   });
 
-  // The interactive surface routes template actions through bash in dev to
-  // dodge the degenerate empty-object tool call some models emit. A delegated
-  // caller (A2A, or `ask_app` over MCP) has nobody to retry for it: with no
-  // native action the sibling agent shells out, repeats the same command, and
-  // the run dies on the repetition guard minutes later. Both delegated
-  // surfaces therefore keep template actions native even in dev.
   it("keep template actions native so a sibling never has to shell out", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -803,10 +1403,10 @@ describe("delegated tool surfaces in dev", () => {
       return branch.slice(0, elseAt);
     };
 
-    expect(devBranch("const a2aActions = attachToolSearch(")).toContain(
+    expect(devBranch("const a2aRegisteredActions = devActive")).toContain(
       "...templateScripts,",
     );
-    expect(devBranch("const mcpActions = attachToolSearch(")).toContain(
+    expect(devBranch("const mcpRegisteredActions = devActiveMcp")).toContain(
       "...templateScripts,",
     );
 
@@ -823,5 +1423,26 @@ describe("delegated tool surfaces in dev", () => {
     );
     expect(mcpPrompt).toContain("basePrompt +");
     expect(mcpPrompt).not.toContain("mcpDevPrompt");
+  });
+});
+
+describe("resolveConfiguredAgentModel", () => {
+  afterEach(() => resetAppConfigForTests());
+
+  it("returns undefined when neither layer is set, so the engine default wins", () => {
+    expect(resolveConfiguredAgentModel(undefined)).toBeUndefined();
+    expect(resolveConfiguredAgentModel({})).toBeUndefined();
+  });
+
+  it("falls back to the declared agent.model when the mount passes none", () => {
+    defineAppConfig({ agent: { model: "claude-sonnet-5" } });
+    expect(resolveConfiguredAgentModel({})).toBe("claude-sonnet-5");
+  });
+
+  it("lets the per-mount option win over the declared field", () => {
+    defineAppConfig({ agent: { model: "claude-sonnet-5" } });
+    expect(resolveConfiguredAgentModel({ model: "claude-opus-5" })).toBe(
+      "claude-opus-5",
+    );
   });
 });

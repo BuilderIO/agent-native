@@ -16,59 +16,149 @@ export type { TemplateMeta } from "./templates.js";
 export interface AppDefinition {
   id: string;
   name: string;
-  /** Icon alias key resolved by app shells */
   icon: string;
   description: string;
-  /** Dev server port (used in development mode) */
   devPort: number;
-  /** Legacy accent color — kept on built-in templates for the docs site; unused in electron/mobile UI. */
   color?: string;
   colorRgb?: string;
-  /** Whether this app is a placeholder (no real server yet) */
   placeholder?: boolean;
 }
 
-/** User-configured app entry (persisted on-device) */
 export interface AppConfig {
   id: string;
   name: string;
   icon: string;
   description: string;
-  /** The production URL this app is deployed at */
   url: string;
-  /** Dev server port (for local development) */
   devPort: number;
-  /** Optional dev server URL override */
   devUrl?: string;
-  /** Optional shell command to start the dev server */
   devCommand?: string;
-  /** Optional local folder used to configure this dev app */
   localPath?: string;
-  /** Legacy accent color — kept on built-in templates for the docs site; unused in electron/mobile UI. */
   color?: string;
   colorRgb?: string;
-  /** Whether this is a built-in default app */
   isBuiltIn: boolean;
-  /** Whether the app is enabled/visible */
   enabled: boolean;
-  /** Whether to load the dev or production URL. Default: "prod" */
   mode?: "dev" | "prod";
+  workspaceSso?: boolean;
 }
 
-/** Frame UI port */
+export const WORKSPACE_APP_LIST_FLAG_KEY = "dispatch.workspace-app-list";
+
+const WORKSPACE_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
+
+function workspaceAppUrl(
+  value: unknown,
+  pathValue: unknown,
+  baseUrl?: string,
+): string | null {
+  const raw =
+    typeof value === "string" && value.trim()
+      ? value.trim()
+      : typeof pathValue === "string" && pathValue.trim()
+        ? pathValue.trim()
+        : "";
+  if (!raw) return null;
+
+  try {
+    const parsed = new URL(raw, baseUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.toString();
+  } catch (error) {
+    void error;
+    return null;
+  }
+}
+
+export function normalizeWorkspaceAppConfigs(
+  payload: unknown,
+  options: { baseUrl?: string; excludeDispatch?: boolean } = {},
+): AppConfig[] {
+  const rawApps = Array.isArray((payload as { apps?: unknown[] })?.apps)
+    ? (payload as { apps: unknown[] }).apps
+    : Array.isArray(payload)
+      ? payload
+      : [];
+  const candidates: AppConfig[] = [];
+
+  for (const entry of rawApps) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    if (
+      !id ||
+      !WORKSPACE_APP_ID_PATTERN.test(id) ||
+      record.archived === true ||
+      (record.status !== undefined && record.status !== "ready") ||
+      (options.excludeDispatch !== false &&
+        (record.isDispatch === true || id === "dispatch"))
+    ) {
+      continue;
+    }
+
+    const url = workspaceAppUrl(
+      record.url ?? record.builderUrl,
+      record.path,
+      options.baseUrl,
+    );
+    if (!url) continue;
+    const name =
+      typeof record.name === "string" && record.name.trim()
+        ? record.name.trim()
+        : id;
+    const description =
+      typeof record.description === "string" ? record.description.trim() : "";
+    const icon =
+      typeof record.icon === "string" && record.icon.trim()
+        ? record.icon.trim()
+        : "LayoutBoard";
+    const color =
+      typeof record.color === "string" && /^#[0-9a-f]{6}$/i.test(record.color)
+        ? record.color
+        : undefined;
+
+    candidates.push({
+      id,
+      name,
+      icon,
+      description,
+      url,
+      devPort: 0,
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod",
+      ...(color ? { color } : {}),
+      ...(typeof record.workspaceSso === "boolean"
+        ? { workspaceSso: record.workspaceSso }
+        : {}),
+    });
+  }
+
+  const deduped = new Map<string, AppConfig>();
+  for (const app of candidates.sort(
+    (a, b) =>
+      a.id.localeCompare(b.id) ||
+      a.name.localeCompare(b.name) ||
+      a.url.localeCompare(b.url),
+  )) {
+    if (!deduped.has(app.id)) deduped.set(app.id, app);
+  }
+
+  return [...deduped.values()].sort(
+    (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+  );
+}
+
 export const FRAME_PORT = 3334;
 
-/** Settings for the local dev frame (persisted by the desktop app) */
-export interface FrameSettings {
-  /** Whether the frame is enabled */
-  enabled: boolean;
-  /** Whether to show the Agent-Native Code tab in Desktop */
-  showCodeTab: boolean;
-  /** Load frame from localhost (dev) or production URL (prod) */
-  mode: "dev" | "prod";
-  /** Production URL for the frame (if deployed) */
-  prodUrl?: string;
-}
+export const CHAT_FIRST_DEFAULT_APP_IDS = [
+  "content",
+  "design",
+  "mail",
+  "calendar",
+  "clips",
+] as const;
 
 export function templateToAppConfig(
   template: TemplateMeta,
@@ -94,18 +184,10 @@ export const TEMPLATE_APPS: AppConfig[] = TEMPLATES.map((template) =>
   templateToAppConfig(template),
 );
 
-/**
- * Default apps derived from the template registry. Only core templates are
- * included — non-core apps can still be added manually via "Add app".
- */
 export const DEFAULT_APPS: AppConfig[] = coreTemplates().map((template) =>
   templateToAppConfig(template, { isBuiltIn: true, enabled: true }),
 );
 
-/**
- * Convert an AppConfig to AppDefinition (for backward compatibility
- * with desktop app code that expects the old shape).
- */
 export function toAppDefinition(config: AppConfig): AppDefinition {
   return {
     id: config.id,
@@ -118,12 +200,10 @@ export function toAppDefinition(config: AppConfig): AppDefinition {
   };
 }
 
-/** Generate a unique ID for user-added apps */
 export function generateAppId(): string {
   return `custom-${Date.now().toString(36)}`;
 }
 
-/** Returns the frame URL for the given app (terminal + iframe) */
 export function getAppUrl(app: AppDefinition | AppConfig): string {
   return `http://localhost:${FRAME_PORT}?app=${app.id}`;
 }
@@ -178,8 +258,4 @@ export function getAppById(
   return apps.find((a) => a.id === id);
 }
 
-/**
- * The original APP_REGISTRY for backward compatibility.
- * Desktop app code that imports APP_REGISTRY will still work.
- */
 export const APP_REGISTRY: AppDefinition[] = DEFAULT_APPS.map(toAppDefinition);

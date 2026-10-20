@@ -1,40 +1,31 @@
-import {
-  getDbExec,
-  isPostgres,
-  intType,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { serializeBoundedRemoteJson } from "./remote-json-safety.js";
 import type { RemoteLiveViewEvent, RemoteRunEvent } from "./remote-types.js";
 
 const MAX_EVENT_JSON_BYTES = 256_000;
 const MAX_EVENT_BATCH_JSON_BYTES = 1_000_000;
 
-let _initPromise: Promise<void> | undefined;
-
-// Build the CREATE SQL lazily (not at module scope) so intType() runs at
-// RUNTIME, not import time — a module-scope call breaks any consumer whose
-// db/client mock doesn't stub intType (e.g. db-admin specs).
 function buildCreateSql(): string {
   return `
   CREATE TABLE IF NOT EXISTS integration_remote_run_events (
     device_id TEXT NOT NULL,
     remote_run_id TEXT NOT NULL,
-    seq ${intType()} NOT NULL,
+    seq BIGINT NOT NULL,
     event_json TEXT NOT NULL,
-    created_at ${intType()} NOT NULL
+    created_at BIGINT NOT NULL
   )
 `;
 }
 
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const createSql = buildCreateSql();
-      if (isPostgres()) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+export const remoteRunEventsStore = defineStore({
+  id: "remote_run_events",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = buildCreateSql();
         await ensureTableExists("integration_remote_run_events", createSql);
         await ensureIndexExists(
           "idx_remote_run_events_unique",
@@ -44,27 +35,13 @@ async function ensureTable(): Promise<void> {
           "idx_remote_run_events_run",
           `CREATE INDEX IF NOT EXISTS idx_remote_run_events_run ON integration_remote_run_events(device_id, remote_run_id, seq)`,
         );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_run_events_unique ON integration_remote_run_events(device_id, remote_run_id, seq)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_remote_run_events_run ON integration_remote_run_events(device_id, remote_run_id, seq)`,
-        ),
-      );
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return remoteRunEventsStore.ready();
 }
 
 function rowToRunEvent(row: Record<string, unknown>): RemoteRunEvent {

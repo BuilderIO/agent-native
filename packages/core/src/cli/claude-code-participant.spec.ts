@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildClaudeCodeParticipantArgs,
   CLAUDE_CODE_PARTICIPANT_TESTED_VERSION,
+  ClaudeCodeAuthStatusError,
   ClaudeCodeSubscriptionRequiredError,
   readClaudeCodeSubscriptionStatus,
   runClaudeCodeParticipant,
@@ -70,6 +71,15 @@ describe("Claude Code participant", () => {
     ).not.toContain("--no-session-persistence");
   });
 
+  it("passes the selected effort to Claude Code", () => {
+    const args = buildClaudeCodeParticipantArgs({
+      role: "driver",
+      effort: "max",
+    });
+
+    expect(args).toEqual(expect.arrayContaining(["--effort", "max"]));
+  });
+
   it("uses acceptEdits without bypass or shell tools for the driver", () => {
     const args = buildClaudeCodeParticipantArgs({
       role: "driver",
@@ -90,6 +100,43 @@ describe("Claude Code participant", () => {
     expect(args.join(" ")).not.toContain("Bash");
   });
 
+  it("adds host MCP servers and pre-approves them only for the driver", () => {
+    const mcp = {
+      mcpConfigPath: "/tmp/agent-native-code-claude-x/mcp.json",
+      mcpServerNames: ["app-crm", "app-mail"],
+    };
+    const driver = buildClaudeCodeParticipantArgs({ role: "driver", ...mcp });
+    const watchdog = buildClaudeCodeParticipantArgs({
+      role: "watchdog",
+      ...mcp,
+    });
+
+    for (const args of [driver, watchdog]) {
+      expect(args).toContain("--strict-mcp-config");
+      expect(args[args.indexOf("--mcp-config") + 1]).toBe(mcp.mcpConfigPath);
+    }
+    expect(driver[driver.indexOf("--allowedTools") + 1]).toBe(
+      "mcp__app-crm,mcp__app-mail",
+    );
+    // Plan mode runs read-only MCP tools and refuses mutating ones by itself.
+    expect(watchdog).not.toContain("--allowedTools");
+    expect(buildClaudeCodeParticipantArgs({ role: "driver" })).not.toContain(
+      "--mcp-config",
+    );
+  });
+
+  it("rejects a relative MCP config path", async () => {
+    await expect(
+      runClaudeCodeParticipant({
+        role: "driver",
+        prompt: "hi",
+        cwd: "/repo",
+        mcpConfigPath: "mcp.json",
+        preflight: async () => SUBSCRIPTION_STATUS,
+      }),
+    ).rejects.toThrow("Claude Code MCP config must be an absolute file path.");
+  });
+
   it("permits only an absolute packaged executable override", async () => {
     const child = new FakeClaudeChild();
     const spawnProcess = vi.fn<ClaudeCodeParticipantSpawn>(() => child);
@@ -97,7 +144,7 @@ describe("Claude Code participant", () => {
       role: "driver",
       prompt: "Implement.",
       cwd: "/tmp/workspace",
-      command: "/Applications/Agent Native.app/Contents/Resources/claude",
+      command: "/Applications/Agent-Native.app/Contents/Resources/claude",
       preflight: async () => SUBSCRIPTION_STATUS,
       spawnProcess,
     });
@@ -129,7 +176,7 @@ describe("Claude Code participant", () => {
     const spawnProcess = vi.fn<ClaudeCodeParticipantSpawn>(() => child);
     const onEvent = vi.fn();
     const packagedCommand =
-      "/Applications/Agent Native.app/Contents/Resources/claude";
+      "/Applications/Agent-Native.app/Contents/Resources/claude";
     const preflight = vi.fn(
       async (_context: ClaudeCodeParticipantPreflightContext) =>
         SUBSCRIPTION_STATUS,
@@ -164,7 +211,7 @@ describe("Claude Code participant", () => {
     expect(spawnProcess).toHaveBeenCalledOnce();
     const [command, args, options] = spawnProcess.mock.calls[0];
     expect(command).toBe(
-      "/Applications/Agent Native.app/Contents/Resources/claude",
+      "/Applications/Agent-Native.app/Contents/Resources/claude",
     );
     expect(args).not.toContain("Review only.");
     expect(options).toMatchObject({
@@ -276,7 +323,7 @@ describe("Claude Code participant", () => {
     }));
     await expect(
       readClaudeCodeSubscriptionStatus({
-        command: "/Applications/Agent Native.app/Contents/Resources/claude",
+        command: "/Applications/Agent-Native.app/Contents/Resources/claude",
         env: {
           PATH: "/usr/bin",
           ANTHROPIC_API_KEY: "must-not-pass",
@@ -285,10 +332,44 @@ describe("Claude Code participant", () => {
       }),
     ).resolves.toMatchObject(SUBSCRIPTION_STATUS);
     expect(execute).toHaveBeenCalledWith(
-      "/Applications/Agent Native.app/Contents/Resources/claude",
+      "/Applications/Agent-Native.app/Contents/Resources/claude",
       ["auth", "status", "--json"],
       expect.objectContaining({ env: { PATH: "/usr/bin" } }),
     );
+  });
+
+  it("keeps raw auth preflight failures available behind friendly copy", async () => {
+    const rawMessage =
+      "Command failed: claude auth status --json\nNot logged in";
+    const execute = vi.fn(async () => {
+      throw Object.assign(new Error(rawMessage), { stderr: "Not logged in" });
+    });
+
+    const error = await readClaudeCodeSubscriptionStatus({
+      execute: execute as never,
+    }).catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(ClaudeCodeAuthStatusError);
+    expect((error as ClaudeCodeAuthStatusError).message).toBe(
+      "Claude authentication check failed. Run `claude auth login` and try again.",
+    );
+    expect((error as ClaudeCodeAuthStatusError).rawMessage).toBe(rawMessage);
+  });
+
+  it("keeps non-auth preflight failures distinct", async () => {
+    const rawMessage =
+      "Command failed: claude auth status --json\nMalformed response";
+    const execute = vi.fn(async () => {
+      throw new Error(rawMessage);
+    });
+
+    const error = await readClaudeCodeSubscriptionStatus({
+      execute: execute as never,
+    }).catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ClaudeCodeAuthStatusError);
+    expect((error as Error).message).toBe(rawMessage);
   });
 
   it("stops a stream that exceeds its configured event bound", async () => {

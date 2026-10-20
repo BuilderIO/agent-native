@@ -12,7 +12,12 @@ import {
   type DashboardPanelQueryResult,
   type DashboardPanelSource,
   runDashboardPanelQuery,
+  type UnsupportedBackendResponse,
 } from "./dashboard-panel-query";
+
+type AnalyticsPanelSourceFailure =
+  | MissingKeyResponse
+  | UnsupportedBackendResponse;
 
 type AnalyticsPanelSourceResolver = PanelSourceResolver<
   DashboardPanelSource,
@@ -21,6 +26,9 @@ type AnalyticsPanelSourceResolver = PanelSourceResolver<
 
 type AnalyticsPanelSourceRequest = PanelSourceRequest<DashboardPanelSource> & {
   timeoutMs?: number;
+  forceRefresh?: boolean;
+  signal?: AbortSignal;
+  maxBytesBilled?: number;
 };
 
 function createResolver(
@@ -30,12 +38,20 @@ function createResolver(
     source,
     resolve: async (request, context) => {
       const timeoutMs = (request as AnalyticsPanelSourceRequest).timeoutMs;
+      const forceRefresh = (request as AnalyticsPanelSourceRequest)
+        .forceRefresh;
+      const signal = (request as AnalyticsPanelSourceRequest).signal;
+      const maxBytesBilled = (request as AnalyticsPanelSourceRequest)
+        .maxBytesBilled;
       return (await runDashboardPanelQuery({
         source: request.source,
         query: request.query,
         ctx: context,
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      })) as DashboardPanelQueryResult | MissingKeyResponse;
+        ...(forceRefresh ? { forceRefresh: true } : {}),
+        ...(signal ? { signal } : {}),
+        ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
+      })) as DashboardPanelQueryResult | AnalyticsPanelSourceFailure;
     },
   };
 }
@@ -51,8 +67,8 @@ const registry = createPanelSourceResolverRegistry<
 export async function resolveAnalyticsPanelSource(
   request: AnalyticsPanelSourceRequest,
   context: CredentialContext,
-): Promise<PanelSourceResult | MissingKeyResponse> {
+): Promise<PanelSourceResult | AnalyticsPanelSourceFailure> {
   return registry.resolve(request, context) as Promise<
-    PanelSourceResult | MissingKeyResponse
+    PanelSourceResult | AnalyticsPanelSourceFailure
   >;
 }

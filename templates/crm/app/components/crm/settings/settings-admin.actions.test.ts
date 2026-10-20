@@ -1,8 +1,3 @@
-// The settings surfaces build their action payloads with the helpers in
-// `settings-admin.ts`. These tests feed those exact payloads to the real
-// actions against a real migrated database, so a payload the UI can produce but
-// the server rejects fails here rather than in the browser.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,7 +18,7 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-settings-admin-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-settings-admin-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -62,7 +57,7 @@ function draft(patch: Partial<AttributeDraft>): AttributeDraft {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../../../../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -108,8 +103,6 @@ beforeAll(async () => {
         ...ownership,
       },
       {
-        // Configured before per-attribute authority replaced connection-level
-        // hybrid. It must keep rendering; it must never be re-selectable.
         id: HYBRID_CONNECTION,
         provider: "hubspot",
         label: "HubSpot (legacy)",
@@ -125,9 +118,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("attribute create / edit / archive round trip", () => {

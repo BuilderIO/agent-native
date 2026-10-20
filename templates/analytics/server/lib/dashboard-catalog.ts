@@ -1,14 +1,12 @@
 import type { SqlDashboardConfig } from "../../app/pages/adhoc/sql-dashboard/types";
+import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import {
   listDashboardSummaries,
   type DashboardRecord,
   type DashboardSummaryRecord,
 } from "./dashboards-store";
-import {
-  FIRST_PARTY_DASHBOARD_ID,
-  repairFirstPartyObservedRetentionPanels,
-} from "./first-party-metric-catalog";
+import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 
 export type DashboardTemplateCategory =
   | "Acquisition"
@@ -68,7 +66,7 @@ function seedConfig(id: string): SqlDashboardConfig {
   if (id !== FIRST_PARTY_DASHBOARD_ID) {
     return seed as unknown as SqlDashboardConfig;
   }
-  return repairFirstPartyObservedRetentionPanels(seed)
+  return repairKnownFirstPartyDashboardQueries(id, seed)
     .config as unknown as SqlDashboardConfig;
 }
 
@@ -933,7 +931,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "first-party-template-traffic",
     name: "First-party Template Traffic",
     description:
-      "Template signups, clicks, demo starts, CLI copies, activity, top URLs, top clips, retention by template, and active users over time.",
+      "Template signups, activation and onboarding step/choice funnels, sharing actions, clicks, demo starts, CLI copies, activity, top URLs, top clips, retention by template, and active users over time.",
     category: "Product",
     defaultDashboardId: "agent-native-templates-first-party",
     dataSources: ["first-party"],
@@ -950,7 +948,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
       "referrals",
       "virality",
     ],
-    panelCount: 38,
+    panelCount: 51,
     version: CATALOG_VERSION,
     recommended: true,
     visibleInCatalog: false,
@@ -970,6 +968,27 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     recommended: true,
     visibleInCatalog: false,
     buildConfig: () => seedConfig("skills-cli-funnel"),
+  },
+  {
+    id: "content-view",
+    name: "Content",
+    description:
+      "Blog articles with authors, daily GA4 pageviews, and Search Console clicks and impressions from the daily content collection, with each source's last run.",
+    category: "Acquisition",
+    defaultDashboardId: "content-view",
+    dataSources: ["first-party"],
+    tags: [
+      "content",
+      "blog",
+      "articles",
+      "authors",
+      "search console",
+      "pageviews",
+      "seo",
+    ],
+    panelCount: 4,
+    version: CATALOG_VERSION,
+    buildConfig: () => seedConfig("content-view"),
   },
   {
     id: "google-analytics-web",

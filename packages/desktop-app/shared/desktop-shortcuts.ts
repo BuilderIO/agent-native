@@ -35,6 +35,34 @@ export interface DesktopShortcutUpdateResult {
   error?: string;
 }
 
+export function isDesktopChatToggleShortcut(input: {
+  key?: string;
+  code?: string;
+  shift?: boolean;
+  alt?: boolean;
+}): boolean {
+  const key = input.key?.toLowerCase();
+  return (
+    !input.shift &&
+    !input.alt &&
+    (key === "\\" || (!key && input.code === "Backslash"))
+  );
+}
+
+export function isDesktopSettingsShortcut(input: {
+  key?: string;
+  code?: string;
+  shift?: boolean;
+  alt?: boolean;
+}): boolean {
+  const key = input.key?.toLowerCase();
+  return (
+    !input.shift &&
+    !input.alt &&
+    (key === "," || (!key && input.code === "Comma"))
+  );
+}
+
 const MODIFIER_ALIASES: Record<string, string> = {
   alt: "Alt",
   cmd: "Command",
@@ -167,7 +195,7 @@ export function formatDesktopShortcutAccelerator(
   return accelerator
     .split("+")
     .map((part) => replacements[part] ?? part)
-    .join("+");
+    .join(" ");
 }
 
 export function shortcutOpenPathForBinding(

@@ -17,26 +17,27 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `native-adapter-${process.pid}-${Date.now()}.sqlite`,
+  `native-adapter-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../db/schema.js");
 let getDb: () => any;
 let schema: Schema;
+let updateAttribute: typeof import("../../actions/update-crm-attribute.js").default;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as any);
+  updateAttribute = (await import("../../actions/update-crm-attribute.js"))
+    .default;
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("native CRM contract", () => {
@@ -533,13 +534,68 @@ describe("native CRM typed-attribute boundary", () => {
     });
   });
 
+  it("preserves template attribute edits when native records are written", async () => {
+    const connectionId = `native-typed-edit-${crypto.randomUUID()}`;
+    const adapter = new NativeCrmAdapter(testConnection(connectionId), "human");
+    const record = {
+      connectionId,
+      provider: "native" as const,
+      objectType: "opportunities",
+      kind: "opportunity" as const,
+      remoteId: `opp-${crypto.randomUUID()}`,
+    };
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      adapter.applyMutation({
+        operation: "create",
+        record,
+        fields: { name: "Acme deal", amount: 184000 },
+        idempotencyKey: `create-${record.remoteId}`,
+      }),
+    );
+
+    const amountPolicy = await fieldPolicy(
+      connectionId,
+      "opportunities",
+      "amount",
+    );
+    expect(amountPolicy).toBeDefined();
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateAttribute.run(
+        {
+          attributeId: amountPolicy!.id,
+          title: "Valor",
+          required: true,
+          config: { currency: { code: "BRL" } },
+        } as never,
+        { caller: "frontend", userEmail: OWNER } as never,
+      ),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      adapter.applyMutation({
+        operation: "update",
+        record,
+        fields: { amount: 200000 },
+        idempotencyKey: `update-${record.remoteId}`,
+      }),
+    );
+
+    const updatedPolicy = await fieldPolicy(
+      connectionId,
+      "opportunities",
+      "amount",
+    );
+    expect(updatedPolicy).toMatchObject({
+      label: "Valor",
+      required: true,
+      attributeType: "currency",
+    });
+    expect(JSON.parse(updatedPolicy!.configJson)).toEqual({
+      currency: { code: "BRL" },
+    });
+  });
+
   it("keeps the amount field typed currency after a later update writes it again", async () => {
-    // Regression test for the merge-order bug behind the boundary fix:
-    // `ensureNativeObject` rebuilds an ad hoc field definition from every
-    // written field on every mutation, and before the fix that ad hoc
-    // definition (inferred from the raw JS value as generic "number")
-    // overwrote the template's "currency" definition on every single write —
-    // so the type only looked fixed until the next update.
     const connectionId = `native-typed-update-${crypto.randomUUID()}`;
     const adapter = new NativeCrmAdapter(testConnection(connectionId), "human");
     const remoteId = `opp-${crypto.randomUUID()}`;

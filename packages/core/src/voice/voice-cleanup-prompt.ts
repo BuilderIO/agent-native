@@ -25,6 +25,7 @@ export function buildVoiceGuidanceBlock({
   const sections = [
     "Use the following voice guidance only to improve transcription, cleanup, terminology, casing, punctuation, and formatting.",
     "Never add facts or content that are not present in the audio or transcript.",
+    "When audio input is available, treat it as the primary source of intent, names, and corrections.",
   ];
 
   if (customInstructions) {

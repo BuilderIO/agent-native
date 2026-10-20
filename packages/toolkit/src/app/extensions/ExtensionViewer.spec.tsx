@@ -1,0 +1,644 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+// @vitest-environment happy-dom
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { ExtensionViewer } from "./ExtensionViewer.js";
+import { resetExtensionIframeMetaCspForTests } from "./iframe-display-sources.js";
+
+const embedState = vi.hoisted(() => ({ active: false }));
+const chatMocks = vi.hoisted(() => ({
+  openMcpAppHostLink: vi.fn(),
+  sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  openMcpAppHostLink: chatMocks.openMcpAppHostLink,
+  sendToAgentChat: chatMocks.sendToAgentChat,
+}));
+
+vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
+  ensureEmbedAuthFetchInterceptor: vi.fn(),
+  isEmbedMcpChatBridgeActive: () => embedState.active,
+}));
+
+vi.mock("../sharing/index.js", () => ({
+  ShareButton: ({
+    onOpenChange,
+  }: {
+    onOpenChange?: (open: boolean) => void;
+  }) => (
+    <>
+      <button type="button" onClick={() => onOpenChange?.(true)}>
+        Share
+      </button>
+      <button type="button" onClick={() => onOpenChange?.(false)}>
+        Close share
+      </button>
+    </>
+  ),
+}));
+
+vi.mock("../AgentPanel.js", () => ({
+  AgentToggleButton: () => <button type="button">Agent</button>,
+}));
+
+vi.mock("@agent-native/toolkit/composer", () => ({
+  PromptComposer: () => <div />,
+}));
+
+vi.mock("@agent-native/toolkit/ui/popover", () => ({
+  Popover: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  PopoverContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  PopoverTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+
+vi.mock("@agent-native/toolkit/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+
+const extensionResponse = {
+  id: "ext-1",
+  name: "GitHub Stars Over Time",
+  description: "Tracks stars",
+  content: "<section>Star history chart</section>",
+  updatedAt: "2026-05-22T00:00:00.000Z",
+  ownerEmail: "owner@example.test",
+  role: "owner",
+  canEdit: true,
+  canDelete: true,
+};
+
+const displaySourcesResponse = {
+  imageSources: ["'self'", "https://cdn.example.com"],
+  mediaSources: ["'self'", "blob:"],
+};
+
+describe("ExtensionViewer MCP embeds", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes(
+          "/_agent-native/extensions/iframe/display-sources",
+        )
+          ? Response.json(displaySourcesResponse)
+          : Response.json(extensionResponse),
+      ),
+    );
+    resetExtensionIframeMetaCspForTests();
+    embedState.active = false;
+    chatMocks.openMcpAppHostLink.mockReset();
+    chatMocks.sendToAgentChat.mockReset();
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    container = document.createElement("div");
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    queryClient.clear();
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function renderViewer() {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(container.querySelector("iframe")).toBeTruthy();
+    });
+    return container.querySelector("iframe") as HTMLIFrameElement;
+  }
+
+  it("uses the extension render route in the normal app", async () => {
+    const iframe = await renderViewer();
+
+    expect(iframe.getAttribute("src")).toContain(
+      "/_agent-native/extensions/ext-1/render",
+    );
+    expect(iframe.getAttribute("srcdoc")).toBeNull();
+    expect(iframe.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-forms allow-downloads",
+    );
+  });
+
+  it("opens links only for the shell document that announced the binding", async () => {
+    document.body.appendChild(container);
+    const iframe = await renderViewer();
+    const frameWindow = iframe.contentWindow as Window;
+    expect(frameWindow).toBeTruthy();
+    const replies: unknown[] = [];
+    vi.spyOn(frameWindow, "postMessage").mockImplementation((data: unknown) => {
+      replies.push(data);
+    });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const post = (data: unknown) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", { data, source: frameWindow }),
+        );
+      });
+    const token = "a".repeat(32);
+    const url = "https://app.hubspot.com/contacts/1/company/2";
+
+    post({ type: "agent-native-extension-open-url", url, token });
+    expect(open).not.toHaveBeenCalled();
+
+    post({
+      type: "agent-native-extension-binding",
+      binding: { role: "viewer" },
+      openUrlToken: token,
+    });
+    expect(replies).toContainEqual({
+      type: "agent-native-extension-open-url-ready",
+    });
+
+    // A page the iframe navigated to can't re-announce or guess the token.
+    post({
+      type: "agent-native-extension-binding",
+      binding: { role: "owner" },
+      openUrlToken: "b".repeat(32),
+    });
+    post({
+      type: "agent-native-extension-open-url",
+      url,
+      token: "b".repeat(32),
+    });
+    post({ type: "agent-native-extension-open-url", url });
+    post({
+      type: "agent-native-extension-open-url",
+      url: "javascript:alert(1)",
+      token,
+    });
+    expect(open).not.toHaveBeenCalled();
+
+    post({ type: "agent-native-extension-open-url", url, token });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith(url, "_blank", "noopener,noreferrer");
+  });
+
+  it("routes extension links through MCP and closes the reserved popup on success", async () => {
+    embedState.active = true;
+    document.body.appendChild(container);
+    const iframe = await renderViewer();
+    const frameWindow = iframe.contentWindow as Window;
+    const fallbackState = { closed: false };
+    const fallbackWindow = {
+      get closed() {
+        return fallbackState.closed;
+      },
+      close: vi.fn(() => {
+        fallbackState.closed = true;
+      }),
+      location: { replace: vi.fn() },
+    } as unknown as Window;
+    chatMocks.openMcpAppHostLink.mockResolvedValue(true);
+    const open = vi.spyOn(window, "open").mockReturnValue(fallbackWindow);
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userActivation: { isActive: true },
+    });
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(iframe.getAttribute("srcdoc")).toContain("hello-link-channel");
+      });
+    });
+    const srcDoc = iframe.getAttribute("srcdoc") ?? "";
+    const nonce = srcDoc.match(/data-link-nonce="([^"]+)"/)?.[1];
+    expect(nonce).toBeTruthy();
+    const channel = new MessageChannel();
+    const ready = new Promise<unknown>((resolve) => {
+      channel.port1.addEventListener(
+        "message",
+        (event) => resolve(event.data),
+        { once: true },
+      );
+      channel.port1.start();
+    });
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-extension.hello-link-channel",
+            nonce,
+          },
+          origin: "null",
+          source: frameWindow,
+          ports: [channel.port2],
+        }),
+      );
+    });
+    await expect(ready).resolves.toMatchObject({
+      type: "agent-native-extension.link-channel-ready",
+    });
+    act(() => {
+      channel.port1.postMessage({
+        type: "agent-native-extension.open-external-link",
+        href: "https://example.com/",
+      });
+    });
+
+    await vi.waitFor(() => {
+      expect(chatMocks.openMcpAppHostLink).toHaveBeenCalledWith(
+        "https://example.com/",
+      );
+    });
+    await vi.waitFor(() => {
+      expect(fallbackWindow.close).toHaveBeenCalledOnce();
+    });
+    expect(fallbackWindow.closed).toBe(true);
+    expect(fallbackWindow.location.replace).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+    channel.port1.close();
+    channel.port2.close();
+  });
+
+  it("uses sandboxed srcdoc inside MCP chat embeds to avoid a blocked nested route frame", async () => {
+    embedState.active = true;
+    const iframe = await renderViewer();
+
+    expect(iframe.getAttribute("src")).toBeNull();
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+      });
+    });
+    expect(iframe.getAttribute("srcdoc")).toContain(
+      "agent-native-extension-binding",
+    );
+    expect(iframe.getAttribute("srcdoc")).toContain("hello-link-channel");
+    expect(iframe.getAttribute("srcdoc")).toContain("data-link-nonce=");
+    expect(iframe.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-forms allow-downloads",
+    );
+  });
+
+  it("rotates the link nonce when refreshed MCP srcdoc content remounts the frame", async () => {
+    embedState.active = true;
+    const firstFrame = await renderViewer();
+
+    await vi.waitFor(() => {
+      expect(firstFrame.getAttribute("srcdoc")).toContain("hello-link-channel");
+    });
+    const firstNonce = firstFrame
+      .getAttribute("srcdoc")
+      ?.match(/data-link-nonce="([^"]+)"/)?.[1];
+    expect(firstNonce).toBeTruthy();
+
+    let updatedFrame: HTMLIFrameElement | null = null;
+    await act(async () => {
+      queryClient.setQueryData(["extension", "ext-1"], {
+        ...extensionResponse,
+        content: "<section>Updated chart</section>",
+      });
+    });
+    await vi.waitFor(() => {
+      updatedFrame = container.querySelector("iframe");
+      expect(updatedFrame).not.toBe(firstFrame);
+      expect(updatedFrame?.getAttribute("srcdoc")).toContain("Updated chart");
+      const updatedNonce = updatedFrame
+        ?.getAttribute("srcdoc")
+        ?.match(/data-link-nonce="([^"]+)"/)?.[1];
+      expect(updatedNonce).toBeTruthy();
+      expect(updatedNonce).not.toBe(firstNonce);
+    });
+  });
+
+  it("keeps the render route when an MCP embed has no inline extension content", async () => {
+    embedState.active = true;
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) =>
+      String(input).includes("/_agent-native/extensions/iframe/display-sources")
+        ? Response.json(displaySourcesResponse)
+        : Response.json({ ...extensionResponse, content: "" }),
+    );
+
+    const iframe = await renderViewer();
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(iframe.getAttribute("src")).toContain(
+          "/_agent-native/extensions/ext-1/render",
+        );
+        expect(iframe.getAttribute("src")).not.toContain("#");
+        expect(iframe.getAttribute("name")).toMatch(
+          /^__agent_native_link_nonce=[0-9a-f]{48}$/,
+        );
+      });
+    });
+    expect(iframe.getAttribute("srcdoc")).toBeNull();
+  });
+
+  it("applies the configured img-src and media-src to the MCP embed srcdoc", async () => {
+    embedState.active = true;
+    const iframe = await renderViewer();
+
+    await vi.waitFor(() => {
+      expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+    });
+    const srcDoc = iframe.getAttribute("srcdoc") ?? "";
+    expect(srcDoc).toContain("img-src 'self' https://cdn.example.com;");
+    expect(srcDoc).toContain("media-src 'self' blob:;");
+    expect(srcDoc).toContain("connect-src 'self';");
+    expect(iframe.getAttribute("src")).toBeNull();
+  });
+
+  it("keeps the loading spinner over the blank frame while the MCP embed waits for its display sources", async () => {
+    embedState.active = true;
+    let resolveSources: (response: Response) => void = () => {};
+    const pendingSources = new Promise<Response>((resolve) => {
+      resolveSources = resolve;
+    });
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) =>
+      String(input).includes("/_agent-native/extensions/iframe/display-sources")
+        ? pendingSources
+        : Response.json(extensionResponse),
+    );
+    const spinner = () =>
+      container.querySelector('[role="status"][aria-label="Loading"]');
+
+    const iframe = await renderViewer();
+    expect(iframe.getAttribute("srcdoc")).toBeNull();
+
+    // The frame has no document yet, so this is its about:blank load.
+    await act(async () => {
+      iframe.dispatchEvent(new Event("load"));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    expect(spinner()).toBeTruthy();
+
+    await act(async () => {
+      resolveSources(Response.json(displaySourcesResponse));
+    });
+    // The real document gets a fresh iframe element (a new window), so look
+    // it up again rather than reusing the blank frame's.
+    const loadedFrame = () =>
+      container.querySelector("iframe") as HTMLIFrameElement;
+    await vi.waitFor(() => {
+      expect(loadedFrame().getAttribute("srcdoc")).toContain(
+        "Star history chart",
+      );
+    });
+    expect(spinner()).toBeTruthy();
+    await act(async () => {
+      loadedFrame().dispatchEvent(new Event("load"));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    expect(spinner()).toBeNull();
+  });
+
+  it("does not flash not-found while a cached null extension is refetching", async () => {
+    let resolveFetch: (response: Response) => void = () => {};
+    const pendingFetch = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    vi.mocked(fetch).mockImplementationOnce(() => pendingFetch);
+    queryClient.setQueryData(["extension", "ext-1"], null);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Extension not found");
+    expect(container.querySelector(".animate-pulse")).toBeTruthy();
+
+    await act(async () => {
+      resolveFetch(Response.json(extensionResponse));
+      await pendingFetch;
+    });
+
+    await vi.waitFor(() => {
+      expect(container.querySelector("iframe")).toBeTruthy();
+    });
+  });
+
+  it("shows a clear unavailable state when the extension is not shared", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Forbidden" }, { status: 403 }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Extension is not shared");
+    });
+    expect(container.textContent).toContain(
+      "Ask the owner to share it with your organization",
+    );
+    expect(container.textContent).toContain("Back to extensions");
+    expect(container.querySelector("iframe")).toBeFalsy();
+  });
+
+  it("does not keep rendering cached extension data after latest fetch denies access", async () => {
+    queryClient.setQueryData(["extension", "ext-1"], extensionResponse, {
+      updatedAt: 0,
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Not found" }, { status: 404 }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Extension is unavailable");
+    });
+    expect(container.textContent).not.toContain("GitHub Stars Over Time");
+    expect(container.querySelector("iframe")).toBeFalsy();
+  });
+
+  it("shows expired-session copy separately from no-access responses", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Unauthorized" }, { status: 401 }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Session expired");
+    });
+    expect(container.textContent).toContain("Sign in again");
+    expect(container.textContent).not.toContain("Extension is not shared");
+    expect(container.querySelector("iframe")).toBeFalsy();
+  });
+
+  it("places the more menu before Share and omits the notifications bell", async () => {
+    await renderViewer();
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    const moreIndex = buttons.findIndex(
+      (button) => button.getAttribute("aria-label") === "More options",
+    );
+    const shareIndex = buttons.findIndex(
+      (button) => button.textContent === "Share",
+    );
+
+    expect(moreIndex).toBeGreaterThan(-1);
+    expect(shareIndex).toBeGreaterThan(-1);
+    expect(moreIndex).toBeLessThan(shareIndex);
+    expect(container.textContent).not.toContain("Notifications");
+    expect(container.textContent).not.toContain("View / edit source");
+  });
+
+  it("labels database extensions as sandboxed custom blocks and promotes by id", async () => {
+    await renderViewer();
+
+    expect(container.textContent).toContain("Custom block · sandboxed");
+    expect(container.textContent).toContain(
+      "Created by owner@example.test · History shows source versions",
+    );
+    const promoteButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Promote to app code",
+    );
+    expect(promoteButton).toBeTruthy();
+
+    await act(async () => {
+      promoteButton?.click();
+    });
+
+    expect(chatMocks.sendToAgentChat).toHaveBeenCalledOnce();
+    const request = chatMocks.sendToAgentChat.mock.calls[0][0];
+    expect(request.message).toContain(
+      'Promote "GitHub Stars Over Time" from a sandboxed custom block',
+    );
+    expect(request.context).toContain("id: ext-1");
+    expect(request.context).toContain(
+      "Do not copy extension HTML from the browser",
+    );
+    expect(request.context).not.toContain(extensionResponse.content);
+    expect(request).toMatchObject({
+      submit: true,
+      openSidebar: true,
+      newTab: true,
+    });
+  });
+
+  it("does not offer promotion for read-only or repo-backed extensions", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        ...extensionResponse,
+        canEdit: false,
+      }),
+    );
+    await renderViewer();
+
+    expect(container.textContent).toContain("Custom block · sandboxed");
+    expect(container.textContent).not.toContain("Promote to app code");
+
+    act(() => root.unmount());
+    queryClient.clear();
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    root = createRoot(container);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        ...extensionResponse,
+        source: {
+          mode: "local-files",
+          entryPath: "extensions/revenue/index.html",
+        },
+      }),
+    );
+    await renderViewer();
+
+    expect(container.textContent).not.toContain("Custom block · sandboxed");
+    expect(container.textContent).not.toContain("Promote to app code");
+    expect(container.textContent).toContain("Repo-backed extension");
+  });
+
+  it("lets toolbar popovers take outside clicks over the extension iframe", async () => {
+    const iframe = await renderViewer();
+    const buttonNamed = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === label,
+      );
+
+    expect(iframe.style.pointerEvents).toBe("auto");
+
+    await act(async () => {
+      buttonNamed("Share")?.click();
+    });
+
+    expect(iframe.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      buttonNamed("Close share")?.click();
+    });
+
+    expect(iframe.style.pointerEvents).toBe("auto");
+  });
+});

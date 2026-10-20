@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+import { alias } from "@agent-native/core/db/schema";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -6,9 +8,21 @@ import {
   accessFilter,
   ROLE_RANK,
   resolveAccess,
+  type ResolvedAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -18,13 +32,15 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import type {
-  ContentDatabaseBodyHydration,
-  ContentDatabaseItem,
-  ContentDatabaseMembership,
-  ContentDatabaseResponse,
-  ContentDatabaseTableQuery,
-  DocumentProperty,
+import {
+  CONTENT_DATABASE_FILTER_OPERATORS,
+  type ContentDatabaseBodyHydration,
+  type ContentDatabaseItem,
+  type ContentDatabaseMembership,
+  type ContentDatabaseResponse,
+  type ContentDatabaseTableQuery,
+  type ContentSidebarViewOrder,
+  type DocumentProperty,
 } from "../shared/api.js";
 import {
   applyContentDatabaseTableQuery,
@@ -38,13 +54,23 @@ import {
   parsePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
   resolveContentSpaceAccess,
 } from "./_content-space-access.js";
+import { readOpenCommentSummaries } from "./_database-comment-summary.js";
+import {
+  databaseRowRevision,
+  getDatabaseMutationContract,
+} from "./_database-row-mutation.js";
+import { getDatabaseSetupContract } from "./_database-setup-discovery.js";
+import { configurationRevision } from "./_database-setup-mutation.js";
 import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
+import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
+import { serializeDocumentSource } from "./_document-source.js";
 import {
   applyFederatedOverlayValues,
   federateSources,
@@ -56,7 +82,9 @@ import {
 import {
   listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
+  readDatabasePropertySchema,
   serializeDatabase,
+  type DatabasePropertySchema,
 } from "./_property-utils.js";
 export { getDocumentContextPath };
 
@@ -120,20 +148,7 @@ export const contentDatabaseTableQuerySchema = z
         z.object({
           key: z.string(),
           label: z.string(),
-          operator: z.enum([
-            "contains",
-            "equals",
-            "does_not_equal",
-            "greater_than",
-            "less_than",
-            "before",
-            "after",
-            "between",
-            "is_checked",
-            "is_unchecked",
-            "is_empty",
-            "is_not_empty",
-          ]),
+          operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
           value: z.string(),
           filterGroupId: z.string().optional(),
           parentFilterGroupId: z.string().optional(),
@@ -153,30 +168,16 @@ export const contentDatabaseTableQuerySchema = z
   })
   .optional();
 
-async function contentDatabaseTableQueryMode(
-  databaseId: string,
+function contentDatabaseTableQueryMode(
   query: ContentDatabaseTableQuery | undefined,
+  sourceFields: DatabasePropertySchema["sourceFields"],
 ) {
   if (!query) return undefined;
-  const sourceFields = await getDb()
-    .select({
-      metadataJson: schema.contentDatabaseSources.metadataJson,
-      propertyId: schema.contentDatabaseSourceFields.propertyId,
-    })
-    .from(schema.contentDatabaseSourceFields)
-    .innerJoin(
-      schema.contentDatabaseSources,
-      eq(
-        schema.contentDatabaseSources.id,
-        schema.contentDatabaseSourceFields.sourceId,
-      ),
-    )
-    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
   const secondaryPropertyIds = new Set<string>();
   for (const field of sourceFields) {
     let role: unknown = null;
     try {
-      role = JSON.parse(field.metadataJson || "{}").federation?.role;
+      role = JSON.parse(field.sourceMetadataJson || "{}").federation?.role;
     } catch {
       role = null;
     }
@@ -199,6 +200,15 @@ function canEditRole(role: string | undefined) {
   return role === "owner" || role === "admin" || role === "editor";
 }
 
+function canCommentRole(role: string | undefined) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "editor" ||
+    role === "commenter"
+  );
+}
+
 function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
   if (!current || ROLE_RANK[next] > ROLE_RANK[current]) return next;
   return current;
@@ -211,11 +221,16 @@ type DatabaseMembershipRow = {
   bodyHydrationQueueId?: string | null;
 };
 
-type DocumentListRow = Omit<typeof schema.documents.$inferSelect, "content">;
+type DocumentListRow = Omit<
+  typeof schema.documents.$inferSelect,
+  | "content"
+  | "collabBodyRevision"
+  | "createdBy"
+  | "updatedBy"
+  | "creationRequestDigest"
+  | "creationCreativeContext"
+>;
 
-// Database grids render row metadata and properties. Fetching the document body
-// here would transfer it only for serializeDocument to replace it with an empty
-// string below; opened documents use their dedicated document read path instead.
 export const contentDatabaseListDocumentSelection = {
   id: schema.documents.id,
   spaceId: schema.documents.spaceId,
@@ -226,6 +241,7 @@ export const contentDatabaseListDocumentSelection = {
   position: schema.documents.position,
   isFavorite: schema.documents.isFavorite,
   hideFromSearch: schema.documents.hideFromSearch,
+  bodyRevision: schema.documents.bodyRevision,
   sourceMode: schema.documents.sourceMode,
   sourceKind: schema.documents.sourceKind,
   sourcePath: schema.documents.sourcePath,
@@ -233,6 +249,9 @@ export const contentDatabaseListDocumentSelection = {
   sourceUpdatedAt: schema.documents.sourceUpdatedAt,
   trashedAt: schema.documents.trashedAt,
   trashRootId: schema.documents.trashRootId,
+  trashedBy: schema.documents.trashedBy,
+  trashOrigin: schema.documents.trashOrigin,
+  trashParentId: schema.documents.trashParentId,
   visibility: schema.documents.visibility,
   ownerEmail: schema.documents.ownerEmail,
   orgId: schema.documents.orgId,
@@ -259,6 +278,26 @@ export function serializeBodyHydration(
     attemptedAt: item.bodyHydrationAttemptedAt,
     error: item.bodyHydrationError,
     version: item.bodyHydrationVersion,
+    reason:
+      item.bodyHydrationReason === "empty_body" ||
+      item.bodyHydrationReason === "not_found" ||
+      item.bodyHydrationReason === "auth_failed" ||
+      item.bodyHydrationReason === "access_denied" ||
+      item.bodyHydrationReason === "transient_read_failure" ||
+      item.bodyHydrationReason === "malformed_body" ||
+      item.bodyHydrationReason === "unsupported_content" ||
+      item.bodyHydrationReason === "conversion_failed"
+        ? item.bodyHydrationReason
+        : undefined,
+    providerStatus: item.bodyHydrationProviderStatus ?? undefined,
+    attemptCount:
+      item.bodyHydrationAttemptCount > 0
+        ? item.bodyHydrationAttemptCount
+        : undefined,
+    retryable:
+      item.bodyHydrationRetryable === null
+        ? undefined
+        : item.bodyHydrationRetryable === 1,
   };
 }
 
@@ -268,7 +307,8 @@ export function serializeDatabaseMembership(
   return {
     databaseId: row.database.id,
     databaseDocumentId: row.database.documentId,
-    databaseTitle: row.database.title || "Untitled database",
+    databaseTitle: row.database.title || "Untitled collection",
+    systemRole: row.database.systemRole,
     position: row.item.position,
     sourceId: row.sourceId ?? null,
     bodyHydration: serializeBodyHydration(row.item, {
@@ -317,7 +357,7 @@ export function normalizeContentDatabasePageOptions(options: {
   const limit =
     typeof options.limit === "number" && Number.isFinite(options.limit)
       ? Math.max(
-          1,
+          0,
           Math.min(Math.floor(options.limit), CONTENT_DATABASE_MAX_READ_LIMIT),
         )
       : null;
@@ -412,8 +452,6 @@ function serializeDocument(
     id: doc.id,
     parentId: doc.parentId,
     title: doc.title,
-    // List reads deliberately project no `documents.content`; opened documents
-    // use their dedicated read path.
     content: "",
     description: doc.description,
     icon: doc.icon,
@@ -423,11 +461,13 @@ function serializeDocument(
     visibility: doc.visibility,
     accessRole,
     canView,
+    canComment: canCommentRole(accessRole),
     canEdit: canEditRole(accessRole),
     canManage: canManageRole(accessRole),
     databaseMembership: membership
       ? serializeDatabaseMembership(membership)
       : undefined,
+    source: serializeDocumentSource(doc),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -442,6 +482,8 @@ export type ContentDatabaseReadResolution =
   | {
       available: true;
       database: typeof schema.contentDatabases.$inferSelect;
+      /** Null when read access comes from the Files space, not the page. */
+      accessRole: ResolvedAccess["role"] | null;
     }
   | {
       available: false;
@@ -457,22 +499,21 @@ export async function resolveContentDatabaseRead(args: {
   documentId?: string;
 }): Promise<ContentDatabaseReadResolution> {
   const db = getDb();
-  let databaseId = args.databaseId;
-  if (!databaseId && args.documentId) {
-    const [database] = await db
-      .select({ id: schema.contentDatabases.id })
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.documentId, args.documentId));
-    databaseId = database?.id;
-  }
+  const [database] =
+    args.databaseId || args.documentId
+      ? await db
+          .select()
+          .from(schema.contentDatabases)
+          .where(
+            args.databaseId
+              ? eq(schema.contentDatabases.id, args.databaseId)
+              : eq(schema.contentDatabases.documentId, args.documentId!),
+          )
+      : [];
+  const databaseId = args.databaseId || database?.id;
   if (!databaseId) {
     throw new Error("Either databaseId or documentId is required.");
   }
-
-  const [database] = await db
-    .select()
-    .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.id, databaseId));
   if (!database) {
     return {
       available: false,
@@ -483,7 +524,13 @@ export async function resolveContentDatabaseRead(args: {
     };
   }
 
-  let canRead = Boolean(await resolveAccess("document", database.documentId));
+  const access = await resolveAccess(
+    "document",
+    database.documentId,
+    undefined,
+    { skipResourceBody: true },
+  );
+  let canRead = Boolean(access);
   if (!canRead && database.systemRole === "files" && database.spaceId) {
     try {
       await resolveContentSpaceAccess(database.spaceId);
@@ -505,7 +552,7 @@ export async function resolveContentDatabaseRead(args: {
     };
   }
 
-  return { available: true, database };
+  return { available: true, database, accessRole: access?.role ?? null };
 }
 
 type ContentDatabasePageBuild = ContentDatabasePageResponse & {
@@ -513,6 +560,34 @@ type ContentDatabasePageBuild = ContentDatabasePageResponse & {
   properties: ContentDatabaseResponse["properties"];
   hydratedItemCount: number;
 };
+
+const scopedFilesMemberships = alias(
+  schema.contentDatabaseItems,
+  "scoped_files_memberships",
+);
+
+export function contentDatabaseFilesMembershipFilter(filesDatabaseId: string) {
+  return exists(
+    getDb()
+      .select({ id: scopedFilesMemberships.id })
+      .from(scopedFilesMemberships)
+      .where(
+        and(
+          eq(scopedFilesMemberships.databaseId, filesDatabaseId),
+          eq(
+            scopedFilesMemberships.documentId,
+            schema.contentDatabaseItems.documentId,
+          ),
+        ),
+      ),
+  );
+}
+
+export function contentDatabaseCustomOrderRank(itemIds: string[]) {
+  return itemIds.length > 0
+    ? sql<number>`COALESCE(array_position(ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(itemIds)}::jsonb)), ${schema.contentDatabaseItems.id}), ${itemIds.length + 1})`
+    : sql<number>`CAST(1 AS integer)`;
+}
 
 export async function getContentDatabasePageResponse(
   databaseId: string,
@@ -522,7 +597,10 @@ export async function getContentDatabasePageResponse(
     tableQuery?: ContentDatabaseTableQuery;
     includeSources?: boolean;
     documentIds?: string[];
+    filesMembershipDatabaseId?: string;
+    sidebarOrder?: ContentSidebarViewOrder;
     database?: typeof schema.contentDatabases.$inferSelect;
+    propertySchema?: DatabasePropertySchema;
   } = {},
 ): Promise<ContentDatabasePageBuild> {
   const db = getDb();
@@ -538,17 +616,9 @@ export async function getContentDatabasePageResponse(
   if (!database || database.deletedAt) {
     throw new Error(`Database "${databaseId}" not found`);
   }
-  // PURE read: the primary "Content" Blocks field is seeded at create time and
-  // by the one-time startup repair — never here. Reading a database (including a
-  // shared one a viewer is opening) must not mutate schema.
 
   const { limit, offset } = normalizeContentDatabasePageOptions(options);
   const tableQuery = options.tableQuery;
-  const tableQueryMode = await contentDatabaseTableQueryMode(
-    databaseId,
-    tableQuery,
-  );
-  const serverTableQuery = tableQueryMode === "server" ? tableQuery : undefined;
   const userEmail = getRequestUserEmail();
   const normalizedUserEmail = userEmail
     ? normalizeContentSpaceEmail(userEmail)
@@ -606,33 +676,28 @@ export async function getContentDatabasePageResponse(
           )
           .map((row) => row.documentId)
       : null;
-  const favoritesVisibleDocumentIds =
+  const favoritesVisibleDocumentQuery =
     database.systemRole === "favorites" && userEmail
-      ? (
-          await db
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(
-              and(
-                or(
+      ? db
+          .select({ id: schema.documents.id })
+          .from(schema.documents)
+          .where(
+            and(
+              or(
+                accessFilter(schema.documents, schema.documentShares, {
+                  userEmail,
+                }),
+                ...authorizedOrgIds.map((orgId) =>
                   accessFilter(schema.documents, schema.documentShares, {
                     userEmail,
+                    orgId,
                   }),
-                  ...authorizedOrgIds.map((orgId) =>
-                    accessFilter(schema.documents, schema.documentShares, {
-                      userEmail,
-                      orgId,
-                    }),
-                  ),
                 ),
-                isNull(schema.documents.trashedAt),
-                documentDiscoveryFilter({
-                  userEmail,
-                  orgIds: authorizedOrgIds,
-                }),
               ),
-            )
-        ).map((document) => document.id)
+              isNull(schema.documents.trashedAt),
+              documentDiscoveryFilter({ userEmail, orgIds: authorizedOrgIds }),
+            ),
+          )
       : null;
   const organizationFilesItemFilter =
     database.systemRole === "files" && database.orgId
@@ -651,19 +716,27 @@ export async function getContentDatabasePageResponse(
         ? inArray(schema.contentDatabaseItems.documentId, options.documentIds)
         : sql`1 = 0`
       : undefined,
+    options.filesMembershipDatabaseId
+      ? contentDatabaseFilesMembershipFilter(options.filesMembershipDatabaseId)
+      : undefined,
     sql`exists (
       select 1 from ${schema.documents}
       where ${schema.documents.id} = ${schema.contentDatabaseItems.documentId}
         and ${schema.documents.trashedAt} is null
     )`,
-    organizationFilesItemFilter,
-    favoritesVisibleDocumentIds
-      ? favoritesVisibleDocumentIds.length > 0
-        ? inArray(
+    database.systemRole === "files"
+      ? and(
+          ...softDeletedDatabaseDocumentExclusions(
             schema.contentDatabaseItems.documentId,
-            favoritesVisibleDocumentIds,
-          )
-        : sql`1 = 0`
+          ),
+        )
+      : undefined,
+    organizationFilesItemFilter,
+    favoritesVisibleDocumentQuery
+      ? inArray(
+          schema.contentDatabaseItems.documentId,
+          favoritesVisibleDocumentQuery,
+        )
       : undefined,
     workspacesVisibleDocumentIds
       ? workspacesVisibleDocumentIds.length > 0
@@ -674,18 +747,30 @@ export async function getContentDatabasePageResponse(
         : sql`1 = 0`
       : undefined,
   );
-  const [itemCount] = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(schema.contentDatabaseItems)
-    .where(visibleItemFilter);
+  const [propertySchema, [itemCount]] = await Promise.all([
+    options.propertySchema ?? readDatabasePropertySchema(db, databaseId),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.contentDatabaseItems)
+      .where(visibleItemFilter),
+  ]);
   const totalVisibleItems = Number(itemCount?.count ?? 0);
   if (tableQuery && totalVisibleItems > CONTENT_DATABASE_MAX_READ_LIMIT) {
     throw new Error(
       `Table constraints support up to ${CONTENT_DATABASE_MAX_READ_LIMIT} rows; this database has ${totalVisibleItems}.`,
     );
   }
+  const tableQueryMode = contentDatabaseTableQueryMode(
+    tableQuery,
+    propertySchema.sourceFields,
+  );
+  const serverTableQuery = tableQueryMode === "server" ? tableQuery : undefined;
 
-  const databaseProperties = await listPropertiesForDatabase(databaseId);
+  const databaseProperties = await listPropertiesForDatabase(
+    databaseId,
+    undefined,
+    { propertySchema },
+  );
   const boundedProjectionPropertyIds =
     serverTableQuery && !database.systemRole
       ? boundedTableQueryProjectionPropertyIds(
@@ -694,112 +779,162 @@ export async function getContentDatabasePageResponse(
         )
       : null;
 
-  let itemsQuery = db
-    .select()
-    .from(schema.contentDatabaseItems)
-    .where(visibleItemFilter)
-    .orderBy(
-      asc(schema.contentDatabaseItems.position),
-      asc(schema.contentDatabaseItems.createdAt),
-      asc(schema.contentDatabaseItems.id),
-    )
-    .$dynamic();
-  if (serverTableQuery) {
-    itemsQuery = itemsQuery.limit(CONTENT_DATABASE_MAX_READ_LIMIT);
-  } else if (limit !== null) {
-    itemsQuery = itemsQuery.limit(limit).offset(offset);
-  }
-  let items = await itemsQuery;
-  let boundedTableQueryTotal: number | null = null;
-  if (serverTableQuery && boundedProjectionPropertyIds) {
-    const candidateDocuments = await db
-      .select({
-        id: schema.documents.id,
-        title: schema.documents.title,
-        ownerEmail: schema.documents.ownerEmail,
-        createdAt: schema.documents.createdAt,
-        updatedAt: schema.documents.updatedAt,
-      })
-      .from(schema.documents)
+  let itemsRead: Promise<
+    Array<typeof schema.contentDatabaseItems.$inferSelect>
+  >;
+  if (options.sidebarOrder && !serverTableQuery) {
+    const customItemIds = options.sidebarOrder.itemIds;
+    const customRank = contentDatabaseCustomOrderRank(customItemIds);
+    const order =
+      options.sidebarOrder.mode === "custom"
+        ? [
+            asc(customRank),
+            asc(schema.contentDatabaseItems.position),
+            asc(schema.contentDatabaseItems.id),
+          ]
+        : options.sidebarOrder.mode === "name"
+          ? [asc(schema.documents.title), asc(schema.contentDatabaseItems.id)]
+          : options.sidebarOrder.mode === "created"
+            ? [
+                desc(schema.documents.createdAt),
+                asc(schema.contentDatabaseItems.id),
+              ]
+            : [
+                desc(schema.documents.updatedAt),
+                asc(schema.contentDatabaseItems.id),
+              ];
+    let orderedItemsQuery = db
+      .select({ item: schema.contentDatabaseItems })
+      .from(schema.contentDatabaseItems)
       .innerJoin(
-        schema.contentDatabaseItems,
-        eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
       )
-      .where(
-        and(
-          visibleItemFilter,
-          eq(schema.documents.ownerEmail, database.ownerEmail),
-        ),
-      );
-    const candidateDocumentById = new Map(
-      candidateDocuments.map((document) => [document.id, document]),
-    );
-    const candidateValues =
-      boundedProjectionPropertyIds.size > 0
-        ? await db
+      .where(visibleItemFilter)
+      .orderBy(...order)
+      .$dynamic();
+    if (limit !== null) {
+      orderedItemsQuery = orderedItemsQuery.limit(limit).offset(offset);
+    }
+    itemsRead = orderedItemsQuery.then((rows) => rows.map((row) => row.item));
+  } else {
+    let itemsQuery = db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(visibleItemFilter)
+      .orderBy(
+        asc(schema.contentDatabaseItems.position),
+        asc(schema.contentDatabaseItems.createdAt),
+        asc(schema.contentDatabaseItems.id),
+      )
+      .$dynamic();
+    if (serverTableQuery) {
+      itemsQuery = itemsQuery.limit(CONTENT_DATABASE_MAX_READ_LIMIT);
+    } else if (limit !== null) {
+      itemsQuery = itemsQuery.limit(limit).offset(offset);
+    }
+    itemsRead = itemsQuery.then((rows) => rows);
+  }
+  const queryProperties = boundedProjectionPropertyIds
+    ? databaseProperties.filter((property) =>
+        boundedProjectionPropertyIds.has(property.definition.id),
+      )
+    : [];
+  const additionalBlocksPropertyIds = queryProperties.flatMap((property) =>
+    isBlocksPropertyType(property.definition.type) &&
+    !isPrimaryBlocksField(property.definition.options)
+      ? [property.definition.id]
+      : [],
+  );
+  const [itemRows, boundedCandidates] = await Promise.all([
+    itemsRead,
+    serverTableQuery && boundedProjectionPropertyIds
+      ? Promise.all([
+          db
             .select({
-              documentId: schema.documentPropertyValues.documentId,
-              propertyId: schema.documentPropertyValues.propertyId,
-              valueJson: schema.documentPropertyValues.valueJson,
+              id: schema.documents.id,
+              title: schema.documents.title,
+              ownerEmail: schema.documents.ownerEmail,
+              createdAt: schema.documents.createdAt,
+              updatedAt: schema.documents.updatedAt,
             })
-            .from(schema.documentPropertyValues)
+            .from(schema.documents)
             .innerJoin(
               schema.contentDatabaseItems,
-              eq(
-                schema.contentDatabaseItems.documentId,
-                schema.documentPropertyValues.documentId,
-              ),
+              eq(schema.contentDatabaseItems.documentId, schema.documents.id),
             )
             .where(
               and(
                 visibleItemFilter,
-                inArray(schema.documentPropertyValues.propertyId, [
-                  ...boundedProjectionPropertyIds,
-                ]),
+                eq(schema.documents.ownerEmail, database.ownerEmail),
               ),
-            )
-        : [];
+            ),
+          boundedProjectionPropertyIds.size > 0
+            ? db
+                .select({
+                  documentId: schema.documentPropertyValues.documentId,
+                  propertyId: schema.documentPropertyValues.propertyId,
+                  valueJson: schema.documentPropertyValues.valueJson,
+                })
+                .from(schema.documentPropertyValues)
+                .innerJoin(
+                  schema.contentDatabaseItems,
+                  eq(
+                    schema.contentDatabaseItems.documentId,
+                    schema.documentPropertyValues.documentId,
+                  ),
+                )
+                .where(
+                  and(
+                    visibleItemFilter,
+                    inArray(schema.documentPropertyValues.propertyId, [
+                      ...boundedProjectionPropertyIds,
+                    ]),
+                  ),
+                )
+            : [],
+          additionalBlocksPropertyIds.length > 0
+            ? db
+                .select({
+                  documentId: schema.documentBlockFieldContents.documentId,
+                  propertyId: schema.documentBlockFieldContents.propertyId,
+                  content: schema.documentBlockFieldContents.content,
+                })
+                .from(schema.documentBlockFieldContents)
+                .innerJoin(
+                  schema.contentDatabaseItems,
+                  eq(
+                    schema.contentDatabaseItems.documentId,
+                    schema.documentBlockFieldContents.documentId,
+                  ),
+                )
+                .where(
+                  and(
+                    visibleItemFilter,
+                    inArray(
+                      schema.documentBlockFieldContents.propertyId,
+                      additionalBlocksPropertyIds,
+                    ),
+                  ),
+                )
+            : [],
+        ])
+      : null,
+  ]);
+  let items = itemRows;
+  let boundedTableQueryTotal: number | null = null;
+  if (serverTableQuery && boundedCandidates) {
+    const [candidateDocuments, candidateValues, candidateBlockContents] =
+      boundedCandidates;
+    const candidateDocumentById = new Map(
+      candidateDocuments.map((document) => [document.id, document]),
+    );
     const candidateValueByDocumentAndProperty = new Map(
       candidateValues.map((value) => [
         `${value.documentId}\0${value.propertyId}`,
         parsePropertyValue(value.valueJson),
       ]),
     );
-    const queryProperties = databaseProperties.filter((property) =>
-      boundedProjectionPropertyIds.has(property.definition.id),
-    );
-    const additionalBlocksPropertyIds = queryProperties.flatMap((property) =>
-      isBlocksPropertyType(property.definition.type) &&
-      !isPrimaryBlocksField(property.definition.options)
-        ? [property.definition.id]
-        : [],
-    );
-    const candidateBlockContents =
-      additionalBlocksPropertyIds.length > 0
-        ? await db
-            .select({
-              documentId: schema.documentBlockFieldContents.documentId,
-              propertyId: schema.documentBlockFieldContents.propertyId,
-              content: schema.documentBlockFieldContents.content,
-            })
-            .from(schema.documentBlockFieldContents)
-            .innerJoin(
-              schema.contentDatabaseItems,
-              eq(
-                schema.contentDatabaseItems.documentId,
-                schema.documentBlockFieldContents.documentId,
-              ),
-            )
-            .where(
-              and(
-                visibleItemFilter,
-                inArray(
-                  schema.documentBlockFieldContents.propertyId,
-                  additionalBlocksPropertyIds,
-                ),
-              ),
-            )
-        : [];
     const candidateBlockContentByDocumentAndProperty = new Map(
       candidateBlockContents.map((row) => [
         `${row.documentId}\0${row.propertyId}`,
@@ -883,101 +1018,129 @@ export async function getContentDatabasePageResponse(
                 items.map((item) => item.documentId),
               ),
               isNull(schema.documents.trashedAt),
-              database.systemRole === "favorites"
-                ? favoritesVisibleDocumentIds?.length
-                  ? inArray(schema.documents.id, favoritesVisibleDocumentIds)
+              database.systemRole === "workspaces"
+                ? workspacesVisibleDocumentIds?.length
+                  ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
                   : sql`1 = 0`
-                : database.systemRole === "workspaces"
-                  ? workspacesVisibleDocumentIds?.length
-                    ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
-                    : sql`1 = 0`
-                  : database.systemRole === "files" && database.orgId
-                    ? and(
-                        eq(schema.documents.orgId, database.orgId),
-                        or(
-                          eq(schema.documents.visibility, "org"),
-                          eq(schema.documents.visibility, "public"),
-                        ),
-                        or(
-                          eq(schema.documents.hideFromSearch, 0),
-                          isNull(schema.documents.hideFromSearch),
-                        ),
-                      )
-                    : eq(schema.documents.ownerEmail, database.ownerEmail),
+                : database.systemRole === "files" && database.orgId
+                  ? and(
+                      eq(schema.documents.orgId, database.orgId),
+                      or(
+                        eq(schema.documents.visibility, "org"),
+                        eq(schema.documents.visibility, "public"),
+                      ),
+                      or(
+                        eq(schema.documents.hideFromSearch, 0),
+                        isNull(schema.documents.hideFromSearch),
+                      ),
+                    )
+                  : eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )
       : [];
   const documentById = new Map(documents.map((doc) => [doc.id, doc]));
-  const favorites =
-    database.systemRole === "favorites"
-      ? new Set(documents.map((document) => document.id))
-      : userEmail
-        ? await favoriteDocumentIds(
-            db,
-            userEmail,
-            documents.map((document) => document.id),
-          )
-        : new Set<string>();
-  const shareRoleByDocumentId = new Map<string, ShareRole>();
-  if (documents.length > 0) {
-    const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
-    const userEmail = getRequestUserEmail();
-    const orgId = getRequestOrgId();
-    if (userEmail) {
-      principalClauses.push(
-        and(
-          eq(schema.documentShares.principalType, "user"),
-          eq(schema.documentShares.principalId, userEmail),
-        )!,
-      );
-    }
-    if (orgId) {
-      principalClauses.push(
-        and(
-          eq(schema.documentShares.principalType, "org"),
-          eq(schema.documentShares.principalId, orgId),
-        )!,
-      );
-    }
-    const shareRows =
-      principalClauses.length > 0
-        ? await db
-            .select({
-              resourceId: schema.documentShares.resourceId,
-              role: schema.documentShares.role,
-            })
-            .from(schema.documentShares)
-            .where(
-              and(
-                inArray(
-                  schema.documentShares.resourceId,
-                  documents.map((document) => document.id),
-                ),
-                or(...principalClauses),
-              ),
-            )
-        : [];
-    for (const row of shareRows) {
-      shareRoleByDocumentId.set(
-        row.resourceId,
-        strongerRole(
-          shareRoleByDocumentId.get(row.resourceId) ?? null,
-          row.role,
-        ),
-      );
-    }
+  const documentIds = documents.map((document) => document.id);
+  const sharePrincipalClauses: NonNullable<ReturnType<typeof and>>[] = [];
+  if (userEmail) {
+    sharePrincipalClauses.push(
+      and(
+        eq(schema.documentShares.principalType, "user"),
+        eq(schema.documentShares.principalId, userEmail),
+      )!,
+    );
   }
-  const propertiesByDocumentId = await listPropertiesForDatabaseDocuments(
-    databaseId,
-    // Property serialization uses metadata only; this list projection carries
-    // every document field it consumes except the deliberately omitted body.
-    documents as Array<typeof schema.documents.$inferSelect>,
-  );
-  const filesProjection = await filesSystemPropertyProjection({
-    database,
-    documents,
-    properties: databaseProperties,
-  });
+  if (activeOrgId) {
+    sharePrincipalClauses.push(
+      and(
+        eq(schema.documentShares.principalType, "org"),
+        eq(schema.documentShares.principalId, activeOrgId),
+      )!,
+    );
+  }
+  const [
+    favorites,
+    shareRows,
+    propertiesByDocumentId,
+    filesProjection,
+    queuedBodyHydrationItemIds,
+    workspaceMemberships,
+    commentSummaries,
+  ] = await Promise.all([
+    database.systemRole === "favorites"
+      ? new Set(documentIds)
+      : userEmail
+        ? favoriteDocumentIds(db, userEmail, documentIds)
+        : new Set<string>(),
+    documents.length > 0 && sharePrincipalClauses.length > 0
+      ? db
+          .select({
+            resourceId: schema.documentShares.resourceId,
+            role: schema.documentShares.role,
+          })
+          .from(schema.documentShares)
+          .where(
+            and(
+              inArray(schema.documentShares.resourceId, documentIds),
+              or(...sharePrincipalClauses),
+            ),
+          )
+      : [],
+    listPropertiesForDatabaseDocuments(
+      databaseId,
+      documents as Array<typeof schema.documents.$inferSelect>,
+      { includeBlocksFieldIdentity: false, propertySchema },
+    ),
+    filesSystemPropertyProjection({
+      database,
+      documents,
+      properties: databaseProperties,
+    }),
+    items.length > 0
+      ? db
+          .select({
+            databaseItemId:
+              schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+          })
+          .from(schema.contentDatabaseBodyHydrationQueue)
+          .where(
+            inArray(
+              schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+              items.map((item) => item.id),
+            ),
+          )
+          .then((rows) => new Set(rows.map((row) => row.databaseItemId)))
+      : new Set<string>(),
+    database.systemRole === "favorites" && documents.length > 0
+      ? db
+          .select({
+            documentId: schema.contentDatabaseItems.documentId,
+            databaseId: schema.contentDatabaseItems.databaseId,
+          })
+          .from(schema.contentDatabaseItems)
+          .innerJoin(
+            schema.contentDatabases,
+            eq(
+              schema.contentDatabases.id,
+              schema.contentDatabaseItems.databaseId,
+            ),
+          )
+          .where(
+            and(
+              inArray(schema.contentDatabaseItems.documentId, documentIds),
+              eq(schema.contentDatabases.systemRole, "files"),
+              isNull(schema.contentDatabases.deletedAt),
+            ),
+          )
+      : [],
+    readOpenCommentSummaries(documentIds),
+  ]);
+  const shareRoleByDocumentId = new Map<string, ShareRole>();
+  for (const row of shareRows) {
+    shareRoleByDocumentId.set(
+      row.resourceId,
+      strongerRole(shareRoleByDocumentId.get(row.resourceId) ?? null, row.role),
+    );
+  }
   const responseProperties = filesProjection
     ? applyFilesSystemPropertyProjection({
         properties: databaseProperties,
@@ -996,32 +1159,21 @@ export async function getContentDatabasePageResponse(
       );
     }
   }
-  const queuedBodyHydrationItemIds =
-    items.length > 0
-      ? new Set(
-          (
-            await db
-              .select({
-                databaseItemId:
-                  schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-              })
-              .from(schema.contentDatabaseBodyHydrationQueue)
-              .where(
-                inArray(
-                  schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-                  items.map((item) => item.id),
-                ),
-              )
-          ).map((row) => row.databaseItemId),
-        )
-      : new Set<string>();
+  const workspaceDatabaseIdByDocumentId = new Map(
+    workspaceMemberships.map((membership) => [
+      membership.documentId,
+      membership.databaseId,
+    ]),
+  );
 
   const serializedCandidateItems = [];
   for (const item of items) {
     const document = documentById.get(item.documentId);
     if (!document) continue;
     const bodyHydrationQueued = queuedBodyHydrationItemIds.has(item.id);
+    const comments = commentSummaries.get(document.id);
     serializedCandidateItems.push({
+      ...(comments ? { comments } : {}),
       id: item.id,
       databaseId: item.databaseId,
       document: serializeDocument(
@@ -1035,10 +1187,27 @@ export async function getContentDatabasePageResponse(
         favorites.has(document.id),
       ),
       position: item.position,
+      workspaceFilesDatabaseId:
+        workspaceDatabaseIdByDocumentId.get(document.id) ?? null,
       bodyHydration: serializeBodyHydration(item, {
         queued: bodyHydrationQueued,
       }),
       properties: propertiesByDocumentId.get(document.id) ?? [],
+      rowRevision: databaseRowRevision({
+        itemId: item.id,
+        documentId: document.id,
+        title: document.title,
+        values: (propertiesByDocumentId.get(document.id) ?? [])
+          .filter(
+            (property) =>
+              !isBlocksPropertyType(property.definition.type) &&
+              !isComputedPropertyType(property.definition.type),
+          )
+          .map((property) => ({
+            propertyId: property.definition.id,
+            value: property.value,
+          })),
+      }),
     });
   }
 
@@ -1066,16 +1235,17 @@ export async function getContentDatabasePageResponse(
       : await getAllContentDatabaseSourceSnapshots(database, {
           documentIds: limit !== null ? [...serializedDocumentIds] : undefined,
         });
-  const organizationVisibleDocumentIds = organizationFilesItemFilter
-    ? new Set(
-        (
-          await db
-            .select({ documentId: schema.contentDatabaseItems.documentId })
-            .from(schema.contentDatabaseItems)
-            .where(visibleItemFilter)
-        ).map((item) => item.documentId),
-      )
-    : null;
+  const organizationVisibleDocumentIds =
+    organizationFilesItemFilter && sourceSnapshots.length > 0
+      ? new Set(
+          (
+            await db
+              .select({ documentId: schema.contentDatabaseItems.documentId })
+              .from(schema.contentDatabaseItems)
+              .where(visibleItemFilter)
+          ).map((item) => item.documentId),
+        )
+      : null;
   const sources = organizationVisibleDocumentIds
     ? sourceSnapshots.map((source) =>
         filterContentDatabaseSourceForVisibleDocuments(
@@ -1084,9 +1254,6 @@ export async function getContentDatabasePageResponse(
         ),
       )
     : sourceSnapshots;
-  // Keep the returned source overlay aligned to the visible item page.
-  // Secondary federation sources stay complete until their join-key lookup can
-  // be bounded independently; only matched rows overlay the returned items.
   const pagedSources =
     limit !== null
       ? sources.map((source) => {
@@ -1111,9 +1278,10 @@ export async function getContentDatabasePageResponse(
     items: serializedItems,
     sources: pagedSources,
   });
-  // Opt-in federated columns (a secondary field the user added via the picker)
-  // get their per-row values from the matched overlay at read time.
-  const itemsWithOverlay = applyFederatedOverlayValues(federatedItems);
+  const itemsWithOverlay = applyFederatedOverlayValues(
+    federatedItems,
+    pagedSources,
+  );
   return {
     databaseRecord: database,
     properties: responseProperties,
@@ -1150,33 +1318,81 @@ export async function getContentDatabaseResponse(
     tableQuery?: ContentDatabaseTableQuery;
     includeSources?: boolean;
     documentIds?: string[];
+    filesMembershipDatabaseId?: string;
+    sidebarOrder?: ContentSidebarViewOrder;
     database?: typeof schema.contentDatabases.$inferSelect;
+    /** The caller's role on the database page, when it already resolved it. */
+    accessRole?: ResolvedAccess["role"] | null;
   } = {},
 ): Promise<ContentDatabaseResponse> {
-  const page = await getContentDatabasePageResponse(databaseId, options);
   const db = getDb();
-  const [databaseDocument] = await db
-    .select({
-      id: schema.documents.id,
-      parentId: schema.documents.parentId,
-      description: schema.documents.description,
-    })
-    .from(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.id, page.databaseRecord.documentId),
-        accessFilter(schema.documents, schema.documentShares),
+  const database =
+    options.database ??
+    (
+      await db
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId))
+    )[0];
+  if (!database || database.deletedAt) {
+    fail(`Database "${databaseId}" not found`, {
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
+  const [propertySchema, [databaseDocument]] = await Promise.all([
+    readDatabasePropertySchema(db, database.id),
+    db
+      .select({
+        id: schema.documents.id,
+        parentId: schema.documents.parentId,
+        description: schema.documents.description,
+      })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, database.documentId),
+          accessFilter(schema.documents, schema.documentShares),
+        ),
       ),
-    );
-  const contextPath = databaseDocument
-    ? await getDocumentContextPath(databaseDocument)
-    : [];
-
+  ]);
+  const [page, contextPath, contracts] = await Promise.all([
+    getContentDatabasePageResponse(database.id, {
+      ...options,
+      database,
+      propertySchema,
+    }),
+    databaseDocument ? getDocumentContextPath(databaseDocument) : [],
+    database.spaceId && !database.systemRole
+      ? getDatabaseMutationContract(
+          {
+            authorityScope: database.orgId
+              ? { kind: "organization", id: database.orgId }
+              : { kind: "personal", id: database.ownerEmail },
+            spaceId: database.spaceId,
+            databaseId: database.id,
+            databaseDocumentId: database.documentId,
+          },
+          {
+            accessAlreadyResolved: true,
+            loaded: {
+              database,
+              definitions: propertySchema.definitions,
+              sourceManagedPropertyIds: propertySchema.sourceManagedPropertyIds,
+            },
+          },
+        ).then(async (mutationContract) => ({
+          mutationContract,
+          setupContract: await getDatabaseSetupContract(
+            database,
+            mutationContract,
+            { accessRole: options.accessRole },
+          ),
+        }))
+      : undefined,
+  ]);
   return {
-    database: serializeDatabase(
-      page.databaseRecord,
-      databaseDocument?.description ?? "",
-    ),
+    database: serializeDatabase(database, databaseDocument?.description ?? ""),
     contextPath,
     properties: page.properties,
     items: page.items,
@@ -1184,36 +1400,35 @@ export async function getContentDatabaseResponse(
     sources: page.sources,
     pagination: page.pagination,
     tableQueryMode: page.tableQueryMode,
+    mutationContract: contracts?.mutationContract,
+    configurationRevision: configurationRevision(database),
+    setupContract: contracts?.setupContract,
   };
 }
 
 export async function isSoftDeletedDatabaseDocument(documentId: string) {
   const db = getDb();
-  const [ownedDatabase] = await db
+  const [deletedDatabase] = await db
     .select({ id: schema.contentDatabases.id })
     .from(schema.contentDatabases)
-    .where(
+    .leftJoin(
+      schema.contentDatabaseItems,
       and(
-        eq(schema.contentDatabases.documentId, documentId),
-        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
+        eq(schema.contentDatabaseItems.databaseId, schema.contentDatabases.id),
+        eq(schema.contentDatabaseItems.documentId, documentId),
       ),
-    );
-  if (ownedDatabase) return true;
-
-  const [databaseItem] = await db
-    .select({ id: schema.contentDatabaseItems.id })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
     )
     .where(
       and(
-        eq(schema.contentDatabaseItems.documentId, documentId),
-        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
+        isNotNull(schema.contentDatabases.deletedAt),
+        or(
+          eq(schema.contentDatabases.documentId, documentId),
+          isNotNull(schema.contentDatabaseItems.id),
+        ),
       ),
-    );
-  return !!databaseItem;
+    )
+    .limit(1);
+  return !!deletedDatabase;
 }
 
 export async function getDatabaseByDocumentId(
@@ -1237,6 +1452,16 @@ export async function getDatabaseItemByDocumentId(
   options: { includeDeleted?: boolean; databaseId?: string } = {},
   db = getDb(),
 ) {
+  const [row] = await listDatabaseItemsByDocumentId(documentId, options, db);
+  return row ?? null;
+}
+
+/** Every membership row of the document, in getDatabaseItemByDocumentId order. */
+export function listDatabaseItemsByDocumentId(
+  documentId: string,
+  options: { includeDeleted?: boolean; databaseId?: string } = {},
+  db = getDb(),
+) {
   const clauses = [eq(schema.contentDatabaseItems.documentId, documentId)];
   if (options.databaseId) {
     clauses.push(
@@ -1246,12 +1471,28 @@ export async function getDatabaseItemByDocumentId(
   if (!options.includeDeleted) {
     clauses.push(isNull(schema.contentDatabases.deletedAt));
   }
-  const [row] = await db
+  return db
     .select({
       item: schema.contentDatabaseItems,
       database: schema.contentDatabases,
       sourceId: schema.contentDatabaseSourceRows.sourceId,
+      sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+      sourceDocumentId: schema.contentDatabaseSourceRows.documentId,
+      sourceType: schema.contentDatabaseSources.sourceType,
       bodyHydrationQueueId: schema.contentDatabaseBodyHydrationQueue.id,
+      queueSourceId: schema.contentDatabaseBodyHydrationQueue.sourceId,
+      queueSourceRowId: schema.contentDatabaseBodyHydrationQueue.sourceRowId,
+      bodyHydrationQueueExists: exists(
+        db
+          .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+          .from(schema.contentDatabaseBodyHydrationQueue)
+          .where(
+            eq(
+              schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+              schema.contentDatabaseItems.id,
+            ),
+          ),
+      ),
     })
     .from(schema.contentDatabaseItems)
     .innerJoin(
@@ -1263,6 +1504,13 @@ export async function getDatabaseItemByDocumentId(
       eq(
         schema.contentDatabaseSourceRows.databaseItemId,
         schema.contentDatabaseItems.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceRows.sourceId,
       ),
     )
     .leftJoin(
@@ -1299,63 +1547,22 @@ export async function getDatabaseItemByDocumentId(
       sql`CASE WHEN ${schema.contentDatabases.systemRole} = 'files' THEN 0 ELSE 1 END`,
       asc(schema.contentDatabases.id),
     );
-  return row ?? null;
 }
 
-export async function getBuilderBodyHydrationMembershipByDocumentId(
+export function getBuilderBodyHydrationMembershipFromDatabaseItems(
   documentId: string,
-  db = getDb(),
+  rows: Awaited<ReturnType<typeof listDatabaseItemsByDocumentId>>,
 ) {
-  const rows = await db
-    .select({
-      item: schema.contentDatabaseItems,
-      database: schema.contentDatabases,
-      sourceId: schema.contentDatabaseSourceRows.sourceId,
-      sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
-      bodyHydrationQueueId: schema.contentDatabaseBodyHydrationQueue.id,
-      queueSourceId: schema.contentDatabaseBodyHydrationQueue.sourceId,
-      queueSourceRowId: schema.contentDatabaseBodyHydrationQueue.sourceRowId,
-    })
-    .from(schema.contentDatabaseSourceRows)
-    .innerJoin(
-      schema.contentDatabaseSources,
-      eq(
-        schema.contentDatabaseSources.id,
-        schema.contentDatabaseSourceRows.sourceId,
-      ),
-    )
-    .innerJoin(
-      schema.contentDatabaseItems,
-      eq(
-        schema.contentDatabaseItems.id,
-        schema.contentDatabaseSourceRows.databaseItemId,
-      ),
-    )
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
-    )
-    .leftJoin(
-      schema.contentDatabaseBodyHydrationQueue,
-      eq(
-        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-        schema.contentDatabaseItems.id,
-      ),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseSourceRows.documentId, documentId),
-        eq(schema.contentDatabaseItems.documentId, documentId),
-        eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
-        isNull(schema.contentDatabases.deletedAt),
-      ),
-    );
-
   const boundRows = rows.filter(
     (row) =>
-      !row.bodyHydrationQueueId ||
-      (row.queueSourceId === row.sourceId &&
-        row.queueSourceRowId === row.sourceRowId),
+      row.sourceType === "builder-cms" &&
+      row.sourceDocumentId === documentId &&
+      row.sourceId !== null &&
+      row.sourceRowId !== null &&
+      (!row.bodyHydrationQueueExists ||
+        (row.bodyHydrationQueueId !== null &&
+          row.queueSourceId === row.sourceId &&
+          row.queueSourceRowId === row.sourceRowId)),
   );
   if (boundRows.length === 0) return null;
 
@@ -1407,15 +1614,19 @@ export async function deleteDatabaseDataForDocument(
       .from(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
 
-    for (const definition of definitions) {
+    const definitionIds = definitions.map((definition) => definition.id);
+    if (definitionIds.length > 0) {
+      await deleteBlocksFieldIdentity({ db, propertyIds: definitionIds });
       await db
         .delete(schema.documentPropertyValues)
-        .where(eq(schema.documentPropertyValues.propertyId, definition.id));
-      // Independent Blocks-field content is keyed by property id; drop it so
-      // deleting a database leaves no orphaned document_block_field_contents.
+        .where(
+          inArray(schema.documentPropertyValues.propertyId, definitionIds),
+        );
       await db
         .delete(schema.documentBlockFieldContents)
-        .where(eq(schema.documentBlockFieldContents.propertyId, definition.id));
+        .where(
+          inArray(schema.documentBlockFieldContents.propertyId, definitionIds),
+        );
     }
     const sources = await db
       .select({ id: schema.contentDatabaseSources.id })
@@ -1454,6 +1665,11 @@ export async function deleteDatabaseDataForDocument(
         eq(schema.contentDatabaseMigrationReceipts.databaseId, database.id),
       );
     await db
+      .delete(schema.contentDatabaseRowMutationReceipts)
+      .where(
+        eq(schema.contentDatabaseRowMutationReceipts.databaseId, database.id),
+      );
+    await db
       .delete(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
     await db
@@ -1472,6 +1688,7 @@ export async function deleteDatabaseDataForDocument(
     db,
   );
   if (item) {
+    await deleteBlocksFieldIdentity({ db, documentId });
     await db
       .delete(schema.contentDatabaseItemKeyClaims)
       .where(eq(schema.contentDatabaseItemKeyClaims.documentId, documentId));
@@ -1488,9 +1705,6 @@ export async function deleteDatabaseDataForDocument(
           eq(schema.documentPropertyValues.ownerEmail, ownerEmail),
         ),
       );
-    // A deleted row document's independent Blocks-field content is keyed by
-    // document id; drop it so no document_block_field_contents rows are
-    // orphaned when the row is removed.
     await db
       .delete(schema.documentBlockFieldContents)
       .where(eq(schema.documentBlockFieldContents.documentId, documentId));

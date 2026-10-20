@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// --- Mock dependencies BEFORE importing the action ---
-// The action calls these at module top-level via imports; vi.mock is hoisted
-// so the action sees our stubs the moment it loads.
-
 const mockAssertAccess = vi.fn();
 const mockWriteAppState = vi.fn();
 const mockNotifyClients = vi.fn();
 
 let mockDeckRow:
-  | { id: string; title: string; data: string; ownerEmail: string }
+  | {
+      id: string;
+      title: string;
+      data: string;
+      ownerEmail: string;
+      updatedAt: string;
+    }
   | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
 
@@ -18,14 +20,18 @@ const whereSelectFn = vi.fn(() => ({ limit: limitFn }));
 const fromFn = vi.fn(() => ({ where: whereSelectFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
-const whereUpdateFn = vi.fn(async () => undefined);
+const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
   return { where: whereUpdateFn };
 });
 const updateFn = vi.fn(() => ({ set: setFn }));
 
-const mockDb = { select: selectFn, update: updateFn };
+const mockDb = {
+  select: selectFn,
+  update: updateFn,
+  transaction: async (run: (tx: typeof mockDb) => Promise<void>) => run(mockDb),
+};
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
@@ -46,14 +52,25 @@ vi.mock("../server/handlers/decks.js", () => ({
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+  deckVersionChangeGroupFromAction: vi.fn(() => undefined),
+  deckVersionChatContextFromAction: vi.fn(() => undefined),
+}));
+
+vi.mock("./patch-deck.js", () => ({
+  isAgentPatchCaller: (caller: string | undefined) =>
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp",
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
+  isNull: (col: unknown) => ({ isNull: col }),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
-// Import AFTER mocks are registered.
 import action from "./update-deck-aspect-ratio";
 
 beforeEach(() => {
@@ -62,6 +79,7 @@ beforeEach(() => {
     id: "deck-1",
     title: "T",
     ownerEmail: "owner@example.com",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     data: JSON.stringify({
       title: "T",
       slides: [{ id: "s1" }],
@@ -83,10 +101,8 @@ describe("update-deck-aspect-ratio action", () => {
     expect(updatedFields).toBeDefined();
     const dataJson = JSON.parse(updatedFields!.data as string);
     expect(dataJson.aspectRatio).toBe("1:1");
-    // Existing fields preserved
     expect(dataJson.title).toBe("T");
     expect(dataJson.slides).toEqual([{ id: "s1" }]);
-    // updatedAt bumped (in JSON and in row)
     expect(dataJson.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(updatedFields!.updatedAt).toBe(dataJson.updatedAt);
     expect(result).toEqual({ id: "deck-1", aspectRatio: "1:1" });
@@ -112,6 +128,36 @@ describe("update-deck-aspect-ratio action", () => {
     expect(dataJson.aspectRatio).toBe("4:5");
   });
 
+  it("skips a repeated aspectRatio without persisting or notifying", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "T",
+      slides: [],
+      aspectRatio: "16:9",
+    });
+
+    await expect(
+      action.run({ deckId: "deck-1", aspectRatio: "16:9" }),
+    ).resolves.toEqual({ id: "deck-1", aspectRatio: "16:9", applied: false });
+    expect(updatedFields).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("throws a no-write error for repeated agent requests", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "T",
+      slides: [],
+      aspectRatio: "16:9",
+    });
+
+    await expect(
+      action.run({ deckId: "deck-1", aspectRatio: "16:9" }, { caller: "tool" }),
+    ).rejects.toThrow("Nothing was written");
+    expect(updatedFields).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
   it("throws when the deck row does not exist", async () => {
     mockDeckRow = undefined;
     await expect(
@@ -119,14 +165,34 @@ describe("update-deck-aspect-ratio action", () => {
     ).rejects.toThrow(/not found/i);
   });
 
+  it("reports a missing deck as a caller-correctable contract error", async () => {
+    mockDeckRow = undefined;
+    await expect(
+      action.run({ deckId: "missing", aspectRatio: "16:9" }),
+    ).rejects.toMatchObject({
+      errorCode: "deck_not_found",
+      statusCode: 404,
+    });
+  });
+
   it("rejects an unknown aspect ratio at the schema boundary", async () => {
     await expect(
       action.run({ deckId: "deck-1", aspectRatio: "21:9" as never }),
     ).rejects.toThrow();
-    // The DB write must NOT have happened.
     expect(updatedFields).toBeUndefined();
-    // assertAccess also should not have run for an invalid input.
     expect(mockAssertAccess).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a wrong deck id as a caller-readable 403, not an opaque 500", async () => {
+    mockAssertAccess.mockRejectedValueOnce(
+      Object.assign(new Error("No access to deck missing"), {
+        statusCode: 403,
+      }),
+    );
+    await expect(
+      action.run({ deckId: "missing", aspectRatio: "16:9" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(updatedFields).toBeUndefined();
   });
 
   it("propagates assertAccess failure (e.g. viewer trying to edit)", async () => {

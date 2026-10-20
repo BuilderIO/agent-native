@@ -6,10 +6,12 @@ import {
 } from "@agent-native/core/data-programs";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
+import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract";
 import { getUserSegmentation, queryEvents } from "./amplitude";
 import { runQuery } from "./bigquery";
 import { runDemoPanel, serializeDemoDescriptorInput } from "./demo-source";
 import { queryFirstPartyAnalytics } from "./first-party-analytics";
+import { FirstPartyAnalyticsUnsupportedSqlError } from "./first-party-analytics-backend";
 import { runReport } from "./google-analytics";
 import {
   runPrometheusPanel,
@@ -29,11 +31,16 @@ export const DASHBOARD_PANEL_SOURCES = [
 
 export type DashboardPanelSource = (typeof DASHBOARD_PANEL_SOURCES)[number];
 
-export interface DashboardPanelQueryResult {
+export interface DashboardPanelQueryResult extends SqlQueryExecutionMetadata {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
-  truncated?: boolean;
-  bytesProcessed?: number;
+}
+
+export interface UnsupportedBackendResponse {
+  error: "unsupported_by_backend";
+  backend: "bigquery";
+  construct: string;
+  message: string;
 }
 
 export function isDashboardPanelSource(
@@ -45,43 +52,34 @@ export function isDashboardPanelSource(
   );
 }
 
-/**
- * program panels carry a JSON blob in `sql` describing which stored data
- * program to run and with what params. Shape:
- * { programId: string; params?: Record<string, unknown> }.
- */
-export function serializeProgramDescriptorInput(raw: unknown): string {
-  if (typeof raw === "string") return raw;
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    const obj = raw as Record<string, unknown>;
-    if (typeof obj.programId !== "string" || !obj.programId.trim()) {
-      throw new Error("program panel descriptor requires a 'programId' field");
-    }
-    return JSON.stringify(raw);
-  }
-  throw new Error(
-    "program panel sql must be a JSON string or object with 'programId'",
-  );
-}
-
 export interface ProgramDescriptor {
   programId: string;
   params?: Record<string, unknown>;
 }
 
-function parseProgramDescriptor(raw: string): ProgramDescriptor {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err: any) {
-    throw new Error(
-      `program panel sql must be a JSON object: ${err?.message ?? err}`,
-    );
+const PROGRAM_ID_PATTERN = /^dp_[A-Za-z0-9]+$/;
+
+export function coerceProgramDescriptor(raw: unknown): ProgramDescriptor {
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      throw new Error("program panel descriptor requires a 'programId' field");
+    }
+    if (PROGRAM_ID_PATTERN.test(trimmed)) return { programId: trimmed };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (err: any) {
+      throw new Error(
+        `program panel sql must be a program id or a JSON object: ${err?.message ?? err}`,
+      );
+    }
+    return coerceProgramDescriptor(parsed);
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("program panel sql must be a JSON object");
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("program panel sql must be a program id or a JSON object");
   }
-  const obj = parsed as Record<string, unknown>;
+  const obj = raw as Record<string, unknown>;
   if (typeof obj.programId !== "string" || !obj.programId.trim()) {
     throw new Error("program panel descriptor requires a 'programId' field");
   }
@@ -89,7 +87,15 @@ function parseProgramDescriptor(raw: string): ProgramDescriptor {
     obj.params && typeof obj.params === "object" && !Array.isArray(obj.params)
       ? (obj.params as Record<string, unknown>)
       : undefined;
-  return { programId: obj.programId, params };
+  return { programId: obj.programId.trim(), ...(params ? { params } : {}) };
+}
+
+export function serializeProgramDescriptorInput(raw: unknown): string {
+  return JSON.stringify(coerceProgramDescriptor(raw));
+}
+
+function parseProgramDescriptor(raw: string): ProgramDescriptor {
+  return coerceProgramDescriptor(raw);
 }
 
 export function normalizeDashboardPanelQuery(
@@ -128,11 +134,6 @@ async function missingCredential(
   };
 }
 
-/**
- * ga4 panels carry a JSON blob in `sql` describing the GA4 Data API call.
- * Shape: { metrics: string[]; dimensions?: string[]; days?: number;
- *          startDate?: string; endDate?: string }.
- */
 async function runGa4Panel(raw: string): Promise<DashboardPanelQueryResult> {
   let parsed: {
     metrics?: unknown;
@@ -206,11 +207,6 @@ async function runGa4Panel(raw: string): Promise<DashboardPanelQueryResult> {
   return { rows, schema };
 }
 
-/**
- * Amplitude panels carry a JSON blob in `sql` describing the segmentation API
- * call. Shape: { event: string; metric?: "totals"|"uniques"; groupBy?: string;
- * days?: number; startDate?: string; endDate?: string }.
- */
 async function runAmplitudePanel(
   raw: string,
 ): Promise<DashboardPanelQueryResult> {
@@ -362,12 +358,15 @@ async function runProgramPanel(
   const descriptor = parseProgramDescriptor(raw);
   const result = await runDataProgram({
     programId: descriptor.programId,
-    // Use the same app scope that registered the agent's data-program actions.
-    // Standalone template dev can derive that scope from the runtime package
-    // even when APP_NAME is not explicitly set.
     appId: getInitializedDataProgramsAppId() ?? ANALYTICS_APP_ID,
     params: descriptor.params,
-    ctx: { userEmail: ctx.userEmail, orgId: ctx.orgId ?? null },
+    ctx: {
+      userEmail: ctx.userEmail,
+      orgId: ctx.orgId ?? null,
+      ...(ctx.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
+    },
     triggeredBy: "panel_view",
   });
 
@@ -406,8 +405,22 @@ export async function runDashboardPanelQuery(args: {
   query: string;
   ctx: CredentialContext;
   timeoutMs?: number;
-}): Promise<DashboardPanelQueryResult | MissingKeyResponse> {
-  const { source, query, ctx, timeoutMs } = args;
+  forceRefresh?: boolean;
+  signal?: AbortSignal;
+  /** Billed-byte cap for warehouse-backed sources; the others ignore it. */
+  maxBytesBilled?: number;
+}): Promise<
+  DashboardPanelQueryResult | MissingKeyResponse | UnsupportedBackendResponse
+> {
+  const {
+    source,
+    query,
+    ctx,
+    timeoutMs,
+    forceRefresh,
+    signal,
+    maxBytesBilled,
+  } = args;
 
   if (source === "bigquery") {
     const missing = await missingCredential(
@@ -416,7 +429,11 @@ export async function runDashboardPanelQuery(args: {
       "BigQuery",
     );
     if (missing) return missing;
-    return await runQuery(query);
+    return await runQuery(query, {
+      ...(forceRefresh ? { forceRefresh: true } : {}),
+      ...(signal ? { signal } : {}),
+      ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
+    });
   }
 
   if (source === "ga4") {
@@ -452,17 +469,40 @@ export async function runDashboardPanelQuery(args: {
   }
 
   if (source === "first-party") {
-    return await queryFirstPartyAnalytics(
-      query,
-      {
-        userEmail: ctx.userEmail,
-        orgId: ctx.orgId ?? null,
-      },
-      {
-        cache: true,
-        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      },
-    );
+    try {
+      return await queryFirstPartyAnalytics(
+        query,
+        {
+          userEmail: ctx.userEmail,
+          orgId: ctx.orgId ?? null,
+          ...(ctx.credentialScope === "org"
+            ? { credentialScope: "org" as const }
+            : {}),
+        },
+        {
+          cache: true,
+          ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+          ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
+        },
+      );
+    } catch (error) {
+      // Only the "no BigQuery equivalent exists" failure becomes a rendered
+      // state. Every other failure — timeout, permission, provider outage —
+      // still throws, because those are retryable and must not read to the
+      // user as a permanent property of the panel.
+      if (!(error instanceof FirstPartyAnalyticsUnsupportedSqlError))
+        throw error;
+      console.error(
+        "[first-party-analytics] Panel SQL has no BigQuery translation:",
+        error,
+      );
+      return {
+        error: "unsupported_by_backend",
+        backend: "bigquery",
+        construct: error.construct,
+        message: `This panel can't run on your current data backend (BigQuery) because its SQL uses ${error.construct}. Edit the panel's SQL, or switch the backend back to PostgreSQL.`,
+      };
+    }
   }
 
   if (source === "demo") {

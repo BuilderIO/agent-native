@@ -12,12 +12,10 @@ import type { Pin, PinStatus } from "../../types/index.js";
 
 const MAX_MARKERS = 100;
 
-// Badge sizing constants
 const BADGE_SIZE = 20;
 const BADGE_FONT = 11;
 const BADGE_OFFSET = -10;
 
-// Status colors
 const STATUS_COLORS: Record<PinStatus, string> = {
   open: "#3b82f6",
   acknowledged: "#eab308",
@@ -53,7 +51,6 @@ export class PinMarkerManager {
 
   setSelectedPins(ids: Set<string>) {
     this.selectedPinIds = ids;
-    // Update checkbox visuals
     for (const [id, pair] of this.markers) {
       this.updateCheckboxVisual(pair.checkbox, ids.has(id));
     }
@@ -110,7 +107,6 @@ export class PinMarkerManager {
     const statusColor = STATUS_COLORS[pin.status.state] || this.markerColor;
 
     if (!pair) {
-      // Wrapper
       const wrapper = document.createElement("div");
       wrapper.setAttribute("data-pinpoint-marker", pin.id);
       wrapper.style.cssText = `
@@ -119,7 +115,6 @@ export class PinMarkerManager {
         pointer-events: none;
       `;
 
-      // Outline border
       const outline = document.createElement("div");
       outline.style.cssText = `
         position: absolute;
@@ -131,7 +126,6 @@ export class PinMarkerManager {
         opacity: 0.6;
       `;
 
-      // Numbered badge
       const badge = document.createElement("div");
       badge.className = "pp-marker-badge";
       badge.style.cssText = `
@@ -159,7 +153,6 @@ export class PinMarkerManager {
         z-index: 1;
       `;
 
-      // Add keyframes if not yet added
       if (!document.getElementById("pp-marker-keyframes")) {
         const style = document.createElement("style");
         style.id = "pp-marker-keyframes";
@@ -204,7 +197,6 @@ export class PinMarkerManager {
         if (!prefersReducedMotion) badge.style.transform = "scale(1)";
       });
 
-      // Selection checkbox
       const checkbox = document.createElement("div");
       checkbox.style.cssText = `
         position: absolute;
@@ -240,7 +232,6 @@ export class PinMarkerManager {
         this.onToggleSelect?.(pin);
       });
 
-      // Resolved overlay checkmark
       const resolvedOverlay = document.createElement("div");
       resolvedOverlay.style.cssText = `
         position: absolute;
@@ -265,7 +256,6 @@ export class PinMarkerManager {
       this.markers.set(pin.id, pair);
     }
 
-    // Update dynamic properties
     pair.badge.textContent = String(number);
     pair.badge.title = pin.comment;
     pair.badge.style.background = statusColor;
@@ -274,14 +264,12 @@ export class PinMarkerManager {
       pin.status.state === "resolved" ? "flex" : "none";
     this.updateCheckboxVisual(pair.checkbox, this.selectedPinIds.has(pin.id));
 
-    // Position wrapper to cover the element
     const rect = element.getBoundingClientRect();
     pair.wrapper.style.left = `${rect.left}px`;
     pair.wrapper.style.top = `${rect.top}px`;
     pair.wrapper.style.width = `${rect.width}px`;
     pair.wrapper.style.height = `${rect.height}px`;
 
-    // Visibility
     const visible =
       rect.bottom > 0 &&
       rect.top < window.innerHeight &&

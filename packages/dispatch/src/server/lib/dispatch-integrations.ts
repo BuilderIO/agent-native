@@ -9,7 +9,7 @@ import {
   saveIntegrationScope,
   slackInstallationKey,
 } from "@agent-native/core/integrations";
-import { resolveOrgIdForEmail } from "@agent-native/core/org";
+import { isOrgMember, resolveOrgIdForEmail } from "@agent-native/core/org";
 import { withConfiguredAppBasePath } from "@agent-native/core/server";
 import type {
   IncomingMessage,
@@ -17,6 +17,7 @@ import type {
   PlatformAdapter,
 } from "@agent-native/core/server";
 
+import { getDispatchDefaultOwnerEmail } from "./admin-config.js";
 import { handleRemoteCodeCommand } from "./dispatch-remote-commands.js";
 import {
   dispatchIntegrationRoutingHint,
@@ -84,18 +85,13 @@ function fallbackOwnerForIncoming(incoming: IncomingMessage): string {
 function configuredDefaultOwnerForIncoming(
   incoming: IncomingMessage,
 ): string | null {
-  // This is intentionally Slack-only: a deployment-wide default owner grants
-  // that Slack workspace access to the owner's connected agents and org
-  // credentials, so other platforms should opt in with explicit identity links.
   if (incoming.platform !== "slack") return null;
-  const email = process.env.DISPATCH_DEFAULT_OWNER_EMAIL?.trim();
+  const email = getDispatchDefaultOwnerEmail();
   if (!email) return null;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
 function platformRequiresExplicitLink(incoming: IncomingMessage): boolean {
-  // Telegram does not provide a verified email address. Require an explicit
-  // identity link before it can act as a Builder/Agent-Native user.
   return incoming.platform === "telegram";
 }
 
@@ -122,15 +118,40 @@ function configuredDispatchIdentitiesUrl(): string | null {
 async function resolveManagedSlackInstallation(incoming: IncomingMessage) {
   if (incoming.platform !== "slack") return null;
   const teamId = contextString(incoming.platformContext.teamId);
+  const enterpriseId = contextString(incoming.platformContext.enterpriseId);
   const apiAppId = contextString(incoming.platformContext.apiAppId);
-  if (!teamId) return null;
-  try {
-    return await getActiveIntegrationInstallationByKey(
-      "slack",
-      slackInstallationKey({ teamId, apiAppId }),
-    );
-  } catch {
+  const isEnterpriseInstall =
+    incoming.platformContext.isEnterpriseInstall === true;
+  if ((!teamId && !enterpriseId) || (isEnterpriseInstall && !enterpriseId))
     return null;
+  return getActiveIntegrationInstallationByKey(
+    "slack",
+    slackInstallationKey({
+      teamId,
+      enterpriseId,
+      apiAppId,
+      isEnterpriseInstall,
+    }),
+  );
+}
+
+class ManagedSlackInstallationLookupError extends Error {
+  constructor(options?: ErrorOptions) {
+    super(
+      "Managed Slack installation identity is temporarily unavailable",
+      options,
+    );
+    this.name = "ManagedSlackInstallationLookupError";
+  }
+}
+
+async function resolveManagedSlackInstallationOrFail(
+  incoming: IncomingMessage,
+) {
+  try {
+    return await resolveManagedSlackInstallation(incoming);
+  } catch (cause) {
+    throw new ManagedSlackInstallationLookupError({ cause });
   }
 }
 
@@ -159,7 +180,19 @@ function formatSlackLinkRequiredMessage(): string {
   const linkStep = identitiesUrl
     ? `Open ${identitiesUrl}, create a Slack link token, then send \`/link <token>\` in this DM.`
     : "Open Dispatch while signed in, create a Slack link token, then send `/link <token>` in this DM.";
-  return `Agent Native is ready, but this Slack account is not linked to an Agent Native user yet. ${linkStep}`;
+  return `Agent-Native is ready, but this Slack account is not linked to an Agent-Native user yet. ${linkStep}`;
+}
+
+function formatSlackIdentityVerificationFailedMessage(): string {
+  const identitiesUrl = configuredDispatchIdentitiesUrl();
+  const recovery = identitiesUrl
+    ? ` If this keeps happening, open ${identitiesUrl} while signed in and link Slack.`
+    : " If this keeps happening, open Dispatch while signed in and link Slack from Identities.";
+  return `I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.${recovery}`;
+}
+
+function formatSlackIdentityDeniedMessage(): string {
+  return "This assistant is only available to members of this workspace's organization.";
 }
 
 async function resolveSlackSenderProfile(
@@ -175,10 +208,6 @@ async function resolveSlackSenderProfile(
     return { email: null, name: null, trust: "unknown" };
   }
 
-  // Slack user IDs are scoped per workspace, so without a teamId we can't
-  // safely cache: two installs of the bot in different workspaces could
-  // share user-id strings and collide on a single "default" key. Skip the
-  // cache (and lookup on every request) when teamId is missing.
   const cacheKey = teamId ? `${teamId}:${userId}` : null;
   if (cacheKey) {
     const cached = slackProfileCache.get(cacheKey);
@@ -202,6 +231,7 @@ async function resolveSlackSenderProfile(
         };
         is_restricted?: boolean;
         is_ultra_restricted?: boolean;
+        is_stranger?: boolean;
       };
     };
     const profile = data.ok
@@ -214,6 +244,7 @@ async function resolveSlackSenderProfile(
             data.user?.name?.trim() ||
             null,
           trust:
+            data.user?.is_stranger === true ||
             data.user?.is_ultra_restricted === true
               ? ("external_shared" as const)
               : data.user?.is_restricted === true
@@ -233,10 +264,31 @@ async function resolveSlackSenderProfile(
   }
 }
 
+async function resolveSlackSenderProfileWithinAckDeadline(
+  incoming: IncomingMessage,
+): Promise<SlackSenderProfile> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(
+      () => resolve({ email: null, name: null, trust: "unknown" }),
+      2_000,
+    );
+    void resolveSlackSenderProfile(incoming).then(
+      (profile) => {
+        clearTimeout(timeout);
+        resolve(profile);
+      },
+      () => {
+        clearTimeout(timeout);
+        resolve({ email: null, name: null, trust: "unknown" });
+      },
+    );
+  });
+}
+
 async function resolveSlackOwnerFromVerifiedEmail(
   incoming: IncomingMessage,
 ): Promise<string | null> {
-  const profile = await resolveSlackSenderProfile(incoming);
+  const profile = await resolveSlackSenderProfileWithinAckDeadline(incoming);
   if (!profile.email) return null;
 
   incoming.senderEmail = profile.email;
@@ -248,6 +300,90 @@ async function resolveSlackOwnerFromVerifiedEmail(
 
   const orgId = await resolveOrgIdForEmail(profile.email);
   return orgId ? profile.email : null;
+}
+
+async function resolveManagedSlackDmExecutionContext(
+  incoming: IncomingMessage,
+  installation: NonNullable<
+    Awaited<ReturnType<typeof resolveManagedSlackInstallation>>
+  >,
+): Promise<IntegrationExecutionContext> {
+  const profile = await resolveSlackSenderProfileWithinAckDeadline(incoming);
+  incoming.actorTrust = {
+    memberType:
+      profile.trust === "guest"
+        ? "guest"
+        : profile.trust === "external_shared"
+          ? "external"
+          : profile.trust === "trusted"
+            ? "member"
+            : "unknown",
+    verified: profile.trust !== "unknown",
+  };
+  incoming.senderVerified = profile.email !== null;
+  if (profile.email) {
+    incoming.senderEmail = profile.email;
+    incoming.platformContext.senderEmail = profile.email;
+  }
+  if (profile.name) {
+    incoming.senderName = profile.name;
+    incoming.platformContext.senderName = profile.name;
+  }
+
+  const deniedContext = (): IntegrationExecutionContext => ({
+    ownerEmail: fallbackOwnerForIncoming(incoming),
+    orgId: null,
+    principalType: "user",
+    installationId: installation.id,
+  });
+
+  if (profile.trust === "unknown") {
+    incoming.platformContext.identityVerificationFailed = true;
+    return deniedContext();
+  }
+  if (profile.trust === "guest" || profile.trust === "external_shared") {
+    incoming.platformContext.identityAccessDenied = true;
+    return deniedContext();
+  }
+  if (!installation.orgId) {
+    incoming.platformContext.identityLinkRequired = true;
+    return deniedContext();
+  }
+  incoming.platformContext.managedInstallationOrgId = installation.orgId;
+
+  let linkedOwner: string | null;
+  try {
+    linkedOwner = await resolveLinkedOwner(
+      "slack",
+      identityKeyForIncoming(incoming),
+      { orgId: installation.orgId },
+    );
+  } catch {
+    incoming.platformContext.identityVerificationFailed = true;
+    return deniedContext();
+  }
+  const candidates = [profile.email, linkedOwner].filter(
+    (email, index, values): email is string =>
+      !!email && values.indexOf(email) === index,
+  );
+  for (const ownerEmail of candidates) {
+    try {
+      if (await isOrgMember(installation.orgId, ownerEmail)) {
+        return {
+          ownerEmail,
+          orgId: installation.orgId,
+          principalType: "user",
+          installationId: installation.id,
+        };
+      }
+    } catch {
+      incoming.platformContext.identityVerificationFailed = true;
+      return deniedContext();
+    }
+  }
+
+  incoming.platformContext.identityLinkRequired = true;
+  return deniedContext();
 }
 
 async function resolveSlackConversationTrust(
@@ -301,8 +437,6 @@ export async function resolveDispatchOwner(
   try {
     const externalUserId = identityKeyForIncoming(incoming);
 
-    // Webhooks do not have the browser request's org context, so allow a safe
-    // cross-org fallback when the linked platform identity maps to one owner.
     const owner = await resolveLinkedOwner(incoming.platform, externalUserId, {
       allowAnyOrgFallback: true,
     });
@@ -341,10 +475,6 @@ export async function resolveDispatchOwner(
       // the synthetic fallback owner below.
     }
 
-    // Slack gives us a user id in the event payload. Resolve it to a verified
-    // workspace email and use that user's own org context when they are an
-    // Agent-Native member, so artifacts created via @agent-native are visible
-    // when they open the target app.
     if (incoming.platform === "slack") {
       const slackOwner = await resolveSlackOwnerFromVerifiedEmail(incoming);
       if (slackOwner) return slackOwner;
@@ -361,14 +491,69 @@ export async function resolveDispatchOwner(
   }
 }
 
-/**
- * Resolve a personal DM user or a workspace-qualified channel service
- * principal. Managed Slack channels never silently inherit one requester's
- * personal credentials or memory.
- */
 export async function resolveDispatchExecutionContext(
   incoming: IncomingMessage,
 ): Promise<IntegrationExecutionContext> {
+  if (incoming.platform === "slack" && incoming.triggerKind === "dm") {
+    let installation;
+    try {
+      installation = await resolveManagedSlackInstallationOrFail(incoming);
+    } catch (error) {
+      if (!(error instanceof ManagedSlackInstallationLookupError)) throw error;
+      incoming.platformContext.identityVerificationFailed = true;
+      return {
+        ownerEmail: fallbackOwnerForIncoming(incoming),
+        orgId: null,
+        principalType: "user",
+      };
+    }
+    if (installation) {
+      return resolveManagedSlackDmExecutionContext(incoming, installation);
+    }
+    const linkedOwner = await resolveLinkedOwner(
+      "slack",
+      identityKeyForIncoming(incoming),
+      { allowAnyOrgFallback: true },
+    );
+    if (linkedOwner) {
+      const orgId = await resolveOrgIdForEmail(linkedOwner);
+      return {
+        ownerEmail: linkedOwner,
+        orgId,
+        principalType: "user",
+      };
+    }
+    const verifiedEmail = incoming.senderEmail?.trim().toLowerCase();
+    if (
+      incoming.actorTrust?.verified === true &&
+      incoming.senderVerified === true &&
+      verifiedEmail &&
+      incoming.actorTrust.memberType !== "guest" &&
+      incoming.actorTrust.memberType !== "external"
+    ) {
+      const orgId = await resolveOrgIdForEmail(verifiedEmail);
+      if (orgId) {
+        return {
+          ownerEmail: verifiedEmail,
+          orgId,
+          principalType: "user",
+        };
+      }
+      incoming.platformContext.identityLinkRequired = true;
+      return {
+        ownerEmail: fallbackOwnerForIncoming(incoming),
+        orgId: null,
+        principalType: "user",
+      };
+    }
+    incoming.platformContext.identityVerificationFailed = true;
+    return {
+      ownerEmail: fallbackOwnerForIncoming(incoming),
+      orgId: null,
+      principalType: "user",
+    };
+  }
+
   if (incoming.platform !== "slack" || incoming.triggerKind === "dm") {
     const ownerEmail = await resolveDispatchOwner(incoming);
     if (
@@ -387,10 +572,8 @@ export async function resolveDispatchExecutionContext(
     };
   }
 
-  const installation = await resolveManagedSlackInstallation(incoming);
+  const installation = await resolveManagedSlackInstallationOrFail(incoming);
   if (!installation) {
-    // Preserve the legacy manually configured app path while managed installs
-    // roll out. Its behavior remains explicit and visible in Settings.
     const ownerEmail = await resolveDispatchOwner(incoming);
     return {
       ownerEmail,
@@ -404,7 +587,7 @@ export async function resolveDispatchExecutionContext(
   if (!teamId || !channelId) {
     throw new Error("Slack channel identity is incomplete");
   }
-  const profile = await resolveSlackSenderProfile(incoming);
+  const profile = await resolveSlackSenderProfileWithinAckDeadline(incoming);
   const conversation = await resolveSlackConversationTrust(
     incoming,
     profile.trust,
@@ -431,10 +614,8 @@ export async function resolveDispatchExecutionContext(
       access,
     );
   }
-  if (!scope) throw new Error("Slack channel is not enabled for Agent Native");
+  if (!scope) throw new Error("Slack channel is not enabled for Agent-Native");
   const decision = evaluateIntegrationScopePolicy(scope, {
-    // Thread replies reached this point only after the adapter's active-task
-    // gate, so they are continuation steering rather than ambient chatter.
     mentioned:
       incoming.triggerKind === "mention" ||
       incoming.triggerKind === "thread_reply",
@@ -474,6 +655,36 @@ export async function beforeDispatchProcess(
   const commandText =
     contextString(incoming.platformContext.rawText) || trimmed;
   const match = commandText.match(/^\/link(?:@\w+)?\s+([a-zA-Z0-9_-]+)$/);
+  if (
+    match &&
+    incoming.platform === "slack" &&
+    incoming.triggerKind === "dm" &&
+    !contextString(incoming.platformContext.managedInstallationOrgId) &&
+    incoming.platformContext.identityVerificationFailed !== true &&
+    incoming.platformContext.identityAccessDenied !== true
+  ) {
+    await resolveDispatchExecutionContext(incoming);
+  }
+  if (
+    incoming.platform === "slack" &&
+    incoming.triggerKind === "dm" &&
+    incoming.platformContext.identityVerificationFailed === true
+  ) {
+    return {
+      handled: true,
+      responseText: formatSlackIdentityVerificationFailedMessage(),
+    };
+  }
+  if (
+    incoming.platform === "slack" &&
+    incoming.triggerKind === "dm" &&
+    incoming.platformContext.identityAccessDenied === true
+  ) {
+    return {
+      handled: true,
+      responseText: formatSlackIdentityDeniedMessage(),
+    };
+  }
   if (!match) {
     const routedIncoming = incoming as IncomingMessage & {
       routingHint?: DispatchIntegrationRoutingHint;
@@ -508,11 +719,15 @@ export async function beforeDispatchProcess(
   }
 
   try {
+    const expectedOrgId = contextString(
+      incoming.platformContext.managedInstallationOrgId,
+    );
     const owner = await consumeLinkToken({
       platform: incoming.platform,
       token: match[1],
       externalUserId: identityKeyForIncoming(incoming),
       externalUserName: incoming.senderName || null,
+      ...(expectedOrgId ? { expectedOrgId } : {}),
     });
     return {
       handled: true,

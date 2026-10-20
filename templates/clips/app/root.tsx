@@ -1,10 +1,10 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { DevOverlay } from "@agent-native/core/client/dev-overlay";
-import { getBrowserTabId, useDbSync } from "@agent-native/core/client/hooks";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
+  getBrowserTabId,
+  useDbSync,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import {
   getLocaleInitScript,
@@ -13,21 +13,13 @@ import {
   type LocalizationPreference,
   useT,
 } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import {
-  IconHierarchy2,
-  IconCheck,
-  IconSun,
-  IconMoon,
-} from "@tabler/icons-react";
+import { DevOverlay } from "@agent-native/toolkit/app/dev-overlay";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { IconCheck } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Links,
   Meta,
@@ -36,11 +28,14 @@ import {
   ScrollRestoration,
   useLoaderData,
   useLocation,
-  useNavigate,
   useRouteLoaderData,
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
+import { toast } from "sonner";
 
+import { BugReportDialog } from "@/components/bug-report/bug-report-dialog";
+import { ClipsCommandMenu } from "@/components/clips-command-menu";
+import { LibraryLayout } from "@/components/library/library-layout";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -53,8 +48,18 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import {
+  buildClipsExtensionBaseUrl,
+  fetchClipsExtensionSession,
+  type ClipsExtensionSession,
+} from "@/lib/extension-auth";
+import {
+  isLegacyRecordingPath,
+  isRecordingSharePath,
+  isStandalonePublicPath,
+} from "@/lib/public-ssr-paths";
 
-import { i18nCatalog, loadI18nMessages } from "./i18n";
+import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 
@@ -62,6 +67,8 @@ configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-clips",
+    app_name: "clips",
+    template_name: "clips",
   }),
 });
 
@@ -81,7 +88,7 @@ export async function loader({
 }: LoaderFunctionArgs): Promise<RootLoaderData> {
   const resolved = resolveLocaleFromRequest({ request });
   const messages =
-    (await loadI18nMessages(resolved.locale)) ?? i18nCatalog.messages;
+    (await i18nCatalog.loadMessages?.(resolved.locale)) ?? i18nCatalog.messages;
   return {
     locale: resolved.locale,
     preference: resolved.preference,
@@ -130,7 +137,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const localeInitScript = getHydrationStableLocaleInitScript({
     locale: loaderData.locale,
     preference: loaderData.preference,
-    messages: loaderData.messages,
   });
 
   return (
@@ -156,7 +162,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181B" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -198,21 +203,6 @@ function DbSyncSetup() {
   return null;
 }
 
-function ThemeToggleItem() {
-  const { resolvedTheme, setTheme } = useTheme();
-  const t = useT();
-  const isDark = resolvedTheme === "dark";
-  return (
-    <CommandMenu.Item
-      onSelect={() => setTheme(isDark ? "light" : "dark")}
-      keywords={["theme", "dark", "light", "mode"]}
-    >
-      {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      {t("root.toggleTheme")}
-    </CommandMenu.Item>
-  );
-}
-
 type ExternalChromeRuntime = {
   lastError?: { message?: string };
   sendMessage: (
@@ -221,27 +211,6 @@ type ExternalChromeRuntime = {
     callback?: (response?: { ok?: boolean; error?: string }) => void,
   ) => void;
 };
-
-const CLIPS_COMMAND_DOCS = [
-  {
-    title: "Use the Chrome extension for browser logs",
-    description:
-      "Record a browser tab with redacted console logs, JavaScript exceptions, and fetch/XHR diagnostics.",
-    href: "https://www.agent-native.com/docs/template-clips#browser-logs-and-developer-diagnostics",
-    keywords: [
-      "logs",
-      "browser logs",
-      "developer logs",
-      "console logs",
-      "network logs",
-      "fetch",
-      "xhr",
-      "diagnostics",
-      "chrome extension",
-      "recording",
-    ],
-  },
-] satisfies React.ComponentProps<typeof CommandMenu.DocsGroup>["docs"];
 
 function ClipsExtensionAuthBridge() {
   const location = useLocation();
@@ -256,6 +225,16 @@ function ClipsExtensionAuthBridge() {
     const targetExtensionId = extensionId;
 
     let cancelled = false;
+    let removeBridgeListener: (() => void) | null = null;
+
+    const completeExtensionSignIn = () => {
+      if (cancelled) return;
+      const cleaned = new URL(window.location.href);
+      cleaned.searchParams.delete("clipsExtensionAuth");
+      cleaned.searchParams.delete("clipsExtensionId");
+      window.history.replaceState(window.history.state, "", cleaned);
+      setShowAuthSuccess(true);
+    };
 
     async function sendSessionToExtension() {
       const runtime = (
@@ -263,17 +242,65 @@ function ClipsExtensionAuthBridge() {
           chrome?: { runtime?: ExternalChromeRuntime };
         }
       ).chrome?.runtime;
-      if (!runtime?.sendMessage) return;
 
-      const response = await fetch(appPath("/_agent-native/auth/session"), {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const session = (await response.json().catch(() => null)) as {
-        email?: string;
-        token?: string;
-      } | null;
-      if (cancelled || !response.ok || !session?.email || !session.token) {
+      let session: ClipsExtensionSession | null;
+      try {
+        session = await fetchClipsExtensionSession(
+          () =>
+            fetch(appPath("/_agent-native/auth/session"), {
+              credentials: "include",
+              cache: "no-store",
+            }),
+          () => !cancelled,
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Could not complete Clips extension sign-in.", error);
+          toast.error(t("recordingPage.tryAgainMoment"));
+        }
+        return;
+      }
+      if (cancelled || !session) return;
+
+      const message = {
+        source: "clips-auth-bridge",
+        kind: "session",
+        token: session.token,
+        email: session.email,
+        clipsBaseUrl: buildClipsExtensionBaseUrl(
+          window.location.origin,
+          appPath("/"),
+        ),
+      } as const;
+      const sendViaPageBridge = () => {
+        const onMessage = (event: MessageEvent) => {
+          if (
+            event.source !== window ||
+            event.origin !== window.location.origin
+          ) {
+            return;
+          }
+          const data = event.data as
+            | { source?: unknown; kind?: unknown; ok?: unknown }
+            | undefined;
+          if (
+            data?.source !== "clips-auth-bridge" ||
+            data.kind !== "session-result"
+          ) {
+            return;
+          }
+          removeBridgeListener?.();
+          removeBridgeListener = null;
+          if (data.ok === true) completeExtensionSignIn();
+        };
+        removeBridgeListener = () =>
+          window.removeEventListener("message", onMessage);
+        window.addEventListener("message", onMessage);
+        window.postMessage(message, window.location.origin);
+      };
+
+      if (!runtime?.sendMessage) {
+        sendViaPageBridge();
         return;
       }
 
@@ -281,17 +308,17 @@ function ClipsExtensionAuthBridge() {
         targetExtensionId,
         {
           type: "CLIPS_AUTH_SESSION",
-          token: session.token,
-          email: session.email,
-          clipsBaseUrl: window.location.origin,
+          token: message.token,
+          email: message.email,
+          clipsBaseUrl: message.clipsBaseUrl,
         },
         (extensionResponse) => {
-          if (cancelled || runtime.lastError || !extensionResponse?.ok) return;
-          const cleaned = new URL(window.location.href);
-          cleaned.searchParams.delete("clipsExtensionAuth");
-          cleaned.searchParams.delete("clipsExtensionId");
-          window.history.replaceState(window.history.state, "", cleaned);
-          setShowAuthSuccess(true);
+          if (cancelled) return;
+          if (!runtime.lastError && extensionResponse?.ok) {
+            completeExtensionSignIn();
+            return;
+          }
+          sendViaPageBridge();
         },
       );
     }
@@ -299,6 +326,7 @@ function ClipsExtensionAuthBridge() {
     void sendSessionToExtension();
     return () => {
       cancelled = true;
+      removeBridgeListener?.();
     };
   }, [location.search]);
 
@@ -324,99 +352,73 @@ function ClipsExtensionAuthBridge() {
   );
 }
 
-/**
- * Paths that are fully public-facing and must SSR real content rather than
- * routing through the authenticated app shell. Kept in one place so both the
- * ClientOnly bypass in Root and the DbSync/CommandMenu skip in AppContent stay
- * in sync.
- */
-function isStandalonePublicPath(pathname: string): boolean {
-  const path = pathname.replace(/\/+$/, "") || "/";
-  return (
-    path === "/download" ||
-    path === "/bug-report" ||
-    path.startsWith("/bug-report/") ||
-    path === "/r" ||
-    path.startsWith("/r/") ||
-    path.startsWith("/share/") ||
-    path.startsWith("/embed/") ||
-    path.startsWith("/invite/")
-  );
-}
-
-function AppContent() {
+function PrivateAppContent() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const t = useT();
-  const standalonePublic = isStandalonePublicPath(location.pathname);
+  const { status: sessionStatus } = useSession();
+  const authenticatedShare =
+    typeof window !== "undefined" &&
+    isRecordingSharePath(location.pathname) &&
+    sessionStatus === "authenticated";
+  const standalonePublic =
+    isStandalonePublicPath(location.pathname) && !authenticatedShare;
   const [cmdkOpen, setCmdkOpen] = useState(false);
-  useCommandMenuShortcut(
-    useCallback(() => {
-      if (!standalonePublic) setCmdkOpen(true);
-    }, [standalonePublic]),
-  );
 
   return (
     <>
       {standalonePublic ? null : <DbSyncSetup />}
       {standalonePublic ? null : <ClipsExtensionAuthBridge />}
       {standalonePublic ? null : (
-        <CommandMenu
-          open={cmdkOpen}
-          onOpenChange={setCmdkOpen}
-          changelog={t("settings.changelogMarkdown")}
-          changelogLabel={t("settings.whatsNew")}
-          changelogKey="clips"
-        >
-          <CommandMenu.Group heading={t("root.commandActions")}>
-            <CommandMenu.Item onSelect={() => navigate("/agent")}>
-              <IconHierarchy2 size={16} />
-              {t("root.openAgent")}
-            </CommandMenu.Item>
-            <CommandMenu.Item onSelect={() => {}}>
-              {t("root.commandSearch")}
-            </CommandMenu.Item>
-          </CommandMenu.Group>
-          <CommandMenu.DocsGroup docs={CLIPS_COMMAND_DOCS} />
-          <CommandMenu.Group heading={t("root.commandAppearance")}>
-            <ThemeToggleItem />
-          </CommandMenu.Group>
-        </CommandMenu>
+        <ClipsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
+      {standalonePublic ? null : <BugReportDialog />}
       {standalonePublic ? null : <DevOverlay />}
-      <Outlet />
-      <Toaster richColors position="bottom-left" />
+      {authenticatedShare ? (
+        <LibraryLayout>
+          <Outlet />
+        </LibraryLayout>
+      ) : (
+        <Outlet />
+      )}
     </>
   );
 }
 
-/**
- * Public share/embed/download/invite paths must SSR real content for
- * first-visit signed-out users and bots. AppProviders' isPublicPath prop
- * removes the ClientOnly gate for these paths so entry.server.tsx streams
- * actual markup and loader-fed OG meta instead of a bare spinner.
- */
 export default function Root() {
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const isPublicPath = isStandalonePublicPath(location.pathname);
+  const legacyRecordingPath = isLegacyRecordingPath(location.pathname);
+  const publicSharePath = location.pathname.startsWith("/share/");
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isStandalonePublicPath(location.pathname)}
+        skeletonLayout="prompt-library"
+        isPublicPath={isPublicPath}
+        sessionBypass={legacyRecordingPath}
+        showEnvironmentBadge={isPublicPath && !publicSharePath}
+        toaster={
+          <Toaster
+            richColors
+            closeButton
+            position="top-center"
+            offset={{ top: 16 }}
+            mobileOffset={{ top: 12 }}
+          />
+        }
         i18n={{
           catalog: i18nCatalog,
           initialLocale: loaderData.locale,
           initialPreference: loaderData.preference,
           initialMessages: loaderData.messages,
-          persistPreference: !isStandalonePublicPath(location.pathname),
+          persistPreference: !isPublicPath,
         }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

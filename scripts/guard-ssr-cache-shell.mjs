@@ -149,6 +149,16 @@ const AUTH_FILE = "packages/core/src/server/auth.ts";
 const TEMPLATES_DIR = "templates";
 const CATCH_ALL_FILENAME = "[...page].get.ts";
 
+const DOCS_POLICY_FILES = ["packages/docs/lib/ssr-cache.ts"];
+const DOCS_ROUTE_FILES = [
+  "packages/docs/server/routes/[...page].get.ts",
+  "packages/docs/server/routes/[...page].head.ts",
+];
+const DOCS_SSR_FILES = [...DOCS_POLICY_FILES, ...DOCS_ROUTE_FILES];
+
+const MIN_STALE_WHILE_REVALIDATE_SECONDS = 3600;
+const STALE_WHILE_REVALIDATE_RE = /stale-while-revalidate=(\d+)/gi;
+
 const SKIP_DIRS = new Set([
   "node_modules",
   ".git",
@@ -164,8 +174,6 @@ const SKIP_DIRS = new Set([
   ".wrangler",
   ".react-router",
   ".generated",
-  // Generated package corpus mirrors templates/ for agent retrieval — not
-  // the live template source. See the header comment.
   "corpus",
   ".claude",
   "coverage",
@@ -174,8 +182,6 @@ const SKIP_DIRS = new Set([
 const OPT_OUT_MARKER = /\/\/\s*guard:allow-ssr-shell-exception\b[^\n]*/;
 const OPT_OUT_REQUIRES_REASON =
   /\/\/\s*guard:allow-ssr-shell-exception\s*[—-]\s*\S/;
-
-// ─── Shared helpers ─────────────────────────────────────────────────────
 
 function readFileSafe(absPath) {
   try {
@@ -238,27 +244,16 @@ function walkForFilename(dir, targetName) {
   return results;
 }
 
-// ─── Forbidden-pattern scanning (checks B, C, E) ───────────────────────
-
 const CALL_PATTERNS = [
   { name: "getSession( call on the SSR path", re: /\bgetSession\s*\(/g },
   { name: "getCookie( call on the SSR path", re: /\bgetCookie\s*\(/g },
   { name: "parseCookies( call on the SSR path", re: /\bparseCookies\s*\(/g },
 ];
 
-// Any quoted/template string literal containing "no-store".
 const NO_STORE_LITERAL_RE = /["'`][^"'`]*\bno-store\b[^"'`]*["'`]/g;
 
-// Any quoted/template string literal containing the word "private". Verified
-// against the current contents of ssr-handler.ts and deploy/build.ts: the
-// only "private" occurrences in either file live inside the boxed JSDoc
-// comment above applyDefaultSsrCacheHeader, which isCommentLine already
-// skips line-by-line.
 const PRIVATE_LITERAL_RE = /["'`][^"'`]*\bprivate\b[^"'`]*["'`]/g;
 
-// Escape hatches seen in past regressions: branching on whether a
-// cache-control header was already set, or on a "private"/"no-store"
-// substring check, to selectively skip the shared public policy.
 const HEADERS_HAS_CACHE_CONTROL_RE =
   /headers\.has\(\s*["'`]cache-control["'`]\s*\)/gi;
 const INCLUDES_ESCAPE_RE =
@@ -331,8 +326,6 @@ function scanTemplateCatchAll(rel, content) {
       if (re.lastIndex === m.index) re.lastIndex++;
     }
   }
-  // Line-based heuristics: a Cache-Control-ish header set with "private", or
-  // a Vary header whose literal mentions cookie/authorization.
   for (let i = 0; i < lines.length; i++) {
     const lineText = lines[i];
     if (isCommentLine(lineText)) continue;
@@ -377,8 +370,6 @@ function requireIdentifiers(rel, content, identifiers) {
   }
   return violations;
 }
-
-// ─── Check A: cache-control.ts ─────────────────────────────────────────
 
 function extractConstValue(content, name, depth = 0) {
   if (depth > 5) {
@@ -439,8 +430,6 @@ function checkCacheControl() {
   return violations;
 }
 
-// ─── Check B: ssr-handler.ts ────────────────────────────────────────────
-
 function checkSsrHandler() {
   const abs = path.join(REPO_ROOT, SSR_HANDLER_FILE);
   const content = readFileSafe(abs);
@@ -456,8 +445,6 @@ function checkSsrHandler() {
   ];
 }
 
-// ─── Check C: deploy/build.ts ────────────────────────────────────────────
-
 function checkDeployBuild() {
   const abs = path.join(REPO_ROOT, DEPLOY_BUILD_FILE);
   const content = readFileSafe(abs);
@@ -471,8 +458,6 @@ function checkDeployBuild() {
     ]),
   ];
 }
-
-// ─── Check D: auth.ts ─────────────────────────────────────────────────
 
 function checkAuth() {
   const abs = path.join(REPO_ROOT, AUTH_FILE);
@@ -494,8 +479,6 @@ function checkAuth() {
   }
   return [];
 }
-
-// ─── Check E: template SSR catch-alls ──────────────────────────────────
 
 function checkTemplateCatchAlls() {
   const templatesAbs = path.join(REPO_ROOT, TEMPLATES_DIR);
@@ -522,12 +505,6 @@ function checkTemplateCatchAlls() {
   return violations;
 }
 
-// ─── Checks F/G: the deployment-wide AGENT_NATIVE_SSR_CACHE override ───
-
-// The env override is sanctioned ONLY because one value applies to every
-// visitor of a deployment, so it cannot poison a shared CDN key. These
-// patterns catch the moment someone starts deriving the policy from the
-// incoming request instead.
 const REQUEST_DERIVED_PATTERNS = [
   ...CALL_PATTERNS,
   {
@@ -629,7 +606,76 @@ function checkResolverStaysDeploymentWide() {
   return violations;
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────
+function checkDocsSsrSurfaces() {
+  const violations = [];
+  for (const [files, scan] of [
+    [DOCS_POLICY_FILES, scanCoreFile],
+    [DOCS_ROUTE_FILES, scanTemplateCatchAll],
+  ]) {
+    for (const rel of files) {
+      const content = readFileSafe(path.join(REPO_ROOT, rel));
+      if (content === null) {
+        violations.push({
+          file: rel,
+          line: 1,
+          col: 1,
+          rule: "expected Docs SSR surface is missing; cache-contract coverage must not disappear with a rename",
+          snippet: rel,
+        });
+        continue;
+      }
+      violations.push(...scan(rel, content));
+    }
+  }
+  return violations;
+}
+
+function checkStaleWhileRevalidateFloor() {
+  const files = [...DOCS_SSR_FILES];
+  const templatesAbs = path.join(REPO_ROOT, TEMPLATES_DIR);
+  let templateEntries = [];
+  try {
+    templateEntries = readdirSync(templatesAbs, { withFileTypes: true });
+  } catch {
+    templateEntries = [];
+  }
+  for (const entry of templateEntries) {
+    if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) continue;
+    const routesDir = path.join(templatesAbs, entry.name, "server", "routes");
+    for (const abs of walkForFilename(routesDir, CATCH_ALL_FILENAME)) {
+      files.push(path.relative(REPO_ROOT, abs).replaceAll("\\", "/"));
+    }
+  }
+
+  const violations = [];
+  for (const rel of files) {
+    const content = readFileSafe(path.join(REPO_ROOT, rel));
+    if (content === null) continue;
+    const lines = content.split("\n");
+    STALE_WHILE_REVALIDATE_RE.lastIndex = 0;
+    let m;
+    while ((m = STALE_WHILE_REVALIDATE_RE.exec(content)) !== null) {
+      const seconds = Number(m[1]);
+      if (seconds >= MIN_STALE_WHILE_REVALIDATE_SECONDS) continue;
+      const { line, col } = lineColForOffset(content, m.index);
+      const lineText = lines[line - 1] ?? "";
+      if (isCommentLine(lineText)) continue;
+      if (!hasValidOptOut(lines, line - 1)) {
+        violations.push({
+          file: rel,
+          line,
+          col,
+          rule: `stale-while-revalidate=${seconds} is below the ${MIN_STALE_WHILE_REVALIDATE_SECONDS}s floor — once max-age and this window both lapse, the next visitor waits on a cold origin render. Shorten max-age for freshness instead and keep a long stale window`,
+          snippet: lineText.trim(),
+        });
+      }
+      if (STALE_WHILE_REVALIDATE_RE.lastIndex === m.index) {
+        STALE_WHILE_REVALIDATE_RE.lastIndex++;
+      }
+    }
+  }
+  return violations;
+}
 
 const violations = [
   ...checkCacheControl(),
@@ -639,6 +685,8 @@ const violations = [
   ...checkTemplateCatchAlls(),
   ...checkCachePolicyResolver(),
   ...checkResolverStaysDeploymentWide(),
+  ...checkDocsSsrSurfaces(),
+  ...checkStaleWhileRevalidateFloor(),
 ];
 
 if (violations.length > 0) {

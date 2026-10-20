@@ -76,7 +76,9 @@ The stored payload includes `value`, `updatedAt`, `extensionId`, and
 
 Use `agentNative.chat.send(message, opts?)` or `sendToAgentChat(message, opts?)`
 for a visible Apply/Submit button that should send a prompt or selected value
-into the chat.
+into the chat. Pass `{ submit: true }` explicitly for that user-triggered
+action; extension messages are draft-only otherwise. Never call these helpers
+from polling, refresh, or error handlers.
 
 ## App Data And State
 

@@ -1,0 +1,1655 @@
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconAlertTriangle,
+  IconCheck,
+  IconCopy,
+  IconExclamationMark,
+  IconHistory,
+  IconLink,
+  IconLoader2,
+  IconX,
+} from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+
+import {
+  MIC_AUDIBLE_LEVEL,
+  MIC_SILENCE_WARNING_MS,
+  micSignalWarning,
+  type MicSignalWarning,
+} from "../../../shared/audio-meter";
+import { RecordingPlayhead } from "../../../shared/recording-playhead";
+import type {
+  RecordingPlayheadConfirmChange,
+  RecordingPlayheadIntent,
+} from "../../../shared/recording-playhead";
+import {
+  positionRecordingPlayheadAtEdge,
+  RECORDING_PLAYHEAD_EDGE_THRESHOLD,
+} from "../../../shared/recording-playhead-position";
+import type {
+  RecordingPlayheadDock,
+  RecordingPlayheadDockLocation,
+  RecordingPlayheadDockMode,
+  RecordingPlayheadOrientation,
+  RecordingPlayheadSize,
+} from "../../../shared/recording-playhead-position";
+import type { ScreenHistoryWindow } from "../../../shared/screen-history-context";
+import { LiveWaveform } from "../components/live-waveform";
+import { completionActionCopy } from "../i18n/completion-en-US";
+import {
+  completionCardState,
+  isCompletionForSession,
+  resolveCompletion,
+} from "../lib/pill-completion";
+import type {
+  NativeUploadFinished,
+  PillDoneStage as DoneStage,
+} from "../lib/pill-completion";
+import {
+  createCompletionCardActions,
+  dismissCompletionCardWindow,
+  type CompletionCardAction,
+} from "../lib/pill-completion-actions";
+import { toolbarEnabledEffect } from "../lib/pill-session";
+import type { PillMode } from "../lib/pill-session";
+import {
+  RECORDER_DISCARD_EVENT,
+  RECORDER_MIC_TRACK_ENDED_EVENT,
+} from "../lib/recorder-events";
+import {
+  removeRecordingContext,
+  setRecordingContextWindow,
+} from "../lookback/context-api";
+import {
+  canEditLookbackWindow,
+  lookbackCardLine,
+} from "../lookback/lookback-card";
+import { LookbackEditDialog } from "../lookback/LookbackEditDialog";
+import {
+  currentLookbackTarget,
+  useLookbackLabEnabled,
+  useRecordingContext,
+} from "../lookback/use-lookback";
+
+const RIGHT_EDGE_ANCHOR_PX = 200;
+const NATIVE_LAYOUT_GUARD_MS = 1_500;
+const NATIVE_DOCK_SETTLE_MS = 32;
+const LOOKBACK_EDIT_WINDOW = { width: 380, height: 400 };
+const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
+
+const FALLBACK_HORIZONTAL_PLAYHEAD_SIZE: RecordingPlayheadSize = {
+  width: 150,
+  height: 42,
+};
+const FALLBACK_VERTICAL_PLAYHEAD_SIZE: RecordingPlayheadSize = {
+  width: 42,
+  height: 118,
+};
+
+type RecorderSession = {
+  viewUrl?: string | null;
+  recordingId?: string | null;
+  localOnly?: boolean;
+  microphoneEnabled?: boolean;
+  lookbackEnabled?: boolean;
+};
+
+const hasTauri = "__TAURI_INTERNALS__" in window;
+const demoMode = import.meta.env.DEV && !hasTauri;
+const demoMicWarning: MicSignalWarning = demoMode
+  ? new URLSearchParams(window.location.search).get("mic-warning") === "muted"
+    ? "muted"
+    : new URLSearchParams(window.location.search).get("mic-warning") ===
+        "silent"
+      ? "silent"
+      : null
+  : null;
+
+function safeEmit(event: string, payload?: unknown): Promise<void> {
+  if (!hasTauri) return Promise.resolve();
+  return emit(event, payload);
+}
+
+function safeInvoke<T = unknown>(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<T | undefined> {
+  if (!hasTauri) return Promise.resolve(undefined);
+  return invoke<T>(cmd, args).then(
+    (v) => v,
+    (err) => {
+      console.warn(`[record-pill] invoke ${cmd} failed:`, err);
+      return undefined;
+    },
+  );
+}
+
+function safeListen<T>(
+  event: string,
+  cb: (payload: T) => void,
+): Promise<() => void> {
+  if (!hasTauri) return Promise.resolve(() => {});
+  return listen<T>(event, (ev) => cb(ev.payload));
+}
+
+function formatTimer(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const totalMin = Math.floor(total / 60);
+  if (totalMin >= 100) {
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return `${h}:${m.toString().padStart(2, "0")}h`;
+  }
+  const s = total % 60;
+  return `${totalMin}:${s.toString().padStart(2, "0")}`;
+}
+
+function formatDurationCopy(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return `${total} sec`;
+  return `${Math.round(total / 60)} min`;
+}
+
+export function RecordingPill() {
+  const [mode, setMode] = useState<PillMode>("recording");
+  const [paused, setPaused] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [enabled, setEnabled] = useState(demoMode);
+  const [toolbarVisible, setToolbarVisible] = useState(true);
+  const [demoLevel, setDemoLevel] = useState<number | null>(null);
+  const [micLevel, setMicLevel] = useState(0);
+  const [micWarning, setMicWarning] =
+    useState<MicSignalWarning>(demoMicWarning);
+  const [announcement, setAnnouncement] = useState("");
+  const [doneStage, setDoneStage] = useState<DoneStage>("finishing");
+  const [doneDurationMs, setDoneDurationMs] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [completionActionError, setCompletionActionError] = useState<
+    string | null
+  >(null);
+  const [completionActionBusy, setCompletionActionBusy] = useState(false);
+  const completionActionsRef = useRef<ReturnType<
+    typeof createCompletionCardActions
+  > | null>(null);
+  const completionGenerationRef = useRef(0);
+  const [savedLocally, setSavedLocally] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    "restart" | "cancel" | null
+  >(null);
+  const [playheadOrientation, setPlayheadOrientation] =
+    useState<RecordingPlayheadOrientation>("horizontal");
+  const [playheadDock, setPlayheadDockState] =
+    useState<RecordingPlayheadDock>("free");
+  const [playheadDockTransitioning, setPlayheadDockTransitioning] =
+    useState(false);
+  const t = useT();
+  const lookbackLabEnabled = useLookbackLabEnabled();
+  // Set when the card opens so the context read follows that recording only.
+  const [contextRecordingId, setContextRecordingId] = useState<string | null>(
+    null,
+  );
+  const { view: lookbackView, setItem: setLookbackItem } = useRecordingContext(
+    contextRecordingId,
+    lookbackLabEnabled,
+  );
+  const [lookbackEditOpen, setLookbackEditOpen] = useState(false);
+
+  const modeRef = useRef<PillMode>("recording");
+  const elapsedRef = useRef(0);
+  const sessionRef = useRef<RecorderSession>({});
+  const [viewUrl, setViewUrl] = useState<string | null>(null);
+  const viewUrlRef = useRef<string | null>(null);
+  const reducedRef = useRef(
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const revealedRef = useRef(false);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const animatingUntilRef = useRef(0);
+  const toolbarDraggingRef = useRef(false);
+  const toolbarDragGenerationRef = useRef(0);
+  const toolbarMoveFrameRef = useRef<number | null>(null);
+  const toolbarMovePromiseRef = useRef<Promise<void> | null>(null);
+  const toolbarPendingMoveRef = useRef<{
+    generation: number;
+    startPromise: Promise<unknown>;
+  } | null>(null);
+  const toolbarDragStartPromiseRef = useRef<Promise<unknown>>(
+    Promise.resolve(),
+  );
+  const playheadOrientationRef =
+    useRef<RecordingPlayheadOrientation>("horizontal");
+  const playheadDockTransitioningRef = useRef(false);
+  const dockPreferenceReadyRef = useRef(false);
+  const playheadDockRef = useRef<RecordingPlayheadDock>("free");
+  const playheadSizesRef = useRef({
+    horizontal: FALLBACK_HORIZONTAL_PLAYHEAD_SIZE,
+    vertical: FALLBACK_VERTICAL_PLAYHEAD_SIZE,
+  });
+  const pendingNativeDockRef = useRef<{
+    x: number;
+    y: number;
+    mode: RecordingPlayheadDockMode;
+    location: RecordingPlayheadDockLocation | null;
+  } | null>(null);
+  const toolbarDismissedRef = useRef(false);
+  const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
+  const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const playheadConfirmOpenRef = useRef(false);
+  const [confirmRequest, setConfirmRequest] = useState<{
+    intent: RecordingPlayheadIntent;
+    token: number;
+  } | null>(null);
+  const stopDispatchRef = useRef<Promise<{ finishingHoldSet: boolean }> | null>(
+    null,
+  );
+
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  modeRef.current = mode;
+  elapsedRef.current = elapsed;
+  viewUrlRef.current = viewUrl;
+
+  function clearPauseTransition() {
+    pauseTransitionRef.current = null;
+    if (pauseTransitionTimerRef.current) {
+      clearTimeout(pauseTransitionTimerRef.current);
+      pauseTransitionTimerRef.current = null;
+    }
+  }
+
+  function setPlayheadDock(
+    orientation: RecordingPlayheadOrientation,
+    dock: RecordingPlayheadDock,
+  ) {
+    playheadOrientationRef.current = orientation;
+    playheadDockRef.current = dock;
+    setPlayheadOrientation(orientation);
+    setPlayheadDockState(dock);
+  }
+
+  const windowOpChainRef = useRef<Promise<void>>(Promise.resolve());
+  const resizeGenerationRef = useRef(0);
+  function queueWindowOp(op: () => Promise<void>): Promise<void> {
+    const queued = windowOpChainRef.current.then(op);
+    windowOpChainRef.current = queued.catch((err) => {
+      console.warn("[record-pill] window op failed", err);
+    });
+    return queued.catch(() => {});
+  }
+
+  function resizeWindowTo(contentW: number, contentH: number): Promise<void> {
+    if (!hasTauri) return Promise.resolve();
+    const resizeGeneration = ++resizeGenerationRef.current;
+    return queueWindowOp(async () => {
+      if (resizeGeneration !== resizeGenerationRef.current) return;
+      animatingUntilRef.current = Date.now() + NATIVE_LAYOUT_GUARD_MS;
+      const win = getCurrentWindow();
+      const [pos, size, scale, monitor] = await Promise.all([
+        win.outerPosition(),
+        win.outerSize(),
+        win.scaleFactor(),
+        currentMonitor(),
+      ]);
+      if (resizeGeneration !== resizeGenerationRef.current) return;
+      const w = Math.ceil(contentW * scale);
+      const h = Math.ceil(contentH * scale);
+      let x = pos.x;
+      let y = pos.y + size.height - h;
+      const activeDock = playheadDockRef.current;
+      const dockToPersist = pendingNativeDockRef.current;
+      if (monitor) {
+        const monRight = monitor.position.x + monitor.size.width;
+        if (dockToPersist) {
+          x = dockToPersist.x;
+          y = dockToPersist.y;
+        } else if (activeDock !== "free") {
+          const docked = positionRecordingPlayheadAtEdge(
+            activeDock,
+            pos.x,
+            pos.y,
+            { width: w, height: h },
+            {
+              left: monitor.position.x,
+              top: monitor.position.y,
+              width: monitor.size.width,
+              height: monitor.size.height,
+            },
+            Math.round(16 * scale),
+          );
+          x = docked.left;
+          y = docked.top;
+        } else {
+          const nearRightEdge =
+            pos.x + size.width >=
+            monRight - Math.round(RIGHT_EDGE_ANCHOR_PX * scale);
+          if (nearRightEdge) x = pos.x + size.width - w;
+          x = Math.min(x, monRight - w);
+          x = Math.max(x, monitor.position.x);
+          const monBottom = monitor.position.y + monitor.size.height;
+          y = Math.min(y, monBottom - h);
+          y = Math.max(y, monitor.position.y);
+        }
+      }
+      await invoke("toolbar_set_bounds", { x, y, width: w, height: h });
+      if (dockToPersist && pendingNativeDockRef.current === dockToPersist) {
+        pendingNativeDockRef.current = null;
+        await safeInvoke("toolbar_save_position", {
+          x,
+          y,
+          mode: dockToPersist.mode,
+          location: dockToPersist.location,
+        });
+      }
+    });
+  }
+
+  function afterPaint(): Promise<void> {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  async function transitionPlayheadDock(
+    orientation: RecordingPlayheadOrientation,
+    dock: RecordingPlayheadDock,
+    positionToPersist: {
+      x: number;
+      y: number;
+      mode: RecordingPlayheadDockMode;
+      location: RecordingPlayheadDockLocation | null;
+    } | null,
+  ) {
+    playheadDockTransitioningRef.current = true;
+    setPlayheadDockTransitioning(true);
+    await afterPaint();
+
+    pendingNativeDockRef.current = positionToPersist;
+    setPlayheadDock(orientation, dock);
+    await afterPaint();
+
+    const fallback =
+      orientation === "vertical"
+        ? FALLBACK_VERTICAL_PLAYHEAD_SIZE
+        : FALLBACK_HORIZONTAL_PLAYHEAD_SIZE;
+    const measured = playheadSizesRef.current[orientation];
+    await resizeWindowTo(
+      measured.width || fallback.width,
+      measured.height || fallback.height,
+    );
+    await afterPaint();
+    playheadDockTransitioningRef.current = false;
+    setPlayheadDockTransitioning(false);
+  }
+
+  async function settleNativePlayheadDock() {
+    if (!hasTauri || modeRef.current === "done") return;
+    const win = getCurrentWindow();
+    const [monitor, position, size, scale] = await Promise.all([
+      currentMonitor(),
+      win.outerPosition(),
+      win.outerSize(),
+      win.scaleFactor(),
+    ]);
+    if (!monitor) return;
+    if (!dockPreferenceReadyRef.current) return;
+
+    const gutter = Math.round(16 * scale);
+    const edgeThreshold = Math.round(RECORDING_PLAYHEAD_EDGE_THRESHOLD * scale);
+    const viewport = {
+      left: monitor.position.x,
+      top: monitor.position.y,
+      width: monitor.size.width,
+      height: monitor.size.height,
+    };
+    const monitorRight = viewport.left + viewport.width;
+    const monitorBottom = viewport.top + viewport.height;
+    const sizes = {
+      horizontal: {
+        width: Math.ceil(playheadSizesRef.current.horizontal.width * scale),
+        height: Math.ceil(playheadSizesRef.current.horizontal.height * scale),
+      },
+      vertical: {
+        width: Math.ceil(playheadSizesRef.current.vertical.width * scale),
+        height: Math.ceil(playheadSizesRef.current.vertical.height * scale),
+      },
+    };
+    const nearLeft = position.x <= viewport.left + gutter + edgeThreshold;
+    const nearRight =
+      position.x + size.width >= monitorRight - gutter - edgeThreshold;
+    const nearTop = position.y <= viewport.top + gutter + edgeThreshold;
+    const nearBottom =
+      position.y + size.height >= monitorBottom - gutter - edgeThreshold;
+
+    const dock: RecordingPlayheadDockLocation | null = nearLeft
+      ? "left"
+      : nearRight
+        ? "right"
+        : nearTop
+          ? "top"
+          : nearBottom
+            ? "bottom"
+            : null;
+    if (!dock) {
+      const horizontalWidth = sizes.horizontal.width;
+      const horizontalHeight = sizes.horizontal.height;
+      const nextX = Math.max(
+        monitor.position.x + gutter,
+        Math.min(
+          position.x + size.width / 2 - horizontalWidth / 2,
+          monitorRight - horizontalWidth - gutter,
+        ),
+      );
+      const nextY = Math.max(
+        monitor.position.y + gutter,
+        Math.min(
+          position.y + size.height / 2 - horizontalHeight / 2,
+          monitorBottom - horizontalHeight - gutter,
+        ),
+      );
+      const needsFloatingLayout =
+        playheadDockRef.current !== "free" ||
+        playheadOrientationRef.current !== "horizontal" ||
+        Math.abs(position.x - nextX) > 1 ||
+        Math.abs(position.y - nextY) > 1 ||
+        size.width !== horizontalWidth ||
+        size.height !== horizontalHeight;
+      if (needsFloatingLayout) {
+        await transitionPlayheadDock("horizontal", "free", {
+          x: nextX,
+          y: nextY,
+          mode: "floating",
+          location: null,
+        });
+      } else {
+        await safeInvoke("toolbar_save_position", {
+          x: nextX,
+          y: nextY,
+          mode: "floating",
+          location: null,
+        });
+      }
+      return;
+    }
+
+    const verticalDock = dock === "left" || dock === "right";
+    const nextSize = verticalDock ? sizes.vertical : sizes.horizontal;
+    const target = positionRecordingPlayheadAtEdge(
+      dock,
+      position.x + size.width / 2 - nextSize.width / 2,
+      position.y + size.height / 2 - nextSize.height / 2,
+      nextSize,
+      viewport,
+      gutter,
+    );
+    const alreadySettled =
+      playheadDockRef.current === dock &&
+      playheadOrientationRef.current ===
+        (verticalDock ? "vertical" : "horizontal");
+    if (
+      alreadySettled &&
+      Math.abs(position.x - target.left) <= 1 &&
+      Math.abs(position.y - target.top) <= 1
+    ) {
+      void safeInvoke("toolbar_save_position", {
+        x: target.left,
+        y: target.top,
+        mode: "docked",
+        location: dock,
+      });
+      return;
+    }
+    await transitionPlayheadDock(
+      verticalDock ? "vertical" : "horizontal",
+      dock,
+      {
+        x: target.left,
+        y: target.top,
+        mode: "docked",
+        location: dock,
+      },
+    );
+  }
+
+  function applyToolbarDockPreference(
+    mode: RecordingPlayheadDockMode,
+    location: RecordingPlayheadDockLocation,
+  ) {
+    if (!hasTauri) return;
+    dockPreferenceReadyRef.current = true;
+    pendingNativeDockRef.current = null;
+    if (mode === "floating") {
+      void transitionPlayheadDock("horizontal", "free", null);
+      return;
+    }
+    const verticalDock = location === "left" || location === "right";
+    void transitionPlayheadDock(
+      verticalDock ? "vertical" : "horizontal",
+      location,
+      null,
+    );
+  }
+
+  function syncWindowToContent() {
+    const el = cardRef.current;
+    if (!el) return;
+    resizeWindowTo(el.offsetWidth, el.offsetHeight);
+  }
+
+  function resetToRest() {
+    completionGenerationRef.current += 1;
+    completionActionsRef.current = null;
+    revealedRef.current = false;
+    modeRef.current = "recording";
+    setMode("recording");
+    setCompletionActionBusy(false);
+    setContextRecordingId(null);
+    setLookbackEditOpen(false);
+    clearPauseTransition();
+    setPaused(false);
+  }
+
+  const pausedRef = useRef(false);
+  pausedRef.current = paused;
+  const enabledRef = useRef(false);
+  enabledRef.current = enabled;
+  const elapsedAnchorRef = useRef<{ elapsedMs: number; at: number } | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!enabled || paused || mode === "done") return;
+    const t = setInterval(() => {
+      const anchor = elapsedAnchorRef.current;
+      if (!anchor) return;
+      setElapsed(anchor.elapsedMs + (performance.now() - anchor.at));
+    }, 250);
+    return () => clearInterval(t);
+  }, [enabled, paused, mode]);
+
+  function applyPauseIntent(transition: "pause" | "resume") {
+    clearPauseTransition();
+    pauseTransitionRef.current = transition;
+    setPaused(transition === "pause");
+    pauseTransitionTimerRef.current = setTimeout(clearPauseTransition, 3_000);
+    void safeEmit(`clips:recorder-${transition}`).catch(() => {
+      clearPauseTransition();
+    });
+  }
+
+  function togglePause() {
+    if (!enabled || modeRef.current !== "recording") return;
+    const transition = pausedRef.current ? "resume" : "pause";
+    applyPauseIntent(transition);
+    setAnnouncement(transition === "pause" ? "Paused" : "Recording");
+  }
+
+  function stop(options?: { requireFinishingHold?: boolean }) {
+    if (!enabledRef.current || modeRef.current === "done") return false;
+    playheadConfirmOpenRef.current = false;
+    setDoneDurationMs(elapsedRef.current);
+    setDoneStage("finishing");
+    setViewUrl(sessionRef.current.viewUrl ?? null);
+    setSavedLocally(false);
+    setCopied(false);
+    completionGenerationRef.current += 1;
+    completionActionsRef.current = null;
+    setCompletionActionError(null);
+    setCompletionActionBusy(false);
+    const stopDispatch = (async () => {
+      let finishingHoldSet = true;
+      if (hasTauri) {
+        try {
+          await invoke("set_toolbar_finishing", { hold: true });
+        } catch (error) {
+          finishingHoldSet = false;
+          console.error("[record-pill] finishing hold failed:", error);
+        }
+      }
+      if (!finishingHoldSet && options?.requireFinishingHold) {
+        return { finishingHoldSet };
+      }
+      await safeEmit("clips:recorder-stop");
+      return { finishingHoldSet };
+    })();
+    stopDispatchRef.current = stopDispatch;
+    void stopDispatch.catch((error) =>
+      console.error("[record-pill] recorder stop dispatch failed:", error),
+    );
+    resizeWindowTo(340, 180);
+    setContextRecordingId(
+      sessionRef.current.lookbackEnabled
+        ? (sessionRef.current.recordingId ?? null)
+        : null,
+    );
+    setMode("done");
+    if (demoMode) {
+      setTimeout(() => {
+        handleUploadFinished({
+          ok: true,
+          viewUrl: "https://clips.agent-native.com/r/demo",
+        });
+      }, 2_000);
+    }
+    return true;
+  }
+
+  function scheduleCloseFallback(action: string) {
+    fallbackTimerRef.current = setTimeout(() => {
+      console.warn(
+        `[record-pill] recorder did not close the pill within 3s after ${action} — self-closing`,
+      );
+      if (hasTauri)
+        getCurrentWindow()
+          .close()
+          .catch(() => {});
+    }, 3_000);
+  }
+
+  function confirmDestructive(intent: RecordingPlayheadIntent) {
+    if (pendingAction) return;
+    playheadConfirmOpenRef.current = false;
+    resetToRest();
+    if (intent === "restart") {
+      setPendingAction("restart");
+      setElapsed(0);
+      toolbarDismissedRef.current = true;
+      setToolbarVisible(false);
+      setEnabled(false);
+      void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
+        void safeEmit("clips:recorder-restart");
+      });
+      fallbackTimerRef.current = setTimeout(() => {
+        console.warn(
+          "[record-pill] recorder did not restart within 15s — self-closing",
+        );
+        void safeInvoke("set_toolbar_finishing", { hold: false });
+        if (hasTauri)
+          getCurrentWindow()
+            .close()
+            .catch(() => {});
+      }, 15_000);
+      return;
+    }
+    setPendingAction("cancel");
+    toolbarDismissedRef.current = true;
+    setToolbarVisible(false);
+    setEnabled(false);
+    void safeEmit(RECORDER_DISCARD_EVENT).then(() =>
+      scheduleCloseFallback("cancel"),
+    );
+  }
+
+  async function runCompletionAction(
+    action: CompletionCardAction,
+    url?: string,
+  ) {
+    if (completionActionBusy) return;
+    const completionGeneration = completionGenerationRef.current;
+    completionActionsRef.current ??= createCompletionCardActions({
+      copy: (value) =>
+        hasTauri ? writeText(value) : navigator.clipboard.writeText(value),
+      open: async (value) => {
+        if (hasTauri) await openExternal(value);
+        else if (!window.open(value, "_blank"))
+          throw new Error("Browser blocked opening clip");
+      },
+      dismiss: async (dismissedAction) => {
+        if (completionGeneration !== completionGenerationRef.current) return;
+        if (dismissedAction === "copy") {
+          setCopied(true);
+          setAnnouncement("Link copied");
+          await new Promise<void>((resolve) =>
+            window.setTimeout(resolve, 1_000),
+          );
+          if (completionGeneration !== completionGenerationRef.current) return;
+        }
+        if (hasTauri) {
+          await dismissCompletionCardWindow({
+            releaseHold: () => invoke("set_toolbar_finishing", { hold: false }),
+            restoreHold: () => invoke("set_toolbar_finishing", { hold: true }),
+            close: () => getCurrentWindow().close(),
+            onReleaseFailure: (error) =>
+              console.warn(
+                "[record-pill] release finishing hold failed:",
+                error,
+              ),
+          });
+          setEnabled(false);
+        }
+        if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+        resetToRest();
+      },
+    });
+    setCompletionActionError(null);
+    setCompletionActionBusy(true);
+    const result = await completionActionsRef.current(action, url);
+    if (completionGeneration !== completionGenerationRef.current) return;
+    if (result.status === "busy") return;
+    if (result.status === "failed") {
+      const message =
+        result.stage === "copy"
+          ? completionActionCopy.copyFailed
+          : result.stage === "open"
+            ? completionActionCopy.openFailed
+            : action === "copy"
+              ? completionActionCopy.dismissAfterCopy
+              : action === "open"
+                ? completionActionCopy.dismissAfterOpen
+                : completionActionCopy.dismissFailed;
+      setCompletionActionError(message);
+      setAnnouncement(message);
+    }
+    setCompletionActionBusy(false);
+  }
+
+  function handleUploadFinished(payload: NativeUploadFinished) {
+    if (modeRef.current !== "done") return;
+    const completion = resolveCompletion(
+      sessionRef.current.recordingId,
+      payload,
+    );
+    if (!completion) return;
+    if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+    setSavedLocally(completion.savedLocally);
+    if (completion.viewUrl) setViewUrl(completion.viewUrl);
+    setDoneStage(completion.stage);
+  }
+
+  useEffect(() => {
+    const unlistens: Array<() => void> = [];
+    const registrations: Array<Promise<() => void>> = [];
+    let stopped = false;
+    let recordingActive = false;
+    let recordingPaused = false;
+    let microphoneEnabled: boolean | null = null;
+    let hasHeardAudio = false;
+    let lastAudibleAt = performance.now();
+    let lastMicSignalAt = lastAudibleAt;
+    let micSilenceTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearMicSilenceTimer = () => {
+      if (!micSilenceTimer) return;
+      clearTimeout(micSilenceTimer);
+      micSilenceTimer = null;
+    };
+    const syncMicWarning = () => {
+      clearMicSilenceTimer();
+      if (!recordingActive) {
+        setMicWarning(null);
+        setMicLevel(0);
+        return;
+      }
+      const now = performance.now();
+      if (hasHeardAudio && !recordingPaused && microphoneEnabled === true) {
+        const signalAge = now - lastMicSignalAt;
+        if (signalAge >= MIC_SILENCE_WARNING_MS) {
+          hasHeardAudio = false;
+          setMicLevel(0);
+        } else {
+          setMicWarning(null);
+          micSilenceTimer = setTimeout(
+            syncMicWarning,
+            MIC_SILENCE_WARNING_MS - signalAge,
+          );
+          return;
+        }
+      }
+      const warning = micSignalWarning({
+        microphoneEnabled,
+        paused: recordingPaused,
+        silentForMs: now - lastAudibleAt,
+        hasHeardAudio,
+      });
+      setMicWarning(warning);
+      if (warning || recordingPaused || microphoneEnabled !== true) {
+        return;
+      }
+      micSilenceTimer = setTimeout(
+        syncMicWarning,
+        Math.max(0, MIC_SILENCE_WARNING_MS - (now - lastAudibleAt)),
+      );
+    };
+    const track = (p: Promise<() => void>) => {
+      registrations.push(
+        p.then((u) => {
+          if (stopped) u();
+          else unlistens.push(u);
+          return u;
+        }),
+      );
+    };
+    track(
+      safeListen<{ paused: boolean; elapsedMs: number }>(
+        "clips:recorder-state",
+        (payload) => {
+          const nextPaused = !!payload.paused;
+          const resumed = recordingPaused && !nextPaused;
+          recordingPaused = nextPaused;
+          if (resumed) {
+            lastAudibleAt = performance.now();
+            lastMicSignalAt = lastAudibleAt;
+          }
+          if (nextPaused) setMicLevel(0);
+          syncMicWarning();
+          const pending = pauseTransitionRef.current;
+          const reached =
+            (pending === "pause" && nextPaused) ||
+            (pending === "resume" && !nextPaused);
+          if (!pending || reached) setPaused(nextPaused);
+          if (reached) clearPauseTransition();
+          elapsedAnchorRef.current = {
+            elapsedMs: payload.elapsedMs ?? 0,
+            at: performance.now(),
+          };
+          setElapsed(payload.elapsedMs ?? 0);
+        },
+      ),
+    );
+    track(
+      safeListen("clips:toolbar-preparing", () => {
+        recordingActive = false;
+        recordingPaused = false;
+        microphoneEnabled = null;
+        hasHeardAudio = false;
+        lastMicSignalAt = performance.now();
+        syncMicWarning();
+        if (modeRef.current === "done") {
+          if (stallTimerRef.current) {
+            clearTimeout(stallTimerRef.current);
+            stallTimerRef.current = null;
+          }
+          setViewUrl(null);
+          setCopied(false);
+          setSavedLocally(false);
+          setDoneStage("finishing");
+          sessionRef.current = {};
+        }
+        setElapsed(0);
+        elapsedAnchorRef.current = null;
+        setPendingAction(null);
+        resetToRest();
+        toolbarDismissedRef.current = false;
+        setToolbarVisible(true);
+      }),
+    );
+    track(
+      safeListen("clips:toolbar-hidden", () => {
+        toolbarDismissedRef.current = true;
+        setToolbarVisible(false);
+      }),
+    );
+    track(
+      safeListen<boolean>("clips:toolbar-enabled", (payload) => {
+        const wasRecordingActive = recordingActive;
+        recordingActive = !!payload;
+        if (recordingActive) {
+          if (!wasRecordingActive) hasHeardAudio = false;
+          lastAudibleAt = performance.now();
+          lastMicSignalAt = lastAudibleAt;
+        } else {
+          hasHeardAudio = false;
+          microphoneEnabled = null;
+          lastMicSignalAt = performance.now();
+        }
+        syncMicWarning();
+        setEnabled(!!payload);
+        setPendingAction(null);
+        if (payload && !toolbarDismissedRef.current) {
+          setToolbarVisible(true);
+        }
+        if (fallbackTimerRef.current) {
+          clearTimeout(fallbackTimerRef.current);
+          fallbackTimerRef.current = null;
+        }
+        if (payload && !elapsedAnchorRef.current) {
+          elapsedAnchorRef.current = { elapsedMs: 0, at: performance.now() };
+        }
+        if (payload) void safeInvoke("set_toolbar_finishing", { hold: false });
+        switch (toolbarEnabledEffect(!!payload, modeRef.current)) {
+          case "adopt-new-session":
+            setViewUrl(null);
+            setCopied(false);
+            setSavedLocally(false);
+            setDoneStage("finishing");
+            sessionRef.current = {};
+            resetToRest();
+            break;
+          case "reset-to-rest":
+            setElapsed(0);
+            elapsedAnchorRef.current = null;
+            resetToRest();
+            break;
+          case "keep":
+            break;
+        }
+      }),
+    );
+    track(
+      safeListen("clips:toolbar-sync", () => {
+        void safeEmit("clips:toolbar-ready", {});
+      }),
+    );
+    // The cancel shortcut never deletes by itself: it opens the same
+    // "Discard …?" confirmation as the toolbar's discard button.
+    track(
+      safeListen("clips:recorder-cancel", () => {
+        if (!recordingActive) return;
+        toolbarDismissedRef.current = false;
+        setToolbarVisible(true);
+        setConfirmRequest((previous) => ({
+          intent: "delete",
+          token: (previous?.token ?? 0) + 1,
+        }));
+      }),
+    );
+    track(
+      safeListen<RecorderSession>("clips:recorder-session", (payload) => {
+        const nextMicrophoneEnabled =
+          typeof payload?.microphoneEnabled === "boolean"
+            ? payload.microphoneEnabled
+            : null;
+        if (
+          payload?.recordingId !== sessionRef.current.recordingId ||
+          nextMicrophoneEnabled !== microphoneEnabled
+        ) {
+          lastAudibleAt = performance.now();
+          lastMicSignalAt = lastAudibleAt;
+        }
+        if (payload?.recordingId !== sessionRef.current.recordingId) {
+          hasHeardAudio = false;
+        }
+        microphoneEnabled = nextMicrophoneEnabled;
+        sessionRef.current = payload ?? {};
+        if (payload?.viewUrl) setViewUrl(payload.viewUrl);
+        syncMicWarning();
+      }),
+    );
+    track(
+      safeListen(RECORDER_MIC_TRACK_ENDED_EVENT, () => {
+        if (!recordingActive) return;
+        hasHeardAudio = false;
+        lastAudibleAt = performance.now() - MIC_SILENCE_WARNING_MS;
+        lastMicSignalAt = lastAudibleAt;
+        setMicLevel(0);
+        syncMicWarning();
+      }),
+    );
+    track(
+      safeListen<{ level?: number; source?: "mic" | "system" }>(
+        "voice:audio-level",
+        (payload) => {
+          if (payload?.source === "system") return;
+          const incoming = Number(payload?.level);
+          if (!Number.isFinite(incoming)) return;
+          const level = Math.max(0, Math.min(1, incoming));
+          lastMicSignalAt = performance.now();
+          setMicLevel(level);
+          if (
+            recordingActive &&
+            !recordingPaused &&
+            microphoneEnabled === true &&
+            level >= MIC_AUDIBLE_LEVEL
+          ) {
+            hasHeardAudio = true;
+            lastAudibleAt = lastMicSignalAt;
+          }
+          syncMicWarning();
+        },
+      ),
+    );
+    track(
+      safeListen<{
+        recordingId?: string;
+        stage?: string;
+        progress?: number | null;
+      }>("clips:native-upload-progress", (payload) => {
+        if (modeRef.current !== "done") return;
+        if (sessionRef.current.localOnly) return;
+        if (!isCompletionForSession(sessionRef.current.recordingId, payload)) {
+          return;
+        }
+        if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+        stallTimerRef.current = setTimeout(() => {
+          setDoneStage((s) => (s === "uploaded" ? s : "failed"));
+        }, 120_000);
+        if (payload?.stage && payload.stage !== "opening") {
+          setDoneStage((s) =>
+            s === "uploaded" || s === "failed" ? s : "uploading",
+          );
+        }
+      }),
+    );
+    track(
+      safeListen<NativeUploadFinished>(
+        "clips:native-upload-finished",
+        (payload) => handleUploadFinished(payload ?? {}),
+      ),
+    );
+    track(
+      safeListen<{ fallback?: boolean; requestId?: string }>(
+        "clips:tray-stop-request",
+        async (payload) => {
+          const requestId = payload?.requestId;
+          const alreadyDone = modeRef.current === "done";
+          const requireFinishingHold = Boolean(requestId || payload?.fallback);
+          if (
+            !alreadyDone &&
+            (!enabledRef.current || !stop({ requireFinishingHold }))
+          ) {
+            void safeInvoke("show_popover");
+            return;
+          }
+          if (alreadyDone && !requestId) {
+            if (!payload?.fallback) void safeInvoke("show_popover");
+            return;
+          }
+          if (requestId) {
+            try {
+              if (stopDispatchRef.current) {
+                const { finishingHoldSet } = await stopDispatchRef.current;
+                if (!finishingHoldSet) return;
+              }
+              await safeEmit("clips:tray-stop-ack", requestId);
+            } catch (error) {
+              console.error(
+                "[record-pill] shortcut stop acknowledgement failed:",
+                error,
+              );
+            }
+          }
+        },
+      ),
+    );
+    void Promise.allSettled(registrations).then((results) => {
+      const failures = results.flatMap((r) =>
+        r.status === "rejected" ? [r.reason] : [],
+      );
+      if (failures.length > 0) {
+        console.error("[record-pill] listener registration failed:", failures);
+      }
+      if (stopped) return;
+      void safeEmit("clips:toolbar-ready", {});
+    });
+    return () => {
+      stopped = true;
+      clearMicSilenceTimer();
+      unlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          // coercion-ok: unlisten during window teardown has no failure mode to surface
+        }
+      });
+      for (const t of [
+        fallbackTimerRef,
+        stallTimerRef,
+        pauseTransitionTimerRef,
+      ]) {
+        if (t.current) clearTimeout(t.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fit = () => {
+      if (cancelled) return;
+      syncWindowToContent();
+    };
+    if (document.fonts?.ready) {
+      void document.fonts.ready.then(fit);
+    } else {
+      fit();
+    }
+    if (hasTauri) {
+      void safeInvoke<{
+        mode?: RecordingPlayheadDockMode;
+        location?: RecordingPlayheadDockLocation;
+      }>("toolbar_get_dock_preference").then((preference) => {
+        const mode =
+          preference?.mode === "docked" ? "docked" : ("floating" as const);
+        const location =
+          preference?.location === "right" ||
+          preference?.location === "top" ||
+          preference?.location === "bottom"
+            ? preference.location
+            : "left";
+        applyToolbarDockPreference(mode, location);
+      });
+    } else {
+      dockPreferenceReadyRef.current = true;
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "done") return;
+    requestAnimationFrame(() => syncWindowToContent());
+    stallTimerRef.current = setTimeout(() => {
+      setDoneStage((s) =>
+        s === "uploaded" ? s : s === "failed" ? s : "failed",
+      );
+    }, 120_000);
+    try {
+      const raw = window.localStorage.getItem(FINALIZING_RESULT_STORAGE_KEY);
+      if (raw) {
+        window.localStorage.removeItem(FINALIZING_RESULT_STORAGE_KEY);
+        const parsed = JSON.parse(raw) as NativeUploadFinished;
+        if (parsed && typeof parsed === "object") handleUploadFinished(parsed);
+      }
+    } catch {
+      // coercion-ok: storage is a best-effort race fallback; the event path is authoritative
+    }
+    void safeInvoke<NativeUploadFinished | null>(
+      "native_fullscreen_take_upload_finished",
+    ).then((payload) => {
+      if (payload) handleUploadFinished(payload);
+    });
+  }, [mode]);
+
+  useEffect(() => {
+    if (!demoMode) return;
+    const t = setInterval(() => {
+      if (modeRef.current !== "done" && !pausedRef.current) {
+        setElapsed((e) => e + 500);
+      }
+    }, 500);
+    const levels = setInterval(() => {
+      if (modeRef.current !== "done" && !pausedRef.current) {
+        setDemoLevel(0.05 + Math.random() * 0.3);
+      }
+    }, 90);
+    return () => {
+      clearInterval(t);
+      clearInterval(levels);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasTauri) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleSync = () => {
+      if (timer) clearTimeout(timer);
+      const guardRemaining = animatingUntilRef.current - Date.now();
+      timer = setTimeout(
+        () => {
+          if (Date.now() < animatingUntilRef.current) {
+            scheduleSync();
+            return;
+          }
+          timer = null;
+          syncWindowToContent();
+        },
+        Math.max(120, guardRemaining + 120),
+      );
+    };
+    const observer = new ResizeObserver(() => {
+      scheduleSync();
+    });
+    const el = mode === "done" ? cardRef.current : null;
+    if (el) observer.observe(el);
+    return () => {
+      if (timer) clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [mode]);
+
+  const visibleRef = useRef(false);
+  useEffect(() => {
+    if (!hasTauri) return;
+    const visible = toolbarVisible;
+    if (visibleRef.current === visible) return;
+    visibleRef.current = visible;
+    if (visible) syncWindowToContent();
+    queueWindowOp(async () => {
+      await invoke("toolbar_set_visible", { visible });
+    });
+  }, [toolbarVisible]);
+
+  const trayLive = enabled && mode !== "done";
+  const trayOpChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  function writeTrayStatus(active: boolean, title: string | null) {
+    trayOpChainRef.current = trayOpChainRef.current.then(() =>
+      safeInvoke("tray_recording_status", { active, title }),
+    );
+  }
+  function liveTrayTitle() {
+    return `${pausedRef.current ? "⏸ " : ""}${formatTimer(elapsedRef.current)}`;
+  }
+  useEffect(() => {
+    if (!hasTauri) return;
+    writeTrayStatus(trayLive, trayLive ? liveTrayTitle() : null);
+  }, [trayLive, elapsed, paused]);
+  useEffect(() => {
+    if (!hasTauri || !trayLive) return;
+    const beat = setInterval(() => writeTrayStatus(true, liveTrayTitle()), 800);
+    return () => clearInterval(beat);
+  }, [trayLive]);
+
+  function queueToolbarDragMove(
+    generation: number,
+    startPromise: Promise<unknown>,
+  ): Promise<void> {
+    toolbarPendingMoveRef.current = { generation, startPromise };
+    if (toolbarMovePromiseRef.current) return toolbarMovePromiseRef.current;
+
+    const movePromise = (async () => {
+      while (toolbarPendingMoveRef.current) {
+        const pendingMove = toolbarPendingMoveRef.current;
+        toolbarPendingMoveRef.current = null;
+        await pendingMove.startPromise;
+        if (
+          !toolbarDraggingRef.current ||
+          toolbarDragGenerationRef.current !== pendingMove.generation
+        ) {
+          continue;
+        }
+        await safeInvoke("toolbar_drag_move");
+      }
+    })();
+    toolbarMovePromiseRef.current = movePromise;
+    void movePromise.then(() => {
+      if (toolbarMovePromiseRef.current !== movePromise) return;
+      toolbarMovePromiseRef.current = null;
+      const pendingMove = toolbarPendingMoveRef.current;
+      if (pendingMove) {
+        void queueToolbarDragMove(
+          pendingMove.generation,
+          pendingMove.startPromise,
+        );
+      }
+    });
+    return movePromise;
+  }
+
+  async function waitForToolbarDragMoves(generation: number): Promise<void> {
+    while (toolbarDragGenerationRef.current === generation) {
+      const movePromise = toolbarMovePromiseRef.current;
+      if (!movePromise) return;
+      await movePromise;
+    }
+  }
+
+  function handlePillPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!hasTauri || event.pointerType !== "mouse" || event.button !== 0) {
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-recording-playhead-button]")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toolbarDraggingRef.current = true;
+    ++toolbarDragGenerationRef.current;
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // coercion-ok: pointer capture is optional; native dragging remains authoritative
+      // Pointer capture is best-effort; the native window can still finish a
+      // short drag before the pointer leaves the overlay.
+    }
+    toolbarDragStartPromiseRef.current = safeInvoke("toolbar_drag_start");
+  }
+
+  function handlePillPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (
+      !toolbarDraggingRef.current ||
+      event.pointerType !== "mouse" ||
+      toolbarMoveFrameRef.current !== null
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const generation = toolbarDragGenerationRef.current;
+    const startPromise = toolbarDragStartPromiseRef.current;
+    toolbarMoveFrameRef.current = requestAnimationFrame(() => {
+      toolbarMoveFrameRef.current = null;
+      if (
+        !toolbarDraggingRef.current ||
+        toolbarDragGenerationRef.current !== generation
+      ) {
+        return;
+      }
+      void queueToolbarDragMove(generation, startPromise);
+    });
+  }
+
+  function handlePillPointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!toolbarDraggingRef.current || event.pointerType !== "mouse") return;
+    toolbarDraggingRef.current = false;
+    const generation = toolbarDragGenerationRef.current;
+    const startPromise = toolbarDragStartPromiseRef.current;
+    if (toolbarMoveFrameRef.current !== null) {
+      cancelAnimationFrame(toolbarMoveFrameRef.current);
+      toolbarMoveFrameRef.current = null;
+    }
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // coercion-ok: the platform may release capture before this best-effort cleanup
+      // The pointer may already have been released by the platform.
+    }
+    void (async () => {
+      await startPromise;
+      await waitForToolbarDragMoves(generation);
+      if (toolbarDragGenerationRef.current !== generation) return;
+      await safeInvoke("toolbar_drag_move");
+      if (toolbarDragGenerationRef.current !== generation) return;
+      await safeInvoke("toolbar_drag_end");
+      if (toolbarDragGenerationRef.current !== generation) return;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, NATIVE_DOCK_SETTLE_MS),
+      );
+      if (toolbarDragGenerationRef.current !== generation) return;
+      void settleNativePlayheadDock();
+    })();
+  }
+
+  const card = completionCardState(doneStage, {
+    hasLink: Boolean(viewUrl),
+    savedLocally,
+  });
+  const cardBadgeClass =
+    card.tone === "ok"
+      ? "bg-[var(--pill-card-badge-bg)] text-[var(--pill-card-badge)]"
+      : card.tone === "warn"
+        ? "bg-[var(--pill-card-badge-warn-bg)] text-[var(--pill-card-badge-warn)]"
+        : "bg-[var(--pill-card-well)] text-[var(--pill-card-ink-2)]";
+  const cardTitle = mode === "done" ? card.title : null;
+  useEffect(() => {
+    if (cardTitle) setAnnouncement(cardTitle);
+  }, [cardTitle]);
+
+  const micWarningLabel =
+    micWarning === "muted"
+      ? "Microphone is off"
+      : micWarning === "silent"
+        ? "No microphone audio detected"
+        : null;
+  useEffect(() => {
+    if (micWarningLabel) setAnnouncement(micWarningLabel);
+  }, [micWarningLabel]);
+
+  const lookbackCard = lookbackCardLine(lookbackView);
+  const lookbackEditable = canEditLookbackWindow(lookbackView.item);
+  const lookbackText =
+    lookbackCard.kind === "saving"
+      ? t("lookbackContext.saving", { window: lookbackCard.window })
+      : lookbackCard.kind === "ready"
+        ? t("lookbackContext.ready", { window: lookbackCard.window })
+        : lookbackCard.kind === "failed"
+          ? t("lookbackContext.failed")
+          : lookbackCard.kind === "unreadable"
+            ? t("lookbackContext.unreadable")
+            : lookbackCard.kind === "removed"
+              ? t("lookbackContext.removed")
+              : null;
+
+  // The edit window is larger than the card, so the dialog gets room while open.
+  function handleLookbackEditOpenChange(open: boolean) {
+    setLookbackEditOpen(open);
+    if (open) {
+      void resizeWindowTo(
+        LOOKBACK_EDIT_WINDOW.width,
+        LOOKBACK_EDIT_WINDOW.height,
+      );
+    } else {
+      syncWindowToContent();
+    }
+  }
+
+  async function saveLookbackWindow(next: ScreenHistoryWindow) {
+    const item = lookbackView.item;
+    if (!item) throw new Error("No earlier screen time to edit.");
+    const updated = await setRecordingContextWindow(currentLookbackTarget(), {
+      id: item.id,
+      startedAt: next.startedAt,
+      endedAt: next.endedAt,
+    });
+    setLookbackItem(updated);
+  }
+
+  async function removeLookbackWindow() {
+    const item = lookbackView.item;
+    if (!item) throw new Error("No earlier screen time to remove.");
+    const removed = await removeRecordingContext(
+      currentLookbackTarget(),
+      item.id,
+    );
+    setLookbackItem(removed);
+  }
+
+  return (
+    <div
+      data-tw-surface
+      className={`record-pill-scope flex h-screen w-screen select-none ${mode === "done" || (playheadOrientation === "horizontal" && playheadDock !== "top") ? "items-end" : "items-start"}`}
+    >
+      <div aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
+      {mode === "done" ? (
+        <div
+          ref={cardRef}
+          className={`w-[340px] flex-none rounded-[14px] border-[0.5px] border-[var(--pill-card-border)] bg-[var(--pill-card-surface)] p-4 ${reducedRef.current ? "" : "record-pill-card-in"}`}
+        >
+          <div className="mb-3 flex items-center gap-2.5">
+            <span
+              className={`flex size-8 flex-none items-center justify-center rounded-full ${cardBadgeClass}`}
+            >
+              {card.tone === "ok" ? (
+                <IconCheck size={16} stroke={2.4} aria-hidden />
+              ) : card.tone === "warn" ? (
+                <IconAlertTriangle size={16} stroke={2.2} aria-hidden />
+              ) : (
+                <IconLoader2
+                  size={16}
+                  stroke={2.2}
+                  aria-hidden
+                  className={reducedRef.current ? "" : "animate-spin"}
+                />
+              )}
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-[var(--pill-card-ink)]">
+                {card.title}
+              </div>
+              <div className="text-xs text-[var(--pill-card-ink-2)]">
+                {formatDurationCopy(doneDurationMs)}
+                {card.detail ? ` · ${card.detail}` : ""}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void runCompletionAction("dismiss")}
+              disabled={completionActionBusy}
+              aria-label="Dismiss"
+              className="ml-auto flex size-6 flex-none items-center justify-center rounded text-[var(--pill-card-ink-3)] hover:text-[var(--pill-card-ink)]"
+            >
+              <IconX size={15} aria-hidden />
+            </button>
+          </div>
+          {lookbackText ? (
+            <div className="mb-3 flex items-center gap-2 rounded-lg bg-[var(--pill-card-well)] px-2.5 py-2 text-xs text-[var(--pill-card-ink-2)]">
+              <IconHistory size={14} className="flex-none" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{lookbackText}</span>
+              {lookbackEditable ? (
+                <button
+                  type="button"
+                  onClick={() => handleLookbackEditOpenChange(true)}
+                  disabled={completionActionBusy}
+                  className="flex-none font-semibold text-[var(--pill-card-ink)]"
+                >
+                  {t("lookbackContext.edit")}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {viewUrl ? (
+            <div className="mb-3 flex items-center gap-2 rounded-lg bg-[var(--pill-card-well)] px-2.5 py-2 text-xs">
+              <IconLink
+                size={14}
+                className="flex-none text-[var(--pill-card-ink-2)]"
+                aria-hidden
+              />
+              <button
+                type="button"
+                aria-label="Copy link"
+                disabled={completionActionBusy}
+                onClick={() => void runCompletionAction("copy", viewUrl)}
+                className="record-pill-mono min-w-0 flex-1 truncate text-start text-[var(--pill-card-ink-2)]"
+              >
+                {viewUrl.replace(/^https?:\/\//, "")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void runCompletionAction("copy", viewUrl)}
+                disabled={completionActionBusy}
+                aria-label="Copy link"
+                className={`flex size-5 flex-none items-center justify-center rounded ${copied ? "text-[var(--pill-card-badge)]" : "text-[var(--pill-card-ink-2)] hover:text-[var(--pill-card-ink)]"}`}
+              >
+                {copied ? (
+                  <IconCheck size={14} aria-hidden />
+                ) : (
+                  <IconCopy size={14} aria-hidden />
+                )}
+              </button>
+            </div>
+          ) : null}
+          <div className="flex gap-2">
+            {viewUrl ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void runCompletionAction("open", viewUrl)}
+                  disabled={completionActionBusy}
+                  className="h-[34px] flex-1 rounded-lg bg-[var(--pill-card-ink)] text-[13px] font-semibold text-[var(--pill-on-chrome)]"
+                >
+                  Open
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void runCompletionAction("copy", viewUrl)}
+                  disabled={completionActionBusy}
+                  className="inline-flex h-[34px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--pill-card-border-strong)] bg-[var(--pill-on-chrome)] text-[13px] font-semibold text-[var(--pill-card-ink)]"
+                >
+                  {copied ? (
+                    <>
+                      Copied
+                      <IconCheck size={14} aria-hidden />
+                    </>
+                  ) : (
+                    "Copy"
+                  )}
+                </button>
+              </>
+            ) : null}
+          </div>
+          {completionActionError ? (
+            <p
+              role="alert"
+              className="mt-2 text-xs text-[var(--pill-card-ink)]"
+            >
+              {completionActionError}
+            </p>
+          ) : null}
+          {lookbackView.item ? (
+            <LookbackEditDialog
+              item={lookbackView.item}
+              open={lookbackEditOpen}
+              onOpenChange={handleLookbackEditOpenChange}
+              onSave={saveLookbackWindow}
+              onRemove={removeLookbackWindow}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <RecordingPlayhead
+          elapsedMs={elapsed}
+          paused={paused}
+          enabled={enabled}
+          pendingAction={pendingAction}
+          meter={
+            micWarningLabel && !paused ? (
+              <span
+                className="record-pill-audio-warning"
+                role="img"
+                aria-label={micWarningLabel}
+                title={micWarningLabel}
+              >
+                <IconExclamationMark size={15} stroke={3} aria-hidden />
+              </span>
+            ) : (
+              <LiveWaveform
+                sources="mic"
+                dimmed={paused || !enabled}
+                level={demoMode ? demoLevel : micLevel}
+              />
+            )
+          }
+          labels={{
+            controls: "Recording controls",
+            stop: "Stop and save",
+            pause: "Pause",
+            resume: "Resume",
+            pauseShortcut: "Pause (⌥⇧P)",
+            resumeShortcut: "Resume (⌥⇧P)",
+            restart: "Restart recording",
+            restartShortcut: "Restart (⌥⇧R)",
+            delete: "Discard recording",
+            deleteShortcut: "Discard (⌥⇧C)",
+            restartQuestion: "Start a new recording?",
+            deleteQuestion: (durationMs) =>
+              `Discard ${formatDurationCopy(durationMs)}?`,
+            restartConfirm: "Restart",
+            deleteConfirm: "Discard",
+            resumeConfirm: "Resume",
+          }}
+          confirmRequest={confirmRequest}
+          onStop={stop}
+          onTogglePause={togglePause}
+          onConfirmAction={confirmDestructive}
+          onConfirmChange={(change: RecordingPlayheadConfirmChange) => {
+            if (change.type === "open") {
+              playheadConfirmOpenRef.current = true;
+              if (!change.enteredPaused) applyPauseIntent("pause");
+              setAnnouncement("Paused");
+              return;
+            }
+            playheadConfirmOpenRef.current = false;
+            if (change.resume || !change.enteredPaused) {
+              applyPauseIntent("resume");
+            }
+            setAnnouncement(change.resume ? "Recording" : "Paused");
+          }}
+          onExpandedChange={(expanded) => {
+            revealedRef.current = expanded;
+          }}
+          onLayoutChange={(layout) => {
+            const nextLayout = {
+              width: Math.ceil(layout.width),
+              height: Math.ceil(layout.height),
+            };
+            playheadSizesRef.current[playheadOrientationRef.current] =
+              nextLayout;
+            if (!playheadDockTransitioningRef.current) {
+              void resizeWindowTo(nextLayout.width, nextLayout.height);
+            }
+          }}
+          orientation={playheadOrientation}
+          onPointerDown={handlePillPointerDown}
+          onPointerMove={handlePillPointerMove}
+          onPointerUp={handlePillPointerEnd}
+          onPointerCancel={handlePillPointerEnd}
+          className={`${enabled ? "" : "opacity-80"} ${playheadDockTransitioning ? "opacity-0" : "transition-opacity duration-100"}`}
+        />
+      )}
+    </div>
+  );
+}

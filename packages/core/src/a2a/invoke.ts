@@ -1,14 +1,33 @@
+import { randomUUID } from "node:crypto";
+
+import type {
+  RemoteAgentAuth,
+  RemoteAgentKind,
+} from "../resources/metadata.js";
 import {
   discoverAgents as defaultDiscoverAgents,
   findAgent as defaultFindAgent,
   type DiscoveredAgent,
 } from "../server/agent-discovery.js";
 import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
+import {
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY,
+  createAnthropicManagedAgentsHandler,
+  type AnthropicManagedAgentContinuation,
+} from "./anthropic-managed-agents.js";
+import {
   callAction as defaultCallAction,
   callAgent as defaultCallAgent,
 } from "./client.js";
+import { resolveRemoteAgentToken } from "./remote-agent-auth.js";
 import type {
   A2ACorrelationMetadata,
+  A2AHandlerResult,
   A2AReadOnlyActionResult,
 } from "./types.js";
 
@@ -18,7 +37,10 @@ export type AgentInvocationErrorCode =
   | "missing-action"
   | "invalid-input"
   | "invalid-url"
+  | "invalid-response"
+  | "unsupported-action"
   | "self-call"
+  | "discovery-failed"
   | "not-found";
 
 export class AgentInvocationError extends Error {
@@ -29,9 +51,16 @@ export class AgentInvocationError extends Error {
   constructor(
     code: AgentInvocationErrorCode,
     message: string,
-    options?: { target?: string; availableAgents?: DiscoveredAgent[] },
+    options?: {
+      target?: string;
+      availableAgents?: DiscoveredAgent[];
+      cause?: unknown;
+    },
   ) {
-    super(message);
+    super(
+      message,
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    );
     this.name = "AgentInvocationError";
     this.code = code;
     this.target = options?.target;
@@ -46,12 +75,24 @@ export interface ResolvedAgentInvocationTarget {
   description?: string;
   url: string;
   color?: string;
+  cardUrl?: string;
 }
+
+const invocationAuthByTarget = new WeakMap<
+  ResolvedAgentInvocationTarget,
+  RemoteAgentAuth
+>();
+const invocationProviderKindByTarget = new WeakMap<
+  ResolvedAgentInvocationTarget,
+  RemoteAgentKind
+>();
 
 export interface AgentInvocationResult {
   target: ResolvedAgentInvocationTarget;
   prompt: string;
   responseText: string;
+  taskState?: "input-required";
+  continuation?: AnthropicManagedAgentContinuation;
 }
 
 export interface AgentActionInvocationResult {
@@ -70,6 +111,8 @@ export interface AgentInvocationRuntime {
 export interface ResolveAgentInvocationTargetOptions {
   selfAppId?: string;
   selfUrl?: string;
+  userEmail?: string;
+  orgId?: string;
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
@@ -79,6 +122,7 @@ export interface InvokeAgentOptions extends ResolveAgentInvocationTargetOptions 
   apiKey?: string;
   contextId?: string;
   userEmail?: string;
+  orgId?: string;
   orgDomain?: string;
   orgSecret?: string;
   async?: boolean;
@@ -87,6 +131,7 @@ export interface InvokeAgentOptions extends ResolveAgentInvocationTargetOptions 
   includeInvocationHint?: boolean;
   correlation?: A2ACorrelationMetadata;
   idempotencyKey?: string;
+  cardUrl?: string;
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
@@ -100,14 +145,10 @@ export interface InvokeAgentActionOptions extends ResolveAgentInvocationTargetOp
   orgSecret?: string;
   requestTimeoutMs?: number;
   correlation?: A2ACorrelationMetadata;
+  cardUrl?: string;
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
-/**
- * Resolve an A2A invocation target from a direct URL or from the connected app
- * registry. ID/name resolution deliberately uses the same discovery path as
- * the in-agent `call-agent` script.
- */
 export async function resolveAgentInvocationTarget(
   target: string,
   options: ResolveAgentInvocationTargetOptions = {},
@@ -145,9 +186,48 @@ export async function resolveAgentInvocationTarget(
   const findAgent = options.runtime?.findAgent ?? defaultFindAgent;
   const discoverAgents =
     options.runtime?.discoverAgents ?? defaultDiscoverAgents;
-  const agent = await findAgent(cleanTarget, options.selfAppId);
+  const discoveryOptions = {
+    includePersonalAgents: true,
+    requireReadableAgentSources: true,
+  };
+  const requestContext = getRequestContext();
+  const resolveWithCaller = async <T>(read: () => Promise<T>): Promise<T> => {
+    if (
+      !requestContext &&
+      options.userEmail === undefined &&
+      options.orgId === undefined
+    ) {
+      return read();
+    }
+    return await runWithRequestContext(
+      {
+        ...(requestContext ?? {}),
+        ...(options.userEmail !== undefined
+          ? { userEmail: options.userEmail }
+          : {}),
+        ...(options.orgId !== undefined ? { orgId: options.orgId } : {}),
+      },
+      read,
+    );
+  };
+  const readAgentSource = async <T>(read: () => Promise<T>): Promise<T> => {
+    try {
+      return await resolveWithCaller(read);
+    } catch (cause) {
+      throw new AgentInvocationError(
+        "discovery-failed",
+        `Error: Could not read connected-agent sources while resolving "${cleanTarget}". No request was sent to another agent.`,
+        { target: cleanTarget, cause },
+      );
+    }
+  };
+  const agent = await readAgentSource(() =>
+    findAgent(cleanTarget, options.selfAppId, discoveryOptions),
+  );
   if (!agent) {
-    const availableAgents = await discoverAgents(options.selfAppId);
+    const availableAgents = await readAgentSource(() =>
+      discoverAgents(options.selfAppId, discoveryOptions),
+    );
     const available = availableAgents.map((a) => a.name).join(", ");
     throw new AgentInvocationError(
       "not-found",
@@ -156,20 +236,21 @@ export async function resolveAgentInvocationTarget(
     );
   }
 
-  return {
+  const resolvedTarget: ResolvedAgentInvocationTarget = {
     kind: "discovered",
     id: agent.id,
     name: agent.name,
     description: agent.description,
     url: agent.url,
     color: agent.color,
+    ...(agent.cardUrl ? { cardUrl: agent.cardUrl } : {}),
   };
+  if (agent.auth) invocationAuthByTarget.set(resolvedTarget, agent.auth);
+  if (agent.kind)
+    invocationProviderKindByTarget.set(resolvedTarget, agent.kind);
+  return resolvedTarget;
 }
 
-/**
- * First-class headless A2A primitive: resolve an app/agent by id, name, or URL,
- * send a text prompt, and return the text response with target metadata.
- */
 export async function invokeAgent(
   options: InvokeAgentOptions,
 ): Promise<AgentInvocationResult> {
@@ -185,6 +266,8 @@ export async function invokeAgent(
   const target = await resolveAgentInvocationTarget(options.target, {
     selfAppId: options.selfAppId,
     selfUrl: options.selfUrl,
+    userEmail: options.userEmail,
+    orgId: options.orgId,
     runtime: options.runtime,
   });
 
@@ -193,18 +276,100 @@ export async function invokeAgent(
       ? prompt
       : buildAgentInvocationPrompt(prompt, target.url);
 
+  const auth = invocationAuthByTarget.get(target);
+  const providerKind = invocationProviderKindByTarget.get(target);
+  if (providerKind?.provider === "anthropic-managed-agents") {
+    const handler = createAnthropicManagedAgentsHandler({
+      agentId: providerKind.agentId,
+      environmentId: providerKind.environmentId,
+      credentialRef: providerKind.credentialRef,
+      apiBaseUrl: target.url,
+      resolveApiKey: async (credentialRef, context) =>
+        resolveRemoteAgentToken(
+          { type: "bearer", credentialRef },
+          {
+            userEmail: options.userEmail ?? context.userEmail,
+            orgId: options.orgId ?? getRequestOrgId(),
+          },
+        ),
+    });
+    const invokeHandler = async (): Promise<A2AHandlerResult> =>
+      (await handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: prompt }],
+        },
+        {
+          taskId: options.contextId ?? randomUUID(),
+          contextId: options.contextId,
+          writeArtifact: (name) => name,
+        },
+      )) as A2AHandlerResult;
+    const requestContext = getRequestContext();
+    const result = (await (requestContext ||
+    options.userEmail !== undefined ||
+    options.orgId !== undefined
+      ? runWithRequestContext(
+          {
+            ...(requestContext ?? {}),
+            ...(options.userEmail !== undefined
+              ? { userEmail: options.userEmail }
+              : {}),
+            ...(options.orgId !== undefined ? { orgId: options.orgId } : {}),
+          },
+          invokeHandler,
+        )
+      : invokeHandler())) as A2AHandlerResult;
+    const responseText = result.message.parts
+      .filter((part): part is { type: "text"; text: string } => {
+        return part.type === "text";
+      })
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    const resultMetadata =
+      result.message.metadata?.[ANTHROPIC_MANAGED_AGENTS_METADATA_KEY];
+    const continuation = readManagedAgentContinuation(resultMetadata);
+    const taskState = result.taskState;
+    if (!responseText) {
+      throw new AgentInvocationError(
+        "invalid-response",
+        "Error: The managed agent returned no text response.",
+        { target: options.target },
+      );
+    }
+    return {
+      target,
+      prompt,
+      responseText,
+      ...(taskState ? { taskState } : {}),
+      ...(continuation ? { continuation } : {}),
+    };
+  }
+  const authOptions = await resolveInvocationAuth(
+    target,
+    options.userEmail,
+    options.orgId,
+  );
   const callAgent = options.runtime?.callAgent ?? defaultCallAgent;
   const responseText = await callAgent(target.url, promptToSend, {
-    apiKey: options.apiKey,
+    ...(auth
+      ? { apiKey: authOptions.token }
+      : {
+          apiKey: options.apiKey,
+          userEmail: options.userEmail,
+          orgDomain: options.orgDomain,
+          orgSecret: options.orgSecret,
+        }),
     contextId: options.contextId,
-    userEmail: options.userEmail,
-    orgDomain: options.orgDomain,
-    orgSecret: options.orgSecret,
     async: options.async,
     timeoutMs: options.timeoutMs,
     pollIntervalMs: options.pollIntervalMs,
     correlation: options.correlation,
     idempotencyKey: options.idempotencyKey,
+    ...((options.cardUrl ?? target.cardUrl)
+      ? { cardUrl: options.cardUrl ?? target.cardUrl }
+      : {}),
   });
 
   return {
@@ -214,11 +379,6 @@ export async function invokeAgent(
   };
 }
 
-/**
- * Resolve another app and execute one explicitly exposed read-only action on
- * it. This is the fast A2A path for bounded data operations that do not need a
- * second model to plan or synthesize.
- */
 export async function invokeAgentAction(
   options: InvokeAgentActionOptions,
 ): Promise<AgentActionInvocationResult> {
@@ -242,19 +402,56 @@ export async function invokeAgentAction(
   const target = await resolveAgentInvocationTarget(options.target, {
     selfAppId: options.selfAppId,
     selfUrl: options.selfUrl,
+    userEmail: options.userEmail,
+    orgId: options.orgId,
     runtime: options.runtime,
   });
+  const providerKind = invocationProviderKindByTarget.get(target);
+  if (providerKind?.provider === "anthropic-managed-agents") {
+    throw new AgentInvocationError(
+      "unsupported-action",
+      "Error: Anthropic Managed Agents targets accept messages only; direct action invocation is unavailable.",
+      { target: options.target },
+    );
+  }
   const callAction = options.runtime?.callAction ?? defaultCallAction;
+  const auth = invocationAuthByTarget.get(target);
+  const authOptions = await resolveInvocationAuth(
+    target,
+    options.userEmail,
+    options.orgId,
+  );
   const result = await callAction(target.url, action, input, {
-    apiKey: options.apiKey,
-    userEmail: options.userEmail,
-    orgDomain: options.orgDomain,
-    orgSecret: options.orgSecret,
+    ...(auth
+      ? { apiKey: authOptions.token }
+      : {
+          apiKey: options.apiKey,
+          userEmail: options.userEmail,
+          orgDomain: options.orgDomain,
+          orgSecret: options.orgSecret,
+        }),
     requestTimeoutMs: options.requestTimeoutMs,
     correlation: options.correlation,
+    ...((options.cardUrl ?? target.cardUrl)
+      ? { cardUrl: options.cardUrl ?? target.cardUrl }
+      : {}),
   });
 
   return { target, action, result };
+}
+
+async function resolveInvocationAuth(
+  target: ResolvedAgentInvocationTarget,
+  userEmail?: string,
+  orgId?: string,
+): Promise<{ token?: string }> {
+  const auth = invocationAuthByTarget.get(target);
+  if (!auth) return {};
+  const token = await resolveRemoteAgentToken(auth, {
+    userEmail: userEmail || getRequestUserEmail(),
+    orgId: orgId ?? getRequestOrgId(),
+  });
+  return { token };
 }
 
 export function buildAgentInvocationPrompt(
@@ -347,4 +544,28 @@ function normalizeAgentHandle(value: string): string {
 
 function formatSelfCallError(selfAppId: string): string {
   return `Error: You cannot use A2A invocation to call yourself (${selfAppId}). Use your own registered actions/tools instead. A2A invocation is only for communicating with OTHER separately-deployed apps.`;
+}
+
+function readManagedAgentContinuation(
+  value: unknown,
+): AnthropicManagedAgentContinuation | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const continuationToken =
+    typeof candidate.continuationToken === "string"
+      ? candidate.continuationToken.trim()
+      : "";
+  if (!continuationToken) return undefined;
+  const pendingToolUseIds = Array.isArray(candidate.pendingToolUseIds)
+    ? candidate.pendingToolUseIds.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim() !== "",
+      )
+    : [];
+  return {
+    continuationToken,
+    ...(pendingToolUseIds.length ? { pendingToolUseIds } : {}),
+  };
 }

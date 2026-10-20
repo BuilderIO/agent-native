@@ -1,5 +1,11 @@
+import {
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "@shared/code-layer";
 import type { DragEvent } from "react";
 import { describe, expect, it } from "vitest";
+
+import { codeLayerTreeToPanelNodes } from "@/pages/design-editor/code-layer-state";
 
 import {
   buildAncestorIdMap,
@@ -62,6 +68,7 @@ function row(
     ancestorIds,
     hasChildren: false,
     canAcceptChildren: false,
+    siblingsInLayoutOrder: false,
   };
 }
 
@@ -123,11 +130,6 @@ describe("LayersPanel drag payload ordering", () => {
   });
 
   it("L13: drops a selected descendant nested inside a COLLAPSED dragged parent using the full-tree ancestor map, even though visibleRows doesn't include it", () => {
-    // "hidden-child" is a descendant of "collapsed-parent" but is NOT in
-    // visibleRows (its ancestor is collapsed, so it was never flattened).
-    // Without the L13 fix, getDraggedLayerIdsForRows would fail to find its
-    // row in visibleRows and treat it as a separate top-level drag target,
-    // extracting it from the parent being dragged.
     const rowsWithCollapsedParent = [row("collapsed-parent"), row("sibling")];
     const tree: LayersPanelNode[] = [
       {
@@ -205,8 +207,6 @@ describe("LayersPanel drag payload ordering", () => {
         nodeById: buildLayerNodeMap(tree),
       }),
     ).toEqual(["last-dom", "middle-dom", "first-dom"]);
-    // Documents the bug: visible-only ordering appended the hidden row in
-    // selection order instead of its deterministic full-tree position.
     expect(
       getDraggedLayerIdsForRows({
         selectedIds: ["first-dom", "last-dom", "middle-dom"],
@@ -246,16 +246,6 @@ describe("LayersPanel auto-expand ancestors of selection (L1)", () => {
   });
 
   it("L1 regression: does NOT force-re-add an ancestor the user just collapsed, when called with the CURRENT (post-collapse) expandedIds", () => {
-    // Simulates the bug: user selects a deeply nested layer (parent auto-expands),
-    // then manually collapses "parent". The effect's ref-gate (tested via the
-    // component, not here) ensures this function only runs again on a NEW
-    // selection signature — but even if called again with the same ancestors
-    // and the now-collapsed expandedIds, this pure function's contract is
-    // simply "compute the union"; the actual anti-bounce fix is the caller's
-    // signature-gate. This test documents that calling it again after a
-    // collapse (same ancestors, ancestor no longer in expandedIds) WOULD
-    // re-add it — which is exactly why the effect must not call this on
-    // every expandedIds change, only on selection change.
     expect(
       nextAutoExpandedIds({
         selectedAncestorIds: ["parent"],
@@ -317,8 +307,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
       visibleRows: rows,
     });
     expect(nextIds).toEqual(["a", "b", "c"]);
-    // Plain additive (non-range) clicks still advance the anchor, matching
-    // Figma: the next Shift+Click pivots from the row you just Cmd-clicked.
     expect(nextAnchor).toBe("c");
   });
 
@@ -346,8 +334,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
       visibleRows: rows,
     });
     expect(nextIds).toEqual(["b", "c", "d"]);
-    // Range clicks never move the anchor — the pivot stays fixed so a
-    // second Shift+Click extends/shrinks from the SAME row.
     expect(nextAnchor).toBe("b");
   });
 
@@ -366,7 +352,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
   });
 
   it("a second Shift+Click from the SAME anchor shrinks the range instead of compounding it", () => {
-    // First Shift+Click: anchor "a" -> clicked "d".
     const first = computeLayerMultiSelectIds({
       id: "d",
       additive: false,
@@ -379,8 +364,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
     expect(first.nextIds).toEqual(["a", "b", "c", "d"]);
     expect(first.nextAnchor).toBe("a");
 
-    // Second Shift+Click, still pivoting from "a" (not from "d") — matches
-    // Figma: consecutive range clicks re-slice from the fixed anchor.
     const second = computeLayerMultiSelectIds({
       id: "b",
       additive: false,
@@ -404,7 +387,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
       selectableVisibleIds: VISIBLE_IDS,
       visibleRows: rows,
     });
-    // "a" was already selected and stays; b/c/d get added by the range.
     expect(nextIds).toEqual(["a", "b", "c", "d"]);
   });
 
@@ -418,8 +400,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
       selectableVisibleIds: VISIBLE_IDS,
       visibleRows: rows,
     });
-    // Re-pivots from "b" (the last still-visible selected row) instead of
-    // collapsing to a single select.
     expect(nextIds).toEqual(["b", "c", "d"]);
     expect(nextAnchor).toBe("b");
   });
@@ -435,9 +415,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
       visibleRows: rows,
     });
     expect(nextIds).toEqual(["c"]);
-    // No anchor existed and none was established by this click (matches the
-    // original ref-based behavior: the ref is only ever written on a plain
-    // click or a stale-anchor fallback correction).
     expect(nextAnchor).toBeNull();
   });
 
@@ -457,10 +434,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
   });
 
   it("uses anchorFallbackSelectedIds (the panel's own selectedIds prop) over currentSelectedIds for the stale-anchor search", () => {
-    // Regression guard for the pointer-click path: handlePointerSelect passes
-    // a freshly-DOM-read currentSelectedIds that can transiently diverge from
-    // the panel's own selectedIds prop. The stale-anchor fallback must pivot
-    // off the panel's real selection state, not the transient DOM read.
     const { nextAnchor } = computeLayerMultiSelectIds({
       id: "d",
       additive: false,
@@ -517,27 +490,190 @@ describe("LayersPanel row order convention (L5)", () => {
 
   it("maps panel move intents into DOM placement and sibling order", () => {
     expect(
-      mapPanelMoveIntentToDomIntent({
-        draggedIds: ["top-panel-row", "lower-panel-row"],
-        targetId: "anchor",
-        placement: "before",
-      }),
+      mapPanelMoveIntentToDomIntent(
+        {
+          draggedIds: ["top-panel-row", "lower-panel-row"],
+          targetId: "anchor",
+          placement: "before",
+        },
+        row("anchor"),
+      ),
     ).toEqual({
       draggedIds: ["lower-panel-row", "top-panel-row"],
       targetId: "anchor",
       placement: "after",
     });
     expect(
-      mapPanelMoveIntentToDomIntent({
-        draggedIds: ["top-panel-row", "lower-panel-row"],
-        targetId: "container",
-        placement: "inside",
-      }),
+      mapPanelMoveIntentToDomIntent(
+        {
+          draggedIds: ["top-panel-row", "lower-panel-row"],
+          targetId: "container",
+          placement: "inside",
+        },
+        row("container"),
+      ),
     ).toEqual({
       draggedIds: ["lower-panel-row", "top-panel-row"],
       targetId: "container",
       placement: "inside",
     });
+  });
+});
+
+describe("LayersPanel auto-layout row order", () => {
+  function panelOrder(html: string, expandedIds: string[]) {
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const nodes = codeLayerTreeToPanelNodes(tree, new Set(), new Set());
+    const byName = new Map<string, string>();
+    buildLayerNodeMap(nodes).forEach((node) => byName.set(node.name, node.id));
+    const expanded = new Set(expandedIds.map((name) => byName.get(name)!));
+    return flattenRows(nodes, expanded, false).map((r) => r.node.name);
+  }
+
+  const child = (name: string) => `<div data-name="${name}"></div>`;
+
+  it("lists flex-column, flex-row and grid children in layout order", () => {
+    const html = `<body style="position:relative">
+      <div data-name="Stack" style="display:flex;flex-direction:column">${child("Alpha")}${child("Bravo")}</div>
+      <div data-name="Row" class="flex flex-row">${child("One")}${child("Two")}</div>
+      <div data-name="Grid" style="display:grid">${child("G1")}${child("G2")}</div>
+    </body>`;
+    expect(panelOrder(html, ["Stack", "Row", "Grid"])).toEqual([
+      "Grid",
+      "G1",
+      "G2",
+      "Row",
+      "One",
+      "Two",
+      "Stack",
+      "Alpha",
+      "Bravo",
+    ]);
+  });
+
+  it("keeps absolutely positioned and plain-flow children topmost first", () => {
+    const html = `<body style="position:relative">
+      <div data-name="Free" style="position:relative">
+        <div data-name="Back" style="position:absolute"></div>
+        <div data-name="Front" style="position:absolute"></div>
+      </div>
+      <div data-name="Flow">${child("First")}${child("Last")}</div>
+    </body>`;
+    expect(panelOrder(html, ["Free", "Flow"])).toEqual([
+      "Flow",
+      "Last",
+      "First",
+      "Free",
+      "Front",
+      "Back",
+    ]);
+  });
+
+  it("lists a flex-column body's children in layout order at the panel root", () => {
+    const html = `<body style="display:flex;flex-direction:column">${child("Header")}${child("Main")}${child("Footer")}</body>`;
+    expect(panelOrder(html, [])).toEqual(["Header", "Main", "Footer"]);
+  });
+
+  it("drops before a layout-order row without swapping placement or dragged order", () => {
+    const target = {
+      ...row("bravo"),
+      node: { id: "bravo", name: "bravo", layout: { parentDisplay: "flex" } },
+      siblingsInLayoutOrder: true,
+    };
+    expect(
+      mapPanelMoveIntentToDomIntent(
+        {
+          draggedIds: ["upper", "lower"],
+          targetId: "bravo",
+          placement: "before",
+        },
+        target,
+      ),
+    ).toEqual({
+      draggedIds: ["upper", "lower"],
+      targetId: "bravo",
+      placement: "before",
+    });
+  });
+
+  it("keeps dragged order when dropping inside an empty auto-layout container", () => {
+    const target = {
+      ...row("stack"),
+      node: { id: "stack", name: "stack", layout: { isFlexContainer: true } },
+    };
+    expect(
+      mapPanelMoveIntentToDomIntent(
+        {
+          draggedIds: ["upper", "lower"],
+          targetId: "stack",
+          placement: "inside",
+        },
+        target,
+      ).draggedIds,
+    ).toEqual(["upper", "lower"]);
+  });
+
+  it("lists an auto-layout container's children in the order an inside drop keeps", () => {
+    const stack: LayersPanelNode = {
+      id: "stack",
+      name: "stack",
+      layout: { isFlexContainer: true },
+      children: [
+        { id: "first", name: "first" },
+        { id: "second", name: "second" },
+      ],
+    };
+    const rows = flattenRows([stack], new Set(["stack"]), false);
+    expect(rows.map((r) => r.node.id)).toEqual(["stack", "first", "second"]);
+    expect(
+      mapPanelMoveIntentToDomIntent(
+        {
+          draggedIds: ["first", "second"],
+          targetId: "stack",
+          placement: "inside",
+        },
+        rows[0]!,
+      ).draggedIds,
+    ).toEqual(["first", "second"]);
+  });
+});
+
+describe("LayersPanel row keys", () => {
+  it("keeps sibling paths stable and disambiguates duplicate ids only within their parent", () => {
+    const nodes: LayersPanelNode[] = [
+      {
+        id: "left",
+        name: "Left",
+        children: [{ id: "shared", name: "Left shared" }],
+      },
+      {
+        id: "right",
+        name: "Right",
+        children: [
+          { id: "shared", name: "Right first" },
+          { id: "shared", name: "Right second" },
+        ],
+      },
+    ];
+    const rowKeysByName = (roots: LayersPanelNode[]) =>
+      new Map(
+        flattenRows(roots, new Set(["left", "right"]), false).map(
+          ({ node, rowKey }) => [node.name, rowKey],
+        ),
+      );
+    const originalKeys = rowKeysByName(nodes);
+
+    expect(originalKeys.get("Left shared")).toBe("root/left/shared");
+    expect(originalKeys.get("Right second")).toBe("root/right/shared#1");
+    expect(originalKeys.get("Right first")).toBe("root/right/shared#2");
+
+    const keysAfterUnrelatedInsert = rowKeysByName([
+      ...nodes,
+      { id: "unrelated", name: "Unrelated" },
+    ]);
+    for (const [name, key] of originalKeys) {
+      expect(keysAfterUnrelatedInsert.get(name)).toBe(key);
+    }
   });
 });
 
@@ -570,9 +706,6 @@ describe("LayersPanel drop placement zones (L10)", () => {
   });
 
   it("bottom zone resolves to 'inside' for an EXPANDED container with children, not 'after'", () => {
-    // Without the L10 fix this would return "after", which visually
-    // contradicts the indicator rendered between the container row and its
-    // first child row.
     expect(dropPlacementForEvent(fakeDragOverEvent(30, 32), true, true)).toBe(
       "inside",
     );
@@ -592,9 +725,6 @@ describe("LayersPanel drop placement zones (L10)", () => {
 });
 
 describe("LayersPanel external rename trigger (L12: findNodeWithAncestors)", () => {
-  // This is the pure lookup beginRename uses to validate an externally
-  // requested rename target and compute which ancestors must be expanded for
-  // the row to become visible — see beginRename in LayersPanel.tsx.
   const tree: LayersPanelNode[] = [
     {
       id: "frame-1",
@@ -636,8 +766,6 @@ describe("LayersPanel external rename trigger (L12: findNodeWithAncestors)", () 
   });
 
   it("still finds a renamable:false node — beginRename itself gates on that flag", () => {
-    // findNodeWithAncestors is a plain lookup; it's beginRename's job to
-    // check node.renamable and return false without starting the rename.
     const found = findNodeWithAncestors(tree, "locked-name");
     expect(found?.node.renamable).toBe(false);
   });

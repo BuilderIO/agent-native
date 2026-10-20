@@ -7,9 +7,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   formatMcpServerError,
+  formatMcpServersLoadError,
   getMcpUrlValidationError,
+  isMcpServersPending,
+  useMcpServers,
   useReconnectMcpServer,
 } from "./use-mcp-servers.js";
+
+const EMPTY_LIST = { user: [], org: [], orgId: null, role: null };
 
 describe("MCP server UI helpers", () => {
   const roots: Root[] = [];
@@ -37,6 +42,21 @@ describe("MCP server UI helpers", () => {
   it("converts raw HTML errors into endpoint guidance", () => {
     expect(formatMcpServerError("<html><body>Not MCP</body></html>")).toBe(
       "That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.",
+    );
+  });
+
+  it("turns unauthenticated list failures into a recovery instruction", () => {
+    expect(formatMcpServersLoadError(new Error("Failed to load (401)"))).toBe(
+      "Sign in to a workspace app, then retry loading agent integrations.",
+    );
+    expect(
+      formatMcpServersLoadError(
+        new Error(
+          "Open a signed-in workspace app before managing MCP connections.",
+        ),
+      ),
+    ).toBe(
+      "Sign in to a workspace app, then retry loading agent integrations.",
     );
   });
 
@@ -178,5 +198,96 @@ describe("MCP server UI helpers", () => {
     await expect(
       mutation!.mutateAsync({ id: "server-3", scope: "user" }),
     ).rejects.toThrow("Reconnect failed");
+  });
+
+  it("fetches the list eagerly by default and settles as loaded", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const fetchMock = vi.fn(async () => Response.json(EMPTY_LIST));
+    vi.stubGlobal("fetch", fetchMock);
+
+    let latest: { pending: boolean; data: unknown } | undefined;
+    function Probe() {
+      const query = useMcpServers();
+      latest = { pending: isMcpServersPending(query), data: query.data };
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Probe),
+        ),
+      );
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(latest?.pending).toBe(false);
+      expect(latest?.data).toEqual(EMPTY_LIST);
+    });
+  });
+
+  it("holds the list read until after paint when defer is set", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("requestAnimationFrame", undefined);
+      vi.stubGlobal("requestIdleCallback", undefined);
+      const fetchMock = vi.fn(async () => Response.json(EMPTY_LIST));
+      vi.stubGlobal("fetch", fetchMock);
+
+      let latest: { pending: boolean; data: unknown } | undefined;
+      function Probe() {
+        const query = useMcpServers({ defer: true });
+        latest = { pending: isMcpServersPending(query), data: query.data };
+        return null;
+      }
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      containers.push(container);
+      const root = createRoot(container);
+      roots.push(root);
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+
+      await act(async () => {
+        root.render(
+          React.createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            React.createElement(Probe),
+          ),
+        );
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(latest?.pending).toBe(true);
+      expect(latest?.data).toBeUndefined();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => {
+        expect(latest?.pending).toBe(false);
+        expect(latest?.data).toEqual(EMPTY_LIST);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -5,24 +5,34 @@
 *.eval.ts
 `window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay
 + Drizzle query DSL
++ Slack / webhook / Sheets
 Ease
 Ease In
 Ease In/Out
 Ease Out
+Error 403
+JetBrains Mono
+Playfair Display
 ~/.claude/ on a local disk
 302 + signed JWT
 401 · WWW-Authenticate
 A2A
 adapter.sendResponse
-Agent Native
-Agent-native
+Agent-Native
+Agent-Native
 Agent-Native App
+Agent-Native Config
 Agent-Native sidecar
 AgentHarness substrate
 AgentRunHost
 AGENTS.md · skills
 analytics@example.com, ops@example.com
+Amazon RDS for PostgreSQL
+Apple Silicon
 AuthSession
+Azure Static Web Apps
+Azure Database for PostgreSQL
+AWS Amplify
 AWS Lambda
 Bearer access token
 Better Auth
@@ -32,21 +42,29 @@ claude · codex
 Claude Code
 Claude Code · Codex · Pi — own tools, sandbox, compaction
 Claude Code / Codex
+Claude Sonnet
 Claude web
 CLI
-Cloudflare D1
+Cloudflare Workers
+Cloud SQL for PostgreSQL
 create-form · update-form
 createSession.resumeState
 CRUD
 Cursor · Codex
+dashboard_.$ticketId.tsx
 dbQuery / dbExec
+Debian / Ubuntu
+Deno Deploy
 Dispatch hub
+event_name, other_event
 GET /api/auth/user
 getSession callback
 gh · ffmpeg · stripe
+GitHub
 GitHub OAuth
 Google Calendar
 Google OAuth
+Google Search Console
 Google Sheets
 Headless Chrome
 hello.ts · view-screen · navigate
@@ -54,7 +72,7 @@ HTTP · MCP · A2A
 iframe / MCP App
 isAvailable · execute
 JWT
-libSQL / Turso
+Labs
 Leave blank to use the workspace default, if configured.
 list-emails · get-thread · manage-draft · send
 list-events · check-availability · create-event
@@ -83,6 +101,7 @@ Provider registry
 publicMcp + publicAgent.expose required
 pull · push
 RBAC
+React UI
 Remote MCP OAuth
 Remotion Studio
 Request context
@@ -94,10 +113,12 @@ Same signed app route
 Sandboxed iframe
 Secret proxy
 Secret vault
+Sentry
 session.orgId
 Shell & Hooks
 Signed app route
 Signed processor
+Slack
 Slack webhook URL
 Slack · Granola · GitHub · Clips · webhooks
 Slack · Stripe · email
@@ -107,7 +128,7 @@ SQL
 SQL + application_state
 SQL row scoping
 SQL rows via Drizzle
-SQLite file
+SQL via Drizzle
 SSE push
 startFrame / easing / animatedProps
 Streamable HTTP
@@ -118,6 +139,7 @@ threads · application_state · settings · sessions · runs
 Tool-call journal
 UI
 Universal CLI
+UTC
 useActionQuery/Mutation
 Webhook URL
 WWW-Authenticate
@@ -126,3 +148,5 @@ Y.Doc
 Y.Doc update
 Yjs CRDT
 Docs Components
+Microsoft Foundry
+Gemini Enterprise

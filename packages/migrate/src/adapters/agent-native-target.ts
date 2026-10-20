@@ -170,6 +170,7 @@ function packageJson(): string {
       },
       dependencies: {
         "@agent-native/core": "latest",
+        "@agent-native/toolkit": "latest",
         "@tabler/icons-react": "^3.41.1",
         "@tanstack/react-query": "^5.99.2",
         "@vitejs/plugin-react": "^6.0.1",
@@ -248,7 +249,7 @@ export default defineConfig({
 }
 
 function viewScreenAction(): string {
-  return `import { defineAction } from "@agent-native/core";
+  return `import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -265,7 +266,7 @@ export default defineAction({
 }
 
 function navigateAction(): string {
-  return `import { defineAction } from "@agent-native/core";
+  return `import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -336,7 +337,9 @@ function routesTs(): string {
   return `import { type RouteConfig } from "@react-router/dev/routes";
 import { flatRoutes } from "@react-router/fs-routes";
 
-export default flatRoutes() satisfies RouteConfig;
+export default flatRoutes({
+  ignoredRouteFiles: ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}"],
+}) satisfies RouteConfig;
 `;
 }
 
@@ -404,8 +407,9 @@ function rootTsx(): string {
   return `import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client/ui";
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import { ClientOnly } from "@agent-native/core/client/ui";
+import { AppShellSkeleton } from "@agent-native/toolkit/app/shared";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
 import stylesheet from "./global.css?url";
 import type { ReactNode } from "react";
 import type { LinksFunction } from "react-router";
@@ -433,7 +437,7 @@ export function Layout({ children }: { children: ReactNode }) {
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
+    <ClientOnly fallback={<AppShellSkeleton layout="assistant" />}>
       <QueryClientProvider client={queryClient}>
         <AgentSidebar position="right" defaultOpen agentPageHref="/agent">
           <Outlet />
@@ -446,7 +450,7 @@ export default function Root() {
 }
 
 function agentRoute(): string {
-  return `import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+  return `import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 
 export default function AgentRoute() {
   return <AgentTabsPage />;
@@ -455,7 +459,7 @@ export default function AgentRoute() {
 }
 
 function globalCss(): string {
-  return `@import "@agent-native/core/styles/agent-native.css";
+  return `@import "@agent-native/toolkit/styles.css";
 `;
 }
 
@@ -477,12 +481,6 @@ function generatedRoute(
   sourceFile: string,
   isPublic: boolean,
 ): string {
-  // Emit dynamic strings as JSON-stringified JSX expressions so route paths
-  // containing JSX-significant characters (`{`, `}`, `<`, `>`, `&`) or
-  // template-literal terminators (backticks, `${`) can't break the outer
-  // generated file. Next.js routes legitimately contain `[slug]`, `(group)`,
-  // and `@parallel` segments; any of those slipping into JSX text un-escaped
-  // would produce invalid TS.
   const routePathExpr = JSON.stringify(routePath);
   const sourceFileExpr = JSON.stringify(sourceFile);
   return `export default function MigratedRoute() {

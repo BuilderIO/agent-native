@@ -154,16 +154,15 @@ codex login status
 桌面和 CLI 读取 `codex login status` 并运行 `codex exec`，因此它们
 重用您安装的 Codex CLI 的任何 ChatGPT 订阅或 API 密钥身份验证
 报告。这与使用的 `@ai-sdk/harness-codex` 包是分开的
-[Harness Agents](/docs/harness-agents)；线束适配器可以复制本地
-仅当 `codexCliAuth: true` 为时，Codex CLI 才授权进入可信沙箱
-显式启用。
+[Harness Agents](/docs/harness-agents)；该适配器现在会在主机上解析受支持的原生订阅
+凭据，无需将本地身份验证文件复制到沙箱中。
 
 ## 浏览器主机
 
 旧的隐藏 `code` 模板已被删除。要构建浏览器托管的代码表面，请创建一个普通应用程序并使用主机实现挂载共享 UI 包：
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template chat
+npx --yes @agent-native/core@latest create my-code-ui --template chat
 cd my-code-ui
 pnpm add @agent-native/code-agents-ui
 pnpm install
@@ -306,7 +305,7 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 ## 共享作曲家
 
 Agent-Native 代码使用相同的 `AgentComposerFrame` + `PromptComposer` /
-从 `@agent-native/core/client/composer` 导出的 `TiptapComposer` 堆栈作为
+从 `@agent-native/toolkit/app/chat/composer` 导出的 `TiptapComposer` 堆栈作为
 框架代理侧边栏。不要分叉单独的
 文本区域、编码工具选择器、上传选择器、语音按钮、模型选择器或 Enter-to-submit
 类似代码表面的实现。如果主机需要一个额外的控制，请传递

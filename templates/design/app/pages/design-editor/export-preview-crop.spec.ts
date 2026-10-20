@@ -1,0 +1,428 @@
+// @vitest-environment happy-dom
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { ElementInfo } from "@/components/design/types";
+
+import { runRenderPngBlob } from "./commands/render-png-blob";
+import { unionExportCropRects } from "./export-capture";
+import { captureNativeCurrentFramePng } from "./native-current-frame-png";
+import {
+  PngCaptureError,
+  renderExportDocumentCanvas,
+  resolveExportCropTarget,
+} from "./png-export-render";
+
+function fakeCanvas(tag: string): HTMLCanvasElement {
+  return {
+    dataset: { tag },
+    width: 1440,
+    height: 900,
+    toBlob: (callback: (blob: Blob | null) => void, type?: string) =>
+      callback(new Blob([tag], { type: type ?? "image/png" })),
+  } as unknown as HTMLCanvasElement;
+}
+
+const cropCanvasToRect = vi.fn<
+  typeof import("./png-export-render").cropCanvasToRect
+>(() => fakeCanvas("cropped"));
+vi.mock("./png-export-render", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./png-export-render")>();
+  return {
+    ...actual,
+    renderExportDocumentCanvas: vi.fn(async (args: { cropRect?: unknown }) => ({
+      canvas: fakeCanvas(args.cropRect ? "cropped" : "full"),
+      scale: 1,
+    })),
+    cropCanvasToRect: (...args: Parameters<typeof actual.cropCanvasToRect>) =>
+      cropCanvasToRect(...args),
+  };
+});
+vi.mock("./native-current-frame-png", () => ({
+  captureNativeCurrentFramePng: vi.fn(
+    async () => new Blob(["committed native pixels"], { type: "image/png" }),
+  ),
+}));
+
+function elementInfo(partial: Partial<ElementInfo>): ElementInfo {
+  return { tagName: "DIV", ...partial } as ElementInfo;
+}
+
+function captureTarget(
+  cropSelection: ElementInfo | readonly ElementInfo[] | null,
+) {
+  return () => ({
+    cropSelection,
+    doc: document,
+    iframe: {
+      clientWidth: 1440,
+      clientHeight: 900,
+      hasAttribute: () => true,
+      getAttribute: () => null,
+    } as unknown as HTMLIFrameElement,
+  });
+}
+
+function renderArgs(
+  cropSelection: ElementInfo | readonly ElementInfo[] | null,
+) {
+  return {
+    activeCanvasSourceType: "inline" as const,
+    canEditDesign: true,
+    canvasFrameGeometryById: {},
+    overviewScreens: [],
+    resolvePngCaptureTarget: captureTarget(cropSelection),
+    selectedScreenIds: ["screen-1"],
+    viewMode: "single" as const,
+  };
+}
+
+afterEach(() => {
+  cropCanvasToRect.mockClear();
+  vi.mocked(renderExportDocumentCanvas).mockClear();
+  vi.mocked(captureNativeCurrentFramePng).mockClear();
+  document.body.innerHTML = "";
+});
+
+describe("runRenderPngBlob native frame", () => {
+  it("uses the mounted committed frame and saved source pins for a native document PNG", async () => {
+    const manifest = document.createElement("script");
+    manifest.type = "application/x-agent-native-effects";
+    document.body.appendChild(manifest);
+    const args = {
+      ...renderArgs(null),
+      designId: "design-1",
+      fileId: "file-1",
+    };
+
+    const blob = await runRenderPngBlob(args, {
+      scope: "document",
+      settings: { scale: 1 },
+    });
+
+    expect(await blob.text()).toBe("committed native pixels");
+    expect(captureNativeCurrentFramePng).toHaveBeenCalledWith({
+      designId: "design-1",
+      fileId: "file-1",
+      iframe: expect.any(Object),
+      pixelRatio: 1,
+    });
+    expect(renderExportDocumentCanvas).not.toHaveBeenCalled();
+    await expect(
+      runRenderPngBlob(args, { scope: "element", settings: { scale: 1 } }),
+    ).rejects.toBeInstanceOf(PngCaptureError);
+  });
+});
+
+describe("resolveExportCropTarget", () => {
+  it("reports whole-screen for no selection", () => {
+    expect(resolveExportCropTarget(document, null)).toEqual({
+      kind: "whole-screen",
+    });
+    expect(resolveExportCropTarget(document, [])).toEqual({
+      kind: "whole-screen",
+    });
+  });
+
+  it("reports whole-screen for the screen root", () => {
+    expect(
+      resolveExportCropTarget(document, elementInfo({ tagName: "BODY" })),
+    ).toEqual({ kind: "whole-screen" });
+    expect(
+      resolveExportCropTarget(document, elementInfo({ tagName: "html" })),
+    ).toEqual({ kind: "whole-screen" });
+  });
+
+  it("reports unresolved for a selection missing from the live document", () => {
+    expect(
+      resolveExportCropTarget(
+        document,
+        elementInfo({ selector: "#not-in-this-document" }),
+      ),
+    ).toEqual({ kind: "unresolved" });
+  });
+
+  it("reports unresolved for a selection that measures empty", () => {
+    const node = document.createElement("div");
+    node.id = "empty-node";
+    node.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 0, height: 0 }) as DOMRect;
+    document.body.appendChild(node);
+
+    expect(
+      resolveExportCropTarget(
+        document,
+        elementInfo({ selector: "#empty-node" }),
+      ),
+    ).toEqual({ kind: "unresolved" });
+  });
+
+  it("unions the rects of a multi-element selection", () => {
+    const first = document.createElement("div");
+    first.id = "first";
+    first.getBoundingClientRect = () =>
+      ({ left: 10, top: 20, width: 100, height: 50 }) as DOMRect;
+    const second = document.createElement("div");
+    second.id = "second";
+    second.getBoundingClientRect = () =>
+      ({ left: 60, top: 20, width: 100, height: 80 }) as DOMRect;
+    document.body.append(first, second);
+
+    expect(
+      resolveExportCropTarget(document, [
+        elementInfo({ selector: "#first" }),
+        elementInfo({ selector: "#second" }),
+      ]),
+    ).toEqual({
+      kind: "rect",
+      rect: { x: 10, y: 20, width: 150, height: 80 },
+    });
+  });
+
+  it("widens to the whole screen when the root is part of the selection", () => {
+    const node = document.createElement("div");
+    node.id = "child";
+    node.getBoundingClientRect = () =>
+      ({ left: 10, top: 20, width: 100, height: 50 }) as DOMRect;
+    document.body.appendChild(node);
+
+    expect(
+      resolveExportCropTarget(document, [
+        elementInfo({ tagName: "BODY" }),
+        elementInfo({ selector: "#child" }),
+      ]),
+    ).toEqual({ kind: "whole-screen" });
+  });
+
+  it("refuses a root selection when an ordinary selected member is unresolved", () => {
+    expect(
+      resolveExportCropTarget(document, [
+        elementInfo({ tagName: "BODY" }),
+        elementInfo({ selector: "#never-rendered" }),
+      ]),
+    ).toEqual({ kind: "unresolved" });
+  });
+
+  it("refuses a partly unresolvable ordinary selection instead of cropping a subset", () => {
+    const painted = document.createElement("div");
+    painted.id = "painted";
+    painted.getBoundingClientRect = () =>
+      ({ left: 10, top: 20, width: 100, height: 50 }) as DOMRect;
+    document.body.appendChild(painted);
+
+    expect(
+      resolveExportCropTarget(document, [
+        elementInfo({ selector: "#painted" }),
+        elementInfo({ selector: "#never-rendered" }),
+      ]),
+    ).toEqual({ kind: "unresolved" });
+  });
+});
+
+describe("runRenderPngBlob element scope", () => {
+  it("releases only a screen lease attached to its capture target", async () => {
+    const releaseScreenFromExport = vi.fn();
+    const screenLease = Symbol("raster export");
+    const target = captureTarget(null)();
+    await runRenderPngBlob(
+      {
+        ...renderArgs(null),
+        releaseScreenFromExport,
+        resolvePngCaptureTarget: () => ({ ...target, screenLease }),
+      },
+      { scope: "document", settings: { scale: 1 } },
+    );
+    expect(releaseScreenFromExport).toHaveBeenCalledWith(screenLease);
+
+    releaseScreenFromExport.mockClear();
+    await runRenderPngBlob(
+      { ...renderArgs(null), releaseScreenFromExport },
+      { scope: "document", settings: { scale: 1 } },
+    );
+    expect(releaseScreenFromExport).not.toHaveBeenCalled();
+  });
+
+  it("renders the whole screen when the screen root is selected", async () => {
+    const blob = await runRenderPngBlob(
+      renderArgs(elementInfo({ tagName: "BODY" })),
+      { scope: "element", settings: { scale: 1 } },
+    );
+
+    expect(await blob.text()).toBe("full");
+    expect(cropCanvasToRect).not.toHaveBeenCalled();
+  });
+
+  it("renders the whole screen when a selected root contains a selected child", async () => {
+    const node = document.createElement("div");
+    node.id = "child";
+    document.body.appendChild(node);
+
+    const blob = await runRenderPngBlob(
+      renderArgs([
+        elementInfo({ tagName: "BODY" }),
+        elementInfo({ selector: "#child" }),
+      ]),
+      { scope: "element", settings: { scale: 1 } },
+    );
+
+    expect(await blob.text()).toBe("full");
+    expect(cropCanvasToRect).not.toHaveBeenCalled();
+  });
+
+  it("keeps empty element selections unresolved but allows an empty document capture", async () => {
+    for (const cropSelection of [null, []] as const) {
+      await expect(
+        runRenderPngBlob(renderArgs(cropSelection), {
+          scope: "element",
+          settings: { scale: 1 },
+        }),
+      ).rejects.toMatchObject({ code: "selection-unresolved" });
+    }
+
+    const documentBlob = await runRenderPngBlob(renderArgs(null), {
+      scope: "document",
+      settings: { scale: 1 },
+    });
+
+    expect(await documentBlob.text()).toBe("full");
+    expect(cropCanvasToRect).not.toHaveBeenCalled();
+  });
+
+  it("crops a screen document taller than its frame to the frame", async () => {
+    await runRenderPngBlob(
+      {
+        ...renderArgs(null),
+        overviewScreens: [{ id: "screen-1", width: 300, height: 200 }],
+        canvasFrameGeometryById: { "screen-1": { width: 300, height: 200 } },
+        resolvePngCaptureTarget: () => ({
+          cropSelection: null,
+          doc: document,
+          iframe: {
+            clientWidth: 300,
+            clientHeight: 844,
+            hasAttribute: () => true,
+            getAttribute: () => "screen-1",
+          } as unknown as HTMLIFrameElement,
+        }),
+      } as unknown as Parameters<typeof runRenderPngBlob>[0],
+      { scope: "document", settings: { scale: 1 } },
+    );
+
+    expect(vi.mocked(renderExportDocumentCanvas)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cropRect: { x: 0, y: 0, width: 300, height: 200 },
+      }),
+    );
+  });
+
+  it("crops to a resolvable element selection", async () => {
+    const node = document.createElement("div");
+    node.id = "card";
+    node.getBoundingClientRect = () =>
+      ({ left: 10, top: 20, width: 100, height: 50 }) as DOMRect;
+    document.body.appendChild(node);
+
+    const blob = await runRenderPngBlob(
+      renderArgs(elementInfo({ selector: "#card" })),
+      { scope: "element", settings: { scale: 1 } },
+    );
+
+    expect(await blob.text()).toBe("cropped");
+    expect(renderExportDocumentCanvas).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cropRect: { x: 10, y: 20, width: 100, height: 50 },
+      }),
+    );
+    expect(cropCanvasToRect).not.toHaveBeenCalled();
+  });
+
+  it("still fails when the selected element cannot be resolved", async () => {
+    await expect(
+      runRenderPngBlob(renderArgs(elementInfo({ selector: "#missing" })), {
+        scope: "element",
+        settings: { scale: 1 },
+      }),
+    ).rejects.toBeInstanceOf(PngCaptureError);
+  });
+
+  it("propagates an unresolved crop from the native renderer", async () => {
+    const node = document.createElement("div");
+    node.id = "offscreen";
+    node.getBoundingClientRect = () =>
+      ({ left: 9000, top: 9000, width: 10, height: 10 }) as DOMRect;
+    document.body.appendChild(node);
+    vi.mocked(renderExportDocumentCanvas).mockRejectedValueOnce(
+      new PngCaptureError("selection-unresolved"),
+    );
+
+    await expect(
+      runRenderPngBlob(renderArgs(elementInfo({ selector: "#offscreen" })), {
+        scope: "element",
+        settings: { scale: 1 },
+      }),
+    ).rejects.toMatchObject({ code: "selection-unresolved" });
+  });
+});
+
+describe("live export crop geometry", () => {
+  function node(width: string, transform = "none") {
+    const element = document.createElement("div");
+    element.id = "precise-crop";
+    element.style.cssText = `width:${width};height:270px;box-sizing:border-box;transform:${transform}`;
+    element.getBoundingClientRect = () =>
+      new DOMRect(16358.998046875, 11760.9931640625, 1510.0001220703125, 270);
+    element.getClientRects = () =>
+      [element.getBoundingClientRect()] as unknown as DOMRectList;
+    document.body.append(element);
+    return element;
+  }
+  it("uses the live fractional CSS border box instead of float32 BCR inflation", () => {
+    node("1510px");
+    expect(
+      resolveExportCropTarget(
+        document,
+        elementInfo({ selector: "#precise-crop" }),
+      ),
+    ).toMatchObject({ rect: { width: 1510, height: 270 } });
+  });
+  it("preserves a genuinely fractional border box", () => {
+    node("1510.01px");
+    expect(
+      resolveExportCropTarget(
+        document,
+        elementInfo({ selector: "#precise-crop" }),
+      ),
+    ).toMatchObject({ rect: { width: 1510.01 } });
+  });
+  it.each(["scale(2)", "rotate(30deg)"])(
+    "keeps the measured bounds under an ancestor %s",
+    (transform) => {
+      const element = node("1510px");
+      const parent = document.createElement("div");
+      parent.style.transform = transform;
+      document.body.append(parent);
+      parent.append(element);
+      expect(
+        resolveExportCropTarget(
+          document,
+          elementInfo({ selector: "#precise-crop" }),
+        ),
+      ).toMatchObject({ rect: { width: 1510.0001220703125 } });
+    },
+  );
+});
+
+it("preserves exact dimensions of a rect containing the union at large coordinates", () => {
+  const outer = {
+    x: 16358.998046875,
+    y: 11760.9931640625,
+    width: 1510.01,
+    height: 270.01,
+  };
+  expect(
+    unionExportCropRects([
+      outer,
+      { x: 16400, y: 11800, width: 10, height: 10 },
+    ]),
+  ).toEqual(outer);
+});

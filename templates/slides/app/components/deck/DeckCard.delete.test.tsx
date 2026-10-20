@@ -1,12 +1,21 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  creativeContextLabEnabled: { value: false },
   closeAutoFocus: null as
     | ((event: { preventDefault: () => void }) => void)
     | null,
+  renderSlide: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -14,7 +23,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/creative-context/client", () => ({
-  CreativeContextShareSheet: () => null,
+  CreativeContextShareSheet: ({ open }: { open: boolean }) => (
+    <div data-testid="creative-context-share-sheet" data-open={String(open)} />
+  ),
+  useCreativeContextLab: () => mocks.creativeContextLabEnabled.value,
 }));
 
 vi.mock("@agent-native/toolkit/sharing", () => ({
@@ -28,6 +40,7 @@ vi.mock("@tabler/icons-react", () => ({
   IconPalette: () => <span />,
   IconPencil: () => <span />,
   IconPlus: () => <span />,
+  IconShare2: () => <span />,
   IconStar: () => <span />,
   IconStarFilled: () => <span />,
   IconTrash: () => <span />,
@@ -47,7 +60,16 @@ vi.mock("@/lib/deck-preview-frame", () => ({
 }));
 
 vi.mock("./SlideRenderer", () => ({
-  default: () => <div />,
+  default: (props: unknown) => {
+    mocks.renderSlide(props);
+    return <div data-testid="slide-renderer" />;
+  },
+}));
+
+vi.mock("../editor/ShareDialog", () => ({
+  default: ({ open }: { open?: boolean }) => (
+    <div data-testid="share-dialog" data-open={String(Boolean(open))} />
+  ),
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -100,13 +122,58 @@ const deck: Deck = {
   ],
 };
 
+beforeEach(() => {
+  mocks.creativeContextLabEnabled.value = false;
+});
+
 afterEach(() => {
   cleanup();
   mocks.closeAutoFocus = null;
+  mocks.renderSlide.mockClear();
   vi.useRealTimers();
 });
 
 describe("DeckCard delete flow", () => {
+  it("hides Creative Context controls while its lab is off", () => {
+    render(
+      <DeckCard
+        deck={deck}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "creativeContext.addToContext" }),
+    ).toBeNull();
+    expect(screen.queryByTestId("creative-context-share-sheet")).toBeNull();
+  });
+
+  it("opens the Creative Context sheet when its lab is on", () => {
+    mocks.creativeContextLabEnabled.value = true;
+    render(
+      <DeckCard
+        deck={deck}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "creativeContext.addToContext" }),
+    );
+
+    expect(
+      screen
+        .getByTestId("creative-context-share-sheet")
+        .getAttribute("data-open"),
+    ).toBe("true");
+  });
+
   it("waits for the menu close lifecycle before requesting deletion", async () => {
     const onDelete = vi.fn();
 
@@ -132,5 +199,96 @@ describe("DeckCard delete flow", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onDelete).toHaveBeenCalledOnce();
     expect(onDelete).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("renders the first-slide preview returned by the light deck listing", () => {
+    render(
+      <DeckCard
+        deck={{ ...deck, slides: [], previewSlide: deck.slides[0] }}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("slide-renderer")).toBeTruthy();
+    expect(mocks.renderSlide).toHaveBeenCalledWith(
+      expect.objectContaining({ slide: deck.slides[0] }),
+    );
+  });
+
+  it("opens sharing after the overflow menu finishes closing", async () => {
+    render(
+      <DeckCard
+        deck={deck}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "share.title" }));
+    expect(screen.getByTestId("share-dialog").getAttribute("data-open")).toBe(
+      "false",
+    );
+    const closeEvent = { preventDefault: vi.fn() };
+    mocks.closeAutoFocus?.(closeEvent);
+    expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("share-dialog").getAttribute("data-open")).toBe(
+        "true",
+      ),
+    );
+  });
+});
+
+describe("DeckCard rename", () => {
+  it("focuses and selects the rename field before it accepts typing", () => {
+    render(
+      <DeckCard
+        deck={deck}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Rename"));
+    act(() => mocks.closeAutoFocus?.({ preventDefault: vi.fn() }));
+
+    const input = screen.getByDisplayValue("Test deck") as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+  });
+
+  it("does not commit or close a rename while IME keys are composing", async () => {
+    const onRename = vi.fn();
+    render(
+      <DeckCard
+        deck={deck}
+        onDelete={vi.fn()}
+        onRename={onRename}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Rename"));
+    mocks.closeAutoFocus?.({ preventDefault: vi.fn() });
+    const input = await waitFor(() => screen.getByDisplayValue("Test deck"));
+    fireEvent.change(input, { target: { value: "candidate" } });
+    fireEvent.keyDown(input, {
+      key: "Enter",
+      isComposing: true,
+    });
+    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+
+    expect(screen.getByDisplayValue("candidate")).toBeTruthy();
+    expect(onRename).not.toHaveBeenCalled();
   });
 });

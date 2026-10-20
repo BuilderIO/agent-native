@@ -1,10 +1,4 @@
-/**
- * Framework-owned integration taxonomy and metadata.
- *
- * This module deliberately describes integrations without implementing them.
- * Runtime behavior stays in adapters and plugins; consumers must use
- * availability and support maturity before offering a connection flow.
- */
+import { docsUrl } from "../shared/docs-url.js";
 
 export const INTEGRATION_CATEGORIES = [
   "channel",
@@ -34,6 +28,7 @@ export type IntegrationIconKey =
   | "microsoft-teams"
   | "discord"
   | "email"
+  | "google-docs"
   | "n8n"
   | "zapier";
 
@@ -59,15 +54,15 @@ export interface ChannelCapabilities {
   readonly nativeThreads?: boolean;
   readonly contextualReplies?: boolean;
   readonly interactionOnly?: boolean;
+  /**
+   * `manual`: the owner pastes the webhook URL into the provider. `automatic`:
+   * the integration's setup route registers it. Absent: there is no webhook
+   * URL to hand to anyone (Google Docs finds comments itself).
+   */
   readonly webhookSetup?: "automatic" | "manual";
 }
 
 export interface AutomationCapabilities {
-  /**
-   * `configured-webhook` uses the generic automation runtime after an app
-   * owner supplies a workflow URL and credentials. `blueprint-only` has no
-   * generic execution path in Agent Native.
-   */
   readonly runtime: "configured-webhook" | "blueprint-only";
   readonly invokeWorkflow: boolean;
   readonly receiveCallback: boolean;
@@ -81,7 +76,6 @@ export interface IntegrationCatalogEntry {
   readonly categories: readonly IntegrationCategory[];
   readonly availability: IntegrationAvailability;
   readonly supportMaturity: IntegrationSupportMaturity;
-  /** A semantic key for consumers to map to their own icon library or asset. */
   readonly iconKey: IntegrationIconKey;
   readonly description: string;
   readonly caveats: readonly string[];
@@ -104,7 +98,8 @@ export type BuiltInChannelId =
   | "discord"
   | "telegram"
   | "whatsapp"
-  | "email";
+  | "email"
+  | "google-docs";
 
 const BUILT_IN_CHANNEL_CATALOG = [
   {
@@ -121,17 +116,17 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Managed installations select encrypted credentials by workspace; legacy manual installs should use SLACK_ALLOWED_TEAM_IDS.",
     ],
     documentation: {
-      href: "/docs/messaging#slack",
+      href: docsUrl("messaging", { hash: "slack" }),
       externalHref: "https://api.slack.com/apps",
       externalLabel: "Open Slack apps",
     },
     setup: {
       steps: [
         "Create or open a Slack app at api.slack.com/apps.",
-        "Apply the Agent Native Slack manifest to enable Agent View and writable direct messages.",
+        "Apply the Agent-Native Slack manifest to enable Agent View and writable direct messages.",
         "Configure the OAuth client id, client secret, and signing secret.",
         "Enable Event Subscriptions and Interactivity with the documented URLs.",
-        "Subscribe to app_home_opened, app_context_changed, app_mention, and message.im/channels/groups, then use Add to Slack.",
+        "Subscribe to app_home_opened, app_context_changed, app_mention, and message.im, then use Add to Slack.",
       ],
     },
     credentialRequirements: [
@@ -185,7 +180,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Production deployments must allowlist Microsoft Entra tenant IDs; proactive messaging without an inbound conversation reference is not implemented.",
     ],
     documentation: {
-      href: "/docs/messaging#microsoft-teams",
+      href: docsUrl("messaging", { hash: "microsoft-teams" }),
       externalHref: "https://dev.botframework.com/",
       externalLabel: "Open Bot Framework",
     },
@@ -247,7 +242,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Interaction tokens are retained only while the queued task is active and normally expire after 15 minutes.",
     ],
     documentation: {
-      href: "/docs/messaging#discord",
+      href: docsUrl("messaging", { hash: "discord" }),
       externalHref: "https://discord.com/developers/applications",
       externalLabel: "Open Discord applications",
     },
@@ -297,7 +292,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Webhook verification requires TELEGRAM_WEBHOOK_SECRET for production-safe setup.",
     ],
     documentation: {
-      href: "/docs/messaging#telegram",
+      href: docsUrl("messaging", { hash: "telegram" }),
       externalHref: "https://t.me/BotFather",
       externalLabel: "Open BotFather",
     },
@@ -347,7 +342,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Meta pricing and the customer-service conversation window can limit replies; template-message flows are not implemented by this adapter.",
     ],
     documentation: {
-      href: "/docs/messaging#whatsapp",
+      href: docsUrl("messaging", { hash: "whatsapp" }),
       externalHref: "https://developers.facebook.com/apps",
       externalLabel: "Open Meta developer console",
     },
@@ -405,7 +400,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Email replies preserve RFC email threads and reply-all when the agent was CC'd.",
     ],
     documentation: {
-      href: "/docs/messaging#email",
+      href: docsUrl("messaging", { hash: "email" }),
       externalHref: "https://resend.com/webhooks",
       externalLabel: "Open Resend webhooks",
     },
@@ -449,6 +444,49 @@ const BUILT_IN_CHANNEL_CATALOG = [
       webhookSetup: "manual",
     },
   },
+  {
+    id: "google-docs",
+    name: "Google Docs",
+    categories: ["channel"],
+    availability: "available",
+    supportMaturity: "built-in",
+    iconKey: "google-docs",
+    description:
+      "Reply to Google Docs comments that mention the agent, through a Google Cloud service account.",
+    caveats: [
+      "The service account only sees documents that are shared with it, and replies post as the service account.",
+      "Comments arrive by polling Drive changes, or by Drive push notifications when the app has a public URL.",
+    ],
+    documentation: {
+      href: docsUrl("messaging"),
+      externalHref:
+        "https://console.cloud.google.com/iam-admin/serviceaccounts",
+      externalLabel: "Open Google Cloud service accounts",
+    },
+    setup: {
+      steps: [
+        "Create a Google Cloud service account and download its JSON key.",
+        "Configure the JSON key as the service account key.",
+        "Share each document with the service account email.",
+        "Mention the agent in a document comment to test.",
+      ],
+    },
+    credentialRequirements: [
+      {
+        key: "GOOGLE_SERVICE_ACCOUNT_KEY",
+        label: "Google Service Account Key (JSON)",
+        required: true,
+        helpText: "The service account's JSON key, or a path to the key file.",
+      },
+    ],
+    channelCapabilities: {
+      inboundText: true,
+      replyText: true,
+      proactiveMessages: false,
+      nativeThreads: true,
+      contextualReplies: true,
+    },
+  },
 ] as const satisfies readonly IntegrationCatalogEntry[];
 
 const AUTOMATION_CATALOG = [
@@ -462,12 +500,12 @@ const AUTOMATION_CATALOG = [
     description:
       "Invoke configured n8n Webhook workflows or receive authenticated n8n callbacks through the automation runtime.",
     caveats: [
-      "n8n must be deployed and configured by the workspace owner; Agent Native does not provision or host n8n.",
+      "n8n must be deployed and configured by the workspace owner; Agent-Native does not provision or host n8n.",
       "Configure n8n Webhook authentication and an explicit response mode. Synchronous responses depend on the workflow's Webhook or Respond to Webhook node.",
       "Use a configured webhook URL or n8n credential; never put an n8n URL or credential in an agent prompt.",
     ],
     documentation: {
-      href: "/docs/automation-connectors#n8n",
+      href: docsUrl("automation-connectors", { hash: "n8n" }),
       externalHref:
         "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/",
       externalLabel: "Open n8n Webhook docs",
@@ -475,7 +513,7 @@ const AUTOMATION_CATALOG = [
     setup: {
       steps: [
         "Deploy or select an n8n instance and publish a Webhook workflow.",
-        "Choose Header, Basic, or JWT authentication in n8n and save the matching credential in Agent Native.",
+        "Choose Header, Basic, or JWT authentication in n8n and save the matching credential in Agent-Native.",
         "Register the static webhook path and allow-listed n8n origin in the app's automation configuration.",
         "Choose immediate, final-node, or Respond to Webhook behavior and test with a fake event ID.",
       ],
@@ -505,14 +543,14 @@ const AUTOMATION_CATALOG = [
     supportMaturity: "blueprint",
     iconKey: "zapier",
     description:
-      "Blueprint guidance for Zapier webhooks and Zapier MCP; there is no generic Zapier workflow execution runtime in Agent Native.",
+      "Blueprint guidance for Zapier webhooks and Zapier MCP; there is no generic Zapier workflow execution runtime in Agent-Native.",
     caveats: [
       "Zapier is not a chat channel and is not exposed through provider-api.",
       "Zapier REST Hook triggers require an app-owned subscribe and unsubscribe API; a static incoming webhook is not supported for public integrations.",
       "Zapier MCP is a separately configured remote MCP connection with its own account and authorization flow.",
     ],
     documentation: {
-      href: "/docs/automation-connectors#zapier",
+      href: docsUrl("automation-connectors", { hash: "zapier" }),
       externalHref: "https://docs.zapier.com/mcp/home",
       externalLabel: "Open Zapier MCP docs",
     },

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
 import { eq } from "drizzle-orm";

@@ -6,7 +6,7 @@ import { requireCrmScope } from "./_crm-action-utils.js";
 
 export default defineAction({
   description:
-    "Initialize a local-authoritative Native SQL CRM with accounts, people, and opportunities. It requires no provider connection or credential and uses the configured SQLite, Postgres, or D1 database.",
+    "Initialize a local-authoritative Native SQL CRM with accounts, people, and opportunities. It requires no provider connection or credential and uses the configured Postgres database or local PGlite.",
   schema: z.object({
     label: z.string().trim().min(1).max(160).optional(),
   }),

@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 import { cn } from "../lib/utils";
 
 export const APP_LIST_GRID_CLASS =
-  "xl:grid xl:grid-cols-2 xl:gap-3 xl:overflow-visible xl:rounded-none xl:bg-transparent";
-export const APP_LIST_GRID_ROW_CLASS = "xl:rounded-2xl xl:border-0 xl:bg-card";
+  "w-full xl:grid xl:grid-cols-2 xl:gap-3 xl:overflow-visible xl:rounded-none";
+export const APP_LIST_GRID_ROW_CLASS =
+  "xl:rounded-2xl xl:border xl:border-transparent xl:transition-[border-color] xl:focus-within:border-ring/50";
 
 export function AppList({
   children,
@@ -14,7 +15,7 @@ export function AppList({
   className?: string;
 }) {
   return (
-    <div className={cn("overflow-hidden rounded-2xl bg-card", className)}>
+    <div className={cn("overflow-hidden rounded-2xl", className)}>
       {children}
     </div>
   );
@@ -30,7 +31,7 @@ export function AppListRow({
   return (
     <div
       className={cn(
-        "group flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0 transition-[background-color] hover:bg-muted/30 focus-within:bg-muted/30",
+        "group flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0 transition-[background-color,border-color] focus-within:bg-muted/30",
         className,
       )}
     >

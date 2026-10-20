@@ -1,6 +1,12 @@
 import type { H3Event } from "h3";
-import { getQuery, getHeader, readRawBody as h3ReadRawBody } from "h3";
+import {
+  getMethod,
+  getQuery,
+  getHeader,
+  readRawBody as h3ReadRawBody,
+} from "h3";
 
+import { getAppConfig } from "../../app-config/index.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import type {
@@ -11,14 +17,9 @@ import type {
   PlatformDeliveryReceipt,
 } from "../types.js";
 
-/** WhatsApp's max message length */
 const WHATSAPP_MAX_LENGTH = 4096;
 const WHATSAPP_GRAPH_API_VERSION = "v25.0";
 
-/**
- * One-shot warning flag — log once per process when accepting unverified
- * webhooks (M6 in the webhook security audit).
- */
 let _whatsappUnverifiedWarned = false;
 
 /**
@@ -28,19 +29,10 @@ let _whatsappUnverifiedWarned = false;
  * be verified (C2 in the webhook security audit).
  */
 function shouldRefuseWhenSecretMissing(): boolean {
-  if (process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS === "1") return false;
+  if (getAppConfig().integrations.allowUnverifiedWebhooks) return false;
   return process.env.NODE_ENV === "production";
 }
 
-/**
- * Create a WhatsApp Cloud API platform adapter.
- *
- * Required env vars:
- * - WHATSAPP_ACCESS_TOKEN — Permanent access token from Meta
- * - WHATSAPP_VERIFY_TOKEN — Custom token for webhook verification
- * - WHATSAPP_PHONE_NUMBER_ID — Phone number ID from Meta dashboard
- * - WHATSAPP_APP_SECRET — App secret for signature verification
- */
 export function whatsappAdapter(): PlatformAdapter {
   return {
     platform: "whatsapp",
@@ -90,7 +82,7 @@ export function whatsappAdapter(): PlatformAdapter {
     async handleVerification(
       event: H3Event,
     ): Promise<{ handled: boolean; response?: unknown }> {
-      const method = event.node?.req?.method || "POST";
+      const method = getMethod(event);
 
       // For POST flows, pre-cache the raw body so verifyWebhook (HMAC) and
       // parseIncomingMessage don't both try to consume the request body
@@ -107,7 +99,6 @@ export function whatsappAdapter(): PlatformAdapter {
         return { handled: false };
       }
 
-      // GET: WhatsApp's challenge handshake.
       const query = getQuery(event);
       const mode = query["hub.mode"];
       const token = query["hub.verify_token"];
@@ -179,9 +170,6 @@ export function whatsappAdapter(): PlatformAdapter {
     async parseIncomingMessage(
       event: H3Event,
     ): Promise<IncomingMessage | null> {
-      // Always read via the cached raw body so HMAC and parse see identical
-      // bytes — h3 v2's body stream is consume-once, and re-stringifying a
-      // parsed body breaks Meta's signature check (M2/M3 in the audit).
       const raw = await readRawBody(event);
       if (!raw) return null;
       let body: any;
@@ -192,7 +180,6 @@ export function whatsappAdapter(): PlatformAdapter {
       }
       if (!body) return null;
 
-      // WhatsApp Cloud API webhook payload structure
       const entry = body.entry?.[0];
       if (!entry) return null;
 
@@ -203,13 +190,12 @@ export function whatsappAdapter(): PlatformAdapter {
       const message = value?.messages?.[0];
       if (!message) return null;
 
-      // Only handle text messages
       if (message.type !== "text") return null;
       const text = message.text?.body?.trim();
       if (!text) return null;
 
       const contact = value.contacts?.[0];
-      const from = message.from; // Phone number
+      const from = message.from;
       const phoneNumberId = value.metadata?.phone_number_id;
       if (!from || !phoneNumberId || !message.id) return null;
 

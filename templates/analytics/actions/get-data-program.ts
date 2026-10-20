@@ -1,7 +1,4 @@
-/**
- * Analytics HTTP surface for reading a stored data program and its latest run.
- */
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getDataProgram,
   getLatestRun,
@@ -22,6 +19,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   run: async (args) => {
     const ctx = getCredentialContext();
     if (!ctx) throw new Error("No authenticated context for get-data-program.");

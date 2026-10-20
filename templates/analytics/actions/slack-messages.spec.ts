@@ -14,7 +14,13 @@ vi.mock("../server/lib/slack", () => ({
 }));
 
 vi.mock("./_provider-action-utils", () => ({
-  providerError: (error: unknown) => ({ error: String(error) }),
+  providerError: (error: unknown): never => {
+    throw Object.assign(new Error(String(error)), {
+      name: "ActionContractError",
+      errorCode: "provider_error",
+      statusCode: 502,
+    });
+  },
   requireActionCredentials,
 }));
 

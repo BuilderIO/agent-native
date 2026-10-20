@@ -7,6 +7,21 @@ description: >-
 
 # Form Responses
 
+## Team Roles
+
+Forms enforces the Team page roles through shared permission guards. Reviewer can review submissions and export or analyze responses, but cannot create, edit, publish, archive, delete, or restore forms. Editor can edit and review. Submission review still requires an editor-level resource share; the app role does not grant access to private forms. Form owners and organization owners/admins bypass the app-role restriction while resource sharing checks remain in force. Members without an assigned role retain Editor permissions for compatibility; assigning Reviewer removes those edit permissions. Authenticated personal deployments without an organization retain their existing resource access. Forms opts into `defineAppRoles(descriptor, { unassignedRole: "editor", allowOrgAdmins: true })`; `defaultRole` remains display-only, and other apps retain strict guards unless they opt in.
+
+Organization-owned forms always use that organization's role policy, even when personal scope or a different organization is selected. Changing a form's visibility also requires edit permission.
+
+For organization-owned forms, editing and submission review require active membership in the form's organization unless the sharing system recognizes the caller as its owner. A direct share alone does not satisfy this app-permission check.
+
+If `view-screen` reports `responseAccess.status: "denied"`, use its navigation and available form metadata as context; submission counts and previews are omitted. Other permission-lookup failures still fail the action.
+
+- For tables or charts in chat, use typed action results. `response-insights`
+  is the first-party path for native response tables and submission charts, but
+  do not include both unless the user asked for both; iframe/MCP App rendering
+  is only a fallback for external hosts.
+
 ## Viewing Responses
 
 Use `list-responses` to see submissions for a specific form:
@@ -80,13 +95,14 @@ Each response is stored in the `responses` SQL table:
 `submitterEmail` may come from the logged-in Forms session or from trusted
 feedback clients that pass the logged-in user email as submission metadata.
 
-`pageUrl` and `clientSurface` are hidden pass-through fields: trusted embeds
-(e.g. the framework FeedbackButton) forward the URL of the page the respondent
-was on and the runtime shell they were in (`web`, `electron`, or `tauri`) as
-submission metadata, so owners can see which screen and which app feedback came
-from. Both are null for direct fills that send no context, and `clientSurface`
-is allowlisted server-side (unknown values are dropped). The responses table
-surfaces them as "Page" and "Source" columns when any response carries them.
+`pageUrl` and `clientSurface` are hidden pass-through fields. Direct public
+fills record the current form URL, while trusted embeds (e.g. the framework
+FeedbackButton) forward the respondent's source page and runtime shell (`web`,
+`electron`, or `tauri`) so owners can see which screen and app feedback came
+from. Sensitive URL query keys are scrubbed before persistence, `clientSurface`
+is allowlisted server-side (unknown values are dropped), and anonymous forms
+suppress both fields. The responses table surfaces them as "Page" and "Source"
+columns when any response carries them.
 
 The `data` JSON maps field IDs to values:
 
@@ -108,6 +124,11 @@ To analyze responses, the workflow is:
 3. `response-insights --formId <id>` for counts, daily submissions, and table data
 4. Use `list-responses --formId <id>` only when exact row-level inspection is needed
 5. Report whether the answer is exact or sampled, including row counts and truncation
+
+For an actionable theme, ground one concise title and evidence line in the
+`response-insights` result, then call `show-response-insight` with a specific
+follow-up prompt. Its button only prefills the Forms chat; it does not submit or
+change the form.
 
 ## Common Tasks
 

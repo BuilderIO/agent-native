@@ -1,17 +1,20 @@
 import path from "path";
 
-import {
-  getSession,
-  readBody,
-  runWithRequestContext,
-} from "@agent-native/core/server";
-import { defineEventHandler, setResponseStatus } from "h3";
+import { isActionContractError } from "@agent-native/core";
+import { readBody, runWithRequestContext } from "@agent-native/core/server";
+import { defineEventHandler, setResponseHeader, setResponseStatus } from "h3";
 
 import exportHtmlAction from "../../../../actions/export-html.js";
+import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
 
 export default defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
+  if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
@@ -34,18 +37,24 @@ export default defineEventHandler(async (event) => {
       return { error: result.error };
     }
 
-    event.node!.res!.setHeader("Content-Type", "text/html; charset=utf-8");
-    event.node!.res!.setHeader(
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    setResponseHeader(event, "Cache-Control", "no-store");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    setResponseHeader(
+      event,
       "Content-Disposition",
       `attachment; filename="${path.basename(result.filename)}"`,
     );
 
-    // Return the in-memory HTML string directly. Writing to disk first
-    // would break on serverless: a separate /api/exports/:filename GET
-    // would hit a different Lambda's empty filesystem and 404 with
-    // "file doesn't exist on site".
     return result.html;
   } catch (error) {
+    if (isActionContractError(error)) {
+      setResponseStatus(event, error.statusCode);
+      return {
+        error: error.message,
+        errorCode: error.errorCode,
+      };
+    }
     const message =
       error instanceof Error
         ? error.message

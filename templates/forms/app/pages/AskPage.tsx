@@ -1,17 +1,23 @@
 import {
-  AgentChatSurface,
   markAgentChatHomeHandoff,
   sendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconChartBar, IconDatabase, IconSettings } from "@tabler/icons-react";
+import {
+  AgentSuggestionBar,
+  agentSuggestionPrompt,
+} from "@agent-native/toolkit/agentkit";
+import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
+import { useNavigate } from "react-router";
 
+import { formsAskThreadPath } from "@/lib/chat-route";
 import { scheduleFormsRoutePrewarm } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
-export function AskPage() {
+export function AskPage({ threadId = null }: { threadId?: string | null }) {
   const t = useT();
+  const navigate = useNavigate();
 
   useEffect(() => {
     function handleChatRunning(event: Event) {
@@ -33,60 +39,59 @@ export function AskPage() {
 
   const suggestions = [
     {
+      id: "forms",
       label: t("home.pillForms"),
       prompt: "@forms",
-      icon: IconDatabase,
     },
     {
+      id: "analytics",
       label: t("home.pillAnalytics"),
       prompt: "analytics",
-      icon: IconChartBar,
     },
     {
+      id: "configuration",
       label: t("home.pillConfiguration"),
       prompt: "configuration",
-      icon: IconSettings,
     },
   ];
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
-        mode="page"
-        chatViewTransition
-        className="forms-ask-chat-panel bg-background shadow-none"
-        defaultMode="chat"
-        storageKey="forms"
-        browserTabId={TAB_ID}
-        showHeader={false}
-        showTabBar={false}
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText={t("home.emptyState")}
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder={t("home.composerPlaceholder")}
-        composerSlot={
-          <div className="forms-chat-intro">
-            <h1>{t("home.heading")}</h1>
-            <p>{t("home.description")}</p>
-            <div className="forms-chat-pill-row">
-              {suggestions.map(({ icon: Icon, label, prompt }) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  className="forms-chat-pill"
-                  onClick={() => prefillSuggestion(prompt)}
-                >
-                  <Icon className="size-3.5" />
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        }
-      />
-    </div>
+    <AgentChatHome
+      className="h-full min-h-0"
+      chatViewTransition
+      surfaceClassName="forms-ask-chat-panel bg-background shadow-none"
+      defaultMode="chat"
+      storageKey="forms"
+      threadUrlSync={{
+        routeThreadId: threadId,
+        getPath: formsAskThreadPath,
+        navigate,
+      }}
+      browserTabId={TAB_ID}
+      showHeader={false}
+      showTabBar={false}
+      dynamicSuggestions={false}
+      suggestions={[]}
+      emptyStateText={t("home.emptyState")}
+      emptyStateDisplay="hidden"
+      centerComposerWhenEmpty
+      composerLayoutVariant="hero"
+      composerPlaceholder={t("home.composerPlaceholder")}
+      afterComposerSlot={
+        <AgentSuggestionBar
+          ariaLabel={t("home.heading")}
+          suggestions={suggestions}
+          onSelect={(suggestion) =>
+            prefillSuggestion(agentSuggestionPrompt(suggestion))
+          }
+          className="px-0 py-0"
+        />
+      }
+      homeIntroSlot={
+        <div className="forms-chat-intro">
+          <h1>{t("home.heading")}</h1>
+        </div>
+      }
+    />
   );
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   brainFinalResponseGuard,
+  isCorrectionFollowUp,
   isCompanyKnowledgeQuestion,
 } from "./brain-response-guard.js";
 
@@ -39,6 +40,19 @@ function askBrainResult(citations: unknown[]) {
   };
 }
 
+function searchEverythingResult(results: unknown[]) {
+  return {
+    name: "search-everything",
+    isError: false,
+    content: JSON.stringify({
+      query: "What did we decide about pricing?",
+      count: results.length,
+      lanes: { fts: { status: "ok" }, semantic: { status: "ok" } },
+      results,
+    }),
+  };
+}
+
 describe("Brain company-knowledge response guard", () => {
   it("identifies company-specific questions without gating general knowledge", () => {
     expect(
@@ -47,6 +61,9 @@ describe("Brain company-knowledge response guard", () => {
     expect(isCompanyKnowledgeQuestion("What is our product strategy?")).toBe(
       true,
     );
+    expect(
+      isCompanyKnowledgeQuestion("What retailer is Nick Nestle demoing to?"),
+    ).toBe(true);
     expect(isCompanyKnowledgeQuestion("Where was that pulled from?")).toBe(
       true,
     );
@@ -56,7 +73,13 @@ describe("Brain company-knowledge response guard", () => {
     );
   });
 
-  it("requires ask-brain before accepting a company-specific answer", () => {
+  it("recognizes correction follow-ups that must reset answer context", () => {
+    expect(isCorrectionFollowUp("Why did it do that?")).toBe(true);
+    expect(isCorrectionFollowUp("That's wrong - not what I asked.")).toBe(true);
+    expect(isCorrectionFollowUp("What is our product strategy?")).toBe(false);
+  });
+
+  it("requires Brain evidence before accepting a company-specific answer", () => {
     const result = brainFinalResponseGuard(
       guardContext({
         requestText: "What is Builder's mission statement?",
@@ -67,9 +90,45 @@ describe("Brain company-knowledge response guard", () => {
     expect(result).toMatchObject({
       maxRetries: 2,
       expandToolSurface: true,
-      retryMessage: expect.stringContaining("Call `ask-brain`"),
-      fallbackMessage: expect.stringContaining("couldn't verify"),
+      retryMessage: expect.stringContaining("Call `search-everything`"),
+      fallbackMessage: expect.stringContaining("couldn't find that in Brain"),
     });
+  });
+
+  it("accepts the not-found reply that the retry message prescribes", function () {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What is Builder's mission statement?",
+        text: "I couldn't find that in Brain.",
+        toolResults: [searchEverythingResult([])],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not accept raw capture hits as evidence under the strict source policy", () => {
+    const strictSearch = (results: unknown[]) => ({
+      name: "search-everything",
+      isError: false,
+      content: JSON.stringify({
+        policy: { sourcePolicy: "strict" },
+        results,
+      }),
+    });
+    const guardWith = (results: unknown[]) =>
+      brainFinalResponseGuard(
+        guardContext({
+          requestText: "What did we decide about pricing?",
+          text: "Pricing ships Tuesday.",
+          toolResults: [strictSearch(results)],
+        }),
+      );
+
+    expect(
+      guardWith([{ type: "capture", id: "capture-1", answerEligible: true }]),
+    ).not.toBeNull();
+    expect(guardWith([{ type: "knowledge", id: "knowledge-1" }])).toBeNull();
   });
 
   it("accepts a response grounded by cited ask-brain evidence", () => {
@@ -84,6 +143,112 @@ describe("Brain company-knowledge response guard", () => {
     expect(result).toBeNull();
   });
 
+  it("does not complete after ask-brain when the final response is empty", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What is Builder's mission statement?",
+        toolResults: [askBrainResult([{ id: "citation-1" }])],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("Call `search-everything`"),
+    });
+  });
+
+  it("accepts a response grounded by a search-everything capture", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What did we decide about pricing?",
+        text: "In #pricing on 2026-09-20, the team decided to keep annual plans.",
+        toolResults: [
+          searchEverythingResult([
+            {
+              type: "capture",
+              id: "capture-1",
+              provider: "slack",
+              capturedAt: "2026-09-20T15:00:00.000Z",
+              answerEligible: true,
+            },
+          ]),
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not accept search-everything captures the source answer policy excludes", () => {
+    const guardWith = (capture: Record<string, unknown>) =>
+      brainFinalResponseGuard(
+        guardContext({
+          requestText: "What did we decide about pricing?",
+          text: "The team decided to keep annual plans.",
+          toolResults: [
+            searchEverythingResult([
+              {
+                type: "capture",
+                id: "capture-1",
+                provider: "slack",
+                ...capture,
+              },
+            ]),
+          ],
+        }),
+      );
+
+    expect(
+      guardWith({
+        answerEligible: false,
+        answerExclusionReasons: ["answer-ineligible"],
+      }),
+    ).not.toBeNull();
+    expect(guardWith({})).not.toBeNull();
+    expect(guardWith({ answerEligible: true })).toBeNull();
+  });
+
+  it("still retries when search-everything returns no results", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What did we decide about pricing?",
+        text: "The team decided to keep annual plans.",
+        toolResults: [searchEverythingResult([])],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("Call `search-everything`"),
+    });
+  });
+
+  it("does not count source-only search results as answer evidence", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What did we decide about pricing?",
+        text: "The team decided to keep annual plans.",
+        toolResults: [
+          searchEverythingResult([{ type: "source", id: "source-1" }]),
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("still retries when no Brain tool ran", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "What did we decide about pricing?",
+        text: "The team decided to keep annual plans.",
+        toolResults: [],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("Call `search-everything`"),
+    });
+  });
+
   it("does not let the model fill a no-citation result from memory", () => {
     const result = brainFinalResponseGuard(
       guardContext({
@@ -94,7 +259,7 @@ describe("Brain company-knowledge response guard", () => {
     );
 
     expect(result).toMatchObject({
-      retryMessage: expect.stringContaining("do not fill the gap from memory"),
+      retryMessage: expect.stringContaining("answer only from their results"),
     });
   });
 
@@ -104,6 +269,54 @@ describe("Brain company-knowledge response guard", () => {
         requestText: "What is Builder's mission statement?",
         text: "I don't have a verified source for Builder's official mission statement.",
         toolResults: [askBrainResult([])],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("rejects a correction answer that keeps using the earlier context", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "Why did it do that?",
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "Earlier answer about Brent." }],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "Why did it do that?" }],
+          },
+        ],
+        text: "Brent's individual feedback explains the strategy.",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 1,
+      retryMessage: expect.stringContaining("untrusted context"),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "call `search-everything`",
+    );
+  });
+
+  it("accepts a correction that explicitly names the context mistake", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "Why did it do that?",
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "Earlier answer about Brent." }],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "Why did it do that?" }],
+          },
+        ],
+        text: "You're right. I over-indexed on the earlier request and carried an irrelevant example into the answer.",
       }),
     );
 

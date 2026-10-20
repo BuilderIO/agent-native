@@ -183,6 +183,7 @@ export function createGitHubRepoFilesAction(
       ? (args: GitHubRepoFilesActionArgs) =>
           args.operation === "write" || args.operation === "delete"
       : false,
+    grounding: true,
     run: async (args) => {
       if (args.operation === "list") {
         return runtime.listGitHubRepositoryFiles({

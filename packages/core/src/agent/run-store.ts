@@ -1,61 +1,68 @@
-/**
- * SQL persistence for agent runs and events.
- * Enables cross-isolate access on Cloudflare Workers and
- * reliable reconnection after page refreshes.
- */
+import {
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
+  TURN_RUN_LEDGER_SLACK,
+} from "../app-config/run-lifecycle-invariants.js";
+import {
+  isArtifactReceipt,
+  type ArtifactReceipt,
+} from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
+import {
+  lockAndAssertServicePrincipalMayStartRun,
+  prepareServicePrincipalRunStart,
+  recordServicePrincipalDenial,
+} from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
+import {
+  assertNoInlineImageBytes,
+  stripInlineBytes,
+  stripInlineBytesFromJson,
+} from "../shared/inline-bytes.js";
+import { isRequestedStopAbortReason } from "./abort-reasons.js";
+import { approvalKeyForHistory } from "./approval-key.js";
+import {
+  admitAutoContinue,
+  admitManualContinue,
+  type ContinueRefusalCode,
+  type ContinueTrigger,
+} from "./auto-continue.js";
+import { AGENT_CHAT_RECOVERY_OF_RUN_FIELD } from "./durable-background.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
-import { isContinuationTerminalReason } from "./types.js";
-import type { AgentChatEvent, ContinuationReason } from "./types.js";
+import {
+  currentExecutionFence,
+  currentExecutionFenceForScope,
+  ExecutionFenceError,
+  MissingExecutionFenceError,
+  lockAndAssertCurrentExecutionFences,
+  StaleExecutionFenceError,
+  type ExecutionFence,
+  withFencedExecutionWrite,
+} from "./execution-fence.js";
+import {
+  AGENT_RUN_MIGRATIONS,
+  AGENT_RUN_MIGRATIONS_TABLE,
+} from "./run-migrations.js";
+import {
+  isConsistentToolCallInputFingerprint,
+  isUnavailableToolCallInput,
+  toolCallInputFingerprint,
+} from "./tool-call-journal.js";
+import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
+import type { AgentChatEvent, ContinuationReason, RunEvent } from "./types.js";
 
-let _initPromise: Promise<void> | undefined;
-
-/**
- * Max time without a heartbeat before a "running" run is considered dead.
- * The run-manager heartbeats every 1.5s, so 15s tolerates ~9 missed writes.
- * Widened from 6s to absorb real-world DB latency spikes and GC pauses that
- * caused false-positive reaps: a live run whose heartbeat lagged 6s+ would be
- * reaped and a zombie would keep running, eventually clobbering the new row.
- */
 export const RUN_STALE_MS = 15_000;
 
-/**
- * Stale window for runs dispatched into a Netlify background function
- * (`dispatch_mode = 'background'`). The design doc flags the 15s reaper vs a
- * background cold-start as the #1 false-failure risk: the foreground POST
- * inserts the `running` row, then `fireInternalDispatch` returns 202 and the
- * background function may take >15s to cold-start and emit its first heartbeat.
- * With the normal 15s window the reaper would falsely kill that freshly-
- * inserted-but-not-yet-heartbeaten row. 90s tolerates a slow background
- * cold-start while still reaping a genuinely dead background worker promptly.
- * Claimed background workers heartbeat during long work; the stale watchdog is a
- * liveness timeout, not the Netlify background-function execution budget.
- *
- * Only applied to rows explicitly marked background-dispatched; ordinary
- * foreground runs keep the tight 15s window unchanged.
- */
 export const BACKGROUND_RUN_STALE_MS = 90_000;
 
-/**
- * A row is `background` only while the platform may still be cold-starting the
- * worker, so it needs the full 90s handoff allowance above. Once that worker
- * atomically claims the row (`background-processing`), it has already proved
- * it started and should be reaped sooner if both heartbeat and real progress
- * stop. This keeps a silent post-claim worker death from holding the client
- * for the entire cold-start window before the durable successor is created.
- *
- * A real long-running tool or nested agent call still sets `in_flight_since`,
- * which grants the bounded `IN_FLIGHT_RUN_STALE_GRACE_MS` below. Healthy model
- * work keeps the normal heartbeat moving every 1.5s, so this is only a faster
- * recovery path for a worker that has genuinely gone silent.
- */
 export const BACKGROUND_PROCESSING_RUN_STALE_MS = 45_000;
 
 export const STALE_RUN_ERROR_EVENT = {
@@ -68,15 +75,8 @@ export const STALE_RUN_ERROR_EVENT = {
     "The run heartbeat stopped while the run was still marked running. Partial output and tool calls were preserved when available.",
 } as const;
 
-/**
- * Terminal error for a background-dispatched run whose worker NEVER claimed it
- * (the foreground fired the self-dispatch, Netlify acked it async with a 202,
- * but the `_process-run` worker never ran far enough to flip
- * `dispatch_mode background → background-processing`). Distinct errorCode so the
- * client (and prod triage) can tell "the worker died silently" apart from "a
- * claimed worker's heartbeat went stale". Recoverable so the client surfaces a
- * retry affordance and re-drives the turn. See `reapUnclaimedBackgroundRun`.
- */
+export const STALE_RUN_TERMINAL_REASON = `error:${STALE_RUN_ERROR_EVENT.errorCode}`;
+
 export const UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT = {
   type: "error",
   error:
@@ -87,13 +87,6 @@ export const UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT = {
     "A background-dispatched run was acknowledged (HTTP 202) but its worker never claimed the run, so no progress was produced. The run was reaped early (it had no live worker to protect) so the turn can be retried.",
 } as const;
 
-/**
- * Terminal error for a background worker that DID claim the run, then failed
- * during route/handler setup before `startRun` could emit its own error event.
- * Claimed runs are no longer eligible for foreground inline recovery, so the
- * route boundary must fail them loudly instead of leaving subscribers to wait
- * for stale-run recovery.
- */
 export const CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT = {
   type: "error",
   error:
@@ -104,35 +97,50 @@ export const CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT = {
     "The durable background worker claimed the run but threw during setup before it could emit agent events.",
 } as const;
 
-/**
- * Grace period before a never-claimed background run (dispatch_mode still
- * 'background', no worker claim) is treated as a dead handoff and reaped.
- *
- * This is intentionally tighter than `BACKGROUND_RUN_STALE_MS`. That wider
- * window protects cold-starting or temporarily delayed background dispatches,
- * while claimed workers stay alive by heartbeat/progress updates. A run that is
- * still `dispatch_mode = 'background'` has, by definition, NO worker — nothing
- * to protect — so once a Netlify
- * background function has had a reasonable cold-start window to claim it and
- * hasn't, the handoff is dead and should surface promptly instead of leaving
- * the user staring at a spinner for the durable-worker window. 25s comfortably exceeds a normal
- * Netlify Lambda cold start while still failing fast on a silent worker death.
- */
+export const RUN_RECORD_MISSING_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run record is no longer available, so this turn could not be confirmed as finished. Retry if the result is missing.",
+  errorCode: "run_record_missing",
+  recoverable: true,
+  details:
+    "No agent_runs row existed for this run when the live connection last checked, and no terminal event was persisted for it. The run may have completed before its record was pruned.",
+} as const;
+
+export const UNKNOWN_RUN_STATUS_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run ended in a state this app does not recognize, so the result could not be confirmed. Retry if the result is missing.",
+  errorCode: "unknown_run_status",
+  recoverable: true,
+  details:
+    "The run row left 'running' with a status the live connection has no terminal event for. Partial output and tool calls were preserved when available.",
+} as const;
+
+export const RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run's final state could not be read, so this turn could not be confirmed as finished. Retry if the result is missing.",
+  errorCode: "run_terminal_lookup_failed",
+  recoverable: true,
+  details:
+    "Reading the run's last persisted terminal event failed. The run may have completed; its outcome is unknown to this connection rather than known to be absent.",
+} as const;
+
+export const TERMINAL_EVENT_UNREADABLE_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run finished, but its final event could not be read, so the result could not be confirmed. Retry if the result is missing.",
+  errorCode: "terminal_event_unreadable",
+  recoverable: true,
+  details:
+    "Every persisted terminal event for this run failed to parse. Without this, the run stayed 'running' while the terminal-event exclusion kept the stale reaper away from it.",
+} as const;
+
+export const RUN_RECORD_MISSING_GRACE_MS = 15_000;
+
 export const UNCLAIMED_BACKGROUND_RUN_GRACE_MS = 25_000;
 
-/**
- * Backstop ceiling — measured from the row's ORIGINAL `started_at`, which never
- * changes — after which the unclaimed-background-run sweep stops attempting to
- * redispatch a lost handoff and instead reaps it via `reapUnclaimedBackgroundRun`
- * (loud, attributable `errored`). This is what keeps redispatch recoverable
- * WITHOUT becoming a silent hang: a handoff that cannot be delivered within this
- * window (a genuinely dead platform, not a transient blip) still fails loudly,
- * it just gets a few sweep-cycle chances first. 5 minutes comfortably allows
- * multiple 2-minute sweep ticks (see `agent-chat-plugin.ts`'s
- * "Unclaimed background-run sweep") while staying well inside both the 40s
- * foreground chunk clamp and the ~13min background soft-timeout ceiling that
- * bound how long a real user turn is worth waiting on before failing loud.
- */
 export const UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS = 5 * 60_000;
 
 /**
@@ -163,32 +171,14 @@ export const UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS = 5 * 60_000;
  */
 export const UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS = 20_000;
 
-/**
- * How long a negative `status='running'` probe stays trusted.
- *
- * MUST stay well below the tightest staleness window any sweep enforces
- * (`RUN_STALE_MS`, 15s): the probe sees running rows of EVERY age, so a
- * negative result proves there were zero running rows that instant, and a row
- * inserted since — by this process or another one — cannot yet be old enough
- * for a sweep to act on it. Widen this past a staleness window and a genuinely
- * dead run becomes invisible for a whole extra tick.
- */
 const NO_RUNNING_RUNS_CACHE_MS = 5_000;
 
 let _noRunningRunsUntil = 0;
 
-/** Test seam — the probe cache is module state, so suites must clear it. */
 export function __resetNoRunningRunsProbeForTests(): void {
   _noRunningRunsUntil = 0;
 }
 
-/**
- * `status = 'running'` is a strict superset of every sweep predicate in this
- * file, so one probe answers all of them. The fast sweep runs `reapAllStaleRuns`
- * and `listUnclaimedBackgroundRunRows` back to back every 20s; on an idle app
- * both scan for rows that do not exist, which on a remote database is two
- * round trips per tick per app, forever. The probe collapses that pair to one.
- */
 async function hasRunningRuns(): Promise<boolean> {
   if (Date.now() < _noRunningRunsUntil) return false;
   const { rows } = await getDbExec().execute({
@@ -203,16 +193,13 @@ async function hasRunningRuns(): Promise<boolean> {
   return false;
 }
 
-/**
- * FIX 3 (durable-background incident) per-turn run-count ceiling for
- * stale-run recovery — mirrors `chainServerDrivenContinuation`'s own ledger
- * guard in production-agent.ts (`MAX_BACKGROUND_RUN_CONTINUATIONS + 5` = 25).
- * Duplicated as a literal rather than imported: production-agent.ts already
- * imports run-manager.ts, which imports this file, so a runtime import back
- * from here would be circular. Keep this numerically in sync if that
- * constant ever changes.
- */
-const STALE_RUN_RECOVERY_MAX_TURN_RUNS = 25;
+export function resolveTurnRunLedgerBudget(): number {
+  return MAX_BACKGROUND_RUN_CONTINUATIONS + TURN_RUN_LEDGER_SLACK;
+}
+
+export function turnRunLedgerExhausted(turnRunCount: number): boolean {
+  return turnRunCount >= resolveTurnRunLedgerBudget();
+}
 
 /**
  * Circuit breaker for a DETERMINISTIC dead-on-arrival loop: some request
@@ -221,7 +208,7 @@ const STALE_RUN_RECOVERY_MAX_TURN_RUNS = 25;
  * hitting a transient blip. Because `attemptStaleRunRecovery` replays the
  * SAME captured `dispatch_payload` on every successor (never a fresh
  * request), such a turn was retrying an unwinnable request up to
- * `STALE_RUN_RECOVERY_MAX_TURN_RUNS` (25) times — ~25 * 53s ≈ 22 minutes,
+ * `resolveTurnRunLedgerBudget()` (25) times — ~25 * 53s ≈ 22 minutes,
  * each cycle re-billing the full input context — before finally giving up.
  * Confirmed live in prod (assets: one turn cycled 24x, each attempt an
  * identical ~32K-token request that made a token of real progress around
@@ -233,103 +220,52 @@ const STALE_RUN_RECOVERY_MAX_TURN_RUNS = 25;
  */
 const STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT = 3;
 
-/**
- * A reaped run counts as having made no forward progress if it never
- * emitted a real event (`last_progress_at` unset) or died within this many
- * ms of starting — well short of the 45s background reap window, so a run
- * that was legitimately working almost up to the reap boundary is not
- * penalized. See `STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT`.
- */
 const STALE_RUN_RECOVERY_NO_PROGRESS_WINDOW_MS = 20_000;
 
-/**
- * Maximum time the stale reapers (`reapIfStale`, `reapAllStaleRuns`,
- * `cleanupOldRuns`'s heartbeat-stale pass) will suspend reaping a "running"
- * row that is marked in-flight (`in_flight_since`, see `setRunInFlightMarker`)
- * even though its heartbeat/progress liveness basis
- * (`livenessBasisSql`/`backgroundAwareStaleCutoffSql`) has gone stale.
- *
- * WHY a marker column at all: `inFlightWorkCount` in run-manager.ts (the
- * no-progress backstop's guard) is in-memory, per-isolate — but all three
- * reapers above can run in a DIFFERENT isolate than the one holding the
- * producing run (a client's SQL-subscription poll, a sibling isolate's
- * opportunistic `cleanupOldRuns` after ITS OWN run completes, or a fresh
- * boot's `reapAllStaleRuns`). None of them can read another isolate's
- * in-memory counter, so the counter's 0->1 / 1->0 transitions are mirrored
- * into this column (`setRunInFlightMarker`, called from
- * run-manager.ts's `trackInFlightWork`) so it is observable from SQL. This is
- * exactly the gap that let a demonstrably-alive run holding a long tool call
- * or A2A `call-agent` delegation get reaped: the heartbeat WRITE can fail
- * silently (Neon pooler saturation) for the whole `BACKGROUND_RUN_STALE_MS`
- * window while the run is provably still doing work.
- *
- * BOUNDED, not a silent hang — derived from two independent ceilings already
- * in the codebase, not picked by feel:
- *   - `DEFAULT_TOOL_TIMEOUT_MS` (12 min, production-agent.ts) is the longest
- *     any SINGLE tool call or `agent_call` (A2A delegation) may legitimately
- *     stay in flight — past that its own `AbortSignal.timeout` forces a
- *     tool_done/error and clears the marker.
- *   - `BACKGROUND_SOFT_TIMEOUT_CEILING_MS` (13 min, run-manager.ts) is the
- *     background chunk's OWN soft-timeout ceiling. Unlike the no-progress
- *     backstop, this timer is NOT gated on in-flight work (see the "secondary"
- *     hazard documented next to the soft-timeout timer in run-manager.ts) —
- *     it fires unconditionally and checkpoints/continues the run, so by 13
- *     minutes the row leaves status='running' via that path regardless of
- *     what the marker says.
- * This grace is the LARGER of the two (13 min) plus one `BACKGROUND_RUN_STALE_MS`
- * (90s) buffer for that checkpoint's own completion write to land under the
- * same DB pressure that could have caused the heartbeat to lapse in the first
- * place: 780_000 + 90_000 = 870_000ms (14.5 min). Past that, a "running" row
- * that still shows in-flight work AND a stale liveness basis is not a slow
- * producer anymore — every backstop that should have ended it has ALSO failed
- * to write, and it is reaped loud like any other stale run.
- *
- * Never applied when a caller passes an explicit `maxStaleMs` override to
- * `reapIfStale` — that escape hatch is an exact, caller-chosen window and
- * stays exact. Never weakens the no-in-flight case: a row with no marker set
- * evaluates this grace clause to a no-op and is reaped at the original
- * `BACKGROUND_RUN_STALE_MS` / `RUN_STALE_MS` exactly as before.
- */
-export const IN_FLIGHT_RUN_STALE_GRACE_MS = 14.5 * 60_000; // 870_000
+export const STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN = 3;
 
-/**
- * Ceiling on how far the liveness basis (`livenessBasisSql`) may lag before
- * `IN_FLIGHT_RUN_STALE_GRACE_MS` stops applying at all. The grace exists for
- * ONE scenario: a demonstrably-alive producer whose heartbeat WRITE is failing.
- * It was never meant to cover a producer that has stopped writing anything —
- * but as originally written it did, because the marker is set on tool_start and
- * only cleared on tool_done, so a worker that dies mid-tool leaves the marker
- * latched and inherits the full 14.5 minutes. Prod: 23 such corpse rows across
- * five apps sat the entire grace before being reaped (mean age 715-908s), which
- * made the one mechanism protecting slow tools the reason a dead worker took a
- * quarter hour to surface.
- *
- * Requiring recent liveness for the grace to hold collapses that to this
- * window. 120s = 80 consecutive missed 1.5s heartbeat writes, and 30s past the
- * widest normal window (`BACKGROUND_RUN_STALE_MS`) — a write outage that
- * outlasts it is not "the heartbeat lagged", it is the whole producer being
- * gone. Beyond it the row falls back to the normal background-aware window and
- * is reaped like any other stale run.
- */
-export const IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS = 120_000;
+export type AgentTurnInitiator = {
+  email: string;
+  authUserId?: string | null;
+  orgId?: string | null;
+  orgScope?: "personal" | null;
+  anonymous: boolean;
+};
 
-async function ensureRunTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
+export class AgentTurnInitiatorMismatchError extends Error {
+  constructor(threadId: string, turnId: string) {
+    super(
+      `Agent turn ${turnId} in thread ${threadId} belongs to another initiator`,
+    );
+    this.name = "AgentTurnInitiatorMismatchError";
+  }
+}
 
-      // Shared CREATE SQL strings — referenced by both the Postgres and SQLite
-      // branches so the column definitions stay in one place.
-      const agentRunsCreateSql = `
+export class AgentTurnInitiatorUnavailableError extends Error {
+  constructor(threadId: string, turnId: string) {
+    super(
+      `Agent turn ${turnId} in thread ${threadId} has no persisted initiator`,
+    );
+    this.name = "AgentTurnInitiatorUnavailableError";
+  }
+}
+
+export const agentRunsStore = defineStore({
+  id: "agent_runs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const agentRunsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_runs (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'running',
           abort_reason TEXT,
-          started_at ${intType()} NOT NULL,
-          completed_at ${intType()},
-          heartbeat_at ${intType()},
-          last_progress_at ${intType()},
+          started_at BIGINT NOT NULL,
+          completed_at BIGINT,
+          heartbeat_at BIGINT,
+          last_progress_at BIGINT,
           turn_id TEXT,
           error_code TEXT,
           error_detail TEXT,
@@ -337,92 +273,61 @@ async function ensureRunTables(): Promise<void> {
           dispatch_mode TEXT,
           diag_stage TEXT,
           dispatch_payload TEXT,
-          peak_rss_mb ${intType()}
+          peak_rss_mb BIGINT,
+          continuation_order BIGINT,
+          thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE
         )
       `;
-      const agentRunEventsCreateSql = `
+        const agentRunEventsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id TEXT NOT NULL,
-          seq ${intType()} NOT NULL,
-          event_at ${intType()},
+          seq BIGINT NOT NULL,
+          event_at BIGINT,
           event_data TEXT NOT NULL,
           PRIMARY KEY (run_id, seq)
         )
       `;
-      // Daily terminal-outcome counters, rolled up from `agent_runs` right
-      // before those rows are pruned (see `pruneAndRollUpPrunedRunOutcomes`). Completed
-      // runs are pruned after ~1 day and unsuccessful ones after ~7, so any
-      // window wider than the shorter retention read from `agent_runs` alone
-      // reports N days of failures against 1 day of successes — the distortion
-      // behind the "~25% completion rate" headline. These counters outlive the
-      // rows, so outcome rates stay queryable (see `getRunOutcomeCounters`).
-      const agentRunOutcomeDailyCreateSql = `
+        const agentRunOutcomeDailyCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_run_outcome_daily (
           day TEXT NOT NULL,
           status TEXT NOT NULL,
           terminal_reason TEXT NOT NULL DEFAULT '',
-          run_count ${intType()} NOT NULL DEFAULT 0,
+          run_count BIGINT NOT NULL DEFAULT 0,
           PRIMARY KEY (day, status, terminal_reason)
         )
       `;
-      // Tool-call result ledger: persists the outcome of write tool calls that
-      // completed AFTER their chunk was abandoned (zombie completions). A
-      // resumed continuation can recover the real result by matching
-      // thread_id + tool_key (name:stableInputHash) instead of re-executing
-      // the side effect. Entries are scoped to the thread and expire with it.
-      const agentToolLedgerCreateSql = `
+        const agentToolLedgerCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_tool_ledger (
           thread_id TEXT NOT NULL,
           tool_key TEXT NOT NULL,
           result_summary TEXT NOT NULL,
-          completed_at ${intType()} NOT NULL,
+          result_is_string BOOLEAN,
+          artifacts_json TEXT,
+          chat_ui_result_json TEXT,
+          completed_at BIGINT NOT NULL,
           PRIMARY KEY (thread_id, tool_key)
         )
       `;
+        const agentTurnInitiatorsCreateSql = `
+        CREATE TABLE IF NOT EXISTS agent_turn_initiators (
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          principal_email TEXT NOT NULL,
+          auth_user_id TEXT,
+          org_id TEXT,
+          org_scope TEXT,
+          is_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+          first_run_id TEXT NOT NULL,
+          created_at BIGINT NOT NULL,
+          PRIMARY KEY (thread_id, turn_id)
+        )
+      `;
 
-      if (isPostgres()) {
-        // Hot path: in production the tables and all additive columns are
-        // virtually always already present. Issuing `CREATE TABLE`/`ALTER TABLE
-        // ADD COLUMN` still takes an ACCESS EXCLUSIVE lock — which, in a fresh
-        // background-worker process behind a concurrent connection on the shared
-        // Neon DB, can block ~indefinitely. So check `information_schema` first
-        // (plain reads, no lock) and run DDL ONLY for what is actually missing.
-        // The `ensureTableExists` / `ensureColumnExists` wrappers probe →
-        // guarded-DDL (bounded `lock_timeout`) → re-probe, and THROW if the
-        // schema is still missing after a swallowed lock-timeout so a poisoned
-        // init never memoizes success against absent schema (the `_initPromise`
-        // rejects and the next call retries).
         await ensureTableExists("agent_runs", agentRunsCreateSql);
-        // Additive columns — all listed in the CREATE TABLE above, so on a
-        // fresh DB they already exist after the CREATE and these checks are
-        // instant short-circuits. On an older deployment that predates a
-        // column, the wrapper issues one bounded ALTER.
-        //
-        // Backfill heartbeat_at on older deployments.
-        // heartbeat_at = "the producer process is alive" (bumped on a timer).
-        // last_progress_at = "the agent is actually emitting events" (bumped on
-        // each emit). The gap between them is the stuck-detector signal.
         for (const [col, colType] of [
-          ["heartbeat_at", intType()],
+          ["heartbeat_at", "BIGINT"],
           ["abort_reason", "TEXT"],
-          ["last_progress_at", intType()],
-          // Backfill turn_id / error_code / error_detail.
-          //   turn_id    = stable identity for one logical assistant turn that may
-          //                span several continuation runs, so the durable record
-          //                can be folded across runs instead of dropped per-run.
-          //   error_code / error_detail = terminal failure classification captured
-          //                at completion so errored/cut-off runs are queryable for
-          //                pattern analysis (see listErroredRuns).
-          // dispatch_mode marks how a run was started: NULL/"foreground" for the
-          // normal client-continued synchronous path, "foreground-self-chain" for
-          // a foreground run whose continuation boundary is server-driven, and
-          // "background" for a run dispatched into a Netlify background function.
-          // The reaper/claim widen the stale window for background rows so a slow
-          // cold-start isn't falsely reaped.
-          // diag_stage records the last reached pipeline stage (+ any error) for a
-          // background-dispatched run so a silent worker death is DIAGNOSABLE from
-          // the client (/runs/active surfaces it) without reading the unreadable
-          // Netlify background-function logs. See recordRunDiagnostic.
+          ["last_progress_at", "BIGINT"],
           ["turn_id", "TEXT"],
           ["error_code", "TEXT"],
           ["error_detail", "TEXT"],
@@ -430,29 +335,12 @@ async function ensureRunTables(): Promise<void> {
           ["dispatch_mode", "TEXT"],
           ["diag_stage", "TEXT"],
           ["worker_stage", "TEXT"],
-          // peak_rss_mb: high-water resident memory, bumped on the heartbeat
-          // write that already happens. An OOM kill is SIGKILL — no handler
-          // runs, nothing is logged, and the run just stops mid-token — so the
-          // ONLY way to tell "ran out of memory" from "hit a wall clock" after
-          // the fact is a memory trace that climbs to a ceiling and stops.
-          // Assets background workers die ~10s into a 780s budget with this
-          // signature and Netlify's function logs are not retrievable.
-          ["peak_rss_mb", intType()],
-          // dispatch_payload holds the JSON request body for a background
-          // dispatch so the self-POST to the Netlify background function can
-          // stay tiny (Netlify caps background-function request bodies at
-          // 256KB — a large chat history silently exceeded it). The worker
-          // rehydrates the body from this column via the marker's payloadRef.
-          // Cleared on terminal status writes.
+          ["peak_rss_mb", "BIGINT"],
           ["dispatch_payload", "TEXT"],
-          // in_flight_since = ms epoch when run-manager's in-memory
-          // `inFlightWorkCount` last transitioned 0->1 (a tool call or nested
-          // `agent_call`/A2A delegation started), NULL once it drops back to 0.
-          // Lets the cross-isolate stale reapers grant a bounded grace to a
-          // demonstrably-alive run even when the SAME-isolate heartbeat write
-          // has failed. See `IN_FLIGHT_RUN_STALE_GRACE_MS` and
-          // `setRunInFlightMarker`.
-          ["in_flight_since", intType()],
+          ["in_flight_since", "BIGINT"],
+          ["continuation_order", "BIGINT"],
+          ["auto_continue_of", "TEXT"],
+          ["thread_projection_pending", "BOOLEAN NOT NULL DEFAULT FALSE"],
         ] as const) {
           await ensureColumnExists(
             "agent_runs",
@@ -461,226 +349,838 @@ async function ensureRunTables(): Promise<void> {
           );
         }
         await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
+        await ensureTableExists(
+          "agent_turn_initiators",
+          agentTurnInitiatorsCreateSql,
+        );
         await ensureColumnExists(
           "agent_run_events",
           "event_at",
-          `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at ${intType()}`,
+          `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at BIGINT`,
         );
         await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
+        await ensureColumnExists(
+          "agent_tool_ledger",
+          "artifacts_json",
+          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT`,
+        );
+        await ensureColumnExists(
+          "agent_tool_ledger",
+          "chat_ui_result_json",
+          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS chat_ui_result_json TEXT`,
+        );
+        await ensureColumnExists(
+          "agent_tool_ledger",
+          "result_is_string",
+          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN`,
+        );
         await ensureTableExists(
           "agent_run_outcome_daily",
           agentRunOutcomeDailyCreateSql,
         );
-        // Widen millisecond-timestamp columns that older deployments created as
-        // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
-        // on every turn, so an int4 column makes every agent prompt fail on
-        // Postgres with "value … is out of range for type integer". No-op once
-        // widened (and on fresh DBs that already use BIGINT). See
-        // widenIntColumnsToBigInt.
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
         await widenIntColumnsToBigInt("agent_runs", [
           "started_at",
           "completed_at",
           "heartbeat_at",
           "last_progress_at",
           "in_flight_since",
+          "continuation_order",
         ]);
         await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
         await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
-        return;
-      }
+      },
+    },
+    ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
+  ],
+});
 
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep the
-      // original create-then-additive-alter behaviour. SQLite has no
-      // `ADD COLUMN IF NOT EXISTS`, so the ALTERs stay wrapped in try/catch.
-      await client.execute(agentRunsCreateSql);
-      // Backfill heartbeat_at on older deployments.
-      try {
-        await client.execute(
-          `ALTER TABLE agent_runs ADD COLUMN heartbeat_at ${intType()}`,
-        );
-      } catch {
-        // Column already exists — ignore
-      }
-      try {
-        await client.execute(
-          `ALTER TABLE agent_runs ADD COLUMN abort_reason TEXT`,
-        );
-      } catch {
-        // Column already exists — ignore
-      }
-      // Backfill last_progress_at — this is distinct from heartbeat_at.
-      // heartbeat_at = "the producer process is alive" (bumped on a timer).
-      // last_progress_at = "the agent is actually emitting events" (bumped on
-      // each emit). The gap between them is the stuck-detector signal.
-      try {
-        await client.execute(
-          `ALTER TABLE agent_runs ADD COLUMN last_progress_at ${intType()}`,
-        );
-      } catch {
-        // Column already exists — ignore
-      }
-      // Backfill in_flight_since — ms epoch when run-manager's in-memory
-      // `inFlightWorkCount` last transitioned 0->1, NULL once back to 0. Lets
-      // the cross-isolate stale reapers grant a bounded grace to a
-      // demonstrably-alive run even when the heartbeat write itself has
-      // failed. See `IN_FLIGHT_RUN_STALE_GRACE_MS` and `setRunInFlightMarker`.
-      try {
-        await client.execute(
-          `ALTER TABLE agent_runs ADD COLUMN in_flight_since ${intType()}`,
-        );
-      } catch {
-        // Column already exists — ignore
-      }
-      // Backfill turn_id / error_code / error_detail.
-      //   turn_id    = stable identity for one logical assistant turn that may
-      //                span several continuation runs, so the durable record
-      //                can be folded across runs instead of dropped per-run.
-      //   error_code / error_detail = terminal failure classification captured
-      //                at completion so errored/cut-off runs are queryable for
-      //                pattern analysis (see listErroredRuns).
-      // dispatch_mode marks how a run was started: NULL/"foreground" for the
-      // normal client-continued synchronous path, "foreground-self-chain" for
-      // a foreground run whose continuation boundary is server-driven, and
-      // "background" for a run dispatched into a Netlify background function.
-      // The reaper/claim widen the stale window for background rows so a slow
-      // cold-start isn't falsely reaped.
-      // diag_stage records the last reached pipeline stage (+ any error) for a
-      // background-dispatched run so a silent worker death is DIAGNOSABLE from
-      // the client (/runs/active surfaces it) without reading the unreadable
-      // Netlify background-function logs. See recordRunDiagnostic.
-      for (const col of [
-        "turn_id",
-        "error_code",
-        "error_detail",
-        "terminal_reason",
-        "dispatch_mode",
-        "diag_stage",
-        "worker_stage",
-        "dispatch_payload",
-      ] as const) {
-        try {
-          await client.execute(`ALTER TABLE agent_runs ADD COLUMN ${col} TEXT`);
-        } catch {
-          // Column already exists — ignore
-        }
-      }
-      await client.execute(agentRunEventsCreateSql);
-      try {
-        await client.execute(
-          `ALTER TABLE agent_run_events ADD COLUMN event_at ${intType()}`,
-        );
-      } catch {
-        // Column already exists — ignore
-      }
-      await client.execute(agentToolLedgerCreateSql);
-      await client.execute(agentRunOutcomeDailyCreateSql);
-      // Widen millisecond-timestamp columns that older deployments created as
-      // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
-      // on every turn, so an int4 column makes every agent prompt fail on
-      // Postgres with "value … is out of range for type integer". No-op once
-      // widened (and on fresh DBs that already use BIGINT). See
-      // widenIntColumnsToBigInt.
-      await widenIntColumnsToBigInt("agent_runs", [
-        "started_at",
-        "completed_at",
-        "heartbeat_at",
-        "last_progress_at",
-        "in_flight_since",
-      ]);
-      await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
-      await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureRunTables(): Promise<void> {
+  return agentRunsStore.ready();
 }
 
-// ─── Tool-call result ledger ─────────────────────────────────────────────────
-//
-// When the run-level abort signal fires (soft timeout / user cancel) while a
-// write tool is in-flight, `Promise.race` abandons the call — but the action's
-// Promise continues running in the background (a "zombie"). If the zombie
-// resolves before the continuation's next tool dispatch, we record the result
-// here so the continuation can recover it without re-executing the side effect.
-//
-// Keyed by (thread_id, tool_key) where tool_key = "<toolName>:<stableJsonHash>".
-// The write is fire-and-forget from the hot path; reads are synchronous look-
-// ups at the start of each write-tool dispatch in the continuation.
+export const TURN_EXECUTION_LEASE_MS = 15_000;
 
-/** Max length for a persisted result summary (8 KB). */
+function truthySqlValue(value: unknown): boolean {
+  return value === true || value === "t" || value === 1 || value === "1";
+}
+
+/** Claim a new physical worker attempt without changing its logical turn. */
+export async function claimTurnExecutionLease(
+  threadId: string,
+  turnId: string,
+  runId: string,
+): Promise<ExecutionFence> {
+  return claimExecutionLease(threadId, turnId, runId, true);
+}
+
+/** Claim a lease for a durable task whose lifecycle is not stored in agent_runs. */
+export async function claimTaskExecutionLease(
+  threadId: string,
+  turnId: string,
+  taskAttemptId: string,
+): Promise<ExecutionFence> {
+  return claimExecutionLease(threadId, turnId, taskAttemptId, false);
+}
+
+async function claimExecutionLease(
+  threadId: string,
+  turnId: string,
+  ownerId: string,
+  requireRunningRun: boolean,
+): Promise<ExecutionFence> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Turn execution leases require transaction support");
+  }
+  return client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:turn-execution-lease:${threadId}:${turnId}`],
+    });
+    const current = await tx.execute({
+      sql: `SELECT generation, owner_run_id,
+                   lease_expires_at > clock_timestamp() AS lease_is_live
+            FROM agent_execution_leases
+            WHERE thread_id = ? AND turn_id = ?
+            FOR UPDATE`,
+      args: [threadId, turnId],
+    });
+    if (requireRunningRun) {
+      const run = await tx.execute({
+        sql: "SELECT status FROM agent_runs WHERE id = ? FOR UPDATE",
+        args: [ownerId],
+      });
+      if (
+        (run.rows[0] as { status?: string } | undefined)?.status !== "running"
+      ) {
+        throw new TurnExecutionRunNotActiveError(ownerId);
+      }
+    }
+    const previous = current.rows[0] as
+      | {
+          generation?: number | string;
+          owner_run_id?: string;
+          lease_is_live?: boolean | string | number;
+        }
+      | undefined;
+    if (previous) {
+      const priorRun = await tx.execute({
+        sql: "SELECT status FROM agent_runs WHERE id = ?",
+        args: [previous.owner_run_id],
+      });
+      const priorStatus = (priorRun.rows[0] as { status?: string } | undefined)
+        ?.status;
+      const priorRunIsTerminal =
+        priorStatus === "completed" ||
+        priorStatus === "truncated" ||
+        priorStatus === "errored" ||
+        priorStatus === "aborted";
+      if (truthySqlValue(previous.lease_is_live) && !priorRunIsTerminal) {
+        throw new TurnExecutionLeaseBusyError(threadId, turnId);
+      }
+    }
+    const inserted = await tx.execute({
+      sql: `INSERT INTO agent_execution_leases (
+              thread_id, turn_id, generation, owner_run_id,
+              lease_expires_at, updated_at
+            ) VALUES (?, ?, 1, ?,
+              clock_timestamp() + (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
+              clock_timestamp())
+            ON CONFLICT (thread_id, turn_id) DO UPDATE SET
+              generation = agent_execution_leases.generation + 1,
+              owner_run_id = EXCLUDED.owner_run_id,
+              lease_expires_at = EXCLUDED.lease_expires_at,
+              updated_at = clock_timestamp()
+            RETURNING generation`,
+      args: [threadId, turnId, ownerId, TURN_EXECUTION_LEASE_MS],
+    });
+    const generation = (inserted.rows[0] as { generation?: number | string })
+      ?.generation;
+    if (generation === undefined) {
+      throw new Error("Turn execution lease claim did not return a generation");
+    }
+    if (requireRunningRun) {
+      await tx.execute({
+        sql: "UPDATE agent_runs SET worker_generation = ? WHERE id = ?",
+        args: [generation, ownerId],
+      });
+    }
+    return { threadId, turnId, runId: ownerId, generation: String(generation) };
+  });
+}
+
+export class TurnExecutionLeaseBusyError extends Error {
+  readonly code = "turn_execution_lease_busy";
+
+  constructor(threadId: string, turnId: string) {
+    super(`Another worker still owns turn ${turnId} in thread ${threadId}`);
+    this.name = "TurnExecutionLeaseBusyError";
+  }
+}
+
+export class TurnExecutionRunNotActiveError extends Error {
+  readonly code = "turn_execution_run_not_active";
+
+  constructor(runId: string) {
+    super(`Cannot claim an execution lease for non-running run ${runId}`);
+    this.name = "TurnExecutionRunNotActiveError";
+  }
+}
+
+/** Renew the lease and its run liveness marker as one fenced transaction. */
+export async function renewTurnExecutionLease(
+  fence: ExecutionFence,
+): Promise<void> {
+  return renewExecutionLease(fence, true);
+}
+
+/** Renew a task-owned lease without expecting a corresponding agent_runs row. */
+export async function renewTaskExecutionLease(
+  fence: ExecutionFence,
+): Promise<void> {
+  return renewExecutionLease(fence, false);
+}
+
+async function renewExecutionLease(
+  fence: ExecutionFence,
+  renewRunLiveness: boolean,
+): Promise<void> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Turn execution leases require transaction support");
+  }
+  await client.transaction(async (tx) => {
+    const renewed = await tx.execute({
+      sql: `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() +
+                  (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
+                updated_at = clock_timestamp()
+            WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+              AND generation = CAST(? AS BIGINT)
+              AND lease_expires_at > clock_timestamp()`,
+      args: [
+        TURN_EXECUTION_LEASE_MS,
+        fence.threadId,
+        fence.turnId,
+        fence.runId,
+        fence.generation,
+      ],
+    });
+    if (renewed.rowsAffected !== 1) throw new StaleExecutionFenceError(fence);
+    if (renewRunLiveness) {
+      await tx.execute({
+        sql: `UPDATE agent_runs
+              SET heartbeat_at = (extract(epoch FROM clock_timestamp()) * 1000)::BIGINT,
+                  peak_rss_mb = CASE
+                    WHEN peak_rss_mb IS NULL OR peak_rss_mb < ? THEN ?
+                    ELSE peak_rss_mb
+                  END
+              WHERE id = ? AND status = 'running'`,
+        args: [currentRssMb(), currentRssMb(), fence.runId],
+      });
+    }
+  });
+}
+
+/** Release an owned lease after its worker has committed its final writes. */
+export async function releaseTurnExecutionLease(
+  fence: ExecutionFence,
+): Promise<void> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Turn execution leases require transaction support");
+  }
+  await client.transaction(async (tx) => {
+    const released = await tx.execute({
+      sql: `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp(),
+                updated_at = clock_timestamp()
+            WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+              AND generation = CAST(? AS BIGINT)
+              AND lease_expires_at > clock_timestamp()`,
+      args: [fence.threadId, fence.turnId, fence.runId, fence.generation],
+    });
+    if (released.rowsAffected !== 1) throw new StaleExecutionFenceError(fence);
+  });
+}
+
+export type AgentExecutionStepReplayPolicy =
+  | "read-only"
+  | "retry-safe"
+  | "never";
+
+export interface AgentExecutionStepIntent {
+  threadId: string;
+  turnId: string;
+  runId: string;
+  stepId: string;
+  operationId: string;
+  toolName: string;
+  inputJson: string;
+  replayPolicy: AgentExecutionStepReplayPolicy;
+  generation: string;
+}
+
+async function withAgentExecutionStepIntentFence<T>(
+  intent: AgentExecutionStepIntent,
+  write: (tx: DbExec) => Promise<T>,
+): Promise<T> {
+  const expectedFence: ExecutionFence = {
+    threadId: intent.threadId,
+    turnId: intent.turnId,
+    runId: intent.runId,
+    generation: intent.generation,
+  };
+  const currentFence = currentExecutionFence();
+  if (
+    currentFence &&
+    (currentFence.threadId !== expectedFence.threadId ||
+      currentFence.turnId !== expectedFence.turnId ||
+      currentFence.runId !== expectedFence.runId ||
+      currentFence.generation !== expectedFence.generation)
+  ) {
+    throw new StaleExecutionFenceError(currentFence);
+  }
+
+  const writeInTransaction = (tx: DbExec) => write(tx);
+  if (currentFence) {
+    return withFencedExecutionWrite(writeInTransaction, {
+      threadId: expectedFence.threadId,
+      turnId: expectedFence.turnId,
+      runId: expectedFence.runId,
+    });
+  }
+
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Fenced execution writes require transaction support");
+  }
+  return client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `SELECT generation
+            FROM agent_execution_leases
+            WHERE thread_id = ?
+              AND turn_id = ?
+              AND owner_run_id = ?
+              AND generation = CAST(? AS BIGINT)
+              AND lease_expires_at > clock_timestamp()
+            FOR UPDATE`,
+      args: [
+        expectedFence.threadId,
+        expectedFence.turnId,
+        expectedFence.runId,
+        expectedFence.generation,
+      ],
+    });
+    if (rows.length !== 1) {
+      throw new StaleExecutionFenceError(expectedFence);
+    }
+    return write(tx);
+  });
+}
+
+export type AgentExecutionStepAdmission =
+  | { status: "execute"; wasDispatched: boolean }
+  | { status: "completed"; resultJson: string | null; errorJson: string | null }
+  | { status: "unknown" };
+
+/** Persist intent before dispatch and decide whether an interrupted call may run again. */
+export async function beginAgentExecutionStep(
+  intent: AgentExecutionStepIntent,
+): Promise<AgentExecutionStepAdmission> {
+  await ensureRunTables();
+  return withFencedExecutionWrite(
+    async (tx) => {
+      await tx.execute({
+        sql: `INSERT INTO agent_execution_steps (
+              thread_id, turn_id, step_id, operation_id, tool_name,
+              input_json, replay_policy, status, run_id, generation
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'prepared', ?, CAST(? AS BIGINT))
+            ON CONFLICT (thread_id, turn_id, step_id) DO NOTHING`,
+        args: [
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.operationId,
+          intent.toolName,
+          intent.inputJson,
+          intent.replayPolicy,
+          intent.runId,
+          intent.generation,
+        ],
+      });
+      const selected = await tx.execute({
+        sql: `SELECT operation_id, tool_name, input_json, replay_policy,
+                   status, run_id, generation, result_json, error_json
+            FROM agent_execution_steps
+            WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+            FOR UPDATE`,
+        args: [intent.threadId, intent.turnId, intent.stepId],
+      });
+      const row = selected.rows[0] as
+        | {
+            operation_id?: string;
+            tool_name?: string;
+            input_json?: string;
+            replay_policy?: AgentExecutionStepReplayPolicy;
+            status?: string;
+            run_id?: string;
+            generation?: number | string;
+            result_json?: string | null;
+            error_json?: string | null;
+          }
+        | undefined;
+      if (!row) throw new Error("Execution step intent was not persisted");
+      if (
+        row.operation_id !== intent.operationId ||
+        row.tool_name !== intent.toolName ||
+        row.input_json !== intent.inputJson
+      ) {
+        throw new Error(
+          `Execution step ${intent.stepId} was retried with a different intent`,
+        );
+      }
+      if (row.status === "completed") {
+        return {
+          status: "completed",
+          resultJson: row.result_json ?? null,
+          errorJson: row.error_json ?? null,
+        };
+      }
+      const wasDispatched =
+        row.status === "dispatched" || row.status === "unknown";
+      if (row.status === "unknown") {
+        const canReplay =
+          row.replay_policy === intent.replayPolicy &&
+          (intent.replayPolicy === "read-only" ||
+            intent.replayPolicy === "retry-safe");
+        if (!canReplay) return { status: "unknown" };
+      }
+      if (row.status === "dispatched") {
+        const canReplay =
+          row.replay_policy === intent.replayPolicy &&
+          (intent.replayPolicy === "read-only" ||
+            intent.replayPolicy === "retry-safe");
+        if (!canReplay) {
+          await tx.execute({
+            sql: `UPDATE agent_execution_steps
+                SET status = 'unknown', updated_at = clock_timestamp()
+                WHERE thread_id = ? AND turn_id = ? AND step_id = ?`,
+            args: [intent.threadId, intent.turnId, intent.stepId],
+          });
+          return { status: "unknown" };
+        }
+      }
+      await tx.execute({
+        sql: `UPDATE agent_execution_steps
+            SET status = 'prepared', run_id = ?, generation = CAST(? AS BIGINT),
+                replay_policy = ?, updated_at = clock_timestamp()
+            WHERE thread_id = ? AND turn_id = ? AND step_id = ?`,
+        args: [
+          intent.runId,
+          intent.generation,
+          intent.replayPolicy,
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+        ],
+      });
+      return { status: "execute", wasDispatched };
+    },
+    { threadId: intent.threadId, turnId: intent.turnId, runId: intent.runId },
+  );
+}
+
+export async function markAgentExecutionStepDispatched(
+  intent: AgentExecutionStepIntent,
+): Promise<void> {
+  await ensureRunTables();
+  const result = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_execution_steps
+              SET status = 'dispatched', dispatched_at = clock_timestamp(),
+                  updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+                AND run_id = ? AND generation = CAST(? AS BIGINT)
+                AND status = 'prepared'`,
+        args: [
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.runId,
+          intent.generation,
+        ],
+      }),
+    { threadId: intent.threadId, turnId: intent.turnId, runId: intent.runId },
+  );
+  if (result.rowsAffected !== 1) {
+    throw new Error(`Execution step ${intent.stepId} was not prepared`);
+  }
+}
+
+export async function completeAgentExecutionStep(
+  intent: AgentExecutionStepIntent,
+  resultJson: string,
+  errorJson?: string,
+): Promise<void> {
+  await ensureRunTables();
+  const result = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_execution_steps
+              SET status = 'completed', result_json = ?, error_json = ?,
+                  completed_at = clock_timestamp(), updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+                AND run_id = ? AND generation = CAST(? AS BIGINT)
+                AND status = 'dispatched'`,
+        args: [
+          resultJson,
+          errorJson ?? null,
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.runId,
+          intent.generation,
+        ],
+      }),
+    { threadId: intent.threadId, turnId: intent.turnId, runId: intent.runId },
+  );
+  if (result.rowsAffected !== 1) {
+    throw new Error(`Execution step ${intent.stepId} lost its dispatch claim`);
+  }
+}
+
+export async function markAgentExecutionStepUnknown(
+  intent: AgentExecutionStepIntent,
+): Promise<void> {
+  await ensureRunTables();
+  const status = await withFencedExecutionWrite(
+    async (tx) => {
+      const result = await tx.execute({
+        sql: `UPDATE agent_execution_steps
+              SET status = 'unknown', updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+                AND run_id = ? AND generation = CAST(? AS BIGINT)
+                AND status = 'dispatched'`,
+        args: [
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.runId,
+          intent.generation,
+        ],
+      });
+      if (result.rowsAffected === 1) return "unknown";
+      const current = await tx.execute({
+        sql: `SELECT status FROM agent_execution_steps
+              WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+              AND run_id = ? AND generation = CAST(? AS BIGINT)`,
+        args: [
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.runId,
+          intent.generation,
+        ],
+      });
+      return (current.rows[0] as { status?: string } | undefined)?.status;
+    },
+    { threadId: intent.threadId, turnId: intent.turnId, runId: intent.runId },
+  );
+  if (status !== "unknown" && status !== "completed") {
+    throw new Error(`Execution step ${intent.stepId} lost its dispatch claim`);
+  }
+}
+
+/** A detached action may attach late evidence only while its lease is current. */
+export async function recordLateAgentExecutionStepOutcome(
+  intent: AgentExecutionStepIntent,
+  resultJson: string,
+  errorJson?: string,
+): Promise<void> {
+  await ensureRunTables();
+  const result = await withAgentExecutionStepIntentFence(intent, (tx) =>
+    tx.execute({
+      sql: `UPDATE agent_execution_steps
+            SET status = 'completed', result_json = ?, error_json = ?,
+                completed_at = clock_timestamp(), updated_at = clock_timestamp()
+            WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+              AND run_id = ? AND generation = CAST(? AS BIGINT)
+              AND status IN ('dispatched', 'unknown')`,
+      args: [
+        resultJson,
+        errorJson ?? null,
+        intent.threadId,
+        intent.turnId,
+        intent.stepId,
+        intent.runId,
+        intent.generation,
+      ],
+    }),
+  );
+  if (result.rowsAffected !== 1) {
+    throw new Error(`Late execution step ${intent.stepId} was not recorded`);
+  }
+}
+
+export interface CompletedAgentExecutionStep {
+  stepId: string;
+  operationId: string;
+  toolName: string;
+  inputJson: string;
+  resultJson: string;
+}
+
+/** Read completed outcomes only for the unfinished calls named by the ledger. */
+export async function getCompletedAgentExecutionSteps(
+  threadId: string,
+  turnId: string,
+  stepIds: readonly string[],
+): Promise<CompletedAgentExecutionStep[]> {
+  const ids = [...new Set(stepIds.filter((id) => id.trim().length > 0))];
+  if (ids.length === 0) return [];
+
+  await ensureRunTables();
+  const completed: CompletedAgentExecutionStep[] = [];
+  const batchSize = 200;
+  for (let offset = 0; offset < ids.length; offset += batchSize) {
+    const batch = ids.slice(offset, offset + batchSize);
+    const rows = await getDbExec().execute({
+      sql: `SELECT step_id, operation_id, tool_name, input_json, result_json
+            FROM agent_execution_steps
+            WHERE thread_id = ? AND turn_id = ? AND status = 'completed'
+              AND step_id IN (${batch.map(() => "?").join(", ")})`,
+      args: [threadId, turnId, ...batch],
+    });
+    for (const raw of rows.rows) {
+      const row = raw as {
+        step_id?: unknown;
+        operation_id?: unknown;
+        tool_name?: unknown;
+        input_json?: unknown;
+        result_json?: unknown;
+      };
+      if (typeof row.step_id !== "string" || !batch.includes(row.step_id)) {
+        throw new Error(
+          "Completed execution-step lookup returned an invalid step id",
+        );
+      }
+      if (
+        typeof row.operation_id !== "string" ||
+        typeof row.tool_name !== "string" ||
+        typeof row.input_json !== "string" ||
+        typeof row.result_json !== "string"
+      ) {
+        throw new Error(
+          `Completed execution step ${row.step_id} has an incomplete stored intent or result`,
+        );
+      }
+      completed.push({
+        stepId: row.step_id,
+        operationId: row.operation_id,
+        toolName: row.tool_name,
+        inputJson: row.input_json,
+        resultJson: row.result_json,
+      });
+    }
+  }
+  return completed;
+}
+
 const LEDGER_RESULT_MAX_CHARS = 8_000;
+const LEDGER_CHAT_UI_RESULT_MAX_BYTES = 64 * 1024;
 
 /**
  * Persist a zombie tool-call completion to the ledger. Called by the detached
  * promise continuation after `Promise.race` abandons it. Best-effort — never
- * throws so a ledger write failure doesn't break any caller.
+ * throws so a ledger write failure doesn't break any caller. `argumentsHash`
+ * is the exact identity of the arguments the call ran with; only a call
+ * prepared to the same identity may recover the result.
  */
 export async function writeLedgerEntry(
   threadId: string,
   toolKey: string,
   resultSummary: string,
+  artifacts: ArtifactReceipt[] = [],
+  resultIsString?: boolean,
+  chatUIResultJson?: string,
+  argumentsHash?: string,
 ): Promise<void> {
   try {
     await ensureRunTables();
-    const client = getDbExec();
+    let boundedChatUIResultJson = chatUIResultJson
+      ? stripInlineBytesFromJson(chatUIResultJson, "placeholder")
+      : null;
+    const chatUIResultBytes = boundedChatUIResultJson
+      ? new TextEncoder().encode(boundedChatUIResultJson).byteLength
+      : 0;
+    if (chatUIResultBytes > LEDGER_CHAT_UI_RESULT_MAX_BYTES) {
+      captureError(new Error("Oversized action widget result omitted"), {
+        tags: {
+          component: "agent-run-store",
+          operation: "write-tool-ledger-chat-ui-result",
+        },
+        extra: {
+          threadId,
+          toolKey,
+          bytes: chatUIResultBytes,
+          maxBytes: LEDGER_CHAT_UI_RESULT_MAX_BYTES,
+        },
+      });
+      boundedChatUIResultJson = null;
+    }
+    const safeResultSummary = stripInlineBytes(resultSummary, "placeholder");
     const capped =
-      resultSummary.length > LEDGER_RESULT_MAX_CHARS
-        ? resultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
+      safeResultSummary.length > LEDGER_RESULT_MAX_CHARS
+        ? safeResultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
-        : resultSummary;
-    await client.execute({
-      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, completed_at)
-            VALUES (?, ?, ?, ?)
+        : safeResultSummary;
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at, arguments_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (thread_id, tool_key) DO UPDATE SET
               result_summary = excluded.result_summary,
-              completed_at = excluded.completed_at`,
-      args: [threadId, toolKey, capped, Date.now()],
-    });
-  } catch {
+              artifacts_json = excluded.artifacts_json,
+              result_is_string = excluded.result_is_string,
+              chat_ui_result_json = excluded.chat_ui_result_json,
+              completed_at = excluded.completed_at,
+              arguments_hash = excluded.arguments_hash`,
+          args: [
+            threadId,
+            toolKey,
+            capped,
+            JSON.stringify(stripInlineBytes(artifacts, "placeholder")),
+            resultIsString ?? null,
+            boundedChatUIResultJson,
+            Date.now(),
+            argumentsHash ?? null,
+          ],
+        }),
+      { threadId },
+    );
+  } catch (error) {
+    if (error instanceof ExecutionFenceError) throw error;
     // Ledger is best-effort; never surface failures to the caller.
   }
 }
 
-/**
- * Look up a prior zombie completion for this thread + tool key. Returns the
- * persisted result summary, or `null` when no entry exists.
- */
 export async function readLedgerEntry(
   threadId: string,
   toolKey: string,
-): Promise<string | null> {
+): Promise<{
+  result: string;
+  artifacts: ArtifactReceipt[];
+  resultIsString?: boolean;
+  chatUIResult?: unknown;
+  /** Absent for a result recorded before calls bound their arguments. */
+  argumentsHash?: string;
+} | null> {
   try {
     await ensureRunTables();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT result_summary FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
+      sql: `SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json, arguments_hash FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
       args: [threadId, toolKey],
     });
     if (rows.length === 0) return null;
-    const row = rows[0] as { result_summary: string };
-    return row.result_summary;
+    const row = rows[0] as {
+      result_summary: string;
+      artifacts_json?: string | null;
+      result_is_string?: boolean | null;
+      chat_ui_result_json?: string | null;
+      arguments_hash?: string | null;
+    };
+    let chatUIResult: unknown;
+    let hasChatUIResult = false;
+    if (row.chat_ui_result_json != null) {
+      try {
+        chatUIResult = JSON.parse(row.chat_ui_result_json);
+        hasChatUIResult = true;
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            component: "agent-run-store",
+            operation: "parse-tool-ledger-chat-ui-result",
+          },
+          extra: { threadId, toolKey },
+        });
+      }
+    }
+    return {
+      result: row.result_summary,
+      artifacts: parseLedgerArtifacts(row.artifacts_json, threadId, toolKey),
+      ...(typeof row.result_is_string === "boolean"
+        ? { resultIsString: row.result_is_string }
+        : {}),
+      ...(hasChatUIResult ? { chatUIResult } : {}),
+      ...(row.arguments_hash ? { argumentsHash: row.arguments_hash } : {}),
+    };
   } catch {
     return null;
   }
 }
 
-/**
- * Delete ledger entries for a thread. Called after a turn fully completes so
- * old entries don't bleed into the next turn's disambiguation.
- * Best-effort — never throws.
- */
+function parseLedgerArtifacts(
+  artifactsJson: string | null | undefined,
+  threadId: string,
+  toolKey: string,
+): ArtifactReceipt[] {
+  if (artifactsJson === null || artifactsJson === undefined) return [];
+  try {
+    const parsed: unknown = JSON.parse(artifactsJson);
+    if (!Array.isArray(parsed)) {
+      throw new Error("agent_tool_ledger.artifacts_json is not an array");
+    }
+    const artifacts = parsed.filter(isArtifactReceipt);
+    if (artifacts.length !== parsed.length) {
+      captureError(
+        new Error("agent_tool_ledger.artifacts_json contains invalid receipts"),
+        {
+          tags: {
+            component: "agent-run-store",
+            operation: "parse-tool-ledger-artifacts",
+          },
+          extra: { threadId, toolKey },
+        },
+      );
+    }
+    return artifacts;
+  } catch (error) {
+    captureError(error, {
+      tags: {
+        component: "agent-run-store",
+        operation: "parse-tool-ledger-artifacts",
+      },
+      extra: { threadId, toolKey },
+    });
+    return [];
+  }
+}
+
 export async function clearLedgerForThread(threadId: string): Promise<void> {
   try {
     await ensureRunTables();
-    const client = getDbExec();
-    await client.execute({
-      sql: `DELETE FROM agent_tool_ledger WHERE thread_id = ?`,
-      args: [threadId],
-    });
-  } catch {
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: `DELETE FROM agent_tool_ledger WHERE thread_id = ?`,
+          args: [threadId],
+        }),
+      { threadId },
+    );
+  } catch (error) {
+    if (error instanceof MissingExecutionFenceError) throw error;
     // Best-effort.
   }
 }
@@ -691,58 +1191,203 @@ export async function insertRun(
   turnId?: string,
   options?: {
     dispatchMode?: "foreground" | "foreground-self-chain" | "background";
-    /**
-     * JSON-serialized request body for a background dispatch. Persisted on the
-     * run row so the self-POST to the background function carries only the
-     * tiny `__backgroundRun` marker (Netlify caps background-function request
-     * bodies at 256KB); the worker rehydrates the body from this column.
-     */
     dispatchPayload?: string;
+    continuationOrder?: number;
+    turnInitiator?: AgentTurnInitiator;
+    afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<void> {
+  if (options?.dispatchPayload) {
+    assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
+  }
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
-  await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
-    args: [
-      id,
-      threadId,
-      now,
-      now,
-      now,
-      turnId ?? id,
-      options?.dispatchMode ?? null,
-      options?.dispatchPayload ?? null,
-    ],
+  const logicalTurnId = turnId ?? id;
+  const explicitContinuationOrder = normalizeContinuationOrder(
+    options?.continuationOrder,
+  );
+  const insert = async (db: DbExec, continuationOrder: number) => {
+    if (options?.turnInitiator) {
+      await bindTurnInitiator(
+        db,
+        threadId,
+        logicalTurnId,
+        id,
+        options.turnInitiator,
+      );
+    }
+    const inserted = await db.execute({
+      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      args: [
+        id,
+        threadId,
+        now,
+        now,
+        now,
+        logicalTurnId,
+        options?.dispatchMode ?? null,
+        options?.dispatchPayload ?? null,
+        continuationOrder,
+      ],
+    });
+    if (options?.afterInsert) {
+      if (Number(inserted.rowsAffected ?? 0) !== 1)
+        throw new Error(`Failed to insert run ${id}`);
+      await options.afterInsert(db);
+    }
+  };
+  if (!client.transaction) {
+    if (currentExecutionFence()) {
+      throw new Error("Fenced run insertion requires transaction support");
+    }
+    if (options?.afterInsert)
+      throw new Error("Atomic run insertion requires transaction support");
+    if (options?.turnInitiator) {
+      throw new Error(
+        "Atomic turn initiator binding requires transaction support",
+      );
+    }
+    await lockContinuationOrder(client, threadId, logicalTurnId);
+    await insert(
+      client,
+      explicitContinuationOrder ??
+        (await nextContinuationOrder(client, threadId, logicalTurnId)),
+    );
+    return;
+  }
+  if (options?.turnInitiator) {
+    await prepareServicePrincipalRunStart(options.turnInitiator);
+  }
+  const refusal = await client.transaction(async (tx) => {
+    await lockAndAssertCurrentExecutionFences(tx);
+    if (options?.turnInitiator) {
+      const denied = await lockAndAssertServicePrincipalMayStartRun(tx, {
+        email: options.turnInitiator.email,
+        orgId: options.turnInitiator.orgId,
+      });
+      if (denied) return denied;
+    }
+    await lockContinuationOrder(tx, threadId, logicalTurnId);
+    await insert(
+      tx,
+      explicitContinuationOrder ??
+        (await nextContinuationOrder(tx, threadId, logicalTurnId)),
+    );
+    return undefined;
+  });
+  if (refusal) {
+    if (options?.turnInitiator) {
+      await recordServicePrincipalDenial({
+        ...options.turnInitiator,
+        actionName: "agent-run:start",
+        caller: "agent-run",
+        error: refusal,
+      });
+    }
+    throw refusal;
+  }
+}
+
+function normalizeContinuationOrder(
+  value: number | undefined,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Invalid continuation order: ${String(value)}`);
+  }
+  return value;
+}
+
+function continuationOrderLockKey(threadId: string, turnId: string): string {
+  return `agent-native:run-order:${threadId}:${turnId}`;
+}
+
+async function lockContinuationOrder(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  await db.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [continuationOrderLockKey(threadId, turnId)],
   });
 }
 
-/**
- * SQL fragment that resolves the per-row stale cutoff. Background-dispatched
- * runs (`dispatch_mode` starting with `background`) tolerate a much longer gap
- * without a heartbeat (slow Netlify background-function cold-start) before being
- * reaped; every other run keeps the tight 15s window. The bound `now` is
- * subtracted by the resolved window so the comparison is
- * `COALESCE(heartbeat_at, started_at) < (now - window)`.
- *
- * `dispatch_mode` is one of NULL/"foreground" (normal client-continued sync
- * path), "foreground-self-chain" (server-driven continuation at the foreground
- * chunk boundary), "background" (foreground inserted the row for a background
- * dispatch), or "background-processing" (the background worker claimed it). Both
- * background states get the wider window via a LIKE-prefix match.
- */
+async function nextContinuationOrder(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<number> {
+  await lockContinuationOrder(db, threadId, turnId);
+  const { rows } = await db.execute({
+    sql: `SELECT MAX(continuation_order) AS max_order
+          FROM agent_runs
+          WHERE thread_id = ? AND COALESCE(turn_id, id) = ?`,
+    args: [threadId, turnId],
+  });
+  const rawMax = (rows?.[0] as { max_order?: unknown } | undefined)?.max_order;
+  if (rawMax === null || rawMax === undefined) return 0;
+  const maxOrder = Number(rawMax);
+  if (!Number.isSafeInteger(maxOrder) || maxOrder < 0) {
+    throw new Error(`Invalid stored continuation order: ${String(rawMax)}`);
+  }
+  if (maxOrder === Number.MAX_SAFE_INTEGER) {
+    throw new Error("Continuation order exhausted");
+  }
+  return maxOrder + 1;
+}
+
 function backgroundAwareStaleCutoffSql(): string {
-  // `CAST(? AS BIGINT)` is required: without it Postgres infers the param as
-  // int4 from the int4 window literals, so the bound `Date.now()` ms epoch
-  // overflows int4. The cast keeps the subtraction 64-bit; a no-op on SQLite.
-  // The tight post-claim window buys ONE thing: reaching the durable successor
-  // sooner (see BACKGROUND_PROCESSING_RUN_STALE_MS). A row with no
-  // `dispatch_payload` has no successor to reach — `attemptStaleRunRecovery`
-  // declines it as `not_redispatchable` — so reaping it early is pure loss: it
-  // kills an in-process background automation (scheduler/trigger) that is still
-  // working, and nothing recovers it. Those get the wider background window.
   return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode = 'background-processing' AND dispatch_payload IS NOT NULL THEN ${BACKGROUND_PROCESSING_RUN_STALE_MS} WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+}
+
+export function staleWindowMsForRow(row: {
+  dispatchMode?: string | null;
+  hasDispatchPayload?: boolean;
+  maxStaleMs?: number;
+}): number {
+  if (typeof row.maxStaleMs === "number") return row.maxStaleMs;
+  const mode = row.dispatchMode ?? "";
+  if (mode === "background-processing" && row.hasDispatchPayload)
+    return BACKGROUND_PROCESSING_RUN_STALE_MS;
+  if (mode.startsWith("background")) return BACKGROUND_RUN_STALE_MS;
+  return RUN_STALE_MS;
+}
+
+export function describeStaleReap(row: {
+  startedAt?: number | null;
+  heartbeatAt?: number | null;
+  lastProgressAt?: number | null;
+  inFlightSince?: number | null;
+  dispatchMode?: string | null;
+  hasDispatchPayload?: boolean;
+  maxStaleMs?: number;
+  now: number;
+}): string {
+  const { now } = row;
+  const started = row.startedAt ?? null;
+  const heartbeat = row.heartbeatAt ?? null;
+  const progress = row.lastProgressAt ?? null;
+  const liveness = Math.max(
+    progress ?? started ?? 0,
+    heartbeat ?? started ?? 0,
+  );
+  const parts: string[] = [
+    `window=${staleWindowMsForRow(row)}`,
+    `dispatch=${row.dispatchMode ?? "none"}`,
+    `redispatchable=${row.hasDispatchPayload ? "1" : "0"}`,
+  ];
+  if (heartbeat != null) parts.push(`sinceHeartbeat=${now - heartbeat}`);
+  if (progress != null) parts.push(`sinceProgress=${now - progress}`);
+  if (heartbeat != null && progress != null)
+    parts.push(`hbAheadOfProgress=${heartbeat - progress}`);
+  if (started != null && liveness >= started)
+    parts.push(`runAge=${liveness - started}`);
+  parts.push(`inFlight=${row.inFlightSince != null ? "1" : "0"}`);
+  if (row.inFlightSince != null)
+    parts.push(`inFlightFor=${now - row.inFlightSince}`);
+  return parts.join(" ");
 }
 
 function terminalRunEventExclusionSql(runIdColumn = "id"): string {
@@ -759,65 +1404,10 @@ function terminalRunEventExclusionSql(runIdColumn = "id"): string {
   )`;
 }
 
-/**
- * Liveness basis for the stale reapers: the MOST RECENT of `heartbeat_at`
- * ("process is up", bumped on a 1.5s timer) and `last_progress_at` ("real work
- * is happening", bumped whenever the agent emits an event — including a
- * long-running tool's periodic activity heartbeats, e.g. image generation every
- * 8s), falling back to `started_at`.
- *
- * The reapers previously keyed liveness on `heartbeat_at` alone, so a run that
- * was demonstrably progressing got reaped ('running' → 'errored') the moment the
- * process-liveness write lagged (DB latency, a brief event-loop stall). The
- * producing isolate's SQL-abort check then self-aborted the in-flight action
- * with "Run aborted"; on the durable-background self-chaining path this re-drove
- * the turn in a loop. Honoring progress means a run doing real work is never
- * reaped mid-tool. It can only make reaping MORE conservative — a genuinely dead
- * producer emits neither signal — so a truly-dead run is still reaped.
- *
- * Portable across SQLite and Postgres (CASE + COALESCE only; no GREATEST or
- * scalar MAX, which differ between engines).
- */
 function livenessBasisSql(): string {
   return `(CASE WHEN COALESCE(last_progress_at, started_at) > COALESCE(heartbeat_at, started_at) THEN COALESCE(last_progress_at, started_at) ELSE COALESCE(heartbeat_at, started_at) END)`;
 }
 
-/**
- * Additive grace clause for the default (no explicit `maxStaleMs` override)
- * heartbeat/liveness-based stale reap conditions — TRUE (row remains eligible
- * for the surrounding staleness check) unless `in_flight_since` is set AND
- * still inside `IN_FLIGHT_RUN_STALE_GRACE_MS`. A row with no marker set
- * (`in_flight_since IS NULL`, the common case and every pre-existing row
- * before this migration) always evaluates TRUE here, so this can only make
- * reaping MORE conservative — the no-in-flight `BACKGROUND_RUN_STALE_MS` /
- * `RUN_STALE_MS` behavior is unchanged. See `IN_FLIGHT_RUN_STALE_GRACE_MS`'s
- * doc comment for why this is sound and bounded.
- *
- * The grace additionally requires the producer to still be demonstrably
- * heartbeating: a marker on a row whose liveness basis is itself dead by more
- * than `IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS` is a latched corpse, not a slow
- * tool, and gets no extension.
- *
- * Binds two params, both the same `now` the surrounding cutoff clause binds.
- */
-function inFlightGraceSql(): string {
-  return `(in_flight_since IS NULL
-    OR in_flight_since <= (CAST(? AS BIGINT) - ${IN_FLIGHT_RUN_STALE_GRACE_MS})
-    OR ${livenessBasisSql()} < (CAST(? AS BIGINT) - ${IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS}))`;
-}
-
-/**
- * Atomically claim a background-dispatched run for processing. The foreground
- * POST inserts the run row with `dispatch_mode = 'background'`; the FIRST
- * delivery of the background dispatch flips it to `background-processing` and
- * wins the claim. A duplicate Netlify delivery (background functions can be
- * retried) sees `background-processing` and loses, so it no-ops — mirroring
- * `claimAgentTeamRun` returning null. Returns true when this caller won.
- *
- * Idempotent and conditional: the WHERE clause only matches the unclaimed
- * `background` state AND a still-running row, so a reaped/terminal row can't be
- * re-claimed.
- */
 export async function claimBackgroundRun(runId: string): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
@@ -832,16 +1422,6 @@ export async function claimBackgroundRun(runId: string): Promise<boolean> {
   return (rowsAffected ?? 0) > 0;
 }
 
-/**
- * Read the claim/lifecycle state of a single run by id — for the foreground
- * circuit-breaker that confirms a background worker actually CLAIMED a run that
- * was dispatched with a Netlify async 202. A 202 only means the invocation was
- * ENQUEUED; if the generated background-function wrapper fails to import/hand off
- * to the route it never reaches `claimBackgroundRun`, leaving the row stuck at
- * `dispatch_mode = 'background'`. `'background-processing'` means a worker won
- * the claim; a terminal `status` means the run already resolved. Returns null if
- * the row is missing.
- */
 export async function readBackgroundRunClaim(runId: string): Promise<{
   dispatchMode: string | null;
   status: string | null;
@@ -871,19 +1451,10 @@ export async function readBackgroundRunClaim(runId: string): Promise<{
     status: row.status ?? null,
     diagStage: row.diag_stage ?? null,
     workerStage: row.worker_stage ?? null,
-    // Same liveness basis the unclaimed-reaper uses (COALESCE(heartbeat_at,
-    // started_at)), so the foreground can decide to recover BEFORE the reaper.
     lastLivenessAt: row.heartbeat_at ?? row.started_at ?? null,
   };
 }
 
-/**
- * Read the persisted dispatch payload for a background-dispatched run. The
- * worker rehydrates its request body from this column when the dispatch marker
- * carries `payloadRef: true` (the self-POST itself stays under Netlify's 256KB
- * background-function body cap). Returns null when the row is missing or the
- * payload was already cleared (terminal run).
- */
 export async function readRunDispatchPayload(
   runId: string,
 ): Promise<string | null> {
@@ -899,11 +1470,6 @@ export async function readRunDispatchPayload(
   return typeof payload === "string" && payload.length > 0 ? payload : null;
 }
 
-/**
- * Clear a run's persisted dispatch payload once the worker has claimed and
- * rehydrated it — the payload can be large (full chat history) and has no use
- * after the handoff. Best-effort; terminal status writes also clear it.
- */
 export async function clearRunDispatchPayload(runId: string): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
@@ -913,23 +1479,10 @@ export async function clearRunDispatchPayload(runId: string): Promise<void> {
   });
 }
 
-/**
- * List background-dispatched runs that were never claimed by a worker within
- * the unclaimed grace window. These are handoffs that were lost in flight —
- * the async 202 (or the dispatching worker) died before any worker reached
- * `claimBackgroundRun`. The periodic sweeper reaps them via
- * `reapUnclaimedBackgroundRun` so a lost handoff becomes a loud, attributable
- * error instead of a silent forever-hang. The foreground circuit-breaker
- * already covers initial dispatches while the client is connected; this sweep
- * exists for server-chained continuation handoffs, which have no foreground
- * watching them.
- */
 export async function listUnclaimedBackgroundRunIds(): Promise<string[]> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    // CAST keeps the ms-epoch param 64-bit on Postgres (see
-    // backgroundAwareStaleCutoffSql for the int4-inference failure mode).
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND dispatch_mode = 'background'
@@ -944,13 +1497,8 @@ export async function listUnclaimedBackgroundRunIds(): Promise<string[]> {
   return ids;
 }
 
-/** A row returned by `listUnclaimedBackgroundRunRows`. */
 export interface UnclaimedBackgroundRunRow {
   id: string;
-  /** The row's ORIGINAL `started_at` (never bumped by heartbeats), so a
-   *  caller can measure total elapsed time since the handoff was first
-   *  pre-inserted — independent of any liveness bump a redispatch attempt
-   *  makes along the way. */
   startedAt: number;
   /**
    * Whether the row still carries the `dispatch_payload` a redispatched worker
@@ -964,30 +1512,26 @@ export interface UnclaimedBackgroundRunRow {
   hasDispatchPayload: boolean;
 }
 
-/**
- * Same eligibility as `listUnclaimedBackgroundRunIds`, but also returns each
- * row's original `started_at` so a caller can bound total redispatch time
- * (see `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`) independent of the
- * liveness bumps a redispatch attempt makes along the way. Used by the
- * unclaimed-background-run sweep's redispatch pass; `listUnclaimedBackgroundRunIds`
- * is kept as the simpler, pre-existing surface for callers that only need ids.
- */
-export async function listUnclaimedBackgroundRunRows(): Promise<
-  UnclaimedBackgroundRunRow[]
-> {
+export const UNCLAIMED_BACKGROUND_RUN_SWEEP_BATCH_LIMIT = 4;
+
+export async function listUnclaimedBackgroundRunRows(options?: {
+  limit?: number;
+}): Promise<UnclaimedBackgroundRunRow[]> {
   await ensureRunTables();
   if (!(await hasRunningRuns())) return [];
   const client = getDbExec();
+  const requestedLimit =
+    options?.limit ?? UNCLAIMED_BACKGROUND_RUN_SWEEP_BATCH_LIMIT;
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.floor(requestedLimit))
+    : UNCLAIMED_BACKGROUND_RUN_SWEEP_BATCH_LIMIT;
   const { rows } = await client.execute({
-    // CAST keeps the ms-epoch param 64-bit on Postgres (see
-    // backgroundAwareStaleCutoffSql for the int4-inference failure mode).
-    // Report payload presence rather than filtering on it: a payload-less row
-    // must still be VISIBLE to the sweep so the slow pass can reap it. Filtering
-    // it out here would leave it `running` forever.
     sql: `SELECT id, started_at, (dispatch_payload IS NOT NULL) AS has_dispatch_payload FROM agent_runs
           WHERE status = 'running'
             AND dispatch_mode = 'background'
-            AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})`,
+            AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})
+          ORDER BY COALESCE(heartbeat_at, started_at) ASC, started_at ASC
+          LIMIT ${limit}`,
     args: [Date.now()],
   });
   const result: UnclaimedBackgroundRunRow[] = [];
@@ -1001,25 +1545,13 @@ export async function listUnclaimedBackgroundRunRows(): Promise<
         id,
         startedAt:
           typeof startedAt === "number" ? startedAt : Number(startedAt) || 0,
-        // SQLite returns 1/0 where Postgres returns a boolean.
-        hasDispatchPayload: hasPayload === true || hasPayload === 1,
+        hasDispatchPayload: hasPayload === true,
       });
     }
   }
   return result;
 }
 
-/**
- * Pure decision for the unclaimed-background-run sweep: should THIS row get
- * another redispatch attempt, or has it exceeded
- * `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` and must fall back to the
- * loud reap (`reapUnclaimedBackgroundRun`)? Measured from the row's ORIGINAL
- * `started_at` (never bumped by a redispatch's heartbeat write), so this is
- * the total-elapsed-time backstop that keeps recovery bounded — a handoff
- * that cannot be delivered within the window is not spinning forever, it
- * fails loud. Exported as a pure function (no DB access) so the bound is unit
- * -testable independent of the sweep's setInterval wiring.
- */
 export function shouldRedispatchUnclaimedBackgroundRun(
   row: { startedAt: number },
   now: number = Date.now(),
@@ -1027,13 +1559,6 @@ export function shouldRedispatchUnclaimedBackgroundRun(
   return now - row.startedAt < UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS;
 }
 
-/**
- * Count how many runs (chunks) a logical turn has consumed so far. This is the
- * durable per-turn recovery ledger: unlike the in-marker `continuationCount`
- * (which resets whenever a fresh client POST starts a new chain for the same
- * turn), the SQL count survives every recovery path, so it bounds pathological
- * turn loops regardless of which layer initiated each chunk.
- */
 export async function countRunsForTurn(
   threadId: string,
   turnId: string,
@@ -1050,84 +1575,438 @@ export async function countRunsForTurn(
 }
 
 /**
- * Resolve the authenticated owner email for a run by joining it to its chat
- * thread. The durable background worker's self-dispatch is cookieless
- * (HMAC-only — see `AGENT_CHAT_PROCESS_RUN_PATH`), so it has no session for the
- * normal owner resolution and would otherwise be treated as unauthenticated.
- * The thread's `owner_email` was written by the authenticated foreground when it
- * created the thread, so it is a trusted, non-forgeable owner source: only the
- * HMAC-signed `runId` selects the row, and the caller cannot influence which
- * owner that row maps to. Returns null when the run (or its thread) is missing.
+ * The newest run of the turn before `turnId` in a thread: how the previous
+ * request ended. Null when the thread has no earlier turn.
  */
-export async function getRunOwnerEmail(runId: string): Promise<string | null> {
+export async function getPreviousTurnNewestRun(
+  threadId: string,
+  turnId: string,
+): Promise<{
+  turnId: string;
+  status: string;
+  terminalReason: string | null;
+} | null> {
   await ensureRunTables();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT t.owner_email AS owner_email FROM agent_runs r JOIN chat_threads t ON r.thread_id = t.id WHERE r.id = ? LIMIT 1`,
-    args: [runId],
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT COALESCE(turn_id, id) AS turn_id, status, terminal_reason
+          FROM agent_runs
+          WHERE thread_id = ?
+            AND COALESCE(turn_id, id) <> ?
+            AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+          ORDER BY started_at DESC
+          LIMIT 1`,
+    args: [threadId, turnId],
   });
-  const row = rows?.[0] as { owner_email?: string | null } | undefined;
-  return row?.owner_email ?? null;
+  const row = rows[0] as
+    | { turn_id: string; status: string; terminal_reason: string | null }
+    | undefined;
+  return row
+    ? {
+        turnId: row.turn_id,
+        status: row.status,
+        terminalReason: row.terminal_reason,
+      }
+    : null;
 }
 
-/**
- * Atomically acquire a run lease for a thread. Succeeds (returns true) only
- * when no other run for the same thread is currently status='running' with a
- * fresh heartbeat. Works for both Postgres and SQLite: the stale-cutoff
- * comparison lets a dead producer's run be replaced without waiting for the
- * reaper, mirroring the logic in `reapIfStale`.
- *
- * Callers that win the claim then insert the run row normally; callers that
- * lose skip the run and return the existing active runId to the caller.
- */
-export async function tryClaimRunSlot(
-  threadId: string,
-  maxStaleMs?: number,
-): Promise<{ claimed: boolean; activeRunId: string | null }> {
+export async function getTurnInitiatorByRun(
+  runId: string,
+): Promise<(AgentTurnInitiator & { firstRunId: string }) | null> {
   await ensureRunTables();
-  const client = getDbExec();
-  const now = Date.now();
-  // Default: per-row background-aware window so a live background run (which can
-  // legitimately go >15s between heartbeats during a cold-start) isn't seen as
-  // "free" and double-claimed by a racing foreground POST. An explicit
-  // `maxStaleMs` override keeps a flat window for callers that want one.
-  if (typeof maxStaleMs === "number") {
-    const heartbeatCutoff = now - maxStaleMs;
-    const { rows } = await client.execute({
-      sql: `SELECT id FROM agent_runs
-            WHERE thread_id = ?
-              AND status = 'running'
-              AND ${terminalRunEventExclusionSql()}
-              AND ${livenessBasisSql()} >= ?
-            ORDER BY started_at DESC LIMIT 1`,
-      args: [threadId, heartbeatCutoff],
-    });
-    if (rows.length > 0) {
-      return { claimed: false, activeRunId: (rows[0] as { id: string }).id };
-    }
-    return { claimed: true, activeRunId: null };
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT i.principal_email, i.auth_user_id, i.org_id, i.org_scope, i.is_anonymous, i.first_run_id
+          FROM agent_runs r
+          JOIN agent_turn_initiators i
+            ON i.thread_id = r.thread_id
+           AND i.turn_id = COALESCE(r.turn_id, r.id)
+          WHERE r.id = ?
+          LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows?.[0] as
+    | {
+        principal_email?: unknown;
+        auth_user_id?: unknown;
+        org_id?: unknown;
+        org_scope?: unknown;
+        is_anonymous?: unknown;
+        first_run_id?: unknown;
+      }
+    | undefined;
+  if (
+    typeof row?.principal_email !== "string" ||
+    typeof row.first_run_id !== "string"
+  ) {
+    return null;
   }
-  const { rows } = await client.execute({
+  return {
+    email: row.principal_email,
+    authUserId: typeof row.auth_user_id === "string" ? row.auth_user_id : null,
+    orgId: typeof row.org_id === "string" ? row.org_id : null,
+    orgScope: row.org_scope === "personal" ? "personal" : null,
+    anonymous: row.is_anonymous === true || row.is_anonymous === "t",
+    firstRunId: row.first_run_id,
+  };
+}
+
+async function bindTurnInitiator(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+  runId: string,
+  initiator: AgentTurnInitiator,
+): Promise<void> {
+  const email = initiator.email.trim();
+  if (!email) throw new Error("Agent turn initiator email is required");
+
+  const existing = await db.execute({
+    sql: `SELECT principal_email, auth_user_id, org_id, org_scope, is_anonymous
+          FROM agent_turn_initiators WHERE thread_id = ? AND turn_id = ? LIMIT 1`,
+    args: [threadId, turnId],
+  });
+  const row = existing.rows?.[0] as
+    | {
+        principal_email?: unknown;
+        auth_user_id?: unknown;
+        org_id?: unknown;
+        org_scope?: unknown;
+        is_anonymous?: unknown;
+      }
+    | undefined;
+  if (row) {
+    assertTurnInitiatorMatches(row, initiator, threadId, turnId);
+    return;
+  }
+
+  const priorRun = await db.execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND id <> ?
+          LIMIT 1`,
+    args: [threadId, turnId, runId],
+  });
+  if (priorRun.rows.length > 0) {
+    throw new AgentTurnInitiatorUnavailableError(threadId, turnId);
+  }
+
+  await db.execute({
+    sql: `INSERT INTO agent_turn_initiators
+          (thread_id, turn_id, principal_email, auth_user_id, org_id, org_scope, is_anonymous, first_run_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT (thread_id, turn_id) DO NOTHING`,
+    args: [
+      threadId,
+      turnId,
+      email,
+      initiator.authUserId ?? null,
+      initiator.orgId ?? null,
+      initiator.orgScope ?? null,
+      initiator.anonymous,
+      runId,
+      Date.now(),
+    ],
+  });
+  const insertedOrConcurrent = await db.execute({
+    sql: `SELECT principal_email, auth_user_id, org_id, org_scope, is_anonymous
+          FROM agent_turn_initiators WHERE thread_id = ? AND turn_id = ? LIMIT 1`,
+    args: [threadId, turnId],
+  });
+  const bound = insertedOrConcurrent.rows?.[0] as
+    | {
+        principal_email?: unknown;
+        auth_user_id?: unknown;
+        org_id?: unknown;
+        org_scope?: unknown;
+        is_anonymous?: unknown;
+      }
+    | undefined;
+  if (!bound) throw new Error(`Agent turn ${turnId} initiator was not stored`);
+  assertTurnInitiatorMatches(bound, initiator, threadId, turnId);
+}
+
+function assertTurnInitiatorMatches(
+  row: {
+    principal_email?: unknown;
+    auth_user_id?: unknown;
+    org_id?: unknown;
+    org_scope?: unknown;
+    is_anonymous?: unknown;
+  },
+  initiator: AgentTurnInitiator,
+  threadId: string,
+  turnId: string,
+): void {
+  if (
+    row.principal_email !== initiator.email.trim() ||
+    (row.auth_user_id ?? null) !== (initiator.authUserId ?? null) ||
+    (row.org_id ?? null) !== (initiator.orgId ?? null) ||
+    (row.org_scope ?? null) !== (initiator.orgScope ?? null) ||
+    (row.is_anonymous === true || row.is_anonymous === "t") !==
+      initiator.anonymous
+  ) {
+    throw new AgentTurnInitiatorMismatchError(threadId, turnId);
+  }
+}
+
+/** The live run that keeps `tryClaimRunSlot` from claiming the thread. */
+async function selectSlotHoldingRunId(
+  executor: Pick<ReturnType<typeof getDbExec>, "execute">,
+  threadId: string,
+  now: number,
+  maxStaleMs?: number,
+): Promise<string | undefined> {
+  const explicitCutoff = typeof maxStaleMs === "number";
+  const active = await executor.execute({
     sql: `SELECT id FROM agent_runs
           WHERE thread_id = ?
             AND status = 'running'
             AND ${terminalRunEventExclusionSql()}
-            AND ${livenessBasisSql()} >= ${backgroundAwareStaleCutoffSql()}
+            AND ${livenessBasisSql()} >= ${explicitCutoff ? "?" : backgroundAwareStaleCutoffSql()}
           ORDER BY started_at DESC LIMIT 1`,
-    args: [threadId, now],
+    args: [threadId, explicitCutoff ? now - maxStaleMs : now],
   });
-  if (rows.length > 0) {
-    const row = rows[0] as { id: string };
-    return { claimed: false, activeRunId: row.id };
-  }
-  return { claimed: true, activeRunId: null };
+  return (active.rows[0] as { id?: string } | undefined)?.id;
 }
 
 /**
- * Record terminal failure classification for a run so cut-off / errored runs
- * can be surfaced for pattern analysis (see listErroredRuns). Best-effort —
- * never throws, since it runs on the completion path that must not fail the run.
+ * The run currently holding the thread's run slot, read without claiming it,
+ * so a request can refuse before work it would only repeat after a 409.
  */
+export async function getSlotHoldingRunId(
+  threadId: string,
+): Promise<string | undefined> {
+  await ensureRunTables();
+  return selectSlotHoldingRunId(getDbExec(), threadId, Date.now());
+}
+
+export async function tryClaimRunSlot(
+  threadId: string,
+  runId: string,
+  maxStaleMs?: number,
+  options?: {
+    turnId?: string;
+    replayCompletedTurn?: boolean;
+    dispatchMode?: "foreground" | "foreground-self-chain" | "background";
+    dispatchPayload?: string;
+    continuationOrder?: number;
+    turnInitiator?: AgentTurnInitiator;
+    /** The stopped run this run continues in the same turn, and who asked. */
+    continueOf?: { runId: string; trigger: ContinueTrigger };
+    afterInsert?: (tx: DbExec) => Promise<void>;
+  },
+): Promise<{
+  claimed: boolean;
+  activeRunId: string | null;
+  completedRunId?: string;
+  turnAborted?: boolean;
+  continueRefused?: ContinueRefusalCode;
+}> {
+  if (options?.dispatchPayload) {
+    assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
+  }
+  await ensureRunTables();
+  const client = getDbExec();
+  const now = Date.now();
+  const turnId = options?.turnId ?? runId;
+  const continueOf = options?.continueOf;
+  // A continuation names a run that already ended, so replaying the turn's
+  // last finished run would hand back the stop it asked to move past.
+  const replayCompletedTurn =
+    options?.replayCompletedTurn === true &&
+    Boolean(options.turnId) &&
+    !continueOf;
+  if (!client.transaction) {
+    throw new Error("Atomic run-slot claims require transaction support");
+  }
+  if (options?.turnInitiator) {
+    await prepareServicePrincipalRunStart(options.turnInitiator);
+  }
+  const transactionResult = await client.transaction(async (tx) => {
+    if (options?.turnInitiator) {
+      const denied = await lockAndAssertServicePrincipalMayStartRun(tx, {
+        email: options.turnInitiator.email,
+        orgId: options.turnInitiator.orgId,
+      });
+      if (denied) return { refused: denied } as const;
+    }
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-slot:${threadId}`],
+    });
+    await lockContinuationOrder(tx, threadId, turnId);
+    const abortMarker = await tx.execute({
+      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
+      args: [threadId, turnId],
+    });
+    if (abortMarker.rows.length > 0) {
+      return {
+        result: { claimed: false, activeRunId: null, turnAborted: true },
+      } as const;
+    }
+    if (options?.turnInitiator) {
+      await bindTurnInitiator(
+        tx,
+        threadId,
+        turnId,
+        runId,
+        options.turnInitiator,
+      );
+    }
+    const activeRunId = await selectSlotHoldingRunId(
+      tx,
+      threadId,
+      now,
+      maxStaleMs,
+    );
+    if (activeRunId) {
+      return { result: { claimed: false, activeRunId } } as const;
+    }
+
+    if (replayCompletedTurn) {
+      const latest = await tx.execute({
+        sql: `SELECT id,
+                     EXISTS (
+                       SELECT 1 FROM agent_run_events terminal_events
+                       WHERE terminal_events.run_id = agent_runs.id
+                         AND (
+                           terminal_events.event_data LIKE ?
+                           OR terminal_events.event_data LIKE ?
+                           OR terminal_events.event_data LIKE ?
+                           OR terminal_events.event_data LIKE ?
+                         )
+                     ) AS has_terminal_event
+              FROM agent_runs
+              WHERE thread_id = ? AND turn_id = ?
+              ORDER BY started_at DESC LIMIT 1`,
+        args: [
+          '{"type":"done"%',
+          '{"type":"error"%',
+          '{"type":"missing_api_key"%',
+          '{"type":"loop_limit"%',
+          threadId,
+          turnId,
+        ],
+      });
+      const latestRun = latest.rows[0] as
+        | { id?: string; has_terminal_event?: boolean }
+        | undefined;
+      if (latestRun?.id && latestRun.has_terminal_event === true) {
+        return {
+          result: {
+            claimed: false,
+            activeRunId: null,
+            completedRunId: latestRun.id,
+          },
+        } as const;
+      }
+    }
+
+    // Admitted under the thread's slot lock, so two tabs continuing the same
+    // stop start one run and the count of continuations stays exact.
+    if (continueOf) {
+      const turnRuns = await tx.execute({
+        sql: `SELECT id, status, terminal_reason, completed_at,
+                     COUNT(auto_continue_of) OVER () AS auto_continues,
+                     MIN(started_at) OVER () AS turn_started_at,
+                     EXISTS (
+                       SELECT 1 FROM agent_runs later
+                       WHERE later.thread_id = ?
+                         AND COALESCE(later.turn_id, later.id) <> ?
+                         AND later.started_at > agent_runs.started_at
+                     ) AS later_turn_started
+              FROM agent_runs
+              WHERE thread_id = ? AND turn_id = ?
+                AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+              ORDER BY started_at DESC LIMIT 1`,
+        args: [threadId, turnId, threadId, turnId],
+      });
+      const row = turnRuns.rows[0] as
+        | {
+            id: string;
+            status: string;
+            terminal_reason: string | null;
+            completed_at: number | string | null;
+            auto_continues: number | string;
+            turn_started_at: number | string;
+            later_turn_started: boolean | string;
+          }
+        | undefined;
+      const turn = row
+        ? {
+            newest: {
+              id: row.id,
+              status: row.status,
+              terminalReason: row.terminal_reason,
+              completedAt:
+                row.completed_at === null ? null : Number(row.completed_at),
+            },
+            autoContinues: Number(row.auto_continues),
+            startedAt: Number(row.turn_started_at),
+          }
+        : null;
+      const admission =
+        continueOf.trigger === "auto"
+          ? admitAutoContinue({
+              turn,
+              stoppedRunId: continueOf.runId,
+              nowMs: now,
+            })
+          : admitManualContinue({
+              turn,
+              stoppedRunId: continueOf.runId,
+              laterTurnStarted:
+                row?.later_turn_started === true ||
+                row?.later_turn_started === "t",
+            });
+      if (!admission.admit) {
+        return {
+          result: {
+            claimed: false,
+            activeRunId: null,
+            continueRefused: admission.code,
+          },
+        } as const;
+      }
+    }
+
+    const continuationOrder =
+      normalizeContinuationOrder(options?.continuationOrder) ??
+      (await nextContinuationOrder(tx, threadId, turnId));
+    const inserted = await tx.execute({
+      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order, auto_continue_of) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      args: [
+        runId,
+        threadId,
+        now,
+        now,
+        now,
+        turnId,
+        options?.dispatchMode ?? null,
+        options?.dispatchPayload ?? null,
+        continuationOrder,
+        // Only automatic continuations count toward the turn's cap.
+        continueOf?.trigger === "auto" ? continueOf.runId : null,
+      ],
+    });
+    if ((inserted.rowsAffected ?? 0) !== 1) {
+      throw new Error(`Failed to insert claimed run ${runId}`);
+    }
+    await options?.afterInsert?.(tx);
+    return { result: { claimed: true, activeRunId: null } } as const;
+  });
+  if ("refused" in transactionResult && transactionResult.refused) {
+    if (options?.turnInitiator) {
+      await recordServicePrincipalDenial({
+        ...options.turnInitiator,
+        actionName: "agent-run:start",
+        caller: "agent-run",
+        error: transactionResult.refused,
+      });
+    }
+    throw transactionResult.refused;
+  }
+  return transactionResult.result;
+}
+
 export async function setRunError(
   runId: string,
   errorCode: string | undefined,
@@ -1136,31 +2015,24 @@ export async function setRunError(
   if (!errorCode && !errorDetail) return;
   try {
     await ensureRunTables();
-    const client = getDbExec();
-    await client.execute({
-      sql: `UPDATE agent_runs SET error_code = ?, error_detail = ? WHERE id = ?`,
-      args: [
-        errorCode ?? null,
-        errorDetail ? errorDetail.slice(0, 2000) : null,
-        runId,
-      ],
-    });
-  } catch {
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: `UPDATE agent_runs SET error_code = ?, error_detail = ? WHERE id = ?`,
+          args: [
+            errorCode ?? null,
+            errorDetail ? errorDetail.slice(0, 2000) : null,
+            runId,
+          ],
+        }),
+      { runId },
+    );
+  } catch (error) {
+    if (error instanceof ExecutionFenceError) throw error;
     // Diagnostics are best-effort; never let them break completion.
   }
 }
 
-/**
- * Record why a run reached its terminal status, and correct the status when the
- * reason says the run did not actually finish.
- *
- * Every writer sets the status first and the reason second, so this is the one
- * place that sees both — correcting it here keeps all of them honest instead of
- * making each caller re-derive "was that completion real?". Only `completed` is
- * corrected: an `errored`/`aborted` row must never be softened, and a still
- * `running` row must not be terminated early (`persistRunCheckpointEvent`
- * records the reason mid-run, before the boundary is final).
- */
 export async function setRunTerminalReason(
   runId: string,
   terminalReason: string | undefined,
@@ -1168,7 +2040,6 @@ export async function setRunTerminalReason(
   if (!terminalReason) return;
   try {
     await ensureRunTables();
-    const client = getDbExec();
     const reason = terminalReason.slice(0, 200);
     // Write-once for a row that is already terminal. Three writers in three
     // isolates race on this column — the mid-run checkpoint, the run-manager's
@@ -1180,13 +2051,18 @@ export async function setRunTerminalReason(
     // they never hit. A row still `running` has no honest reason yet, so it
     // stays writable; once one is recorded on a terminal row, it stands.
     const guard = `AND (status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')`;
-    await client.execute({
-      sql: isContinuationTerminalReason(reason)
-        ? `UPDATE agent_runs SET terminal_reason = ?, status = CASE WHEN status = 'completed' THEN 'truncated' ELSE status END WHERE id = ? ${guard}`
-        : `UPDATE agent_runs SET terminal_reason = ? WHERE id = ? ${guard}`,
-      args: [reason, runId],
-    });
-  } catch {
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: isContinuationTerminalReason(reason)
+            ? `UPDATE agent_runs SET terminal_reason = ?, status = CASE WHEN status = 'completed' THEN 'truncated' ELSE status END WHERE id = ? ${guard}`
+            : `UPDATE agent_runs SET terminal_reason = ? WHERE id = ? ${guard}`,
+          args: [reason, runId],
+        }),
+      { runId },
+    );
+  } catch (error) {
+    if (error instanceof ExecutionFenceError) throw error;
     // Diagnostics are best-effort; never let them break completion.
   }
 }
@@ -1225,11 +2101,13 @@ function isRealFailureTerminalEvent(event: AgentChatEvent): boolean {
 
 const RUN_RECONCILIATION_TERMINAL_EVENT_LIMIT = 100;
 
-async function getRunEventForReconciliation(runId: string): Promise<{
+async function getRunEventForReconciliation(
+  runId: string,
+  client: DbExec = getDbExec(),
+): Promise<{
   event: AgentChatEvent;
   eventAt: number | null;
 } | null> {
-  const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT seq, event_data, event_at
           FROM agent_run_events
@@ -1248,13 +2126,17 @@ async function getRunEventForReconciliation(runId: string): Promise<{
   let latestTerminal: {
     event: AgentChatEvent;
     eventAt: number | null;
+    sequence: bigint;
   } | null = null;
+  let newestUnreadableSequence: bigint | null = null;
   for (const row of rows as Array<{
+    seq: number | string;
     event_at?: number | string | null;
     event_data?: string;
   }>) {
     const raw = row.event_data;
     if (!raw) continue;
+    const sequence = BigInt(row.seq);
     try {
       const event = JSON.parse(raw) as AgentChatEvent;
       if (!terminalStatusForEvent(event) || !terminalReasonForEvent(event)) {
@@ -1265,17 +2147,47 @@ async function getRunEventForReconciliation(runId: string): Promise<{
         event,
         eventAt:
           Number.isFinite(rawEventAt) && rawEventAt > 0 ? rawEventAt : null,
+        sequence,
       };
-      if (!latestTerminal) latestTerminal = parsed;
-      // A real stream failure must not be laundered into success by a later
-      // done/continuation boundary. Keep the synthetic stale-run error special:
-      // that repair marker may be superseded by a later durable done event.
-      if (isRealFailureTerminalEvent(event)) return parsed;
-    } catch {
-      continue;
+      if (!latestTerminal || sequence > latestTerminal.sequence) {
+        latestTerminal = parsed;
+      }
+      if (isRealFailureTerminalEvent(event)) {
+        if (
+          newestUnreadableSequence !== null &&
+          newestUnreadableSequence > sequence
+        ) {
+          return {
+            event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
+            eventAt: null,
+          };
+        }
+        return parsed;
+      }
+    } catch (err) {
+      if (
+        newestUnreadableSequence === null ||
+        sequence > newestUnreadableSequence
+      ) {
+        newestUnreadableSequence = sequence;
+      }
+      console.error(
+        `[run-store] unreadable terminal event runId=${runId} seq=${String(row.seq)}: ${raw.slice(0, 120)}`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
-  return latestTerminal;
+  if (
+    newestUnreadableSequence !== null &&
+    (!latestTerminal || newestUnreadableSequence > latestTerminal.sequence)
+  ) {
+    return {
+      event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
+      eventAt: null,
+    };
+  }
+  if (!latestTerminal) return null;
+  return { event: latestTerminal.event, eventAt: latestTerminal.eventAt };
 }
 
 function errorCodeForTerminalEvent(event: AgentChatEvent): string | null {
@@ -1299,10 +2211,14 @@ function errorDetailForTerminalEvent(event: AgentChatEvent): string | null {
  * terminal, the run is no longer alive and must not be converted into a stale
  * error later. This keeps `agent_runs` and `agent_run_events` from telling two
  * different stories after delayed DB writes or background function teardown.
+ * This public path is for the active worker. The stale reaper uses a separate
+ * transaction-side repair after excluding a live matching worker generation.
  */
 export async function reconcileTerminalRunFromEvents(
   runId: string,
+  options: { threadProjectionPending?: boolean } = {},
 ): Promise<boolean> {
+  if (!currentExecutionFence()) return false;
   await ensureRunTables();
   const latest = await getRunEventForReconciliation(runId);
   if (!latest) return false;
@@ -1313,121 +2229,103 @@ export async function reconcileTerminalRunFromEvents(
   const client = getDbExec();
   const errorCode = errorCodeForTerminalEvent(latest.event);
   const errorDetail = errorDetailForTerminalEvent(latest.event);
-  // A row already holding the reconciled values is converged, and saying
-  // otherwise is not cosmetic: the UPDATE below still matches such a row and
-  // SQL counts an unchanged rewrite as affected, so `rowsAffected` reports
-  // "repaired" on every call. `getRunByThread` re-reads and re-reconciles on
-  // that answer, so a settled errored/stale_run row recurses forever and pins
-  // the event loop instead of returning. Converged must read as no work done.
   const { rows: currentRows } = await client.execute({
-    sql: `SELECT status, error_code, terminal_reason, completed_at FROM agent_runs WHERE id = ?`,
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id, status,
+                 error_code, terminal_reason, completed_at,
+                 thread_projection_pending
+          FROM agent_runs WHERE id = ?`,
     args: [runId],
   });
   const current = currentRows[0] as
     | {
+        thread_id?: string | null;
+        turn_id?: string | null;
         status?: string | null;
         error_code?: string | null;
         terminal_reason?: string | null;
         completed_at?: number | string | null;
+        thread_projection_pending?: boolean | string | number | null;
       }
     | undefined;
+  if (
+    typeof current?.thread_id !== "string" ||
+    typeof current.turn_id !== "string"
+  ) {
+    return false;
+  }
+  const projectionAlreadyPending =
+    current?.thread_projection_pending === true ||
+    current?.thread_projection_pending === "t" ||
+    current?.thread_projection_pending === 1;
   if (
     current &&
     current.status === status &&
     (current.error_code ?? null) === (errorCode ?? null) &&
     (current.terminal_reason ?? null) === terminalReason &&
-    current.completed_at != null
+    current.completed_at != null &&
+    (!options.threadProjectionPending || projectionAlreadyPending)
   ) {
     return false;
   }
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs
+  const allowMatchingTerminalRepair =
+    options.threadProjectionPending === true && current.status === status;
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs
           SET status = ?,
               completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
               error_code = ?,
               error_detail = ?,
-              terminal_reason = ?
+              terminal_reason = ?,
+              thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
           WHERE id = ?
             AND (
               status = 'running'
               OR (status = 'errored' AND error_code = ?)
+              ${allowMatchingTerminalRepair ? "OR (status = ? AND terminal_reason = ?)" : ""}
             )`,
-    args: [
-      status,
-      latest.eventAt,
-      errorCode,
-      errorDetail,
-      terminalReason,
+        args: [
+          status,
+          latest.eventAt,
+          errorCode,
+          errorDetail,
+          terminalReason,
+          options.threadProjectionPending === true,
+          runId,
+          STALE_RUN_ERROR_EVENT.errorCode,
+          ...(allowMatchingTerminalRepair ? [status, terminalReason] : []),
+        ],
+      }),
+    {
       runId,
-      STALE_RUN_ERROR_EVENT.errorCode,
-    ],
-  });
+      threadId: current.thread_id,
+      turnId: current.turn_id,
+    },
+  );
   return (rowsAffected ?? 0) > 0;
 }
 
-/**
- * Diagnostic stage names recorded onto a background run as it moves through the
- * `_process-run` worker pipeline. Each value is the LAST stage successfully
- * reached, so a stuck run's `diag_stage` reveals exactly where it died. Ordered
- * roughly by execution; the literal strings are the client-readable contract.
- */
 export const RUN_DIAG_STAGE = {
-  /** The `_process-run` route handler was entered (the request reached Nitro). */
   routeEntered: "route_entered",
-  /** HMAC auth + body validation in prepareProcessRunRequest FAILED. */
   authFailed: "auth_failed",
-  /** HMAC auth + body validation PASSED; about to invoke the worker handler. */
   authPassed: "auth_passed",
-  /** The re-entered agent-chat handler recognized itself as the bg worker. */
   workerEntered: "worker_entered",
-  /** The worker won the atomic claim (it owns the run). */
   workerClaimed: "worker_claimed",
-  /** The worker LOST the claim (a duplicate delivery already owns the run). */
   workerClaimLost: "worker_claim_lost",
-  /** The agent loop started (startRun fired). */
   workerStarted: "worker_started",
-  /** Last worker setup stage reached before startRun (progressive hang localizer). */
   workerSetupStep: "worker_setup_step",
-  /** Pre-claim setup timing breakdown (diagnostic). */
   setupTimings: "setup_timings",
-  /** The worker threw before/while running the loop (message carried in detail). */
   workerThrew: "worker_threw",
-  /** The route handler caught an error from the worker invocation. */
   routeThrew: "route_threw",
-  /**
-   * The foreground circuit-breaker fired: a Netlify async 202 was returned but
-   * no background worker CLAIMED the run within the foreground grace window
-   * (the generated function wrapper never reached the route), so the foreground
-   * recovered by running the turn inline. The run still completes for the user.
-   */
   foregroundInlineRecovery: "foreground_inline_recovery",
-  /**
-   * FIX 3 (durable-background incident): a stale-run reaper (`reapIfStale` /
-   * `reapAllStaleRuns`) found this background chat-turn run dead (heartbeat
-   * stale, no terminal event) and attempted server-owned recovery — detail
-   * carries the outcome (a recovered successor's runId, or why recovery was
-   * declined: not eligible, payload missing, a newer run already exists, or
-   * the per-turn budget is exhausted). See `attemptStaleRunRecovery`.
-   */
   staleRunRecoveryAttempted: "stale_run_recovery_attempted",
+  runBoundaryReached: "run_boundary_reached",
+  staleRunReaped: "stale_run_reaped",
 } as const;
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
 
-/**
- * Record the last reached pipeline stage (+ optional short detail) for a run.
- *
- * PURPOSE: a Netlify background function's logs are not readable from the build
- * tooling, so when its worker dies silently the run just times out with no clue
- * WHY. This writes the failure stage straight onto the `agent_runs` row, which
- * `/runs/active` and `listRunsForThread` surface to the client — so the next
- * prod run's death cause is readable WITHOUT bg-fn logs. Cheap, additive, and
- * best-effort: it must never throw or perturb the run (it is called on the auth
- * path BEFORE a 401 is returned, and around the worker body).
- *
- * The stored value is a compact JSON `{ stage, detail?, at }` capped to 2 KB so
- * a long stack can't bloat the row.
- */
 export async function recordRunDiagnostic(
   runId: string,
   stage: RunDiagStage,
@@ -1436,64 +2334,61 @@ export async function recordRunDiagnostic(
   if (!runId) return;
   try {
     await ensureRunTables();
-    const client = getDbExec();
     const payload = JSON.stringify({
       stage,
       ...(detail ? { detail: detail.slice(0, 1500) } : {}),
       at: Date.now(),
     }).slice(0, 2000);
-    // Worker-setup stages ALSO land in `worker_stage`, a column the foreground's
-    // inline-recovery `setup_timings` write never touches. `/runs/active` only
-    // surfaces a run after it is claimed, and the foreground then overwrites
-    // `diag_stage` — so without this the durable worker's pre-claim progression
-    // (where it stalled before claiming) is unrecoverable. `worker_stage`
-    // preserves the last worker stage reached for post-hoc diagnosis.
     const isWorkerStage =
       stage === RUN_DIAG_STAGE.workerSetupStep ||
       stage === RUN_DIAG_STAGE.workerStarted;
     if (isWorkerStage) {
-      await client.execute({
-        sql: `UPDATE agent_runs SET diag_stage = ?, worker_stage = ? WHERE id = ?`,
-        args: [payload, payload, runId],
-      });
+      await withFencedExecutionWrite(
+        (tx) =>
+          tx.execute({
+            sql: `UPDATE agent_runs SET diag_stage = ?, worker_stage = ? WHERE id = ?`,
+            args: [payload, payload, runId],
+          }),
+        { runId },
+      );
     } else {
-      await client.execute({
-        sql: `UPDATE agent_runs SET diag_stage = ? WHERE id = ?`,
-        args: [payload, runId],
-      });
+      await withFencedExecutionWrite(
+        (tx) =>
+          tx.execute({
+            sql: `UPDATE agent_runs SET diag_stage = ? WHERE id = ?`,
+            args: [payload, runId],
+          }),
+        { runId },
+      );
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof ExecutionFenceError) throw error;
     // Diagnostics are best-effort; never let them break the run or the route.
   }
 }
 
-/** Update the run's liveness heartbeat. Called periodically by run-manager. */
+const HEARTBEAT_WRITE_TIMEOUT_MS = Math.floor(RUN_STALE_MS / 3);
+
 export async function updateRunHeartbeat(runId: string): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
-  // Only bump liveness while the row is still running. Zombie producers that
-  // keep their setInterval after status flips to errored/completed used to
-  // rewrite heartbeat_at for minutes after the turn died (seen on slides
-  // prod: heartbeat continued ~400s past completed_at), which confuses
-  // triage and can keep /runs/active looking "fresh" after failure.
-  await client.execute({
-    sql: `UPDATE agent_runs
+  await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs
           SET heartbeat_at = ?,
               peak_rss_mb = CASE
                 WHEN peak_rss_mb IS NULL OR peak_rss_mb < ? THEN ?
                 ELSE peak_rss_mb
               END
           WHERE id = ? AND status = 'running'`,
-    args: [Date.now(), currentRssMb(), currentRssMb(), runId],
-  });
+        args: [Date.now(), currentRssMb(), currentRssMb(), runId],
+        timeoutMs: HEARTBEAT_WRITE_TIMEOUT_MS,
+        maxAttempts: 1,
+      }),
+    { runId },
+  );
 }
 
-/**
- * Resident memory in whole MB, or 0 where the runtime does not expose it
- * (Workers, Deno). Piggybacks the heartbeat rather than adding a timer: a run
- * killed by the platform never gets to report anything, so the last persisted
- * high-water mark is the only evidence that survives.
- */
 function currentRssMb(): number {
   try {
     const rss = process.memoryUsage?.().rss;
@@ -1503,148 +2398,124 @@ function currentRssMb(): number {
   }
 }
 
-/**
- * Bump `last_progress_at` — call this whenever the agent actually emits an
- * event (token, tool call, message). Distinct from `heartbeat_at` so the
- * stuck-detector can tell "process alive but nothing happening" from
- * "process dead." Callers should throttle (run-manager debounces to ~1/s).
- */
-export async function bumpRunProgress(runId: string): Promise<void> {
+export async function bumpRunProgress(runId: string): Promise<boolean> {
   await ensureRunTables();
-  const client = getDbExec();
   const now = Date.now();
-  await client.execute({
-    // Multiple event-persistence paths and serverless isolates can bump the
-    // same run concurrently. A slower, older write must never land after a
-    // newer one and move the user-visible no-progress clock backwards.
-    // CASE keeps this portable across SQLite and Postgres.
-    sql: `UPDATE agent_runs SET last_progress_at = CASE WHEN last_progress_at IS NULL OR last_progress_at < ? THEN ? ELSE last_progress_at END WHERE id = ? AND status = 'running'`,
-    args: [now, now, runId],
-  });
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs SET last_progress_at = CASE WHEN last_progress_at IS NULL OR last_progress_at < ? THEN ? ELSE last_progress_at END WHERE id = ? AND status = 'running'`,
+        args: [now, now, runId],
+      }),
+    { runId },
+  );
+  return (rowsAffected ?? 0) > 0;
 }
 
 /**
  * Mirror run-manager's in-memory `inFlightWorkCount` 0<->N transitions into
- * SQL so a stale reaper running in a DIFFERENT isolate can tell a
- * demonstrably-alive run (holding a tool call or A2A `agent_call` delegation)
- * apart from a genuinely dead one — see `IN_FLIGHT_RUN_STALE_GRACE_MS`'s doc
- * comment for the full reasoning.
+ * SQL so callers can report when a run is holding a tool call or A2A
+ * `agent_call` delegation.
  *
  * `inFlight: true` only writes when the row is still `NULL` — a defense-in-
  * depth belt-and-suspenders against a nested 1->2 transition clobbering the
  * ORIGINAL start time with a later one (the caller's own counter already
  * dedupes 0->1 transitions; this WHERE just makes the write itself
- * idempotent/order-independent too). `inFlight: false` always clears
- * unconditionally — if it races a fresh 0->1 write from a *different* tool
- * finishing/starting back to back, worst case is losing a few seconds of
- * grace, never gaining an incorrect one.
+ * idempotent/order-independent too). When `markerSince` is supplied for a
+ * clear, the UPDATE is conditional on the marker still having that value. The
+ * run manager serializes marker writes and supplies this token so a delayed
+ * clear from one tool cannot erase a newer tool's marker.
  *
- * Best-effort: callers fire-and-forget (`.catch(() => {})`) so a write
- * failure here never blocks event emission or aborts the run. If this write
- * itself fails (the same DB pressure that could be starving the heartbeat),
- * the row simply gets no grace — never worse than today's behavior.
+ * Best-effort: callers fire-and-forget so a write failure here never blocks
+ * event emission or aborts the run. The run manager logs marker-write failures
+ * while preserving transition order. Run liveness remains governed by the
+ * execution lease and heartbeat.
  */
 export async function setRunInFlightMarker(
   runId: string,
   inFlight: boolean,
+  markerSince?: number,
 ): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
   if (inFlight) {
-    await client.execute({
-      sql: `UPDATE agent_runs SET in_flight_since = ? WHERE id = ? AND status = 'running' AND in_flight_since IS NULL`,
-      args: [Date.now(), runId],
-    });
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql: `UPDATE agent_runs SET in_flight_since = ? WHERE id = ? AND status = 'running' AND in_flight_since IS NULL`,
+          args: [markerSince ?? Date.now(), runId],
+        }),
+      { runId },
+    );
   } else {
-    await client.execute({
-      sql: `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ?`,
-      args: [runId],
-    });
+    await withFencedExecutionWrite(
+      (tx) =>
+        tx.execute({
+          sql:
+            markerSince == null
+              ? `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ?`
+              : `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ? AND in_flight_since = ?`,
+          args: markerSince == null ? [runId] : [runId, markerSince],
+        }),
+      { runId },
+    );
   }
 }
 
-/** A recovery successor row created by `attemptStaleRunRecovery`. */
 interface StaleRunRecoverySuccessor {
   successorRunId: string;
   threadId: string;
   turnId: string;
 }
 
-/**
- * FIX 3 (durable-background incident) discriminated outcome of a recovery
- * attempt — recorded as a diag stage (except `not_background`, the
- * overwhelmingly common case for every ordinary foreground reap) so a
- * silently-died background worker's fate is diagnosable without bg-fn logs.
- */
 type StaleRunRecoveryOutcome =
   | ({ outcome: "recovered" } & StaleRunRecoverySuccessor)
   | { outcome: "not_background" }
   | { outcome: "not_redispatchable" }
   | { outcome: "newer_run_exists" }
+  | { outcome: "execution_lease_changed" }
+  | { outcome: "turn_aborted" }
   | { outcome: "budget_exhausted" }
   | { outcome: "repeated_no_progress" };
 
-/**
- * Mirrors `production-agent.ts`'s `generateRunId` — duplicated (not
- * imported) to avoid a run-store.ts <-> production-agent.ts import cycle
- * (production-agent.ts already imports run-manager.ts, which imports this
- * file). Keep the format in sync if that one changes.
- */
 function generateRecoveryRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function staleRecoveryDispatchPayload(payload: string): string {
+type StaleRecoveryDispatchPayloadResult =
+  | { ok: true; payload: string }
+  | {
+      ok: false;
+      reason: "malformed_json" | "invalid_shape" | "unsafe_payload";
+    };
+
+function staleRecoveryDispatchPayload(
+  payload: string,
+  runId: string,
+): StaleRecoveryDispatchPayloadResult {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(payload);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return payload;
-    }
-    return JSON.stringify({
-      ...(parsed as Record<string, unknown>),
-      internalContinuation: true,
-    });
+    parsed = JSON.parse(payload);
   } catch {
-    return payload;
+    return { ok: false, reason: "malformed_json" };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, reason: "invalid_shape" };
+  }
+
+  try {
+    const serialized = JSON.stringify({
+      ...stripInlineBytes(parsed as Record<string, unknown>, "placeholder"),
+      internalContinuation: true,
+      // The worker replaces __backgroundRun when rehydrating a payloadRef.
+      [AGENT_CHAT_RECOVERY_OF_RUN_FIELD]: runId,
+    });
+    assertNoInlineImageBytes(serialized, "stale recovery dispatch_payload");
+    return { ok: true, payload: serialized };
+  } catch {
+    return { ok: false, reason: "unsafe_payload" };
   }
 }
 
-/**
- * FIX 3 (durable-background incident): when a stale-run reaper is about to
- * flip a BACKGROUND chat-turn run to errored/stale_run, attempt to keep the
- * TURN alive instead of leaving it dead — a background worker has no
- * connected client watching it, unlike a foreground run, so nothing else
- * would ever recover it. Inserts an UNCLAIMED successor row (same turnId,
- * `dispatch_payload` carried over from the dying run) that the existing
- * unclaimed-background-run sweep (`agent-chat-plugin.ts`, ~20s fast sweep)
- * picks up and redispatches automatically — this function never dispatches
- * anything itself beyond the best-effort immediate attempt its caller fires.
- *
- * `db` is threaded through (rather than calling `getDbExec()` internally)
- * so the caller can run this INSIDE the same transaction as the reap-to-
- * errored write — see `reapSingleStaleRun` for why that matters.
- *
- * Eligibility (ALL must hold, or this is a documented no-op — the caller's
- * normal loud stale_run failure proceeds unchanged):
- *   - the row is a background chat-turn dispatch (`dispatch_mode` starting
- *     with "background") — a foreground/foreground-self-chain run has a
- *     connected client to recover it via its own `auto_continue` re-POST.
- *   - its `dispatch_payload` is still present (an in-process automation run
- *     never had one and is declined as `not_redispatchable`, not as a loss)
- *     — without it there is nothing
- *     to rehydrate the successor's request body from. Read HERE, before the
- *     caller's terminal write (which NULLs `dispatch_payload` on every other
- *     path), so it survives long enough to carry over.
- *   - no newer run already exists for the same turn — avoids stacking a
- *     second successor onto a turn a previous recovery (or a normal
- *     `chainServerDrivenContinuation`) already continued. Combined with the
- *     caller's own atomic "did I win the reap" gate, this guarantees AT MOST
- *     ONE recovery successor per reaped run even under concurrent reapers.
- *   - the per-turn run ledger (`countRunsForTurn`'s underlying query) has
- *     room (`STALE_RUN_RECOVERY_MAX_TURN_RUNS`) — mirrors
- *     `chainServerDrivenContinuation`'s own budget guard so a pathological
- *     turn can't loop forever through reaper-driven recovery either.
- */
 async function attemptStaleRunRecovery(
   db: DbExec,
   runId: string,
@@ -1668,54 +2539,59 @@ async function attemptStaleRunRecovery(
   }
   const payload = row.dispatch_payload;
   if (typeof payload !== "string" || payload.length === 0) {
-    // Not an anomaly, and specifically NOT a lost payload: every HTTP-dispatched
-    // background run writes `dispatch_payload` in the same INSERT that creates
-    // the row, so a payload-less row is one that was never HTTP-dispatched at
-    // all — an in-process automation from `runBackgroundAutomation`. It has no
-    // request body to rehydrate because there was never a request. Naming this
-    // `payload_missing` read as "we are losing payloads" in production
-    // forensics and sent a reader hunting a bug that does not exist.
     return { outcome: "not_redispatchable" };
   }
+  const recoveryPayload = staleRecoveryDispatchPayload(payload, runId);
+  if (!recoveryPayload.ok) return { outcome: "not_redispatchable" };
   const threadId = row.thread_id;
   const turnId = row.turn_id ?? runId;
   const startedAt = Number(row.started_at) || 0;
 
+  const abortMarker = await db.execute({
+    sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ?
+          AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
+    args: [threadId, turnId],
+  });
+  if (abortMarker.rows.length > 0) return { outcome: "turn_aborted" };
+
+  await lockContinuationOrder(db, threadId, turnId);
+
   const { rows: newerRows } = await db.execute({
-    sql: `SELECT id FROM agent_runs WHERE turn_id = ? AND id != ? AND started_at > ? LIMIT 1`,
-    args: [turnId, runId, startedAt],
+    sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND id != ? AND started_at > ? LIMIT 1`,
+    args: [threadId, turnId, runId, startedAt],
   });
   if ((newerRows?.length ?? 0) > 0) {
     return { outcome: "newer_run_exists" };
   }
 
-  // Inline COUNT rather than the exported `countRunsForTurn` (which opens
-  // its own `getDbExec()` connection) — this must read through the SAME `db`
-  // handle as everything else here so it participates in the caller's
-  // transaction when one is active.
   const { rows: countRows } = await db.execute({
-    sql: `SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND turn_id = ?`,
+    sql: `SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ?`,
     args: [threadId, turnId],
   });
   const turnRunCount = Number(
     (countRows?.[0] as { run_count?: unknown } | undefined)?.run_count,
   );
-  if (
-    Number.isFinite(turnRunCount) &&
-    turnRunCount > STALE_RUN_RECOVERY_MAX_TURN_RUNS
-  ) {
+  if (Number.isFinite(turnRunCount) && turnRunLedgerExhausted(turnRunCount)) {
     return { outcome: "budget_exhausted" };
   }
 
-  // See `STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT`: a run whose last
-  // N attempts (including the one just reaped, already written by the
-  // caller's UPDATE earlier in this same transaction) all died as stale_run
-  // having made essentially no real progress is retrying an unwinnable
-  // request, not recovering from a blip. Stop far short of the 25-run/~22min
-  // budget above instead of grinding through it.
+  const { rows: staleCountRows } = await db.execute({
+    sql: `SELECT COUNT(*) AS stale_count FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND error_code = ? AND id <> ?`,
+    args: [threadId, turnId, STALE_RUN_ERROR_EVENT.errorCode, runId],
+  });
+  const staleSuccessorCount = Number(
+    (staleCountRows?.[0] as { stale_count?: unknown } | undefined)?.stale_count,
+  );
+  if (
+    Number.isFinite(staleSuccessorCount) &&
+    staleSuccessorCount >= STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN
+  ) {
+    return { outcome: "repeated_no_progress" };
+  }
+
   const { rows: recentRows } = await db.execute({
-    sql: `SELECT error_code, started_at, last_progress_at FROM agent_runs WHERE turn_id = ? ORDER BY started_at DESC LIMIT ?`,
-    args: [turnId, STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT],
+    sql: `SELECT error_code, started_at, last_progress_at FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? ORDER BY started_at DESC LIMIT ?`,
+    args: [threadId, turnId, STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT],
   });
   const recent = (recentRows ?? []) as Array<{
     error_code?: string | null;
@@ -1740,8 +2616,13 @@ async function attemptStaleRunRecovery(
 
   const successorRunId = generateRecoveryRunId();
   const now = Date.now();
-  await db.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?) ON CONFLICT (id) DO NOTHING`,
+  const continuationOrder = await nextContinuationOrder(db, threadId, turnId);
+  assertNoInlineImageBytes(
+    recoveryPayload.payload,
+    "stale recovery dispatch_payload",
+  );
+  const inserted = await db.execute({
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?, ?) ON CONFLICT (id) DO NOTHING RETURNING id`,
     args: [
       successorRunId,
       threadId,
@@ -1749,25 +2630,16 @@ async function attemptStaleRunRecovery(
       now,
       now,
       turnId,
-      staleRecoveryDispatchPayload(payload),
+      recoveryPayload.payload,
+      continuationOrder,
     ],
   });
+  if (inserted.rows.length !== 1) {
+    throw new Error(`Stale-run successor ${successorRunId} was not inserted`);
+  }
   return { outcome: "recovered", successorRunId, threadId, turnId };
 }
 
-/**
- * FIX 3: best-effort immediate redispatch for a stale-run recovery
- * successor, mirroring the "Unclaimed background-run sweep" redispatch
- * marker in `agent-chat-plugin.ts` (deliberately omits `continuationCount`
- * — see that file's comment — so a reaper-recovered chunk starts a fresh
- * nested-dispatch segment at depth 0). Fire-and-forget and never awaited by
- * callers: the successor row is already durably persisted (unclaimed,
- * `dispatch_payload` set) regardless of whether this dispatch lands, so a
- * failure here just means the existing fast unclaimed-background-run sweep
- * (`UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS`, ~20s) picks it up instead — the
- * row is left claimable, never marked errored, by construction (this
- * function never writes to `agent_runs`).
- */
 function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
   void (async () => {
     try {
@@ -1802,45 +2674,69 @@ function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
   })();
 }
 
-/**
- * Shared reap-to-stale-error implementation for a SINGLE run, used by both
- * `reapIfStale` (per-row, hot read path) and `reapAllStaleRuns` (per-row loop
- * over a stale-row snapshot — a row's own staleness is re-checked at UPDATE
- * time exactly as the prior bulk UPDATE did, so a heartbeat that lands
- * between the snapshot SELECT and this call naturally excludes the row).
- *
- * FIX 3: wraps the reap-to-errored write together with the recovery-
- * successor insert (`attemptStaleRunRecovery`) in ONE transaction so a
- * client polling `/runs/active` mid-recovery can never observe "errored, no
- * successor" — both writes commit together or not at all. A recovery
- * failure (thrown inside the transaction callback) is caught locally and
- * never rolls back the reap itself: the reap is the critical path, recovery
- * is strictly additive.
- */
+function priorDiagStageLabel(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { stage?: unknown }).stage === "string"
+    ) {
+      return (parsed as { stage: string }).stage;
+    }
+  } catch {
+    // coercion-ok: not the `{stage,...}` JSON shape — the raw text is returned
+    // below, so the caller still sees the original value, not a blank.
+  }
+  return raw.slice(0, 120);
+}
+
+async function reconcileTerminalRunInRecoveryTransaction(
+  tx: DbExec,
+  runId: string,
+): Promise<boolean> {
+  const latest = await getRunEventForReconciliation(runId, tx);
+  if (!latest) return false;
+  const status = terminalStatusForEvent(latest.event);
+  const terminalReason = terminalReasonForEvent(latest.event);
+  if (!status || !terminalReason) return false;
+
+  const { rowsAffected } = await tx.execute({
+    sql: `UPDATE agent_runs
+          SET status = ?,
+              completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
+              error_code = ?,
+              error_detail = ?,
+              terminal_reason = ?
+          WHERE id = ? AND status = 'running'`,
+    args: [
+      status,
+      latest.eventAt,
+      errorCodeForTerminalEvent(latest.event),
+      errorDetailForTerminalEvent(latest.event),
+      terminalReason,
+      runId,
+    ],
+  });
+  return (rowsAffected ?? 0) === 1;
+}
+
 async function reapSingleStaleRun(
   runId: string,
+  source: string,
   maxStaleMs?: number,
-): Promise<boolean> {
+): Promise<{ reaped: boolean; projectionFailed: boolean }> {
   const completedAt = Date.now();
-  // Background-dispatched runs get the wider stale window so a slow cold-start
-  // isn't reaped; foreground runs keep the tight 15s window. An explicit
-  // override forces a flat window for callers that want one — and, like that
-  // override already bypasses the background-aware widening, it also bypasses
-  // the in-flight grace below: an explicit `maxStaleMs` is an exact,
-  // caller-chosen window and stays exact.
   const staleClause =
     typeof maxStaleMs === "number"
       ? `${livenessBasisSql()} < ?`
-      : `${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()} AND ${inFlightGraceSql()}`;
+      : `${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`;
   const staleArgs =
-    typeof maxStaleMs === "number"
-      ? [completedAt - maxStaleMs]
-      : // First `?` is backgroundAwareStaleCutoffSql's CAST param, the next two
-        // are inFlightGraceSql's — all bound to the same "now".
-        [completedAt, completedAt, completedAt];
+    typeof maxStaleMs === "number" ? [completedAt - maxStaleMs] : [completedAt];
   const updateSql = `UPDATE agent_runs
           SET status = 'errored',
-              completed_at = ?,
+              completed_at = COALESCE(completed_at, ${livenessBasisSql()}),
               error_code = ?,
               error_detail = ?,
               terminal_reason = ?
@@ -1849,147 +2745,279 @@ async function reapSingleStaleRun(
             AND ${terminalRunEventExclusionSql()}
             AND ${staleClause}`;
   const updateArgs = [
-    completedAt,
     STALE_RUN_ERROR_EVENT.errorCode,
     STALE_RUN_ERROR_EVENT.details,
-    STALE_RUN_ERROR_EVENT.errorCode,
+    STALE_RUN_TERMINAL_REASON,
     runId,
     ...staleArgs,
   ];
 
   const client = getDbExec();
-  let reaped = false;
-  let outcome: StaleRunRecoveryOutcome | null = null;
-  if (client.transaction) {
-    await client.transaction(async (tx) => {
-      const { rowsAffected } = await tx.execute({
-        sql: updateSql,
-        args: updateArgs,
-      });
-      reaped = (rowsAffected ?? 0) > 0;
-      if (reaped) {
-        outcome = await attemptStaleRunRecovery(tx, runId).catch(() => null);
-      }
+  if (!client.transaction) {
+    throw new Error("Atomic stale-run fencing requires transaction support");
+  }
+  const owner = await client.execute({
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id
+          FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const runScope = owner.rows[0] as
+    | { thread_id?: unknown; turn_id?: unknown }
+    | undefined;
+  if (
+    typeof runScope?.thread_id !== "string" ||
+    typeof runScope.turn_id !== "string"
+  ) {
+    return { reaped: false, projectionFailed: false };
+  }
+  const reapResult = await client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-slot:${runScope.thread_id}`],
     });
-  } else {
-    // No transaction primitive on this DbExec (every current implementation
-    // provides one — see db/client.ts — so this is a defensive fallback,
-    // not an expected path). Ordering the recovery design explicitly
-    // tolerates: insert the successor FIRST, then flip the old row terminal
-    // — a still-"running" old row plus an unclaimed successor is a safe
-    // intermediate state; the reverse (errored with no successor briefly
-    // visible) is not. Narrow, accepted gap versus the transactional path:
-    // two concurrent reapers racing this exact fallback on the exact same
-    // run could each pass the "no newer run" check before either inserts,
-    // producing two successors for one turn.
-    outcome = await attemptStaleRunRecovery(client, runId).catch(() => null);
-    const { rowsAffected } = await client.execute({
+    const lease = await lockTurnExecutionLease(
+      tx,
+      runScope.thread_id as string,
+      runScope.turn_id as string,
+    );
+    const currentRun = await tx.execute({
+      sql: `SELECT status, worker_generation FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const run = currentRun.rows[0] as
+      | { status?: unknown; worker_generation?: number | string | null }
+      | undefined;
+    if (run?.status !== "running") return { reaped: false, outcome: null };
+    const generationMatches =
+      lease !== null &&
+      lease.ownerRunId === runId &&
+      (run.worker_generation == null ||
+        String(run.worker_generation) === lease.generation);
+    if (lease?.isLive && generationMatches) {
+      return { reaped: false, outcome: null };
+    }
+    if (await reconcileTerminalRunInRecoveryTransaction(tx, runId)) {
+      if (generationMatches && lease) {
+        await tx.execute({
+          sql: `UPDATE agent_execution_leases
+                SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+                WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+                  AND generation = CAST(? AS BIGINT)`,
+          args: [runScope.thread_id, runScope.turn_id, runId, lease.generation],
+        });
+      }
+      if (generationMatches || (!lease && run.worker_generation == null)) {
+        await tx.execute({
+          sql: `UPDATE agent_runs
+                SET thread_projection_pending = TRUE
+                WHERE id = ? AND status = 'errored'`,
+          args: [runId],
+        });
+      }
+      return { reaped: false, outcome: null };
+    }
+    const { rowsAffected } = await tx.execute({
       sql: updateSql,
       args: updateArgs,
     });
-    reaped = (rowsAffected ?? 0) > 0;
+    const reaped = (rowsAffected ?? 0) > 0;
+    let outcome: StaleRunRecoveryOutcome | null = null;
+    if (reaped) {
+      if (generationMatches && lease) {
+        await tx.execute({
+          sql: `UPDATE agent_execution_leases
+                SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+                WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+                  AND generation = CAST(? AS BIGINT)`,
+          args: [runScope.thread_id, runScope.turn_id, runId, lease.generation],
+        });
+      }
+      const executionLeaseChanged =
+        !generationMatches && (lease !== null || run.worker_generation != null);
+      outcome = executionLeaseChanged
+        ? { outcome: "execution_lease_changed" }
+        : await attemptStaleRunRecovery(tx, runId);
+      await appendTerminalRunEventInTransaction(
+        tx,
+        runId,
+        STALE_RUN_ERROR_EVENT,
+      );
+      if (outcome.outcome !== "execution_lease_changed") {
+        const projection = await tx.execute({
+          sql: `UPDATE agent_runs
+                SET thread_projection_pending = TRUE
+                WHERE id = ? AND status = 'errored'
+                RETURNING id`,
+          args: [runId],
+        });
+        if ((projection.rowsAffected ?? projection.rows.length) !== 1) {
+          throw new Error(
+            `Stale run ${runId} did not retain its thread projection retry marker`,
+          );
+        }
+      }
+    }
+    return { reaped, outcome };
+  });
+  const { reaped, outcome } = reapResult;
+
+  let forensics = "";
+  let priorStageInfo = "";
+  if (reaped) {
+    const read = await client
+      .execute({
+        sql: `SELECT started_at, heartbeat_at, last_progress_at, in_flight_since,
+                     dispatch_mode, dispatch_payload, diag_stage, worker_stage
+                FROM agent_runs WHERE id = ?`,
+        args: [runId],
+      })
+      .then((res) => {
+        const row = (res.rows as unknown as Array<Record<string, unknown>>)[0];
+        if (!row)
+          return { forensics: "forensics=row_missing", priorStageInfo: "" };
+        const num = (v: unknown) => (v == null ? null : Number(v));
+        const priorParts: string[] = [];
+        const priorDiag = priorDiagStageLabel(row.diag_stage);
+        const priorWorker = priorDiagStageLabel(row.worker_stage);
+        if (priorDiag) priorParts.push(`priorDiag=${priorDiag}`);
+        if (priorWorker) priorParts.push(`priorWorker=${priorWorker}`);
+        return {
+          forensics: describeStaleReap({
+            startedAt: num(row.started_at),
+            heartbeatAt: num(row.heartbeat_at),
+            lastProgressAt: num(row.last_progress_at),
+            inFlightSince: num(row.in_flight_since),
+            dispatchMode: (row.dispatch_mode as string | null) ?? null,
+            hasDispatchPayload: row.dispatch_payload != null,
+            ...(typeof maxStaleMs === "number" ? { maxStaleMs } : {}),
+            now: completedAt,
+          }),
+          priorStageInfo: priorParts.join(" "),
+        };
+      })
+      // Best-effort throughout: a diagnostic that could fail a reap would be
+      // strictly worse than no diagnostic. But an empty string reads as "reaped
+      // with nothing worth saying" — the exact ambiguity these forensics exist
+      // to remove — so an unreadable row says so instead of going quiet.
+      .catch((err) => ({
+        forensics: `forensics=unreadable ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
+        priorStageInfo: "",
+      }));
+    forensics = read.forensics;
+    priorStageInfo = read.priorStageInfo;
+  }
+
+  // Saved before the successor starts: a successor that folds its own reply
+  // first would have this older run's steps land after its, and take its
+  // error and status.
+  let projectionFailed = false;
+  if (reaped) {
+    // A newer generation owns the turn, so it must remain the sole thread projector.
+    projectionFailed = !(await finalizeStaleRun(
+      runId,
+      source,
+      outcome?.outcome !== "execution_lease_changed",
+    ));
   }
 
   if (reaped && outcome && outcome.outcome !== "not_background") {
-    const detail =
+    const outcomeDetail =
       outcome.outcome === "recovered"
         ? `recovered successorRunId=${outcome.successorRunId}`
         : `declined reason=${outcome.outcome}`;
+    const detail = priorStageInfo
+      ? `${outcomeDetail} ${priorStageInfo}`
+      : outcomeDetail;
     await recordRunDiagnostic(
       runId,
       RUN_DIAG_STAGE.staleRunRecoveryAttempted,
-      detail,
+      forensics ? `${detail} ${forensics}` : detail,
     ).catch(() => {});
     if (outcome.outcome === "recovered") {
       attemptStaleRunRecoveryDispatch(outcome.successorRunId);
     }
+  } else if (reaped && forensics) {
+    await recordRunDiagnostic(
+      runId,
+      RUN_DIAG_STAGE.staleRunReaped,
+      forensics,
+    ).catch(() => {});
   }
-  return reaped;
+
+  return { reaped, projectionFailed };
 }
 
-/**
- * If the given run is marked "running" in SQL but its heartbeat is stale
- * (producer likely crashed), flip it to "errored" so watchers stop waiting.
- * Returns true if the row was reaped.
- */
 export async function reapIfStale(
   runId: string,
   maxStaleMs?: number,
 ): Promise<boolean> {
   await ensureRunTables();
   if (await reconcileTerminalRunFromEvents(runId)) return false;
-  const reaped = await reapSingleStaleRun(runId, maxStaleMs);
-  if (!reaped && (await reconcileTerminalRunFromEvents(runId))) return false;
-  if (reaped) {
-    await safeAppendTerminalRunEvent(
-      runId,
-      STALE_RUN_ERROR_EVENT,
-      "reap-if-stale",
-    );
-  }
-  return reaped;
+  const result = await reapSingleStaleRun(runId, "reap-if-stale", maxStaleMs);
+  if (!result.reaped && (await reconcileTerminalRunFromEvents(runId)))
+    return false;
+  return result.reaped;
 }
 
-/**
- * FALLBACK HARDENING for the "dispatched with 202 but the worker never started"
- * case. A background-dispatched run sits in `dispatch_mode = 'background'` until
- * the worker wins `claimBackgroundRun` (which flips it to
- * `background-processing`). If the worker silently dies (e.g. the bg-fn 401s
- * before it can claim), the row stays `background`, never heartbeats again, and
- * — because dispatch returned 202 — the foreground already returned the SSE
- * stream, so the existing fast-fail inline fallback never engaged. The run would
- * otherwise hang for the full durable background window and then error opaquely.
- *
- * This reaps such a run EARLY and DISTINCTLY: a row that is still unclaimed
- * (`dispatch_mode = 'background'`) past the tight `UNCLAIMED_BACKGROUND_RUN_GRACE_MS`
- * grace is a dead handoff — there is no live worker to protect with the wide
- * window — so we flip it to `errored` with the recoverable
- * `background_worker_never_started` code. The client's existing recoverable-error
- * path then lets the user (or auto-recovery) re-drive the turn. Idempotent and
- * conditional: only an unclaimed, still-running, grace-exceeded row matches, so a
- * claimed worker, a fresh dispatch, or a terminal row is never touched.
- *
- * Returns true when this call reaped the run.
- */
 export async function reapUnclaimedBackgroundRun(
   runId: string,
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error(
+      "Atomic unclaimed-background reaping requires transaction support",
+    );
+  }
   const completedAt = Date.now();
   const cutoff = completedAt - UNCLAIMED_BACKGROUND_RUN_GRACE_MS;
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs
-          SET status = 'errored',
-              completed_at = ?,
-              error_code = ?,
-              error_detail = ?,
-              terminal_reason = ?
-          WHERE id = ?
-            AND status = 'running'
-            AND dispatch_mode = 'background'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [
-      completedAt,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.details,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
-      runId,
-      cutoff,
-    ],
+  const reaped = await client.transaction(async (tx) => {
+    const { rowsAffected } = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET status = 'errored',
+                completed_at = ?,
+                error_code = ?,
+                error_detail = ?,
+                terminal_reason = ?
+            WHERE id = ?
+              AND status = 'running'
+              AND dispatch_mode = 'background'
+              AND COALESCE(heartbeat_at, started_at) < ?`,
+      args: [
+        completedAt,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.details,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+        runId,
+        cutoff,
+      ],
+    });
+    const updated = (rowsAffected ?? 0) > 0;
+    if (updated) {
+      await appendTerminalRunEventInTransaction(
+        tx,
+        runId,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
+      );
+    }
+    return updated;
   });
-  const reaped = (rowsAffected ?? 0) > 0;
   if (reaped) {
-    await recordRunDiagnostic(
-      runId,
-      RUN_DIAG_STAGE.workerThrew,
-      "unclaimed background dispatch reaped (worker never claimed the run)",
-    );
-    await safeAppendTerminalRunEvent(
-      runId,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
-      "reap-unclaimed-background",
-    );
+    try {
+      await recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.workerThrew,
+        "unclaimed background dispatch reaped (worker never claimed the run)",
+      );
+    } catch (error) {
+      captureError(error, {
+        tags: {
+          component: "agent-run-store",
+          operation: "record-unclaimed-background-reap-diagnostic",
+        },
+        extra: { runId },
+      });
+    }
   }
   return reaped;
 }
@@ -1999,39 +3027,277 @@ export async function updateRunStatus(
   status: "completed" | "truncated" | "errored" | "aborted",
 ): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
-  await client.execute({
-    // Terminal writes also drop the (potentially large) dispatch payload —
-    // it only exists to rehydrate a not-yet-claimed background worker.
-    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ?`,
-    args: [status, Date.now(), runId],
-  });
+  await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ?`,
+        args: [status, Date.now(), runId],
+      }),
+    { runId },
+  );
 }
 
-/**
- * Conditional terminal status write: only updates if the row still belongs to
- * this run AND is still status='running'. Returns true when the update landed.
- *
- * This is the safe variant used by the producer's finally block so a zombie run
- * (reaped while executing) can never clobber the status written by the reaper
- * or a replacement run.
- */
 export async function updateRunStatusIfRunning(
   runId: string,
   status: "completed" | "truncated" | "errored" | "aborted",
+  options: { threadProjectionPending?: boolean } = {},
 ): Promise<boolean> {
   await ensureRunTables();
-  const client = getDbExec();
-  const { rowsAffected } = await client.execute({
-    // Terminal writes also drop the (potentially large) dispatch payload —
-    // it only exists to rehydrate a not-yet-claimed background worker.
-    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ? AND status = 'running'`,
-    args: [status, Date.now(), runId],
-  });
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL,
+                     thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
+              WHERE id = ? AND status = 'running'`,
+        args: [
+          status,
+          Date.now(),
+          options.threadProjectionPending === true,
+          runId,
+        ],
+      }),
+    { runId },
+  );
   return (rowsAffected ?? 0) > 0;
 }
 
-/** Read the current status of a run row. Returns null when the row is missing. */
+export async function updateRunTerminalStateIfRunning(
+  runId: string,
+  terminal: {
+    status: "completed" | "truncated" | "errored" | "aborted";
+    terminalReason: string;
+    errorCode?: string;
+    errorDetail?: string;
+  },
+): Promise<boolean> {
+  await ensureRunTables();
+  const terminalReason = terminal.terminalReason.slice(0, 200);
+  const status =
+    terminal.status === "completed" &&
+    isContinuationTerminalReason(terminalReason)
+      ? "truncated"
+      : terminal.status;
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs
+              SET status = ?, completed_at = ?, dispatch_payload = NULL,
+                  error_code = ?, error_detail = ?, terminal_reason = ?
+              WHERE id = ? AND status = 'running'`,
+        args: [
+          status,
+          Date.now(),
+          terminal.errorCode ?? null,
+          terminal.errorDetail?.slice(0, 2000) ?? null,
+          terminalReason,
+          runId,
+        ],
+      }),
+    { runId },
+  );
+  return (rowsAffected ?? 0) > 0;
+}
+
+/** A setup failure can precede the run-manager fence, so serialize it with reaping. */
+export async function finalizeClaimedBackgroundRunFailure(
+  runId: string,
+  failure: {
+    errorCode: string;
+    errorDetail: string;
+    event: Extract<AgentChatEvent, { type: "error" }>;
+  },
+): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error(
+      "Background run failure finalization requires transaction support",
+    );
+  }
+  const owner = await client.execute({
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id, worker_generation
+          FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const scope = owner.rows[0] as
+    | {
+        thread_id?: unknown;
+        turn_id?: unknown;
+        worker_generation?: number | string | null;
+      }
+    | undefined;
+  if (
+    typeof scope?.thread_id !== "string" ||
+    typeof scope.turn_id !== "string"
+  ) {
+    return false;
+  }
+  const expectedGeneration =
+    scope.worker_generation == null ? null : String(scope.worker_generation);
+
+  return client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-slot:${scope.thread_id}`],
+    });
+    const lease = await lockTurnExecutionLease(
+      tx,
+      scope.thread_id as string,
+      scope.turn_id as string,
+    );
+    const selected = await tx.execute({
+      sql: `SELECT status, dispatch_mode, worker_generation
+            FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const run = selected.rows[0] as
+      | {
+          status?: unknown;
+          dispatch_mode?: unknown;
+          worker_generation?: number | string | null;
+        }
+      | undefined;
+    if (
+      run?.status !== "running" ||
+      run.dispatch_mode !== "background-processing" ||
+      (run.worker_generation == null ? null : String(run.worker_generation)) !==
+        expectedGeneration
+    ) {
+      return false;
+    }
+    const generationMatches =
+      run.worker_generation == null
+        ? lease === null || lease.ownerRunId === runId
+        : lease !== null &&
+          lease.ownerRunId === runId &&
+          String(run.worker_generation) === lease.generation;
+    if (!generationMatches) return false;
+
+    const updated = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET status = 'errored', completed_at = ?, error_code = ?,
+                error_detail = ?, terminal_reason = ?, dispatch_payload = NULL
+            WHERE id = ? AND status = 'running'
+              AND dispatch_mode = 'background-processing'
+              AND ${terminalRunEventExclusionSql()}`,
+      args: [
+        Date.now(),
+        failure.errorCode,
+        failure.errorDetail.slice(0, 2000),
+        `error:${failure.errorCode}`.slice(0, 200),
+        runId,
+      ],
+    });
+    if ((updated.rowsAffected ?? 0) !== 1) return false;
+
+    const lastEvent = await tx.execute({
+      sql: `SELECT seq FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
+      args: [runId],
+    });
+    const lastSeq = (lastEvent.rows[0] as { seq?: number | string } | undefined)
+      ?.seq;
+    const inserted = await tx.execute({
+      sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+            VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
+      args: [
+        runId,
+        lastSeq === undefined ? 0 : Number(lastSeq) + 1,
+        Date.now(),
+        persistedRunEventData(JSON.stringify(failure.event)),
+      ],
+    });
+    if ((inserted.rowsAffected ?? 0) !== 1) {
+      throw new Error(`Failed to persist failure event for run ${runId}`);
+    }
+    return true;
+  });
+}
+
+export async function failRunBeforeDispatch(
+  runId: string,
+  errorCode: string,
+  errorDetail: string,
+  terminalReason: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Unstarted run failure requires transaction support");
+  }
+  const owner = await client.execute({
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id
+          FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const scope = owner.rows[0] as
+    | { thread_id?: unknown; turn_id?: unknown }
+    | undefined;
+  if (
+    typeof scope?.thread_id !== "string" ||
+    typeof scope.turn_id !== "string"
+  ) {
+    return false;
+  }
+  return client.transaction(async (tx) => {
+    const lease = await lockTurnExecutionLease(
+      tx,
+      scope.thread_id as string,
+      scope.turn_id as string,
+    );
+    const run = await tx.execute({
+      sql: `SELECT status, worker_generation FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const currentRun = run.rows[0] as
+      | { status?: unknown; worker_generation?: number | string | null }
+      | undefined;
+    if (currentRun?.status !== "running") {
+      return false;
+    }
+    if (
+      lease?.isLive &&
+      lease.ownerRunId === runId &&
+      (currentRun.worker_generation == null ||
+        String(currentRun.worker_generation) === lease.generation)
+    ) {
+      return false;
+    }
+    const updated = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET status = 'errored', completed_at = ?, error_code = ?,
+                error_detail = ?, terminal_reason = ?, dispatch_payload = NULL
+            WHERE id = ? AND status = 'running'`,
+      args: [
+        Date.now(),
+        errorCode,
+        errorDetail.slice(0, 2000),
+        terminalReason.slice(0, 200),
+        runId,
+      ],
+    });
+    return (updated.rowsAffected ?? 0) === 1;
+  });
+}
+
+/** The caller owns this claim and has not called startRun yet. */
+export async function releaseBackgroundRunBeforeStart(
+  runId: string,
+  errorCode: string,
+  errorDetail: string,
+): Promise<void> {
+  await ensureRunTables();
+  const { rowsAffected } = await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET status = 'errored', completed_at = ?, error_code = ?, error_detail = ?, dispatch_payload = NULL
+          WHERE id = ? AND status = 'running' AND dispatch_mode = 'background-processing'`,
+    args: [Date.now(), errorCode, errorDetail, runId],
+  });
+  if (rowsAffected !== 1)
+    throw new Error(
+      `Unstarted background worker ${runId} could not be released`,
+    );
+}
+
 export async function getRunStatus(runId: string): Promise<string | null> {
   await ensureRunTables();
   const client = getDbExec();
@@ -2043,30 +3309,8 @@ export async function getRunStatus(runId: string): Promise<string | null> {
   return String((rows[0] as { status: string }).status);
 }
 
-/**
- * Abort reasons whose turn genuinely ended, so `done` is the truthful wire
- * event. `displaced` belongs here because whoever displaced this run already
- * wrote the row's real terminal state — synthesizing our own would fabricate
- * a second, competing truth.
- */
-const TURN_ENDING_ABORT_REASONS = new Set(["user", "displaced"]);
-
-// Only infrastructure interruptions that the client can safely resume are
-// recoverable. An arbitrary caller-supplied abort reason must never become an
-// auto-continue signal, because that turns an explicit stop into new work.
 const RECOVERABLE_ABORT_REASONS = new Set(["background_worker_died"]);
 
-/**
- * Truthful terminal event for an aborted run.
- *
- * A synthetic `done` is indistinguishable from a real finish on the wire, so
- * every recovery abort used to render as "The agent stopped without sending a
- * final message" with the streamed work apparently thrown away. Recoverable
- * chunk-boundary reasons ride the `auto_continue` channel the client already
- * routes into continuation; anything else that isn't a user stop surfaces as a
- * reason-coded error. Only known infrastructure aborts are recoverable;
- * every other abort is terminal and non-recoverable.
- */
 export function terminalEventForAbortReason(
   reason: string | undefined,
 ): AgentChatEvent {
@@ -2077,11 +3321,11 @@ export function terminalEventForAbortReason(
       reason: normalized as ContinuationReason,
     };
   }
-  if (
-    TURN_ENDING_ABORT_REASONS.has(normalized) ||
-    normalized.startsWith("user_")
-  ) {
-    return { type: "done" };
+  if (isRequestedStopAbortReason(normalized)) {
+    return {
+      type: "done",
+      ...(normalized !== "displaced" ? { reason: "user" } : {}),
+    };
   }
   return {
     type: "error",
@@ -2094,60 +3338,339 @@ export function terminalEventForAbortReason(
 export async function markRunAborted(
   runId: string,
   reason?: string,
-): Promise<void> {
+): Promise<boolean> {
+  return updateRunAborted(runId, reason, false);
+}
+
+/** Abort only when no model or tool work has crossed its dispatch boundary. */
+export async function markRunAbortedAtSafeBoundary(
+  runId: string,
+  reason?: string,
+): Promise<boolean> {
+  return updateRunAborted(runId, reason, true);
+}
+
+async function updateRunAborted(
+  runId: string,
+  reason: string | undefined,
+  requireSafeBoundary: boolean,
+): Promise<boolean> {
   await ensureRunTables();
+  const fence = currentExecutionFenceForScope({ runId });
   const client = getDbExec();
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'`,
-    args: [reason ?? "user", Date.now(), `aborted:${reason ?? "user"}`, runId],
-  });
-  if ((rowsAffected ?? 0) > 0) {
-    await safeAppendTerminalRunEvent(
-      runId,
-      terminalEventForAbortReason(reason) as unknown as Record<string, unknown>,
-      "mark-aborted",
-    );
+  if (!client.transaction) {
+    throw new Error("Atomic run cancellation requires transaction support");
   }
+  const abortResult = await client.transaction(async (tx) => {
+    await lockExecutionLeasesForRuns(tx, [runId]);
+    await lockAndAssertCurrentExecutionFences(tx);
+    const runResult = await tx.execute({
+      sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id,
+                   worker_generation
+            FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const lockedRun = runResult.rows[0] as
+      | {
+          thread_id?: string;
+          turn_id?: string;
+          worker_generation?: number | string | null;
+        }
+      | undefined;
+    if (
+      fence &&
+      (lockedRun?.thread_id !== fence.threadId ||
+        lockedRun.turn_id !== fence.turnId ||
+        lockedRun.worker_generation == null ||
+        String(lockedRun.worker_generation) !== fence.generation)
+    ) {
+      throw new StaleExecutionFenceError(fence);
+    }
+    if (requireSafeBoundary) {
+      if (lockedRun) {
+        if (
+          typeof lockedRun.thread_id !== "string" ||
+          typeof lockedRun.turn_id !== "string"
+        ) {
+          throw new Error(`Run ${runId} has an invalid thread or turn ID`);
+        }
+        const dispatchedStep = await tx.execute({
+          sql: `SELECT 1 FROM agent_execution_steps
+                WHERE thread_id = ? AND turn_id = ? AND status = 'dispatched'
+                  AND run_id = ?
+                LIMIT 1`,
+          args: [lockedRun.thread_id, lockedRun.turn_id, runId],
+        });
+        if (dispatchedStep.rows.length > 0) {
+          return { rowsAffected: 0, appendTerminalEvent: false };
+        }
+      }
+    }
+    const result = await tx.execute({
+      sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'${requireSafeBoundary ? " AND in_flight_since IS NULL" : ""}`,
+      args: [
+        reason ?? "user",
+        Date.now(),
+        `aborted:${reason ?? "user"}`,
+        runId,
+      ],
+    });
+    const rowsAffected = result.rowsAffected ?? 0;
+    if (rowsAffected > 0) {
+      await revokeExecutionLeasesForRuns(tx, [runId]);
+      return { rowsAffected, appendTerminalEvent: true };
+    }
+    const terminalState = await tx.execute({
+      sql: `SELECT status, terminal_reason, in_flight_since FROM agent_runs WHERE id = ?`,
+      args: [runId],
+    });
+    const terminalRun = terminalState.rows[0] as
+      | {
+          status?: string;
+          terminal_reason?: string | null;
+          in_flight_since?: number | string | null;
+        }
+      | undefined;
+    return {
+      rowsAffected,
+      appendTerminalEvent:
+        terminalRun?.status === "aborted" &&
+        terminalRun.terminal_reason === `aborted:${reason ?? "user"}` &&
+        (!requireSafeBoundary || terminalRun.in_flight_since == null),
+    };
+  });
+  if (abortResult.appendTerminalEvent) {
+    try {
+      await safeAppendTerminalRunEvent(
+        runId,
+        terminalEventForAbortReason(reason) as unknown as Record<
+          string,
+          unknown
+        >,
+        "mark-aborted",
+      );
+    } catch (error) {
+      throw new AgentRunEventNotPersistedError(runId, null, true, error);
+    }
+  }
+  return abortResult.rowsAffected > 0 || abortResult.appendTerminalEvent;
 }
 
-function turnAbortMarkerRunId(turnId: string): string {
-  return `turn-abort-${turnId}`;
+async function lockExecutionLeasesForRuns(
+  db: DbExec,
+  runIds: string[],
+): Promise<void> {
+  const ids = [...new Set(runIds)].sort();
+  if (ids.length === 0) return;
+  await db.execute({
+    sql: `SELECT owner_run_id FROM agent_execution_leases
+          WHERE owner_run_id IN (${ids.map(() => "?").join(", ")})
+          ORDER BY owner_run_id FOR UPDATE`,
+    args: ids,
+  });
 }
 
-/** Records Stop before a foreground request has created its real run row. */
+async function lockTurnExecutionLease(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<{ ownerRunId: string; generation: string; isLive: boolean } | null> {
+  await db.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [`agent-native:turn-execution-lease:${threadId}:${turnId}`],
+  });
+  const result = await db.execute({
+    sql: `SELECT generation, owner_run_id,
+                 lease_expires_at > clock_timestamp() AS lease_is_live
+          FROM agent_execution_leases
+          WHERE thread_id = ? AND turn_id = ?
+          FOR UPDATE`,
+    args: [threadId, turnId],
+  });
+  const row = result.rows[0] as
+    | {
+        generation?: number | string;
+        owner_run_id?: string;
+        lease_is_live?: boolean | string | number;
+      }
+    | undefined;
+  if (typeof row?.owner_run_id !== "string" || row.generation === undefined) {
+    return null;
+  }
+  return {
+    ownerRunId: row.owner_run_id,
+    generation: String(row.generation),
+    isLive: truthySqlValue(row.lease_is_live),
+  };
+}
+
+/** Serialize a task lifecycle change with worker lease claims and writes. */
+export async function lockTaskExecutionLease(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  await lockTurnExecutionLease(db, threadId, turnId);
+}
+
+/** Revoke a task worker while its lifecycle transaction holds the lease lock. */
+export async function revokeTaskExecutionLease(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  await db.execute({
+    sql: `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+          WHERE thread_id = ? AND turn_id = ?`,
+    args: [threadId, turnId],
+  });
+}
+
+async function revokeExecutionLeasesForRuns(
+  db: DbExec,
+  runIds: string[],
+): Promise<void> {
+  const ids = [...new Set(runIds)].sort();
+  if (ids.length === 0) return;
+  await db.execute({
+    sql: `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+          WHERE owner_run_id IN (${ids.map(() => "?").join(", ")})`,
+    args: ids,
+  });
+}
+
+function turnAbortMarkerRunId(threadId: string, turnId: string): string {
+  return `turn-abort:${encodeURIComponent(threadId)}:${encodeURIComponent(turnId)}`;
+}
+
 export async function markTurnAborted(
   threadId: string,
   turnId: string,
   reason: string = "user",
-): Promise<void> {
+): Promise<"aborted" | "already_terminal"> {
+  const fence = currentExecutionFence();
+  if (fence && (fence.threadId !== threadId || fence.turnId !== turnId)) {
+    throw new StaleExecutionFenceError(fence);
+  }
   await ensureRunTables();
   const now = Date.now();
   const client = getDbExec();
-  await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
-    args: [
-      turnAbortMarkerRunId(turnId),
-      threadId,
-      reason,
-      now,
-      now,
-      now,
-      now,
-      turnId,
-      `aborted:${reason}`,
-    ],
-  });
-  const { rows } = await client.execute({
-    sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
-    args: [threadId, turnId],
-  });
-  const runIds = rows
-    .map((row) => String((row as { id?: unknown }).id ?? ""))
-    .filter(Boolean);
-  if (runIds.length === 0) return;
-  await client.execute({
-    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
-    args: [reason, Date.now(), `aborted:${reason}`, threadId, turnId],
+  if (!client.transaction) {
+    throw new Error("Atomic turn cancellation requires transaction support");
+  }
+  const runIds: string[] = [];
+  const outcome = await client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-slot:${threadId}`],
+    });
+    await lockAndAssertCurrentExecutionFences(tx);
+    const lease = await lockTurnExecutionLease(tx, threadId, turnId);
+    if (
+      fence &&
+      (!lease ||
+        !lease.isLive ||
+        lease.ownerRunId !== fence.runId ||
+        lease.generation !== fence.generation)
+    ) {
+      throw new StaleExecutionFenceError(fence);
+    }
+    const running = await tx.execute({
+      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' AND dispatch_mode IS DISTINCT FROM 'turn-abort'`,
+      args: [threadId, turnId],
+    });
+    const candidateRunIds = running.rows
+      .map((row) => String((row as { id?: unknown }).id ?? ""))
+      .filter(Boolean);
+    await lockExecutionLeasesForRuns(tx, candidateRunIds);
+    await revokeExecutionLeasesForRuns(tx, candidateRunIds);
+    if (candidateRunIds.length > 0) {
+      const aborted = await tx.execute({
+        sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' RETURNING id`,
+        args: [reason, now, `aborted:${reason}`, threadId, turnId],
+      });
+      runIds.push(
+        ...aborted.rows
+          .map((row) => String((row as { id?: unknown }).id ?? ""))
+          .filter(Boolean),
+      );
+    }
+    if (runIds.length === 0) {
+      const existing = await tx.execute({
+        sql: `SELECT id, status, terminal_reason,
+                     EXISTS (
+                       SELECT 1 FROM agent_run_events
+                       WHERE agent_run_events.run_id = agent_runs.id
+                         AND (
+                           event_data LIKE ?
+                           OR event_data LIKE ?
+                         )
+                     ) AS continuation_pending
+              FROM agent_runs
+              WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
+                AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+              ORDER BY started_at DESC LIMIT 1 FOR UPDATE`,
+        args: [
+          '{"type":"loop_limit"%',
+          '{"type":"auto_continue"%',
+          threadId,
+          turnId,
+        ],
+      });
+      const latest = existing.rows[0] as
+        | {
+            status?: string;
+            terminal_reason?: string | null;
+            continuation_pending?: boolean;
+          }
+        | undefined;
+      const aborted = await tx.execute({
+        sql: `SELECT id FROM agent_runs
+              WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
+                AND status = 'aborted'
+                AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+                AND terminal_reason = ?`,
+        args: [threadId, turnId, `aborted:${reason}`],
+      });
+      runIds.push(
+        ...aborted.rows
+          .map((row) => String((row as { id?: unknown }).id ?? ""))
+          .filter(Boolean),
+      );
+      if (
+        latest &&
+        latest.continuation_pending !== true &&
+        !isContinuationTerminalReason(latest.terminal_reason ?? "")
+      ) {
+        return "already_terminal" as const;
+      }
+    }
+    await tx.execute({
+      sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort'), (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
+      args: [
+        turnAbortMarkerRunId(threadId, turnId),
+        threadId,
+        reason,
+        now,
+        now,
+        now,
+        now,
+        turnId,
+        `aborted:${reason}`,
+        `turn-abort-${turnId}`,
+        threadId,
+        reason,
+        now,
+        now,
+        now,
+        now,
+        turnId,
+        `aborted:${reason}`,
+      ],
+    });
+    return "aborted" as const;
   });
   await Promise.all(
     runIds.map((runId) =>
@@ -2161,12 +3684,9 @@ export async function markTurnAborted(
       ),
     ),
   );
+  return outcome;
 }
 
-/**
- * Turn identity for a run, or null when the row is unknown. `turn_id` is null
- * for rows written before the column existed; those runs are their own turn.
- */
 export async function getRunTurnRef(
   runId: string,
 ): Promise<{ threadId: string; turnId: string } | null> {
@@ -2187,8 +3707,12 @@ export async function isTurnAborted(
 ): Promise<boolean> {
   await ensureRunTables();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT id FROM agent_runs WHERE id = ? AND thread_id = ? AND status = 'aborted' LIMIT 1`,
-    args: [turnAbortMarkerRunId(turnId), threadId],
+    sql: `SELECT id FROM agent_runs WHERE id IN (?, ?) AND thread_id = ? AND status = 'aborted' LIMIT 1`,
+    args: [
+      turnAbortMarkerRunId(threadId, turnId),
+      `turn-abort-${turnId}`,
+      threadId,
+    ],
   });
   return rows.length > 0;
 }
@@ -2215,53 +3739,255 @@ export async function getRunAbortState(
   };
 }
 
+function persistedRunEventData(
+  eventData: string,
+  inputSource?: "execution",
+): string {
+  const stripped = stripInlineBytesFromJson(eventData, "placeholder");
+  const original = JSON.parse(eventData);
+  if (original.type === "approval_required") {
+    return JSON.stringify({
+      ...JSON.parse(stripped),
+      approvalKey: approvalKeyForHistory(original.approvalKey),
+    });
+  }
+  if (stripped === eventData && inputSource !== "execution") return eventData;
+  if (
+    (original.type !== "tool_start" && original.type !== "tool_done") ||
+    original.input === undefined ||
+    inputSource !== "execution" ||
+    original.inputFingerprint !== undefined ||
+    original.inputStoredFingerprint !== undefined
+  )
+    return stripped;
+  const stored = JSON.parse(stripped);
+  // Only fresh execution input can establish identity; reserialization cannot recover lost arguments.
+  return JSON.stringify({
+    ...stored,
+    inputFingerprint: toolCallInputFingerprint(original.input),
+    inputStoredFingerprint: toolCallInputFingerprint(stored.input),
+  });
+}
+
+export class AgentRunEventNotPersistedError extends Error {
+  readonly terminalRun: boolean;
+
+  constructor(
+    runId: string,
+    seq: number | null,
+    terminalRun = false,
+    cause?: unknown,
+  ) {
+    const detail = cause instanceof Error ? `: ${cause.message}` : "";
+    super(
+      seq === null
+        ? `Terminal run event was not persisted: ${runId}${detail}`
+        : `Run event was not persisted: ${runId} sequence ${seq}${detail}`,
+    );
+    this.name = "AgentRunEventNotPersistedError";
+    this.terminalRun = terminalRun;
+    if (cause !== undefined) {
+      Object.defineProperty(this, "cause", {
+        value: cause,
+        configurable: true,
+      });
+    }
+  }
+}
+
 export async function insertRunEvent(
   runId: string,
   seq: number,
   eventData: string,
+  options?: {
+    toolInputSource?: "execution";
+    requireInserted?: boolean;
+    eventAt?: number;
+  },
 ): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
-  // ON CONFLICT DO NOTHING: a (runId, seq) collision can happen on the
-  // soft-timeout / terminal-event path where `pendingTerminalEvent` was
-  // assigned a seq that later gets reused by an event pushed after it.
-  // It can also race with `appendTerminalRunEvent` (max-seq + 1) when a
-  // run aborts at the same time the producer emits its final event.
-  // Treat the second write as a no-op so the run completes cleanly.
-  // A producer can also outlive a stale-run reap or explicit abort. Reject
-  // those zombie writes atomically once the run row is terminal. Allowing a
-  // missing run row preserves the existing startRun race where the producer
-  // may emit before the non-blocking run-row insert has landed.
-  await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+  const storedEventData = persistedRunEventData(
+    eventData,
+    options?.toolInputSource,
+  );
+  const eventAt = options?.eventAt ?? Date.now();
+  // The reaper must wait for the marker's commit before exposing a successor.
+  let result: {
+    rowsAffected: number | undefined;
+    terminalRun: boolean;
+    persistedIdentically: boolean;
+  };
+  try {
+    result = await withFencedExecutionWrite(
+      async (tx) => {
+        const { rowsAffected } = await tx.execute({
+          sql: options?.requireInserted
+            ? `WITH running_run AS MATERIALIZED (
+          SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
+        )
+        INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+        SELECT id, ?, ?, ? FROM running_run LIMIT 1
+        ON CONFLICT (run_id, seq) DO NOTHING`
+            : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM agent_runs
         WHERE id = ? AND status <> 'running'
       )
       ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, seq, Date.now(), eventData, runId],
-  });
+          args: [
+            runId,
+            seq,
+            eventAt,
+            storedEventData,
+            ...(options?.requireInserted ? [] : [runId]),
+          ],
+        });
+        if (!options?.requireInserted || rowsAffected === 1)
+          return {
+            rowsAffected,
+            terminalRun: false,
+            persistedIdentically: rowsAffected === 1,
+          };
+
+        const existing = await tx.execute({
+          sql: `SELECT event_at, event_data FROM agent_run_events
+              WHERE run_id = ? AND seq = ?`,
+          args: [runId, seq],
+        });
+        const existingRow = existing.rows[0] as
+          | { event_at?: number | string; event_data?: string }
+          | undefined;
+        const persistedIdentically =
+          existingRow !== undefined &&
+          Number(existingRow.event_at) === eventAt &&
+          String(existingRow.event_data) === storedEventData;
+
+        const run = await tx.execute({
+          sql: "SELECT status FROM agent_runs WHERE id = ?",
+          args: [runId],
+        });
+        const status = (run.rows[0] as { status?: string } | undefined)?.status;
+        return {
+          rowsAffected,
+          terminalRun: status !== "running",
+          persistedIdentically,
+        };
+      },
+      { runId },
+    );
+  } catch (error) {
+    if (error instanceof StaleExecutionFenceError) {
+      let status: string | null;
+      try {
+        status = await getRunStatus(runId);
+      } catch (statusError) {
+        throw new AggregateError(
+          [error, statusError],
+          `Could not confirm run status after a stale execution fence: ${runId}`,
+        );
+      }
+      if (status !== null && status !== "running") {
+        throw new AgentRunEventNotPersistedError(runId, seq, true, error);
+      }
+    }
+    throw error;
+  }
+  const { rowsAffected, terminalRun, persistedIdentically } = result;
+  if (
+    options?.requireInserted &&
+    rowsAffected !== 1 &&
+    (!persistedIdentically || terminalRun)
+  )
+    throw new AgentRunEventNotPersistedError(runId, seq, terminalRun);
 }
 
-/**
- * Reserved seq for a checkpoint terminal event written BEFORE the agent loop
- * unwinds. Stream events use contiguous 0-based seqs, so a value this high can
- * never collide with one and always sorts last — which is what lets
- * `reconcileTerminalRunFromEvents` / `getLastTerminalRunEvent` read the
- * checkpoint as the run's real terminal state even when the process is killed
- * mid-unwind, and what keeps `appendTerminalRunEvent` from stamping a
- * `stale_run` lie over it.
- */
-export const CHECKPOINT_TERMINAL_EVENT_SEQ = 1_000_000_000;
+// Stays well under PostgreSQL's 65,535 bind-parameter limit at 4 per row.
+const RUN_EVENT_BATCH_ROWS = 500;
 
 /**
- * Durably record a chunk-boundary terminal event the moment the boundary is
- * decided, not after the loop unwinds. Wind-down regularly overruns the
- * remaining serverless budget; without this the auto_continue is never
- * persisted and the row is reaped as a `stale_run` lie instead of a
- * sweep-continuable checkpoint.
+ * Same guarantees as `insertRunEvent` without execution-input fingerprints,
+ * so tool_start/tool_done must keep going through `insertRunEvent`.
  */
+export async function insertRunEvents(
+  runId: string,
+  events: ReadonlyArray<{ seq: number; eventAt: number; eventData: string }>,
+): Promise<void> {
+  if (events.length === 0) return;
+  await ensureRunTables();
+  const writeBatch = async (tx: DbExec) => {
+    for (let start = 0; start < events.length; start += RUN_EVENT_BATCH_ROWS) {
+      const chunk = events.slice(start, start + RUN_EVENT_BATCH_ROWS);
+      const storedChunk = chunk.map((event) => ({
+        ...event,
+        eventData: persistedRunEventData(event.eventData),
+      }));
+      await tx.execute({
+        sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+        SELECT v.run_id, v.seq, v.event_at, v.event_data
+        FROM (VALUES ${chunk
+          .map(
+            () =>
+              "(CAST(? AS TEXT), CAST(? AS BIGINT), CAST(? AS BIGINT), CAST(? AS TEXT))",
+          )
+          .join(", ")}) AS v(run_id, seq, event_at, event_data)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM agent_runs
+          WHERE id = ? AND status <> 'running'
+        )
+        ON CONFLICT (run_id, seq) DO NOTHING`,
+        args: [
+          ...storedChunk.flatMap(({ seq, eventAt, eventData }) => [
+            runId,
+            seq,
+            eventAt,
+            eventData,
+          ]),
+          runId,
+        ],
+      });
+      const persisted = await tx.execute({
+        sql: `SELECT seq, event_at, event_data
+                FROM agent_run_events
+                WHERE run_id = ? AND seq IN (${chunk.map(() => "?").join(", ")})`,
+        args: [runId, ...chunk.map(({ seq }) => seq)],
+      });
+      const persistedBySeq = new Map(
+        persisted.rows.map((row) => [Number(row.seq), row]),
+      );
+      for (const event of storedChunk) {
+        const row = persistedBySeq.get(event.seq);
+        if (
+          !row ||
+          Number(row.event_at) !== event.eventAt ||
+          String(row.event_data) !== event.eventData
+        ) {
+          const run = await tx.execute({
+            sql: "SELECT status FROM agent_runs WHERE id = ?",
+            args: [runId],
+          });
+          const status = (run.rows[0] as { status?: string } | undefined)
+            ?.status;
+          throw new AgentRunEventNotPersistedError(
+            runId,
+            event.seq,
+            status !== "running",
+          );
+        }
+      }
+    }
+  };
+  await withFencedExecutionWrite(
+    (tx) =>
+      currentExecutionFence()
+        ? writeBatch(tx)
+        : (tx.transaction?.(writeBatch) ?? writeBatch(tx)),
+    { runId },
+  );
+}
+
+export const CHECKPOINT_TERMINAL_EVENT_SEQ = 1_000_000_000;
+
 export async function persistRunCheckpointEvent(
   runId: string,
   event: AgentChatEvent,
@@ -2278,18 +4004,25 @@ export async function persistRunCheckpointEvent(
 export async function getRunEventsSince(
   runId: string,
   fromSeq: number,
+  opts?: { limit?: number },
 ): Promise<Array<{ seq: number; eventData: string }>> {
   await ensureRunTables();
   const client = getDbExec();
-  // The reserved checkpoint band is deliberately invisible here. Streaming it
-  // to a live subscriber would close the SSE stream at the chunk boundary
-  // BEFORE onComplete has made thread_data durable, and the client would
-  // continue the turn from a half-saved message. The checkpoint is replayed on
-  // the terminal/reconnect paths instead (`getLastTerminalRunEvent`,
-  // `reconcileTerminalRunFromEvents`), which run after the row is terminal.
+  const limit =
+    opts?.limit != null && Number.isInteger(opts.limit) && opts.limit > 0
+      ? opts.limit
+      : null;
+  const args: Array<string | number> = [
+    runId,
+    fromSeq,
+    CHECKPOINT_TERMINAL_EVENT_SEQ,
+  ];
+  if (limit != null) args.push(limit);
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq >= ? AND seq < ? ORDER BY seq ASC`,
-    args: [runId, fromSeq, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq >= ? AND seq < ? ORDER BY seq ASC${
+      limit == null ? "" : " LIMIT ?"
+    }`,
+    args,
   });
   return rows.map((r) => {
     const row = r as { seq: number | string; event_data: string };
@@ -2334,11 +4067,72 @@ export async function getRunById(runId: string): Promise<{
 }
 
 /**
- * Read the latest terminal event already persisted for a run, if any.
- * Used by SSE reconnect when the client cursor is already past that event
- * (so `getRunEventsSince` returns empty) but the row is terminal — we must
- * replay the REAL error instead of inventing a stale_run card.
+ * What saving a run the server ended on its behalf needs: the run's ledger,
+ * and whether anything ran after it in its turn or in a later turn.
  */
+export async function readStoppedRunForThreadFold(runId: string): Promise<{
+  threadId: string;
+  turnId: string;
+  startedAt: number;
+  workerGeneration: string | null;
+  events: RunEvent[];
+  continuedInTurn: boolean;
+  laterTurnStarted: boolean;
+} | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT r.thread_id, COALESCE(r.turn_id, r.id) AS turn_id,
+                 r.status, r.started_at, r.worker_generation,
+                 EXISTS (
+                   SELECT 1 FROM agent_runs later
+                   WHERE later.thread_id = r.thread_id
+                     AND COALESCE(later.turn_id, later.id) = COALESCE(r.turn_id, r.id)
+                     AND later.id <> r.id
+                     AND later.started_at >= r.started_at
+                     AND later.dispatch_mode IS DISTINCT FROM 'turn-abort'
+                 ) AS continued_in_turn,
+                 EXISTS (
+                   SELECT 1 FROM agent_runs later
+                   WHERE later.thread_id = r.thread_id
+                     AND COALESCE(later.turn_id, later.id) <> COALESCE(r.turn_id, r.id)
+                     AND later.started_at > r.started_at
+                 ) AS later_turn_started
+          FROM agent_runs r WHERE r.id = ?`,
+    args: [runId],
+  });
+  const row = rows[0] as
+    | {
+        thread_id: string;
+        turn_id: string;
+        status: string;
+        started_at: number | string;
+        worker_generation: number | string | null;
+        continued_in_turn: boolean | string;
+        later_turn_started: boolean | string;
+      }
+    | undefined;
+  // A sweep can name a run whose worker answered again before it was reaped;
+  // that worker still saves its own reply.
+  if (!row || row.status === "running") return null;
+  const events: RunEvent[] = [];
+  for (const { seq, eventData } of await getRunEventsSince(runId, 0)) {
+    events.push({ seq, event: JSON.parse(eventData) as AgentChatEvent });
+  }
+  return {
+    threadId: row.thread_id,
+    turnId: row.turn_id,
+    startedAt: Number(row.started_at),
+    workerGeneration:
+      row.worker_generation == null ? null : String(row.worker_generation),
+    events,
+    continuedInTurn:
+      row.continued_in_turn === true || row.continued_in_turn === "t",
+    laterTurnStarted:
+      row.later_turn_started === true || row.later_turn_started === "t",
+  };
+}
+
 export async function getLastTerminalRunEvent(
   runId: string,
 ): Promise<{ seq: number; event: Record<string, unknown> } | null> {
@@ -2369,11 +4163,6 @@ export async function getLastTerminalRunEvent(
   return null;
 }
 
-/**
- * Build the terminal error payload to stream when an `errored` run has no
- * in-cursor terminal event. Prefer the real last terminal event, then the
- * row's error_code/error_detail, and only then the generic stale_run card.
- */
 export function resolveErroredRunTerminalEvent(run: {
   errorCode?: string | null;
   errorDetail?: string | null;
@@ -2393,7 +4182,6 @@ export function resolveErroredRunTerminalEvent(run: {
         type: "error",
         error: detail || "The agent run failed.",
         ...(code && code !== "unknown" ? { errorCode: code } : {}),
-        recoverable: true,
       },
       shouldPersist: true,
     };
@@ -2403,7 +4191,7 @@ export function resolveErroredRunTerminalEvent(run: {
 
 export async function getRunByThread(
   threadId: string,
-  options?: { includeTerminal?: boolean },
+  options?: { includeTerminal?: boolean; turnId?: string },
 ): Promise<{
   id: string;
   threadId: string;
@@ -2416,24 +4204,23 @@ export async function getRunByThread(
   dispatchMode: string | null;
   terminalReason: string | null;
   diagStage: string | null;
-  /**
-   * Raw `in_flight_since` marker (see `setRunInFlightMarker`) — non-null
-   * exactly when run-manager's in-memory `inFlightWorkCount` was last known
-   * (from THIS row's own producer) to be > 0: a tool call or A2A `agent_call`
-   * delegation is open and has not yet resolved. Callers that want the
-   * authoritative "does this run currently hold live work" signal (e.g. the
-   * `hasInFlightWork` wire field on `/runs/active`) should test this for
-   * non-null, not re-derive their own notion of in-flight — see
-   * `getActiveRunForThreadAsync` in run-manager.ts.
-   */
   inFlightSince: number | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
-  const sql = options?.includeTerminal
-    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code, in_flight_since FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
-    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code, in_flight_since FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
-  const { rows } = await client.execute({ sql, args: [threadId] });
+  const turnClause = options?.turnId ? ` AND COALESCE(turn_id, id) = ?` : "";
+  const statusClause = options?.includeTerminal
+    ? ""
+    : ` AND status = 'running'`;
+  const markerPriority = options?.turnId
+    ? `CASE WHEN dispatch_mode = 'turn-abort' THEN 0 ELSE 1 END`
+    : `CASE WHEN dispatch_mode = 'turn-abort' THEN 1 ELSE 0 END`;
+  const continuationOrder = options?.turnId
+    ? `, COALESCE(continuation_order, 0) DESC`
+    : "";
+  const sql = `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code, in_flight_since FROM agent_runs WHERE thread_id = ?${turnClause}${statusClause} ORDER BY ${markerPriority}${continuationOrder}, started_at DESC LIMIT 1`;
+  const args = options?.turnId ? [threadId, options.turnId] : [threadId];
+  const { rows } = await client.execute({ sql, args });
   if (rows.length === 0) return null;
   const r = rows[0] as {
     id: string;
@@ -2474,6 +4261,53 @@ export async function getRunByThread(
   };
 }
 
+/** The connection request that a restored client may still need to resolve. */
+export async function getRunPendingConnectionRequestId(
+  runId: string,
+): Promise<string | null> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT event_data FROM agent_run_events request_event
+          JOIN agent_runs requested_run ON requested_run.id = request_event.run_id
+          WHERE request_event.run_id = ?
+            AND request_event.event_data LIKE ?
+            AND NOT EXISTS (
+              SELECT 1 FROM agent_runs successor
+              WHERE successor.thread_id = requested_run.thread_id
+                AND COALESCE(successor.turn_id, successor.id) =
+                    COALESCE(requested_run.turn_id, requested_run.id)
+                AND successor.id <> requested_run.id
+                AND successor.dispatch_mode IS DISTINCT FROM 'turn-abort'
+                AND (
+                  COALESCE(successor.continuation_order, 0) >
+                    COALESCE(requested_run.continuation_order, 0)
+                  OR (
+                    COALESCE(successor.continuation_order, 0) =
+                      COALESCE(requested_run.continuation_order, 0)
+                    AND successor.started_at > requested_run.started_at
+                  )
+                )
+            )
+          ORDER BY request_event.seq DESC
+          LIMIT 1`,
+    args: [runId, '{"type":"connection_required"%'],
+  });
+  if (rows.length === 0) return null;
+  const row = rows[0] as { event_data?: unknown };
+  if (typeof row.event_data !== "string") {
+    throw new TypeError(
+      `Agent run ${runId} has an unreadable connection request event.`,
+    );
+  }
+  const event: unknown = JSON.parse(row.event_data);
+  if (!isReadableJournalEvent(event) || event.type !== "connection_required") {
+    throw new TypeError(
+      `Agent run ${runId} has an unreadable connection request event.`,
+    );
+  }
+  return event.requestId;
+}
+
 export interface AgentRunSummary {
   id: string;
   threadId: string;
@@ -2487,25 +4321,40 @@ export interface AgentRunSummary {
   abortReason: string | null;
   dispatchMode: string | null;
   terminalReason: string | null;
-  /** Last reached `_process-run` worker stage (JSON `{stage,detail?,at}`). */
   diagStage: string | null;
 }
 
 export async function listRunsForThread(
   threadId: string,
-  options: { limit?: number } = {},
+  options: { limit?: number; runIds?: readonly string[] } = {},
 ): Promise<AgentRunSummary[]> {
   await ensureRunTables();
   const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
-  const client = getDbExec();
-  let { rows } = await client.execute({
-    sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
-          FROM agent_runs
-          WHERE thread_id = ?
-          ORDER BY started_at DESC
-          LIMIT ?`,
-    args: [threadId, limit],
+  const runIds =
+    options.runIds === undefined ? undefined : [...new Set(options.runIds)];
+  if (runIds?.length === 0) return [];
+  const runIdBatches: (string[] | undefined)[] = runIds
+    ? Array.from({ length: Math.ceil(runIds.length / 500) }, (_, index) =>
+        runIds.slice(index * 500, index * 500 + 500),
+      )
+    : [undefined];
+  const runQueries = runIdBatches.map((batch) => {
+    const runIdFilter = batch
+      ? ` AND id IN (${batch.map(() => "?").join(", ")})`
+      : "";
+    return {
+      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
+            FROM agent_runs
+            WHERE thread_id = ?${runIdFilter}${batch ? "" : " ORDER BY started_at DESC LIMIT ?"}`,
+      args: [threadId, ...(batch ?? []), ...(batch ? [] : [limit])],
+    };
   });
+  const client = getDbExec();
+  const readRows = async () =>
+    (
+      await Promise.all(runQueries.map((query) => client.execute(query)))
+    ).flatMap(({ rows }) => rows);
+  let rows = await readRows();
   const reconcileCandidateIds: string[] = [];
   for (const r of rows) {
     const row = r as {
@@ -2522,27 +4371,12 @@ export async function listRunsForThread(
     if (!canReconcileFromEvents) continue;
     reconcileCandidateIds.push(runId);
   }
-  // Each candidate's reconciliation is independently fenced by the UPDATE's
-  // WHERE clause (status = 'running' OR errored-with-stale-code) inside
-  // reconcileTerminalRunFromEvents, keyed on that run's own id — reconciling
-  // several stale runs in parallel is safe and avoids N sequential
-  // SELECT+UPDATE round-trip pairs on a shared-thread page load.
   const reconcileResults = await Promise.all(
-    reconcileCandidateIds.map((runId) =>
-      reconcileTerminalRunFromEvents(runId).catch(() => false),
-    ),
+    reconcileCandidateIds.map((runId) => reconcileTerminalRunFromEvents(runId)),
   );
   const repairedTerminalRow = reconcileResults.some(Boolean);
   if (repairedTerminalRow) {
-    const refreshed = await client.execute({
-      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
-            FROM agent_runs
-            WHERE thread_id = ?
-            ORDER BY started_at DESC
-            LIMIT ?`,
-      args: [threadId, limit],
-    });
-    rows = refreshed.rows;
+    rows = await readRows();
   }
   return rows.map((r) => {
     const row = r as {
@@ -2579,32 +4413,154 @@ export async function listRunsForThread(
   });
 }
 
-/**
- * Read the current logical turn's recorded events for a thread, parsed into
- * `AgentChatEvent`s in seq order, for per-turn tool-call journal classification
- * (see `tool-call-journal.ts`). Read-only and additive — reuses the existing
- * `agent_runs` / `agent_run_events` ledger with no schema change.
- *
- * A logical turn may span several continuation runs (each chunk is its own run
- * sharing one `turn_id`), so we union the events of every run that belongs to
- * the latest turn for this thread. Events are ordered by (started_at, seq) so
- * earlier chunks come before later ones and the positional `tool_start` →
- * `tool_done` matching in the classifier stays correct across chunk boundaries.
- *
- * Returns an empty array when the thread has no run yet or no parseable events.
- * Best-effort on parse: malformed ledger rows are skipped rather than thrown.
- */
-export async function getCurrentTurnEventsForThread(
+export interface CurrentTurnRunEvent {
+  runId: string;
+  seq: number;
+  event: AgentChatEvent;
+}
+
+export class AgentRunJournalUnreadableError extends Error {
+  readonly errorCode = "tool_call_journal_unreadable";
+
+  constructor(
+    readonly threadId: string,
+    readonly turnId: string | undefined,
+    readonly rowIndex: number,
+    readonly reason:
+      | "invalid_turn"
+      | "invalid_row"
+      | "invalid_event_json"
+      | "invalid_event",
+    options?: ErrorOptions,
+  ) {
+    super(automationRecoveryMessagesForLocale().unreadable, options);
+    this.name = "AgentRunJournalUnreadableError";
+  }
+}
+
+function isJournalObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const JOURNAL_EVENT_STRING_FIELDS = {
+  text: ["text"],
+  thinking: ["text"],
+  suggestions: [],
+  rich_event: [],
+  activity: ["label"],
+  tool_input_start: [],
+  tool_input_delta: ["text"],
+  stream_keepalive: [],
+  model_stream: ["status"],
+  tool_start: ["tool"],
+  tool_done: ["tool", "result"],
+  approval_required: ["tool", "approvalKey"],
+  connection_required: ["requestId", "provider", "reason"],
+  agent_call: ["agent", "status"],
+  agent_call_progress: ["agent", "state"],
+  agent_call_text: ["agent", "text"],
+  agent_call_activity: ["agent"],
+  agent_task: ["taskId", "threadId", "description", "status"],
+  agent_task_update: ["taskId", "preview"],
+  agent_task_complete: ["taskId", "summary"],
+  done: [],
+  error: ["error"],
+  missing_api_key: [],
+  loop_limit: [],
+  tripwire: ["reason"],
+  auto_continue: ["reason"],
+  clear: [],
+} satisfies Record<AgentChatEvent["type"], readonly string[]>;
+
+function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
+  if (!isJournalObject(value) || typeof value.type !== "string") return false;
+  if (!Object.hasOwn(JOURNAL_EVENT_STRING_FIELDS, value.type)) return false;
+  const type = value.type as AgentChatEvent["type"];
+  if (
+    !JOURNAL_EVENT_STRING_FIELDS[type].every(
+      (field) => typeof value[field] === "string",
+    )
+  )
+    return false;
+  switch (type) {
+    case "tool_start":
+    case "tool_done":
+      // These fields determine whether a completed write is safe to replay.
+      return (
+        (value.tool as string).trim().length > 0 &&
+        (value.id === undefined ||
+          (typeof value.id === "string" && value.id.trim().length > 0)) &&
+        (value.inputFingerprint === undefined ||
+          (typeof value.inputFingerprint === "string" &&
+            /^[a-f0-9]{64}$/.test(value.inputFingerprint))) &&
+        (value.inputStoredFingerprint === undefined ||
+          (typeof value.inputStoredFingerprint === "string" &&
+            /^[a-f0-9]{64}$/.test(value.inputStoredFingerprint))) &&
+        isConsistentToolCallInputFingerprint(
+          value.input,
+          value.inputFingerprint as string | undefined,
+          value.inputStoredFingerprint as string | undefined,
+        ) &&
+        (!isUnavailableToolCallInput(value.input) ||
+          value.inputFingerprint !== undefined) &&
+        (type === "tool_start"
+          ? Object.hasOwn(value, "input")
+          : ["isError", "completedSideEffect", "replayed"].every(
+              (field) =>
+                value[field] === undefined || typeof value[field] === "boolean",
+            ) &&
+            (value.argumentsHash === undefined ||
+              (typeof value.argumentsHash === "string" &&
+                /^[a-f0-9]{64}$/.test(value.argumentsHash))) &&
+            (value.approvalPause === undefined ||
+              typeof value.approvalPause === "boolean") &&
+            (value.outcomeUnknown === undefined ||
+              value.outcomeUnknown === true))
+      );
+    case "suggestions":
+      return Array.isArray(value.suggestions);
+    case "rich_event":
+      return (
+        isJournalObject(value.event) &&
+        typeof value.event.namespace === "string" &&
+        typeof value.event.name === "string"
+      );
+    case "approval_required":
+      return isJournalObject(value.input);
+    case "agent_call_activity":
+      return isJournalObject(value.snapshot);
+    case "agent_call_progress":
+      return (
+        typeof value.elapsedSeconds === "number" &&
+        Number.isFinite(value.elapsedSeconds)
+      );
+    case "model_stream":
+      return value.status === "start" || value.status === "end";
+    case "agent_call":
+      return ["start", "done", "pending", "error"].includes(
+        value.status as string,
+      );
+    case "agent_task":
+      return ["running", "completed", "errored"].includes(
+        value.status as string,
+      );
+    case "connection_required":
+      return ["connect", "grant", "reauthorize", "admin_required"].includes(
+        value.reason as string,
+      );
+    case "auto_continue":
+      return CONTINUATION_REASONS.includes(value.reason as ContinuationReason);
+    default:
+      return true;
+  }
+}
+
+async function getCurrentTurnRunEvents(
   threadId: string,
   knownTurnId?: string,
-): Promise<AgentChatEvent[]> {
+): Promise<CurrentTurnRunEvent[]> {
   await ensureRunTables();
   const client = getDbExec();
-  // Callers that already know their turn MUST pass it: `startRun` persists the
-  // run row without awaiting the INSERT, so inferring the turn from the latest
-  // row can read a moment before this turn's row commits and return the
-  // PREVIOUS turn's events — which the read-only journal replay would then
-  // serve as a cache hit for an identical tool+input.
   let turnId = knownTurnId;
   if (!turnId) {
     const latest = await client.execute({
@@ -2612,143 +4568,256 @@ export async function getCurrentTurnEventsForThread(
       args: [threadId],
     });
     if (latest.rows.length === 0) return [];
-    const latestRow = latest.rows[0] as { id: string; turn_id: string | null };
-    turnId = latestRow.turn_id ?? latestRow.id;
+    const latestRow = latest.rows[0];
+    if (!isJournalObject(latestRow)) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        0,
+        "invalid_turn",
+      );
+    }
+    const currentTurnId = latestRow.turn_id ?? latestRow.id;
+    if (typeof currentTurnId !== "string" || !currentTurnId.trim()) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        0,
+        "invalid_turn",
+      );
+    }
+    turnId = currentTurnId;
   }
-  // Gather every run that belongs to this logical turn, oldest chunk first, and
-  // read their events in seq order. COALESCE(turn_id, id) folds older rows that
-  // predate the turn_id backfill into a turn keyed by their own run id.
   const { rows } = await client.execute({
-    sql: `SELECT e.event_data AS event_data
+    sql: `SELECT e.run_id AS run_id, e.seq AS seq, e.event_data AS event_data
           FROM agent_run_events e
           JOIN agent_runs r ON r.id = e.run_id
           WHERE r.thread_id = ?
             AND COALESCE(r.turn_id, r.id) = ?
-          ORDER BY r.started_at ASC, e.seq ASC`,
+          ORDER BY COALESCE(r.continuation_order, 0) ASC,
+                   r.started_at ASC,
+                   e.event_at ASC NULLS LAST,
+                   e.seq ASC,
+                   r.id ASC`,
     args: [threadId, turnId],
   });
-  const events: AgentChatEvent[] = [];
-  for (const r of rows) {
-    const raw = (r as { event_data?: string }).event_data;
-    if (!raw) continue;
-    try {
-      events.push(JSON.parse(raw) as AgentChatEvent);
-    } catch {
-      // Skip malformed ledger rows — the journal is best-effort.
+  const events: CurrentTurnRunEvent[] = [];
+  for (const [rowIndex, row] of rows.entries()) {
+    if (!isJournalObject(row)) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_row",
+      );
     }
+    const raw = row.event_data;
+    const validSeq =
+      typeof row.seq === "number" ||
+      (typeof row.seq === "string" && /^\d+$/.test(row.seq));
+    const seq = validSeq ? Number(row.seq) : Number.NaN;
+    if (
+      typeof row.run_id !== "string" ||
+      !row.run_id.trim() ||
+      !Number.isSafeInteger(seq) ||
+      seq < 0 ||
+      typeof raw !== "string" ||
+      !raw
+    ) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_row",
+      );
+    }
+    let event: unknown;
+    try {
+      event = JSON.parse(raw);
+    } catch (cause) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_event_json",
+        { cause },
+      );
+    }
+    if (!isReadableJournalEvent(event)) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_event",
+      );
+    }
+    events.push({ runId: row.run_id, seq, event });
   }
   return events;
 }
 
-/**
- * Expire any "running" rows whose heartbeat is stale — producer died.
- * Safe to call at server startup on multi-isolate deployments: only rows
- * without a fresh heartbeat get reaped, so runs owned by OTHER live
- * isolates (which keep heartbeating) are left alone.
- */
-export async function reapAllStaleRuns(): Promise<number> {
+export async function getCurrentTurnRunEventsForThread(
+  threadId: string,
+  knownTurnId?: string,
+): Promise<CurrentTurnRunEvent[]> {
+  return getCurrentTurnRunEvents(threadId, knownTurnId);
+}
+
+export async function getCurrentTurnEventsForThread(
+  threadId: string,
+  knownTurnId?: string,
+): Promise<AgentChatEvent[]> {
+  const persisted = await getCurrentTurnRunEvents(threadId, knownTurnId);
+  return persisted.map(({ event }) => event);
+}
+
+const REAP_ALL_STALE_BATCH_LIMIT = 200;
+
+export interface StaleRunReapResult {
+  reaped: number;
+  failed: number;
+  truncated: boolean;
+}
+
+export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
+  const nothingStale: StaleRunReapResult = {
+    reaped: 0,
+    failed: 0,
+    truncated: false,
+  };
   await ensureRunTables();
-  if (!(await hasRunningRuns())) return 0;
   const client = getDbExec();
+  let failedCount = 0;
+  let truncated = false;
+  try {
+    const pending = await retryPendingStaleRunThreadProjections(client);
+    failedCount += pending.failed;
+    truncated = pending.truncated;
+  } catch (error) {
+    failedCount += 1;
+    console.error(
+      "[run-store] stale-run thread projection retry failed:",
+      error,
+    );
+  }
+  if (!(await hasRunningRuns())) {
+    return { ...nothingStale, failed: failedCount, truncated };
+  }
   const now = Date.now();
-  // Background-dispatched runs use the wider window; everything else 15s. The
-  // in-flight grace clause is applied identically to this SELECT and the
-  // UPDATE below (both derive `stale.rows`/the terminal-event-append loop
-  // from the SAME predicate) so a row the grace clause protects from the
-  // UPDATE is never mistakenly given a terminal event anyway — see
-  // `inFlightGraceSql` and `IN_FLIGHT_RUN_STALE_GRACE_MS`. This runs at
-  // server startup across possibly-multiple isolates, so a sibling isolate's
-  // still-alive, in-flight run must not be reaped just because THIS isolate
-  // just booted and has no heartbeat history for it.
-  const stale = await client.execute({
+  const scanned = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
-            AND ${inFlightGraceSql()}`,
-    args: [now, now, now],
+          ORDER BY started_at ASC
+          LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
+    args: [now],
   });
+  truncated ||= scanned.rows.length > REAP_ALL_STALE_BATCH_LIMIT;
+  const stale = {
+    rows: truncated
+      ? scanned.rows.slice(0, REAP_ALL_STALE_BATCH_LIMIT)
+      : scanned.rows,
+  };
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id === "string") {
       await reconcileTerminalRunFromEvents(id);
     }
   }
-  // FIX 3 (durable-background incident): reap each stale row individually
-  // via the shared `reapSingleStaleRun` (rather than one bulk UPDATE) so a
-  // background chat-turn run can be checked for server-owned recovery
-  // (`attemptStaleRunRecovery`) before it goes terminal — a single bulk
-  // statement can't express "insert a successor for row A but not row B".
-  // `reapSingleStaleRun` re-applies the identical staleness clause per row
-  // (same as the bulk UPDATE previously did), so a row whose heartbeat
-  // landed between the SELECT above and this loop is still correctly
-  // excluded. The per-row round trips only ever run for rows the SELECT above
-  // already found stale; on an idle app `hasRunningRuns` returns before any of
-  // this, so the 20s fast sweep (agent-chat-plugin.ts) costs one probe.
   let reapedCount = 0;
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string") continue;
-    const reaped = await reapSingleStaleRun(id).catch(() => false);
-    if (reaped) reapedCount += 1;
-  }
-  for (const row of stale.rows) {
-    const id = (row as { id?: unknown }).id;
-    if (typeof id === "string") {
-      await safeAppendTerminalRunEvent(
-        id,
-        STALE_RUN_ERROR_EVENT,
-        "reap-all-stale",
-      );
+    try {
+      const result = await reapSingleStaleRun(id, "reap-all-stale");
+      if (result.reaped) reapedCount += 1;
+      if (result.projectionFailed) failedCount += 1;
+    } catch (error) {
+      failedCount += 1;
+      console.error(`[run-store] stale reap failed for run ${id}:`, error);
     }
   }
-  return reapedCount;
+  return { reaped: reapedCount, failed: failedCount, truncated };
 }
 
 const RUN_OUTCOME_DAY_MS = 86_400_000;
 
-/**
- * Terminal statuses kept on the long retention window. A truncated run is a
- * failure — it stopped mid-task — so it must be retained with the errors it
- * belongs with. Filing truncations as `completed` deleted them at 24h while the
- * genuine failures they should be compared against survived for 7 days, so
- * every run id a user pasted into a bug report was gone before anyone looked.
- */
 const UNSUCCESSFUL_STATUS_SQL_LIST = `('errored', 'aborted', 'truncated')`;
+const RUN_OUTCOME_PRUNE_BATCH_LIMIT = 200;
+const RUN_OUTCOME_PRUNE_LOCK_KEY = "agent-native:run-outcome-prune";
 
-/**
- * Fold the terminal outcomes of the rows `cleanupOldRuns` is about to delete
- * into `agent_run_outcome_daily`, so success/failure RATES survive pruning even
- * though the rows do not. Counters cover exactly the pruned rows and `agent_runs`
- * covers exactly the unpruned ones, so a rate over any window is
- * `getRunOutcomeCounters()` plus the live rows — no gap, no double count.
- *
- * The DELETE ... RETURNING is the claim: concurrent cleanup calls can both
- * observe a row, but only the caller that deletes it receives it to roll up.
- * Grouping the returned rows in TypeScript avoids dialect-specific date SQL.
- * Counter upserts run in the same transaction as the delete; a failed upsert
- * rolls back the claim so the source rows remain available for a retry.
- */
 async function pruneAndRollUpPrunedRunOutcomes(
   client: ReturnType<typeof getDbExec>,
   cutoff: number,
   erroredCutoff: number,
 ): Promise<void> {
   const prune = async (tx: ReturnType<typeof getDbExec>): Promise<void> => {
-    await tx.execute({
-      sql: `DELETE FROM agent_run_events WHERE run_id IN (
-        SELECT id FROM agent_runs
-        WHERE (status = 'completed' AND completed_at < ?)
-           OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
-      )`,
-      args: [cutoff, erroredCutoff],
-    });
+    {
+      const lockResult = await tx.execute({
+        sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
+        args: [RUN_OUTCOME_PRUNE_LOCK_KEY],
+      });
+      const acquired = lockResult.rows[0]?.acquired;
+      if (acquired !== true && acquired !== "t") return;
+    }
 
     const { rows } = await tx.execute({
       sql: `DELETE FROM agent_runs
-            WHERE (status = 'completed' AND completed_at < ?)
-               OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
-            RETURNING status, completed_at, terminal_reason`,
+            WHERE id IN (
+              SELECT id FROM agent_runs
+              WHERE (
+                (status = 'completed' AND completed_at < ?)
+                OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+              )
+                AND thread_projection_pending IS NOT TRUE
+              ORDER BY completed_at ASC, id ASC
+              LIMIT ${RUN_OUTCOME_PRUNE_BATCH_LIMIT}
+            )
+            RETURNING id, status, completed_at, terminal_reason`,
       args: [cutoff, erroredCutoff],
+    });
+
+    const runIds = rows
+      .map((row) => (row as { id?: unknown }).id)
+      .filter((id): id is string => typeof id === "string");
+    if (runIds.length > 0) {
+      const placeholders = runIds.map(() => "?").join(", ");
+      await tx.execute({
+        sql: `DELETE FROM agent_run_events WHERE run_id IN (${placeholders})`,
+        args: runIds,
+      });
+    }
+    // Keep execution receipts through the longest configured recovery window,
+    // even when the run rows they belong to have already been pruned.
+    await tx.execute({
+      sql: `DELETE FROM agent_execution_steps AS s
+            WHERE s.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_runs r
+                WHERE r.thread_id = s.thread_id
+                  AND COALESCE(r.turn_id, r.id) = s.turn_id
+              )`,
+      args: [erroredCutoff],
+    });
+    await tx.execute({
+      sql: `DELETE FROM agent_execution_leases AS l
+            WHERE l.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_runs r
+                WHERE r.thread_id = l.thread_id
+                  AND COALESCE(r.turn_id, r.id) = l.turn_id
+              )`,
+      args: [erroredCutoff],
+    });
+    await tx.execute({
+      sql: `DELETE FROM agent_turn_initiators i
+            WHERE i.created_at < ?
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_runs r
+                WHERE r.thread_id = i.thread_id
+                  AND COALESCE(r.turn_id, r.id) = i.turn_id
+              )`,
+      args: [cutoff],
     });
 
     const groups = new Map<
@@ -2798,7 +4867,7 @@ async function pruneAndRollUpPrunedRunOutcomes(
       return;
     }
 
-    await client.execute(isPostgres() ? "BEGIN" : "BEGIN IMMEDIATE");
+    await client.execute("BEGIN");
     try {
       await prune(client);
       await client.execute("COMMIT");
@@ -2811,13 +4880,7 @@ async function pruneAndRollUpPrunedRunOutcomes(
   }
 }
 
-/**
- * Read the daily terminal-outcome counters rolled up from pruned runs. Pair
- * with live `agent_runs` rows for a complete picture — see
- * `pruneAndRollUpPrunedRunOutcomes`.
- */
 export async function getRunOutcomeCounters(options?: {
-  /** Inclusive lower bound as YYYY-MM-DD. */
   sinceDay?: string;
 }): Promise<
   Array<{
@@ -2852,12 +4915,9 @@ export async function getRunOutcomeCounters(options?: {
   });
 }
 
-/** Delete old runs and expire stale "running" rows that haven't had activity
- *  (e.g. worker crashed before updating status). Genuinely completed runs are
- *  pruned at `olderThanMs`; errored/aborted/truncated runs are kept until
- *  `erroredOlderThanMs` (a longer window, falling back to `olderThanMs`) so
- *  their event log survives for cut-off pattern analysis via listErroredRuns. */
-export async function cleanupOldRuns(
+let cleanupOldRunsInFlight: Promise<void> | undefined;
+
+async function cleanupOldRunsInternal(
   olderThanMs: number,
   erroredOlderThanMs?: number,
 ): Promise<void> {
@@ -2866,109 +4926,25 @@ export async function cleanupOldRuns(
   const cutoff = Date.now() - olderThanMs;
   const erroredCutoff =
     Date.now() - Math.max(erroredOlderThanMs ?? 0, olderThanMs);
-  // Expire stale running rows on the absolute-age threshold — safety net
-  // for runs that never received a heartbeat (very old deployments). The
-  // SELECT covers BOTH UPDATE conditions so the terminal-event-append loop
-  // below catches every row we're about to flip — a 24h-old row with a
-  // somehow-fresh heartbeat would slip past a heartbeat-only SELECT.
-  //
-  // The in-flight grace clause is applied ONLY to the heartbeat-based branch
-  // (mirroring the second UPDATE below), never the absolute-age branch:
-  // nothing can legitimately hold in-flight work anywhere near `olderThanMs`
-  // (default on the order of a day) — `IN_FLIGHT_RUN_STALE_GRACE_MS` bounds
-  // any real grace at ~14.5 minutes — so a row that old is dead regardless of
-  // its in-flight marker. This runs opportunistically after EVERY run
-  // completes in ANY isolate, so a different thread's still-in-flight A2A
-  // call must not be reaped as a side effect of an unrelated run finishing.
-  const now = Date.now();
-  const stale = await client.execute({
-    sql: `SELECT id FROM agent_runs
-          WHERE status = 'running'
-            AND (
-              (${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()} AND ${inFlightGraceSql()})
-              OR started_at < ?
-    )`,
-    args: [now, now, now, cutoff],
-  });
-  for (const row of stale.rows) {
-    const id = (row as { id?: unknown }).id;
-    if (typeof id === "string") {
-      await reconcileTerminalRunFromEvents(id);
-    }
-  }
-  const completedAt = Date.now();
-  await client.execute({
-    sql: `UPDATE agent_runs
-          SET status = 'errored',
-              completed_at = ?,
-              error_code = ?,
-              error_detail = ?,
-              terminal_reason = ?
-          WHERE status = 'running'
-            AND ${terminalRunEventExclusionSql()}
-            AND started_at < ?`,
-    args: [
-      completedAt,
-      STALE_RUN_ERROR_EVENT.errorCode,
-      STALE_RUN_ERROR_EVENT.details,
-      STALE_RUN_ERROR_EVENT.errorCode,
-      cutoff,
-    ],
-  });
-  // Also expire runs whose heartbeat is stale — producer has died. Uses the
-  // background-aware window so a slow background cold-start isn't reaped
-  // early, and the in-flight grace so a demonstrably-alive run holding a tool
-  // call / A2A delegation survives a heartbeat write failure. Must match the
-  // SELECT's heartbeat branch above exactly — the terminal-event-append loop
-  // below fires for every row the SELECT returned, so a mismatch would
-  // silently inject a terminal error event onto a row this UPDATE left
-  // status='running'.
-  await client.execute({
-    sql: `UPDATE agent_runs
-          SET status = 'errored',
-              completed_at = ?,
-              error_code = ?,
-              error_detail = ?,
-              terminal_reason = ?
-          WHERE status = 'running'
-            AND ${terminalRunEventExclusionSql()}
-            AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
-            AND ${inFlightGraceSql()}`,
-    args: [
-      completedAt,
-      STALE_RUN_ERROR_EVENT.errorCode,
-      STALE_RUN_ERROR_EVENT.details,
-      STALE_RUN_ERROR_EVENT.errorCode,
-      completedAt,
-      completedAt,
-      completedAt,
-    ],
-  });
-  for (const row of stale.rows) {
-    const id = (row as { id?: unknown }).id;
-    if (typeof id === "string") {
-      await safeAppendTerminalRunEvent(
-        id,
-        STALE_RUN_ERROR_EVENT,
-        "cleanup-old-runs",
-      );
-    }
-  }
-  // Claim old terminal runs and roll up only rows this invocation actually
-  // deleted. The transaction prevents concurrent cleanup calls from both
-  // counting the same source rows.
+  await reapAllStaleRuns();
   await pruneAndRollUpPrunedRunOutcomes(client, cutoff, erroredCutoff);
 }
 
-/**
- * List recent unsuccessful runs (errored, aborted, and truncated) for cut-off
- * pattern analysis. Read-only, bounded, and ordered newest-first. Surfaced via
- * the list-errored-runs action so the team can see why chats are failing
- * (terminal error code, duration, turn linkage) instead of discovering it ad
- * hoc. Truncations belong here: a run that stopped at a budget boundary is a
- * cut-off, and they outnumbered genuine completions on Plan in prod while being
- * invisible to this query.
- */
+export function cleanupOldRuns(
+  olderThanMs: number,
+  erroredOlderThanMs?: number,
+): Promise<void> {
+  if (cleanupOldRunsInFlight) return cleanupOldRunsInFlight;
+
+  const current = cleanupOldRunsInternal(olderThanMs, erroredOlderThanMs);
+  let settled: Promise<void>;
+  settled = current.finally(() => {
+    if (cleanupOldRunsInFlight === settled) cleanupOldRunsInFlight = undefined;
+  });
+  cleanupOldRunsInFlight = settled;
+  return settled;
+}
+
 export async function listErroredRuns(options?: {
   limit?: number;
   sinceMs?: number;
@@ -3030,16 +5006,6 @@ export async function listErroredRuns(options?: {
   });
 }
 
-/**
- * Idempotently append a terminal event to a run's event stream. No-op if the
- * stream already ends in a terminal event. Used by reapers AND by SSE
- * reconnect paths that discover an `errored` run row with no terminal event
- * (e.g. an earlier reaper's silent `.catch(() => {})` swallowed the append).
- *
- * Persisting from the reconnect path is what keeps the system self-healing:
- * subsequent reconnects replay the proper terminal event from SQL instead of
- * synthesizing a fresh one each time.
- */
 export async function ensureTerminalRunEvent(
   runId: string,
   event: Record<string, unknown>,
@@ -3047,14 +5013,114 @@ export async function ensureTerminalRunEvent(
   return appendTerminalRunEvent(runId, event);
 }
 
-/**
- * Append a terminal run event, retrying once on failure and reporting to
- * Sentry if both attempts fail. Background reaper paths can't surface errors
- * to a user, but they MUST eventually persist a terminal event — losing it
- * leaves reconnecting clients staring at a bare `status='errored'` row with
- * no payload to render. The previous `.catch(() => {})` callsites silently
- * dropped transient SQL blips and produced exactly that bug. Never throws.
- */
+/** Projects a run after its stale status and terminal event committed. */
+async function finalizeStaleRun(
+  runId: string,
+  source: string,
+  projectThread = true,
+): Promise<boolean> {
+  if (!projectThread) return true;
+  try {
+    const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
+    const disposition = await foldReapedRunIntoThread(runId);
+    if (disposition === "retry") return false;
+    await getDbExec().execute({
+      sql: `UPDATE agent_runs
+            SET thread_projection_pending = FALSE
+            WHERE id = ? AND thread_projection_pending IS TRUE`,
+      args: [runId],
+    });
+    return true;
+  } catch (error) {
+    captureError(error, {
+      tags: {
+        component: "agent-run-store",
+        operation: "fold-reaped-run",
+        source,
+      },
+      extra: { runId },
+    });
+    return false;
+  }
+}
+
+async function appendTerminalRunEventInTransaction(
+  tx: DbExec,
+  runId: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  const { rows } = await tx.execute({
+    sql: `SELECT seq, event_data
+          FROM agent_run_events
+          WHERE run_id = ?
+          ORDER BY seq DESC
+          LIMIT 1`,
+    args: [runId],
+  });
+  const last = rows[0] as
+    | { seq?: number | string; event_data?: string }
+    | undefined;
+  if (last?.event_data) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(last.event_data);
+    } catch (error) {
+      throw new Error(`Run ${runId} has malformed last event data`, {
+        cause: error,
+      });
+    }
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      terminalStatusForEvent(parsed as AgentChatEvent)
+    ) {
+      return;
+    }
+  }
+  const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
+  if (!Number.isSafeInteger(nextSeq)) {
+    throw new Error(`Run ${runId} has no safe sequence for its terminal event`);
+  }
+  const inserted = await tx.execute({
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (run_id, seq) DO NOTHING
+          RETURNING seq`,
+    args: [
+      runId,
+      nextSeq,
+      Date.now(),
+      stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
+    ],
+  });
+  if ((inserted.rowsAffected ?? inserted.rows.length) !== 1) {
+    throw new Error(
+      `Run ${runId} terminal event sequence ${nextSeq} was not persisted`,
+    );
+  }
+}
+
+async function retryPendingStaleRunThreadProjections(
+  client: ReturnType<typeof getDbExec>,
+): Promise<{ failed: number; truncated: boolean }> {
+  const { rows } = await client.execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE thread_projection_pending IS TRUE
+          ORDER BY completed_at ASC, id ASC
+          LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
+    args: [],
+  });
+  const truncated = rows.length > REAP_ALL_STALE_BATCH_LIMIT;
+  const pending = truncated ? rows.slice(0, REAP_ALL_STALE_BATCH_LIMIT) : rows;
+  let failed = 0;
+  for (const row of pending) {
+    const runId = (row as { id?: unknown }).id;
+    if (typeof runId !== "string") continue;
+    if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) failed += 1;
+  }
+  return { failed, truncated };
+}
+
 async function safeAppendTerminalRunEvent(
   runId: string,
   event: Record<string, unknown>,
@@ -3067,8 +5133,6 @@ async function safeAppendTerminalRunEvent(
   } catch (err) {
     firstError = err;
   }
-  // Brief backoff — most "transient" SQL failures (connection blip, lock
-  // contention) clear within a couple hundred ms.
   await new Promise<void>((resolve) => setTimeout(resolve, 100));
   try {
     await appendTerminalRunEvent(runId, event);
@@ -3086,6 +5150,7 @@ async function safeAppendTerminalRunEvent(
           firstError instanceof Error ? firstError.message : String(firstError),
       },
     });
+    throw retryErr;
   }
 }
 
@@ -3119,8 +5184,18 @@ async function appendTerminalRunEvent(
     }
   }
   const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
-  await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, nextSeq, Date.now(), JSON.stringify(event)],
+  const inserted = await client.execute({
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING RETURNING seq`,
+    args: [
+      runId,
+      nextSeq,
+      Date.now(),
+      stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
+    ],
   });
+  if (inserted.rows.length === 0) {
+    throw new Error(
+      `Run ${runId} terminal event conflicted with sequence ${nextSeq}`,
+    );
+  }
 }

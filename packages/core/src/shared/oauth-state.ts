@@ -1,13 +1,18 @@
-/**
- * Extract the workspace app id from an agent-native OAuth state parameter
- * without verifying the HMAC signature.
- *
- * This is only for routing a provider callback to the app that will verify
- * and consume the state. The destination callback must still call
- * decodeOAuthState before trusting anything inside the payload.
- */
 export function extractOAuthStateAppId(
   state: string | null | undefined,
+): string | undefined {
+  return extractOAuthStateField(state, "app");
+}
+
+export function extractOAuthStateProvider(
+  state: string | null | undefined,
+): string | undefined {
+  return extractOAuthStateField(state, "p");
+}
+
+function extractOAuthStateField(
+  state: string | null | undefined,
+  field: "app" | "p",
 ): string | undefined {
   if (!state) return undefined;
   try {
@@ -15,7 +20,7 @@ export function extractOAuthStateAppId(
     if (dotIdx === -1) return undefined;
     const data = state.slice(0, dotIdx);
     const parsed = JSON.parse(decodeBase64Url(data));
-    return typeof parsed.app === "string" ? parsed.app : undefined;
+    return typeof parsed[field] === "string" ? parsed[field] : undefined;
   } catch {
     return undefined;
   }

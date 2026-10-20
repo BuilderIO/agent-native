@@ -1,7 +1,13 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { PoweredByBadge } from "@agent-native/core/client/ui";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
+import {
+  AGENT_ACCESS_PARAM,
+  normalizeDocumentTitle,
+} from "@agent-native/core/shared";
+import { buildResourceSocialMeta } from "@agent-native/core/shared";
+import { PoweredByBadge } from "@agent-native/toolkit/app/shared";
 import {
   IconCalendar,
   IconCheck,
@@ -15,8 +21,12 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useRef, useState } from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useParams } from "react-router";
+import type {
+  HeadersArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
+import { useLoaderData, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -25,7 +35,13 @@ import {
 } from "@/components/meetings/attendee-stack";
 import { TranscriptBubbles } from "@/components/meetings/transcript-bubbles";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 import {
   fetchPublicMeeting,
@@ -35,14 +51,53 @@ import {
 } from "@/lib/public-meeting";
 
 import { getDb, schema } from "../../server/db";
+import { CLIPS_MEETING_AGENT_RESOURCE_KIND } from "../../shared/meeting-agent-access";
+import { privateShareLoaderData } from "../../shared/share-loader-response";
+import {
+  normalizeTranscriptSegments,
+  parseTranscriptSegments,
+} from "../../shared/transcript-segments";
+import { resolveTranscriptPresentation } from "../../shared/transcript-status";
 
-type LoaderData = { meeting: PublicMeeting | null };
+type LoaderData = {
+  meeting: PublicMeeting | null;
+  isPublic: boolean;
+  origin: string;
+  basePath: string;
+};
 
-export async function loader({
-  params,
-}: LoaderFunctionArgs): Promise<LoaderData> {
+function shareMeetingLoaderData(
+  payload: LoaderData,
+  privateAgentAccess = false,
+  varyByQuery = false,
+) {
+  return privateAgentAccess
+    ? privateShareLoaderData(payload, 200, varyByQuery)
+    : payload;
+}
+
+export function headers({ loaderHeaders }: HeadersArgs) {
+  return loaderHeaders;
+}
+
+export async function loader({ params, url }: LoaderFunctionArgs) {
   const meetingId = params.meetingId;
-  if (!meetingId) return { meeting: null };
+  const origin = url.origin;
+  const basePath = getConfiguredAppBasePath();
+  if (!meetingId) {
+    return { meeting: null, isPublic: false, origin, basePath };
+  }
+
+  const { verifyScopedAgentAccessToken } =
+    await import("@agent-native/core/server");
+  const agentAccessToken = url.searchParams.get(AGENT_ACCESS_PARAM) ?? "";
+  const hasAgentAccessToken = Boolean(agentAccessToken);
+  const tokenGrantsAgentAccess = agentAccessToken
+    ? verifyScopedAgentAccessToken(agentAccessToken, {
+        resourceKind: CLIPS_MEETING_AGENT_RESOURCE_KIND,
+        resourceId: meetingId,
+      }).ok
+    : false;
 
   const [meeting] = await getDb()
     .select({
@@ -51,23 +106,36 @@ export async function loader({
       scheduledStart: schema.meetings.scheduledStart,
       summaryMd: schema.meetings.summaryMd,
       bulletsJson: schema.meetings.bulletsJson,
+      ownerEmail: schema.meetings.ownerEmail,
       actualStart: schema.meetings.actualStart,
       actualEnd: schema.meetings.actualEnd,
       transcriptStatus: schema.meetings.transcriptStatus,
+      recordingId: schema.meetings.recordingId,
+      shareTranscript: schema.meetings.shareTranscript,
       visibility: schema.meetings.visibility,
     })
     .from(schema.meetings)
     .where(
-      and(
-        eq(schema.meetings.id, meetingId),
-        eq(schema.meetings.visibility, "public"),
-        isNull(schema.meetings.trashedAt),
-      ),
+      tokenGrantsAgentAccess
+        ? and(
+            eq(schema.meetings.id, meetingId),
+            isNull(schema.meetings.trashedAt),
+          )
+        : and(
+            eq(schema.meetings.id, meetingId),
+            eq(schema.meetings.visibility, "public"),
+            isNull(schema.meetings.trashedAt),
+          ),
     )
     .limit(1);
-  if (!meeting) return { meeting: null };
+  if (!meeting) {
+    return shareMeetingLoaderData(
+      { meeting: null, isPublic: false, origin, basePath },
+      hasAgentAccessToken,
+    );
+  }
 
-  const [participants, actionItems] = await Promise.all([
+  const [participants, actionItems, transcriptRows] = await Promise.all([
     getDb()
       .select({
         email: schema.meetingParticipants.email,
@@ -85,7 +153,32 @@ export async function loader({
       })
       .from(schema.meetingActionItems)
       .where(eq(schema.meetingActionItems.meetingId, meetingId)),
+    meeting.shareTranscript && meeting.recordingId
+      ? getDb()
+          .select({
+            status: schema.recordingTranscripts.status,
+            language: schema.recordingTranscripts.language,
+            fullText: schema.recordingTranscripts.fullText,
+            failureReason: schema.recordingTranscripts.failureReason,
+            segmentsJson: schema.recordingTranscripts.segmentsJson,
+            updatedAt: schema.recordingTranscripts.updatedAt,
+          })
+          .from(schema.recordingTranscripts)
+          .where(
+            eq(schema.recordingTranscripts.recordingId, meeting.recordingId),
+          )
+          .limit(1)
+      : Promise.resolve([]),
   ]);
+
+  const transcript = transcriptRows[0] ?? null;
+  const transcriptPresentation = resolveTranscriptPresentation(transcript);
+  const transcriptSegments = transcript
+    ? normalizeTranscriptSegments({
+        segments: parseTranscriptSegments(transcript.segmentsJson),
+        fullText: transcript.fullText,
+      })
+    : [];
 
   let bullets: PublicMeeting["bullets"] = [];
   try {
@@ -100,30 +193,66 @@ export async function loader({
     }
   } catch {}
 
-  return {
-    meeting: {
-      id: meeting.id,
-      title: meeting.title,
-      scheduledStart: meeting.scheduledStart,
-      summaryMd: meeting.summaryMd,
-      bullets,
-      participants,
-      actionItems,
-      actualStart: meeting.actualStart,
-      actualEnd: meeting.actualEnd,
-      transcriptStatus: meeting.transcriptStatus,
+  const ownerEmailIsPublic = participants.some(
+    (participant) =>
+      participant.email.trim().toLowerCase() ===
+      meeting.ownerEmail?.trim().toLowerCase(),
+  );
+
+  return shareMeetingLoaderData(
+    {
+      meeting: {
+        id: meeting.id,
+        title: meeting.title,
+        scheduledStart: meeting.scheduledStart,
+        summaryMd: meeting.summaryMd,
+        bullets,
+        participants,
+        actionItems,
+        ownerEmail: ownerEmailIsPublic ? meeting.ownerEmail : null,
+        actualStart: meeting.actualStart,
+        actualEnd: meeting.actualEnd,
+        transcriptStatus: meeting.transcriptStatus,
+        transcript: transcript
+          ? {
+              status: transcriptPresentation.status ?? transcript.status,
+              language: transcript.language,
+              fullText: transcript.fullText,
+              segments: transcriptSegments,
+            }
+          : null,
+      },
+      isPublic: meeting.visibility === "public",
+      origin,
+      basePath,
     },
-  };
+    hasAgentAccessToken,
+    tokenGrantsAgentAccess,
+  );
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
-  const meeting = loaderData?.meeting;
-  const title = meeting?.title
-    ? `${meeting.title} · Clips`
+  const meeting = loaderData?.isPublic ? loaderData.meeting : null;
+  const meetingTitle = meeting?.title
+    ? normalizeDocumentTitle(meeting.title, enMessages.shareMeeting.pageTitle)
+    : null;
+  const title = meetingTitle
+    ? `${meetingTitle} · Clips`
     : enMessages.shareMeeting.pageTitle;
-  const description = meeting?.title
-    ? `AI meeting notes for "${meeting.title}"`
+  const description = meetingTitle
+    ? `AI meeting notes for "${meetingTitle}"`
     : enMessages.shareMeeting.description;
+  if (meetingTitle && loaderData) {
+    return [
+      { title },
+      ...buildResourceSocialMeta({
+        title,
+        description,
+        origin: loaderData.origin,
+        basePath: loaderData.basePath,
+      }),
+    ];
+  }
   return [
     { title },
     { name: "description", content: description },
@@ -134,21 +263,53 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
 
 export function HydrateFallback() {
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-background">
-      <Spinner className="size-8 text-muted-foreground" />
+    <div aria-busy="true" className="min-h-screen bg-background">
+      <header className="border-b border-border">
+        <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
+          <Skeleton className="h-4 w-48 flex-1" />
+          <Skeleton className="h-8 w-24 shrink-0 rounded-md" />
+        </div>
+      </header>
+      <main className="mx-auto max-w-2xl px-4 py-8">
+        <div className="mb-8 flex items-center gap-3">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+        <div className="space-y-8">
+          <section className="space-y-3">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-11/12" />
+            <Skeleton className="h-4 w-4/5" />
+          </section>
+          <section className="space-y-3">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-10/12" />
+            <Skeleton className="h-4 w-3/4" />
+          </section>
+          <section className="space-y-3">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-11/12" />
+            <Skeleton className="h-4 w-4/5" />
+          </section>
+        </div>
+      </main>
     </div>
   );
 }
 
-function formatDateTime(iso?: string | null): string {
+function formatDateTime(iso?: string | null, stable = false): string {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleString([], {
+    return new Date(iso).toLocaleString(stable ? "en-US" : [], {
       weekday: "short",
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "2-digit",
+      ...(stable ? { timeZone: "UTC" } : {}),
     });
   } catch {
     return "";
@@ -193,9 +354,12 @@ export default function ShareMeetingRoute() {
   const t = useT();
   const loaderData = useLoaderData<LoaderData>();
   const { meetingId } = useParams<{ meetingId: string }>();
+  const [searchParams] = useSearchParams();
   const { session, isLoading: sessionLoading } = useSession();
+  const agentAccessToken = searchParams.get(AGENT_ACCESS_PARAM) ?? "";
   const pollingStartedAtRef = useRef<number | null>(null);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
+  const [hasHydrated, setHasHydrated] = useState(false);
   const initialMeetingResult: PublicMeetingResult | undefined =
     loaderData.meeting
       ? {
@@ -211,8 +375,13 @@ export default function ShareMeetingRoute() {
       meetingId,
       session?.email ?? null,
       session?.orgId ?? null,
+      agentAccessToken,
     ],
-    queryFn: ({ signal }) => fetchPublicMeeting(meetingId ?? "", { signal }),
+    queryFn: ({ signal }) =>
+      fetchPublicMeeting(meetingId ?? "", {
+        signal,
+        agentAccessToken,
+      }),
     enabled: !!meetingId && !sessionLoading,
     initialData: initialMeetingResult,
     refetchInterval: (query) => {
@@ -242,8 +411,15 @@ export default function ShareMeetingRoute() {
       : null;
 
   useEffect(() => {
-    if (meeting?.title) document.title = `${meeting.title} · Clips`;
+    if (!meeting?.title) return;
+    const meetingTitle = normalizeDocumentTitle(
+      meeting.title,
+      enMessages.shareMeeting.pageTitle,
+    );
+    document.title = `${meetingTitle} · Clips`;
   }, [meeting?.title]);
+
+  useEffect(() => setHasHydrated(true), []);
 
   if (!meeting && (sessionLoading || meetingQuery.isLoading)) {
     return <HydrateFallback />;
@@ -268,6 +444,7 @@ export default function ShareMeetingRoute() {
     (participant) => ({
       email: participant.email,
       name: participant.name ?? undefined,
+      isOrganizer: participant.isOrganizer,
     }),
   );
   const transcript = meeting.transcript;
@@ -312,7 +489,7 @@ export default function ShareMeetingRoute() {
           {meeting.scheduledStart && (
             <span className="inline-flex items-center gap-1">
               <IconCalendar className="size-3.5" />
-              {formatDateTime(meeting.scheduledStart)}
+              {formatDateTime(meeting.scheduledStart, !hasHydrated)}
             </span>
           )}
           {attendees.length > 0 && (
@@ -327,9 +504,16 @@ export default function ShareMeetingRoute() {
         </div>
 
         {!hasNotes ? (
-          <p className="text-sm italic text-muted-foreground">
-            {t("shareMeeting.noAiNotes")}
-          </p>
+          <Empty className="border py-12">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconNotes />
+              </EmptyMedia>
+              <EmptyTitle className="text-base">
+                {t("shareMeeting.noAiNotes")}
+              </EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="space-y-8">
             {meeting.summaryMd && (
@@ -354,7 +538,7 @@ export default function ShareMeetingRoute() {
                   {meeting.bullets.map((bullet, index) => (
                     <li
                       key={index}
-                      className="flex gap-2 text-sm leading-relaxed text-muted-foreground"
+                      className="flex gap-2 text-sm leading-relaxed text-foreground"
                     >
                       <span>•</span>
                       <span className="flex-1">{bullet.text}</span>
@@ -427,6 +611,8 @@ export default function ShareMeetingRoute() {
                 <TranscriptBubbles
                   segments={transcript.segments}
                   isLive={false}
+                  participants={attendees}
+                  ownerEmail={meeting.ownerEmail}
                 />
               </div>
             ) : transcript.fullText ? (

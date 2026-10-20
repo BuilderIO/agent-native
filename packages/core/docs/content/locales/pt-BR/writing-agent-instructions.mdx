@@ -103,6 +103,14 @@ data and the same actions.
 
 Mantenha um arquivo de instruções canônicas: `AGENTS.md`. Se um cliente espera `CLAUDE.md`, faça dele um link simbólico para `AGENTS.md` em vez de uma segunda cópia. Dois arquivos mantidos manualmente são levados à deriva e o agente acaba com regras contraditórias. Uma fonte de verdade, vinculada onde necessário.
 
+`AGENTS.md` é o padrão universal sobre o qual o framework se baseia, então qualquer ferramenta de codificação com IA que leia instruções de projeto funciona de imediato:
+
+- **Claude Code**: lê `CLAUDE.md` (vinculado por link simbólico a `AGENTS.md` pela configuração da CLI)
+- **Cursor**: lê `AGENTS.md` diretamente, ou `.cursorrules` (localização legada do Cursor), se presente
+- **Windsurf**: lê `AGENTS.md` diretamente, ou `.windsurfrules` (localização legada do Windsurf), se presente
+- **Codex, Gemini e outros**: funcionam por meio do painel de agente incorporado
+- **Builder.io**: agente hospedado na nuvem com edição visual e colaboração
+
 ## O frontmatter SKILL.md deve dizer o que AND quando {#skill-frontmatter}
 
 O `description` é a única coisa que o agente vê ao decidir se deve ler uma habilidade. Deve responder a duas perguntas: o que a habilidade cobre e quando ativá-la. Uma descrição que descreva apenas o tópico não será acionada.

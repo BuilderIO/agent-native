@@ -1,13 +1,3 @@
-/**
- * motion-compiler.spec.ts
- *
- * Regression tests for the motion compiler and its CSS validation guards.
- *
- * Issue 1 regression: track.property was not validated, allowing CSS injection.
- * The assertSafeMotionCssProperty helper must reject any property string that
- * could break out of a CSS declaration or <style> block context.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -20,9 +10,8 @@ import {
   parseFirstAnimationDurationMs,
   parsePlaybackMode,
 } from "./motion-compiler";
+import { motionEaseVariableToken } from "./motion-easing";
 import type { MotionTimeline } from "./motion-timeline";
-
-// ─── Helper ──────────────────────────────────────────────────────────────────
 
 function makeTimeline(property: string): MotionTimeline {
   return {
@@ -47,8 +36,6 @@ function makeTimeline(property: string): MotionTimeline {
     updatedAt: "2024-01-01T00:00:00.000Z",
   };
 }
-
-// ─── Property validation (Issue 1 regression) ────────────────────────────────
 
 describe("assertSafeCssProperty — allowlist validation", () => {
   it("accepts standard animatable CSS properties", () => {
@@ -84,9 +71,6 @@ describe("assertSafeCssProperty — allowlist validation", () => {
   });
 
   it("REJECTS injection payload containing colon (CSS declaration breakout)", () => {
-    // Before the fix, this would compile as:
-    //   color:red} body{display:none: <value>;
-    // breaking out of the @keyframes block.
     expect(() =>
       assertSafeMotionCssProperty(
         "color:red} body{display:none",
@@ -144,8 +128,6 @@ describe("assertSafeCssProperty — allowlist validation", () => {
   });
 });
 
-// ─── Value/easing validation ─────────────────────────────────────────────────
-
 describe("assertSafeMotionCssToken — CSS injection validation", () => {
   it("accepts common motion values and easing functions", () => {
     for (const value of [
@@ -181,8 +163,6 @@ describe("assertSafeMotionCssToken — CSS injection validation", () => {
   });
 });
 
-// ─── Compiler output does not contain injected payload ───────────────────────
-
 describe("compile — property is emitted safely", () => {
   it("emits the property name verbatim for valid identifiers", () => {
     const { css } = compile(makeTimeline("opacity"));
@@ -191,7 +171,6 @@ describe("compile — property is emitted safely", () => {
 
   it("emits exactly one @keyframes block for a single-track timeline", () => {
     const { css } = compile(makeTimeline("transform"));
-    // Valid CSS: exactly one @keyframes block and one element rule block.
     const kfMatches = css.match(/@keyframes/g);
     expect(kfMatches).toHaveLength(1);
   });
@@ -232,8 +211,6 @@ describe("compile — property is emitted safely", () => {
     ];
 
     const { css } = compile(timeline);
-    // Count element rules outside the reduced-motion media query (which now
-    // also selects animated nodes by id).
     const beforeMedia = css.slice(0, css.indexOf("@media"));
     const ruleMatches = beforeMedia.match(
       /\[data-agent-native-node-id="node1"\]\s*\{/g,
@@ -246,6 +223,68 @@ describe("compile — property is emitted safely", () => {
     expect(css).toContain("animation-duration: 1s, 1s;");
     expect(css).toContain("animation-timing-function: ease, ease-out;");
     expect(css).toContain("animation-fill-mode: both, both;");
+  });
+
+  it("keeps repeated property animations uniquely named and in input order", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.durationMs = 900;
+    timeline.tracks = [
+      {
+        id: "opacity-first",
+        targetNodeId: "node1",
+        property: "opacity",
+        delayMs: 100,
+        durationMs: 300,
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "0.4" },
+        ],
+      },
+      {
+        id: "opacity-second",
+        targetNodeId: "node1",
+        property: "opacity",
+        delayMs: 250,
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "0.4" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const names = [...css.matchAll(/@keyframes\s+(\S+)/g)].map((match) =>
+      match[1]!.replace("{", ""),
+    );
+    const parsed = parse(css);
+
+    expect(names).toEqual([
+      "an-motion-node1--opacity--track-opacity-first",
+      "an-motion-node1--opacity--track-opacity-second",
+    ]);
+    expect(new Set(names).size).toBe(2);
+    expect(
+      parsed.map((track) => ({
+        id: track.id,
+        firstValue: track.keyframes[0]?.value,
+        delayMs: track.delayMs,
+        durationMs: track.durationMs,
+      })),
+    ).toEqual([
+      {
+        id: "opacity-first",
+        firstValue: "0",
+        delayMs: 100,
+        durationMs: 300,
+      },
+      {
+        id: "opacity-second",
+        firstValue: "0.4",
+        delayMs: 250,
+        durationMs: 500,
+      },
+    ]);
   });
 
   it("rejects unsafe keyframe values and easing while compiling", () => {
@@ -267,6 +306,21 @@ describe("compile — property is emitted safely", () => {
 });
 
 describe("parse — managed style fallback", () => {
+  it("round-trips a one-keyframe track through managed CSS", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks[0]!.keyframes = [{ t: 0, value: "0.5", ease: "linear" }];
+
+    const { css } = compile(timeline);
+
+    expect(parse(css)).toEqual([
+      {
+        targetNodeId: "node1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0.5", ease: "linear" }],
+      },
+    ]);
+  });
+
   it("injects and replaces the managed style block with tolerant close tags", () => {
     const first = injectManagedMotionCss(
       "<html><head></head><body><button>Hi</button></body></html>",
@@ -328,7 +382,6 @@ describe("parse — managed style fallback", () => {
 
     const { css } = compile(timeline);
 
-    // Sanitised names carry a short hash of the raw id to avoid collisions.
     expect(css).toMatch(
       /@keyframes an-motion-hero_button_[a-z0-9]+--transform/,
     );
@@ -364,7 +417,6 @@ describe("parse — managed style fallback", () => {
     expect(names).toHaveLength(2);
     expect(new Set(names).size).toBe(2);
 
-    // Both tracks recover with their exact raw node ids.
     const recovered = parse(css);
     expect(recovered.map((track) => track.targetNodeId).sort()).toEqual([
       "a:b",
@@ -373,9 +425,13 @@ describe("parse — managed style fallback", () => {
   });
 });
 
-// ─── Keyframe stop formatting + ordering ─────────────────────────────────────
-
 describe("compile — keyframe stop edge cases", () => {
+  it("rejects invalid easing rather than compiling a different browser curve", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks[0]!.keyframes[0]!.ease = "easee";
+    expect(() => compile(timeline)).toThrow(/valid timing function/);
+  });
+
   it("keeps a near-100% stop distinct from a real 100% stop", () => {
     const timeline = makeTimeline("opacity");
     timeline.tracks[0].keyframes = [
@@ -385,8 +441,6 @@ describe("compile — keyframe stop edge cases", () => {
     ];
 
     const { css } = compile(timeline);
-    // The interior stop must not round onto the 100% selector (duplicate
-    // selectors silently drop one of the two values).
     expect(css).toContain("99.99% {");
     expect(css.match(/100% \{/g)).toHaveLength(1);
   });
@@ -406,7 +460,6 @@ describe("compile — keyframe stop edge cases", () => {
 
   it("sorts unsorted keyframes and reads the element-rule ease from the first sorted stop", () => {
     const timeline = makeTimeline("opacity");
-    // Deliberately out of order: the t=0 stop (ease-out) is listed last.
     timeline.tracks[0].keyframes = [
       { t: 1, value: "1", ease: "linear" },
       { t: 0.5, value: "0.5", ease: "ease-in" },
@@ -414,32 +467,23 @@ describe("compile — keyframe stop edge cases", () => {
     ];
 
     const { css } = compile(timeline);
-    // Stops emitted in time order.
     const stopOrder = [...css.matchAll(/(\d+(?:\.\d+)?)% \{/g)].map((m) =>
       parseFloat(m[1]),
     );
     expect(stopOrder).toEqual([0, 50, 100]);
-    // Element rule ease comes from the SORTED first keyframe (t=0 → ease-out),
-    // not from whatever happened to be first in array order.
     expect(css).toContain("animation-timing-function: ease-out;");
   });
 });
-
-// ─── Reduced motion scoping ──────────────────────────────────────────────────
 
 describe("compile — reduced-motion block scoping", () => {
   it("targets only the animated node ids, not every stamped node", () => {
     const { css } = compile(makeTimeline("opacity"));
     const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion"));
     expect(reduced).toContain('[data-agent-native-node-id="node1"]');
-    // No blanket selector that would disable animations on unrelated nodes,
-    // and no dead [style*=…] selectors.
     expect(reduced).not.toMatch(/\[data-agent-native-node-id\]/);
     expect(reduced).not.toContain('[style*="');
   });
 });
-
-// ─── Duration recovery ───────────────────────────────────────────────────────
 
 describe("parseFirstAnimationDurationMs", () => {
   it("recovers the compiled duration from managed CSS", () => {
@@ -472,8 +516,6 @@ describe("parseFirstAnimationDurationMs", () => {
   });
 });
 
-// ─── Figma Motion parity: playback modes, offsets, springs ───────────────────
-
 function fullTimeline(overrides: Partial<MotionTimeline>): MotionTimeline {
   return {
     id: "t1",
@@ -500,6 +542,14 @@ const fadeTrack = (nodeId = "node1"): MotionTimeline["tracks"][number] => ({
 });
 
 describe("compile — playback modes", () => {
+  it("omits disabled tracks from runnable CSS", () => {
+    const disabled = { ...fadeTrack(), enabled: false };
+    const css = compile(fullTimeline({ tracks: [disabled] })).css;
+
+    expect(css).toContain("/* no animations */");
+    expect(css).not.toContain("@keyframes an-motion-");
+  });
+
   it('emits no iteration/direction lines for "once" (legacy-identical output)', () => {
     const css = compile(
       fullTimeline({ tracks: [fadeTrack()], playbackMode: "once" }),
@@ -507,7 +557,6 @@ describe("compile — playback modes", () => {
     expect(css).not.toContain("animation-iteration-count");
     expect(css).not.toContain("animation-direction");
     expect(css).not.toContain("animation-delay");
-    // Identical to a timeline that omits playbackMode entirely.
     expect(css).toBe(compile(fullTimeline({ tracks: [fadeTrack()] })).css);
   });
 
@@ -583,7 +632,6 @@ describe("compile — per-track offsets and durations", () => {
     expect(node1.durationMs).toBe(500);
     const node2 = parsed.find((t) => t.targetNodeId === "node2")!;
     expect(node2.delayMs).toBeUndefined();
-    // node2 spans the timeline: no explicit per-track duration recovered.
     expect(node2.durationMs).toBeUndefined();
   });
 });
@@ -623,22 +671,222 @@ describe("compile — spring easing → CSS linear()", () => {
       "0px 4px",
       "0px 0px",
     ]);
-    // The spring's ease comes back as its compiled linear() (still a valid,
-    // evaluable ease); the bezier survives verbatim.
     expect(parsed.keyframes[0].ease).toMatch(/^linear\(/);
     expect(parsed.keyframes[1].ease).toBe("cubic-bezier(0.42, 0, 0.58, 1)");
   });
 });
 
-// ─── At-cap tolerance: 64 tracks × 128 keyframes each ────────────────────────
-//
-// apply-motion-edit.ts rejects requests above 64 tracks / 128 keyframes per
-// track / 120000ms duration (DoS guards), but compile() itself must not
-// assume any smaller bound — it should tolerate a timeline sitting EXACTLY at
-// those caps and still produce valid, non-throwing CSS in reasonable time.
-// compile() iterates tracks once and sorts each track's keyframes once
-// (O(tracks * keyframes log keyframes)), so 64 * 128 is trivially fast; this
-// test is a correctness + no-blowup smoke check, not a perf benchmark.
+describe("compile — named easing variables", () => {
+  it("emits namespaced definitions and preserves resolved references in timing rules", () => {
+    const ease = motionEaseVariableToken("ease-out");
+    const timeline = fullTimeline({
+      defaultEase: ease,
+      tracks: [
+        {
+          targetNodeId: "node1",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    });
+    const css = compile(timeline, {
+      easingVariables: [
+        {
+          id: "ease-out",
+          name: "Ease out",
+          value: "spring(0.4, 0.7)",
+          collection: "Motion",
+        },
+      ],
+    }).css;
+
+    expect(css).toMatch(/:root\s*\{\s*--an-motion-ease-ease-out:\s*linear\(/);
+    expect(
+      css.match(
+        /animation-timing-function: var\(--an-motion-ease-ease-out\);/g,
+      ),
+    ).toHaveLength(3);
+    expect(css).not.toContain("spring(");
+  });
+
+  it("rejects unresolved references and definitions with unsafe easing tokens", () => {
+    const timeline = fullTimeline({
+      defaultEase: motionEaseVariableToken("missing"),
+      tracks: [],
+    });
+    expect(() => compile(timeline)).toThrow(/not defined/);
+
+    expect(() =>
+      compile(timeline, {
+        easingVariables: [
+          { id: "missing", name: "Missing", value: "var(--external-ease)" },
+        ],
+      }),
+    ).toThrow(/concrete supported easing/);
+  });
+});
+
+describe("compile — spatial cubic Position paths", () => {
+  it("writes native offset-path geometry and reads it back independently of easing", () => {
+    const timeline = makeTimeline("translate");
+    timeline.tracks[0]!.keyframes = [
+      {
+        t: 0,
+        value: "0px 0px",
+        ease: "ease-in",
+        motionPath: {
+          version: 1,
+          type: "cubic",
+          control1: { x: 0, y: 100 },
+          control2: { x: 0, y: 100 },
+        },
+      },
+      { t: 1, value: "100px 0px", ease: "linear" },
+    ];
+
+    const { css } = compile(timeline);
+    expect(css).toContain('offset-path: path("M 0 0 C 0 100 100 100 100 0");');
+    expect(css).toContain("offset-distance: 0%;");
+    expect(css).toContain("offset-distance: 100%;");
+    expect(css).toContain("animation-timing-function: ease-in;");
+    expect(css).toContain("translate: 0px 0px;");
+
+    const [parsed] = parse(css);
+    expect(parsed?.property).toBe("translate");
+    expect(parsed?.keyframes).toEqual(timeline.tracks[0]!.keyframes);
+  });
+
+  it("keeps uncurved segments straight when a neighboring segment is curved", () => {
+    const timeline = makeTimeline("translate");
+    timeline.tracks[0]!.keyframes = [
+      {
+        t: 0,
+        value: "0px 0px",
+        motionPath: {
+          version: 1,
+          type: "cubic",
+          control1: { x: 0, y: 60 },
+          control2: { x: 0, y: 60 },
+        },
+      },
+      { t: 0.5, value: "60px 0px", ease: "ease-out" },
+      { t: 1, value: "120px 0px" },
+    ];
+
+    const parsed = parse(compile(timeline).css)[0];
+    expect(parsed?.keyframes[0]?.motionPath).toEqual(
+      timeline.tracks[0]!.keyframes[0]?.motionPath,
+    );
+    expect(parsed?.keyframes[1]).toMatchObject({ t: 0.5, value: "60px 0px" });
+    expect(parsed?.keyframes[1]?.motionPath).toBeUndefined();
+  });
+
+  it("rejects non-px endpoints and paths on non-Position tracks", () => {
+    const timeline = makeTimeline("translate");
+    timeline.tracks[0]!.keyframes[0] = {
+      t: 0,
+      value: "0% 0px",
+      motionPath: {
+        version: 1,
+        type: "cubic",
+        control1: { x: 0, y: 20 },
+        control2: { x: 0, y: 20 },
+      },
+    };
+    expect(() => compile(timeline)).toThrow(/require finite px values/);
+
+    timeline.tracks[0]!.property = "opacity";
+    expect(() => compile(timeline)).toThrow(
+      /only supported for the "translate"/,
+    );
+  });
+
+  it("composes repeated Position tracks additively by stable id and axis order", () => {
+    const timeline = makeTimeline("translate");
+    timeline.durationMs = 1000;
+    timeline.tracks = [
+      {
+        id: "position-x",
+        targetNodeId: "node1",
+        property: "translate",
+        composition: "add",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "100px 0px" },
+        ],
+      },
+      {
+        id: "position-y",
+        targetNodeId: "node1",
+        property: "translate",
+        composition: "add",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "0px 50px" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const names = [...css.matchAll(/@keyframes\s+(\S+)/g)].map((match) =>
+      match[1]!.replace("{", ""),
+    );
+
+    expect(names).toEqual([
+      "an-motion-node1--translate--track-position-x",
+      "an-motion-node1--translate--track-position-y",
+    ]);
+    expect(css).toContain("animation-composition: add, add;");
+    expect(
+      parse(css).map((track) => ({
+        id: track.id,
+        composition: track.composition,
+        firstValue: track.keyframes[0]?.value,
+        lastValue: track.keyframes[1]?.value,
+      })),
+    ).toEqual([
+      {
+        id: "position-x",
+        composition: "add",
+        firstValue: "0px 0px",
+        lastValue: "100px 0px",
+      },
+      {
+        id: "position-y",
+        composition: "add",
+        firstValue: "0px 0px",
+        lastValue: "0px 50px",
+      },
+    ]);
+  });
+});
+
+describe("compile — normalized SVG Path trim", () => {
+  it("compiles a semantic trim pair to native stroke dashes and parses it losslessly", () => {
+    const timeline = makeTimeline("path-trim");
+    timeline.tracks[0]!.keyframes = [
+      { t: 0, value: "100% 20%", ease: "ease-out" },
+      { t: 1, value: "0% 100%", ease: "ease" },
+    ];
+
+    const css = compile(timeline).css;
+    expect(css).toContain("--an-motion-path-trim: 100% 20%;");
+    expect(css).toContain("stroke-dasharray: 20 80;");
+    expect(css).toContain("stroke-dashoffset: -100;");
+    expect(css).toContain("stroke-dasharray: 100 0;");
+    expect(css).toContain("stroke-dashoffset: 0;");
+    expect(parse(css)[0]?.keyframes).toEqual(timeline.tracks[0]!.keyframes);
+  });
+
+  it("rejects malformed semantic trim values", () => {
+    const timeline = makeTimeline("path-trim");
+    timeline.tracks[0]!.keyframes[1]!.value = "101% 0%";
+    expect(() => compile(timeline)).toThrow(/percentages between 0 and 100/);
+  });
+});
 
 const MAX_MOTION_TRACKS = 64;
 const MAX_MOTION_KEYFRAMES_PER_TRACK = 128;
@@ -689,16 +937,13 @@ describe("compile — at-cap tolerance (64 tracks × 128 keyframes)", () => {
     expect(css.length).toBeGreaterThan(0);
     expect(typeof hash).toBe("string");
 
-    // One @keyframes block per track.
     const kfMatches = css.match(/@keyframes/g) ?? [];
     expect(kfMatches).toHaveLength(MAX_MOTION_TRACKS);
 
-    // One element rule per distinct target node id.
     for (let i = 0; i < MAX_MOTION_TRACKS; i++) {
       expect(css).toContain(`[data-agent-native-node-id="node-${i}"]`);
     }
 
-    // Balanced braces — a structurally sound stylesheet.
     const opens = (css.match(/\{/g) ?? []).length;
     const closes = (css.match(/\}/g) ?? []).length;
     expect(opens).toBe(closes);
@@ -711,8 +956,6 @@ describe("compile — at-cap tolerance (64 tracks × 128 keyframes)", () => {
     const start = performance.now();
     compile(timeline);
     const elapsedMs = performance.now() - start;
-    // Generous ceiling — this is a smoke check against accidental quadratic
-    // blowup, not a tight perf budget. 64 * 128 = 8192 keyframe entries.
     expect(elapsedMs).toBeLessThan(500);
   });
 

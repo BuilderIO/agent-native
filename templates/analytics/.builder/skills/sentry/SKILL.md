@@ -1,8 +1,9 @@
 ---
 name: sentry
 description: >
-  Track errors and issues across your projects via Sentry.
-  Use this skill when the user asks about errors, exceptions, error trends, or application health.
+  Track external Sentry errors and issues, and route first-party captured
+  errors to Agent-Native Analytics. Use this skill when the user asks about
+  errors, exceptions, error trends, or application health.
 ---
 
 # Sentry Integration
@@ -54,6 +55,26 @@ directly from the agent.
 ### Dashboard
 
 - `/adhoc/sentry` — Sentry Error Health dashboard
+
+## First-party Agent-Native Analytics errors
+
+Agent-Native Analytics has its own Sentry-style error store, separate from the
+external Sentry connection. Browser `configureTracking()` and server
+`captureError()` can both emit `$exception` events when their Analytics keys are
+configured; Analytics groups them under Monitoring -> Errors without an
+external Sentry credential.
+
+Use these authenticated actions for first-party issues:
+
+| Action | Purpose |
+| --- | --- |
+| `list-error-issues` | Find grouped captured issues, filtered by status or search. |
+| `get-error-issue` | Read occurrences, stacks, tags, breadcrumbs, and replay links. |
+| `resolve-error-issue` | Resolve, ignore, or reopen an issue after triage. |
+
+Use `query-agent-native-analytics` only for bounded `analytics_events` or
+`$ai_generation` correlation; it does not expose the `error_issues` or
+`error_events` tables.
 
 ## Key Patterns & Gotchas
 

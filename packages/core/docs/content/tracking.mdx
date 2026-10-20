@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -126,7 +126,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -139,7 +139,7 @@ ambient request context (`RequestContext.browserSessionId`, set from the
 all send), so the same visit correlates whether the UI or the agent triggered the
 event. Each provider maps it to its own session field — `$session_id` for
 PostHog, which joins the event to session replay; a `session_id` property for
-Mixpanel and Amplitude; a top-level `sessionId` for webhooks and Agent Native
+Mixpanel and Amplitude; a top-level `sessionId` for webhooks and Agent-Native
 Analytics. It is absent for callers with no browser (cron, CLI, MCP, A2A), and a
 `sessionId` in the meta object overrides it.
 
@@ -150,7 +150,7 @@ Identify a user with traits. Forwarded to providers that support it (PostHog, Mi
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 Need a custom backend, the provider-registry API, or the batching/singleton internals? See [Advanced: custom providers & internals](#advanced) at the end.
@@ -227,11 +227,11 @@ Key differences from the [server `track()`](#track):
 - **Fire-and-forget.** It never blocks the UI, never throws, and swallows network errors.
 - **Authenticated, first-party only.** The route requires a session and a same-origin/CSRF marker (set automatically by the helper), so it can't be used as an open analytics relay. `name` is capped at 200 characters and `properties` at ~16KB; oversized or malformed payloads are rejected.
 
-This is distinct from the framework's internal browser telemetry (`trackEvent()` / automatic pageviews — see [Browser defaults](#browser-defaults) below), which powers Agent Native's own product analytics. Use `track()` for your app's own analytics events that should reach your configured providers.
+This is distinct from the framework's internal browser telemetry (`trackEvent()` / automatic pageviews — see [Browser defaults](#browser-defaults) below), which powers Agent-Native's own product analytics. Use `track()` for your app's own analytics events that should reach your configured providers.
 
 ## Session replay {#session-replay}
 
-Agent Native apps can opt into first-party browser session replay without adding a second analytics SDK. Call `configureTracking()` once in the browser root and pass the Analytics public key plus collector endpoint:
+Agent-Native apps can opt into first-party browser session replay without adding a second analytics SDK. Call `configureTracking()` once in the browser root and pass the Analytics public key plus collector endpoint:
 
 ```ts
 import { configureTracking } from "@agent-native/core/client/analytics";
@@ -252,7 +252,7 @@ configureTracking({
 
 When `sessionReplay.enabled` is truthy, the client dynamically imports `@rrweb/record` after startup and posts replay chunks to the replay endpoint. If `endpoint` ends in `/api/analytics/track` or `/track`, the replay endpoint is derived automatically as `/api/analytics/replay`. Override it explicitly with `sessionReplay.endpoint` when the replay collector lives somewhere else.
 
-Agent Native template roots already call `configureTracking()`. Hosted template deployments can turn replay on with Vite/Netlify environment variables, while library consumers should prefer the explicit `configureTracking({ key, endpoint, sessionReplay })` form above:
+Agent-Native template roots already call `configureTracking()`. Hosted template deployments can turn replay on with Vite/Netlify environment variables, while library consumers should prefer the explicit `configureTracking({ key, endpoint, sessionReplay })` form above:
 
 ```bash
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
@@ -261,7 +261,7 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
 VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
-The browser helper also performs a best-effort, non-blocking read of the current Agent Native auth session. Replay is signed-in-only by default: when `sessionReplay` is enabled, recording does not start unless the session resolves to a user email address. Signed-in replays include email-backed `userId`/`userEmail` plus `orgId`.
+The browser helper also performs a best-effort, non-blocking read of the current Agent-Native auth session. Replay is signed-in-only by default: when `sessionReplay` is enabled, recording does not start unless the session resolves to a user email address. Signed-in replays include email-backed `userId`/`userEmail` plus `orgId`.
 
 Set `sessionReplay.requireSignedInUser: false` or `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` only for an intentional anonymous replay deployment. When auth gating is disabled, anonymous recordings remain queryable by anonymous visitor, session, app/template, hostname, and path.
 
@@ -290,6 +290,12 @@ not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
 diagnostics shaping, and access policy inside the Analytics template.
 
 For local development only, Analytics can fall back to capped SQL inline chunks when private blob storage is unavailable. Production deployments should configure private or encrypted blob storage rather than relying on Postgres for replay payloads.
+
+## Test identities {#test-identities}
+
+QA and E2E accounts keep working everywhere, but they never count. `track()`, `identify()`, browser tracking, and session replay drop events from a test identity before any provider sees them. A test identity's server exceptions are kept, flagged `test_identity: true`, and delivered only to providers that set `acceptsTestIdentityExceptions` (Agent-Native Analytics), so they stay queryable without paging anyone. Non-auth email to a test identity is suppressed too: `sendEmail()` returns `{ status: "suppressed", reason: "test-identity" }` and logs the attempt, while sign-in, verification, password reset, and invitation mail still goes out. Every recipient line counts: test identities in `cc` and `bcc` are dropped and logged too. When `to` is a test identity, a real `cc` recipient takes its place; a `bcc` recipient never does, since the rest of `bcc` would see it. A send left with no `to` or `cc` recipient is suppressed whole, and every dropped address is logged.
+
+`isTestIdentity(email)` from `@agent-native/core/server` is the one rule. It matches the reserved `.test`, `.invalid`, `.localhost`, and `.example` domains and the `+autoz` QA marker. Add more per deployment with `AGENT_NATIVE_TEST_IDENTITY_EMAILS`, a comma-separated list of exact addresses (`qa@corp.com`) or `@domain` entries (`@example.com`). `testIdentitySql(column)` is the same rule as a PostgreSQL/BigQuery expression for metric queries. Browsers never receive that list: the session response carries a server-resolved `testIdentity` flag that browser tracking, session replay, and exception capture honor alongside the built-in rules, and Agent-Native Analytics ingest applies the deployment list as well.
 
 ## Advanced: custom providers & internals {#advanced}
 
@@ -384,12 +390,12 @@ Template roots call `configureTracking()` once at startup. Browser events sent w
 - `llm_connection_source` — `app_secrets`, `settings`, or `env`
 - `llm_connection_configured` — whether an LLM connection is available
 
-The framework also tracks `builder connect clicked` from Connect Builder CTAs, and the server-side Builder connect routes track started/succeeded/failed lifecycle events. `configureTracking()` is called automatically by the framework; you don't need to call it in your own template code.
+The framework also tracks `builder_connect_clicked` when a user selects a Use Builder.io CTA, and the server-side Builder connect routes track started/succeeded/failed lifecycle events. One-click account creation adds `connect_url_kind: "provision"`; the sign-in popup also records the legacy `builder connect clicked`, which misses one-click clicks. Server-side setup changes also emit `llm_credential_changed` (`change_type`, normalized `provider`, `scope`, `credential_kind`, and optional `surface`) and `llm_default_model_changed` (`engine`, `model`, optional prior engine/model, `scope`, and `operation`). These events never include credential or endpoint values. `configureTracking()` is called automatically by the framework; you don't need to call it in your own template code.
 
 </details>
 
 ## What's next
 
-- [**Actions**](/docs/actions) — where most tracking calls originate
-- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` runs in the core-routes plugin at startup
+- [**Actions**](/docs/actions-overview) — where most tracking calls originate
+- [**Server Plugins**](/docs/server-plugins) — `registerBuiltinProviders()` runs in the core-routes plugin at startup
 - [**Security — Secrets Management**](/docs/security#secrets) — manage API keys for tracking providers

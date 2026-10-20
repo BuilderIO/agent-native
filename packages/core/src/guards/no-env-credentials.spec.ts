@@ -43,8 +43,6 @@ describe("scanEnvCredentials", () => {
   });
 
   it("does not flag the platform database and Fusion deploy vars the scaffold generates", () => {
-    // The Builder database scaffold writes both of these files verbatim, so
-    // flagging them fails the build of every hosted app that has a database.
     const root = makeTempAppRoot({
       "drizzle.config.ts": [
         'import { defineConfig } from "drizzle-kit";',
@@ -98,6 +96,19 @@ describe("scanEnvCredentials", () => {
         "export function getDbUrl() {",
         "  return process.env.DATABASE_URL;",
         "}",
+        "",
+      ].join("\n"),
+    });
+    const result = scanEnvCredentials({ root });
+    expect(result.findings).toHaveLength(0);
+  });
+
+  it("passes clean for SSO deployment configuration", () => {
+    const root = makeTempAppRoot({
+      "server/identity-sso.ts": [
+        "const origin = process.env.APP_URL;",
+        "const registry = process.env.IDENTITY_SSO_APP_REGISTRY_JSON;",
+        "export { origin, registry };",
         "",
       ].join("\n"),
     });

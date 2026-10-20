@@ -1,44 +1,92 @@
+import type { AgentMessage } from "@agent-native/agentkit/protocol";
 import {
-  AssistantChat,
-  ChatHistoryList,
-  buildRepositoryFromCodeAgentTranscript,
-  codeAgentTranscriptHasPendingApproval,
-  createCodeAgentChatAdapter,
+  createAgentKitProtocolAdapter,
   isCodeAgentRunActive,
   isCredentialGapCodeAgentEvent,
   mergeCodeAgentTranscriptEvents,
-  type ChatHistoryItem,
-  type CodeAgentChatController,
 } from "@agent-native/core/client/agent-chat";
 import {
-  PromptComposer,
-  readAgentPromptAttachment,
-  type PromptComposerFile,
-  type SlashCommand,
-  type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
+  closeChatFirstSessionWatch,
+  emitChatFirstSessionWatch,
+  useChatFirstSessionWatch,
+  type ChatFirstSurfaceKind,
+  type ChatFirstOpenAppDetail,
+} from "@agent-native/core/client/chat-first-state";
 import { usePollLoop } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { createPollEngine } from "@agent-native/core/shared";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import {
+  AgentKitChat,
+  AgentKitRoot,
+  AgentMessageActions,
+  AgentMessageView,
+  useAgentKit,
+  useAgentKitControl,
+  useAgentThread,
+  type AgentKitRenderProps,
+  type AgentKitSlots,
+} from "@agent-native/toolkit/app/agentkit";
+import {
+  ChatHistoryList,
+  type ChatHistoryItem,
+} from "@agent-native/toolkit/app/chat/chat";
+import {
+  ChatFirstChatHistory,
+  ChatFirstPrimaryNavigation,
+  type ChatFirstPrimaryTab,
+} from "@agent-native/toolkit/app/chat/chat-first";
+import {
+  isClaudeCodeAgentId,
+  isLocalRuntimeEngine,
+  isLunaModel,
+  PromptComposer,
+  readAgentPromptAttachment,
+  resolvePreferredAgentModel,
+  type ComposerTerminalModeControl,
+  type PromptComposerFile,
+  type PromptComposerProps,
+  type SlashCommand,
+  type TiptapComposerHandle,
+} from "@agent-native/toolkit/app/chat/composer";
+import {
+  AgentConversationMessageView,
+  type AgentConversationMessage,
+} from "@agent-native/toolkit/app/chat/conversation";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+  type BuilderConnectFlow,
+  type BuilderConnectTransport,
+} from "@agent-native/toolkit/app/settings";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
+import {
   IconAlertCircle,
   IconBan,
+  IconBrandOpenai,
   IconCheck,
+  IconChevronDown,
   IconClock,
   IconCode,
   IconBrandChrome,
+  IconCloud,
   IconCopy,
   IconDeviceMobile,
   IconDeviceDesktop,
+  IconDots,
+  IconEye,
   IconFolder,
   IconFolderPlus,
+  IconGitBranch,
+  IconGitFork,
+  IconKey,
   IconLink,
   IconLockAccess,
-  IconPlus,
   IconPlayerPlay,
   IconPlayerStop,
   IconQrcode,
   IconRefresh,
+  IconRestore,
   IconRoute,
   IconSearch,
   IconSettings,
@@ -49,14 +97,28 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import {
   useCallback,
+  createContext,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useContext,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { toast } from "sonner";
 
+import { createCodeAgentAiReadinessGate } from "./ai-readiness.js";
+
+const SCHEDULED_CHAT_PROMPT_EVENT = "agent-native:scheduled-chat-prompt";
+
+import {
+  CODE_AGENT_CHAT_METADATA_KEY,
+  CODE_AGENT_CONVERSATION_MEDIA_TYPE,
+  createCodeAgentAgentKitRuntime,
+  startCodeAgentExternalTranscriptBridge,
+  type CodeAgentChatController,
+} from "./code-agent-agentkit-runtime.js";
 import {
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
@@ -68,6 +130,14 @@ import {
   type CodeAgentGoalId,
   type CodeAgentPermissionMode,
 } from "./code-agents.js";
+import {
+  getChatFirstNumericAppShortcut,
+  resolveChatFirstKeyboardNavigationTarget,
+  type ChatFirstKeyboardNavigation,
+  type ChatFirstKeyboardShortcut,
+} from "./keyboard-navigation.js";
+import { RemoteWaitlistPopover } from "./RemoteWaitlistPopover.js";
+import { SessionWatchPanel } from "./SessionWatchPanel.js";
 import type {
   CodeAgentCodePack,
   CodeAgentCodePackResult,
@@ -75,6 +145,10 @@ import type {
   CodeAgentControlResult,
   CodeAgentCreateRunRequest,
   CodeAgentCreateRunResult,
+  CodeAgentExecutionTarget,
+  CodeAgentForkRunRequest,
+  CodeAgentForkRunResult,
+  CodeAgentWorktreeSelection,
   CodeAgentFollowUpMode,
   CodeAgentFollowUpRequest,
   CodeAgentFollowUpResult,
@@ -82,7 +156,10 @@ import type {
   CodeAgentModelListResult,
   CodeAgentModelOption,
   CodeAgentModelSelection,
-  CodeAgentProviderConnectResult,
+  CodeAgentPortalTransferAllRequest,
+  CodeAgentPortalTransferAllResult,
+  CodeAgentPortalTransferRequest,
+  CodeAgentPortalTransferResult,
   CodeAgentPromptAttachment,
   CodeAgentProjectFolder,
   CodeAgentProjectListResult,
@@ -92,6 +169,8 @@ import type {
   CodeAgentRemoteConnectorPairRequest,
   CodeAgentRemoteConnectorPairResult,
   CodeAgentRemoteConnectorStatus,
+  CodeAgentRemoteWaitlistRequest,
+  CodeAgentRemoteWaitlistResult,
   CodeAgentRerunRequest,
   CodeAgentRerunResult,
   CodeAgentRetryRunRequest,
@@ -99,6 +178,10 @@ import type {
   CodeAgentRun,
   CodeAgentRunDetail,
   CodeAgentRunListResult,
+  CodeAgentScheduleListResult,
+  CodeAgentScheduleResult,
+  CodeAgentRestoreWorktreeRequest,
+  CodeAgentRestoreWorktreeResult,
   CodeAgentTerminalRequest,
   CodeAgentTerminalResult,
   CodeAgentTranscriptEvent,
@@ -107,6 +190,8 @@ import type {
   CodeAgentTranscriptSubscriptionBatch,
   CodeAgentUpdateRunRequest,
   CodeAgentUpdateRunResult,
+  CodeAgentWorktreeListResult,
+  CodeAgentWorktreeSummary,
   CodeAgentsOpenRequest,
 } from "./types.js";
 import {
@@ -115,6 +200,16 @@ import {
   DialogDescription,
   DialogTitle,
 } from "./ui/dialog.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu.js";
 import {
   Select,
   SelectContent,
@@ -126,7 +221,14 @@ import {
 
 export interface CodeAgentsHost {
   listRuns: (goalId?: string) => Promise<CodeAgentRunListResult>;
-  listModels?: () => Promise<CodeAgentModelListResult>;
+  listSchedules?: () => Promise<CodeAgentScheduleListResult>;
+  createSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  updateSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  deleteSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  runScheduleNow?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  listModels?: (options?: {
+    refresh?: boolean;
+  }) => Promise<CodeAgentModelListResult>;
   getHostMetadata?: () => Promise<CodeAgentHostMetadata>;
   runComputerSetupAction?: (
     action: CodeAgentComputerSetupAction,
@@ -138,6 +240,16 @@ export interface CodeAgentsHost {
   createRun: (
     request: CodeAgentCreateRunRequest,
   ) => Promise<CodeAgentCreateRunResult>;
+  listWorktrees?: (cwd?: string) => Promise<CodeAgentWorktreeListResult>;
+  forkRun?: (
+    request: CodeAgentForkRunRequest,
+  ) => Promise<CodeAgentForkRunResult>;
+  restoreWorktree?: (
+    request: CodeAgentRestoreWorktreeRequest,
+  ) => Promise<CodeAgentRestoreWorktreeResult>;
+  submitRemoteWaitlist?: (
+    request: CodeAgentRemoteWaitlistRequest,
+  ) => Promise<CodeAgentRemoteWaitlistResult>;
   readTranscript: (
     request: CodeAgentTranscriptRequest,
   ) => Promise<CodeAgentTranscriptResult>;
@@ -148,6 +260,12 @@ export interface CodeAgentsHost {
   appendFollowUp: (
     request: CodeAgentFollowUpRequest,
   ) => Promise<CodeAgentFollowUpResult>;
+  transferRun?: (
+    request: CodeAgentPortalTransferRequest,
+  ) => Promise<CodeAgentPortalTransferResult>;
+  transferAll?: (
+    request?: CodeAgentPortalTransferAllRequest,
+  ) => Promise<CodeAgentPortalTransferAllResult>;
   updateRun: (
     request: CodeAgentUpdateRunRequest,
   ) => Promise<CodeAgentUpdateRunResult>;
@@ -165,6 +283,7 @@ export interface CodeAgentsHost {
     request?: CodeAgentTerminalRequest,
   ) => Promise<CodeAgentTerminalResult>;
   openCodexLogin?: () => Promise<CodeAgentTerminalResult>;
+  openClaudeLogin?: () => Promise<CodeAgentTerminalResult>;
   getRemoteConnectorStatus?: () => Promise<CodeAgentRemoteConnectorStatus>;
   setRemoteConnectorEnabled?: (
     enabled: boolean,
@@ -172,7 +291,7 @@ export interface CodeAgentsHost {
   pairRemoteConnector?: (
     request?: CodeAgentRemoteConnectorPairRequest,
   ) => Promise<CodeAgentRemoteConnectorPairResult>;
-  connectBuilderProvider?: () => Promise<CodeAgentProviderConnectResult>;
+  builderConnectTransport?: BuilderConnectTransport;
 }
 
 export type CodeAgentsRenderAppSurface = (input: {
@@ -234,6 +353,34 @@ export function resolveNewSessionExtensionComposerState(
   };
 }
 
+export function shouldCloseWatchedChatFirstSession(input: {
+  runsLoaded: boolean;
+  targetSessionId: string | null;
+  targetKind: string | null;
+  watchedRunPresent: boolean;
+}): boolean {
+  if (!input.runsLoaded || !input.targetSessionId) return false;
+  if (input.targetKind === "agent-chat" || input.targetKind === "external") {
+    return false;
+  }
+  return !input.watchedRunPresent;
+}
+
+/**
+ * Search owns the rail only while its panel owns the main area, so the tab
+ * highlight can never disagree with what is actually on screen.
+ */
+export function resolveCodeAgentsPrimaryTab(input: {
+  chatFirstMainKind: "agent" | "code";
+  searchPanelOpen: boolean;
+  hostActiveTab?: ChatFirstPrimaryTab;
+}): ChatFirstPrimaryTab | undefined {
+  if (input.chatFirstMainKind === "code" && input.searchPanelOpen) {
+    return "search";
+  }
+  return input.hostActiveTab;
+}
+
 export interface CodeAgentsAppProps {
   apps: AppConfig[];
   host: CodeAgentsHost;
@@ -242,10 +389,129 @@ export interface CodeAgentsAppProps {
   openRequest?: CodeAgentsOpenRequest;
   refreshKey?: number;
   brandIconUrl?: string;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (tab?: string) => void;
+  /** Compact actions rendered above the primary surface. */
+  mainToolbarSlot?: ReactNode;
+  /** App shortcuts rendered between navigation and the chat history. */
+  railWorkspaceSlot?: ReactNode;
+  /** Optional actions pinned to the bottom of the rail. */
+  railFooterSlot?: ReactNode;
+  /** Optional window controls mounted in the rail's title-bar area. */
+  railWindowControlsSlot?: ReactNode;
+  /** Optional content shown below the empty new-chat composer. */
+  overviewFooterSlot?: ReactNode;
   renderAppSurface?: CodeAgentsRenderAppSurface;
   newSessionExtension?: CodeAgentsNewSessionExtension;
   openDetailRequest?: { detailId: string; nonce: number };
+  /** Active chat-first side surface; watch is rendered only when selected. */
+  activeChatFirstSurfaceKind?: ChatFirstSurfaceKind;
+  /** Selected primary chat kind in the chat-first shell. */
+  chatFirstMainKind?: "agent" | "code";
+  /** Keep the chat-first navigation rail in its compact icon-only state. */
+  railCollapsed?: boolean;
+  /** Hide host transport-unavailable copy while the chat-first shell is booting. */
+  suppressChatFirstUnavailableNotice?: boolean;
+  /** Select the primary chat kind in the chat-first shell. */
+  onChatFirstMainKindChange?: (kind: "agent" | "code") => void;
+  /** Host-rendered shared Agent-Native chat surface for the agent chat tab. */
+  renderChatFirstMainSurface?: ReactNode;
+  /** Host-rendered replacement for the chat stream and composer region. */
+  renderChatFirstChatSurface?: ReactNode;
+  /** Local terminal mode replaces the new-chat run with a PTY prompt. */
+  terminalMode?: {
+    agentId: string;
+    agentLabel: string;
+    onSubmit: (
+      prompt: string,
+      attachments: CodeAgentPromptAttachment[],
+    ) => void | Promise<void>;
+  };
+  /** Controls terminal mode from the new-chat composer plus menu. */
+  terminalModeControl?: ComposerTerminalModeControl;
+  /** Navigation callbacks for the shared chat-first rail. */
+  chatFirstNavigation?: {
+    activeTab?: ChatFirstPrimaryTab;
+    onNewChat?: () => void;
+    onOpenChats?: () => void;
+    onOpenAllApps?: () => void;
+    onOpenIntegrations: () => void;
+    onOpenScheduled: () => void;
+  };
+  /** Desktop-native shortcuts for app and chat navigation. */
+  keyboardNavigation?: ChatFirstKeyboardNavigation;
+  /** Route first-party MCP open_app results through the shared app pane. */
+  onChatFirstOpenApp?: (detail: ChatFirstOpenAppDetail) => void;
+  /** Lets a host place the shared watch renderer in its side-surface slot. */
+  onWatchedRunChange?: (
+    run: CodeAgentRun | null,
+    sourceRunId?: string | null,
+  ) => void;
+  /** Exposes the already-loaded run list to a host-owned side surface. */
+  onRunsChange?: (runs: CodeAgentRun[]) => void;
+  /** Exposes the selected primary chat to a host-owned surface controller. */
+  onSelectedRunChange?: (runId: string | null) => void;
+}
+
+interface CodeAgentTerminalAgentOption {
+  id: string;
+  label: string;
+  icon?: ReactNode;
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    console.warn("[code-agents] Could not parse transcript metadata as JSON.");
+    return null;
+  }
+}
+
+function stringFromRecord(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function chatFirstOpenAppDetailFromTranscriptEvent(
+  event: CodeAgentTranscriptEvent,
+  registeredServerIds: Set<string>,
+): ChatFirstOpenAppDetail | null {
+  if (event.type !== "status" || event.metadata?.type !== "tool_done") {
+    return null;
+  }
+  const tool = stringFromRecord(event.metadata, "tool");
+  if (!tool) return null;
+  if (tool !== "open_app") {
+    const serverMatch = /^mcp__(.+)__open_app$/.exec(tool);
+    if (!serverMatch || !registeredServerIds.has(serverMatch[1]!)) return null;
+  }
+
+  let result = recordFromUnknown(event.metadata.result);
+  if (result?.__agentNativeMcpToolResult === true) {
+    result =
+      recordFromUnknown(result.text) ?? recordFromUnknown(result.raw) ?? null;
+  }
+  if (!result) return null;
+  const detail: ChatFirstOpenAppDetail = {
+    app: stringFromRecord(result, "app", "appId", "application"),
+    path: stringFromRecord(result, "path", "targetPath"),
+    url: stringFromRecord(result, "url", "href"),
+    view: stringFromRecord(result, "view"),
+  };
+  return detail.app || detail.path || detail.url || detail.view ? detail : null;
 }
 
 type RunListStatus = CodeAgentRunListResult["status"];
@@ -327,19 +593,88 @@ const CODE_AGENT_REASONING_EFFORTS: Array<{
 
 const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
   {
-    engine: "auto",
-    engineLabel: "Auto",
-    model: "auto",
-    label: "Default model",
-    description: "Use the connected provider and saved default.",
+    engine: "ai-sdk:openai",
+    engineLabel: "OpenAI",
+    model: "gpt-6-luna",
+    label: "GPT-6 Luna",
+    description: "Model list is loading.",
+    configured: false,
   },
 ];
 
+const CODE_AGENT_LOCAL_ENGINES = new Set([
+  "codex-cli",
+  "claude-cli",
+  "pi-cli",
+  "opencode-cli",
+]);
+
+type LocalRuntimeEngine = "codex-cli" | "claude-cli";
+
+function getLocalRuntimeOptions(
+  modelOptions: CodeAgentModelOption[],
+): Array<{ engine: LocalRuntimeEngine; label: string }> {
+  const availableEngines = new Set(
+    modelOptions
+      .map((option) => option.engine)
+      .filter(
+        (engine): engine is LocalRuntimeEngine =>
+          engine === "codex-cli" || engine === "claude-cli",
+      ),
+  );
+  return (["codex-cli", "claude-cli"] as const)
+    .filter((engine) => availableEngines.has(engine))
+    .map((engine) => ({
+      engine,
+      label:
+        engine === "codex-cli" ? "Sign in with ChatGPT" : "Sign in with Claude",
+    }));
+}
+
+const CODE_AGENT_RUNTIME_OPTIONS = [
+  {
+    id: "default",
+    label: "Default",
+    description: "Agent-Native hosted chat",
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    description: "Run locally with Codex CLI",
+    engine: "codex-cli",
+  },
+  {
+    id: "claude-code",
+    label: "Claude Code",
+    description: "Run locally with Claude Code",
+    engine: "claude-cli",
+  },
+  {
+    id: "pi",
+    label: "Pi",
+    description: "Run locally with Pi",
+    engine: "pi-cli",
+  },
+  {
+    id: "opencode",
+    label: "OpenCode",
+    description: "Run locally with OpenCode",
+    engine: "opencode-cli",
+  },
+] as const;
+
 const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
-const CODE_AGENT_VIEWED_RUN_IDS_KEY = "agent-native-code:viewed-run-ids";
+const CODE_AGENT_UNREAD_RUN_IDS_KEY = "agent-native-code:unread-run-ids";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
 const DEFAULT_REMOTE_RELAY_URL = "https://dispatch.agent-native.com";
 const HOST_CALL_TIMEOUT_MIN_MS = 10_000;
+
+type RailItemCacheEntry = {
+  title: string | null;
+  pinned: boolean;
+  timestampKey: string;
+  item: ChatHistoryItem;
+};
 
 function getHostCallTimeoutMs(pollIntervalMs: number): number {
   return Math.max(HOST_CALL_TIMEOUT_MIN_MS, pollIntervalMs * 4);
@@ -396,6 +731,95 @@ const codeAgentComposerRootStyle = {
   boxSizing: "border-box",
 } satisfies CSSProperties;
 
+function CodeAgentsChatHistoryHeaderActions({
+  hasUnread,
+  onMarkAllRead,
+  onTransferAll,
+}: {
+  hasUnread: boolean;
+  onMarkAllRead: () => void;
+  onTransferAll?: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="code-agents-chat-history__menu-trigger"
+          aria-label="Chat list options"
+          title="Chat list options"
+        >
+          <IconDots size={15} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={4}
+        className="code-agents-chat-history__menu-content"
+      >
+        <DropdownMenuItem disabled={!hasUnread} onSelect={onMarkAllRead}>
+          <IconCheck size={14} strokeWidth={1.8} aria-hidden="true" />
+          <span>Mark all as read</span>
+        </DropdownMenuItem>
+        {onTransferAll ? (
+          <DropdownMenuItem onSelect={onTransferAll}>
+            <IconRoute size={14} strokeWidth={1.8} aria-hidden="true" />
+            <span>Move local chats to Portal</span>
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function isPortalCodeAgentRun(run: CodeAgentRun): boolean {
+  const metadata = run.metadata;
+  return Boolean(
+    metadata &&
+    (metadata.executionTarget === "portal" ||
+      (typeof metadata.portal === "object" && metadata.portal !== null)),
+  );
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function firstRecordString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export function getCodeAgentWorktreeRecoveryState(
+  worktree: Record<string, unknown> | undefined,
+): {
+  wasPreserved: boolean;
+  needsRecovery: boolean;
+  needsNotice: boolean;
+} {
+  const worktreePath = firstRecordString(worktree?.path);
+  const worktreeState = firstRecordString(worktree?.state);
+  const cleanupError = firstRecordString(worktree?.lastCleanupError);
+  // Older run records do not have pathAvailable. Preserve their existing
+  // behavior while making current records explicit when cleanup removed the
+  // checkout but kept its branch for recovery.
+  const pathAvailable = worktree?.pathAvailable !== false;
+  const wasPreserved =
+    worktreeState === "recoverable" && Boolean(cleanupError) && pathAvailable;
+  const needsRecovery = Boolean(
+    worktree &&
+    worktreePath &&
+    (worktreeState === "recoverable" ||
+      worktreeState === "removed" ||
+      worktreeState === "error") &&
+    !wasPreserved,
+  );
+  return {
+    wasPreserved,
+    needsRecovery,
+    needsNotice: needsRecovery || wasPreserved,
+  };
+}
+
 export default function CodeAgentsApp({
   apps,
   host,
@@ -404,26 +828,95 @@ export default function CodeAgentsApp({
   refreshKey = 0,
   brandIconUrl,
   onOpenSettings,
+  mainToolbarSlot,
+  railWorkspaceSlot,
+  railFooterSlot,
+  railWindowControlsSlot,
+  overviewFooterSlot,
   renderAppSurface,
   newSessionExtension,
   openDetailRequest,
+  activeChatFirstSurfaceKind,
+  chatFirstMainKind = "code",
+  railCollapsed = false,
+  suppressChatFirstUnavailableNotice = false,
+  onChatFirstMainKindChange,
+  renderChatFirstMainSurface,
+  renderChatFirstChatSurface,
+  terminalMode,
+  terminalModeControl,
+  chatFirstNavigation,
+  keyboardNavigation,
+  onChatFirstOpenApp,
+  onWatchedRunChange,
+  onRunsChange,
+  onSelectedRunChange,
 }: CodeAgentsAppProps) {
+  const t = useT();
   const [selectedGoalId, setSelectedGoalId] = useState<CodeAgentGoalId>("task");
   const selectedGoal =
     getCodeAgentGoal(selectedGoalId) ?? getDefaultCodeAgentGoal();
   const [runs, setRuns] = useState<CodeAgentRun[]>([]);
+  const [runsLoaded, setRunsLoaded] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
+  const watchedSession = useChatFirstSessionWatch();
+  const watchedSessionTarget = watchedSession.target;
+  const watchedSessionTargetRef = useRef(watchedSessionTarget);
+  watchedSessionTargetRef.current = watchedSessionTarget;
+  const watchedSessionTargetSessionId = watchedSessionTarget?.sessionId ?? null;
+  const watchedSessionTargetKind = watchedSessionTarget?.kind ?? null;
+  const watchedSessionTargetGoalId = watchedSessionTarget?.goalId ?? null;
+  const selectedRunIdRef = useRef(selectedRunId);
+  selectedRunIdRef.current = selectedRunId;
+  const onChatFirstMainKindChangeRef = useRef(onChatFirstMainKindChange);
+  onChatFirstMainKindChangeRef.current = onChatFirstMainKindChange;
+  const toggleRunPinnedRef = useRef<(run: CodeAgentRun) => Promise<void>>(
+    async () => undefined,
+  );
+  const renameRunRef = useRef<
+    (run: CodeAgentRun, newTitle: string) => Promise<void>
+  >(async () => undefined);
   const [selectedExtensionDetailId, setSelectedExtensionDetailId] = useState<
     string | null
   >(null);
-  const activeNewSessionExtension = newSessionExtension?.active
-    ? newSessionExtension
-    : null;
-  const newSessionExtensionComposerState =
-    resolveNewSessionExtensionComposerState(newSessionExtension);
+  const [transcriptEvents, setTranscriptEvents] = useState<
+    CodeAgentTranscriptEvent[]
+  >([]);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const transcriptRequestRef = useRef(0);
+  const selectRun = useCallback((runId: string | null) => {
+    // Do not mount a newly selected chat with the previous run's repository.
+    // The transcript fetch completes after this render, and the shared chat
+    // runtime correctly rejects a shorter same-length repository as stale.
+    setTranscriptEvents([]);
+    setTranscriptError(null);
+    setSelectedRunId(runId);
+  }, []);
+  const activeNewSessionExtension =
+    !terminalMode && newSessionExtension?.active ? newSessionExtension : null;
+  const newSessionExtensionComposerState = terminalMode
+    ? { active: false, useDefaultModeControl: false, showModelSelector: true }
+    : resolveNewSessionExtensionComposerState(newSessionExtension);
+  const terminalAgentOption: CodeAgentTerminalAgentOption | undefined =
+    terminalMode
+      ? {
+          id: terminalMode.agentId,
+          label: terminalMode.agentLabel,
+          icon: (
+            <IconTerminal2 size={14} strokeWidth={1.8} aria-hidden="true" />
+          ),
+        }
+      : undefined;
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? null,
     [runs, selectedRunId],
+  );
+  const watchedRun = useMemo(
+    () => runs.find((run) => run.id === watchedSessionTargetSessionId) ?? null,
+    [runs, watchedSessionTargetSessionId],
   );
 
   useEffect(() => {
@@ -432,10 +925,55 @@ export default function CodeAgentsApp({
   }, [activeNewSessionExtension]);
 
   useEffect(() => {
+    if (
+      !shouldCloseWatchedChatFirstSession({
+        runsLoaded,
+        targetSessionId: watchedSessionTargetSessionId,
+        targetKind: watchedSessionTargetKind,
+        watchedRunPresent: watchedRun !== null,
+      })
+    ) {
+      return;
+    }
+    closeChatFirstSessionWatch();
+  }, [
+    runsLoaded,
+    watchedRun,
+    watchedSessionTargetKind,
+    watchedSessionTargetSessionId,
+  ]);
+
+  useEffect(() => {
+    const goal = getCodeAgentGoal(watchedSessionTargetGoalId);
+    if (watchedSessionTargetKind !== "code-agent" || !goal) return;
+    if (goal.id !== selectedGoalId) setSelectedGoalId(goal.id);
+  }, [selectedGoalId, watchedSessionTargetGoalId, watchedSessionTargetKind]);
+
+  useEffect(() => {
+    onWatchedRunChange?.(
+      watchedRun,
+      watchedSessionTarget?.sourceSessionId ?? selectedRunId,
+    );
+  }, [
+    onWatchedRunChange,
+    selectedRunId,
+    watchedRun,
+    watchedSessionTarget?.sourceSessionId,
+  ]);
+
+  useEffect(() => {
+    onRunsChange?.(runs);
+  }, [onRunsChange, runs]);
+
+  useEffect(() => {
+    onSelectedRunChange?.(selectedRunId);
+  }, [onSelectedRunChange, selectedRunId]);
+
+  useEffect(() => {
     if (!openDetailRequest || !activeNewSessionExtension?.renderDetail) return;
-    setSelectedRunId(null);
+    selectRun(null);
     setSelectedExtensionDetailId(openDetailRequest.detailId);
-  }, [activeNewSessionExtension, openDetailRequest]);
+  }, [activeNewSessionExtension, openDetailRequest, selectRun]);
   const selectedRunUsesAppSurface = selectedRun
     ? isMigrationRun(selectedRun)
     : false;
@@ -453,24 +991,43 @@ export default function CodeAgentsApp({
   const [newPrompt, setNewPrompt] = useState("");
   const [newPromptSeed, setNewPromptSeed] = useState(0);
   const [creatingRun, setCreatingRun] = useState(false);
-  const [transcriptEvents, setTranscriptEvents] = useState<
-    CodeAgentTranscriptEvent[]
-  >([]);
-  const [transcriptLoading, setTranscriptLoading] = useState(false);
-  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const seenChatFirstOpenAppEvents = useRef(new Set<string>());
+  const registeredChatFirstMcpServerIds = useMemo(
+    () =>
+      new Set(
+        apps
+          .filter((app) => app.enabled !== false)
+          .map((app) => `desktop_app_${app.id.replace(/[^A-Za-z0-9_]/g, "_")}`),
+      ),
+    [apps],
+  );
   const [newRunPermissionMode, setNewRunPermissionMode] =
     useState<CodeAgentPermissionMode>(DEFAULT_CODE_AGENT_PERMISSION_MODE);
   const [selectedPermissionMode, setSelectedPermissionMode] =
     useState<CodeAgentPermissionMode>(DEFAULT_CODE_AGENT_PERMISSION_MODE);
-  const [modelOptions, setModelOptions] = useState<CodeAgentModelOption[]>(
-    DEFAULT_CODE_AGENT_MODEL_OPTIONS,
-  );
+  const [modelOptions, setModelOptions] = useState<CodeAgentModelOption[]>([]);
   const [projects, setProjects] = useState<CodeAgentProjectFolder[]>([]);
   const [selectedProjectPath, setSelectedProjectPath] = useState<string>("");
+  const [newRunExecutionTarget, setNewRunExecutionTarget] =
+    useState<CodeAgentExecutionTarget>("local");
+  const [newRunWorktreeSelection, setNewRunWorktreeSelection] =
+    useState<CodeAgentWorktreeSelection>({ mode: "new" });
+  const [namedWorktrees, setNamedWorktrees] = useState<
+    CodeAgentWorktreeSummary[]
+  >([]);
+  const [namedWorktreesLoading, setNamedWorktreesLoading] = useState(false);
+  const namedWorktreeRequestRef = useRef(0);
+  const [namedWorktreeDialogOpen, setNamedWorktreeDialogOpen] = useState(false);
+  const [namedWorktreeName, setNamedWorktreeName] = useState("");
+  const [forkSourceRun, setForkSourceRun] = useState<CodeAgentRun | null>(null);
+  const [forkBusy, setForkBusy] = useState(false);
+  const [restoringWorktreeId, setRestoringWorktreeId] = useState<string | null>(
+    null,
+  );
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [codePack, setCodePack] = useState<CodeAgentCodePack | null>(null);
   const [modelSelection, setModelSelection] = useState<CodeAgentModelSelection>(
-    () => readStoredModelSelection(),
+    () => readCodeAgentModelSelection(),
   );
   const [remoteConnectorStatus, setRemoteConnectorStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
@@ -482,6 +1039,12 @@ export default function CodeAgentsApp({
   >(null);
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [portalTransferRequest, setPortalTransferRequest] = useState<
+    { kind: "run"; runId: string; title: string } | { kind: "all" } | null
+  >(null);
+  const [portalTransferBusy, setPortalTransferBusy] = useState(false);
+  const [cloudWaitlistOpen, setCloudWaitlistOpen] = useState(false);
+  const cloudWaitlistOpeningRef = useRef(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
@@ -499,10 +1062,9 @@ export default function CodeAgentsApp({
     useState(false);
   const [accessibilityPrompted, setAccessibilityPrompted] = useState(false);
   const [screenRecordingPrompted, setScreenRecordingPrompted] = useState(false);
-  const [builderConnecting, setBuilderConnecting] = useState(false);
-  const [builderConnectMessage, setBuilderConnectMessage] = useState<
-    string | null
-  >(null);
+  const builderConnectedHandlerRef = useRef<
+    (state: { orgName: string | null }) => void | Promise<void>
+  >(async () => {});
   const selectedModelSelection = useMemo(
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
@@ -516,55 +1078,95 @@ export default function CodeAgentsApp({
   const searchTranscriptCacheRef = useRef(
     new Map<string, CodeAgentTranscriptEvent[]>(),
   );
-  const initialViewedRunIdsRef = useRef<{
-    initialized: boolean;
-    ids: Set<string>;
-  } | null>(null);
-  if (initialViewedRunIdsRef.current === null) {
-    initialViewedRunIdsRef.current = readStoredViewedRunIds();
-  }
-  const viewedRunIdsInitializedRef = useRef(
-    initialViewedRunIdsRef.current.initialized,
+  const [unreadRunIds, setUnreadRunIds] = useState<Set<string>>(() =>
+    readStoredUnreadRunIds(),
   );
-  const [viewedRunIds, setViewedRunIds] = useState<Set<string>>(
-    () => new Set(initialViewedRunIdsRef.current!.ids),
+  const observedRunsByGoalRef = useRef(
+    new Map<string, Map<string, CodeAgentRun>>(),
   );
-  const railItems = useMemo<ChatHistoryItem[]>(
-    () =>
-      sortRunsForRail(runs).map((run) => ({
+  const railItemCacheRef = useRef(new Map<string, RailItemCacheEntry>());
+  const railItems = useMemo<ChatHistoryItem[]>(() => {
+    const nextCache = new Map<string, RailItemCacheEntry>();
+    const nextItems = sortRunsForRail(runs).map((run) => {
+      const title = getRunTitle(run);
+      const pinned = isRunPinned(run);
+      const active = isRunActive(run);
+      const unread = !active && unreadRunIds.has(run.id);
+      const scheduled = run.metadata?.hasSchedule === true;
+      const timestampKey = active
+        ? "active"
+        : unread
+          ? "unread"
+          : scheduled
+            ? "scheduled"
+            : formatRelativeTime(run.updatedAt);
+      const previous = railItemCacheRef.current.get(run.id);
+      if (
+        previous &&
+        previous.title === title &&
+        previous.pinned === pinned &&
+        previous.timestampKey === timestampKey
+      ) {
+        nextCache.set(run.id, previous);
+        return previous.item;
+      }
+
+      const item: ChatHistoryItem = {
         id: run.id,
-        title: getRunTitle(run),
-        titleText: getRunTitle(run) ?? undefined,
-        pinned: isRunPinned(run),
-        timestamp: isRunActive(run) ? (
+        title,
+        titleText: title ?? undefined,
+        pinned,
+        timestamp: active ? (
           <span
             className="code-agents-run-status-spinner"
             aria-label="Running"
             title="Running"
           />
-        ) : !viewedRunIds.has(run.id) ? (
+        ) : unread ? (
           <span
             className="code-agents-run-status-dot"
-            aria-label="Done — unread"
-            title="Done"
+            aria-label="Unread chat"
+            title="Unread"
           />
         ) : (
-          formatRelativeTime(run.updatedAt)
+          timestampKey
         ),
-      })),
-    [runs, viewedRunIds],
-  );
+      };
+      const entry = { title, pinned, timestampKey, item };
+      nextCache.set(run.id, entry);
+      return item;
+    });
+    railItemCacheRef.current = nextCache;
+    return nextItems;
+  }, [runs, unreadRunIds]);
 
-  const markRunsViewed = useCallback((runIds: string[]) => {
+  const markRunsUnread = useCallback((runIds: string[]) => {
     const ids = runIds.filter(Boolean);
-    setViewedRunIds((current) => {
+    if (ids.length === 0) return;
+    setUnreadRunIds((current) => {
       const next = new Set(current);
       for (const id of ids) next.add(id);
       if (next.size === current.size) return current;
-      writeStoredViewedRunIds(next);
+      writeStoredUnreadRunIds(next);
       return next;
     });
   }, []);
+
+  const markRunsRead = useCallback((runIds: string[]) => {
+    const ids = runIds.filter(Boolean);
+    if (ids.length === 0) return;
+    setUnreadRunIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      if (next.size === current.size) return current;
+      writeStoredUnreadRunIds(next);
+      return next;
+    });
+  }, []);
+
+  const markAllRunsRead = useCallback(() => {
+    markRunsRead(runsRef.current.map((run) => run.id));
+  }, [markRunsRead]);
 
   const seedNewPrompt = useCallback((value: string) => {
     setNewPrompt(value);
@@ -576,6 +1178,7 @@ export default function CodeAgentsApp({
 
   const loadRuns = useCallback(
     async (_busy = false) => {
+      if (_busy) setRunsLoaded(false);
       try {
         const result = await withHostCallTimeout(
           host.listRuns(selectedGoal.id),
@@ -583,22 +1186,36 @@ export default function CodeAgentsApp({
         );
         setStatus(result.status);
         setError(result.error ?? null);
-        setRuns(result.runs);
-        if (result.status === "ok" && !viewedRunIdsInitializedRef.current) {
-          const initialIds = result.runs.map((run) => run.id);
-          viewedRunIdsInitializedRef.current = true;
-          setViewedRunIds(new Set(initialIds));
-          writeStoredViewedRunIds(new Set(initialIds));
+        if (result.status === "ok") {
+          const previousRuns = observedRunsByGoalRef.current.get(
+            selectedGoal.id,
+          );
+          const newlyUnreadRunIds = findRunsThatBecameUnread(
+            previousRuns ? [...previousRuns.values()] : undefined,
+            result.runs,
+            selectedRunIdRef.current,
+          );
+          markRunsUnread(newlyUnreadRunIds);
+          observedRunsByGoalRef.current.set(
+            selectedGoal.id,
+            new Map(result.runs.map((run) => [run.id, run])),
+          );
         }
+        setRuns((current) =>
+          areCodeAgentRunListsEqual(current, result.runs)
+            ? current
+            : result.runs,
+        );
+        if (result.status === "ok") setRunsLoaded(true);
       } catch (err) {
         setStatus("unavailable");
         setError(err instanceof Error ? err.message : String(err));
-        setRuns([]);
+        setRuns((current) => (current.length === 0 ? current : []));
       } finally {
         setLoading(false);
       }
     },
-    [host, selectedGoal.id],
+    [host, markRunsUnread, selectedGoal.id],
   );
 
   const loadSearchRuns = useCallback(async () => {
@@ -633,8 +1250,25 @@ export default function CodeAgentsApp({
     }
   }, [host]);
 
+  const routeChatFirstOpenAppEvents = useCallback(
+    (events: CodeAgentTranscriptEvent[]) => {
+      if (!onChatFirstOpenApp) return;
+      for (const event of events) {
+        if (seenChatFirstOpenAppEvents.current.has(event.id)) continue;
+        seenChatFirstOpenAppEvents.current.add(event.id);
+        const detail = chatFirstOpenAppDetailFromTranscriptEvent(
+          event,
+          registeredChatFirstMcpServerIds,
+        );
+        if (detail) onChatFirstOpenApp(detail);
+      }
+    },
+    [onChatFirstOpenApp, registeredChatFirstMcpServerIds],
+  );
+
   const loadTranscript = useCallback(
     async (runId: string | null = selectedRunId, busy = false) => {
+      const transcriptRequestId = ++transcriptRequestRef.current;
       if (!runId) {
         setTranscriptEvents([]);
         setTranscriptError(null);
@@ -650,16 +1284,34 @@ export default function CodeAgentsApp({
           }),
           getHostCallTimeoutMs(1_000),
         );
+        if (
+          transcriptRequestId !== transcriptRequestRef.current ||
+          runId !== selectedRunIdRef.current
+        ) {
+          return;
+        }
+        routeChatFirstOpenAppEvents(result.events);
         setTranscriptEvents(result.events);
         setTranscriptError(result.error ?? null);
       } catch (err) {
+        if (
+          transcriptRequestId !== transcriptRequestRef.current ||
+          runId !== selectedRunIdRef.current
+        ) {
+          return;
+        }
         setTranscriptEvents([]);
         setTranscriptError(err instanceof Error ? err.message : String(err));
       } finally {
-        setTranscriptLoading(false);
+        if (
+          transcriptRequestId === transcriptRequestRef.current &&
+          runId === selectedRunIdRef.current
+        ) {
+          setTranscriptLoading(false);
+        }
       }
     },
-    [host, selectedGoal.id, selectedRunId],
+    [host, routeChatFirstOpenAppEvents, selectedGoal.id, selectedRunId],
   );
 
   const loadProjects = useCallback(async () => {
@@ -681,8 +1333,51 @@ export default function CodeAgentsApp({
     }
   }, [host]);
 
+  const loadNamedWorktrees = useCallback(async () => {
+    const requestId = namedWorktreeRequestRef.current + 1;
+    namedWorktreeRequestRef.current = requestId;
+    const requestedProjectPath = selectedProjectPath;
+    if (newRunExecutionTarget !== "worktree" || !selectedProjectPath) {
+      setNamedWorktrees([]);
+      setNamedWorktreesLoading(false);
+      return;
+    }
+    if (!host.listWorktrees) {
+      setNamedWorktrees([]);
+      setNamedWorktreesLoading(false);
+      return;
+    }
+    setNamedWorktreesLoading(true);
+    try {
+      const result = await host.listWorktrees(selectedProjectPath);
+      if (
+        requestId !== namedWorktreeRequestRef.current ||
+        requestedProjectPath !== selectedProjectPath
+      ) {
+        return;
+      }
+      setNamedWorktrees(result.status === "ok" ? result.worktrees : []);
+    } catch {
+      if (
+        requestId !== namedWorktreeRequestRef.current ||
+        requestedProjectPath !== selectedProjectPath
+      ) {
+        return;
+      }
+      setNamedWorktrees([]);
+    } finally {
+      if (requestId === namedWorktreeRequestRef.current) {
+        setNamedWorktreesLoading(false);
+      }
+    }
+  }, [host, newRunExecutionTarget, selectedProjectPath]);
+
+  useEffect(() => {
+    void loadNamedWorktrees();
+  }, [loadNamedWorktrees]);
+
   const loadRemoteConnectorStatus = useCallback(async () => {
-    if (!host.getRemoteConnectorStatus) return;
+    if (!isActive || !host.getRemoteConnectorStatus) return;
     try {
       const result = await withHostCallTimeout(
         host.getRemoteConnectorStatus(),
@@ -693,10 +1388,10 @@ export default function CodeAgentsApp({
     } catch (err) {
       setRemoteConnectorError(err instanceof Error ? err.message : String(err));
     }
-  }, [host]);
+  }, [host, isActive]);
 
   const loadHostMetadata = useCallback(async () => {
-    if (!host.getHostMetadata) return;
+    if (!isActive || !host.getHostMetadata) return;
     try {
       const result = await host.getHostMetadata();
       setHostMetadata(result);
@@ -706,7 +1401,16 @@ export default function CodeAgentsApp({
         error: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [host]);
+  }, [host, isActive]);
+
+  const builderConnectFlow = useBuilderConnectFlow({
+    enabled: isActive,
+    provisionAccount: true,
+    trackingSource: "desktop_code_agents",
+    trackingFlow: "code_provider_setup",
+    transport: host.builderConnectTransport,
+    onConnected: (state) => builderConnectedHandlerRef.current(state),
+  });
 
   const runComputerSetupAction = useCallback(
     async (action: CodeAgentComputerSetupAction) => {
@@ -755,117 +1459,121 @@ export default function CodeAgentsApp({
     if (isActive) pollHostMetadataNow();
   }, [isActive, pollHostMetadataNow, refreshKey]);
 
-  const connectBuilderProvider = useCallback(async () => {
-    setBuilderConnectMessage(null);
-    if (!host.connectBuilderProvider) {
-      onOpenSettings?.();
-      return;
-    }
-
-    setBuilderConnecting(true);
-    try {
-      const result = await host.connectBuilderProvider();
-      const message = result.error ?? result.message;
-      setBuilderConnectMessage(result.ok ? null : message);
-      if (result.ok) {
-        toast("Builder.io connected", {
-          description: "Agent can now use Builder credits.",
-        });
-      } else {
-        toast("Builder.io connect did not finish", {
-          description: message,
-        });
-      }
-      await loadHostMetadata();
-      const modelResult = await host.listModels?.();
-      let retrySelection = selectedModelSelection;
-      if (modelResult?.status === "ok" && modelResult.models.length > 0) {
-        setModelOptions(modelResult.models);
-        if (
-          modelResult.selected &&
-          (!modelSelection.model || modelSelection.model === "auto")
-        ) {
-          setModelSelection(modelResult.selected);
-          retrySelection = {
-            ...modelResult.selected,
-            effort: selectedModelSelection.effort,
-          };
-        }
-      }
+  const handleBuilderConnected = useCallback(async () => {
+    toast("Builder.io connected", {
+      description: "Agent can now use Builder credits.",
+    });
+    await loadHostMetadata();
+    const modelResult = await host.listModels?.({ refresh: true });
+    let retrySelection = selectedModelSelection;
+    if (modelResult?.status === "ok") {
+      setModelOptions(modelResult.models);
       if (
-        result.ok &&
-        selectedRun &&
-        hasMissingCredentialSignal(selectedRun, transcriptEvents) &&
-        host.retryRun
+        modelResult.selected &&
+        (!modelSelection.model || modelSelection.model === "auto")
       ) {
-        const retryResult = await host.retryRun({
-          goalId: selectedGoal.id,
-          runId: selectedRun.id,
-          permissionMode: selectedPermissionMode,
-          engine: retrySelection.engine,
-          model: retrySelection.model,
-          effort: retrySelection.effort,
-        });
-        if (retryResult.run) {
-          setRuns((current) => [
-            retryResult.run!,
-            ...current.filter((run) => run.id !== retryResult.run!.id),
-          ]);
-          setSelectedExtensionDetailId(null);
-          setSelectedRunId(retryResult.run.id);
-          await loadTranscript(retryResult.run.id, true);
-        }
+        setModelSelection(modelResult.selected);
+        retrySelection = {
+          ...modelResult.selected,
+          effort: selectedModelSelection.effort,
+        };
       }
-      await loadRuns(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setBuilderConnectMessage(message);
-      toast("Builder.io connect did not finish", { description: message });
-    } finally {
-      setBuilderConnecting(false);
     }
+    if (
+      selectedRun &&
+      hasMissingCredentialSignal(selectedRun, transcriptEvents) &&
+      host.retryRun
+    ) {
+      const retryResult = await host.retryRun({
+        goalId: selectedGoal.id,
+        runId: selectedRun.id,
+        permissionMode: selectedPermissionMode,
+        engine: retrySelection.engine,
+        model: retrySelection.model,
+        effort: retrySelection.effort,
+      });
+      if (retryResult.run) {
+        setRuns((current) => [
+          retryResult.run!,
+          ...current.filter((run) => run.id !== retryResult.run!.id),
+        ]);
+        setSelectedExtensionDetailId(null);
+        selectRun(retryResult.run.id);
+        await loadTranscript(retryResult.run.id, true);
+      }
+    }
+    await loadRuns(true);
   }, [
     host,
     loadHostMetadata,
     loadRuns,
     loadTranscript,
     modelSelection.model,
-    onOpenSettings,
+    selectRun,
     selectedGoal.id,
     selectedModelSelection,
     selectedPermissionMode,
     selectedRun,
     transcriptEvents,
   ]);
+  builderConnectedHandlerRef.current = handleBuilderConnected;
+
+  const connectBuilderProvider = useCallback(() => {
+    builderConnectFlow.start({ provisionAccount: false });
+  }, [builderConnectFlow.start]);
 
   const connectLocalRuntime = useCallback(
     async (engine: string) => {
-      if (engine !== "codex-cli") return;
-      if (!host.openCodexLogin) {
-        toast("Local sign-in is only available in Agent Native Desktop", {
+      const runtimeEngine = getCodeAgentEngine(engine) ?? engine;
+      const openLogin =
+        runtimeEngine === "claude-cli"
+          ? host.openClaudeLogin
+          : runtimeEngine === "codex-cli"
+            ? host.openCodexLogin
+            : undefined;
+      if (!openLogin) {
+        if (host.openTerminal) {
+          const result = await host.openTerminal();
+          toast(
+            result.ok ? "Terminal opened" : "Terminal did not open",
+            result.ok
+              ? {
+                  description:
+                    "Install the selected local runtime, then refresh the picker.",
+                }
+              : { description: result.error },
+          );
+          return;
+        }
+        toast("Local sign-in is only available in Agent-Native Desktop", {
           description: "Open Settings to manage hosted providers instead.",
         });
         onOpenSettings?.();
         return;
       }
       try {
-        const result = await host.openCodexLogin();
+        const result = await openLogin();
         if (!result.ok) {
-          toast("Codex sign-in was not opened", {
-            description: result.error,
-          });
+          toast(
+            `${runtimeEngine === "claude-cli" ? "Claude" : "Codex"} sign-in was not opened`,
+            {
+              description: result.error,
+            },
+          );
           return;
         }
-        toast("Codex sign-in opened", {
-          description:
-            "Finish the ChatGPT sign-in in Terminal. The runtime picker will refresh when it is ready.",
-          duration: 4800,
-        });
+        toast(
+          `${runtimeEngine === "claude-cli" ? "Claude" : "Codex"} sign-in opened`,
+          {
+            description: `Finish the ${runtimeEngine === "claude-cli" ? "Claude" : "ChatGPT"} sign-in in Terminal. The runtime picker will refresh when it is ready.`,
+            duration: 4800,
+          },
+        );
 
         let attempts = 0;
         const refresh = async (): Promise<void> => {
-          const modelResult = await host.listModels?.();
-          if (modelResult?.status === "ok" && modelResult.models.length > 0) {
+          const modelResult = await host.listModels?.({ refresh: true });
+          if (modelResult?.status === "ok") {
             setModelOptions(modelResult.models);
             if (modelResult.selected) {
               setModelSelection((current) =>
@@ -877,12 +1585,15 @@ export default function CodeAgentsApp({
             if (
               modelResult.models.some(
                 (option) =>
-                  option.engine === "codex-cli" && option.configured === true,
+                  option.engine === runtimeEngine && option.configured === true,
               )
             ) {
-              toast("ChatGPT subscription connected", {
-                description: "This computer is ready for local Agent tasks.",
-              });
+              toast(
+                `${runtimeEngine === "claude-cli" ? "Claude" : "ChatGPT"} connected`,
+                {
+                  description: "This computer is ready for local Agent tasks.",
+                },
+              );
               return;
             }
           }
@@ -891,9 +1602,12 @@ export default function CodeAgentsApp({
         };
         void refresh();
       } catch (err) {
-        toast("Codex sign-in was not opened", {
-          description: err instanceof Error ? err.message : String(err),
-        });
+        toast(
+          `${runtimeEngine === "claude-cli" ? "Claude" : "Codex"} sign-in was not opened`,
+          {
+            description: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
     },
     [host, onOpenSettings],
@@ -911,15 +1625,71 @@ export default function CodeAgentsApp({
 
   useEffect(() => {
     if (!openRequest) return;
+    onChatFirstMainKindChange?.("code");
     const nextGoal = getCodeAgentGoal(openRequest.goalId);
     if (nextGoal) setSelectedGoalId(nextGoal.id);
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(openRequest.runId ?? null);
-    setWorkbenchOpen(true);
+    selectRun(openRequest.runId ?? null);
+    setWorkbenchOpen(false);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
     void loadRuns(true);
-  }, [loadRuns, openRequest]);
+  }, [loadRuns, onChatFirstMainKindChange, openRequest, selectRun]);
+
+  useEffect(() => {
+    const pendingFrames = new Set<number>();
+    const handleScheduledPrompt = (event: Event) => {
+      const prompt = (event as CustomEvent<{ prompt?: unknown }>).detail
+        ?.prompt;
+      if (typeof prompt !== "string" || !prompt.trim()) return;
+
+      let attempts = 0;
+      let frame: number | undefined;
+      const insertPrompt = () => {
+        const editor = document.querySelector<HTMLElement>(
+          '[contenteditable="true"]',
+        );
+        const newChatSurface = editor?.closest(".code-agents-start");
+        if (
+          !editor ||
+          !editor.isConnected ||
+          !newChatSurface ||
+          document.querySelector(".desktop-code-agent-schedules")
+        ) {
+          attempts += 1;
+          if (attempts < 30) {
+            frame = window.requestAnimationFrame(insertPrompt);
+            pendingFrames.add(frame);
+          }
+          return;
+        }
+
+        if (frame !== undefined) pendingFrames.delete(frame);
+        editor.focus();
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        document.execCommand("insertText", false, prompt.trim());
+      };
+
+      frame = window.requestAnimationFrame(insertPrompt);
+      pendingFrames.add(frame);
+    };
+
+    window.addEventListener(SCHEDULED_CHAT_PROMPT_EVENT, handleScheduledPrompt);
+    return () => {
+      window.removeEventListener(
+        SCHEDULED_CHAT_PROMPT_EVENT,
+        handleScheduledPrompt,
+      );
+      pendingFrames.forEach((pendingFrame) =>
+        window.cancelAnimationFrame(pendingFrame),
+      );
+    };
+  }, []);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
@@ -931,17 +1701,31 @@ export default function CodeAgentsApp({
     () => buildCodeAgentSlashCommands(codePack),
     [codePack],
   );
-  const canOpenTerminal = Boolean(host.openTerminal);
+  const canOpenTerminal = false;
   const canChooseProjectFolder = Boolean(host.chooseProject);
+  const supportsExecutionTarget =
+    CODE_AGENT_LOCAL_ENGINES.has(selectedModelSelection.engine ?? "") ||
+    Boolean(host.createRun);
+  const portalSelected =
+    supportsExecutionTarget && newRunExecutionTarget === "portal";
   const providerGate = useMemo(
-    () => getProviderGate(hostMetadata),
-    [hostMetadata],
+    () =>
+      getProviderGate(hostMetadata, {
+        terminalMode: Boolean(terminalMode),
+        portalTarget: portalSelected,
+      }),
+    [hostMetadata, portalSelected, terminalMode],
   );
-  // `listModels` only includes Codex when the local CLI is installed. Keep
-  // sign-in hidden until that capability has been confirmed by the host so a
-  // fresh install does not offer a command that cannot launch.
-  const codexCliAvailable = modelOptions.some(
-    (option) => option.engine === "codex-cli",
+
+  const [providerGateBouncePulse, setProviderGateBouncePulse] = useState(0);
+  const bounceProviderGate = useCallback(() => {
+    setProviderGateBouncePulse((pulse) => pulse + 1);
+  }, []);
+  // `listModels` only includes local runtimes when their CLI is installed.
+  // Keep sign-in hidden until the host has confirmed the capability.
+  const localRuntimeOptions = useMemo(
+    () => getLocalRuntimeOptions(modelOptions),
+    [modelOptions],
   );
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
@@ -959,8 +1743,8 @@ export default function CodeAgentsApp({
   }, [selectedRunId, selectedRunStoredPermissionMode]);
 
   useEffect(() => {
-    if (selectedRunId) markRunsViewed([selectedRunId]);
-  }, [markRunsViewed, selectedRunId]);
+    if (selectedRunId) markRunsRead([selectedRunId]);
+  }, [markRunsRead, selectedRunId]);
 
   useEffect(() => {
     if (!searchPanelOpen) return;
@@ -1022,11 +1806,14 @@ export default function CodeAgentsApp({
     void host
       .listModels?.()
       .then((result) => {
-        if (cancelled || result.status !== "ok" || result.models.length === 0) {
+        if (cancelled || result.status !== "ok") {
           return;
         }
         setModelOptions(result.models);
-        if (!modelSelection.model && result.selected) {
+        if (
+          (!modelSelection.model || modelSelection.model === "auto") &&
+          result.selected
+        ) {
           setModelSelection(result.selected);
         }
       })
@@ -1062,8 +1849,14 @@ export default function CodeAgentsApp({
   }, [host, isActive, selectedProjectPath]);
 
   useEffect(() => {
-    writeStoredModelSelection(selectedModelSelection);
+    writeCodeAgentModelSelection(selectedModelSelection);
   }, [selectedModelSelection]);
+
+  useEffect(() => {
+    if (!supportsExecutionTarget && newRunExecutionTarget !== "local") {
+      setNewRunExecutionTarget("local");
+    }
+  }, [newRunExecutionTarget, supportsExecutionTarget]);
 
   usePollLoop(() => loadRuns(), {
     intervalMs: hasActiveRuns ? 2_000 : 10_000,
@@ -1081,6 +1874,7 @@ export default function CodeAgentsApp({
         if (batch.error) setTranscriptError(batch.error);
         if (batch.status === "ok" && batch.events.length > 0) {
           setTranscriptError(null);
+          routeChatFirstOpenAppEvents(batch.events);
           setTranscriptEvents((current) =>
             mergeTranscriptEvents(current, batch.events),
           );
@@ -1110,12 +1904,13 @@ export default function CodeAgentsApp({
     host,
     isActive,
     loadTranscript,
+    routeChatFirstOpenAppEvents,
     selectedGoal.id,
     selectedRunId,
     selectedRunIsActive,
   ]);
 
-  // Cmd+N / Ctrl+N — start a new chat from anywhere in the Code tab.
+  // Cmd+N / Ctrl+N — start a new chat from anywhere in the workbench.
   // Use a ref so the effect is stable and doesn't re-register on every render.
   const openSelectedGoalRef = useRef(openSelectedGoal);
   openSelectedGoalRef.current = openSelectedGoal;
@@ -1127,8 +1922,19 @@ export default function CodeAgentsApp({
       e.preventDefault();
       openSelectedGoalRef.current();
     };
+    const handleDesktopNewChat = () => openSelectedGoalRef.current();
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener(
+      "agent-native:desktop-new-chat",
+      handleDesktopNewChat,
+    );
+    return () => {
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener(
+        "agent-native:desktop-new-chat",
+        handleDesktopNewChat,
+      );
+    };
   }, [isActive]);
 
   async function selectProjectFolder(pathValue: string) {
@@ -1183,7 +1989,7 @@ export default function CodeAgentsApp({
     if (matchingGoal) {
       setSelectedGoalId(matchingGoal.id);
       setSelectedExtensionDetailId(null);
-      setSelectedRunId(null);
+      selectRun(null);
       setWorkbenchOpen(false);
       setSearchPanelOpen(false);
       setMobilePanelOpen(false);
@@ -1197,7 +2003,7 @@ export default function CodeAgentsApp({
     );
     setSelectedGoalId("task");
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(null);
+    selectRun(null);
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
@@ -1242,27 +2048,23 @@ export default function CodeAgentsApp({
   }
 
   function openSearchPanel() {
+    onChatFirstMainKindChange?.("code");
     setSearchPanelOpen(true);
     setMobilePanelOpen(false);
     setWorkbenchOpen(false);
   }
 
   function openSearchResult(run: CodeAgentRun) {
+    onChatFirstMainKindChange?.("code");
     const goal = getCodeAgentGoal(run.goalId) ?? getDefaultCodeAgentGoal();
     setSelectedGoalId(goal.id);
     setRuns((current) =>
       current.some((item) => item.id === run.id) ? current : [run, ...current],
     );
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(run.id);
+    selectRun(run.id);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
-    setWorkbenchOpen(false);
-  }
-
-  function openMobilePanel() {
-    setSearchPanelOpen(false);
-    setMobilePanelOpen(true);
     setWorkbenchOpen(false);
   }
 
@@ -1287,7 +2089,7 @@ export default function CodeAgentsApp({
     try {
       const result = await host.pairRemoteConnector({
         relayUrl: trimmedRelayUrl,
-        label: "Agent Native Desktop",
+        label: "Agent-Native Desktop",
       });
       setRemoteConnectorStatus(result.status);
       setRemoteConnectorMessage(result.error ?? result.message ?? null);
@@ -1351,21 +2153,22 @@ export default function CodeAgentsApp({
   }
 
   function openSelectedGoal() {
+    onChatFirstMainKindChange?.("code");
     setSelectedGoalId("task");
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(null);
+    selectRun(null);
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
-    setTranscriptEvents([]);
-    setTranscriptError(null);
     seedNewPrompt("");
   }
 
-  async function controlRun(command: CodeAgentControlCommand) {
+  async function controlRun(
+    command: CodeAgentControlCommand,
+  ): Promise<boolean> {
     if (!selectedRunId) {
       toast("Select a chat first", { duration: 1800 });
-      return;
+      return false;
     }
     if (command === "resume" && selectedRunUsesAppSurface) {
       setWorkbenchOpen(true);
@@ -1384,7 +2187,7 @@ export default function CodeAgentsApp({
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
-      return;
+      return false;
     }
     if (result.action === "open-ui") setWorkbenchOpen(true);
     if (result.action === "refresh") await loadRuns(true);
@@ -1392,12 +2195,98 @@ export default function CodeAgentsApp({
       duration: result.ok ? 2200 : 3600,
       description: result.error,
     });
+    return result.ok;
+  }
+
+  async function forkSelectedChat(executionTarget: "local" | "worktree") {
+    if (!forkSourceRun || !host.forkRun) return;
+    setForkBusy(true);
+    try {
+      const result = await host.forkRun({
+        goalId: selectedGoal.id,
+        sourceRunId: forkSourceRun.id,
+        executionTarget,
+      });
+      if (!result.ok || !result.run) {
+        toast(result.message, {
+          description: result.error,
+          duration: 3600,
+        });
+        return;
+      }
+      setRuns((current) => [
+        result.run!,
+        ...current.filter((run) => run.id !== result.run!.id),
+      ]);
+      setForkSourceRun(null);
+      selectRun(result.run.id);
+      await loadTranscript(result.run.id, true);
+      toast(result.message, { duration: 2200 });
+    } catch (error) {
+      toast("Could not fork the chat", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3600,
+      });
+    } finally {
+      setForkBusy(false);
+    }
+  }
+
+  async function restoreSelectedWorktree(worktreeId: string, runId: string) {
+    if (!host.restoreWorktree) return;
+    setRestoringWorktreeId(worktreeId);
+    try {
+      const result = await host.restoreWorktree({ worktreeId, runId });
+      if (!result.ok) {
+        toast(result.message, {
+          description: result.error,
+          duration: 3600,
+        });
+        return;
+      }
+      await loadRuns(true);
+      await loadTranscript(runId, true);
+      toast(result.message, { duration: 2200 });
+    } catch (error) {
+      toast("Could not restore the worktree", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3600,
+      });
+    } finally {
+      setRestoringWorktreeId(null);
+    }
   }
 
   async function createRunFromPrompt(
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
   ) {
+    if (terminalMode) {
+      const prompt = preparedPrompt.trim();
+      if (!prompt) {
+        toast("Describe an outcome first", { duration: 1800 });
+        return;
+      }
+      setCreatingRun(true);
+      try {
+        await terminalMode.onSubmit(prompt, attachments);
+        setNewPrompt("");
+        setNewPromptSeed((seed) => seed + 1);
+        selectRun(null);
+        setSelectedExtensionDetailId(null);
+        setWorkbenchOpen(false);
+        setSearchPanelOpen(false);
+        setMobilePanelOpen(false);
+      } catch (err) {
+        toast("Could not start the terminal", {
+          description: err instanceof Error ? err.message : String(err),
+          duration: 3600,
+        });
+      } finally {
+        setCreatingRun(false);
+      }
+      return;
+    }
     if (activeNewSessionExtension) {
       const prompt = preparedPrompt.trim();
       if (!prompt) {
@@ -1427,7 +2316,7 @@ export default function CodeAgentsApp({
         }
         setNewPrompt("");
         setNewPromptSeed((seed) => seed + 1);
-        setSelectedRunId(null);
+        selectRun(null);
         setSelectedExtensionDetailId(result.detailId ?? null);
         setWorkbenchOpen(false);
         setSearchPanelOpen(false);
@@ -1443,11 +2332,18 @@ export default function CodeAgentsApp({
       }
       return;
     }
-    if (providerGate.blocked) {
-      toast("Connect a model provider first", {
-        description: providerGate.description,
-        duration: 3600,
-      });
+    if (providerGate.blocked && !activeNewSessionExtension) {
+      toast(
+        t("agentChat.setup.connectToStart", {
+          defaultValue: "Connect a model provider first",
+        }),
+        {
+          description: t("agentChat.setup.builderOrOwnKeys", {
+            defaultValue: providerGate.description,
+          }),
+          duration: 3600,
+        },
+      );
       return;
     }
     const typedGoal =
@@ -1467,6 +2363,13 @@ export default function CodeAgentsApp({
         goalId: typedGoal.id,
         prompt,
         cwd: selectedProjectPath || undefined,
+        executionTarget: supportsExecutionTarget
+          ? newRunExecutionTarget
+          : "local",
+        worktree:
+          supportsExecutionTarget && newRunExecutionTarget === "worktree"
+            ? newRunWorktreeSelection
+            : undefined,
         permissionMode: newRunPermissionMode,
         engine: selectedModelSelection.engine,
         model: selectedModelSelection.model,
@@ -1484,7 +2387,7 @@ export default function CodeAgentsApp({
       setNewPromptSeed((seed) => seed + 1);
       setRuns((current) => [result.run!, ...current]);
       setSelectedExtensionDetailId(null);
-      setSelectedRunId(result.run.id);
+      selectRun(result.run.id);
       if (typedGoal.id !== selectedGoal.id) {
         setSelectedGoalId(typedGoal.id);
       }
@@ -1659,346 +2562,830 @@ export default function CodeAgentsApp({
     }
   }
 
+  toggleRunPinnedRef.current = toggleRunPinned;
+  renameRunRef.current = renameRun;
+
+  const handleRailSelect = useCallback(
+    (id: string) => {
+      onChatFirstMainKindChangeRef.current?.("code");
+      markRunsRead([id]);
+      setSelectedExtensionDetailId(null);
+      selectRun(id);
+      setSearchPanelOpen(false);
+      setMobilePanelOpen(false);
+    },
+    [markRunsRead, selectRun],
+  );
+
+  useEffect(() => {
+    if (!isActive || !keyboardNavigation) return;
+
+    const handleShortcut = (
+      shortcut: ChatFirstKeyboardShortcut,
+      preventDefault?: () => void,
+    ) => {
+      const isCommand = Boolean(shortcut.metaKey || shortcut.ctrlKey);
+      if (!isCommand || shortcut.altKey) return;
+
+      if (!shortcut.shiftKey) {
+        const appId = getChatFirstNumericAppShortcut(
+          keyboardNavigation.appIds,
+          shortcut.key,
+        );
+        if (!appId) return;
+        preventDefault?.();
+        keyboardNavigation.onSelectApp(appId);
+        return;
+      }
+
+      const isBack =
+        shortcut.code === "BracketLeft" ||
+        shortcut.key === "[" ||
+        shortcut.key === "{";
+      const isForward =
+        shortcut.code === "BracketRight" ||
+        shortcut.key === "]" ||
+        shortcut.key === "}";
+      if (!isBack && !isForward) return;
+
+      const target = resolveChatFirstKeyboardNavigationTarget({
+        appIds: keyboardNavigation.appIds,
+        activeAppId: keyboardNavigation.activeAppId,
+        chatIds: railItems.map((item) => item.id),
+        selectedChatId: selectedRunId,
+        direction: isBack ? -1 : 1,
+      });
+      if (!target) return;
+      preventDefault?.();
+      if (target.kind === "app") {
+        keyboardNavigation.onSelectApp(target.id);
+      } else {
+        handleRailSelect(target.id);
+      }
+    };
+
+    const handleDomKeyDown = (event: KeyboardEvent) => {
+      handleShortcut(
+        {
+          key: event.key,
+          code: event.code,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+        },
+        () => event.preventDefault(),
+      );
+    };
+
+    window.addEventListener("keydown", handleDomKeyDown);
+    const unsubscribe = keyboardNavigation.subscribe?.(handleShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleDomKeyDown);
+      unsubscribe?.();
+    };
+  }, [
+    handleRailSelect,
+    isActive,
+    keyboardNavigation,
+    railItems,
+    selectedRunId,
+  ]);
+
+  const handleRailOpen = useCallback(
+    (id: string) => {
+      onChatFirstMainKindChangeRef.current?.("code");
+      markRunsRead([id]);
+      setSelectedExtensionDetailId(null);
+      selectRun(id);
+      setWorkbenchOpen(true);
+      setSearchPanelOpen(false);
+      setMobilePanelOpen(false);
+    },
+    [markRunsRead, selectRun],
+  );
+
+  const handleRailTogglePin = useCallback((id: string) => {
+    const run = runsRef.current.find((item) => item.id === id);
+    if (run) void toggleRunPinnedRef.current(run);
+  }, []);
+
+  const handleRailRename = useCallback((id: string, nextTitle: string) => {
+    const run = runsRef.current.find((item) => item.id === id);
+    if (run) void renameRunRef.current(run, nextTitle);
+  }, []);
+
+  const requestPortalTransfer = useCallback(
+    (runId?: string) => {
+      if (runId) {
+        const run = runsRef.current.find((candidate) => candidate.id === runId);
+        if (!run || isPortalCodeAgentRun(run)) return;
+        setPortalTransferRequest({
+          kind: "run",
+          runId,
+          title: getRunTitle(run) ?? "this chat",
+        });
+        return;
+      }
+      if (host.transferAll) setPortalTransferRequest({ kind: "all" });
+    },
+    [host.transferAll],
+  );
+
+  const confirmPortalTransfer = useCallback(async () => {
+    const request = portalTransferRequest;
+    if (!request || portalTransferBusy) return;
+    setPortalTransferBusy(true);
+    try {
+      if (request.kind === "run") {
+        if (!host.transferRun) {
+          toast("Portal transfer is not available on this host.", {
+            duration: 2200,
+          });
+          return;
+        }
+        const result = await host.transferRun({ runId: request.runId });
+        toast(result.ok ? result.message : "Could not move chat to Portal.", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 2600,
+        });
+      } else {
+        if (!host.transferAll) {
+          toast("Portal transfer is not available on this host.", {
+            duration: 2200,
+          });
+          return;
+        }
+        const result = await host.transferAll();
+        toast(result.ok ? result.message : "Portal transfer needs attention.", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 3200,
+        });
+      }
+      await loadRuns(true);
+    } catch (error) {
+      toast("Portal transfer did not finish.", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3200,
+      });
+    } finally {
+      setPortalTransferBusy(false);
+      setPortalTransferRequest(null);
+    }
+  }, [host, loadRuns, portalTransferBusy, portalTransferRequest]);
+
+  const handleRailAdditionalRowActions = useCallback(
+    (item: ChatHistoryItem, closeMenu: () => void) => (
+      <>
+        <button
+          type="button"
+          role="menuitem"
+          className="an-chat-history-row__menu-item"
+          onClick={() => {
+            closeMenu();
+            void writeClipboardText(item.id).then((copied) => {
+              toast(
+                copied ? "Session ID copied" : "Could not copy session ID",
+                { duration: 1800 },
+              );
+            });
+          }}
+        >
+          <IconCopy size={13} strokeWidth={1.8} />
+          <span>Copy session ID</span>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          className="an-chat-history-row__menu-item"
+          onClick={() => {
+            closeMenu();
+            const run = runsRef.current.find(
+              (candidate) => candidate.id === item.id,
+            );
+            if (!run) return;
+            emitChatFirstSessionWatch({
+              sessionId: item.id,
+              title: getRunTitle(run) ?? "Untitled session",
+              kind: "code-agent",
+              goalId: run.goalId,
+              sourceSessionId: selectedRunIdRef.current ?? undefined,
+            });
+          }}
+        >
+          <IconEye size={13} strokeWidth={1.8} />
+          <span>
+            {watchedSessionTargetRef.current?.sessionId === item.id
+              ? "Keep watching session"
+              : "Watch and message session"}
+          </span>
+        </button>
+        {host.transferRun &&
+        runsRef.current.some(
+          (run) => run.id === item.id && !isPortalCodeAgentRun(run),
+        ) ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="an-chat-history-row__menu-item"
+            onClick={() => {
+              closeMenu();
+              requestPortalTransfer(item.id);
+            }}
+          >
+            <IconRoute size={13} strokeWidth={1.8} />
+            <span>Move to Portal</span>
+          </button>
+        ) : null}
+      </>
+    ),
+    [host.transferRun, requestPortalTransfer],
+  );
+
+  const activePrimaryTab = resolveCodeAgentsPrimaryTab({
+    chatFirstMainKind,
+    searchPanelOpen,
+    ...(chatFirstNavigation?.activeTab
+      ? { hostActiveTab: chatFirstNavigation.activeTab }
+      : {}),
+  });
+  const searchPanelActive = activePrimaryTab === "search";
   const showingSelectedRunDetail =
     !workbenchOpen &&
     !mobilePanelOpen &&
-    !searchPanelOpen &&
+    !searchPanelActive &&
     Boolean(selectedRun);
 
   return (
-    <section className="code-agents-surface" aria-label="Agent workspace">
+    <section
+      className={`code-agents-surface${
+        railCollapsed ? " code-agents-surface--rail-collapsed" : ""
+      }`}
+      aria-label="Agent workspace"
+    >
       <aside
-        className="code-agents-rail"
+        className={`code-agents-rail${
+          railCollapsed ? " code-agents-rail--collapsed" : ""
+        }`}
         aria-label="Agent chats and navigation"
       >
-        <div className="code-agents-rail__header">
-          <div className="code-agents-title-block">
-            {brandIconUrl && (
-              <img
-                src={brandIconUrl}
-                alt=""
-                aria-hidden="true"
-                className="code-agents-title-icon"
-              />
-            )}
-            <h1>Agent</h1>
-          </div>
-        </div>
+        {railWindowControlsSlot}
+        <div className="code-agents-window-drag-region" aria-hidden="true" />
+        <div className="code-agents-rail-scroll">
+          <ChatFirstPrimaryNavigation
+            onNewChat={() => {
+              chatFirstNavigation?.onNewChat?.();
+              openSelectedGoal();
+            }}
+            onOpenIntegrations={() => chatFirstNavigation?.onOpenIntegrations()}
+            onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
+            onSearch={openSearchPanel}
+            activeTab={activePrimaryTab}
+            collapsed={railCollapsed}
+            stickyNewChat
+          />
+          {railWorkspaceSlot}
 
-        <div className="code-agents-nav-list" aria-label="Agent navigation">
-          <button
-            type="button"
-            className={`code-agents-nav-link${
-              !searchPanelOpen && !mobilePanelOpen && !selectedRunId
-                ? " code-agents-nav-link--active"
-                : ""
-            }`}
-            onClick={openSelectedGoal}
-            aria-pressed={
-              !searchPanelOpen && !mobilePanelOpen && !selectedRunId
+          <ChatFirstChatHistory
+            items={railItems}
+            activeId={selectedRunId}
+            label={
+              chatFirstNavigation?.onOpenChats ? (
+                <button
+                  type="button"
+                  className="text-start text-[11px] font-medium text-sidebar-foreground/50 hover:text-sidebar-foreground/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={chatFirstNavigation.onOpenChats}
+                >
+                  Chats
+                </button>
+              ) : undefined
             }
-          >
-            <IconPlus size={15} strokeWidth={1.8} />
-            <span>New chat</span>
-          </button>
-          <button
-            type="button"
-            className={`code-agents-nav-link${
-              searchPanelOpen ? " code-agents-nav-link--active" : ""
-            }`}
-            onClick={openSearchPanel}
-            aria-pressed={searchPanelOpen}
-          >
-            <IconSearch size={15} strokeWidth={1.8} />
-            <span>Search</span>
-          </button>
-          {host.getRemoteConnectorStatus && (
-            <MobileRailItem
-              status={remoteConnectorStatus}
-              error={remoteConnectorError}
-              active={mobilePanelOpen}
-              onOpen={openMobilePanel}
-            />
-          )}
-          {hostMetadata?.computerControl && (
-            <ComputerAccessRailItem
-              metadata={hostMetadata}
-              onOpen={() => setComputerSetupOpen(true)}
-            />
-          )}
+            headerAction={
+              <CodeAgentsChatHistoryHeaderActions
+                hasUnread={runs.some((run) => unreadRunIds.has(run.id))}
+                onMarkAllRead={markAllRunsRead}
+                onTransferAll={
+                  host.transferAll ? () => requestPortalTransfer() : undefined
+                }
+              />
+            }
+            loading={loading}
+            loadingLabel={<RunListSkeleton />}
+            emptyLabel="No chats yet."
+            onSelect={handleRailSelect}
+            onOpen={handleRailOpen}
+            onTogglePin={handleRailTogglePin}
+            onRename={handleRailRename}
+            renderAdditionalRowActions={handleRailAdditionalRowActions}
+            className="code-agents-run-list"
+          />
         </div>
-
-        <div className="code-agents-run-list">
-          <p className="code-agents-rail-label">Chats</p>
-          {loading ? (
-            <RunListSkeleton />
-          ) : runs.length === 0 ? (
-            <div className="code-agents-empty-rail">
-              <IconClock size={18} strokeWidth={1.7} />
-              <p>No chats yet.</p>
-            </div>
-          ) : (
-            <ChatHistoryList
-              items={railItems}
-              activeId={selectedRunId}
-              onSelect={(id) => {
-                markRunsViewed([id]);
-                setSelectedExtensionDetailId(null);
-                setSelectedRunId(id);
-                setSearchPanelOpen(false);
-                setMobilePanelOpen(false);
-              }}
-              onOpen={(id) => {
-                markRunsViewed([id]);
-                setSelectedExtensionDetailId(null);
-                setSelectedRunId(id);
-                setWorkbenchOpen(true);
-                setSearchPanelOpen(false);
-                setMobilePanelOpen(false);
-              }}
-              onTogglePin={(id) => {
-                const run = runs.find((item) => item.id === id);
-                if (run) toggleRunPinned(run);
-              }}
-              onRename={(id, nextTitle) => {
-                const run = runs.find((item) => item.id === id);
-                if (run) renameRun(run, nextTitle);
-              }}
-              variant="rail"
-            />
-          )}
-        </div>
+        {railFooterSlot ? (
+          <div className="code-agents-rail-footer">{railFooterSlot}</div>
+        ) : null}
       </aside>
 
       <main className="code-agents-main">
-        {workbenchOpen ? (
-          <div className="code-agents-workbench">
-            <div className="code-agents-workbench__toolbar">
-              <div>
-                <p className="code-agents-kicker">Chat</p>
-                <h2>
-                  {getRunTitle(selectedRun) ??
-                    (selectedRunId
-                      ? `Chat ${selectedRunId}`
-                      : selectedGoal.primaryActionLabel)}
-                </h2>
-                <AgentCapabilitySummary
-                  metadata={hostMetadata}
-                  onOpenComputerSetup={() => setComputerSetupOpen(true)}
-                />
-              </div>
-              <div className="code-agents-toolbar-actions">
-                {canOpenTerminal && (
-                  <button
-                    type="button"
-                    className="code-agents-button"
-                    onClick={openTerminal}
-                  >
-                    <IconTerminal2 size={14} strokeWidth={1.8} />
-                    Open Terminal
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="code-agents-button"
-                  onClick={() => setWorkbenchOpen(false)}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-            <div className="code-agents-workbench-frame">
-              {selectedGoalApp && renderAppSurface ? (
-                renderAppSurface({
-                  goal: selectedGoal,
-                  app: selectedGoalApp,
-                  urlParams: workbenchUrlParams,
-                  refreshKey,
-                })
-              ) : (
-                <NativeGoalSurface
-                  goal={selectedGoal}
-                  onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
-                />
-              )}
-            </div>
-          </div>
+        {mainToolbarSlot ? (
+          <div className="code-agents-main-toolbar">{mainToolbarSlot}</div>
+        ) : null}
+        {chatFirstMainKind === "agent" && renderChatFirstMainSurface ? (
+          renderChatFirstMainSurface
         ) : (
-          <div
-            className={`code-agents-overview${
-              showingSelectedRunDetail ? " code-agents-overview--chat" : ""
-            }`}
-          >
-            {mobilePanelOpen ? (
-              <MobileConnectorPanel
-                status={remoteConnectorStatus}
-                error={remoteConnectorError}
-                message={remoteConnectorMessage}
-                relayUrl={remoteRelayUrl}
-                brandIconUrl={brandIconUrl}
-                pairing={remoteConnectorPairing}
-                updating={remoteConnectorUpdating}
-                canPair={Boolean(host.pairRemoteConnector)}
-                canToggle={Boolean(host.setRemoteConnectorEnabled)}
-                onPair={pairRemoteConnector}
-                onSetEnabled={setRemoteConnectorEnabled}
-                onRefresh={loadRemoteConnectorStatus}
-                onCopyLink={copyMobileLink}
-                onOpenSettings={onOpenSettings}
+          <>
+            {!onWatchedRunChange &&
+            watchedRun &&
+            (!activeChatFirstSurfaceKind ||
+              activeChatFirstSurfaceKind === "side-chat") ? (
+              <SessionWatchPanel
+                host={host}
+                run={watchedRun}
+                sourceRunId={
+                  watchedSession.target?.sourceSessionId ?? selectedRunId
+                }
+                onClose={closeChatFirstSessionWatch}
               />
-            ) : searchPanelOpen ? (
-              <SearchChatsPanel
-                query={searchQuery}
-                results={searchResults}
-                totalRuns={searchRuns.length}
-                loading={searchLoading}
-                transcriptLoading={searchTranscriptLoading}
-                error={searchError}
-                inputRef={searchInputRef}
-                onQueryChange={setSearchQuery}
-                onSelectRun={openSearchResult}
-                onRefresh={loadSearchRuns}
-              />
+            ) : null}
+            {workbenchOpen ? (
+              <div className="code-agents-workbench">
+                <div className="code-agents-workbench__toolbar">
+                  <div>
+                    <p className="code-agents-kicker">Chat</p>
+                    <h2>
+                      {getRunTitle(selectedRun) ??
+                        (selectedRunId
+                          ? `Chat ${selectedRunId}`
+                          : selectedGoal.primaryActionLabel)}
+                    </h2>
+                    <AgentCapabilitySummary
+                      metadata={hostMetadata}
+                      onOpenComputerSetup={() => setComputerSetupOpen(true)}
+                    />
+                  </div>
+                  <div className="code-agents-toolbar-actions">
+                    {canOpenTerminal && (
+                      <button
+                        type="button"
+                        className="code-agents-button"
+                        onClick={openTerminal}
+                      >
+                        <IconTerminal2 size={14} strokeWidth={1.8} />
+                        Open Terminal
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="code-agents-button"
+                      onClick={() => setWorkbenchOpen(false)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+                <div className="code-agents-workbench-frame">
+                  {selectedGoalApp && renderAppSurface ? (
+                    renderAppSurface({
+                      goal: selectedGoal,
+                      app: selectedGoalApp,
+                      urlParams: workbenchUrlParams,
+                      refreshKey,
+                    })
+                  ) : (
+                    <NativeGoalSurface
+                      goal={selectedGoal}
+                      onOpenTerminal={
+                        canOpenTerminal ? openTerminal : undefined
+                      }
+                    />
+                  )}
+                </div>
+              </div>
+            ) : renderChatFirstChatSurface ? (
+              <div className="code-agents-overview code-agents-overview--chat-surface">
+                {renderChatFirstChatSurface}
+              </div>
             ) : (
-              <>
-                {loading ? (
-                  <OverviewSkeleton />
+              <div
+                className={`code-agents-overview${
+                  showingSelectedRunDetail ? " code-agents-overview--chat" : ""
+                }`}
+              >
+                {mobilePanelOpen ? (
+                  <MobileConnectorPanel
+                    status={remoteConnectorStatus}
+                    error={remoteConnectorError}
+                    message={remoteConnectorMessage}
+                    relayUrl={remoteRelayUrl}
+                    brandIconUrl={brandIconUrl}
+                    pairing={remoteConnectorPairing}
+                    updating={remoteConnectorUpdating}
+                    canPair={Boolean(host.pairRemoteConnector)}
+                    canToggle={Boolean(host.setRemoteConnectorEnabled)}
+                    onPair={pairRemoteConnector}
+                    onSetEnabled={setRemoteConnectorEnabled}
+                    onRefresh={loadRemoteConnectorStatus}
+                    onCopyLink={copyMobileLink}
+                    onOpenSettings={onOpenSettings}
+                  />
+                ) : searchPanelActive ? (
+                  <SearchChatsPanel
+                    query={searchQuery}
+                    results={searchResults}
+                    totalRuns={searchRuns.length}
+                    loading={searchLoading}
+                    transcriptLoading={searchTranscriptLoading}
+                    error={searchError}
+                    inputRef={searchInputRef}
+                    onQueryChange={setSearchQuery}
+                    onSelectRun={openSearchResult}
+                    onRefresh={loadSearchRuns}
+                  />
                 ) : (
                   <>
-                    {status !== "ok" && (
-                      <div
-                        className={`code-agents-callout code-agents-callout--${status}`}
-                      >
-                        <IconAlertCircle size={17} strokeWidth={1.8} />
-                        <span>
-                          {status === "unauthorized"
-                            ? `Open ${selectedGoal.surfaceLabel} and sign in to see chats.`
-                            : (error ??
-                              `${selectedGoal.surfaceLabel} is not reporting chats yet.`)}
-                        </span>
-                      </div>
-                    )}
-
-                    {activeNewSessionExtension &&
-                    selectedExtensionDetailId &&
-                    activeNewSessionExtension.renderDetail ? (
-                      activeNewSessionExtension.renderDetail({
-                        detailId: selectedExtensionDetailId,
-                        onClose: openSelectedGoal,
-                      })
-                    ) : selectedRun ? (
-                      <RunDetailCard
-                        host={host}
-                        run={selectedRun}
-                        selectedRunId={selectedRunId}
-                        goal={selectedGoal}
-                        transcriptEvents={transcriptEvents}
-                        transcriptLoading={transcriptLoading}
-                        transcriptError={transcriptError}
-                        permissionMode={selectedPermissionMode}
-                        modelSelection={selectedModelSelection}
-                        modelOptions={modelOptions}
-                        onPermissionModeChange={changeSelectedPermissionMode}
-                        onModelSelectionChange={setModelSelection}
-                        onStop={() => controlRun("stop")}
-                        onApprove={() => controlRun("approve")}
-                        onApproveAlways={() => controlRun("approve-always")}
-                        onDeny={() => controlRun("deny")}
-                        providerBlocked={providerGate.blocked}
-                        builderConnecting={builderConnecting}
-                        builderConnectMessage={builderConnectMessage}
-                        onConnectBuilder={connectBuilderProvider}
-                        onOpenSettings={onOpenSettings}
-                        onConnectProvider={connectBuilderProvider}
-                        onConnectLocalRuntime={
-                          codexCliAvailable ? connectLocalRuntime : undefined
-                        }
-                      />
+                    {loading ? (
+                      <OverviewSkeleton />
                     ) : (
-                      <div className="code-agents-start">
-                        <h2>What outcome do you want?</h2>
-                        {!activeNewSessionExtension && providerGate.blocked && (
-                          <ProviderGateNotice
-                            description={providerGate.description}
-                            connecting={builderConnecting}
-                            message={builderConnectMessage}
+                      <>
+                        {status !== "ok" &&
+                        !(
+                          suppressChatFirstUnavailableNotice &&
+                          status === "unavailable"
+                        ) ? (
+                          <div
+                            className={`code-agents-callout code-agents-callout--${status}`}
+                          >
+                            <IconAlertCircle size={17} strokeWidth={1.8} />
+                            <span>
+                              {status === "unauthorized"
+                                ? `Open ${selectedGoal.surfaceLabel} and sign in to see chats.`
+                                : (error ??
+                                  `${selectedGoal.surfaceLabel} is not reporting chats yet.`)}
+                            </span>
+                          </div>
+                        ) : null}
+
+                        {activeNewSessionExtension &&
+                        selectedExtensionDetailId &&
+                        activeNewSessionExtension.renderDetail ? (
+                          activeNewSessionExtension.renderDetail({
+                            detailId: selectedExtensionDetailId,
+                            onClose: openSelectedGoal,
+                          })
+                        ) : selectedRun ? (
+                          <RunDetailCard
+                            key={selectedRun.id}
+                            host={host}
+                            run={selectedRun}
+                            selectedRunId={selectedRunId}
+                            goal={selectedGoal}
+                            transcriptEvents={transcriptEvents}
+                            transcriptLoading={transcriptLoading}
+                            transcriptError={transcriptError}
+                            permissionMode={selectedPermissionMode}
+                            modelSelection={selectedModelSelection}
+                            modelOptions={modelOptions}
+                            onPermissionModeChange={
+                              changeSelectedPermissionMode
+                            }
+                            onModelSelectionChange={setModelSelection}
+                            onStop={() => controlRun("stop")}
+                            onApprove={() => controlRun("approve")}
+                            onApproveAlways={() => controlRun("approve-always")}
+                            onDeny={() => controlRun("deny")}
+                            providerBlocked={
+                              providerGate.blocked &&
+                              !isPortalCodeAgentRun(selectedRun)
+                            }
+                            builderConnectFlow={builderConnectFlow}
+                            builderConnecting={builderConnectFlow.connecting}
+                            builderConnectMessage={builderConnectFlow.error}
                             onConnectBuilder={connectBuilderProvider}
                             onOpenSettings={onOpenSettings}
+                            onConnectProvider={connectBuilderProvider}
                             onConnectLocalRuntime={
-                              codexCliAvailable
-                                ? () => void connectLocalRuntime("codex-cli")
+                              host.openTerminal
+                                ? connectLocalRuntime
                                 : undefined
                             }
+                            onOpenRun={(runId) => {
+                              onChatFirstMainKindChange?.("code");
+                              selectRun(runId);
+                            }}
+                            onForkChat={
+                              host.forkRun
+                                ? () => setForkSourceRun(selectedRun)
+                                : undefined
+                            }
+                            onRestoreWorktree={restoreSelectedWorktree}
+                            restoringWorktreeId={restoringWorktreeId}
+                            onProviderGateClick={bounceProviderGate}
                           />
+                        ) : (
+                          <div className="code-agents-start">
+                            <h2>What should we do today?</h2>
+                            {!terminalMode &&
+                              !activeNewSessionExtension &&
+                              providerGate.blocked && (
+                                <ProviderGateNotice
+                                  description={providerGate.description}
+                                  builderConnectFlow={builderConnectFlow}
+                                  connecting={builderConnectFlow.connecting}
+                                  message={builderConnectFlow.error}
+                                  bouncePulse={providerGateBouncePulse}
+                                  onConnectBuilder={connectBuilderProvider}
+                                  onOpenSettings={onOpenSettings}
+                                  localRuntimeOptions={localRuntimeOptions}
+                                  onConnectLocalRuntime={
+                                    host.openTerminal
+                                      ? connectLocalRuntime
+                                      : undefined
+                                  }
+                                />
+                              )}
+                            <NewSessionComposer
+                              key={newPromptSeed}
+                              prompt={newPrompt}
+                              promptSeed={newPromptSeed}
+                              inputRef={newPromptRef}
+                              creating={creatingRun}
+                              terminalAgent={terminalAgentOption}
+                              terminalModeControl={terminalModeControl}
+                              permissionMode={newRunPermissionMode}
+                              modelSelection={selectedModelSelection}
+                              modelOptions={modelOptions}
+                              slashCommands={
+                                terminalMode || activeNewSessionExtension
+                                  ? []
+                                  : slashCommands
+                              }
+                              disabled={
+                                (!terminalMode &&
+                                  !portalSelected &&
+                                  !activeNewSessionExtension &&
+                                  providerGate.blocked) ||
+                                Boolean(activeNewSessionExtension?.disabled)
+                              }
+                              onDisabledClick={
+                                !terminalMode &&
+                                !portalSelected &&
+                                !activeNewSessionExtension &&
+                                providerGate.blocked
+                                  ? bounceProviderGate
+                                  : undefined
+                              }
+                              modeControl={
+                                terminalMode
+                                  ? undefined
+                                  : newSessionExtension?.renderModeControl?.({
+                                      permissionMode: newRunPermissionMode,
+                                      onPermissionModeChange:
+                                        setNewRunPermissionMode,
+                                    })
+                              }
+                              useDefaultModeControl={
+                                terminalMode
+                                  ? false
+                                  : newSessionExtensionComposerState.useDefaultModeControl
+                              }
+                              showModelSelector={
+                                terminalMode
+                                  ? true
+                                  : newSessionExtensionComposerState.showModelSelector
+                              }
+                              onPromptChange={setNewPrompt}
+                              getHostMetadata={host.getHostMetadata}
+                              onPermissionModeChange={setNewRunPermissionMode}
+                              onModelSelectionChange={setModelSelection}
+                              onSlashCommand={
+                                terminalMode || activeNewSessionExtension
+                                  ? undefined
+                                  : handleSlashCommand
+                              }
+                              onSubmit={createRunFromPrompt}
+                              onConnectProvider={
+                                terminalMode
+                                  ? undefined
+                                  : connectBuilderProvider
+                              }
+                              onConnectLocalRuntime={
+                                !terminalMode &&
+                                !activeNewSessionExtension &&
+                                host.openTerminal
+                                  ? connectLocalRuntime
+                                  : undefined
+                              }
+                            />
+                            {(projects.length > 0 ||
+                              canChooseProjectFolder) && (
+                              <RemoteWaitlistPopover
+                                open={cloudWaitlistOpen}
+                                onOpenChange={(open) => {
+                                  if (
+                                    !open &&
+                                    cloudWaitlistOpeningRef.current
+                                  ) {
+                                    cloudWaitlistOpeningRef.current = false;
+                                    return;
+                                  }
+                                  setCloudWaitlistOpen(open);
+                                }}
+                                submit={host.submitRemoteWaitlist}
+                              >
+                                <ProjectFolderPicker
+                                  variant="bar"
+                                  projects={projects}
+                                  selectedPath={selectedProjectPath}
+                                  executionTarget={newRunExecutionTarget}
+                                  worktreeSelection={newRunWorktreeSelection}
+                                  namedWorktrees={namedWorktrees}
+                                  namedWorktreesLoading={namedWorktreesLoading}
+                                  showExecutionTarget={supportsExecutionTarget}
+                                  loading={loadingProjects}
+                                  canChoose={canChooseProjectFolder}
+                                  onSelect={selectProjectFolder}
+                                  onChoose={chooseProjectFolder}
+                                  onCloudSelect={() => {
+                                    cloudWaitlistOpeningRef.current = true;
+                                    globalThis.setTimeout(() => {
+                                      setCloudWaitlistOpen(true);
+                                      globalThis.setTimeout(() => {
+                                        cloudWaitlistOpeningRef.current = false;
+                                      }, 0);
+                                    }, 0);
+                                  }}
+                                  onExecutionTargetChange={(target) => {
+                                    setNewRunExecutionTarget(target);
+                                    if (target !== "worktree") {
+                                      setNewRunWorktreeSelection({
+                                        mode: "new",
+                                      });
+                                    }
+                                  }}
+                                  onWorktreeSelectionChange={
+                                    host.listWorktrees
+                                      ? setNewRunWorktreeSelection
+                                      : undefined
+                                  }
+                                  onNewNamedWorktree={
+                                    host.listWorktrees
+                                      ? () => {
+                                          setNamedWorktreeName(
+                                            newRunWorktreeSelection.mode ===
+                                              "named"
+                                              ? (newRunWorktreeSelection.name ??
+                                                  "")
+                                              : "",
+                                          );
+                                          setNamedWorktreeDialogOpen(true);
+                                        }
+                                      : undefined
+                                  }
+                                />
+                              </RemoteWaitlistPopover>
+                            )}
+                            {overviewFooterSlot ? (
+                              <div className="code-agents-overview-footer">
+                                {overviewFooterSlot}
+                              </div>
+                            ) : null}
+                          </div>
                         )}
-                        <NewSessionComposer
-                          prompt={newPrompt}
-                          promptSeed={newPromptSeed}
-                          inputRef={newPromptRef}
-                          creating={creatingRun}
-                          permissionMode={newRunPermissionMode}
-                          modelSelection={selectedModelSelection}
-                          modelOptions={modelOptions}
-                          slashCommands={
-                            activeNewSessionExtension ? [] : slashCommands
-                          }
-                          disabled={
-                            activeNewSessionExtension
-                              ? activeNewSessionExtension.disabled
-                              : providerGate.blocked
-                          }
-                          modeControl={newSessionExtension?.renderModeControl?.(
-                            {
-                              permissionMode: newRunPermissionMode,
-                              onPermissionModeChange: setNewRunPermissionMode,
-                            },
-                          )}
-                          useDefaultModeControl={
-                            newSessionExtensionComposerState.useDefaultModeControl
-                          }
-                          showModelSelector={
-                            newSessionExtensionComposerState.showModelSelector
-                          }
-                          onPromptChange={setNewPrompt}
-                          onPermissionModeChange={setNewRunPermissionMode}
-                          onModelSelectionChange={setModelSelection}
-                          onSlashCommand={
-                            activeNewSessionExtension
-                              ? undefined
-                              : handleSlashCommand
-                          }
-                          onSubmit={createRunFromPrompt}
-                          onConnectProvider={
-                            activeNewSessionExtension
-                              ? undefined
-                              : connectBuilderProvider
-                          }
-                          onConnectLocalRuntime={
-                            !activeNewSessionExtension && codexCliAvailable
-                              ? connectLocalRuntime
-                              : undefined
-                          }
-                        />
-                        {(projects.length > 0 || canChooseProjectFolder) && (
-                          <ProjectFolderPicker
-                            variant="bar"
-                            projects={projects}
-                            selectedPath={selectedProjectPath}
-                            loading={loadingProjects}
-                            canChoose={canChooseProjectFolder}
-                            onSelect={selectProjectFolder}
-                            onChoose={chooseProjectFolder}
-                          />
-                        )}
-                      </div>
+                      </>
                     )}
                   </>
                 )}
-              </>
+              </div>
             )}
-          </div>
+          </>
         )}
       </main>
+      <Dialog
+        open={Boolean(portalTransferRequest)}
+        onOpenChange={(open) => {
+          if (!open && !portalTransferBusy) setPortalTransferRequest(null);
+        }}
+      >
+        <DialogContent aria-describedby="portal-transfer-description">
+          <DialogTitle>
+            {portalTransferRequest?.kind === "all"
+              ? "Move local chats to Portal?"
+              : "Move chat to Portal?"}
+          </DialogTitle>
+          <DialogDescription id="portal-transfer-description">
+            {portalTransferRequest?.kind === "all"
+              ? "Each local or worktree chat will move its code and full text context to the paired computer."
+              : `Move ${portalTransferRequest?.title ?? "this chat"} with its code and full text context to the paired computer.`}
+          </DialogDescription>
+          <div className="code-agents-dialog-actions">
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => setPortalTransferRequest(null)}
+              disabled={portalTransferBusy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="code-agents-button--primary"
+              onClick={() => void confirmPortalTransfer()}
+              disabled={portalTransferBusy}
+            >
+              {portalTransferBusy
+                ? "Moving..."
+                : portalTransferRequest?.kind === "all"
+                  ? "Move all"
+                  : "Move to Portal"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={namedWorktreeDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) setNamedWorktreeDialogOpen(false);
+        }}
+      >
+        <DialogContent className="code-agents-worktree-dialog">
+          <DialogTitle>Name this worktree</DialogTitle>
+          <DialogDescription>
+            Reuse it from any chat for this folder.
+          </DialogDescription>
+          <input
+            autoFocus
+            className="code-agents-worktree-name-input"
+            value={namedWorktreeName}
+            maxLength={64}
+            placeholder="e.g. redesign"
+            aria-label="Worktree name"
+            onChange={(event) => setNamedWorktreeName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                const name = namedWorktreeName.trim();
+                if (!name) return;
+                setNewRunWorktreeSelection({ mode: "named", name });
+                setNamedWorktreeDialogOpen(false);
+              }
+            }}
+          />
+          <div className="code-agents-dialog-actions">
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => setNamedWorktreeDialogOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="code-agents-button code-agents-button--primary"
+              disabled={!namedWorktreeName.trim()}
+              onClick={() => {
+                const name = namedWorktreeName.trim();
+                if (!name) return;
+                setNewRunWorktreeSelection({ mode: "named", name });
+                setNamedWorktreeDialogOpen(false);
+              }}
+            >
+              Use worktree
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={Boolean(forkSourceRun)}
+        onOpenChange={(open) => {
+          if (!open && !forkBusy) setForkSourceRun(null);
+        }}
+      >
+        <DialogContent className="code-agents-fork-dialog">
+          <DialogTitle>Fork chat from here</DialogTitle>
+          <DialogDescription>
+            Start a new chat with this conversation’s context.
+          </DialogDescription>
+          <div className="code-agents-fork-options">
+            <button
+              type="button"
+              className="code-agents-fork-option"
+              disabled={forkBusy || !host.forkRun}
+              onClick={() => void forkSelectedChat("local")}
+            >
+              <IconGitFork size={18} strokeWidth={1.8} />
+              <span>Fork in this workspace</span>
+            </button>
+            <button
+              type="button"
+              className="code-agents-fork-option"
+              disabled={forkBusy || !host.forkRun}
+              onClick={() => void forkSelectedChat("worktree")}
+            >
+              <IconGitBranch size={18} strokeWidth={1.8} />
+              <span>Fork in a new worktree</span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <ComputerAccessDialog
         open={computerSetupOpen}
         onOpenChange={setComputerSetupOpen}
@@ -2061,7 +3448,7 @@ function AgentCapabilitySummary({
         title={
           desktopReady
             ? "Desktop Accessibility and Screen Recording permissions are ready."
-            : "Enable Accessibility and Screen Recording for Agent Native in System Settings."
+            : "Enable Accessibility and Screen Recording for Agent-Native in System Settings."
         }
         onClick={onOpenComputerSetup}
       >
@@ -2087,30 +3474,6 @@ function computerAccessReadiness(metadata: CodeAgentHostMetadata | null) {
     chromeReady,
     allReady: accessibilityReady && screenRecordingReady && chromeReady,
   };
-}
-
-function ComputerAccessRailItem({
-  metadata,
-  onOpen,
-}: {
-  metadata: CodeAgentHostMetadata;
-  onOpen: () => void;
-}) {
-  const { allReady } = computerAccessReadiness(metadata);
-  return (
-    <button type="button" className="code-agents-nav-link" onClick={onOpen}>
-      <IconDeviceDesktop size={15} strokeWidth={1.8} />
-      <span>Computer access</span>
-      <span
-        className={`code-agents-mobile-indicator ${
-          allReady
-            ? "code-agents-mobile-indicator--connected"
-            : "code-agents-mobile-indicator--attention"
-        }`}
-        aria-label={allReady ? "Ready" : "Setup needed"}
-      />
-    </button>
-  );
 }
 
 function ComputerAccessDialog({
@@ -2164,7 +3527,7 @@ function ComputerAccessDialog({
           <div>
             <DialogTitle>Computer access</DialogTitle>
             <DialogDescription id="computer-access-description">
-              Agent Native only controls Chrome or your desktop while Agent is
+              Agent-Native only controls Chrome or your desktop while Agent is
               working. Stop releases control immediately.
             </DialogDescription>
           </div>
@@ -2217,7 +3580,7 @@ function ComputerAccessDialog({
             title="Chrome"
             description={
               readiness.chromeReady
-                ? "The Agent Native extension is connected."
+                ? "The Agent-Native extension is connected."
                 : "Opens Chrome Extensions and reveals the bundled extension folder. Turn on Developer mode, choose Load unpacked, then select that folder."
             }
             ready={readiness.chromeReady}
@@ -2239,7 +3602,7 @@ function ComputerAccessDialog({
                   Restart once after enabling it so the new access takes effect.
                 </span>
               </div>
-              {actionButton("restart", "Restart Agent Native")}
+              {actionButton("restart", "Restart Agent-Native")}
             </div>
           )}
       </DialogContent>
@@ -2292,18 +3655,36 @@ function ProjectFolderPicker({
   variant = "rail",
   projects,
   selectedPath,
+  executionTarget = "local",
+  worktreeSelection = { mode: "new" },
+  namedWorktrees = [],
+  namedWorktreesLoading = false,
+  showExecutionTarget = false,
   loading,
   canChoose,
   onSelect,
   onChoose,
+  onCloudSelect,
+  onExecutionTargetChange,
+  onWorktreeSelectionChange,
+  onNewNamedWorktree,
 }: {
   variant?: "rail" | "bar";
   projects: CodeAgentProjectFolder[];
   selectedPath: string;
+  executionTarget?: CodeAgentExecutionTarget;
+  worktreeSelection?: CodeAgentWorktreeSelection;
+  namedWorktrees?: CodeAgentWorktreeSummary[];
+  namedWorktreesLoading?: boolean;
+  showExecutionTarget?: boolean;
   loading: boolean;
   canChoose: boolean;
   onSelect: (path: string) => void;
   onChoose: () => void;
+  onCloudSelect?: () => void;
+  onExecutionTargetChange?: (target: CodeAgentExecutionTarget) => void;
+  onWorktreeSelectionChange?: (selection: CodeAgentWorktreeSelection) => void;
+  onNewNamedWorktree?: () => void;
 }) {
   const active = projects.find((project) => project.path === selectedPath);
 
@@ -2353,20 +3734,147 @@ function ProjectFolderPicker({
             </SelectGroup>
           </SelectContent>
         </Select>
-        {canChoose && (
-          <button
-            type="button"
-            className="code-agents-icon-button"
-            onClick={onChoose}
-            title="Add folder"
-            aria-label="Add folder"
-          >
-            <IconFolderPlus size={15} strokeWidth={1.8} />
-          </button>
-        )}
+        {showExecutionTarget && onExecutionTargetChange ? (
+          <>
+            <Select
+              value={executionTarget}
+              onValueChange={(value) => {
+                if (value === "cloud") {
+                  onCloudSelect?.();
+                  return;
+                }
+                onExecutionTargetChange(value as CodeAgentExecutionTarget);
+              }}
+            >
+              <SelectTrigger
+                className="code-agents-project-select code-agents-execution-target-select"
+                aria-label="Select workspace"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="code-agents-select-content">
+                <SelectGroup>
+                  <SelectItem
+                    value="local"
+                    description="Use the selected folder directly"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconDeviceDesktop size={14} strokeWidth={1.8} />
+                      <span>Local</span>
+                    </span>
+                  </SelectItem>
+                  <SelectItem
+                    value="worktree"
+                    description="Start an isolated copy from the latest commit"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconGitBranch size={14} strokeWidth={1.8} />
+                      <span>Worktree</span>
+                    </span>
+                  </SelectItem>
+                  <SelectItem
+                    value="portal"
+                    description="Continue on a paired computer"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconRoute size={14} strokeWidth={1.8} />
+                      <span>Portal</span>
+                    </span>
+                  </SelectItem>
+                  <SelectItem
+                    value="cloud"
+                    description="Run in the cloud - join the waitlist"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconCloud size={14} strokeWidth={1.8} />
+                      <span>Cloud</span>
+                    </span>
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {executionTarget === "worktree" && onWorktreeSelectionChange ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="code-agents-worktree-options-trigger"
+                    aria-label="Worktree options"
+                    title="Worktree options"
+                  >
+                    <IconChevronDown size={13} strokeWidth={1.8} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={4}
+                  className="code-agents-worktree-options-menu"
+                >
+                  <DropdownMenuItem
+                    onSelect={() => onWorktreeSelectionChange({ mode: "new" })}
+                  >
+                    <IconGitBranch size={14} strokeWidth={1.8} />
+                    <span>New worktree</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={onNewNamedWorktree}>
+                    <IconFolderPlus size={14} strokeWidth={1.8} />
+                    <span>New named worktree</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <IconFolder size={14} strokeWidth={1.8} />
+                      <span>Use named worktree</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {namedWorktreesLoading ? (
+                        <DropdownMenuItem disabled>
+                          <span>Loading worktrees...</span>
+                        </DropdownMenuItem>
+                      ) : namedWorktrees.length === 0 ? (
+                        <DropdownMenuItem disabled>
+                          <span>No named worktrees yet</span>
+                        </DropdownMenuItem>
+                      ) : (
+                        namedWorktrees.map((worktree) => (
+                          <DropdownMenuItem
+                            key={worktree.id}
+                            onSelect={() =>
+                              onWorktreeSelectionChange({
+                                mode: "named",
+                                name: worktree.name,
+                              })
+                            }
+                            description={
+                              worktree.state === "recoverable"
+                                ? "Restore when used"
+                                : undefined
+                            }
+                          >
+                            <IconGitBranch size={14} strokeWidth={1.8} />
+                            <span>{worktree.name}</span>
+                          </DropdownMenuItem>
+                        ))
+                      )}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </>
+        ) : null}
       </div>
       <p className="code-agents-project-path" title={active?.path}>
-        {active?.path ?? "Runs use the selected folder as cwd."}
+        {executionTarget === "portal"
+          ? "Code is pushed to a paired computer before the run starts."
+          : executionTarget === "worktree" &&
+              worktreeSelection.mode === "named" &&
+              worktreeSelection.name
+            ? `Named worktree: ${worktreeSelection.name}`
+            : (active?.path ??
+              (executionTarget === "worktree"
+                ? "A new isolated worktree will be created for this chat."
+                : "Runs use the selected folder as cwd."))}
       </p>
     </div>
   );
@@ -2377,6 +3885,8 @@ function NewSessionComposer({
   promptSeed,
   inputRef,
   creating,
+  terminalAgent,
+  terminalModeControl,
   permissionMode,
   modelSelection,
   modelOptions,
@@ -2392,11 +3902,15 @@ function NewSessionComposer({
   onSubmit,
   onConnectProvider,
   onConnectLocalRuntime,
+  onDisabledClick,
+  getHostMetadata,
 }: {
   prompt: string;
   promptSeed: number;
   inputRef: React.RefObject<TiptapComposerHandle | null>;
   creating: boolean;
+  terminalAgent?: CodeAgentTerminalAgentOption;
+  terminalModeControl?: ComposerTerminalModeControl;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
@@ -2415,6 +3929,8 @@ function NewSessionComposer({
   ) => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
 }) {
   return (
     <CodeAgentComposer
@@ -2422,6 +3938,8 @@ function NewSessionComposer({
       promptSeed={promptSeed}
       inputRef={inputRef}
       submitting={creating}
+      terminalAgent={terminalAgent}
+      terminalModeControl={terminalModeControl}
       permissionMode={permissionMode}
       modelSelection={modelSelection}
       modelOptions={modelOptions}
@@ -2439,6 +3957,8 @@ function NewSessionComposer({
       onSubmit={onSubmit}
       onConnectProvider={onConnectProvider}
       onConnectLocalRuntime={onConnectLocalRuntime}
+      onDisabledClick={onDisabledClick}
+      getHostMetadata={getHostMetadata}
     />
   );
 }
@@ -2448,6 +3968,7 @@ function CodeAgentComposer({
   promptSeed,
   inputRef,
   submitting,
+  terminalAgent,
   permissionMode,
   modelSelection,
   modelOptions,
@@ -2464,14 +3985,21 @@ function CodeAgentComposer({
   onStop,
   onConnectProvider,
   onConnectLocalRuntime,
+  onDisabledClick,
+  getHostMetadata,
   modeControl: modeControlOverride,
   useDefaultModeControl = true,
   showModelSelector = true,
+  plusMenuModeOverride,
+  draftScopeOverride,
+  terminalModeControl,
 }: {
   prompt: string;
   promptSeed?: string | number;
   inputRef?: React.RefObject<TiptapComposerHandle | null>;
   submitting: boolean;
+  terminalAgent?: CodeAgentTerminalAgentOption;
+  terminalModeControl?: ComposerTerminalModeControl;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
@@ -2488,16 +4016,36 @@ function CodeAgentComposer({
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
     followUpMode?: CodeAgentFollowUpMode,
-  ) => void;
+  ) => void | Promise<void>;
   onStop?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
   modeControl?: React.ReactNode;
   useDefaultModeControl?: boolean;
   showModelSelector?: boolean;
+  plusMenuModeOverride?: "full" | "upload-only";
+  draftScopeOverride?: string;
 }) {
+  const t = useT();
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
+  const availableAgents = terminalAgent
+    ? [terminalAgent]
+    : showModelSelector
+      ? getCodeAgentPickerOptions(modelOptions)
+      : undefined;
+  const selectedAgent =
+    terminalAgent?.id ?? getCodeAgentIdForEngine(normalizedModel.engine);
+  const handleAgentChange = useCallback(
+    (agent: string) => {
+      onModelSelectionChange(
+        getCodeAgentSelection(agent, normalizedModel, modelOptions),
+      );
+    },
+    [modelOptions, normalizedModel, onModelSelectionChange],
+  );
 
   const readPromptFiles = useCallback(
     async (files: PromptComposerFile[]) =>
@@ -2528,8 +4076,36 @@ function CodeAgentComposer({
       </button>
     ) : undefined;
 
+  const onBeforeSubmit = useMemo<
+    NonNullable<PromptComposerProps["onBeforeSubmit"]>
+  >(
+    () =>
+      createCodeAgentAiReadinessGate(
+        getHostMetadata,
+        normalizedModel.engine,
+        (readiness) => {
+          if (readiness === "missing") onDisabledClick?.();
+          toast(
+            readiness === "missing"
+              ? t("agentChat.setup.connectToChat", {
+                  defaultValue: "Connect AI before sending.",
+                })
+              : t("agentChat.composer.submitFailed", {
+                  defaultValue:
+                    "Could not verify the AI connection. Try again.",
+                }),
+            { duration: 3200 },
+          );
+        },
+      ),
+    [getHostMetadata, normalizedModel.engine, onDisabledClick],
+  );
+
   return (
     <PromptComposer
+      // Desktop renders from file://; its host metadata IPC is the readiness
+      // source, while the main-process dispatch still enforces provider setup.
+      onBeforeSubmit={onBeforeSubmit}
       className="code-agents-standard-composer code-agents-composer-shell"
       style={codeAgentComposerAreaStyle}
       rootStyle={codeAgentComposerRootStyle}
@@ -2538,9 +4114,10 @@ function CodeAgentComposer({
       disabled={submitting || disabled}
       placeholder={placeholder}
       draftScope={
-        variant === "hero"
+        draftScopeOverride ??
+        (variant === "hero"
           ? "agent-native-code:new-session"
-          : "agent-native-code:follow-up"
+          : "agent-native-code:follow-up")
       }
       initialText={
         promptSeed !== undefined && Number(promptSeed) > 0 ? prompt : undefined
@@ -2549,42 +4126,76 @@ function CodeAgentComposer({
       modeControl={modeControl}
       actionButton={stopButton}
       showModelSelector={showModelSelector}
+      showAutoModelOption={false}
       availableModels={showModelSelector ? availableModels : undefined}
+      availableAgents={availableAgents}
+      selectedAgent={showModelSelector ? selectedAgent : undefined}
+      agentOnly={Boolean(terminalAgent)}
       selectedModel={
-        showModelSelector ? (normalizedModel.model ?? "auto") : undefined
+        showModelSelector
+          ? (normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model)
+          : undefined
       }
       selectedEngine={
-        showModelSelector ? (normalizedModel.engine ?? "auto") : undefined
+        showModelSelector
+          ? (normalizedModel.engine ??
+            DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].engine)
+          : undefined
       }
       selectedEffort={showModelSelector ? normalizedModel.effort : undefined}
       onModelChange={(model, engine) =>
-        onModelSelectionChange({
-          engine,
-          model,
-          effort: normalizedModel.effort,
-        })
+        onModelSelectionChange(
+          isClaudeCodeAgentId(selectedAgent) && isLunaModel(model)
+            ? getCodeAgentSelection(
+                selectedAgent,
+                normalizedModel,
+                modelOptions,
+              )
+            : {
+                engine,
+                model,
+                effort: normalizedModel.effort,
+              },
+        )
+      }
+      onAgentChange={
+        terminalAgent || !showModelSelector ? undefined : handleAgentChange
       }
       onEffortChange={(effort) =>
         onModelSelectionChange({ ...normalizedModel, effort })
       }
-      modelStatusChecksEnabled={false}
+      modelStatusChecksEnabled={
+        !terminalAgent && !isLocalRuntimeEngine(normalizedModel.engine)
+      }
       onTextChange={onPromptChange}
       slashCommands={slashCommands}
       includeDefaultSlashSkills={false}
       onSlashCommand={onSlashCommand}
       onSubmit={async (text, files, _references, options) => {
         const attachments = await readPromptFiles(files);
-        onSubmit(
+        await onSubmit(
           text,
           attachments,
           options.intent === "queued" ? "queued" : "immediate",
         );
       }}
       attachmentsEnabled
+      plusMenuMode={
+        plusMenuModeOverride ??
+        (terminalModeControl
+          ? terminalModeControl.enabled
+            ? "terminal"
+            : "full"
+          : terminalAgent
+            ? "upload-only"
+            : undefined)
+      }
+      terminalModeControl={terminalModeControl}
       voiceEnabled
       preserveDraftOnSubmit={false}
       onConnectProvider={onConnectProvider}
       onConnectLocalRuntime={onConnectLocalRuntime}
+      onDisabledClick={onDisabledClick}
     />
   );
 }
@@ -2619,15 +4230,21 @@ function buildCodeAgentSlashCommands(
   return commands;
 }
 
-function getProviderGate(metadata: CodeAgentHostMetadata | null): {
+export function getProviderGate(
+  metadata: CodeAgentHostMetadata | null,
+  exemptions: { terminalMode?: boolean; portalTarget?: boolean } = {},
+): {
   blocked: boolean;
   description: string;
 } {
-  if (metadata?.llmProvider?.configured === false) {
+  if (
+    !exemptions.terminalMode &&
+    !exemptions.portalTarget &&
+    metadata?.llmProvider?.configured === false
+  ) {
     return {
       blocked: true,
-      description:
-        "Connect Builder.io (free tier available), sign in with your ChatGPT subscription, or add an API key.",
+      description: "Use Builder.io or add custom keys to start coding.",
     };
   }
   return {
@@ -2636,62 +4253,150 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
   };
 }
 
+export function shouldShowCodeAgentCredentialCallout({
+  providerBlocked,
+  hasCredentialHistory,
+  phase,
+  providerExempt = false,
+}: {
+  providerBlocked: boolean;
+  hasCredentialHistory: boolean;
+  phase?: string;
+  providerExempt?: boolean;
+}): boolean {
+  return (
+    !providerExempt &&
+    (providerBlocked ||
+      (hasCredentialHistory && phase === "missing-credentials"))
+  );
+}
+
 function ProviderGateNotice({
   description,
+  builderConnectFlow,
   connecting,
   message,
+  bouncePulse,
   onConnectBuilder,
   onOpenSettings,
+  localRuntimeOptions,
   onConnectLocalRuntime,
 }: {
   description: string;
+  builderConnectFlow: BuilderConnectFlow;
   connecting: boolean;
   message: string | null;
+  bouncePulse?: number;
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
-  onConnectLocalRuntime?: () => void;
+  localRuntimeOptions?: Array<{
+    engine: LocalRuntimeEngine;
+    label: string;
+  }>;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
+  const t = useT();
   return (
     <CodeProviderNotice
       className="code-agents-provider-gate"
-      title="Connect a provider to chat"
-      description={message ?? description}
-      primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
-      primaryDisabled={connecting}
+      title={t("agentChat.setup.connectAi", { defaultValue: "Connect AI" })}
+      description={
+        message ??
+        builderConnectFlow.error ??
+        t("agentChat.setup.builderOrOwnKeys", { defaultValue: description })
+      }
+      builderConnectFlow={builderConnectFlow}
+      primaryActionLabel={
+        connecting
+          ? t("agentChat.composer.connectingBuilder", {
+              defaultValue: "Signing in to Builder.io…",
+            })
+          : t("agentChat.composer.connectBuilder", {
+              defaultValue: "Use Builder.io",
+            })
+      }
+      primaryDisabled={connecting || builderConnectFlow.connecting}
       onPrimaryAction={onConnectBuilder}
-      localRuntimeActionLabel="Sign in with ChatGPT"
+      bouncePulse={bouncePulse}
+      localRuntimeOptions={localRuntimeOptions}
       onConnectLocalRuntime={onConnectLocalRuntime}
-      secondaryActionLabel="API keys"
+      secondaryActionLabel={t("agentChat.composer.addOwnKeys", {
+        defaultValue: "Custom keys",
+      })}
       onOpenSettings={onOpenSettings}
     />
   );
 }
 
-function CodeProviderNotice({
+function LocalRuntimeIcon({ engine }: { engine: LocalRuntimeEngine }) {
+  return engine === "codex-cli" ? (
+    <IconBrandOpenai size={15} strokeWidth={1.7} aria-hidden="true" />
+  ) : (
+    <ClaudeMark size={15} />
+  );
+}
+
+function ClaudeMark({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="currentColor"
+      height={size}
+      viewBox="0 0 100 100"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z" />
+    </svg>
+  );
+}
+
+export function CodeProviderNotice({
   className,
   title,
   description,
+  builderConnectFlow,
   primaryActionLabel,
   primaryDisabled,
   onPrimaryAction,
-  localRuntimeActionLabel,
+  localRuntimeOptions = [],
   onConnectLocalRuntime,
   secondaryActionLabel,
   onOpenSettings,
+  bouncePulse,
 }: {
   className: string;
   title: string;
   description: string;
+  builderConnectFlow: BuilderConnectFlow;
   primaryActionLabel?: string;
   primaryDisabled?: boolean;
   onPrimaryAction?: () => void;
-  localRuntimeActionLabel?: string;
-  onConnectLocalRuntime?: () => void;
+  localRuntimeOptions?: Array<{
+    engine: LocalRuntimeEngine;
+    label: string;
+  }>;
+  onConnectLocalRuntime?: (engine: string) => void;
   secondaryActionLabel?: string;
   onOpenSettings?: () => void;
+  bouncePulse?: number;
 }) {
+  const noticeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!bouncePulse) return;
+    const element = noticeRef.current;
+    if (!element) return;
+    element.classList.remove("code-agents-provider-bounce");
+    void element.offsetWidth;
+    element.classList.add("code-agents-provider-bounce");
+  }, [bouncePulse]);
+
+  const showRuntimeMenu =
+    localRuntimeOptions.length > 0 && Boolean(onConnectLocalRuntime);
+  const customKeysLabel = secondaryActionLabel ?? "Custom keys";
+
   return (
-    <div className={className}>
+    <div ref={noticeRef} className={className}>
       <IconAlertCircle size={16} strokeWidth={1.8} />
       <div>
         <strong>{title}</strong>
@@ -2699,61 +4404,124 @@ function CodeProviderNotice({
       </div>
       <div className="code-agents-provider-actions">
         {onPrimaryAction && primaryActionLabel && (
-          <button
-            type="button"
-            className="code-agents-button--primary"
-            onClick={onPrimaryAction}
-            disabled={primaryDisabled}
+          <BuilderConnectPopover
+            flow={builderConnectFlow}
+            onConnect={(provisionAccount) => {
+              if (provisionAccount) {
+                builderConnectFlow.start({ provisionAccount: true });
+              } else {
+                onPrimaryAction?.();
+              }
+            }}
           >
-            {primaryActionLabel}
-          </button>
+            <button
+              type="button"
+              className="code-agents-button--primary"
+              disabled={primaryDisabled || builderConnectFlow.connecting}
+            >
+              {builderConnectFlow.connecting ? (
+                <IconRefresh
+                  size={14}
+                  strokeWidth={1.8}
+                  className="code-agents-spin"
+                  aria-hidden="true"
+                />
+              ) : null}
+              {primaryActionLabel}
+            </button>
+          </BuilderConnectPopover>
         )}
-        {onConnectLocalRuntime && localRuntimeActionLabel && (
-          <button
-            type="button"
-            className="code-agents-button"
-            onClick={onConnectLocalRuntime}
-          >
-            <IconTerminal2 size={14} strokeWidth={1.8} />
-            {localRuntimeActionLabel}
-          </button>
-        )}
-        {onOpenSettings && secondaryActionLabel && (
+        {showRuntimeMenu ? (
+          <DropdownMenu>
+            <div className="code-agents-provider-runtime-split">
+              <button
+                type="button"
+                className="code-agents-button code-agents-provider-runtime-main"
+                onClick={() =>
+                  onConnectLocalRuntime?.(localRuntimeOptions[0].engine)
+                }
+              >
+                <LocalRuntimeIcon engine={localRuntimeOptions[0].engine} />
+                <span>{localRuntimeOptions[0].label}</span>
+              </button>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="code-agents-button code-agents-provider-runtime-chevron"
+                  aria-label="More sign-in options"
+                >
+                  <IconChevronDown size={14} strokeWidth={1.8} />
+                </button>
+              </DropdownMenuTrigger>
+            </div>
+            <DropdownMenuContent
+              align="end"
+              className="code-agents-provider-menu"
+            >
+              {localRuntimeOptions.slice(1).map((option) => (
+                <DropdownMenuItem
+                  key={option.engine}
+                  onSelect={() => onConnectLocalRuntime?.(option.engine)}
+                >
+                  <LocalRuntimeIcon engine={option.engine} />
+                  <span>{option.label}</span>
+                </DropdownMenuItem>
+              ))}
+              {onOpenSettings && (
+                <DropdownMenuItem onSelect={onOpenSettings}>
+                  <IconKey size={15} strokeWidth={1.8} aria-hidden="true" />
+                  <span>{customKeysLabel}</span>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : onOpenSettings && customKeysLabel ? (
           <button
             type="button"
             className="code-agents-button"
             onClick={onOpenSettings}
           >
-            {secondaryActionLabel}
+            {customKeysLabel}
           </button>
-        )}
+        ) : null}
       </div>
     </div>
   );
 }
 
-function normalizeModelSelection(
+export function normalizeModelSelection(
   value: CodeAgentModelSelection,
   models: CodeAgentModelOption[],
 ): CodeAgentModelSelection {
   const first = models[0] ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0];
+  const engineCandidates =
+    value.engine === "claude-cli"
+      ? models.filter(
+          (model) => model.engine === value.engine && !isLunaModel(model.model),
+        )
+      : models;
   const selected =
-    models.find(
+    engineCandidates.find(
       (model) => model.engine === value.engine && model.model === value.model,
-    ) ?? first;
-  if (selected.engine === "auto" && selected.model === "auto") {
-    return {
-      effort: normalizeReasoningEffort(value.effort ?? "auto"),
-    };
-  }
+    ) ??
+    (value.engine === "claude-cli"
+      ? (engineCandidates.find(
+          (model) =>
+            model.configured !== false &&
+            model.model.toLowerCase().includes("sonnet"),
+        ) ??
+        engineCandidates.find((model) => model.configured !== false) ??
+        engineCandidates[0])
+      : first) ??
+    first;
   return {
     engine: selected.engine,
     model: selected.model,
-    effort: normalizeReasoningEffort(value.effort ?? "auto"),
+    effort: normalizeReasoningEffort(value.effort ?? "high"),
   };
 }
 
-function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
+export function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
   const groups = new Map<
     string,
     {
@@ -2761,6 +4529,8 @@ function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
       label: string;
       models: string[];
       configured: boolean;
+      statusLabel?: string;
+      isSubscription?: boolean;
     }
   >();
   for (const option of models) {
@@ -2771,6 +4541,8 @@ function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
       label: option.engineLabel,
       models: [],
       configured,
+      ...(option.statusLabel ? { statusLabel: option.statusLabel } : {}),
+      ...(option.isSubscription ? { isSubscription: true } : {}),
     };
     if (!group.models.includes(option.model)) group.models.push(option.model);
     groups.set(key, group);
@@ -2778,13 +4550,85 @@ function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
   return [...groups.values()];
 }
 
-function normalizeReasoningEffort(value: unknown): CodeAgentReasoningEffort {
-  return CODE_AGENT_REASONING_EFFORTS.some((effort) => effort.id === value)
-    ? (value as CodeAgentReasoningEffort)
-    : "auto";
+export function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
+  return CODE_AGENT_RUNTIME_OPTIONS.map((agent) => {
+    if (agent.id === "default") {
+      return { ...agent, configured: true };
+    }
+
+    const model = models.find(
+      (option) =>
+        option.engine === agent.engine &&
+        (!isClaudeCodeAgentId(agent.id) || !isLunaModel(option.model)),
+    );
+    return {
+      ...agent,
+      configured: model !== undefined && model.configured !== false,
+      statusLabel: model?.statusLabel ?? (model ? "Sign in" : "Not installed"),
+    };
+  });
 }
 
-function readStoredModelSelection(): CodeAgentModelSelection {
+export function getCodeAgentIdForEngine(engine: string | undefined): string {
+  return (
+    CODE_AGENT_RUNTIME_OPTIONS.find(
+      (agent) => getCodeAgentEngine(agent.id) === engine,
+    )?.id ?? "default"
+  );
+}
+
+function getCodeAgentEngine(agentId: string): string | undefined {
+  const agent = CODE_AGENT_RUNTIME_OPTIONS.find(
+    (option) => option.id === agentId,
+  );
+  return agent && "engine" in agent ? agent.engine : undefined;
+}
+
+export function getCodeAgentSelection(
+  agentId: string,
+  current: CodeAgentModelSelection,
+  models: CodeAgentModelOption[],
+): CodeAgentModelSelection {
+  const engine = getCodeAgentEngine(agentId);
+  const candidates = models.filter((model) =>
+    engine
+      ? model.engine === engine
+      : !CODE_AGENT_LOCAL_ENGINES.has(model.engine),
+  );
+  const eligibleCandidates = isClaudeCodeAgentId(agentId)
+    ? candidates.filter((model) => !isLunaModel(model.model))
+    : candidates;
+  const preferredModel = resolvePreferredAgentModel(
+    agentId,
+    eligibleCandidates.map((model) => ({
+      engine: model.engine,
+      models: [model.model],
+      configured: model.configured,
+    })),
+  )?.model;
+  const option =
+    eligibleCandidates.find(
+      (model) => model.model === preferredModel && model.configured !== false,
+    ) ??
+    eligibleCandidates.find((model) => model.model === preferredModel) ??
+    eligibleCandidates.find((model) => model.configured !== false) ??
+    eligibleCandidates[0];
+  if (!option) return current;
+  return {
+    engine: option.engine,
+    model: option.model,
+    effort: current.effort,
+  };
+}
+
+function normalizeReasoningEffort(value: unknown): CodeAgentReasoningEffort {
+  if (value === "auto") return "high";
+  return CODE_AGENT_REASONING_EFFORTS.some((effort) => effort.id === value)
+    ? (value as CodeAgentReasoningEffort)
+    : "high";
+}
+
+export function readCodeAgentModelSelection(): CodeAgentModelSelection {
   if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(CODE_AGENT_MODEL_SELECTION_KEY);
@@ -2800,7 +4644,9 @@ function readStoredModelSelection(): CodeAgentModelSelection {
   }
 }
 
-function writeStoredModelSelection(value: CodeAgentModelSelection): void {
+export function writeCodeAgentModelSelection(
+  value: CodeAgentModelSelection,
+): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
@@ -2812,16 +4658,11 @@ function writeStoredModelSelection(value: CodeAgentModelSelection): void {
   }
 }
 
-function readStoredViewedRunIds(): {
-  initialized: boolean;
-  ids: Set<string>;
-} {
-  if (typeof window === "undefined") {
-    return { initialized: true, ids: new Set() };
-  }
+function readStoredUnreadRunIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
   try {
-    const raw = window.localStorage.getItem(CODE_AGENT_VIEWED_RUN_IDS_KEY);
-    if (!raw) return { initialized: false, ids: new Set() };
+    const raw = window.localStorage.getItem(CODE_AGENT_UNREAD_RUN_IDS_KEY);
+    if (!raw) return new Set();
     const parsed = JSON.parse(raw) as unknown;
     const ids = Array.isArray(parsed)
       ? parsed
@@ -2830,20 +4671,19 @@ function readStoredViewedRunIds(): {
           Array.isArray((parsed as { ids?: unknown }).ids)
         ? (parsed as { ids: unknown[] }).ids
         : [];
-    return {
-      initialized: true,
-      ids: new Set(ids.filter((id): id is string => typeof id === "string")),
-    };
+    return new Set(ids.filter((id): id is string => typeof id === "string"));
   } catch {
-    return { initialized: false, ids: new Set() };
+    // An unread marker is advisory; unreadable local state must not create
+    // dozens of false-positive attention indicators.
+    return new Set();
   }
 }
 
-function writeStoredViewedRunIds(ids: Set<string>): void {
+function writeStoredUnreadRunIds(ids: Set<string>): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
-      CODE_AGENT_VIEWED_RUN_IDS_KEY,
+      CODE_AGENT_UNREAD_RUN_IDS_KEY,
       JSON.stringify({ version: 1, ids: [...ids].slice(-1000) }),
     );
   } catch {
@@ -2980,6 +4820,38 @@ function normalizePromptForSelectedGoal(
 
 function isRunActive(run: CodeAgentRun): boolean {
   return isCodeAgentRunActive(run);
+}
+
+export function findRunsThatBecameUnread(
+  previousRuns: readonly CodeAgentRun[] | undefined,
+  nextRuns: readonly CodeAgentRun[],
+  selectedRunId?: string | null,
+): string[] {
+  if (!previousRuns) return [];
+  const previousById = new Map(previousRuns.map((run) => [run.id, run]));
+  return nextRuns
+    .filter((run) => {
+      const previous = previousById.get(run.id);
+      return (
+        previous !== undefined &&
+        isRunActive(previous) &&
+        !isRunActive(run) &&
+        run.id !== selectedRunId
+      );
+    })
+    .map((run) => run.id);
+}
+
+function areCodeAgentRunListsEqual(
+  current: CodeAgentRun[],
+  next: CodeAgentRun[],
+): boolean {
+  return (
+    current.length === next.length &&
+    current.every(
+      (run, index) => JSON.stringify(run) === JSON.stringify(next[index]),
+    )
+  );
 }
 
 function sortRunsForRail(runs: CodeAgentRun[]): CodeAgentRun[] {
@@ -3257,34 +5129,6 @@ function SearchChatsPanel({
   );
 }
 
-function MobileRailItem({
-  status,
-  error,
-  active,
-  onOpen,
-}: {
-  status: CodeAgentRemoteConnectorStatus | null;
-  error: string | null;
-  active: boolean;
-  onOpen: () => void;
-}) {
-  const copy = mobileConnectorCopy(status, error);
-  return (
-    <button
-      type="button"
-      className={`code-agents-nav-link code-agents-mobile-link${
-        active ? " code-agents-nav-link--active" : ""
-      }`}
-      onClick={onOpen}
-      aria-pressed={active}
-      title={copy.description}
-    >
-      <IconDeviceMobile size={15} strokeWidth={1.8} />
-      <span>Mobile</span>
-    </button>
-  );
-}
-
 function mobileConnectorCopy(
   status: CodeAgentRemoteConnectorStatus | null,
   error: string | null,
@@ -3440,7 +5284,7 @@ function MobileConnectorPanel({
           <IconQrcode size={15} strokeWidth={1.8} />
           Mobile
         </p>
-        <h2>Agent Native mobile</h2>
+        <h2>Agent-Native mobile</h2>
         <p>
           Scan the QR code to open chats on your phone, then pair this Mac to
           start and continue local Agent work from mobile.
@@ -3488,7 +5332,7 @@ function MobileConnectorPanel({
               size={224}
               level="H"
               marginSize={3}
-              title="Open Agent Native mobile chats"
+              title="Open Agent-Native mobile chats"
               bgColor="#ffffff"
               fgColor="#111111"
             />
@@ -3582,12 +5426,18 @@ function RunDetailCard({
   onApproveAlways,
   onDeny,
   providerBlocked,
+  builderConnectFlow,
   builderConnecting,
   builderConnectMessage,
   onConnectBuilder,
   onOpenSettings,
   onConnectProvider,
   onConnectLocalRuntime,
+  onOpenRun,
+  onForkChat,
+  onRestoreWorktree,
+  restoringWorktreeId,
+  onProviderGateClick,
 }: {
   host: CodeAgentsHost;
   run: CodeAgentRun | null;
@@ -3601,30 +5451,47 @@ function RunDetailCard({
   modelOptions: CodeAgentModelOption[];
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onStop: () => void;
+  onStop: () => Promise<boolean>;
   onApprove: () => void;
   onApproveAlways: () => void;
   onDeny: () => void;
   providerBlocked: boolean;
+  builderConnectFlow: BuilderConnectFlow;
   builderConnecting: boolean;
   builderConnectMessage: string | null;
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onOpenRun?: (runId: string) => void;
+  onForkChat?: () => void;
+  onRestoreWorktree?: (worktreeId: string, runId: string) => void;
+  restoringWorktreeId?: string | null;
+  onProviderGateClick?: () => void;
 }) {
   const runIsActive = run ? isRunActive(run) : false;
+  const runId = run?.id;
+  const stopInFlightRef = useRef(false);
+  const handleStop = useCallback(async () => {
+    if (!runId || stopInFlightRef.current) return false;
+    stopInFlightRef.current = true;
+    try {
+      return await onStop();
+    } finally {
+      stopInFlightRef.current = false;
+    }
+  }, [onStop, runId]);
 
   useEffect(() => {
     if (!runIsActive) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      onStop();
+      void handleStop();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onStop, runIsActive]);
+  }, [handleStop, runIsActive]);
 
   if (!run) {
     return (
@@ -3634,7 +5501,7 @@ function RunDetailCard({
         <p>
           {selectedRunId
             ? `Open ${goal.surfaceLabel} to load the linked chat.`
-            : "Start a new chat or choose one from the sidebar."}
+            : "Start a new chat or choose one from the rail."}
         </p>
       </div>
     );
@@ -3644,42 +5511,46 @@ function RunDetailCard({
     run,
     transcriptEvents,
   );
-  const hasCredentialGap = providerBlocked && hasCredentialHistory;
-  const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
-  // The inline per-tool-call approval affordance (rendered by AssistantChat /
-  // ToolCallDisplay via the tool-call's `approval` field) already covers this
-  // pending approval when the transcript join succeeds. Keep this standalone
-  // banner only as a fallback for transcripts where that join is missing
-  // (legacy runs, or a pending approval whose bash result isn't present in
-  // the rendered window) so the two affordances don't double up.
-  const hasInlineApprovalAffordance = pendingApproval
-    ? codeAgentTranscriptHasPendingApproval(transcriptEvents)
-    : false;
-  const showApprovalBanner =
-    Boolean(pendingApproval) && !hasInlineApprovalAffordance;
+  const hasCredentialGap = shouldShowCodeAgentCredentialCallout({
+    providerBlocked,
+    hasCredentialHistory,
+    phase: run.phase,
+    providerExempt: isPortalCodeAgentRun(run),
+  });
+  const pendingApproval = getPendingApproval(run);
+  // The host-owned banner preserves Code Agents' approve, deny, and exact-command allow actions.
+  const showApprovalBanner = Boolean(pendingApproval);
+  const runWorktree = isObjectRecord(run.metadata?.worktree)
+    ? run.metadata.worktree
+    : undefined;
+  const worktreeCleanupError = firstRecordString(runWorktree?.lastCleanupError);
+  const {
+    wasPreserved: worktreeWasPreserved,
+    needsRecovery: worktreeNeedsRecovery,
+    needsNotice: worktreeNeedsNotice,
+  } = getCodeAgentWorktreeRecoveryState(runWorktree);
+  const worktreeId = firstRecordString(runWorktree?.id);
 
   return (
     <div className="code-agents-detail code-agents-detail--chat">
       {hasCredentialGap && (
         <CodeProviderNotice
           className="code-agents-credential-callout"
-          title="Provider needed"
+          title="Connect AI"
           description={
             builderConnectMessage ??
-            "Connect Builder.io (free tier available), run codex login for Codex CLI, or add your own API key."
+            builderConnectFlow.error ??
+            "Use Builder.io or add custom keys to continue coding."
           }
+          builderConnectFlow={builderConnectFlow}
           primaryActionLabel={
-            builderConnecting ? "Waiting..." : "Connect Builder.io"
+            builderConnecting ? "Signing in to Builder.io…" : "Use Builder.io"
           }
-          primaryDisabled={builderConnecting}
+          primaryDisabled={builderConnecting || builderConnectFlow.connecting}
           onPrimaryAction={onConnectBuilder}
-          localRuntimeActionLabel="Sign in with ChatGPT"
-          onConnectLocalRuntime={
-            onConnectLocalRuntime
-              ? () => onConnectLocalRuntime("codex-cli")
-              : undefined
-          }
-          secondaryActionLabel="API keys"
+          localRuntimeOptions={getLocalRuntimeOptions(modelOptions)}
+          onConnectLocalRuntime={onConnectLocalRuntime}
+          secondaryActionLabel="Custom keys"
           onOpenSettings={onOpenSettings}
         />
       )}
@@ -3723,6 +5594,39 @@ function RunDetailCard({
         </div>
       )}
 
+      {worktreeNeedsNotice && (
+        <div className="code-agents-worktree-recovery" role="status">
+          <div className="code-agents-worktree-recovery__copy">
+            <IconAlertCircle size={16} strokeWidth={1.8} />
+            <span>
+              <strong>
+                {worktreeWasPreserved
+                  ? "Worktree kept for recovery"
+                  : "Worktree cleaned up"}
+              </strong>
+              <small>
+                {worktreeWasPreserved
+                  ? worktreeCleanupError
+                  : "This chat’s files were removed to save disk space."}
+              </small>
+            </span>
+          </div>
+          {worktreeNeedsRecovery && worktreeId && onRestoreWorktree ? (
+            <button
+              type="button"
+              className="code-agents-button"
+              disabled={restoringWorktreeId === worktreeId}
+              onClick={() => onRestoreWorktree(worktreeId, run.id)}
+            >
+              <IconRestore size={14} strokeWidth={1.8} />
+              {restoringWorktreeId === worktreeId
+                ? "Restoring..."
+                : "Restore worktree"}
+            </button>
+          ) : null}
+        </div>
+      )}
+
       <TranscriptPanel
         host={host}
         goal={goal}
@@ -3737,11 +5641,13 @@ function RunDetailCard({
         hideCredentialMessages={hasCredentialHistory}
         onPermissionModeChange={onPermissionModeChange}
         onModelSelectionChange={onModelSelectionChange}
-        onStop={onStop}
-        onDeny={onDeny}
-        onApproveAlways={onApproveAlways}
+        onStop={handleStop}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}
+        onOpenRun={onOpenRun}
+        onForkChat={onForkChat}
+        chatBlocked={hasCredentialGap}
+        onDisabledClick={onProviderGateClick}
       />
     </div>
   );
@@ -3762,10 +5668,12 @@ function TranscriptPanel({
   onPermissionModeChange,
   onModelSelectionChange,
   onStop,
-  onDeny,
-  onApproveAlways,
   onConnectProvider,
   onConnectLocalRuntime,
+  onOpenRun,
+  onForkChat,
+  chatBlocked,
+  onDisabledClick,
 }: {
   host: CodeAgentsHost;
   goal: CodeAgentGoalDefinition;
@@ -3780,78 +5688,66 @@ function TranscriptPanel({
   hideCredentialMessages?: boolean;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onStop: () => void;
-  /** Resolves the run's pending approval as denied — same command the standalone approval banner uses. */
-  onDeny?: () => void;
-  /** Resolves the run's pending approval as approved and allowlists the exact command — same command the banner uses. */
-  onApproveAlways?: () => void;
+  onStop: () => Promise<boolean>;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onOpenRun?: (runId: string) => void;
+  onForkChat?: () => void;
+  chatBlocked: boolean;
+  onDisabledClick?: () => void;
 }) {
-  const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
-  const selectedModel = normalizedModel.model ?? "auto";
-  const selectedEngine = normalizedModel.engine ?? "auto";
-  const selectedEffort = normalizeReasoningEffort(
-    normalizedModel.effort ?? "auto",
-  );
-  const availableModels = groupCodeAgentModelOptions(modelOptions);
-  const eventsRef = useRef(events);
-  eventsRef.current = events;
-  const hideCredentialMessagesRef = useRef(hideCredentialMessages);
-  hideCredentialMessagesRef.current = hideCredentialMessages;
-  const runIdRef = useRef<string | null>(run.id);
-  runIdRef.current = run.id;
+  const chatBlockedRef = useRef(chatBlocked);
+  chatBlockedRef.current = chatBlocked;
   const permissionModeRef = useRef<string | undefined>(permissionMode);
   permissionModeRef.current = permissionMode;
-  const modelRef = useRef<string | undefined>(selectedModel);
-  modelRef.current = selectedModel === "auto" ? undefined : selectedModel;
-  const engineRef = useRef<string | undefined>(selectedEngine);
-  engineRef.current = selectedEngine === "auto" ? undefined : selectedEngine;
-  const effortRef = useRef<CodeAgentReasoningEffort | undefined>(
-    selectedEffort,
-  );
-  effortRef.current = selectedEffort;
-  const followUpModeRef = useRef<CodeAgentFollowUpMode | undefined>(undefined);
-  const attachOnlyRef = useRef(false);
-  attachOnlyRef.current = false;
 
   const controller = useMemo(
     () => createHostCodeAgentChatController(host, goal.id, permissionModeRef),
     [goal.id, host],
   );
-  const createAdapter = useCallback(
+  const transport = useMemo(
     () =>
-      createCodeAgentChatAdapter({
-        controller,
-        runIdRef,
-        permissionModeRef,
-        modelRef,
-        engineRef,
-        effortRef,
-        followUpModeRef,
-        attachOnlyRef,
-        tabId: `code-agent:${run.id}`,
-      }),
-    [controller, run.id],
+      createAgentKitProtocolAdapter(
+        createCodeAgentAgentKitRuntime({
+          controller,
+          isChatBlocked: () => chatBlockedRef.current,
+          hideCredentialMessages,
+        }),
+      ),
+    [controller, hideCredentialMessages],
   );
-  const loadHistoryRepository = useCallback(async () => {
-    const eventsToRender = hideCredentialMessagesRef.current
-      ? eventsRef.current.filter((event) => !isCredentialTranscriptEvent(event))
-      : eventsRef.current;
-    return buildRepositoryFromCodeAgentTranscript(eventsToRender, {
-      hideCredentialMessages: hideCredentialMessagesRef.current,
-    });
-  }, []);
-  const historyReloadKey = useMemo(() => {
-    const lastEvent = events.length > 0 ? events[events.length - 1] : undefined;
-    return [
-      run.id,
-      events.length,
-      lastEvent?.id ?? "",
-      lastEvent?.createdAt ?? "",
-      hideCredentialMessages ? "hide" : "show",
-    ].join(":");
-  }, [events, hideCredentialMessages, run.id]);
+  const chatContextValue = useMemo<CodeAgentChatContextValue>(
+    () => ({
+      permissionMode,
+      modelSelection,
+      modelOptions,
+      runIsActive,
+      onPermissionModeChange,
+      onModelSelectionChange,
+      onStop,
+      onConnectProvider,
+      onConnectLocalRuntime,
+      onForkChat,
+      chatBlocked,
+      onDisabledClick,
+      getHostMetadata: host.getHostMetadata,
+    }),
+    [
+      modelOptions,
+      modelSelection,
+      onConnectLocalRuntime,
+      onConnectProvider,
+      onForkChat,
+      onDisabledClick,
+      onModelSelectionChange,
+      onPermissionModeChange,
+      onStop,
+      permissionMode,
+      chatBlocked,
+      host.getHostMetadata,
+      runIsActive,
+    ],
+  );
   return (
     <div className="code-agents-transcript">
       {error && (
@@ -3865,74 +5761,307 @@ function TranscriptPanel({
           Loading transcript...
         </div>
       ) : (
-        <AssistantChat
-          key={run.id}
-          className="code-agents-transcript__assistant"
-          tabId={`code-agent:${run.id}`}
-          showHeader={false}
-          emptyStateText="No messages yet."
-          suggestions={[]}
-          dynamicSuggestions={false}
-          plusMenuMode="upload-only"
-          providerStatusChecksEnabled={false}
-          createAdapter={createAdapter}
-          adapterReloadKey={controller}
-          loadHistoryRepository={loadHistoryRepository}
-          historyReloadKey={historyReloadKey}
-          externalStreaming={runIsActive}
-          approvalActions={
-            onDeny || onApproveAlways
-              ? { onDeny, onAlwaysAllow: onApproveAlways }
-              : undefined
-          }
-          availableModels={availableModels}
-          selectedModel={selectedModel}
-          selectedEngine={selectedEngine}
-          selectedEffort={selectedEffort}
-          onModelChange={(model, engine) =>
-            onModelSelectionChange({
-              engine,
-              model,
-              effort: selectedEffort,
-            })
-          }
-          onEffortChange={(effort) =>
-            onModelSelectionChange({ ...normalizedModel, effort })
-          }
-          composerAreaClassName="code-agents-standard-composer"
-          composerToolbarSlot={
-            <div className="code-agents-chat-composer-slot">
-              <RunModeSelect
-                value={permissionMode}
-                onChange={onPermissionModeChange}
-                compact
+        <>
+          <TranscriptSourceBanner events={events} onOpenRun={onOpenRun} />
+          <CodeAgentChatContext.Provider value={chatContextValue}>
+            <AgentKitRoot
+              key={run.id}
+              threadId={run.id}
+              transport={transport}
+              clientOptions={{
+                transportOwnership: "owned",
+                retainActiveRunsOnThreadRelease: true,
+                // CodeAgentAgentKitRuntime checks this host's provider gate before dispatch.
+                aiSetupReadiness: "not-applicable",
+              }}
+              slots={CODE_AGENTKIT_CHAT_SLOTS}
+            >
+              <CodeAgentExternalTranscriptBridge runIsActive={runIsActive} />
+              <AgentKitChat
+                className="code-agents-transcript__assistant"
+                emptyComposerPlacement="bottom"
+                toolbar={
+                  onForkChat ? (
+                    <CodeAgentKitForkToolbar onFork={onForkChat} />
+                  ) : undefined
+                }
               />
-            </div>
-          }
-          composerExtraActionButton={
-            runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
-          }
-          onConnectProvider={onConnectProvider}
-          onConnectLocalRuntime={onConnectLocalRuntime}
-        />
+            </AgentKitRoot>
+          </CodeAgentChatContext.Provider>
+        </>
       )}
     </div>
   );
 }
 
-function CodeAgentStopButton({ onStop }: { onStop: () => void }) {
+function CodeAgentExternalTranscriptBridge({
+  runIsActive,
+}: {
+  runIsActive: boolean;
+}) {
+  const control = useAgentKitControl();
+  const thread = useAgentThread();
+  const activeRunIdsRef = useRef(thread.activeRunIds);
+  activeRunIdsRef.current = thread.activeRunIds;
+
+  useEffect(() => {
+    if (!runIsActive) return;
+    return startCodeAgentExternalTranscriptBridge({
+      hasAgentKitRun: () => activeRunIdsRef.current.length > 0,
+      refresh: () =>
+        control.load().catch(() => {
+          // AgentKit records the load failure; the next poll retries it.
+        }),
+    });
+  }, [control, runIsActive]);
+
+  return null;
+}
+
+function TranscriptSourceBanner({
+  events,
+  onOpenRun,
+}: {
+  events: CodeAgentTranscriptEvent[];
+  onOpenRun?: (runId: string) => void;
+}) {
+  const event = [...events]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.type === "user" &&
+        (candidate.metadata?.source === "scheduled-task" ||
+          candidate.metadata?.source === "agent"),
+    );
+  if (!event) return null;
+  const source = event.metadata?.source;
+  if (source === "scheduled-task") {
+    const scheduleName =
+      typeof event.metadata?.scheduleName === "string"
+        ? event.metadata.scheduleName
+        : undefined;
+    return (
+      <div
+        className="code-agents-transcript-source"
+        data-source="scheduled-task"
+      >
+        <IconClock size={14} strokeWidth={1.8} />
+        <span>Sent by scheduled task</span>
+        {scheduleName ? <small>{scheduleName}</small> : null}
+      </div>
+    );
+  }
+  const sourceRunId =
+    typeof event.metadata?.sourceRunId === "string"
+      ? event.metadata.sourceRunId
+      : undefined;
+  const sourceRunTitle =
+    typeof event.metadata?.sourceRunTitle === "string"
+      ? event.metadata.sourceRunTitle
+      : sourceRunId;
+  return (
+    <div className="code-agents-transcript-source" data-source="agent">
+      <IconLink size={14} strokeWidth={1.8} />
+      <span>Sent from another agent</span>
+      {sourceRunId && onOpenRun ? (
+        <button type="button" onClick={() => onOpenRun(sourceRunId)}>
+          {sourceRunTitle}
+        </button>
+      ) : sourceRunTitle ? (
+        <small>{sourceRunTitle}</small>
+      ) : null}
+    </div>
+  );
+}
+
+interface CodeAgentChatContextValue {
+  permissionMode: CodeAgentPermissionMode;
+  modelSelection: CodeAgentModelSelection;
+  modelOptions: CodeAgentModelOption[];
+  runIsActive: boolean;
+  onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
+  onModelSelectionChange: (value: CodeAgentModelSelection) => void;
+  onStop: () => Promise<boolean>;
+  onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
+  chatBlocked: boolean;
+  onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
+  onForkChat?: () => void;
+}
+
+const CodeAgentChatContext = createContext<CodeAgentChatContextValue | null>(
+  null,
+);
+
+function CodeAgentKitComposerSlot({ threadId }: { threadId: string }) {
+  const chat = useContext(CodeAgentChatContext);
+  const control = useAgentKitControl(threadId);
+  const [submitting, setSubmitting] = useState(false);
+  if (!chat) throw new Error("Code Agent chat context is missing.");
+
+  const normalizedModel = normalizeModelSelection(
+    chat.modelSelection,
+    chat.modelOptions,
+  );
+  const selectedModel =
+    normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model;
+  const selectedEngine =
+    normalizedModel.engine ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].engine;
+  const selectedEffort = normalizeReasoningEffort(
+    normalizedModel.effort ?? "high",
+  );
+
+  return (
+    <CodeAgentComposer
+      prompt=""
+      submitting={submitting}
+      permissionMode={chat.permissionMode}
+      modelSelection={chat.modelSelection}
+      modelOptions={chat.modelOptions}
+      placeholder="Describe a task or ask a question"
+      variant="compact"
+      stopActive={chat.runIsActive}
+      disabled={chat.chatBlocked}
+      onPromptChange={() => undefined}
+      getHostMetadata={chat.getHostMetadata}
+      onPermissionModeChange={chat.onPermissionModeChange}
+      onModelSelectionChange={chat.onModelSelectionChange}
+      onSubmit={async (prompt, attachments, followUpMode) => {
+        setSubmitting(true);
+        try {
+          await control.sendMessage({
+            text: prompt,
+            options: {
+              agentId: getCodeAgentIdForEngine(selectedEngine),
+              model: selectedModel,
+              mode: chat.permissionMode,
+            },
+            metadata: {
+              [CODE_AGENT_CHAT_METADATA_KEY]: {
+                engine: selectedEngine,
+                followUpMode,
+                permissionMode: chat.permissionMode,
+                reasoningEffort: selectedEffort,
+                attachments,
+              },
+            },
+          });
+        } finally {
+          setSubmitting(false);
+        }
+      }}
+      onStop={chat.onStop}
+      onConnectProvider={chat.onConnectProvider}
+      onConnectLocalRuntime={chat.onConnectLocalRuntime}
+      onDisabledClick={chat.onDisabledClick}
+      plusMenuModeOverride="upload-only"
+      draftScopeOverride={`agent-native-code:follow-up:${threadId}`}
+    />
+  );
+}
+
+function CodeAgentKitMessage({
+  value,
+  threadId,
+}: AgentKitRenderProps<AgentMessage>) {
+  const storedConversationMessage = value.parts.find(
+    (part) =>
+      part.type === "data" &&
+      part.mediaType === CODE_AGENT_CONVERSATION_MEDIA_TYPE,
+  );
+  if (storedConversationMessage?.type === "data") {
+    const data = storedConversationMessage.data;
+    if (isObjectRecord(data) && isObjectRecord(data.message)) {
+      return (
+        <>
+          <AgentConversationMessageView
+            message={data.message as unknown as AgentConversationMessage}
+          />
+          {value.role === "assistant" ? (
+            <AgentMessageActions value={value} threadId={threadId} />
+          ) : null}
+        </>
+      );
+    }
+  }
+
+  const chatMetadata = isObjectRecord(
+    value.metadata?.[CODE_AGENT_CHAT_METADATA_KEY],
+  )
+    ? value.metadata[CODE_AGENT_CHAT_METADATA_KEY]
+    : null;
+  if (value.role === "user" && chatMetadata) {
+    const text = value.parts
+      .filter(
+        (part): part is Extract<typeof part, { type: "text" }> =>
+          part.type === "text",
+      )
+      .map((part) => part.text)
+      .join("\n");
+    const attachments = Array.isArray(chatMetadata.attachments)
+      ? chatMetadata.attachments.flatMap((attachment) => {
+          if (
+            !isObjectRecord(attachment) ||
+            typeof attachment.name !== "string"
+          )
+            return [];
+          return [
+            {
+              name: attachment.name,
+              ...(typeof attachment.type === "string"
+                ? { type: attachment.type }
+                : {}),
+              ...(typeof attachment.size === "number"
+                ? { size: attachment.size }
+                : {}),
+              ...(typeof attachment.dataUrl === "string"
+                ? { dataUrl: attachment.dataUrl }
+                : {}),
+            },
+          ];
+        })
+      : [];
+    return (
+      <AgentConversationMessageView
+        message={{
+          id: value.id,
+          role: "user",
+          text,
+          createdAt: value.createdAt,
+          ...(attachments.length ? { attachments } : {}),
+        }}
+      />
+    );
+  }
+
+  return <AgentMessageView value={value} threadId={threadId} />;
+}
+
+function CodeAgentKitForkToolbar({ onFork }: { onFork: () => void }) {
+  const { labels } = useAgentKit();
   return (
     <button
       type="button"
-      onClick={onStop}
-      className="code-agents-composer-stop-button"
-      aria-label="Stop response"
-      title="Stop response (Esc)"
+      className="code-agents-button code-agents-button--ghost"
+      aria-label={labels.fork}
+      title={labels.fork}
+      onClick={onFork}
     >
-      <IconPlayerStop size={14} strokeWidth={1.9} />
+      <IconGitFork size={14} strokeWidth={1.8} />
     </button>
   );
 }
+
+function CodeAgentKitEmptyState() {
+  return <div className="code-agents-transcript__empty">No messages yet.</div>;
+}
+
+const CODE_AGENTKIT_CHAT_SLOTS: AgentKitSlots = {
+  composer: CodeAgentKitComposerSlot,
+  emptyState: CodeAgentKitEmptyState,
+  message: CodeAgentKitMessage,
+};
 
 function createHostCodeAgentChatController(
   host: CodeAgentsHost,
@@ -3961,6 +6090,7 @@ function createHostCodeAgentChatController(
         model: input.model,
         effort: input.reasoningEffort as CodeAgentReasoningEffort | undefined,
         attachments: normalizePromptAttachmentsForHost(input.metadata),
+        metadata: input.metadata,
       });
       return {
         ok: result.ok,
@@ -4102,9 +6232,7 @@ function sortPinnedRuns(runs: CodeAgentRun[]): CodeAgentRun[] {
 function getRunSubtitle(run: CodeAgentRun): string {
   if (run.subtitle) return run.subtitle;
   if (isMigrationRun(run)) return run.sourceRoot;
-  return run.goalId && run.goalId !== "task"
-    ? `${run.goalId} chat`
-    : "Agent chat";
+  return run.goalId && run.goalId !== "task" ? `${run.goalId} chat` : "Chat";
 }
 
 function getRunPermissionMode(run: CodeAgentRun): CodeAgentPermissionMode {
@@ -4168,12 +6296,6 @@ function getRunTerminalRequest(
   return sourceRoot || outputRoot || cwd
     ? { sourceRoot, outputRoot, cwd }
     : undefined;
-}
-
-function getRunSourceDetail(run: CodeAgentRun): CodeAgentRunDetail | null {
-  const label = getRunSourceLabel(run);
-  if (!label) return null;
-  return { label: "Source", value: label };
 }
 
 function getRunSourceLabel(run: CodeAgentRun): string | null {

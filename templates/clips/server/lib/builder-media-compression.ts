@@ -4,15 +4,17 @@ import {
 } from "@agent-native/core/application-state";
 import { getDbExec } from "@agent-native/core/db";
 import {
+  BUILDER_ASSETS_WRITE_SCOPE,
   captureRouteError,
   getRequestOrgId,
-  resolveBuilderPrivateKey,
+  resolveBuilderApiAuthorization,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { and, eq, isNull } from "drizzle-orm";
 
 import type { MediaWorkerCallback } from "../../shared/media-worker-contract.js";
 import { getDb, schema } from "../db/index.js";
+import { isBuilderCdnHost } from "./builder-cdn.js";
 import { enabledFlag } from "./env-flags.js";
 import {
   enqueueMediaWorkerJob,
@@ -23,7 +25,6 @@ import {
 } from "./media-worker.js";
 import { ownerEmailMatches } from "./recordings.js";
 
-const BUILDER_CDN_HOST_RE = /^cdn(?:-qa)?\.builder\.io$/i;
 const DEFAULT_TRIGGER_TIMEOUT_MS = 45_000;
 const DEFAULT_MAX_SOURCE_BYTES = 512 * 1024 * 1024;
 const MAX_TRIGGER_ATTEMPTS = 5;
@@ -293,7 +294,7 @@ export function extractBuilderMediaTarget(
 ): BuilderMediaTarget | null {
   try {
     const url = new URL(sourceUrl);
-    if (!BUILDER_CDN_HOST_RE.test(url.hostname)) return null;
+    if (!isBuilderCdnHost(url.hostname)) return null;
     if (url.searchParams.get("optimized") === "true") return null;
 
     let objectPath: string | null = null;
@@ -349,10 +350,9 @@ async function triggerBuilderCompression(
   durationMs?: number;
   sizeBytes?: number;
 } | null> {
-  const privateKey = await resolveBuilderPrivateKey();
-  if (!privateKey) {
-    throw new Error("Builder private key is not configured");
-  }
+  const authorization = await resolveBuilderApiAuthorization(
+    BUILDER_ASSETS_WRITE_SCOPE,
+  );
 
   const url = new URL(
     `/api/v1/compress-media/${encodeURIComponent(state.objectPath)}`,
@@ -363,7 +363,7 @@ async function triggerBuilderCompression(
 
   const res = await fetchWithTimeout(
     url.toString(),
-    { headers: { authorization: `Bearer ${privateKey}` } },
+    { headers: { authorization } },
     triggerTimeoutMs(),
     "Builder media compression trigger",
   );
@@ -949,7 +949,7 @@ export function mediaDurationsMateriallyMatch(
 export async function runBuilderMediaCompressionSweepOnce(): Promise<void> {
   const exec = getDbExec();
   const { rows } = await exec.execute({
-    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE ?`,
+    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE $1`,
     args: [`${BUILDER_MEDIA_COMPRESSION_STATE_PREFIX}%`],
   });
 
@@ -1031,7 +1031,7 @@ export async function runBuilderMediaCompressionSweepOnce(): Promise<void> {
       );
     } catch (err) {
       console.warn("[builder-media-compression] sweep item failed", {
-        key: String(row.key ?? ""),
+        key: typeof row.key === "string" ? row.key : "",
         recordingId: state.recordingId,
         error: errorMessage(err),
       });

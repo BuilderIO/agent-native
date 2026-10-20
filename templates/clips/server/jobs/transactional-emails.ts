@@ -1,5 +1,6 @@
-import { isEmailConfigured } from "@agent-native/core/server";
+import { isEmailConfigured, isTestIdentity } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { getUserSetting } from "@agent-native/core/settings";
 import { getUserProfile } from "@agent-native/core/user-profile/server";
 import {
   and,
@@ -17,7 +18,17 @@ import {
   sql,
 } from "drizzle-orm";
 
+import {
+  CLIPS_USER_PREFS_KEY,
+  type ClipsUserPrefs,
+} from "../../shared/clips-ai-prefs.js";
+import {
+  isClipsNotificationEnabled,
+  type ClipsNotificationCategory,
+} from "../../shared/clips-notification-prefs.js";
+import { usesOrganizationLogoRoute } from "../../shared/organization-logo.js";
 import { getDb, schema } from "../db/index.js";
+import { organizationLogoAbsoluteUrl } from "../lib/organization-logo.js";
 import {
   computeMonthlyRecap,
   listOwnersWithMonthlyAudience,
@@ -57,10 +68,13 @@ type DirectShare = {
   recipient: string;
   createdBy: string;
   createdAt: string;
+  notifiedAt: string | null;
 };
 
 type RecordingState = {
   id: string;
+  meetingId: string | null;
+  meetingVisibility: string | null;
   organizationId: string;
   ownerEmail: string;
   title: string;
@@ -230,27 +244,44 @@ function normalizedEmail(value: string | null | undefined): string | null {
   return parsed.success ? parsed.data : null;
 }
 
+function notificationCategoryForJob(
+  type: TransactionalEmailJob["type"],
+): ClipsNotificationCategory | null {
+  if (
+    type === "first-view" ||
+    type === "first-agent-view" ||
+    type === "unviewed-reminder"
+  ) {
+    return "views";
+  }
+  if (type === "monthly-recap") return "recaps";
+  return null;
+}
+
+async function isTransactionalEmailEnabled(
+  recipient: string,
+  type: TransactionalEmailJob["type"],
+): Promise<boolean> {
+  const category = notificationCategoryForJob(type);
+  if (!category) return true;
+  const prefs = (await getUserSetting(
+    recipient,
+    CLIPS_USER_PREFS_KEY,
+  )) as ClipsUserPrefs | null;
+  return isClipsNotificationEnabled(prefs, category);
+}
+
 export function isSuppressedTransactionalRecipient(
   value: string | null | undefined,
 ): boolean {
   const email = normalizedEmail(value);
-  // guard:allow-localhost-fallback — Suppress the retired dev identity; never use it as an owner.
-  if (!email || email === "local@localhost") return true;
-  const at = email.lastIndexOf("@");
-  const local = email.slice(0, at);
-  const domain = email.slice(at + 1);
-  return (
-    local.includes("+qa") &&
-    (domain === "example.test" ||
-      domain.endsWith(".test") ||
-      domain === "example.invalid" ||
-      domain.endsWith(".invalid"))
-  );
+  return !email || isTestIdentity(email);
 }
 
 function normalizeShare(share: DirectShare): DirectShare | null {
   const recipient = normalizedEmail(share.recipient);
   if (!recipient || isSuppressedTransactionalRecipient(recipient)) return null;
+  if (!share.notifiedAt) return null;
   return { ...share, recipient };
 }
 
@@ -289,11 +320,13 @@ function defaultRepository(): TransactionalEmailRepository {
         recipient: schema.recordingShares.principalId,
         createdBy: schema.recordingShares.createdBy,
         createdAt: schema.recordingShares.createdAt,
+        notifiedAt: schema.recordingShares.notifiedAt,
       })
       .from(schema.recordingShares)
       .where(
         and(
           eq(schema.recordingShares.principalType, "user"),
+          isNotNull(schema.recordingShares.notifiedAt),
           recipient
             ? ownerEmailMatches(schema.recordingShares.principalId, recipient)
             : undefined,
@@ -335,6 +368,7 @@ function defaultRepository(): TransactionalEmailRepository {
         .where(
           and(
             eq(schema.recordingShares.principalType, "user"),
+            isNotNull(schema.recordingShares.notifiedAt),
             ownerEmailMatches(schema.recordingShares.principalId, recipient),
             gte(schema.recordingShares.createdAt, enabledAt),
           ),
@@ -354,11 +388,13 @@ function defaultRepository(): TransactionalEmailRepository {
             recipient: schema.recordingShares.principalId,
             createdBy: schema.recordingShares.createdBy,
             createdAt: schema.recordingShares.createdAt,
+            notifiedAt: schema.recordingShares.notifiedAt,
           })
           .from(schema.recordingShares)
           .where(
             and(
               eq(schema.recordingShares.principalType, "user"),
+              isNotNull(schema.recordingShares.notifiedAt),
               ownerEmailMatches(schema.recordingShares.principalId, recipient),
               eq(schema.recordingShares.resourceId, distinct.recordingId),
               eq(schema.recordingShares.createdAt, distinct.firstSharedAt!),
@@ -484,8 +520,17 @@ function defaultRepository(): TransactionalEmailRepository {
           status: schema.recordings.status,
           archivedAt: schema.recordings.archivedAt,
           trashedAt: schema.recordings.trashedAt,
+          meetingId: schema.meetings.id,
+          meetingVisibility: schema.meetings.visibility,
         })
         .from(schema.recordings)
+        .leftJoin(
+          schema.meetings,
+          and(
+            eq(schema.meetings.recordingId, schema.recordings.id),
+            isNull(schema.meetings.trashedAt),
+          ),
+        )
         .where(
           and(
             eq(schema.recordings.status, "ready"),
@@ -521,8 +566,17 @@ function defaultRepository(): TransactionalEmailRepository {
           status: schema.recordings.status,
           archivedAt: schema.recordings.archivedAt,
           trashedAt: schema.recordings.trashedAt,
+          meetingId: schema.meetings.id,
+          meetingVisibility: schema.meetings.visibility,
         })
         .from(schema.recordings)
+        .leftJoin(
+          schema.meetings,
+          and(
+            eq(schema.meetings.recordingId, schema.recordings.id),
+            isNull(schema.meetings.trashedAt),
+          ),
+        )
         .where(eq(schema.recordings.id, recordingId))
         .limit(1);
       return recording ?? null;
@@ -536,7 +590,12 @@ function defaultRepository(): TransactionalEmailRepository {
         .from(schema.organizationSettings)
         .where(eq(schema.organizationSettings.organizationId, organizationId))
         .limit(1);
-      return settings?.brandLogoUrl?.trim() || null;
+      const stored = settings?.brandLogoUrl?.trim();
+      if (!stored) return null;
+      if (usesOrganizationLogoRoute(stored)) {
+        return organizationLogoAbsoluteUrl(organizationId);
+      }
+      return stored;
     },
     async recipientOwnsRecording(recipient) {
       const [recording] = await db
@@ -553,6 +612,7 @@ function defaultRepository(): TransactionalEmailRepository {
         .where(
           and(
             eq(schema.recordingShares.id, shareId),
+            isNotNull(schema.recordingShares.notifiedAt),
             eq(schema.recordingShares.resourceId, recordingId),
             eq(schema.recordingShares.principalType, "user"),
           ),
@@ -868,12 +928,6 @@ async function reconcileFirstImports(
   };
 }
 
-/**
- * Recaps close on the UTC month boundary but wait until `RECAP_SEND_HOUR_UTC`
- * on the 1st so they land mid-morning in the Americas rather than at midnight.
- * A month is only ever enqueued once per owner, so a late first run of the day
- * still sends rather than skipping the month.
- */
 async function reconcileMonthlyRecaps(
   repository: TransactionalEmailRepository,
   store: TransactionalEmailStore,
@@ -882,9 +936,6 @@ async function reconcileMonthlyRecaps(
 ): Promise<number> {
   if (now.getUTCHours() < RECAP_SEND_HOUR_UTC) return 0;
   const month = previousRecapMonth(now);
-  // Never recap a month that closed before transactional email was switched
-  // on. A month still open at that point does get a recap: the audience it
-  // reports is the owner's own, and skipping it would cost them a full month.
   if (recapMonthRange(month).endAt <= enabledAt) return 0;
 
   let enqueued = 0;
@@ -894,8 +945,6 @@ async function reconcileMonthlyRecaps(
     const recipient = normalizedEmail(ownerEmail);
     if (!recipient || isSuppressedTransactionalRecipient(recipient)) continue;
     const logicalKey = `monthly-recap:${recipient}:${month}`;
-    // Checked before the analytics work: this pass reruns every minute for the
-    // rest of the month, and recomputing a recap already queued is pure waste.
     if (await store.readJob(logicalKey)) continue;
     const recap = await repository.computeMonthlyRecap(recipient, month);
     if (!recap) continue;
@@ -918,11 +967,9 @@ async function makeSendInput(
 ): Promise<ClipsTransactionalEmailInput | null> {
   const recipient = normalizedEmail(job.recipient);
   if (!recipient || isSuppressedTransactionalRecipient(recipient)) return null;
+  if (!(await isTransactionalEmailEnabled(recipient, job.type))) return null;
 
   if (job.type === "monthly-recap") {
-    // Ranked again at send time instead of trusting the queued clip: a month
-    // whose top clip was trashed or overtaken still deserves its recap, and
-    // the analytics already exclude clips the owner can no longer open.
     if (!job.month) return null;
     const recap = await repository.computeMonthlyRecap(recipient, job.month);
     if (!recap) return null;
@@ -985,6 +1032,8 @@ async function makeSendInput(
       kind: "unviewed-reminder",
       to: recipient,
       recordingId: recordings[0].id,
+      meetingId: recordings[0].meetingId,
+      meetingIsPublic: recordings[0].meetingVisibility === "public",
       title: recordings[0].title,
       senderEmail,
       senderName,
@@ -1157,7 +1206,7 @@ export async function runTransactionalEmailsOnce(
       currentTime,
     );
 
-    const jobs = await store.listJobs();
+    const jobs = await store.listJobs(["pending", "ai_dispatched"]);
     const warn = dependencies.warn ?? console.warn;
     for (const job of jobs) {
       const dispatchedAt = job.aiDispatchedAt ?? job.updatedAt;
@@ -1188,7 +1237,7 @@ export async function runTransactionalEmailsOnce(
       return result;
     }
 
-    const deliveryCandidates = (await store.listJobs())
+    const deliveryCandidates = (await store.listJobs(["ready", "sending"]))
       .filter(
         (job) =>
           (job.state === "ready" || job.state === "sending") &&
@@ -1292,6 +1341,8 @@ export async function runTransactionalEmailsOnce(
 }
 
 export default function registerTransactionalEmailsJob(): void {
+  if (process.env.NETLIFY === "true") return;
+
   const isProd = process.env.NODE_ENV === "production";
   const flag = process.env.RUN_BACKGROUND_JOBS;
   const enabled = flag === "1" || (isProd && flag !== "0");

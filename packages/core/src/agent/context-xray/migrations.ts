@@ -9,7 +9,7 @@ export const CONTEXT_XRAY_MIGRATIONS: MigrationEntry[] = [
       segment_id TEXT NOT NULL,
       action TEXT NOT NULL,
       summary_text TEXT,
-      created_by TEXT NOT NULL DEFAULT 'user',
+      created_by TEXT NOT NULL DEFAULT 'user', -- guard:allow-identity-column — enum actor kind, not an email identity
       active INTEGER NOT NULL DEFAULT 1,
       origin_turn TEXT,
       created_at INTEGER NOT NULL,

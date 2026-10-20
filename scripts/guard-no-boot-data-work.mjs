@@ -33,24 +33,34 @@
  *   - lazily, behind the first caller that actually needs the data, memoized.
  *
  * Scope: only lines ADDED on this branch (via scripts/lib/changed-lines.mjs),
- * under a template's, app's, or package's server directory. The existing
- * boot-time backlog is a separate, schedulable cleanup — this stops the habit
- * from growing, which is the only thing a guard can honestly do.
+ * under a template's, app's, or package's server directory, plus any Nitro
+ * plugin implementation anywhere in `packages/`, `templates/`, or `apps/`. The
+ * existing boot-time backlog is a separate, schedulable cleanup — this stops
+ * the habit from growing, which is the only thing a guard can honestly do.
+ *
+ * Known limitation, stated so nobody reads a pass as full coverage: this is a
+ * line-oriented heuristic bounded by `MAX_STARTUP_INDENT`, so boot work nested
+ * deeper stays invisible. `agent-chat-plugin.ts` builds its action registries
+ * inside an `initPromise` IIFE at indent 6+, and none of it is reachable here.
+ * Closing that needs real structural analysis, not a wider regex — widening
+ * the indent alone would flag request handlers in the same file and turn the
+ * pragma into noise.
  *
  * Opt-out, when the work genuinely must happen before serving and is bounded:
  *
  *   // guard:allow-boot-data-work — short reason
  *
  * Same diff-base contract as every guard built on changed-lines.mjs: if the
- * base cannot be resolved we say so loudly and exit 0, because a silent pass
- * here would look identical to a real clean run.
+ * base cannot be resolved the guard exits GUARD_EXIT_COULD_NOT_RUN, which
+ * run-guards.ts reports as SKIPPED, because a silent pass here would look
+ * identical to a real clean run.
  */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { addedLines } from "./lib/changed-lines.mjs";
+import { requireAddedLines } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -59,37 +69,27 @@ const REPO_ROOT = path.resolve(
 
 const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-boot-data-work\b/;
 
-/** Server startup code. A route handler is per-request and not this guard's business. */
 const IN_SCOPE =
-  /^(templates\/[^/]+\/server\/|packages\/[^/]+\/src\/server\/|apps\/[^/]+\/server\/)/;
+  /^(templates\/[^/]+\/server\/|packages\/[^/]+\/(?:src\/)?server\/|apps\/[^/]+\/server\/)/;
+/**
+ * Nitro plugin implementations that do NOT live under a `server/` directory.
+ *
+ * `IN_SCOPE` keys on directory, so it never even read `org/plugin.ts`,
+ * `agent/context-xray/plugin.ts`, `agent/observational-memory/plugin.ts`, or
+ * `terminal/terminal-plugin.ts` — the default plugins whose bootstrap runs
+ * sequentially on every cold start. The thin per-template wrapper under
+ * `server/plugins/` was in scope, but it only calls `createXPlugin({...})`;
+ * the awaits it stands for are all in these files.
+ */
+const PLUGIN_FILE =
+  /^(packages|templates|apps)\/.*(^|\/)[\w.-]*plugin\.[jt]sx?$/;
 const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
 
-/**
- * SCHEMA DDL IS NO LONGER EXEMPT. This guard originally waved through
- * `migrations`, `ensureTable`, `ensureAdditiveColumns` and friends on the
- * reasoning that they short-circuit cheaply once applied. Measured on the
- * Analytics production database, which has 180 tables and 1920 columns:
- *
- *   SELECT 1                                  1.96s
- *   SELECT MAX(version) FROM …_migrations      5.47s   <- the "fast path"
- *   information_schema probe (ensureAdditive)  8.26s
- *
- * Every cold start paid that before it could serve, health checks timed out at
- * 25s, and the app was effectively down. "Bounded and fast" was an assumption,
- * not a measurement, and the exemption is exactly how the pattern survived a
- * cleanup that was supposed to remove it.
- *
- * So: ANY awaited call in a server plugin body is flagged. Schema setup that
- * genuinely must run before serving is still allowed — it just has to say so
- * on the line, where a reviewer sees it, instead of inheriting a blanket
- * exemption written by someone who never measured it.
- */
 const DATA_WORK = new RegExp(
   String.raw`\bawait\s+(?:[$\w]+\.)*(` +
     [
-      // Schema/migration work. Bounded in principle, 5-8s in practice on a
-      // large database — and paid on every cold start, forever.
       "\\w*[Mm]igrations?\\w*",
+      "\\w*[Mm]igrate\\w*",
       "ensureTable\\w*",
       "ensureColumn\\w*",
       "ensureAdditiveColumns",
@@ -113,8 +113,6 @@ const DATA_WORK = new RegExp(
       "warmCache\\w*",
       "preload\\w*",
       "seed\\w*",
-      // Data seeding wearing an `ensure*` name: INSERTs per owner or per org,
-      // whose cost grows with the workspace.
       "ensureDefault\\w*",
       "ensure\\w*Configs?",
       "ensure\\w*Automations?",
@@ -123,45 +121,29 @@ const DATA_WORK = new RegExp(
     `)\\s*\\(`,
 );
 
-/**
- * A plugin's default export body and module scope both run at startup. This is
- * a line-oriented approximation: a call sitting at low indentation in a server
- * plugin is startup code, while one nested inside a handler or callback is not.
- * Cheap and wrong in the safe direction — deep nesting is skipped, so the guard
- * under-reports rather than crying wolf.
- */
 const MAX_STARTUP_INDENT = 4;
 
 function isStartupContext(line, file) {
   const indent = line.length - line.trimStart().length;
   if (indent > MAX_STARTUP_INDENT) return false;
-  // Plugin files are startup by definition; elsewhere only module scope counts.
-  if (/\/server\/plugins\//.test(file)) return true;
+  if (/\/server\/plugins\//.test(file) || PLUGIN_FILE.test(file)) return true;
   return indent === 0;
 }
 
-const added = addedLines(REPO_ROOT);
-if (added === null) {
-  console.error(
-    "guard-no-boot-data-work: cannot resolve a diff base (no origin/main or main).",
-  );
-  console.error(
-    "  This is NOT a clean result — nothing was checked. Fetch main and re-run.",
-  );
-  process.exit(0);
-}
+const added = requireAddedLines(REPO_ROOT, "guard-no-boot-data-work");
 
 const violations = [];
 for (const [absPath, lineNumbers] of added) {
-  const rel = path.relative(REPO_ROOT, absPath);
-  if (!IN_SCOPE.test(rel) || SKIPPED.test(rel)) continue;
+  const rel = path.relative(REPO_ROOT, absPath).replace(/\\/g, "/");
+  if (!(IN_SCOPE.test(rel) || PLUGIN_FILE.test(rel)) || SKIPPED.test(rel))
+    continue;
   if (!/\.(ts|tsx|mjs|js)$/.test(rel)) continue;
 
   let lines;
   try {
     lines = readFileSync(absPath, "utf8").split("\n");
   } catch {
-    continue; // deleted or renamed since the diff was computed
+    continue;
   }
 
   for (const lineNumber of lineNumbers) {

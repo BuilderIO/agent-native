@@ -1,90 +1,80 @@
-import {
-  IconApps,
-  IconHome,
-  IconMessageCircle,
-  IconSparkles,
-  IconTerminal2,
-} from "@tabler/icons-react-native";
-import { Tabs } from "expo-router";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 
-const HIDDEN_APP_ROUTES = [
-  "analytics",
-  "brain",
-  "calendar",
-  "content",
-  "design",
-  "dispatch",
-  "forms",
-  "settings",
-  "slides",
+import AnalyticsTab from "@/app/(tabs)/analytics";
+import AssetsTab from "@/app/(tabs)/assets";
+import BrainTab from "@/app/(tabs)/brain";
+import CalendarTab from "@/app/(tabs)/calendar";
+import ChatTab from "@/app/(tabs)/chat";
+import ClipsTab from "@/app/(tabs)/clips";
+import ContentTab from "@/app/(tabs)/content";
+import DesignTab from "@/app/(tabs)/design";
+import DispatchTab from "@/app/(tabs)/dispatch";
+import FormsTab from "@/app/(tabs)/forms";
+import MailTab from "@/app/(tabs)/mail";
+import AppsScreen from "@/app/(tabs)/more";
+import PlanTab from "@/app/(tabs)/plan";
+import SessionsScreen from "@/app/(tabs)/sessions";
+import SettingsScreen from "@/app/(tabs)/settings";
+import SlidesTab from "@/app/(tabs)/slides";
+import ChatFirstBottomTabs from "@/components/ChatFirstBottomTabs";
+import { TabBarMinimizeProvider } from "@/components/TabBarEffects";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
+import type { MobileTabParamList } from "@/lib/navigation";
+
+const Tab = createBottomTabNavigator<MobileTabParamList>();
+
+const screens = [
+  ["analytics", AnalyticsTab],
+  ["assets", AssetsTab],
+  ["brain", BrainTab],
+  ["calendar", CalendarTab],
+  ["clips", ClipsTab],
+  ["content", ContentTab],
+  ["design", DesignTab],
+  ["dispatch", DispatchTab],
+  ["forms", FormsTab],
+  ["mail", MailTab],
+  ["plan", PlanTab],
+  ["sessions", SessionsScreen],
+  ["settings", SettingsScreen],
+  ["slides", SlidesTab],
 ] as const;
 
 export default function TabLayout() {
+  const { foreground, mutedForeground } = useMobileThemeColors();
+
   return (
-    <Tabs
-      initialRouteName="index"
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: "#f4f4f5",
-        tabBarInactiveTintColor: "#71717a",
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
-        tabBarStyle: {
-          backgroundColor: "#0b0b0c",
-          borderTopColor: "#27272a",
-          height: 82,
-          paddingBottom: 22,
-          paddingTop: 8,
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ color, size }) => (
-            <IconHome color={color} size={size} strokeWidth={1.8} />
-          ),
+    <TabBarMinimizeProvider>
+      <Tab.Navigator
+        initialRouteName="chat"
+        tabBar={(props) => <ChatFirstBottomTabs {...props} />}
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: foreground,
+          tabBarInactiveTintColor: mutedForeground,
+          tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+          tabBarStyle: {
+            backgroundColor: "transparent",
+            borderTopWidth: 0,
+            elevation: 0,
+            position: "absolute",
+          },
         }}
-      />
-      <Tabs.Screen
-        name="clips"
-        options={{
-          title: "Clips",
-          tabBarIcon: ({ color, size }) => (
-            <IconSparkles color={color} size={size} strokeWidth={1.8} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          title: "Chat",
-          tabBarIcon: ({ color, size }) => (
-            <IconMessageCircle color={color} size={size} strokeWidth={1.8} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="sessions"
-        options={{
-          title: "Sessions",
-          tabBarIcon: ({ color, size }) => (
-            <IconTerminal2 color={color} size={size} strokeWidth={1.8} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="more"
-        options={{
-          title: "Apps",
-          tabBarIcon: ({ color, size }) => (
-            <IconApps color={color} size={size} strokeWidth={1.8} />
-          ),
-        }}
-      />
-      {HIDDEN_APP_ROUTES.map((name) => (
-        <Tabs.Screen key={name} name={name} options={{ href: null }} />
-      ))}
-    </Tabs>
+      >
+        <Tab.Screen
+          component={ChatTab}
+          name="chat"
+          options={{ title: "Chat" }}
+        />
+        <Tab.Screen
+          component={AppsScreen}
+          name="more"
+          options={{ title: "More" }}
+        />
+        {screens.map(([name, component]) => (
+          <Tab.Screen component={component} key={name} name={name} />
+        ))}
+      </Tab.Navigator>
+    </TabBarMinimizeProvider>
   );
 }

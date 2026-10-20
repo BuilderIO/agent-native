@@ -6,6 +6,8 @@ import {
   docsMarkdownPathForSlug,
   docsPathForSlug,
   docsSlugFromPathname,
+  routeLocaleFromPathname,
+  sitePathForLocale,
   type DocsLocale,
 } from "./docs-locale";
 
@@ -24,14 +26,11 @@ function normalizePath(pathname: string) {
 
 export function canonicalPathForPath(pathname: string) {
   const path = normalizePath(pathname);
-  const slug = docsSlugFromPathname(path);
-  if (slug === "getting-started") {
-    return docsPathForSlug(
-      "getting-started",
-      docsLocaleFromPathname(path) ?? DEFAULT_DOCS_LOCALE,
-    );
-  }
-  return CANONICAL_ALIASES[path] ?? path;
+  const aliased = CANONICAL_ALIASES[path] ?? path;
+  return sitePathForLocale(
+    aliased,
+    routeLocaleFromPathname(aliased) ?? DEFAULT_DOCS_LOCALE,
+  );
 }
 
 function canonicalDocsPathForSlug(slug: string, locale: DocsLocale) {
@@ -73,7 +72,6 @@ export function docsAlternateLinksForPath(
 
   for (const locale of DOCS_LOCALES) {
     if (locale === DEFAULT_DOCS_LOCALE) continue;
-    if (!hasAvailableDoc(locale, slug)) continue;
     links.push({
       hrefLang: locale,
       path: canonicalDocsPathForSlug(slug, locale),

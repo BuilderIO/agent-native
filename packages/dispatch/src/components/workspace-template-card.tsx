@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { normalizeWorkspaceAppId } from "@agent-native/core/shared";
 import {
   IconArrowUpRight,
   IconCircleCheck,
@@ -12,6 +13,7 @@ import { cn } from "../lib/utils";
 import { AppIcon } from "./app-icon";
 import { AppListRow } from "./app-list-row";
 import { AppOpenActions } from "./app-open-actions";
+import { AppRowSettings } from "./app-row-settings";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -94,17 +96,6 @@ export interface WorkspaceTemplateCardProps {
   ) => void;
 }
 
-function slugifyAppId(value: string): string {
-  return (
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48) || "new-app"
-  );
-}
-
 function templateIdFor(template: CuratedWorkspaceTemplate): string {
   return template.templateId || template.id || template.appId || template.name;
 }
@@ -113,8 +104,9 @@ function defaultAppIdFor(
   template: CuratedWorkspaceTemplate,
   defaultAppId?: string,
 ): string {
-  if (defaultAppId) return slugifyAppId(defaultAppId);
-  const sourceId = slugifyAppId(template.appId || template.name);
+  if (defaultAppId) return normalizeWorkspaceAppId(defaultAppId) || "new-app";
+  const sourceId =
+    normalizeWorkspaceAppId(template.appId || template.name) || "new-app";
   return `${sourceId}-app`;
 }
 
@@ -152,7 +144,7 @@ export function WorkspaceTemplateCard({
       const message = (result as { message?: string } | null)?.message;
       if (mode === "builder") {
         toast.success(labels.remixSuccess);
-      } else if (mode === "builder-unavailable") {
+      } else if (mode === "builder-unavailable" || mode === "app-id-taken") {
         toast.error(message || labels.remixError);
       } else if (mode === "coming-soon") {
         toast.info(message || labels.remixSuccess);
@@ -173,15 +165,16 @@ export function WorkspaceTemplateCard({
   }, [defaultAppId, open, template]);
 
   function submitRemix() {
-    const trimmedAppId = appId.trim();
-    if (!trimmedAppId) {
+    const normalizedAppId = normalizeWorkspaceAppId(appId);
+    if (!normalizedAppId) {
       toast.error(labels.appIdRequired);
       return;
     }
+    setAppId(normalizedAppId);
 
     remix.mutate({
       templateId: templateIdFor(template),
-      appId: trimmedAppId,
+      appId: normalizedAppId,
     });
   }
 
@@ -214,17 +207,22 @@ export function WorkspaceTemplateCard({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {catalog ? (
-          <AppOpenActions
-            name={template.name}
-            href={liveUrl ?? null}
-            target="_blank"
-            rel="noreferrer"
-            labels={{
-              addApp: labels.remix,
-              openApp: labels.openApp,
-            }}
-            onAddApp={() => setOpen(true)}
-          />
+          <>
+            {liveUrl ? (
+              <AppOpenActions
+                name={template.name}
+                href={liveUrl}
+                rel="noreferrer"
+                labels={{ openApp: labels.openApp }}
+                showNewTabOption
+              />
+            ) : null}
+            <AppRowSettings
+              name={template.name}
+              addAppLabel={labels.remix}
+              onAddApp={() => setOpen(true)}
+            />
+          </>
         ) : liveUrl ? (
           <Button variant="ghost" size="sm" className="shrink-0" asChild>
             <a href={liveUrl} target="_blank" rel="noreferrer">
@@ -271,6 +269,7 @@ export function WorkspaceTemplateCard({
                   value={appId}
                   autoComplete="off"
                   onChange={(event) => setAppId(event.target.value)}
+                  onBlur={() => setAppId(normalizeWorkspaceAppId(appId))}
                   disabled={remix.isPending}
                 />
               </div>

@@ -36,8 +36,10 @@ Tier 4 includes **all** of the following — not only editing package source:
 - Files under `node_modules/@agent-native/*` (core, dispatch, scheduling, …)
 - `pnpm.overrides`, `overrides`, `resolutions`, or `patchedDependencies` that
   target any `@agent-native/*` package
-- Local package patches or invented "dispatch/core behavior" shims meant to
-  paper over a version skew or failed upgrade
+- `pnpm patch`, `pnpm patch-commit`, or local package patch artifacts for any
+  dependency
+- Invented "dispatch/core behavior" shims meant to paper over a version skew
+  or failed upgrade
 
 This does not prohibit intentional app-owned UI customization. When public
 props and composition are insufficient, the `customizing-agent-native` skill
@@ -88,9 +90,9 @@ el.dataset.selectedId = selectedItem?.id || "";
 **Use configuration-driven rendering** — Extract visual decisions (colors, layouts, sizes) into JSON config files in `data/`. The agent can modify the config (Tier 1) instead of the component source (Tier 2).
 
 **Keep localized copy in catalogs** — When editing visible UI copy, labels,
-toasts, empty states, prompts, or formatting, read `internationalization` and
-update `app/i18n/en-US.ts` plus existing locale catalogs instead of leaving new
-inline strings in components.
+toasts, empty states, prompts, or formatting, update the English source catalog.
+Read the optional `internationalization` skill and update additional catalogs
+only when `translations.locales` in `agent-native.config.ts` includes them.
 
 ## Don't
 
@@ -100,8 +102,10 @@ inline strings in components.
 - Don't confuse readable package source with app-owned code: use
   `customizing-agent-native` and `agent-native eject` for supported ownership
   transfer
+- Don't use `pnpm patch` / `pnpm patch-commit`, commit `patches/` artifacts, or
+  add `pnpm.patchedDependencies` to "make the app run" after a version bump
 - Don't add `pnpm.overrides` / `patchedDependencies` / `resolutions` for
-  `@agent-native/*` to "make the app run" after a version bump
+  `@agent-native/*` to paper over a broken upgrade
 - Don't invent local dispatch/core behavior overrides when upgrade fails —
   run `npx @agent-native/core@latest upgrade`, then fix app-level errors only
 - Don't modify `.agents/skills/` or `AGENTS.md` unless explicitly requested

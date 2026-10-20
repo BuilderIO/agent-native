@@ -1,19 +1,19 @@
-/**
- * changed-lines.mjs
- *
- * Diff-scoped guard support. Some rules describe a habit we want to stop, not
- * a backlog we can clear — the repo already has thousands of `?? []` sites and
- * hundreds of raw colors. A guard that fails on all of them is a guard someone
- * turns off. These helpers let a guard fail only on lines this branch ADDED,
- * so the tenth instance cannot ship while the first nine stay a separate,
- * schedulable cleanup.
- */
-
 import { execFileSync } from "node:child_process";
+import path from "node:path";
 
 const DIFF_BASE_ENV = ["GUARD_DIFF_BASE", "GITHUB_BASE_REF"];
 
-/** Resolve the ref to diff against: explicit env, then origin/main, then main. */
+export const GUARD_EXIT_COULD_NOT_RUN = 2;
+
+export function execGuardCommand(command, args, options = {}) {
+  try {
+    return execFileSync(command, args, options);
+  } catch {
+    console.error(`guard command could not run: ${command} ${args.join(" ")}`);
+    process.exit(GUARD_EXIT_COULD_NOT_RUN);
+  }
+}
+
 export function resolveDiffBase(cwd) {
   for (const name of DIFF_BASE_ENV) {
     const value = process.env[name];
@@ -27,11 +27,6 @@ export function resolveDiffBase(cwd) {
   return null;
 }
 
-/**
- * Lines added on this branch, as `{ [absolutePath]: Set<lineNumber> }`.
- * Returns null when the diff cannot be computed — callers must treat that as
- * "cannot tell", never as "nothing changed".
- */
 export function addedLines(cwd, { includeWorkingTree = true } = {}) {
   const base = resolveDiffBase(cwd);
   if (!base) return null;
@@ -47,15 +42,60 @@ export function addedLines(cwd, { includeWorkingTree = true } = {}) {
   return parseUnifiedDiff(diff, cwd);
 }
 
-function parseUnifiedDiff(diff, cwd) {
+/**
+ * `addedLines`, but a guard that cannot scope itself exits instead of
+ * continuing. Every diff-scoped guard used to hand-roll this and every one of
+ * them printed a paragraph saying "this is NOT a pass" and then exited 0 —
+ * the exact coercion CLAUDE.md's flagship rule bans, in the scripts that
+ * enforce it. The caller gets a Map or it gets nothing.
+ */
+export function requireAddedLines(cwd, guardName, options) {
+  const added = addedLines(cwd, options);
+  if (added !== null) return added;
+  console.error(
+    `${guardName}: could not determine which lines this branch added ` +
+      "(no GUARD_DIFF_BASE/GITHUB_BASE_REF, no origin/main or main ref, " +
+      "git diff failed, or git reported a source file as binary), so the " +
+      "check did not run.\n" +
+      "  Fix with:  git fetch origin main   (or set GUARD_DIFF_BASE=<ref>)\n" +
+      "  If a source file diffs as binary, it contains a NUL or other binary\n" +
+      "  byte - find it with:  git diff --numstat   (look for '-' counts)",
+  );
+  process.exit(GUARD_EXIT_COULD_NOT_RUN);
+}
+
+const SOURCE_EXTENSIONS =
+  /\.(?:tsx?|jsx?|mjs|cjs|mdx?|css|scss|json|ya?ml|html|sh)$/i;
+
+export function parseUnifiedDiff(diff, cwd, pathApi = path) {
   const result = new Map();
   let file = null;
   let line = 0;
   for (const raw of diff.split("\n")) {
+    // Git emits no +++/@@/+ lines for a file it considers binary, so such a
+    // file contributes nothing here and every diff-scoped guard passes having
+    // inspected none of it. A single stray NUL byte is enough to mark a .ts
+    // file binary, which is indistinguishable from a clean check. Refuse to
+    // scope rather than report a pass over a file we never read.
+    const binary = /^Binary files (?:a\/)?(.+?) and (?:b\/)?(.+?) differ$/.exec(
+      raw,
+    );
+    if (
+      binary &&
+      (SOURCE_EXTENSIONS.test(binary[1]) || SOURCE_EXTENSIONS.test(binary[2]))
+    ) {
+      return null;
+    }
     if (raw.startsWith("+++ ")) {
       const target = raw.slice(4).trim();
+      const path = target.replace(/^b\//, "");
+      // Keys are native absolute paths so a guard can look one up with a
+      // path.join/path.resolve result; a "/"-joined key never matches on Windows.
+      // Prototypes are throwaway design artifacts, not shipped code, so the diff-scoped guards don't police them.
       file =
-        target === "/dev/null" ? null : `${cwd}/${target.replace(/^b\//, "")}`;
+        target === "/dev/null" || path.startsWith("prototypes/")
+          ? null
+          : pathApi.resolve(cwd, path);
       continue;
     }
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(raw);

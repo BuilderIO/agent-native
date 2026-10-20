@@ -8,8 +8,22 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { codeToHtml } from "shiki";
 
+import {
+  BUILDER_IMAGE_WIDTHS,
+  getBuilderImageSrcSet,
+  getBuilderImageUrl,
+  isBuilderImageUrl,
+} from "./builder-image-urls";
+import {
+  DEFAULT_DOCS_LOCALE,
+  localizeSiteHref,
+  type DocsLocale,
+} from "./docs-locale";
+import { slugifyHeading } from "./heading-slug";
+
 interface Props {
   markdown: string;
+  locale?: DocsLocale;
 }
 
 interface HighlightedMarkdownHtml {
@@ -25,6 +39,8 @@ interface ImageDimensions {
 const DEFAULT_CODE_MAX_LINES = 17;
 const MAX_CONFIGURED_CODE_LINES = 2000;
 const MAX_RENDERED_MARKDOWN_CACHE_ENTRIES = 64;
+const DOCS_BUILDER_IMAGE_FALLBACK_WIDTH =
+  BUILDER_IMAGE_WIDTHS[BUILDER_IMAGE_WIDTHS.length - 1] ?? 2400;
 
 const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
   "/screenshots/analytics.png": { width: 1400, height: 710 },
@@ -92,7 +108,6 @@ const GENERIC_LANGUAGES = new Set(["", "plain", "plaintext", "text", "txt"]);
 interface CodeFenceOptions {
   language?: string;
   maxLines?: number;
-  /** Real project file path from a `filename="path/to/file.ts"` fence attribute. */
   filename?: string;
 }
 
@@ -272,10 +287,6 @@ function imageDimensionsForHref(href: string): ImageDimensions | undefined {
   return DOCS_IMAGE_DIMENSIONS[decodeHtmlEntities(href).trim()];
 }
 
-/**
- * Marked tokenizer extension: `[[Ctrl+K]]` → `<kbd>Ctrl+K</kbd>`
- * Lets authors write keyboard shortcuts inline without raw HTML.
- */
 const kbdExtension: MarkedExtension = {
   extensions: [
     {
@@ -296,15 +307,27 @@ const kbdExtension: MarkedExtension = {
 
 marked.use(kbdExtension);
 
-// Custom renderer to add IDs to headings and handle {#custom-id} syntax
-function createRenderer() {
+function createRenderer(locale: DocsLocale) {
   const renderer = new marked.Renderer();
+  let legacyAnchorOpen = false;
 
   renderer.html = function ({ text }: Tokens.HTML) {
-    // Strip HTML comments entirely (used by the docs build for screenshot
-    // metadata, e.g. `<!-- screenshot: url=... -->` — should never render).
-    // Escape everything else for safety.
     if (/^\s*<!--[\s\S]*?-->\s*$/.test(text)) return "";
+    const legacyAnchor = text.match(
+      /^\s*<a id="([A-Za-z][A-Za-z0-9_-]*)"><\/a>\s*$/,
+    );
+    if (legacyAnchor) return `<span id="${legacyAnchor[1]}"></span>`;
+    const legacyAnchorStart = text.match(
+      /^\s*<a id="([A-Za-z][A-Za-z0-9_-]*)">\s*$/,
+    );
+    if (legacyAnchorStart) {
+      legacyAnchorOpen = true;
+      return `<span id="${legacyAnchorStart[1]}"></span>`;
+    }
+    if (legacyAnchorOpen && /^\s*<\/a>\s*$/.test(text)) {
+      legacyAnchorOpen = false;
+      return "";
+    }
     return escapeHtml(text);
   };
 
@@ -312,7 +335,8 @@ function createRenderer() {
     const text = this.parser.parseInline(token.tokens);
     if (!isSafeUrl(token.href, "link")) return text;
     const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
-    return `<a href="${escapeHtml(token.href)}"${title}>${text}</a>`;
+    const href = localizeSiteHref(token.href, locale);
+    return `<a href="${escapeHtml(href)}"${title}>${text}</a>`;
   };
 
   renderer.image = function (token: Tokens.Image) {
@@ -322,15 +346,19 @@ function createRenderer() {
     const sizeAttributes = dimensions
       ? ` width="${dimensions.width}" height="${dimensions.height}"`
       : "";
-    const image = `<img src="${escapeHtml(token.href)}" alt="${escapeHtml(token.text)}"${title} class="docs-image" loading="lazy" decoding="async"${sizeAttributes}>`;
+    const builderImageAttributes = isBuilderImageUrl(token.href)
+      ? [
+          `src="${escapeHtml(getBuilderImageUrl(token.href, DOCS_BUILDER_IMAGE_FALLBACK_WIDTH))}"`,
+          `srcset="${escapeHtml(getBuilderImageSrcSet(token.href) ?? "")}"`,
+        ].join(" ")
+      : `src="${escapeHtml(token.href)}"`;
+    const image = `<img ${builderImageAttributes} alt="${escapeHtml(token.text)}"${title} class="docs-image" loading="lazy" decoding="async"${sizeAttributes}>`;
 
     if (!dimensions) return image;
 
     return `<span class="docs-image-frame" style="aspect-ratio: ${dimensions.width} / ${dimensions.height};">${image}</span>`;
   };
 
-  // Wrap code blocks in `.code-block` from the start so that the post-hydration
-  // shiki swap only replaces the inner <pre> — no margin / structure change.
   renderer.code = function ({ text, lang }: Tokens.Code) {
     const options = parseCodeFenceOptions(lang);
     const resolvedLang = resolveCodeBlockLanguage(options.language, text);
@@ -361,10 +389,7 @@ function createRenderer() {
     this: RendererThis,
     { tokens, depth }: Tokens.Heading,
   ) {
-    // Render inline tokens to HTML so backticks, links, etc. work in headings.
-    // marked v9+ passes raw markdown source as `text`; we need parseInline.
     const rendered = this.parser.parseInline(tokens);
-    // Extract custom ID from {#my-id} syntax (lives in the rendered text)
     const idMatch = rendered.match(/\s*\{#([\w-]+)\}\s*$/);
     let id: string;
     let displayHtml: string;
@@ -374,10 +399,7 @@ function createRenderer() {
     } else {
       displayHtml = rendered;
       const plain = rendered.replace(/<[^>]+>/g, "");
-      id = plain
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
+      id = slugifyHeading(plain);
     }
     const tag = `h${depth}`;
     return `<${tag} id="${id}">${displayHtml}</${tag}>\n`;
@@ -388,21 +410,26 @@ function createRenderer() {
 
 const renderedMarkdownCache = new Map<string, string>();
 
-export function renderMarkdownToHtml(markdown: string): string {
-  const cached = renderedMarkdownCache.get(markdown);
+export function renderMarkdownToHtml(
+  markdown: string,
+  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+): string {
+  const cacheKey =
+    locale === DEFAULT_DOCS_LOCALE ? markdown : `${locale}\0${markdown}`;
+  const cached = renderedMarkdownCache.get(cacheKey);
   if (cached !== undefined) {
-    renderedMarkdownCache.delete(markdown);
-    renderedMarkdownCache.set(markdown, cached);
+    renderedMarkdownCache.delete(cacheKey);
+    renderedMarkdownCache.set(cacheKey, cached);
     return cached;
   }
 
-  const renderer = createRenderer();
-  const html = marked(markdown, { renderer, async: false }) as string;
+  const renderer = createRenderer(locale);
+  const html = `<!--email_off-->${marked(markdown, { renderer, async: false }) as string}<!--/email_off-->`;
   if (renderedMarkdownCache.size >= MAX_RENDERED_MARKDOWN_CACHE_ENTRIES) {
     const oldest = renderedMarkdownCache.keys().next().value;
     if (oldest !== undefined) renderedMarkdownCache.delete(oldest);
   }
-  renderedMarkdownCache.set(markdown, html);
+  renderedMarkdownCache.set(cacheKey, html);
   return html;
 }
 
@@ -415,26 +442,24 @@ export function resolveRenderedMarkdownHtml(
     : baseHtml;
 }
 
-export default function MarkdownRenderer({ markdown }: Props) {
+export default function MarkdownRenderer({
+  markdown,
+  locale = DEFAULT_DOCS_LOCALE,
+}: Props) {
   const articleRef = useRef<HTMLDivElement>(null);
   const t = useT();
   const [highlightedHtml, setHighlightedHtml] =
     useState<HighlightedMarkdownHtml | null>(null);
 
-  // Convert markdown to HTML
   const baseHtml = useMemo(() => {
-    return renderMarkdownToHtml(markdown);
-  }, [markdown]);
+    return renderMarkdownToHtml(markdown, locale);
+  }, [markdown, locale]);
 
-  // Highlight code blocks with Shiki after mount
   useEffect(() => {
     let cancelled = false;
     setHighlightedHtml(null);
 
     async function highlightCodeBlocks(html: string) {
-      // Match the inner <pre><code class="language-xxx">...</code></pre> emitted
-      // by `renderer.code`. The surrounding `<div class="code-block">` wrapper
-      // stays put — we only swap the <pre> contents so margins don't shift.
       const codeBlockPattern =
         /<pre><code class="language-([\w-]+)">([\s\S]*?)<\/code><\/pre>/g;
       const matches: {
@@ -458,7 +483,6 @@ export default function MarkdownRenderer({ markdown }: Props) {
         return;
       }
 
-      // Highlight all code blocks in parallel
       const highlighted = await Promise.all(
         matches.map(async (m) => {
           const decoded = m.code
@@ -474,20 +498,15 @@ export default function MarkdownRenderer({ markdown }: Props) {
                 light: "github-light-default",
                 dark: "github-dark-default",
               },
-              // Emit BOTH --shiki-light and --shiki-dark CSS vars (no baked-in
-              // default theme) so per-theme color rules work in both modes.
               defaultColor: false,
             });
             return { ...m, html: result };
           } catch {
-            // Fallback: keep original
             return { ...m, html: m.full };
           }
         }),
       );
 
-      // Replace inner <pre> only — the `.code-block` wrapper from the renderer
-      // already lives in the markup, so we don't add another one.
       let result = html;
       for (let i = highlighted.length - 1; i >= 0; i--) {
         const h = highlighted[i];
@@ -500,13 +519,12 @@ export default function MarkdownRenderer({ markdown }: Props) {
       if (!cancelled) setHighlightedHtml({ sourceHtml: html, html: result });
     }
 
-    highlightCodeBlocks(baseHtml);
+    void highlightCodeBlocks(baseHtml);
     return () => {
       cancelled = true;
     };
   }, [baseHtml]);
 
-  // Add anchor links to headings after render
   useEffect(() => {
     const el = articleRef.current;
     if (!el) return;
@@ -528,7 +546,6 @@ export default function MarkdownRenderer({ markdown }: Props) {
     }
   }, [highlightedHtml]);
 
-  // Add copy buttons to code blocks after render
   useEffect(() => {
     const el = articleRef.current;
     if (!el) return;

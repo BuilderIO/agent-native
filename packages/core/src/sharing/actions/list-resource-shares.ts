@@ -3,8 +3,10 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { organizations } from "../../org/schema.js";
-import { resolveAccess } from "../access.js";
+import { listWorkspaceUserGroupsForOrg } from "../../workspace-connections/groups.js";
+import { assertAccess, resolveAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+import { assertWidgetShareReadGrant } from "../widget-grant.js";
 
 async function loadOrgDisplayNames(
   db: any,
@@ -39,51 +41,95 @@ async function loadOrgDisplayNames(
       ),
     );
   } catch {
-    // Some templates or older local databases may not have org tables yet.
+    return new Map();
+  }
+}
+
+async function loadGroupDisplayNames(
+  orgId: string | null | undefined,
+  shares: Array<{ principalType: string; principalId: string }>,
+): Promise<Map<string, string>> {
+  const groupIds = Array.from(
+    new Set(
+      shares
+        .filter((share) => share.principalType === "group" && share.principalId)
+        .map((share) => share.principalId),
+    ),
+  );
+  if (!groupIds.length || !orgId) return new Map();
+  try {
+    const groups = await listWorkspaceUserGroupsForOrg(orgId, groupIds);
+    return new Map(
+      groups.flatMap((group): Array<[string, string]> => {
+        const id = group.id;
+        const name = group.name.trim();
+        return id && name ? [[id, name]] : [];
+      }),
+    );
+  } catch {
     return new Map();
   }
 }
 
 export default defineAction({
   description:
-    "List the current visibility and share grants on a shareable resource. Any read access is sufficient.",
+    "List the current visibility and share grants on a shareable resource. Ordinary reads require resource access; widget reads require admin access.",
   schema: z.object({
     resourceType: z.string(),
     resourceId: z.string(),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, context) => {
+    assertWidgetShareReadGrant(context, args);
     const reg = requireShareableResource(args.resourceType);
-    const policy = {
-      // Defaults match registration defaults so the UI behaves the same for
-      // resources that haven't opted into restrictions.
+    const policy: {
+      allowPublic: boolean;
+      requireOrgMemberForUserShares: boolean;
+      supportsGroupShares?: boolean;
+    } = {
       allowPublic: reg.allowPublic !== false,
       requireOrgMemberForUserShares: reg.requireOrgMemberForUserShares === true,
+      ...(reg.supportsGroupShares === true
+        ? { supportsGroupShares: true }
+        : {}),
     };
-    // Only `ownerEmail`/`orgId`/`visibility` are read below, all of which the
-    // projected load carries — so the share dialog never pulls a resource's
-    // body blob just to render who it is shared with.
-    const access = await resolveAccess(
-      args.resourceType,
-      args.resourceId,
-      undefined,
-      { skipResourceBody: true },
-    );
+    const access = context?.mcpDirectoryWidgetReadOnly
+      ? await assertAccess(
+          args.resourceType,
+          args.resourceId,
+          "admin",
+          undefined,
+          { skipResourceBody: true },
+        )
+      : await resolveAccess(args.resourceType, args.resourceId, undefined, {
+          skipResourceBody: true,
+        });
     if (!access)
       return { ownerEmail: null, visibility: null, shares: [], policy };
 
     const db = reg.getDb() as any;
     const shares = await db
-      .select()
+      .select({
+        id: reg.sharesTable.id,
+        principalType: reg.sharesTable.principalType,
+        principalId: reg.sharesTable.principalId,
+        role: reg.sharesTable.role,
+        createdAt: reg.sharesTable.createdAt,
+      })
       .from(reg.sharesTable)
       .where(eq(reg.sharesTable.resourceId, args.resourceId));
     const orgDisplayNames = await loadOrgDisplayNames(db, shares);
+    const groupDisplayNames = await loadGroupDisplayNames(
+      access.resource.orgId,
+      shares,
+    );
 
     return {
       ownerEmail: access.resource.ownerEmail ?? null,
       orgId: access.resource.orgId ?? null,
       visibility: access.resource.visibility ?? "private",
       role: access.role,
+      agentReadable: Boolean(reg.agentReadable),
       shares: shares.map((s: any) => ({
         id: s.id,
         principalType: s.principalType,
@@ -91,7 +137,9 @@ export default defineAction({
         displayName:
           s.principalType === "org"
             ? orgDisplayNames.get(s.principalId)
-            : undefined,
+            : s.principalType === "group"
+              ? groupDisplayNames.get(s.principalId)
+              : undefined,
         role: s.role,
         createdAt: s.createdAt,
       })),

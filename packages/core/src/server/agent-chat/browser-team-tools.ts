@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
 
+import {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
+  normalizeAgentTeamProgressResult,
+} from "../../action-ui.js";
 import type { AgentEngine } from "../../agent/engine/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
+import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
-  buildMergedConfig,
   setBuiltinMcpCapabilityEnabled,
   type BuiltinMcpCapabilityId,
 } from "../../mcp-client/index.js";
@@ -13,14 +17,76 @@ import {
   resolveBuilderBranchProjectId,
 } from "../builder-browser.js";
 import { getRequestUserEmail } from "../request-context.js";
-import { getGlobalMcpManager } from "./mcp-glue.js";
-
-// ---------------------------------------------------------------------------
-// Builder.io browser-connect / built-in MCP toggle tools, and the unified
-// `agent-teams` sub-agent orchestration tool.
-// ---------------------------------------------------------------------------
+import { getMcpManagerForCurrentRequest } from "./mcp-glue.js";
 
 const MAX_EXTENSION_PROMOTION_CONTENT_CHARS = 200_000;
+const MAX_AGENT_TEAM_PROGRESS_TASKS = 3;
+
+type AgentTeamDispatchStateReader = (
+  taskId: string,
+) => Promise<{ status: string } | null>;
+
+async function agentTeamTaskStatus(
+  taskId: string,
+  status: string,
+  readDispatchState?: Promise<AgentTeamDispatchStateReader>,
+): Promise<string> {
+  if (status !== "running") return status;
+  const readState = readDispatchState
+    ? await readDispatchState
+    : (await import("../agent-teams-run-queue.js"))
+        .getAgentTeamRunDispatchState;
+  const dispatch = await readState(taskId);
+  if (dispatch?.status === "queued") return "queued";
+  return status;
+}
+
+function projectAgentTeamProgressResult(
+  value: unknown,
+): ReturnType<typeof normalizeAgentTeamProgressResult> {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      // coercion-ok: malformed JSON leaves the ordinary tool row intact.
+      return null;
+    }
+  }
+
+  const values = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>).tasks
+      : null;
+  if (
+    !Array.isArray(values) ||
+    values.length <= MAX_AGENT_TEAM_PROGRESS_TASKS
+  ) {
+    return normalizeAgentTeamProgressResult(value);
+  }
+
+  const visible = values.slice(0, MAX_AGENT_TEAM_PROGRESS_TASKS);
+  const last = visible[MAX_AGENT_TEAM_PROGRESS_TASKS - 1];
+  if (last && typeof last === "object" && !Array.isArray(last)) {
+    const record = last as Record<string, unknown>;
+    const detail = [
+      record.detail,
+      record.currentStep,
+      record.preview,
+      record.summary,
+    ].find((candidate) => typeof candidate === "string");
+    const overflow = `… +${values.length - MAX_AGENT_TEAM_PROGRESS_TASKS}`;
+    const detailText = typeof detail === "string" ? detail.trim() : "";
+    const separator = detailText ? " · " : "";
+    visible[visible.length - 1] = {
+      ...record,
+      detail: `${detailText.slice(0, 240 - separator.length - overflow.length)}${separator}${overflow}`,
+    };
+  }
+
+  return normalizeAgentTeamProgressResult(visible);
+}
 
 interface ExtensionPromotionArtifact {
   id: string;
@@ -110,14 +176,34 @@ export function createBuilderBrowserTool(deps: {
       id,
       enabled,
     );
-    const manager = getGlobalMcpManager();
-    if (manager) {
-      await manager.reconfigure(await buildMergedConfig());
-    }
+    await getMcpManagerForCurrentRequest(true);
     return { ok: true, enabledIds: enabledIds ?? [] };
   };
 
   const entries: Record<string, ActionEntry> = {
+    "connect-file-storage": {
+      tool: {
+        description:
+          "Render the inline file-storage setup card when an image or file attachment could not be durably uploaded. The card lets the user use Builder.io for managed object storage or open the same custom-key setup used by onboarding. Call it immediately when the attachment context says storage is missing; do not ask the user to upload the file again.",
+        parameters: {
+          type: "object",
+          properties: {},
+        },
+      },
+      run: async () => {
+        const activeProvider = await getActiveFileUploadProviderForRequest();
+        const ownerEmail = deps.getOwner?.() ?? getRequestUserEmail();
+        return JSON.stringify({
+          kind: "connect-file-storage-card",
+          configured: !!activeProvider,
+          provider: activeProvider?.name ?? null,
+          connectUrl: getBuilderBrowserConnectUrlForOwner(
+            deps.getOrigin(),
+            ownerEmail,
+          ),
+        });
+      },
+    },
     "connect-builder": {
       tool: {
         description: `Render a Builder.io card inline in the chat. Call this as the first step (no code exploration or planning needed) when the user asks to modify the APP'S OWN SOURCE CODE: add a feature, change the UI chrome, edit a React component, add a route, add an integration, fix a bug in the app itself, or anything else that requires source-file edits while in hosted/production mode. ${extensionRequestGuidance}Do NOT call this for content the app is meant to produce — creating a video, generating a design, drafting an email, building a slide deck, making a dashboard, etc. — those run through the app's own domain actions, not Builder. Do NOT mention 'click Send to Builder' in your response unless this card is already in the conversation. The tool result includes \`builderEnabled\`; treat \`true\` as "Builder Cloud Agents can take the code-change handoff" and \`false\` as "this still needs a code change, but no Builder Cloud Agent can run here." If Builder is connected and Builder Cloud Agents are available, the card shows a 'Send to Builder' button that hands the work off to Builder's cloud agent and returns a branch URL. If \`builderEnabled\` is false, the card still renders but shows the code-change fallback: "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like." Never tell the user to enable Builder Cloud Agents in Builder org settings or beta settings, and do not claim the Builder card has everything, is pre-loaded for handoff, or can run the cloud agent when \`builderEnabled\` is false. When you call this for a code-change request, pass the user's request verbatim as the \`prompt\` arg so the card can forward it to Builder unchanged when cloud agents are available.`,
@@ -127,7 +213,7 @@ export function createBuilderBrowserTool(deps: {
             prompt: {
               type: "string",
               description:
-                "The user's feature / change request, verbatim. Forwarded to Builder's cloud agent when the user clicks Send. Omit only for generic 'connect Builder' requests that aren't tied to a specific code change.",
+                "The user's feature / change request, verbatim. Forwarded to Builder's cloud agent when the user clicks Send. Omit only for generic 'use Builder.io' requests that aren't tied to a specific code change.",
             },
             extensionId: {
               type: "string",
@@ -182,8 +268,6 @@ export function createBuilderBrowserTool(deps: {
             extensionId,
             contentLength: extension.content.length,
           };
-          // Do not put private extension source into the waitlist prompt when
-          // this workspace cannot launch a Builder code-change branch.
           if (branchProjectId) {
             const bundle = buildExtensionPromotionPrompt(prompt, extension);
             prompt = bundle.prompt;
@@ -309,7 +393,7 @@ export function createBuilderBrowserTool(deps: {
     "activate-browser": {
       tool: {
         description:
-          "Activate browser automation tools. Call this when you need to interact with a real browser — e.g. to extract design tokens from a rendered page, take screenshots, read computed styles from JS-heavy sites, or test a live URL. After activation, chrome-devtools MCP tools (navigate, click, evaluate_script, take_screenshot, etc.) become available on your next action. Requires a Builder.io connection (free tier available).",
+          "Activate browser automation tools. Call this when you need to interact with a real browser — e.g. to extract design tokens from a rendered page, take screenshots, read computed styles from JS-heavy sites, or test a live URL. After activation, chrome-devtools MCP tools (navigate, click, evaluate_script, take_screenshot, etc.) become available on your next action. Requires Builder.io to be set up (free tier available).",
         parameters: {
           type: "object",
           properties: {
@@ -329,7 +413,7 @@ export function createBuilderBrowserTool(deps: {
           return JSON.stringify({
             error: "builder-not-connected",
             message:
-              "Builder.io is not connected. Call `connect-builder` first to enable browser automation.",
+              "Builder.io is not connected. Call `connect-builder` first so the user can use browser automation.",
           });
         }
 
@@ -357,15 +441,8 @@ export function createBuilderBrowserTool(deps: {
           });
         }
 
-        const manager = getGlobalMcpManager();
-        if (!manager) {
-          return JSON.stringify({
-            error: "no-mcp-manager",
-            message: "MCP manager is not available.",
-          });
-        }
+        const manager = await getMcpManagerForCurrentRequest();
 
-        // Add chrome-devtools-mcp server pointing at the provisioned browser
         const currentConfig = manager.getConfig();
         const servers = { ...(currentConfig?.servers ?? {}) };
         servers["chrome-devtools"] = {
@@ -404,10 +481,6 @@ export function createBuilderBrowserTool(deps: {
   return entries;
 }
 
-/**
- * Creates the unified `agent-teams` tool that consolidates all sub-agent
- * orchestration behind a single tool with an `action` parameter.
- */
 export function createTeamTools(deps: {
   getOwner: () => string;
   getSystemPrompt: () => string;
@@ -467,6 +540,15 @@ export function createTeamTools(deps: {
           required: ["action"],
         },
       },
+      chatUI: {
+        renderer: ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
+        // Spawn keeps the live task card with stop and thread controls.
+        when: (args, result) =>
+          ["status", "list"].includes(String(args.action)) &&
+          projectAgentTeamProgressResult(result) !== null,
+        projectResult: (_args, result) =>
+          projectAgentTeamProgressResult(result),
+      },
       planMode: {
         effect: (args) =>
           args.action === "status" ||
@@ -481,14 +563,10 @@ export function createTeamTools(deps: {
       run: async (args: Record<string, string>) => {
         const action = args.action;
 
-        // ── spawn ──────────────────────────────────────────────
         if (action === "spawn") {
           if (!args.task) throw new Error("'task' is required for spawn");
-          // Capture the send function NOW (at spawn time) so that
-          // concurrent runs don't clobber each other's send reference.
           const capturedSend = deps.getSend();
           const { spawnTask } = await import("../agent-teams.js");
-          // Filter out the team tool so sub-agents can't spawn sub-agents
           const subAgentActions = Object.fromEntries(
             Object.entries(deps.getActions()).filter(
               ([name]) => name !== "agent-teams",
@@ -537,7 +615,7 @@ export function createTeamTools(deps: {
             taskId: task.taskId,
             threadId: task.threadId,
             runId: task.runId,
-            status: task.status,
+            status: await agentTeamTaskStatus(task.taskId, task.status),
             parentThreadId: task.parentThreadId,
             state: "launched_pending_completion",
             message:
@@ -547,7 +625,6 @@ export function createTeamTools(deps: {
           });
         }
 
-        // ── status ─────────────────────────────────────────────
         if (action === "status") {
           if (!args.taskId) throw new Error("'taskId' is required for status");
           const { getTask } = await import("../agent-teams.js");
@@ -557,7 +634,7 @@ export function createTeamTools(deps: {
             taskId: task.taskId,
             threadId: task.threadId,
             parentThreadId: task.parentThreadId,
-            status: task.status,
+            status: await agentTeamTaskStatus(task.taskId, task.status),
             description: task.description,
             name: task.name,
             preview: task.preview,
@@ -566,7 +643,6 @@ export function createTeamTools(deps: {
           });
         }
 
-        // ── read-result ────────────────────────────────────────
         if (action === "read-result") {
           if (!args.taskId)
             throw new Error("'taskId' is required for read-result");
@@ -575,7 +651,7 @@ export function createTeamTools(deps: {
           if (!task) return JSON.stringify({ error: "Task not found" });
           if (task.status === "running") {
             return JSON.stringify({
-              status: "running",
+              status: await agentTeamTaskStatus(task.taskId, task.status),
               taskId: task.taskId,
               threadId: task.threadId,
               parentThreadId: task.parentThreadId,
@@ -596,7 +672,6 @@ export function createTeamTools(deps: {
           });
         }
 
-        // ── send ───────────────────────────────────────────────
         if (action === "send") {
           if (!args.taskId) throw new Error("'taskId' is required for send");
           if (!args.message) throw new Error("'message' is required for send");
@@ -605,15 +680,35 @@ export function createTeamTools(deps: {
           return JSON.stringify(result);
         }
 
-        // ── list ───────────────────────────────────────────────
         if (action === "list") {
           const { listTasks } = await import("../agent-teams.js");
           const tasks = await listTasks();
           if (tasks.length === 0) {
             return "No background tasks.";
           }
+          const readDispatchState = tasks.some(
+            (task) => task.status === "running",
+          )
+            ? import("../agent-teams-run-queue.js").then(
+                (module) => module.getAgentTeamRunDispatchState,
+              )
+            : undefined;
+          const visibleTasks = await Promise.all(
+            tasks.map(async (task, index) =>
+              index < MAX_AGENT_TEAM_PROGRESS_TASKS
+                ? {
+                    ...task,
+                    status: await agentTeamTaskStatus(
+                      task.taskId,
+                      task.status,
+                      readDispatchState,
+                    ),
+                  }
+                : task,
+            ),
+          );
           return JSON.stringify(
-            tasks.map((t) => ({
+            visibleTasks.map((t) => ({
               taskId: t.taskId,
               threadId: t.threadId,
               parentThreadId: t.parentThreadId,

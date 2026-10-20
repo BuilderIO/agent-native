@@ -1,0 +1,95 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
+import { redirect, type LoaderFunctionArgs } from "react-router";
+
+import { resolveDefaultMailHref } from "@/lib/inbox-tabs";
+import { InboxPage } from "@/pages/InboxPage";
+
+const SEO_TITLE =
+  "Mail - Open Source AI email client and Superhuman alternative";
+const SEO_DESCRIPTION =
+  "Open Source AI email client for Gmail triage, drafting, organization, follow-ups, and inbox workflows built around shared actions.";
+
+export function meta() {
+  return [
+    { title: SEO_TITLE },
+    {
+      name: "description",
+      content: SEO_DESCRIPTION,
+    },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
+  ];
+}
+
+type MailPreferences = {
+  pinnedLabels?: string[];
+  combineInbox?: boolean;
+  showAllTab?: boolean;
+  savedFilters?: { id: string }[];
+};
+
+async function resolveRootInboxHref(): Promise<string> {
+  try {
+    const signal = AbortSignal.timeout(10_000);
+    const [prefRes, googleRes] = await Promise.allSettled([
+      fetch(agentNativePath("/_agent-native/actions/get-mail-preferences"), {
+        signal,
+      }),
+      fetch(agentNativePath("/_agent-native/google/status"), { signal }),
+    ]);
+    if (prefRes.status !== "fulfilled" || !prefRes.value.ok) return "/inbox";
+    if (googleRes.status !== "fulfilled" || !googleRes.value.ok)
+      return "/inbox";
+    const settings = (await prefRes.value.json()) as MailPreferences;
+    const isGoogleConnected = Boolean(
+      (
+        (await googleRes.value.json()) as {
+          connected?: boolean;
+          accounts?: unknown[];
+        }
+      )?.connected,
+    );
+    return resolveDefaultMailHref({
+      combineInbox: settings.combineInbox,
+      showAllTab: settings.showAllTab,
+      pinnedLabels: settings.pinnedLabels,
+      savedFilters: settings.savedFilters,
+      isGoogleConnected,
+    });
+  } catch {
+    return "/inbox";
+  }
+}
+
+function redirectHome(request: Request) {
+  const url = new URL(request.url);
+  const inboxHref =
+    url.searchParams.get("onboarding") === "preview"
+      ? `/inbox${url.search}`
+      : "/inbox";
+  throw withSsrHtmlContentType(redirect(inboxHref));
+}
+
+export function loader({ request }: LoaderFunctionArgs) {
+  return redirectHome(request);
+}
+
+export async function clientLoader({ request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  if (url.searchParams.get("onboarding") === "preview") {
+    return redirect(`/inbox${url.search}`);
+  }
+  throw withSsrHtmlContentType(redirect(await resolveRootInboxHref()));
+}
+
+export function HydrateFallback() {
+  return <InboxPage />;
+}
+
+export default function IndexRoute() {
+  return null;
+}

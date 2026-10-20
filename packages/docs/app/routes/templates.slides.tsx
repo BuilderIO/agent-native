@@ -1,30 +1,43 @@
-import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { useState } from "react";
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client/i18n";
+import { IconArrowUpRight } from "@tabler/icons-react";
 
-import { sitePathForLocale } from "../components/docs-locale";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { TemplateDocsLink } from "../components/template-docs";
+import { firstPartyAppUrl } from "../components/deployment-links";
+import { TemplateHero } from "../components/template-landing";
+import { SlidesBrandUpdateMock } from "../components/template-landing/SlidesBrandUpdateMock";
+import { SlidesEditorMock } from "../components/template-landing/SlidesEditorMock";
+import { SlidesPitchDeckMock } from "../components/template-landing/SlidesPitchDeckMock";
+import { SlidesStrategyMock } from "../components/template-landing/SlidesStrategyMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
+import { Button } from "../components/website-redesign/ds/button";
+import { ContentCard } from "../components/website-redesign/ds/content-card";
+import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
+import {
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
   withTemplateSocialImage(
     [
-      { title: "Agent-Native Slides — Open Source AI Presentation Builder" },
+      {
+        title: "Free AI Presentation Maker | Agent-Native Slides",
+      },
       {
         name: "description",
         content:
-          "Generate and edit presentations with AI. Open source alternative to Google Slides and Pitch. Create slide decks via natural language with visual editing, 8 layouts, image generation, logo search, sharing, and presentation mode.",
+          "Create presentations with your AI agent, apply your brand, and edit individual slides. Slides is a free, open-source AI presentation maker with PowerPoint export.",
       },
       {
         property: "og:title",
-        content: "Agent-Native Slides — Open Source AI Presentation Builder",
+        content: "Free AI Presentation Maker | Agent-Native Slides",
       },
       {
         property: "og:description",
         content:
-          "Generate and edit presentations with AI. Create slide decks via natural language.",
+          "Create presentations with your AI agent, apply your brand, and edit individual slides. Slides is a free, open-source AI presentation maker with PowerPoint export.",
       },
       {
         name: "keywords",
@@ -37,436 +50,277 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "slides")!;
 
-function CliCopy() {
-  const [copied, setCopied] = useState(false);
-  function handleCopy() {
-    navigator.clipboard.writeText(template.cliCommand);
-    setCopied(true);
-    trackEvent("copy cli command", {
-      template: template.slug,
-      location: "landing_page",
-    });
-    setTimeout(() => setCopied(false), 2000);
-  }
-  return (
-    <button
-      onClick={handleCopy}
-      data-template-cli-copy
-      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
-    >
-      <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
-      <span
-        data-template-cli-copy-text
-        className="min-w-0 truncate text-[var(--fg)]"
-      >
-        {template.cliCommand}
-      </span>
-      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
-        {copied ? (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        ) : (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-        )}
-      </span>
-    </button>
-  );
-}
+const USE_CASES = [
+  {
+    id: "sales-and-pitch-decks",
+    titleKey: "useCase1Title",
+    bodyKey: "useCase1Body",
+    textLeft: true,
+  },
+  {
+    id: "plans-and-strategies",
+    titleKey: "useCase2Title",
+    bodyKey: "useCase2Body",
+    textLeft: false,
+  },
+  {
+    id: "business-updates",
+    titleKey: "useCase3Title",
+    bodyKey: "useCase3Body",
+    textLeft: true,
+  },
+] as const;
+
+const KEY_FEATURES = [
+  { id: "ai-generation", titleKey: "feature1Title", bodyKey: "feature1Body" },
+  {
+    id: "ai-visual-editing",
+    titleKey: "feature2Title",
+    bodyKey: "feature2Body",
+  },
+  { id: "brand-styles", titleKey: "feature3Title", bodyKey: "feature3Body" },
+  {
+    id: "images-and-logos",
+    titleKey: "feature4Title",
+    bodyKey: "feature4Body",
+  },
+  {
+    id: "team-collaboration",
+    titleKey: "feature5Title",
+    bodyKey: "feature5Body",
+  },
+  {
+    id: "presentation-and-export",
+    titleKey: "feature6Title",
+    bodyKey: "feature6Body",
+  },
+] as const;
+
+const FAQ_ITEMS = [
+  { id: "what-is-slides", question: "question1", answer: "answer1" },
+  { id: "edit-after-generation", question: "question2", answer: "answer2" },
+  { id: "create-from-existing", question: "question3", answer: "answer3" },
+  { id: "brand-colors-fonts-logo", question: "question4", answer: "answer4" },
+  { id: "powerpoint-google-slides", question: "question5", answer: "answer5" },
+] as const;
+
+const HERO_WRAPPER_CLASS =
+  "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
 export default function SlidesTemplate() {
   const t = useT();
-  const { locale } = useLocale();
+
   return (
-    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
-      {/* Hero */}
-      <section className="py-12 sm:py-16 lg:py-20">
-        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ background: template.color }}
-              />
-              Agent-Native {template.name}
-            </div>
-
-            <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              {t("templateLanding.slides.s006")}
-            </h1>
-
-            <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              {t("templateLanding.slides.s007")}
-            </p>
-
-            <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
-              <a
-                href="https://slides.agent-native.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                onClick={(event) => {
-                  applyFirstTouchAttributionToLink(event.currentTarget);
-                  trackEvent("try live demo", {
-                    template: "slides",
-                    location: "landing_page",
-                  });
-                }}
-              >
-                {t("templateLanding.slides.s008")}
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-              </a>
-              <TemplateDocsLink template={template} location="landing_page" />
-              <CliCopy />
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-            <img
-              src={template.screenshot}
-              alt={t("templateLanding.slides.s001")}
-              loading="lazy"
-              decoding="async"
-              className="w-full object-cover object-top"
+    <div className="builder-brand-tokens">
+      {/* Hero — copy and layout match Clips; the media is a recreation of the
+          deck editor rather than a screenshot, so it stays current and themes
+          with the page. */}
+      <div className={HERO_WRAPPER_CLASS}>
+        <TemplateHero
+          title={
+            <span className="block max-w-[520px]">
+              {t("templateLanding.slides.heroTitle")}
+            </span>
+          }
+          eyebrow={
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-[20px] font-bold tracking-tight">
+                {t("templateLanding.slides.heroEyebrow")}
+              </span>
+              <AppStatusBadge appId="slides" />
+            </span>
+          }
+          customizeTemplate={template}
+          headingAction={
+            <a
+              href={firstPartyAppUrl("https://slides.agent-native.com")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              style={{ gap: "4px" }}
+              onClick={() => {
+                trackEvent("generate deck", {
+                  template: template.slug,
+                  location: "landing_page_hero",
+                });
+              }}
+            >
+              {t("templateLanding.slides.heroCta")}
+              <IconArrowUpRight size={16} />
+            </a>
+          }
+          description={<p>{t("templateLanding.slides.heroDescription")}</p>}
+          descriptionPlacement="below-title"
+          mediaOverlapsHeader
+          media={
+            <SlidesEditorMock
+              label={t("templateLanding.slides.s001")}
+              className="h-[420px] sm:h-[620px] lg:h-[800px]"
             />
-          </div>
-        </div>
-      </section>
+          }
+        />
+      </div>
 
-      {/* How it works - numbered steps */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          {t("templateLanding.slides.s009")}
-        </h2>
-        <div className="mx-auto grid max-w-3xl gap-6 sm:grid-cols-3">
-          {[
-            {
-              step: "1",
-              title: t("templateLanding.slides.s002"),
-              desc: "Tell the agent your topic, audience, and tone. Attach reference PDFs or images.",
-            },
-            {
-              step: "2",
-              title: t("templateLanding.slides.s003"),
-              desc: "The agent builds a complete deck — structure, content, layouts, and image prompts.",
-            },
-            {
-              step: "3",
-              title: t("templateLanding.slides.s004"),
-              desc: "Edit visually, conversationally, or in code. Changes appear through polling sync.",
-            },
-          ].map((s) => (
-            <div key={s.step} className="text-center">
-              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--docs-accent)] text-sm font-bold text-white">
-                {s.step}
-              </div>
-              <h3 className="mb-1 text-sm font-semibold">{s.title}</h3>
-              <p className="m-0 text-sm text-[var(--fg-secondary)]">{s.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* What can you do with Slides? — three use-case rows */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.slides.useCasesHeading")}
+          </h2>
+          <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.slides.useCasesBody")}
+          </p>
+        </GridInner>
 
-      {/* Core features - icon cards */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.slides.s010")}
-        </h2>
-        <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          {t("templateLanding.slides.s011")}
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s012")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s013")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s014")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s015")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s016")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s017")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s018")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s019")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s020")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s021")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s022")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s023")}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Two-column highlight */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">
-              {t("templateLanding.slides.s024")}
-            </h3>
-            <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s025")}
-            </p>
-            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+        <GridInner>
+          <div className="flex flex-col border-t border-x border-solid border-[var(--b-border-subtle)]">
+            {USE_CASES.map((useCase) => {
+              const textBlock = (
+                <div
+                  key="text"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
                 >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.slides.s026")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.slides.s027")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.slides.s028")}
-              </li>
-            </ul>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">
-              {t("templateLanding.slides.s029")}
-            </h3>
-            <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s030")}
-            </p>
-            <div className="space-y-3 rounded-lg bg-[var(--bg-secondary)] p-4 font-mono text-sm">
-              <div className="text-[var(--fg-secondary)]">
-                {t("templateLanding.slides.s031")}
-              </div>
-              <div className="text-[var(--fg-secondary)]">
-                {t("templateLanding.slides.s032")}
-              </div>
-              <div className="text-[var(--fg-secondary)]">
-                {t("templateLanding.slides.s033")}
-              </div>
-              <div className="text-[var(--fg-secondary)]">
-                {t("templateLanding.slides.s034")}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    {t(`templateLanding.slides.${useCase.titleKey}`)}
+                  </h3>
+                  <p className="m-0 max-w-[420px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t(`templateLanding.slides.${useCase.bodyKey}`)}
+                  </p>
+                </div>
+              );
 
-      {/* Comparison table */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          {t("templateLanding.slides.s035")}
-        </h2>
-        <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
-          <table className="comparison-table min-w-[42rem] w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Google Slides / Pitch
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  {t("templateLanding.slides.s036")}
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
-                  Agent-Native Slides
-                </th>
-              </tr>
-            </thead>
-            <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.slides.s037")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s038")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s039")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.slides.s040")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.slides.s041")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s042")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s043")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.slides.s044")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.slides.s045")}
-                </td>
-                <td className="px-5 py-3">None</td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s046")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  Gemini with style refs
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.slides.s047")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s048")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s049")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.slides.s050")}
-                </td>
-              </tr>
-              <tr>
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.slides.s051")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s052")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s053")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.slides.s054")}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+              const mediaBlock = (
+                <div
+                  key="media"
+                  className="order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  {useCase.id === "sales-and-pitch-decks" ? (
+                    <SlidesPitchDeckMock
+                      className="w-full max-w-[520px] lg:max-w-none"
+                      label={t(`templateLanding.slides.${useCase.titleKey}`)}
+                    />
+                  ) : useCase.id === "plans-and-strategies" ? (
+                    <SlidesStrategyMock
+                      className="w-full max-w-[520px] lg:max-w-none"
+                      label={t(`templateLanding.slides.${useCase.titleKey}`)}
+                    />
+                  ) : (
+                    <SlidesBrandUpdateMock
+                      className="w-full max-w-[520px] lg:max-w-none"
+                      label={t(`templateLanding.slides.${useCase.titleKey}`)}
+                    />
+                  )}
+                </div>
+              );
 
-      {/* CTA */}
-      <section className="border-t border-[var(--docs-border)] py-16 text-center">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.slides.s055")}
-        </h2>
-        <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          {t("templateLanding.slides.s056")}
-        </p>
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <TemplateDocsLink
-            template={template}
-            location="landing_page_cta"
-            className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+              return (
+                <div
+                  key={useCase.id}
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
+                    useCase.textLeft
+                      ? "lg:grid-cols-[1fr_1.25fr]"
+                      : "lg:grid-cols-[1.25fr_1fr]"
+                  }`}
+                >
+                  {useCase.textLeft ? (
+                    <>
+                      {textBlock}
+                      {mediaBlock}
+                    </>
+                  ) : (
+                    <>
+                      {mediaBlock}
+                      {textBlock}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* Key features — six cards, same layout as builder.io/platform/code
+          and the Clips key-features grid, so both apps read as one system. */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
+            {t("templateLanding.slides.keyFeaturesEyebrow")}
+          </p>
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.slides.keyFeaturesHeading")}
+          </h2>
+        </GridInner>
+      </PageSection>
+
+      {/* The card grid draws its own dividers, so the decorative three-column
+          overlay is off here; leaving it on would double every line. */}
+      <PageSection showGrid={false}>
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
+            {KEY_FEATURES.map((feature) => (
+              <ContentCard
+                key={feature.id}
+                title={t(`templateLanding.slides.${feature.titleKey}`)}
+                body={t(`templateLanding.slides.${feature.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* FAQs — Clips gets this section's breathing room for free from its
+          "See Clips in action" section in between; Slides has no such
+          section, so add the same pt-20 rhythm directly here instead of
+          landing the FAQ flush against the feature grid above it. The padding
+          sits on the section so the border-t stays where Clips has it: right
+          above the first FAQ row, which is that row's top border. */}
+      <PageSection className="pt-[var(--spacing-20)]">
+        <GridInner className="border-t border-solid border-[var(--b-border-default)]">
+          <FaqAccordion
+            idPrefix="slides-faq"
+            eyebrow={t("templateLanding.faq.eyebrow")}
+            title={t("templateLanding.faq.title")}
+            items={FAQ_ITEMS.map((item) => ({
+              id: item.id,
+              question: t(`templateLanding.slides.faq.${item.question}`),
+              answer: (
+                <p className="m-0">
+                  {t(`templateLanding.slides.faq.${item.answer}`)}
+                </p>
+              ),
+            }))}
+          />
+        </GridInner>
+      </PageSection>
+
+      {/* Final CTA */}
+      <PageSection>
+        <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.slides.finalCtaHeading")}
+          </h2>
+          <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.slides.finalCtaBody")}
+          </p>
+          <Button
+            variant="cta"
+            href={firstPartyAppUrl("https://slides.agent-native.com")}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
+            onClick={() => {
+              trackEvent("generate deck", {
+                template: template.slug,
+                location: "landing_page_final_cta",
+              });
+            }}
           >
-            {t("templateLanding.slides.s057")}
-          </TemplateDocsLink>
-          <Link
-            data-an-prefetch="viewport"
-            to={sitePathForLocale("/apps", locale)}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-          >
-            {t("templateLanding.slides.s058")}
-          </Link>
-        </div>
-      </section>
-    </main>
+            {t("templateLanding.slides.finalCtaButton")}
+          </Button>
+        </GridInner>
+      </PageSection>
+    </div>
   );
 }

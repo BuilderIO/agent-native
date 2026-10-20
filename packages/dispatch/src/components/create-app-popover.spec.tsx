@@ -10,6 +10,7 @@ const devState = vi.hoisted(() => ({ isDevMode: false }));
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
 const builderConnectFlowState = vi.hoisted(() => ({
   connecting: false,
+  agentNativeProvisioningEnabled: true,
   start: vi.fn(),
 }));
 const startWorkspaceAppCreationResponse = vi.hoisted<{ result: unknown }>(
@@ -31,16 +32,25 @@ vi.mock("@agent-native/core/client/host", () => ({
   isInBuilderFrame: () => frameState.inBuilderFrame,
 }));
 
-vi.mock("@agent-native/core/client/settings/useBuilderStatus", () => ({
+vi.mock("@agent-native/toolkit/app/settings/useBuilderStatus", () => ({
   useBuilderConnectFlow: () => ({
     configured: false,
     connecting: builderConnectFlowState.connecting,
     error: null,
+    statusResolved: true,
+    agentNativeProvisioningEnabled:
+      builderConnectFlowState.agentNativeProvisioningEnabled,
     start: builderConnectFlowState.start,
   }),
 }));
 
-vi.mock("@agent-native/core/client/composer", async () => {
+vi.mock("@agent-native/toolkit/app/settings", async () => {
+  const { BuilderConnectPopover } =
+    await import("../../../toolkit/src/app/settings/BuilderConnectPopover.js");
+  return { BuilderConnectPopover };
+});
+
+vi.mock("@agent-native/toolkit/app/chat/composer/index", async () => {
   const ReactModule = await import("react");
   return {
     PromptComposer: ({
@@ -117,6 +127,7 @@ describe("CreateAppFlow", () => {
     devState.isDevMode = false;
     frameState.inBuilderFrame = false;
     builderConnectFlowState.connecting = false;
+    builderConnectFlowState.agentNativeProvisioningEnabled = true;
     builderConnectFlowState.start.mockReset();
     startWorkspaceAppCreationResponse.result = {
       mode: "builder",
@@ -150,11 +161,15 @@ describe("CreateAppFlow", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
-  async function renderAndSubmit(prompt: string) {
+  async function renderAndSubmit(
+    prompt: string,
+    props: { onClose?: () => void; onCreated?: () => void } = {},
+  ) {
     await act(async () => {
-      root.render(React.createElement(CreateAppFlow, {}));
+      root.render(React.createElement(CreateAppFlow, props));
     });
 
     changeValue(
@@ -167,31 +182,109 @@ describe("CreateAppFlow", () => {
     });
   }
 
-  it("renders a Connect Builder control when Builder is not connected", async () => {
+  it("renders a Use Builder.io control when Builder is not connected", async () => {
+    const openBuilder = vi.spyOn(window, "open");
     startWorkspaceAppCreationResponse.result = {
       mode: "builder-unavailable",
       reason: "builder-not-connected",
-      message: "Connect Builder for this user",
+      message: "Use Builder.io for this user",
       appId: "quality",
     };
     await renderAndSubmit("Build a quality dashboard");
 
     await act(async () => {
       await vi.waitFor(() =>
-        expect(container.textContent).toContain(
-          "Connect Builder for this user",
-        ),
+        expect(container.textContent).toContain("Use Builder.io for this user"),
       );
     });
 
-    const connectButton = findButton(container, "Connect Builder");
+    const connectButton = findButton(container, "Use Builder.io");
     act(() => {
       connectButton.click();
     });
-    expect(builderConnectFlowState.start).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain("Create and activate");
+    expect(builderConnectFlowState.start).not.toHaveBeenCalled();
+    act(() => {
+      findButton(document.body, "Create and activate").click();
+    });
+    expect(builderConnectFlowState.start).toHaveBeenCalledExactlyOnceWith({
+      provisionAccount: true,
+    });
+    expect(openBuilder).not.toHaveBeenCalled();
+    const localLink = container.querySelector<HTMLAnchorElement>(
+      "[data-create-app-local-link]",
+    );
+    expect(localLink?.textContent).toContain("Create locally");
+    expect(localLink?.href).toBe(
+      "https://www.agent-native.com/docs/multi-app-workspace#adding-a-new-app",
+    );
   });
 
-  it("renders the error affordance and a Try again control for builder-error, without a Connect Builder control", async () => {
+  it("sends the shared scaffold prompt to Builder when already in Builder", async () => {
+    frameState.inBuilderFrame = true;
+    await renderAndSubmit("Build a quality dashboard");
+
+    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({ submit: true, type: "code" }),
+    );
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        String(input).includes("start-workspace-app-creation"),
+      ),
+    ).toBe(false);
+  });
+
+  it("reuses an empty local chat for direct dev-mode app creation", async () => {
+    devState.isDevMode = true;
+
+    await renderAndSubmit("Build a quality dashboard");
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        submit: true,
+        type: "code",
+        newTab: true,
+        reuseEmptyTab: true,
+      }),
+    );
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        String(input).includes("start-workspace-app-creation"),
+      ),
+    ).toBe(false);
+  });
+
+  it("opens a fresh local chat when the server hands off app creation", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "local-agent",
+      appId: "quality-dashboard",
+      prompt: "Create the quality dashboard in the new workspace app.",
+      message: "Starting the local coding chat.",
+    };
+    const onClose = vi.fn();
+
+    await renderAndSubmit("Build a quality dashboard", { onClose });
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith({
+      message: "Create the quality dashboard in the new workspace app.",
+      submit: true,
+      type: "code",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies the parent after Builder accepts app creation", async () => {
+    const onCreated = vi.fn();
+
+    await renderAndSubmit("Build a quality dashboard", { onCreated });
+
+    expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the error affordance and a Try again control for builder-error, without a Builder setup control", async () => {
     startWorkspaceAppCreationResponse.result = {
       mode: "builder-unavailable",
       reason: "builder-error",
@@ -217,11 +310,11 @@ describe("CreateAppFlow", () => {
       matchingDivs.some((el) => el.className.includes("border-destructive")),
     ).toBe(true);
 
-    expect(() => findButton(container, "Connect Builder")).toThrow();
+    expect(() => findButton(container, "Use Builder.io")).toThrow();
     expect(findButton(container, "Try again")).toBeTruthy();
   });
 
-  it("renders coming-soon messages neutrally with no Connect Builder control", async () => {
+  it("renders coming-soon messages neutrally with no Builder setup control", async () => {
     startWorkspaceAppCreationResponse.result = {
       mode: "coming-soon",
       message: "This template is coming soon.",
@@ -243,7 +336,7 @@ describe("CreateAppFlow", () => {
     expect(
       matchingDivs.some((el) => el.className.includes("border-destructive")),
     ).toBe(false);
-    expect(() => findButton(container, "Connect Builder")).toThrow();
+    expect(() => findButton(container, "Use Builder.io")).toThrow();
     expect(() => findButton(container, "Try again")).toThrow();
   });
 
@@ -293,7 +386,7 @@ describe("CreateAppFlow", () => {
       });
     });
     const branchLink = Array.from(container.querySelectorAll("a")).find(
-      (candidate) => candidate.textContent?.includes("Open Builder branch"),
+      (candidate) => candidate.textContent?.includes("Open in Builder"),
     );
     expect(branchLink?.getAttribute("href")).toBe(
       "https://branch.example.test",

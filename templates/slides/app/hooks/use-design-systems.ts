@@ -7,19 +7,25 @@ type DesignSystemSummary = {
   data: string;
   isDefault: boolean;
   visibility?: "private" | "org" | "public" | null;
-  accessRole?: "owner" | "admin" | "editor" | "viewer";
+  accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   canManage?: boolean;
   createdAt: string;
 };
 
-export function useDesignSystems() {
-  const { data, isLoading, error, refetch } = useActionQuery<{
+export function useDesignSystems(enabled = true) {
+  const { data, isLoading, isFetching, error, refetch } = useActionQuery<{
     designSystems: DesignSystemSummary[];
-  }>("list-design-systems");
+  }>("list-design-systems", undefined, { enabled });
 
   const designSystems: DesignSystemSummary[] = data?.designSystems ?? [];
-  const defaultSystem =
-    designSystems.find((ds) => ds.isDefault) ?? designSystems[0];
+  const defaultSystem = designSystems.find((ds) => ds.isDefault);
 
-  return { designSystems, defaultSystem, isLoading, error, refetch };
+  return {
+    designSystems,
+    defaultSystem,
+    isLoading,
+    isFetching,
+    error,
+    refetch,
+  };
 }

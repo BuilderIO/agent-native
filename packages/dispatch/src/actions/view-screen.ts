@@ -1,14 +1,6 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads and returns the current navigation state from application state.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
+import type { ActionEntry } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
@@ -32,19 +24,32 @@ import {
   listWorkspaceResourceOptions,
   listWorkspaceResourcesForApp,
 } from "../server/lib/workspace-resources-store.js";
+import { CHAT_FIRST_PANE_STATE_KEY } from "../shared/chat-first-pane.js";
+import getDreamSettings from "./get-dream-settings.js";
+import getDream from "./get-dream.js";
+import listConnectedAgents from "./list-connected-agents.js";
+import listDreamCandidates from "./list-dream-candidates.js";
+import listDreams from "./list-dreams.js";
+import listMcpAppAccess from "./list-mcp-app-access.js";
+
+const localDispatchActions: Record<string, ActionEntry> = {
+  "list-connected-agents": listConnectedAgents,
+  "list-mcp-app-access": listMcpAppAccess,
+  "list-dream-candidates": listDreamCandidates,
+  "list-dreams": listDreams,
+  "get-dream-settings": getDreamSettings,
+  "get-dream": getDream,
+};
 
 async function runLocalDispatchAction(
   name: string,
   args: Record<string, unknown>,
 ) {
-  const modulePath = `./${name}.js`;
-  const module = (await import(/* @vite-ignore */ modulePath)) as {
-    default?: {
-      run: (args: Record<string, unknown>) => unknown | Promise<unknown>;
-    };
-  };
-  if (!module.default) throw new Error(`Dispatch action not found: ${name}`);
-  return module.default.run(stripUndefined(args));
+  if (!Object.prototype.hasOwnProperty.call(localDispatchActions, name)) {
+    throw new Error(`Dispatch action not found: ${name}`);
+  }
+  const action = localDispatchActions[name];
+  return action.run(stripUndefined(args));
 }
 
 function stripUndefined(args: Record<string, unknown>) {
@@ -67,9 +72,66 @@ function threadDebugFailureStatus(
     : "all";
 }
 
+type EmbeddedApp =
+  | {
+      status: "open";
+      id: string;
+      path: string;
+      view?: string;
+      source: "route" | "chat-first-pane";
+    }
+  | { status: "unknown"; source: "route" | "chat-first-pane"; reason: string };
+
+async function resolveEmbeddedApp(
+  navigation: Record<string, any> | null,
+): Promise<EmbeddedApp | null> {
+  if (navigation?.view === "workspace-app") {
+    const id =
+      typeof navigation.workspaceAppId === "string"
+        ? navigation.workspaceAppId.trim()
+        : "";
+    if (!id) {
+      return {
+        status: "unknown",
+        source: "route",
+        reason: `The route ${navigation.path ?? "/apps/…"} embeds a workspace app, but its id could not be read from the URL.`,
+      };
+    }
+    return {
+      status: "open",
+      id,
+      path:
+        typeof navigation.workspaceAppPath === "string"
+          ? navigation.workspaceAppPath
+          : "/",
+      source: "route",
+    };
+  }
+
+  if (navigation?.view !== "chat") return null;
+  const pane = await readAppState(CHAT_FIRST_PANE_STATE_KEY);
+  if (pane === null) return null;
+  const appId = typeof pane.appId === "string" ? pane.appId.trim() : "";
+  if (!appId) {
+    return {
+      status: "unknown",
+      source: "chat-first-pane",
+      reason:
+        "A chat-first app pane is recorded, but its stored state does not name an app.",
+    };
+  }
+  return {
+    status: "open",
+    id: appId,
+    path: typeof pane.path === "string" && pane.path ? pane.path : "/",
+    ...(typeof pane.view === "string" && pane.view ? { view: pane.view } : {}),
+    source: "chat-first-pane",
+  };
+}
+
 export default defineAction({
   description:
-    "See what the user is currently looking at in the dispatch UI, including navigation state and a compact operational summary.",
+    "See what the user is currently looking at in the dispatch UI, including navigation state, any embedded workspace app, and a compact operational summary.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -84,6 +146,10 @@ export default defineAction({
       approvalPolicy: overview.settings,
     };
     if (navigation) screen.navigation = navigation;
+
+    const embeddedApp = await resolveEmbeddedApp(navigation);
+    if (embeddedApp) screen.embeddedApp = embeddedApp;
+
     if (navigation?.view === "chat" || navigation?.view === "browser-chat") {
       screen.chatSurface = {
         view:
@@ -93,6 +159,19 @@ export default defineAction({
         purpose:
           "Create apps, manage workspace resources, route work to connected agents, and continue Dispatch conversations.",
       };
+      const agentPath =
+        typeof navigation.agentPath === "string"
+          ? navigation.agentPath.trim()
+          : "";
+      if (agentPath) {
+        const agents = await listWorkspaceResourceOptions({ kind: "agent" });
+        const agent = agents.find((resource) => resource.path === agentPath);
+        screen.chatSurface = {
+          ...(screen.chatSurface as Record<string, unknown>),
+          agentPath,
+          ...(agent ? { agent } : {}),
+        };
+      }
     }
     if (navigation?.view === "overview") {
       screen.recentAudit = overview.recentAudit.slice(0, 5);
@@ -101,13 +180,18 @@ export default defineAction({
     if (navigation?.view === "destinations") {
       screen.recentDestinations = overview.recentDestinations;
     }
-    if (navigation?.view === "agents") {
+    if (navigation?.view === "connected-agents") {
       const [connectedAgents, mcpAccess] = await Promise.all([
         runLocalDispatchAction("list-connected-agents", {}),
         runLocalDispatchAction("list-mcp-app-access", {}),
       ]);
       screen.connectedAgents = connectedAgents;
       screen.mcpAppAccess = mcpAccess;
+    }
+    if (navigation?.view === "agents") {
+      screen.simpleAgents = await listWorkspaceResourceOptions({
+        kind: "agent",
+      });
     }
     if (navigation?.view === "operations") {
       const nav = navigation as { operationsView?: string };
@@ -124,6 +208,7 @@ export default defineAction({
       navigation?.view === "overview" ||
       navigation?.view === "metrics" ||
       navigation?.view === "apps" ||
+      navigation?.view === "workspace-app" ||
       navigation?.view === "new-app"
     ) {
       const workspaceApps = await listWorkspaceApps({
@@ -155,9 +240,31 @@ export default defineAction({
     }
     if (navigation?.view === "metrics") {
       try {
-        const metrics = await listDispatchUsageMetrics({ sinceDays: 30 });
+        const usageScope =
+          navigation.usageScope === "app"
+            ? "app"
+            : navigation.usageScope === "workspace"
+              ? "workspace"
+              : "me";
+        const usageUserEmail =
+          typeof navigation.usageUserEmail === "string"
+            ? navigation.usageUserEmail
+            : undefined;
+        const usageAppId =
+          typeof navigation.usageAppId === "string"
+            ? navigation.usageAppId
+            : undefined;
+        const metrics = await listDispatchUsageMetrics({
+          sinceDays: 30,
+          scope: usageScope,
+          userEmail: usageUserEmail,
+          appId: usageAppId,
+        });
         screen.usageMetrics = {
           billing: metrics.billing,
+          viewScope: metrics.viewScope,
+          selectedUserEmail: metrics.selectedUserEmail,
+          selectedAppId: metrics.selectedAppId,
           totals: metrics.totals,
           byApp: metrics.byApp.slice(0, 8),
           byUser: metrics.byUser.slice(0, 8),
@@ -239,6 +346,9 @@ export default defineAction({
           screen.threadDebugSelection = {
             source: detail.source,
             thread: detail.thread,
+            ...(typeof nav.threadDebugItem === "string"
+              ? { selectedItem: nav.threadDebugItem }
+              : {}),
             messageCount: detail.messages.length,
             runCount: detail.runs.length,
             debug: detail.debug,

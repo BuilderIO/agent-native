@@ -1,0 +1,27 @@
+{
+ "app": "Chat",
+ "icon": "message-circle",
+ "pages": [
+  {
+   "id": "app",
+   "l": "General",
+   "icon": "apps",
+   "sections": [
+    { "h": "Agent", "rows": [{ "l": "Default model", "d": "Used for new agent chats in Chat. The default is Claude Sonnet 5.5.", "c": { "sel": "Use the default", "opts": ["Use the default", "Claude Opus 5.5", "Claude Sonnet 5.5", "Claude Haiku 4.5"] } }] }
+   ]
+  },
+  {
+   "id": "whats-new",
+   "l": "What's new",
+   "icon": "news",
+   "badge": "Chat",
+   "sections": [
+    { "h": null, "changelog": [
+     ["2026-09-30", "Improved", ["Chat uses a compact + menu with context submenus, keeps task, automation, and skill actions at the root, and omits Generate Image."]],
+     ["2026-09-27", "Fixed", ["Chat retries the original request with its attachments after model setup."]],
+     ["2026-08-27", "Fixed", ["Chat includes the runtime packages needed for provider keys after deployment."]]
+    ] }
+   ]
+  }
+ ]
+}

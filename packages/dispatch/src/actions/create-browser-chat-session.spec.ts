@@ -82,7 +82,7 @@ describe("create-browser-chat-session", () => {
     expect(integrations.createRemoteDevice).toHaveBeenCalledWith({
       ownerEmail: "user@example.com",
       orgId: "org-example",
-      label: "Agent Native for Chrome",
+      label: "Agent-Native for Chrome",
       platform: "chrome-extension",
       metadata: {
         browserExtension: { extensionId },

@@ -41,7 +41,10 @@ export default defineAction({
       Boolean(actionCtx?.userEmail) &&
       normalizeEmail(comment.authorEmail) ===
         normalizeEmail(actionCtx?.userEmail);
-    if (!isAuthor && (!access || !roleSatisfies(access.role, "editor"))) {
+    if (!access || !roleSatisfies(access.role, "commenter")) {
+      throw new ForbiddenError("Not allowed to delete this review comment");
+    }
+    if (!isAuthor && !roleSatisfies(access.role, "editor")) {
       throw new ForbiddenError("Not allowed to delete this review comment");
     }
     const updatedCount = await deleteReviewComment(

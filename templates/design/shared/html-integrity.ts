@@ -1,19 +1,25 @@
 import { parse as parseJavaScript } from "acorn";
 import { type DefaultTreeAdapterTypes, parse, type ParserError } from "parse5";
+import CssSyntaxError from "postcss/lib/css-syntax-error";
+import CssInput from "postcss/lib/input";
+import parseCss from "postcss/lib/parse";
+// This exported PostCSS subpath has no declaration file.
+// @ts-expect-error PostCSS exports its tokenizer without TypeScript declarations.
+import tokenizeCss from "postcss/lib/tokenize";
 
+import { structurePreservingEditTarget } from "./code-layer.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
+import {
+  MAX_CACHED_CONTENT_CHARS,
+  memoizeByContent,
+} from "./memoize-by-content.js";
+import {
+  NATIVE_EFFECT_SCRIPT_TYPE,
+  parseEffectsFromHtml,
+} from "./native-effects.js";
 
-/**
- * Stable error code shared by browser and server write paths. Keep this value
- * transport-safe: action errors may preserve either `code` or only `message`.
- */
 export const DESIGN_HTML_INTEGRITY_ERROR_CODE = "DESIGN_HTML_INTEGRITY";
 
-/**
- * Human-facing summary for the editor toast. `message` carries the located,
- * agent-facing detail instead — a person dragging on the canvas did not author
- * the markup, so a line and column are noise to them.
- */
 export const DESIGN_HTML_INTEGRITY_SUMMARY =
   "The edit was not applied because it would make the design HTML invalid.";
 
@@ -25,46 +31,38 @@ export type DesignHtmlIntegrityIssue =
   | "raw-text-balance"
   | "managed-marker-orphaned"
   | "managed-marker-duplicated"
+  | "native-effect-manifest-invalid"
   | "attribute-unterminated"
   | "expression-invalid"
   | "script-invalid"
+  | "style-invalid"
   | "element-unclosed"
   | "close-tag-orphaned"
   | "content-truncated"
   | "runtime-missing"
+  | "runtime-alpine-missing"
+  | "runtime-cloak-missing"
+  | "runtime-overlay-unhidden"
   | "url-backed-screen-replaced";
 
-/**
- * Reporting the symptom instead of the cause sends the fix to the wrong line:
- * an unterminated quote in `<head>` swallows the root tags, which reads as a
- * missing `<html>` unless the quote itself is named.
- */
 export interface DesignHtmlIntegrityIssueDetail {
   issue: DesignHtmlIntegrityIssue;
-  /** 1-based. */
   line: number;
-  /** 1-based. */
   column: number;
-  /** The offending source line, bounded for readability. */
   excerpt: string;
   tag?: string;
   attribute?: string;
-  /** The parser's reason, for `expression-invalid`. */
   reason?: string;
-  /** The tag that arrived where this element's close belonged, if any. */
   closedBy?: { tag: string; line: number };
 }
 
 export interface DesignHtmlIntegrityResult {
   valid: boolean;
   issue?: DesignHtmlIntegrityIssue;
-  /** Present only when invalid; first entry corresponds to `issue`. */
   detail?: DesignHtmlIntegrityIssueDetail[];
-  /** Present only when non-empty. Never blocks a write. */
   advisory?: DesignHtmlIntegrityIssueDetail[];
 }
 
-/** Cap cascades: one unclosed tag can leave a dozen ancestors unbalanced. */
 const MAX_REPORTED_ISSUES = 3;
 
 const DOCUMENT_SHAPE_MESSAGES: Partial<
@@ -84,8 +82,14 @@ const DOCUMENT_SHAPE_MESSAGES: Partial<
     "an editor-managed <style>/<script> marker is no longer attached to its element — it was likely split by a partial edit",
   "managed-marker-duplicated":
     "an editor-managed <style>/<script> block appears more than once; there must be exactly one of each",
+  "native-effect-manifest-invalid":
+    "the native effect manifest is invalid or contains duplicate definitions or instances",
   "url-backed-screen-replaced":
     "this screen's content is its live route URL, and the write would replace it with document markup — that permanently unbinds the screen from the running app. Edit the app's own source instead",
+  "runtime-cloak-missing":
+    "this document uses x-cloak without the CSS rule that keeps Alpine-controlled content hidden before Alpine starts",
+  "runtime-alpine-missing":
+    "this document uses Alpine directives but does not load Alpine.js, so every repeat, binding and event stays inert",
 };
 
 export function describeDesignHtmlIntegrityIssue(
@@ -108,6 +112,8 @@ export function describeDesignHtmlIntegrityIssue(
         `the page still renders, so nothing visibly fails — the script simply ` +
         `never runs, and everything it was going to wire up stays dead.`
       );
+    case "style-invalid":
+      return `the inline <style> at ${at} is not valid CSS: ${detail.reason ?? "it does not parse"}. Repair the stylesheet before retrying the edit.`;
     case "attribute-unterminated":
       return (
         `the ${detail.attribute ? `\`${detail.attribute}\`` : "attribute"} value on ` +
@@ -141,6 +147,29 @@ export function describeDesignHtmlIntegrityIssue(
         `<script src="…@tailwindcss/browser@4"> or a <style type="text/tailwindcss">). ` +
         `Utility classes will not apply and the design renders unstyled.`
       );
+    case "runtime-alpine-missing":
+      return (
+        `the document uses ${detail.attribute ?? "Alpine directives"} on ` +
+        `<${detail.tag ?? "element"}> at ${at}, but no <script src> contains ` +
+        `"alpinejs". Every repeat, binding and event stays inert and renders ` +
+        `nothing at all. Load Alpine.js — and if a script tag already looks ` +
+        `present, check its src still carries the package name.`
+      );
+    case "runtime-overlay-unhidden":
+      return (
+        `<${detail.tag ?? "element"}> at ${at} covers the whole frame and is ` +
+        `shown by Alpine (${detail.attribute ?? "x-show"}), but nothing hides ` +
+        `it before Alpine starts. It paints over the design on first render. ` +
+        `Add x-cloak plus [x-cloak] { display: none !important; }, or an ` +
+        `inline style="display:none".`
+      );
+    case "runtime-cloak-missing":
+      return (
+        `the document uses x-cloak on <${detail.tag ?? "element"}> at ${at}, ` +
+        `but no style block defines [x-cloak] { display: none !important; }. ` +
+        `Alpine-controlled overlays can flash or cover the entire screen before ` +
+        `Alpine starts. Add that exact hiding rule to the document.`
+      );
     default:
       return `the document structure is invalid (${detail.issue}) at ${at}.`;
   }
@@ -148,7 +177,7 @@ export function describeDesignHtmlIntegrityIssue(
 
 export class DesignHtmlIntegrityError extends Error {
   readonly code = DESIGN_HTML_INTEGRITY_ERROR_CODE;
-  readonly status = 422;
+  readonly statusCode = 422;
   readonly issue: DesignHtmlIntegrityIssue;
   readonly detail?: DesignHtmlIntegrityIssueDetail[];
 
@@ -167,9 +196,7 @@ export class DesignHtmlIntegrityError extends Error {
               `${describeDesignHtmlIntegrityIssue(entry)}\n\n  ${entry.line} | ${entry.excerpt}`,
           )
           .join("\n\n")
-      : // Whole-document properties have no single offending character, but must
-        // still name which property failed.
-        `${DOCUMENT_SHAPE_MESSAGES[issue] ?? "the design HTML is invalid"}. The write was not applied.`;
+      : `${DOCUMENT_SHAPE_MESSAGES[issue] ?? "the design HTML is invalid"}. The write was not applied.`;
     super(`${DESIGN_HTML_INTEGRITY_ERROR_CODE}: ${where}${explained}`);
     this.name = "DesignHtmlIntegrityError";
     this.issue = issue;
@@ -184,10 +211,10 @@ const MANAGED_RAW_TEXT_MARKERS = [
   { marker: "data-agent-native-state-breakpoints", tag: "style" },
   { marker: "data-agent-native-states", tag: "style" },
   { marker: "data-agent-native-motion", tag: "style" },
+  { marker: "data-agent-native-group-runtime", tag: "script" },
   { marker: "data-agent-native-shader-runtime", tag: "script" },
 ] as const;
 
-/** Closing tag is forbidden, so the tree never records an end tag for these. */
 const VOID_TAGS = new Set([
   "area",
   "base",
@@ -205,11 +232,6 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
-/**
- * Closing tag optional per HTML5, so a missing end tag is legal authoring. The
- * parser decides which element an implied close terminates; this set only
- * decides what not to report.
- */
 const OPTIONAL_CLOSE_TAGS = new Set([
   "body",
   "caption",
@@ -236,24 +258,9 @@ const OPTIONAL_CLOSE_TAGS = new Set([
 
 const MAX_EXCERPT_CHARS = 120;
 
-/**
- * Deliberately conservative: a miss costs one unreported advisory, a false hit
- * costs trust in every advisory after it.
- */
 const USES_TAILWIND_UTILITIES =
   /\bclass\s*=\s*["'][^"']*(?:\b(?:flex|grid|hidden|absolute|relative|sticky)\b|\b(?:p|m|px|py|mx|my|pt|pb|pl|pr|gap|w|h|text|bg|border|rounded|shadow|items|justify|font|leading|tracking|space-x|space-y|min-h|max-w|opacity|ring|z)-[a-z0-9[\]./-]+)/i;
 
-/**
- * Parse errors that mean the source was cut off or mis-delimited. The rest of
- * what the spec reports is recoverable authoring the browser accepts, and
- * `missing-doctype` fires on legitimate fragments and on real screens.
- */
-/**
- * Ordered by cause, not by offset: every one of these is reported at EOF, and an
- * unterminated tag absorbs the rest of the document — including the closer of
- * whatever raw-text element it sits in. Reporting the imbalance instead sends
- * the fix to a `</script>` that is present and correct.
- */
 const FATAL_PARSE_ERRORS = [
   "eof-in-tag",
   "eof-in-comment",
@@ -269,11 +276,6 @@ type Locator = (index: number) => {
   excerpt: string;
 };
 
-/**
- * Indexed once, lazily, then binary searched. Scanning to the offset per call
- * made validation quadratic on VALID documents, not just malformed ones — a
- * 117KB screen cost ~700ms on every save.
- */
 function createLocator(value: string): Locator {
   let starts: number[] | null = null;
   return (index) => {
@@ -305,13 +307,6 @@ function createLocator(value: string): Locator {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Parse layer
-// ---------------------------------------------------------------------------
-
-// One parse and one walk feed every check below, so no two can disagree about
-// whether a `<body>` inside a `<title>` was markup.
-
 type Parse5Node = DefaultTreeAdapterTypes.Node;
 type Parse5Element = DefaultTreeAdapterTypes.Element;
 type SourceRange = { start: number; end: number };
@@ -321,11 +316,9 @@ interface ParsedDocument {
   source: string;
   document: DefaultTreeAdapterTypes.Document;
   errors: ParserError[];
-  /** Source extents to exclude when looking for markup tokens in the source. */
   rawTextBodies: SourceRange[];
   comments: SourceRange[];
   attributeRanges: SourceRange[];
-  /** Start offsets of the end tags the parser matched to an element. */
   matchedEndTags: Set<number>;
   elements: Parse5Element[];
   textNodes: DefaultTreeAdapterTypes.TextNode[];
@@ -336,7 +329,6 @@ function isElement(node: Parse5Node): node is Parse5Element {
   return typeof (node as Parse5Element).tagName === "string";
 }
 
-/** Only elements carry tag spans; the tree types every node's location as one union. */
 interface ElementSpan extends SourceOffsets {
   startTag?: SourceOffsets;
   endTag?: SourceOffsets;
@@ -348,11 +340,6 @@ function locationOf(element: Parse5Element | undefined): ElementSpan | null {
   return (element.sourceCodeLocation as ElementSpan | null) ?? null;
 }
 
-/**
- * A `<template>`'s children hang off `content`, not `childNodes`. Missing them
- * leaves every element inside an `x-for`/`x-if` template unvisited, so its close
- * tag looks like it belongs to nothing.
- */
 function childrenOf(node: Parse5Node): Parse5Node[] {
   const element = node as {
     childNodes?: Parse5Node[];
@@ -426,11 +413,6 @@ function parseDocument(source: string): ParsedDocument {
   };
 }
 
-/**
- * Binary search over sorted, non-overlapping ranges. This is called once per
- * markup token, so a linear scan here is what turns a document carrying many
- * <style>/<script> blocks quadratic.
- */
 function fallsInside(index: number, ranges: SourceRange[]): boolean {
   let low = 0;
   let high = ranges.length - 1;
@@ -459,12 +441,6 @@ function attributeOf(element: Parse5Element, name: string): string | undefined {
   return element.attrs.find((attribute) => attribute.name === name)?.value;
 }
 
-/**
- * `eof-in-tag` covers a tag cut off mid-name and one whose quote was never
- * closed, and the fix differs: telling an author to close a quote that is
- * already closed sends them to the wrong character. Only runs on input the
- * parser has already rejected.
- */
 function findUnterminatedTag(parsed: ParsedDocument): {
   start: number;
   tag?: string;
@@ -548,10 +524,6 @@ function stripBoundaryNoise(value: string): string {
     .trim();
 }
 
-// ---------------------------------------------------------------------------
-// Structural checks
-// ---------------------------------------------------------------------------
-
 function collectParseErrorIssues(
   parsed: ParsedDocument,
   locate: Locator,
@@ -589,11 +561,6 @@ function tagNameAtOffset(value: string, offset: number): string | undefined {
 
 const END_TAG_PATTERN = /<\s*\/\s*([a-zA-Z][a-zA-Z0-9:-]*)\s*>/g;
 
-/**
- * The one structural fact the tree cannot supply: the parser drops an end tag
- * that closes nothing without reporting it. Every exclusion range still comes
- * from the tree rather than a second hand-rolled tokenizer.
- */
 function collectOrphanEndTags(
   parsed: ParsedDocument,
   locate: Locator,
@@ -619,11 +586,6 @@ function collectOrphanEndTags(
   return issues;
 }
 
-/**
- * An element the parser closed for you carries no end-tag location. The nearest
- * ancestor that does have one names the tag that arrived where this element's
- * close belonged.
- */
 function collectUnclosedElements(
   parsed: ParsedDocument,
   locate: Locator,
@@ -631,8 +593,6 @@ function collectUnclosedElements(
   const issues: DesignHtmlIntegrityIssueDetail[] = [];
   for (const element of parsed.elements) {
     const location = element.sourceCodeLocation;
-    // A missing location means the parser invented the element; the document
-    // shape checks own that case, not this one.
     if (!location || location.endTag) continue;
     const tag = element.tagName;
     if (VOID_TAGS.has(tag) || OPTIONAL_CLOSE_TAGS.has(tag)) continue;
@@ -658,10 +618,6 @@ function collectUnclosedElements(
         };
         break;
       }
-      // The ancestor's own close was legally omitted, which closes this element
-      // with it — `<li><span>one<li>` leaves no defect for the span. The
-      // ancestor must be authored: the parser invents <body> for every fragment,
-      // and accepting that as the carrier excuses every unclosed element there.
       if (
         ancestor.sourceCodeLocation &&
         OPTIONAL_CLOSE_TAGS.has(ancestor.tagName)
@@ -682,12 +638,6 @@ function collectUnclosedElements(
   return issues;
 }
 
-/**
- * Alpine compiles these attribute values as JavaScript. Nothing else may join
- * this set on a hunch: `x-for` holds `item in items`, `x-transition:enter` holds
- * a class list, and `x-ref`/`x-teleport` hold a name and a selector — reading
- * any of those as an expression reports working markup as broken.
- */
 const ALPINE_EXPRESSION_DIRECTIVES = new Set([
   "x-bind",
   "x-data",
@@ -702,10 +652,6 @@ const ALPINE_EXPRESSION_DIRECTIVES = new Set([
   "x-text",
 ]);
 
-/**
- * Runs for every attribute in the document, so `class`/`style`/`href` must fall
- * out before anything allocates.
- */
 function isAlpineExpressionAttribute(name: string): boolean {
   const first = name[0];
   if (first === ":" || first === "@") return name.length > 1;
@@ -721,22 +667,14 @@ function isAlpineExpressionAttribute(name: string): boolean {
   return ALPINE_EXPRESSION_DIRECTIVES.has(lower.slice(0, end));
 }
 
-/** The shapes Alpine wraps in an async IIFE instead of assigning. */
 const ALPINE_STATEMENT_SHAPED = /^\s*(?:if\s*\(|let\s|const\s|var\s)/;
 const ASSIGNED_PREFIX = "__an_probe = ";
 
 interface ExpressionDefect {
-  /** Offset within the expression where the parser gave up. */
   offset: number;
   reason: string;
 }
 
-/**
- * Parses the source Alpine generates, not the raw value: the assignment keeps
- * `{ open: false }` an object literal rather than a block, and rejects trailing
- * garbage that `parseExpressionAt` stops short of. Not `new Function` — this runs
- * on the browser write path, where a CSP may forbid it.
- */
 function findExpressionDefect(expression: string): ExpressionDefect | null {
   if (!expression.trim()) return null;
   const wrapped = ALPINE_STATEMENT_SHAPED.test(expression);
@@ -766,11 +704,6 @@ function findExpressionDefect(expression: string): ExpressionDefect | null {
   }
 }
 
-/**
- * The attribute location spans `name="value"`, and acorn's offset is relative to
- * the value, so the name and opening quote have to be skipped or every reported
- * column lands early.
- */
 function attributeValueStart(
   parsed: ParsedDocument,
   location: SourceRange,
@@ -792,7 +725,6 @@ function collectExpressionIssues(
   for (const element of parsed.elements) {
     for (const attribute of element.attrs) {
       if (!isAlpineExpressionAttribute(attribute.name)) continue;
-      // The tree hands back the decoded value, which is what Alpine compiles.
       const defect = findExpressionDefect(attribute.value);
       if (!defect) continue;
       const location = element.sourceCodeLocation?.attrs?.[attribute.name];
@@ -814,12 +746,6 @@ function collectExpressionIssues(
   return issues;
 }
 
-/**
- * The JavaScript MIME types a browser will execute, per the HTML spec. Anything
- * else — `importmap`, `application/json`, an `x-template`, a bespoke
- * `application/vnd.*` block — is inert data the browser never parses, so parsing
- * it here reports working markup as broken.
- */
 const EXECUTABLE_SCRIPT_TYPES = new Set([
   "application/ecmascript",
   "application/javascript",
@@ -839,8 +765,7 @@ const EXECUTABLE_SCRIPT_TYPES = new Set([
   "text/x-javascript",
 ]);
 
-/** `null` when the browser treats the element as data rather than code. */
-function scriptGrammar(type: string): "script" | "module" | null {
+export function scriptGrammar(type: string): "script" | "module" | null {
   const normalized = type.trim().toLowerCase();
   if (normalized === "") return "script";
   if (normalized === "module") return "module";
@@ -848,11 +773,6 @@ function scriptGrammar(type: string): "script" | "module" | null {
   return EXECUTABLE_SCRIPT_TYPES.has(base) ? "script" : null;
 }
 
-/**
- * Parsed with the grammar the browser will actually use. Retrying a classic
- * script as a module accepts `import` and top-level `await` in an element the
- * browser rejects outright.
- */
 function findScriptDefect(
   source: string,
   sourceType: "script" | "module",
@@ -861,10 +781,6 @@ function findScriptDefect(
     parseJavaScript(source, {
       ecmaVersion: "latest",
       sourceType,
-      // A <script> body is a Program, not a function body: a browser rejects a
-      // top-level `return` with "Illegal return statement" and never runs the
-      // element. Alpine expressions are the opposite case — Alpine compiles them
-      // inside a function — which is why the expression parser allows it.
       allowReturnOutsideFunction: false,
       allowAwaitOutsideFunction: sourceType === "module",
       allowHashBang: true,
@@ -882,11 +798,6 @@ function findScriptDefect(
   }
 }
 
-/**
- * A truncated string in an inline <script> is the same defect as one in an
- * Alpine attribute and just as invisible: the document parses, the element
- * renders, and the script silently never runs.
- */
 function collectScriptBodyIssues(
   parsed: ParsedDocument,
   locate: Locator,
@@ -917,19 +828,136 @@ function collectScriptBodyIssues(
   return issues;
 }
 
-/**
- * Runs on fragments as well as documents — an unterminated quote is as
- * destructive in a `<template>` snippet as in a full page.
- */
+type CssToken = [type: string, value: string, start?: number, end?: number];
+
+interface CssTokenizer {
+  endOfFile(): boolean;
+  nextToken(): CssToken | undefined;
+}
+
+function ignoreTopLevelHtmlCommentTokens(css: string): string {
+  const input = new CssInput(css, { map: false });
+  const scanner = (tokenizeCss as (input: CssInput) => CssTokenizer)(input);
+  const source = input.css;
+  const tokens: CssToken[] = [];
+  while (!scanner.endOfFile()) {
+    const token = scanner.nextToken();
+    if (!token) break;
+    tokens.push(token);
+  }
+
+  const ignored: Array<[start: number, end: number]> = [];
+  let atRule = false;
+  let braces = 0;
+  let brackets = 0;
+  let betweenRules = true;
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (token[0] === "space" || token[0] === "comment") continue;
+
+    if (braces === 0 && brackets === 0 && betweenRules) {
+      if (token[0] === "word" && token[2] !== undefined) {
+        let cursor = token[2];
+        while (
+          source.startsWith("<!--", cursor) ||
+          source.startsWith("-->", cursor)
+        ) {
+          const length = source.startsWith("<!--", cursor) ? 4 : 3;
+          ignored.push([cursor, cursor + length]);
+          cursor += length;
+        }
+        if (cursor > token[2]) {
+          let resumeIndex = index;
+          while (resumeIndex + 1 < tokens.length) {
+            const next = tokens[resumeIndex + 1]!;
+            if (next[2] === undefined || next[2] >= cursor) break;
+            resumeIndex += 1;
+          }
+          const resume = tokens[resumeIndex]!;
+          const resumeEnd =
+            resume[2] === undefined
+              ? undefined
+              : (resume[3] ?? resume[2] + resume[1].length - 1);
+          if (
+            resume[2] !== undefined &&
+            resume[2] < cursor &&
+            resumeEnd !== undefined &&
+            resumeEnd >= cursor
+          ) {
+            betweenRules = false;
+            atRule = false;
+          }
+          index = resumeIndex;
+          continue;
+        }
+      }
+      betweenRules = false;
+      atRule = token[0] === "at-word";
+    }
+
+    if (token[0] === "[") brackets += 1;
+    else if (token[0] === "]") brackets = Math.max(0, brackets - 1);
+    else if (token[0] === "{" && brackets === 0) braces += 1;
+    else if (token[0] === "}" && brackets === 0 && braces > 0) {
+      braces -= 1;
+      if (braces === 0) {
+        betweenRules = true;
+        atRule = false;
+      }
+    } else if (token[0] === ";" && braces === 0 && brackets === 0 && atRule) {
+      betweenRules = true;
+      atRule = false;
+    }
+  }
+
+  if (ignored.length === 0) return css;
+  const offset = input.hasBOM ? 1 : 0;
+  const characters = css.split("");
+  for (const [start, end] of ignored) {
+    for (let index = start + offset; index < end + offset; index += 1) {
+      characters[index] = " ";
+    }
+  }
+  return characters.join("");
+}
+
+function collectStyleBodyIssues(
+  parsed: ParsedDocument,
+  locate: Locator,
+): DesignHtmlIntegrityIssueDetail[] {
+  const issues: DesignHtmlIntegrityIssueDetail[] = [];
+  for (const element of parsed.elements) {
+    if (element.tagName !== "style") continue;
+    const type = attributeOf(element, "type")?.trim().toLowerCase();
+    if (type && type !== "text/css" && type !== "text/tailwindcss") continue;
+    const body = element.childNodes.find((node) => node.nodeName === "#text");
+    if (!body) continue;
+    const location = body.sourceCodeLocation;
+    const text = location
+      ? parsed.source.slice(location.startOffset, location.endOffset)
+      : (body as DefaultTreeAdapterTypes.TextNode).value;
+    try {
+      parseCss(ignoreTopLevelHtmlCommentTokens(text), { map: false });
+    } catch (error) {
+      if (!(error instanceof CssSyntaxError)) throw error;
+      const start = location?.startOffset ?? 0;
+      issues.push({
+        issue: "style-invalid",
+        ...locate(start + (error.input?.offset ?? 0)),
+        tag: "style",
+        reason: error.reason,
+      });
+    }
+  }
+  return issues;
+}
+
 function collectStructuralIssues(
   value: string,
   parsed = parseDocument(value),
 ): DesignHtmlIntegrityIssueDetail[] {
   const locate = createLocator(value);
-  // Reported alone: everything after an unterminated tag is invented structure.
-  // Cannot be driven off the parser's errors — a runaway attribute quote
-  // swallows markup until a later quote resyncs the tokenizer, which then
-  // finishes the document without complaining.
   const unterminated = findUnterminatedTag(parsed);
   if (unterminated) {
     return [
@@ -953,6 +981,7 @@ function collectStructuralIssues(
     ...collectOrphanEndTags(parsed, locate),
     ...collectExpressionIssues(parsed, locate),
     ...collectScriptBodyIssues(parsed, locate),
+    ...collectStyleBodyIssues(parsed, locate),
   ]
     .sort((left, right) =>
       left.line === right.line
@@ -962,16 +991,8 @@ function collectStructuralIssues(
     .slice(0, MAX_REPORTED_ISSUES);
 }
 
-// ---------------------------------------------------------------------------
-// Document shape
-// ---------------------------------------------------------------------------
-
 const ROOT_TAG_PATTERN = /<\s*(\/?)\s*(html|head|body)\b/gi;
 
-/**
- * The parser merges a second `<html>` into the first and reports nothing, so two
- * full documents concatenated by a bad write are invisible in the tree.
- */
 function countRootTags(
   parsed: ParsedDocument,
 ): Record<"html" | "head" | "body", { open: number; close: number }> {
@@ -998,7 +1019,6 @@ function countRootTags(
   return counts;
 }
 
-/** An authored root, as opposed to one the parser supplied for a fragment. */
 function authoredRoot(
   parsed: ParsedDocument,
   tagName: "html" | "head" | "body",
@@ -1018,6 +1038,18 @@ function hasDoctype(parsed: ParsedDocument): boolean {
 
 function isDocumentHtml(value: string, parsed = parseDocument(value)): boolean {
   return hasDoctype(parsed) || authoredRoot(parsed, "html") !== undefined;
+}
+
+// Each edit's previous content is the last edit's next content, so remembering
+// the verdict spares a full parse of the previous document on every commit.
+const documentVerdicts = memoizeByContent(64, (value: string) =>
+  isDocumentHtml(value),
+);
+function documentHtmlVerdict(value: string, parsed?: ParsedDocument): boolean {
+  if (parsed && !documentVerdicts.has(value)) {
+    documentVerdicts.prime(value, isDocumentHtml(value, parsed));
+  }
+  return documentVerdicts(value);
 }
 
 function collectDocumentShapeIssue(
@@ -1053,10 +1085,6 @@ function collectDocumentShapeIssue(
   return null;
 }
 
-/**
- * A marker that lost its element is not missing — it is sitting in the document
- * as text, which is exactly how a partial edit leaves it.
- */
 function collectManagedMarkerIssue(
   parsed: ParsedDocument,
 ): DesignHtmlIntegrityIssue | null {
@@ -1077,6 +1105,160 @@ function collectManagedMarkerIssue(
   return null;
 }
 
+const X_CLOAK_RULE =
+  /\[x-cloak\][^{}]*\{[^}]*(?:display\s*:\s*none|visibility\s*:\s*hidden|@apply[^;}]*\bhidden\b)/i;
+const ALPINE_RUNTIME = /\balpinejs\b/i;
+const INLINE_PRE_HIDE = /(?:display\s*:\s*none|visibility\s*:\s*hidden)/i;
+
+type RuntimeOwner = "document" | "host";
+
+const EMPTY_X_DATA = /^\s*(?:\{\s*\})?\s*$/;
+
+function bindsAnything(name: string): boolean {
+  return (
+    (name.startsWith("x-") && name !== "x-data") ||
+    name.startsWith(":") ||
+    name.startsWith("@")
+  );
+}
+
+function declaresNoAlpineBehaviour(
+  declared: DefaultTreeAdapterTypes.Element,
+  parsed: ParsedDocument,
+): boolean {
+  const value =
+    declared.attrs.find(
+      (attribute) => attribute.name.toLowerCase() === "x-data",
+    )?.value ?? "";
+  if (!EMPTY_X_DATA.test(value)) return false;
+  return !parsed.elements.some((element) =>
+    element.attrs.some((attribute) =>
+      bindsAnything(attribute.name.toLowerCase()),
+    ),
+  );
+}
+
+function collectInteractiveRuntimeIssues(
+  parsed: ParsedDocument,
+  locate: Locator,
+  runtimeOwner: RuntimeOwner,
+): DesignHtmlIntegrityIssueDetail[] {
+  const ownerOf = (name: string) =>
+    parsed.elements.find((element) =>
+      element.attrs.some((attribute) => attribute.name.toLowerCase() === name),
+    );
+  // `x-data` is the one directive Alpine cannot work without, and it has no
+  // meaning outside Alpine — so it anchors the runtime check without
+  // misreading a `:`/`@` attribute from another framework as Alpine. An EMPTY
+  // scope with no bindings anywhere is the exception: there is no state, so
+  // the absent runtime leaves nothing inert and a hard refusal is wrong.
+  const declared = runtimeOwner === "document" ? ownerOf("x-data") : undefined;
+  const scoped =
+    declared && !declaresNoAlpineBehaviour(declared, parsed)
+      ? declared
+      : undefined;
+  const cloaked = ownerOf("x-cloak");
+  if (!scoped && !cloaked) return [];
+
+  const anchorAt = (
+    element: DefaultTreeAdapterTypes.Element,
+    attributeName: string,
+  ): Omit<DesignHtmlIntegrityIssueDetail, "issue"> => {
+    const at = locate(
+      locationOf(element)?.attrs?.[attributeName]?.startOffset ??
+        locationOf(element)?.startOffset ??
+        0,
+    );
+    return {
+      line: at.line,
+      column: at.column,
+      excerpt: at.excerpt,
+      tag: element.tagName,
+      attribute: attributeName,
+    };
+  };
+
+  const hasAlpineRuntime = parsed.elements.some(
+    (element) =>
+      element.tagName === "script" &&
+      ALPINE_RUNTIME.test(attributeOf(element, "src") ?? ""),
+  );
+
+  const hasUnreadableStylesheet = parsed.elements.some(
+    (element) =>
+      element.tagName === "link" &&
+      /\bstylesheet\b/i.test(attributeOf(element, "rel") ?? "") &&
+      (attributeOf(element, "href") ?? "").trim().length > 0,
+  );
+
+  const hasCloakRule =
+    hasUnreadableStylesheet ||
+    INLINE_PRE_HIDE.test(
+      (cloaked ? attributeOf(cloaked, "style") : "") ?? "",
+    ) ||
+    parsed.elements.some((element) => {
+      if (element.tagName !== "style") return false;
+      const css = childrenOf(element)
+        .filter((node) => node.nodeName === "#text")
+        .map((node) => (node as DefaultTreeAdapterTypes.TextNode).value)
+        .join("\n");
+      return X_CLOAK_RULE.test(css);
+    });
+
+  const runtimeAnchor = scoped ?? cloaked;
+  return [
+    ...(hasAlpineRuntime || !runtimeAnchor
+      ? []
+      : [
+          {
+            issue: "runtime-alpine-missing" as const,
+            ...anchorAt(runtimeAnchor, scoped ? "x-data" : "x-cloak"),
+          },
+        ]),
+    ...(hasCloakRule || !cloaked
+      ? []
+      : [
+          {
+            issue: "runtime-cloak-missing" as const,
+            ...anchorAt(cloaked, "x-cloak"),
+          },
+        ]),
+  ];
+}
+
+function coversViewport(className: string): boolean {
+  const classes = new Set(className.split(/\s+/));
+  const positioned = classes.has("fixed") || classes.has("absolute");
+  const fullBleed =
+    classes.has("inset-0") ||
+    (classes.has("w-screen") && classes.has("h-screen"));
+  return positioned && fullBleed;
+}
+
+function collectOverlayAdvisory(
+  parsed: ParsedDocument,
+  locate: Locator,
+): DesignHtmlIntegrityIssueDetail[] {
+  for (const element of parsed.elements) {
+    const names = new Set(
+      element.attrs.map((attribute) => attribute.name.toLowerCase()),
+    );
+    if (names.has("x-cloak") || !names.has("x-show")) continue;
+    if (!coversViewport(attributeOf(element, "class") ?? "")) continue;
+    if (INLINE_PRE_HIDE.test(attributeOf(element, "style") ?? "")) continue;
+
+    return [
+      {
+        issue: "runtime-overlay-unhidden",
+        ...locate(locationOf(element)?.startOffset ?? 0),
+        tag: element.tagName,
+        attribute: "x-show",
+      },
+    ];
+  }
+  return [];
+}
+
 /**
  * Reported, never enforced: legitimate fragments and token-only screens carry no
  * runtime of their own, so blocking here would reject valid work.
@@ -1085,9 +1267,16 @@ function collectAdvisoryIssues(
   parsed: ParsedDocument,
   locate: Locator,
 ): DesignHtmlIntegrityIssueDetail[] {
-  // Only documents that actually depend on utility classes can be broken by a
-  // missing runtime. A screen styled entirely through its own CSS needs no
-  // Tailwind, and flagging it would train authors to ignore this warning.
+  return [
+    ...collectOverlayAdvisory(parsed, locate),
+    ...collectTailwindRuntimeAdvisory(parsed, locate),
+  ];
+}
+
+function collectTailwindRuntimeAdvisory(
+  parsed: ParsedDocument,
+  locate: Locator,
+): DesignHtmlIntegrityIssueDetail[] {
   if (!USES_TAILWIND_UTILITIES.test(parsed.source)) return [];
   const hasRuntime = parsed.elements.some((element) => {
     if (element.tagName === "script") {
@@ -1114,21 +1303,12 @@ function collectAdvisoryIssues(
   ];
 }
 
-/**
- * Validate one complete Design HTML document. The HTML5 parser is the tokenizer,
- * but never the verdict: it repairs the missing roots and unbalanced elements
- * this guard exists to catch, so the checks read its tree and its parse errors
- * rather than trusting that it produced a document.
- */
 export function inspectDesignHtmlDocumentIntegrity(
   value: string,
+  parsed: ParsedDocument = parseDocument(value),
 ): DesignHtmlIntegrityResult {
-  const parsed = parseDocument(value);
   const locate = createLocator(value);
 
-  // Structure first. An unterminated quote swallows the root tags, so a
-  // shape-first order would report `document-root` — sending the fix to an
-  // `<html>` tag that is present and correct instead of to the quote.
   const structural = collectStructuralIssues(value, parsed);
   if (structural.length > 0) {
     return { valid: false, issue: structural[0]!.issue, detail: structural };
@@ -1142,29 +1322,76 @@ export function inspectDesignHtmlDocumentIntegrity(
   const marker = collectManagedMarkerIssue(parsed);
   if (marker) return { valid: false, issue: marker };
 
+  const interactiveRuntime = collectInteractiveRuntimeIssues(
+    parsed,
+    locate,
+    "document",
+  );
+  if (interactiveRuntime.length > 0) {
+    return {
+      valid: false,
+      issue: interactiveRuntime[0]!.issue,
+      detail: interactiveRuntime,
+    };
+  }
+
   const advisory = collectAdvisoryIssues(parsed, locate);
   return advisory.length > 0 ? { valid: true, advisory } : { valid: true };
 }
 
-/**
- * Fail closed only for document edits. Standalone Alpine fragments remain
- * supported. Existing malformed documents can still be repaired: a candidate
- * is accepted when it is valid, but an edit may never introduce or preserve a
- * malformed complete-document candidate.
- */
+const RUNTIME_ISSUES: ReadonlySet<DesignHtmlIntegrityIssue> = new Set([
+  "runtime-alpine-missing",
+  "runtime-cloak-missing",
+]);
+
+function introducedRuntimeIssues(
+  next: DesignHtmlIntegrityIssueDetail[],
+  previousContent: string,
+  runtimeOwner: RuntimeOwner,
+): DesignHtmlIntegrityIssueDetail[] {
+  if (next.length === 0 || !previousContent.trim()) return next;
+  const inherited = new Set(
+    collectInteractiveRuntimeIssues(
+      parseDocument(previousContent),
+      createLocator(previousContent),
+      runtimeOwner,
+    ).map((entry) => entry.issue),
+  );
+  return next.filter((entry) => !inherited.has(entry.issue));
+}
+
+// An edit the code-layer patcher accepts (one style value or one text run)
+// inherits the previous verdict: it cannot introduce any issue reported here,
+// except restyling an x-cloak element, whose inline style can be its pre-hide.
+const VALIDATED_CONTENT_LIMIT = 64;
+const validatedContents = new Set<string>();
+let validatedChars = 0;
+
+function rememberValidatedContent(content: string): void {
+  if (validatedContents.delete(content)) validatedChars -= content.length;
+  validatedContents.add(content);
+  validatedChars += content.length;
+  while (
+    validatedContents.size > 1 &&
+    (validatedContents.size > VALIDATED_CONTENT_LIMIT ||
+      validatedChars > MAX_CACHED_CONTENT_CHARS)
+  ) {
+    const oldest = validatedContents.values().next().value as string;
+    validatedContents.delete(oldest);
+    validatedChars -= oldest.length;
+  }
+}
+
+export function _validatedContentCountForTests(): number {
+  return validatedContents.size;
+}
+
 export function assertDesignHtmlEditIntegrity(args: {
   previousContent: string;
   nextContent: string;
   fileType: string;
   filename?: string;
 }): void {
-  // Checked before the fileType gate and before any document-shape reasoning:
-  // a URL-backed screen's stored content is a route, not markup, so none of
-  // the rules below can see the damage. Concatenating a serialized subtree
-  // onto the route still parses as a URL to `new URL()` and still balances as
-  // a fragment, so every other pass here says "valid" while the screen's live
-  // binding is destroyed for good. Re-pointing the route (URL -> URL) stays
-  // allowed; only URL -> markup is the one-way door.
   if (
     isStandaloneHttpUrl(args.previousContent) &&
     !isStandaloneHttpUrl(args.nextContent)
@@ -1174,16 +1401,57 @@ export function assertDesignHtmlEditIntegrity(args: {
     });
   }
   if (args.fileType.toLowerCase() !== "html") return;
-  const previousIsDocument = isDocumentHtml(args.previousContent);
-  const nextIsDocument = isDocumentHtml(args.nextContent);
-  // Fragments still get the structural pass; only the document-shape checks
-  // below need a document to apply to.
+  const edit = validatedContents.has(args.previousContent)
+    ? structurePreservingEditTarget(args.previousContent, args.nextContent)
+    : null;
+  if (!edit || (edit.openingTag && edit.attributeNames.includes("x-cloak"))) {
+    assertDesignHtmlEditIntegrityOfHtml(args);
+  }
+  assertNativeEffectManifestIntegrity(args.nextContent, args.filename);
+  rememberValidatedContent(args.nextContent);
+}
+
+function assertNativeEffectManifestIntegrity(
+  content: string,
+  filename?: string,
+): void {
+  if (!content.includes(NATIVE_EFFECT_SCRIPT_TYPE)) return;
+  if (parseEffectsFromHtml(content).errors.length) {
+    throw new DesignHtmlIntegrityError("native-effect-manifest-invalid", {
+      filename,
+    });
+  }
+}
+
+function assertDesignHtmlEditIntegrityOfHtml(args: {
+  previousContent: string;
+  nextContent: string;
+  filename?: string;
+}): void {
+  const nextParsed = parseDocument(args.nextContent);
+  const previousIsDocument = documentHtmlVerdict(args.previousContent);
+  const nextIsDocument = documentHtmlVerdict(args.nextContent, nextParsed);
   if (!previousIsDocument && !nextIsDocument) {
-    const structural = collectStructuralIssues(args.nextContent);
+    const structural = collectStructuralIssues(args.nextContent, nextParsed);
     if (structural.length > 0) {
       throw new DesignHtmlIntegrityError(structural[0]!.issue, {
         filename: args.filename,
         detail: structural,
+      });
+    }
+    const interactiveRuntime = introducedRuntimeIssues(
+      collectInteractiveRuntimeIssues(
+        nextParsed,
+        createLocator(args.nextContent),
+        "host",
+      ),
+      args.previousContent,
+      "host",
+    );
+    if (interactiveRuntime.length > 0) {
+      throw new DesignHtmlIntegrityError(interactiveRuntime[0]!.issue, {
+        filename: args.filename,
+        detail: interactiveRuntime,
       });
     }
     return;
@@ -1193,8 +1461,23 @@ export function assertDesignHtmlEditIntegrity(args: {
       filename: args.filename,
     });
   }
-  const result = inspectDesignHtmlDocumentIntegrity(args.nextContent);
+  const result = inspectDesignHtmlDocumentIntegrity(
+    args.nextContent,
+    nextParsed,
+  );
   if (!result.valid) {
+    if (result.issue && RUNTIME_ISSUES.has(result.issue)) {
+      const introduced = introducedRuntimeIssues(
+        result.detail ?? [],
+        args.previousContent,
+        "document",
+      );
+      if (introduced.length === 0) return;
+      throw new DesignHtmlIntegrityError(introduced[0]!.issue, {
+        filename: args.filename,
+        detail: introduced,
+      });
+    }
     throw new DesignHtmlIntegrityError(result.issue ?? "document-root", {
       filename: args.filename,
       detail: result.detail,
@@ -1202,19 +1485,6 @@ export function assertDesignHtmlEditIntegrity(args: {
   }
 }
 
-/**
- * Creation counterpart to the edit transition above. Every creation path must
- * run this, or a design's first save is the one write with no gate at all.
- *
- * Returns advisory issues for the caller to surface; throws on anything
- * blocking.
- */
-/**
- * Well-formedness only — no document-shape rules. For markup that is not
- * required to be a complete screen, such as a variant sketch, where `<html>` and
- * `<body>` are legitimately implied. Unbalanced tags are defects at any level of
- * completeness; a missing skeleton is not.
- */
 export function assertDesignHtmlWellFormed(args: {
   content: string;
   filename?: string;
@@ -1227,6 +1497,17 @@ export function assertDesignHtmlWellFormed(args: {
       detail: structural,
     });
   }
+  const interactiveRuntime = collectInteractiveRuntimeIssues(
+    parseDocument(args.content),
+    createLocator(args.content),
+    "host",
+  );
+  if (interactiveRuntime.length > 0) {
+    throw new DesignHtmlIntegrityError(interactiveRuntime[0]!.issue, {
+      filename: args.filename,
+      detail: interactiveRuntime,
+    });
+  }
 }
 
 export function assertDesignHtmlCreateIntegrity(args: {
@@ -1236,6 +1517,7 @@ export function assertDesignHtmlCreateIntegrity(args: {
 }): DesignHtmlIntegrityIssueDetail[] {
   if ((args.fileType || "html").toLowerCase() !== "html") return [];
   if (!args.content.trim()) return [];
+  assertNativeEffectManifestIntegrity(args.content, args.filename);
   const result = inspectDesignHtmlDocumentIntegrity(args.content);
   if (!result.valid) {
     throw new DesignHtmlIntegrityError(result.issue ?? "document-root", {

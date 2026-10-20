@@ -23,6 +23,7 @@ import {
   builderBodyChangeForUnsourcedLocalCreate,
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
+  builderBodyHydrationNextAttemptAt,
   builderBodyNeedsSourceComponentWrite,
   knownBuilderReviewDocumentIds,
   builderSourcePropertyAssignments,
@@ -34,7 +35,6 @@ import {
   builderBodyBaselineHasSameVersionConflict,
   builderAuthoritativeRawBodyHash,
   builderBodyHydrationBulkChunkLimit,
-  bulkChunkSizeForColumnCount,
   builderCmsEntryAlreadyRepresented,
   builderCmsSourceContinuationIsCurrent,
   builderExecutionIsProvablyLocallyBlockedUnsent,
@@ -49,6 +49,7 @@ import {
   normalizeSourceFreshness,
   refreshBuilderBodySourceValuesFromStoredLossless,
   serializeBuilderCmsSourceReadMetadataRecord,
+  serializeSourceField,
   serializeSourceMetadataRecord,
   sourceSnapshotValuesJsonProjectionSql,
   sourceSnapshotDocumentSelection,
@@ -286,18 +287,8 @@ describe("database source helpers", () => {
     }
   });
 
-  it("sizes bulk chunks from the D1 parameter budget and column count", () => {
-    expect(bulkChunkSizeForColumnCount(15, "d1")).toBe(6);
-    expect(bulkChunkSizeForColumnCount(13, "d1")).toBe(6);
-    expect(bulkChunkSizeForColumnCount(2, "d1")).toBe(45);
-    expect(bulkChunkSizeForColumnCount(1, "d1")).toBe(90);
-    expect(bulkChunkSizeForColumnCount(15, "postgres")).toBe(60);
-  });
-
   it("uses one fewer transaction for the 584-row Postgres hydration case", () => {
-    expect(builderBodyHydrationBulkChunkLimit("postgres")).toBe(200);
-    expect(builderBodyHydrationBulkChunkLimit("sqlite")).toBe(112);
-    expect(builderBodyHydrationBulkChunkLimit("d1")).toBe(11);
+    expect(builderBodyHydrationBulkChunkLimit()).toBe(200);
   });
 
   it("serializes queued Builder body hydration with an unset item status as pending", () => {
@@ -318,6 +309,32 @@ describe("database source helpers", () => {
     expect(normalizeSourceFreshness("fresh")).toBe("fresh");
     expect(normalizeSourceFreshness("stale")).toBe("stale");
     expect(normalizeSourceFreshness("mysterious fog")).toBe("unknown");
+  });
+
+  it("rejects unreadable source field write policy during serialization", () => {
+    const row = {
+      id: "field-1",
+      propertyId: "property-1",
+      localFieldKey: "property-1",
+      sourceFieldKey: "field",
+      sourceFieldLabel: "Field",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "unknown",
+      readOnly: 0,
+      provenance: "test",
+      freshness: "fresh",
+      lastSyncedAt: null,
+    };
+    expect(() => serializeSourceField(row as never, "Field")).toThrow(
+      "Invalid Content source field write owner: unknown",
+    );
+    expect(() =>
+      serializeSourceField(
+        { ...row, writeOwner: "local", readOnly: 2 } as never,
+        "Field",
+      ),
+    ).toThrow("Invalid Content source field read-only value: 2");
   });
 
   it("omits heavy Builder body payloads from read snapshots", () => {
@@ -342,11 +359,7 @@ describe("database source helpers", () => {
   });
 
   it("strips heavy Builder bodies in the database snapshot projection", () => {
-    const sqliteProjection = sourceSnapshotValuesJsonProjectionSql("sqlite");
-    const postgresProjection =
-      sourceSnapshotValuesJsonProjectionSql("postgres");
-
-    expect(sqliteProjection).toContain("json_remove");
+    const postgresProjection = sourceSnapshotValuesJsonProjectionSql();
     expect(postgresProjection).toContain("::jsonb");
     for (const key of [
       BUILDER_CMS_BODY_CONTENT_KEY,
@@ -354,7 +367,6 @@ describe("database source helpers", () => {
       BUILDER_CMS_BODY_READABLE_MAP_KEY,
       BUILDER_CMS_BODY_SIDECARS_KEY,
     ]) {
-      expect(sqliteProjection).toContain(key);
       expect(postgresProjection).toContain(key);
     }
   });
@@ -875,6 +887,16 @@ describe("database source helpers", () => {
     expect(builderBodyHydrationAttemptIsTerminal(5)).toBe(true);
   });
 
+  it("backs Builder body retries off without exceeding five minutes", () => {
+    const attemptedAt = "2026-08-21T12:00:00.000Z";
+    expect(builderBodyHydrationNextAttemptAt(1, attemptedAt)).toBe(
+      "2026-08-21T12:00:30.000Z",
+    );
+    expect(builderBodyHydrationNextAttemptAt(5, attemptedAt)).toBe(
+      "2026-08-21T12:05:00.000Z",
+    );
+  });
+
   it("prioritizes opened Builder body hydration ahead of background work", () => {
     expect(
       builderBodyHydrationPriorityForRequest({ documentId: "doc-open" }),
@@ -1148,6 +1170,83 @@ describe("database source helpers", () => {
     expect(change).toBeNull();
   });
 
+  it("does not restage converter-owned media for a current-codec hydrated baseline", async () => {
+    const localContent = "![Current](https://cdn.example.com/current.png)";
+    const change = await builderBodyChangeForLocalContent({
+      row: {
+        sourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "builder-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: localContent,
+        }),
+      },
+      localContent,
+      usesCurrentHydrationCodec: true,
+    });
+
+    expect(change).toBeNull();
+  });
+
+  it("merges current-codec media edits through the escaped lossless baseline", async () => {
+    const entry = await withBuilderBodySourceValues({
+      id: "current-codec-media-edit",
+      model: "blog-article",
+      title: "Current codec media edit",
+      urlPath: "/blog/current-codec-media-edit",
+      updatedAt: "2026-08-13T00:00:00.000Z",
+      sourceValues: { "data.title": "Current codec media edit" },
+      rawEntry: {
+        id: "current-codec-media-edit",
+        model: "blog-article",
+        data: {
+          title: "Current codec media edit",
+          blocks: [
+            {
+              "@type": "@builder.io/sdk:Element",
+              "@version": 2,
+              id: "text-with-braces",
+              component: {
+                name: "Text",
+                options: { text: "<p>Use {curly} braces.</p>" },
+              },
+            },
+            {
+              "@type": "@builder.io/sdk:Element",
+              "@version": 2,
+              id: "current-image",
+              component: {
+                name: "Image",
+                options: {
+                  image: "https://cdn.example.com/current.png",
+                  altText: "Current",
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+    const currentContent = String(
+      typeof entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] === "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]
+        : (JSON.stringify(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]) ??
+            ""),
+    );
+    const change = await builderBodyChangeForLocalContent({
+      row: { sourceValuesJson: JSON.stringify(entry.sourceValues) },
+      localContent: currentContent.replace(
+        "Use {curly} braces.",
+        "Use {curly} braces. violet canary",
+      ),
+      usesCurrentHydrationCodec: true,
+    });
+
+    expect(change).toMatchObject({
+      summary: "Builder body blocks changed.",
+      warnings: [],
+    });
+    expect(change?.proposedBlocksJson).toContain("violet canary");
+  });
+
   it("stages Quiet Comet converter-only native media drift once, then reaches a fixpoint", async () => {
     const localContent = [
       "![Quiet Comet](https://cdn.example.com/quiet-comet.png)",
@@ -1300,9 +1399,18 @@ describe("database source helpers", () => {
         },
       },
     });
-    const content = String(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]);
+    const content =
+      typeof entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] === "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]
+        : (JSON.stringify(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]) ??
+          "");
     const losslessContent = String(
-      entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+      typeof entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY] ===
+        "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]
+        : (JSON.stringify(
+            entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+          ) ?? ""),
     );
 
     expect(content).toContain("<5");
@@ -1373,7 +1481,11 @@ describe("database source helpers", () => {
     }>;
     const textHtml = blocks
       .filter((block) => block.component?.name === "Text")
-      .map((block) => String(block.component?.options?.text ?? ""))
+      .map((block) =>
+        typeof block.component?.options?.text === "string"
+          ? block.component.options.text
+          : (JSON.stringify(block.component?.options?.text ?? "") ?? ""),
+      )
       .join("\n");
     const image = blocks.find(
       (block) => block.component?.name === "Image",
@@ -1596,7 +1708,6 @@ describe("database source helpers", () => {
         },
       ],
     });
-    // The already-linked row with no title change yields nothing.
     expect(
       pending.find((cs) => cs.documentId === "doc-linked"),
     ).toBeUndefined();
@@ -1870,7 +1981,7 @@ describe("database source helpers", () => {
           sourceFieldType: "list",
           propertyOptions: {
             options: [
-              { id: "agent-native", name: "Agent Native", color: "blue" },
+              { id: "agent-native", name: "Agent-Native", color: "blue" },
               { id: "builder-sync", name: "Builder Sync", color: "green" },
             ],
           },
@@ -1899,8 +2010,8 @@ describe("database source helpers", () => {
         }),
         expect.objectContaining({
           sourceFieldKey: "data.tags",
-          proposedValue: ["Agent Native", "Builder Sync"],
-          builderValueJson: JSON.stringify(["Agent Native", "Builder Sync"]),
+          proposedValue: ["Agent-Native", "Builder Sync"],
+          builderValueJson: JSON.stringify(["Agent-Native", "Builder Sync"]),
         }),
       ]),
     );
@@ -2055,8 +2166,6 @@ describe("database source helpers", () => {
         { databaseItemId: "item-mine", documentId: "doc-mine" },
         { databaseItemId: "item-other", documentId: "doc-other" },
       ],
-      // doc-other is owned by a different source — it must not become a create
-      // candidate for this one, even though it isn't in this source's rowRows.
       otherSourceDocumentIds: new Set(["doc-other"]),
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
@@ -2065,8 +2174,6 @@ describe("database source helpers", () => {
   });
 
   it("a non-primary source adopts a row tagged for it via the Source property", () => {
-    // A new, unlinked row tagged for "source-zz" must create against zz even
-    // though zz is not the primary (allowUnsourcedCreates: false).
     const pending = buildBuilderLocalOutboundChangeSets({
       source: { sourceType: "builder-cms", id: "source-zz" },
       rowRows: [],
@@ -2086,8 +2193,6 @@ describe("database source helpers", () => {
       ]),
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
-    // zz adopts its own tagged row; the row tagged for another collection is
-    // left alone even though this is the non-primary source.
     expect(pending.find((cs) => cs.documentId === "doc-zz")).toBeDefined();
     expect(pending.find((cs) => cs.documentId === "doc-blog")).toBeUndefined();
   });
@@ -2103,14 +2208,12 @@ describe("database source helpers", () => {
       ],
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0];
 
-    // A non-primary source leaves an unsourced "Local" row alone.
     expect(
       buildBuilderLocalOutboundChangeSets({
         ...args,
         allowUnsourcedCreates: false,
       }),
     ).toHaveLength(0);
-    // The primary (default) adopts it as a create_draft.
     expect(
       buildBuilderLocalOutboundChangeSets({
         ...args,

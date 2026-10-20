@@ -1,10 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import {
-  listAutomationDefinitions,
-  queueAutomationRunNow,
-} from "@agent-native/core/triggers";
+import { queueAutomationRunNow } from "@agent-native/core/triggers";
 import { z } from "zod";
 
+import { findFactoryAutomationDefinition } from "../server/lib/factory-automation-resources.js";
+import { factoryIdSchema } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -15,28 +14,27 @@ export default defineAction({
     "Queue one organization-scoped Factory automation for an immediate run and return its durable run id.",
   agentTool: false,
   schema: z.object({
-    factoryId: z.string().trim().min(1).optional(),
+    factoryId: factoryIdSchema,
     automationId: z.string().trim().min(1),
   }),
   http: { method: "POST" },
-  run: async ({ automationId }, context) => {
+  run: async ({ factoryId, automationId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    const definitions = await listAutomationDefinitions(
-      { userEmail, orgId },
-      "organization",
-    );
-    const definition = definitions.find(
-      (entry) =>
-        entry.meta.domain === "factory" && entry.resource.id === automationId,
+    const definition = await findFactoryAutomationDefinition(
+      orgId,
+      factoryId,
+      automationId,
     );
     if (!definition) throw new Error("Factory automation not found.");
     return queueAutomationRunNow({
       userEmail,
       orgId,
+      appId: "factory",
       scope: "organization",
-      name: definition.name,
+      path: definition.resource.path,
+      requestHeaders: context?.requestHeaders,
     });
   },
 });

@@ -89,7 +89,7 @@ export function TaskListRow({
       onAnimationEnd={completion.handleRowAnimationEnd}
       dataAttributes={{ "data-task-id": item.id }}
       className={cn(
-        "will-change-[opacity,transform]",
+        completionPhase !== "idle" && "will-change-[opacity,transform]",
         displayDone && completionPhase === "idle" && !selected && "opacity-60",
         completionPhase === "completing" &&
           hideAfterComplete &&

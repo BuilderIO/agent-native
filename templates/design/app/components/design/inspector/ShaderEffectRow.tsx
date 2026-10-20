@@ -34,7 +34,6 @@ export function ShaderEffectRow({
 }: ShaderEffectRowProps) {
   const preset = SHADER_PRESET_MAP[descriptor.preset];
 
-  // Resolve swatch color: first color in the palette, or preset default, or gray
   const swatchColor =
     descriptor.colors?.[0] ??
     preset?.defaultColors?.[0] ??
@@ -64,7 +63,7 @@ export function ShaderEffectRow({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex-1 truncate text-left text-xs text-foreground hover:text-foreground/80 focus:outline-none"
+                className="design-sidebar-control-text flex-1 truncate text-left text-foreground hover:text-foreground/80 focus:outline-none"
               >
                 {label}
               </button>

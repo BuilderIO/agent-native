@@ -1,5 +1,5 @@
-import { focusAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -186,7 +186,6 @@ export function TaskList({
         <div className="flex min-h-0 flex-col gap-6 overflow-hidden">
           <ListViewHeader
             title={t("tasks.pageTitle")}
-            description={t("tasks.pageDescription")}
             isPending={isPending}
             showSelectToggle={hasTasks}
             selection={selection}

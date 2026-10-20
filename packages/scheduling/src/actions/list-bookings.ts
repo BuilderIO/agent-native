@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { listBookings } from "../server/bookings-repo.js";
@@ -17,10 +17,6 @@ export default defineAction({
     from: z.string().optional(),
     to: z.string().optional(),
     limit: z.number().optional(),
-    /**
-     * If true, narrow to bookings where you are the host. Defaults to false
-     * so org-shared bookings + bookings shared with you appear too.
-     */
     onlyMine: z.boolean().optional().default(false),
   }),
   run: async (args) => {

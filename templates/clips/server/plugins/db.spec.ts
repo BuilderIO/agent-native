@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 import { describe, expect, it } from "vitest";
 
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+
 import * as schema from "../db/schema";
+import { getRecordingAccessTokenResourceId } from "../lib/share-password.js";
 
 /**
  * Regression guard, mirroring templates/analytics/server/plugins/db.spec.ts.
@@ -23,6 +29,10 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const failureBackfillSource = readFileSync(
+  new URL("../jobs/recording-failure-backfill.ts", import.meta.url),
+  "utf8",
+);
 
 interface DrizzleColumn {
   name: string;
@@ -36,8 +46,6 @@ function isDrizzleTable(value: unknown): value is DrizzleTable {
   return (
     !!value &&
     typeof value === "object" &&
-    // Drizzle tables carry a Symbol-keyed metadata bag; plain exports (types,
-    // functions) don't.
     Object.getOwnPropertySymbols(value).some((s) =>
       s.toString().includes("drizzle"),
     )
@@ -51,15 +59,6 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
   );
 }
 
-/**
- * Pre-existing schema.ts columns with zero mentions in db.ts migrations,
- * found while adding this guard. None of these are introduced by this
- * change — they predate it. `ensureAdditiveColumns` patches any of these
- * that are actually missing from a live table at boot, so leaving them
- * unasserted here does not reintroduce the swallowed-migration failure mode;
- * it just means this specific regex guard doesn't cover them. Reported to
- * the task owner for follow-up rather than silently asserted away.
- */
 const KNOWN_COVERAGE_DRIFT = new Set<string>([]);
 
 describe("clips db migrations cover every schema.ts column", () => {
@@ -80,30 +79,7 @@ describe("clips db migrations cover every schema.ts column", () => {
   }
 });
 
-/**
- * Guard for the name-based migration tracking convention (see the
- * `runMigrations` doc comment in packages/core/src/db/migrations.ts for the
- * full rationale — this is the fix for the shared-DB version-collision
- * failure class, confirmed live on this template's own database: v41 was
- * recorded as applied in `clips_migrations` yet none of its 8 indexes
- * existed on the live table).
- *
- * Extracts every `{ version: N, ... }` migration entry from the raw db.ts
- * source (matching the exact object-literal shape this file uses: `version:`
- * immediately followed, a few lines later, by an optional `name: "..."`) and
- * asserts:
- *
- *   (a) every declared `name` is unique across the whole list, and
- *   (b) every entry whose version is > 44 (the template's own max
- *       pre-existing version, i.e. every migration going forward) has a
- *       `name`.
- */
 describe("clips db.ts migration entries follow the naming convention", () => {
-  // Matches one migration entry's `version: N` followed later (before the
-  // next `version:`) by an optional `name: "..."`. Entries in this file are
-  // written as `{ version: N, [name: "...",] sql: ... }`, so scanning for
-  // `version:` occurrences and capturing an optional immediately-following
-  // `name:` is sufficient without a full parser.
   const entryRe = /version:\s*(\d+),\s*(?:name:\s*"([^"]+)",\s*)?/g;
 
   function extractEntries(source: string): Array<{
@@ -155,6 +131,96 @@ describe("recording viewer identity migration", () => {
   });
 });
 
+describe("recording share password version migration", () => {
+  it("preserves existing passwordless token scopes and defaults new rows", () => {
+    expect(dbTsSource).toMatch(
+      /version:\s*77,\s*name:\s*"recording-share-password-version"/,
+    );
+    expect(dbTsSource).toMatch(
+      /ALTER TABLE recordings ADD COLUMN IF NOT EXISTS share_password_version TEXT/,
+    );
+    expect(dbTsSource).toContain(
+      "SET share_password_version = ''''legacy:'''' || updated_at",
+    );
+    expect(dbTsSource).toContain(
+      "ALTER COLUMN share_password_version SET DEFAULT ''''initial''''",
+    );
+    expect(dbTsSource).toContain(
+      "CREATE OR REPLACE FUNCTION public.clips_recordings_rotate_share_password_version()",
+    );
+    expect(dbTsSource).toContain(
+      "BEFORE UPDATE OF password ON public.recordings",
+    );
+  });
+
+  it("rotates the legacy scope when an older writer changes a password", async () => {
+    const migrationSql = dbTsSource.match(
+      /version:\s*77,\s*name:\s*"recording-share-password-version"[\s\S]*?sql:\s*`([\s\S]*?)`/,
+    )?.[1];
+    expect(migrationSql).toBeTruthy();
+    expect(migrationSql?.trim()).toMatch(/^DO 'BEGIN[\s\S]*END';?$/);
+
+    const db = await PGlite.create("memory://");
+    try {
+      await db.exec(`
+        CREATE TABLE public.recordings (
+          id TEXT PRIMARY KEY,
+          password TEXT,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO public.recordings (id, password, updated_at)
+        VALUES ('rec-1', NULL, '2026-01-01T00:00:00.000Z');
+        ${migrationSql}
+      `);
+
+      const before = await db.query(
+        "SELECT share_password_version FROM public.recordings WHERE id = 'rec-1'",
+      );
+      expect(before.rows[0]?.share_password_version).toBe(
+        "legacy:2026-01-01T00:00:00.000Z",
+      );
+      expect(
+        getRecordingAccessTokenResourceId(
+          "rec-1",
+          null,
+          String(before.rows[0]?.share_password_version),
+        ),
+      ).toBe("rec-1");
+
+      await db.query(
+        "INSERT INTO public.recordings (id, password, updated_at) VALUES ('rec-2', NULL, '2026-01-01T00:00:00.000Z')",
+      );
+      const newRecording = await db.query(
+        "SELECT share_password_version FROM public.recordings WHERE id = 'rec-2'",
+      );
+      expect(newRecording.rows[0]?.share_password_version).toBe("initial");
+
+      await db.query(
+        "UPDATE public.recordings SET password = 'old-writer-password', updated_at = '2026-01-02T00:00:00.000Z' WHERE id = 'rec-1'",
+      );
+      await db.query(
+        "UPDATE public.recordings SET password = NULL, updated_at = '2026-01-03T00:00:00.000Z' WHERE id = 'rec-1'",
+      );
+
+      const after = await db.query(
+        "SELECT share_password_version FROM public.recordings WHERE id = 'rec-1'",
+      );
+      expect(String(after.rows[0]?.share_password_version)).not.toMatch(
+        /^legacy:/,
+      );
+      expect(
+        getRecordingAccessTokenResourceId(
+          "rec-1",
+          null,
+          String(after.rows[0]?.share_password_version),
+        ),
+      ).not.toBe("rec-1");
+    } finally {
+      await db.close();
+    }
+  });
+});
+
 describe("organization recording visibility default migration", () => {
   it("promotes untouched legacy private defaults without overwriting explicit choices", () => {
     expect(dbTsSource).toContain('name: "clips-public-organization-default"');
@@ -167,15 +233,78 @@ describe("organization recording visibility default migration", () => {
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap at boot. This asserts db.ts actually wires it in — after the
- * migrations plugin function completes so hand-written migrations stay
- * authoritative — not just that the regex guard above passes.
- */
+describe("recording failure code migration", () => {
+  it("maps legacy reasons in bounded recurring batches after adding columns", () => {
+    expect(failureBackfillSource).toContain(
+      "failure_code = ${LEGACY_FAILURE_CODE_CASE}",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason IN ('Recording cancelled by user', 'Recording cancelled during countdown', 'Upload cancelled') THEN 'user_cancelled'",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason = 'Upload stopped sending data before the recording finished saving.' THEN 'upload_timed_out'",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason LIKE 'Video storage could not start an upload: S3 CreateMultipartUpload failed%' THEN 'multipart_start_failed'",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason LIKE 'Video storage is not connected yet%' THEN 'storage_setup_required'",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason ILIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason ILIKE 'Couldn''t prepare the recording for re-upload (reset-chunks %). <!DOCTYPE html>%' THEN 'chunk_html_error'",
+    );
+    expect(failureBackfillSource).toContain("ELSE 'unknown'");
+    const backfillUpdate = failureBackfillSource.slice(
+      failureBackfillSource.indexOf("sql: `UPDATE recordings SET"),
+    );
+    const outerUpdatePredicate = backfillUpdate.slice(
+      backfillUpdate.indexOf("ORDER BY id LIMIT $2"),
+      backfillUpdate.indexOf("RETURNING id"),
+    );
+    expect(outerUpdatePredicate).toContain("AND status = 'failed'");
+    expect(outerUpdatePredicate).toContain(
+      "AND ${NEEDS_FAILURE_CODE_BACKFILL}",
+    );
+    expect(failureBackfillSource).toContain(
+      "const NEEDS_FAILURE_CODE_BACKFILL =",
+    );
+    expect(failureBackfillSource).toContain("failure_code IS NULL");
+    expect(failureBackfillSource).toContain("failure_code = 'unknown'");
+    expect(failureBackfillSource).toContain(
+      "failure_code IS DISTINCT FROM (${LEGACY_FAILURE_CODE_CASE})",
+    );
+    expect(failureBackfillSource).toContain("ORDER BY id LIMIT $2");
+    expect(failureBackfillSource).toContain("BATCH_SIZE = 250");
+    expect(failureBackfillSource).toContain("SWEEP_INTERVAL_MS = 60_000");
+    expect(failureBackfillSource).toContain(
+      "export async function runRecordingFailureBackfillOnce",
+    );
+    expect(dbTsSource).not.toContain("scheduleRecordingFailureBackfill");
+    const migrationStart = dbTsSource.indexOf(
+      'name: "recording-failure-codes-platform"',
+    );
+    const migrationEnd = dbTsSource.indexOf("version:", migrationStart + 10);
+    const failureMigration = dbTsSource.slice(migrationStart, migrationEnd);
+    expect(failureMigration).toContain(
+      "ADD COLUMN IF NOT EXISTS failure_code TEXT",
+    );
+    expect(failureMigration).toContain(
+      "ADD COLUMN IF NOT EXISTS recording_platform TEXT",
+    );
+    expect(failureMigration).not.toMatch(/UPDATE recordings/i);
+    expect(dbTsSource).toMatch(
+      /version: 75,[\s\S]*?name: "recording-failure-backfill-cursor"[\s\S]*?ADD COLUMN IF NOT EXISTS cursor_id TEXT/,
+    );
+    expect(dbTsSource).toMatch(
+      /version: 76,[\s\S]*?name: "recording-failure-backfill-completion"[\s\S]*?ADD COLUMN IF NOT EXISTS completed_at TEXT/,
+    );
+    expect(failureBackfillSource).not.toContain("'Upload aborted by user'");
+  });
+});
+
 describe("clips db.ts wires ensureAdditiveColumns after migrations", () => {
   it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
     expect(dbTsSource).toMatch(
@@ -190,8 +319,6 @@ describe("clips db.ts wires ensureAdditiveColumns after migrations", () => {
     expect(ensureCallIdx).toBeGreaterThan(-1);
     expect(ensureCallIdx).toBeGreaterThan(migrationsCallIdx);
 
-    // The migrations plugin function must be awaited before
-    // ensureAdditiveColumns runs, not just textually after it.
     expect(dbTsSource).toMatch(
       /await\s+migrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
     );

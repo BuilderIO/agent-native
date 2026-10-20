@@ -3,19 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   applyPlanContentPatches,
   planContentSchema,
+  planContentPatchesSchema,
+  storedPlanContentSchema,
   type PlanContent,
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
-
-/**
- * Adversarial coverage for the editing + content-patch surface
- * (applyPlanContentPatches + every patch op). The goal is to break it:
- * missing/wrong ids, wrong block types, duplicate-id creation, sanitization
- * on patched html, idempotency, patch-order dependence, and deeply nested tabs.
- *
- * Bugs are pinned with FAILING expectations and reported; fixes are coordinated
- * in a later phase.
- */
 
 function findWireframeNode(
   nodes: PlanWireframeNode[],
@@ -29,7 +21,6 @@ function findWireframeNode(
   return null;
 }
 
-/** A minimal valid plan with a couple of addressable blocks. */
 function basePlan(): PlanContent {
   return planContentSchema.parse({
     version: 2,
@@ -46,10 +37,6 @@ function basePlan(): PlanContent {
     ],
   });
 }
-
-/* -------------------------------------------------------------------------- */
-/* Missing / wrong ids                                                        */
-/* -------------------------------------------------------------------------- */
 
 describe("patch ops: missing / wrong ids", () => {
   it("throws on update-rich-text for a missing block id", () => {
@@ -150,10 +137,6 @@ describe("patch ops: missing / wrong ids", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* Wrong block type                                                           */
-/* -------------------------------------------------------------------------- */
-
 describe("patch ops: wrong block type", () => {
   it("throws when update-rich-text targets a non-rich-text block", () => {
     expect(() =>
@@ -222,10 +205,6 @@ describe("patch ops: wrong block type", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* Duplicate id creation                                                      */
-/* -------------------------------------------------------------------------- */
-
 describe("patch ops: duplicate id creation is rejected at the final validate", () => {
   it("rejects append-block that introduces a duplicate top-level block id", () => {
     expect(() =>
@@ -264,8 +243,6 @@ describe("patch ops: duplicate id creation is rejected at the final validate", (
   });
 
   it("rejects replace-block that changes the id to collide with another block", () => {
-    // replace-block keeps the OLD block at slot `blockId` but swaps in a block
-    // whose own id is `call` (already present) -> duplicate.
     expect(() =>
       applyPlanContentPatches(basePlan(), [
         {
@@ -305,10 +282,6 @@ describe("patch ops: duplicate id creation is rejected at the final validate", (
     ).toThrow(/already exists/i);
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* Sanitization on patched html                                               */
-/* -------------------------------------------------------------------------- */
 
 describe("patch ops: sanitization defenses on patched html", () => {
   const htmlWireframe = (html: string): PlanContent =>
@@ -380,26 +353,18 @@ describe("patch ops: sanitization defenses on patched html", () => {
   });
 
   it("rejects an edit whose accumulated result forms an on-handler across edits", () => {
-    // Each replace passes the per-edit refine in isolation, but the final html
-    // is re-parsed via planBlockSchema, so a cross-edit smuggle must still fail.
     const content = htmlWireframe('<div data-x="SENTINEL">y</div>');
     expect(() =>
       applyPlanContentPatches(content, [
         {
           op: "patch-wireframe-html",
           blockId: "wf1",
-          // "x=\"SENTINEL\"" -> "click=\"x\"" makes an `onclick=` style handler
-          // when combined with the leading `on`. Final parse must reject it.
           edits: [{ find: 'data-x="SENTINEL"', replace: 'onclick="alert(1)"' }],
         },
       ]),
     ).toThrow();
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* Idempotency + order dependence                                             */
-/* -------------------------------------------------------------------------- */
 
 describe("patch ops: idempotency and order", () => {
   it("update-rich-text applied twice yields the same result", () => {
@@ -456,10 +421,6 @@ describe("patch ops: idempotency and order", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* update-block shallow data merge                                            */
-/* -------------------------------------------------------------------------- */
-
 describe("update-block: shallow data merge edge cases", () => {
   it("merges data shallowly for a callout (keeps tone, swaps body)", () => {
     const next = applyPlanContentPatches(basePlan(), [
@@ -484,8 +445,6 @@ describe("update-block: shallow data merge edge cases", () => {
   });
 
   it("rejects an update-block data merge that produces an invalid block", () => {
-    // callout body must be >= 1 char; merging an empty body should fail the
-    // final schema parse.
     expect(() =>
       applyPlanContentPatches(basePlan(), [
         {
@@ -498,9 +457,6 @@ describe("update-block: shallow data merge edge cases", () => {
   });
 
   it("BUG PROBE: update-block data merge on a tabs block can corrupt nested blocks", () => {
-    // update-block does a shallow `{ ...block.data, ...patch.data }`. For a tabs
-    // block whose data is `{ tabs: [...] }`, overwriting `tabs` with a bad value
-    // should be rejected by the final parse rather than silently mangling.
     const content = planContentSchema.parse({
       version: 2,
       blocks: [
@@ -521,7 +477,6 @@ describe("update-block: shallow data merge edge cases", () => {
         },
       ],
     });
-    // Overwriting tabs with an empty array violates `.min(1)` -> must throw.
     expect(() =>
       applyPlanContentPatches(content, [
         {
@@ -533,10 +488,6 @@ describe("update-block: shallow data merge edge cases", () => {
     ).toThrow();
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* Deeply nested tabs                                                         */
-/* -------------------------------------------------------------------------- */
 
 describe("deeply nested tabs", () => {
   const nestedTabs = (): PlanContent =>
@@ -583,7 +534,6 @@ describe("deeply nested tabs", () => {
     const next = applyPlanContentPatches(nestedTabs(), [
       { op: "update-rich-text", blockId: "deep-rt", markdown: "Updated deep." },
     ]);
-    // Re-find the deep block by walking.
     const walk = (
       blocks: PlanContent["blocks"],
     ): PlanContent["blocks"][number] | undefined => {
@@ -688,10 +638,6 @@ describe("deeply nested tabs", () => {
     ).toThrow(/duplicate block id/i);
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* Canvas frame + annotation patch interactions                               */
-/* -------------------------------------------------------------------------- */
 
 describe("canvas frame / annotation patch interactions", () => {
   const canvasPlan = (): PlanContent =>
@@ -925,10 +871,6 @@ describe("canvas frame / annotation patch interactions", () => {
   });
 
   it("BUG PROBE: syncCanvasWireframes can revive frame.wireframe right after update-canvas-frame clears it", () => {
-    // A frame referencing a block (blockId) gets its inline `wireframe`
-    // re-synced from that block at the end of applyPlanContentPatches. If a
-    // patch tries to set/replace the inline `wireframe` on a block-linked frame,
-    // syncCanvasWireframes overwrites it. This documents the precedence.
     const next = applyPlanContentPatches(canvasPlan(), [
       {
         op: "update-canvas-frame",
@@ -942,15 +884,10 @@ describe("canvas frame / annotation patch interactions", () => {
       },
     ]);
     const frame = next.canvas?.frames[0];
-    // Because the frame still has blockId "wf", sync overwrites the inline
-    // wireframe with the linked block's data (surface desktop, text "Hi").
     expect(frame?.wireframe?.surface).toBe("desktop");
   });
 
   it("BUG PROBE: update-canvas-frame to set a label without content yields an invalid label-only artboard", () => {
-    // Schema refine: an artboard with a label must carry wireframe/legacyWireframe/blockId.
-    // Patching a brand-new label onto a frame that has NO content should be
-    // rejected by the final parse.
     const content = planContentSchema.parse({
       version: 2,
       canvas: {
@@ -1088,11 +1025,135 @@ describe("canvas frame / annotation patch interactions", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* replace-blocks / replace-block content validation                          */
-/* -------------------------------------------------------------------------- */
-
 describe("replace-blocks and replace-block validation", () => {
+  it.each([
+    [
+      "replace-block checklist",
+      (block: unknown) => ({
+        op: "replace-block",
+        blockId: "checklist",
+        block,
+      }),
+      {
+        id: "checklist",
+        type: "checklist",
+        data: {},
+      },
+      /checklist blocks require data\.items/,
+    ],
+    [
+      "replace-block annotated-code",
+      (block: unknown) => ({
+        op: "replace-block",
+        blockId: "annotated-code",
+        block,
+      }),
+      {
+        id: "annotated-code",
+        type: "annotated-code",
+        data: {},
+      },
+      /annotated-code blocks require data\.code/,
+    ],
+    [
+      "replace-blocks checklist",
+      (block: unknown) => ({ op: "replace-blocks", blocks: [block] }),
+      {
+        id: "checklist",
+        type: "checklist",
+        data: {},
+      },
+      /checklist blocks require data\.items/,
+    ],
+    [
+      "replace-blocks annotated-code",
+      (block: unknown) => ({ op: "replace-blocks", blocks: [block] }),
+      {
+        id: "annotated-code",
+        type: "annotated-code",
+        data: {},
+      },
+      /annotated-code blocks require data\.code/,
+    ],
+  ])(
+    "preserves omitted fields through %s parsing",
+    (_label, makePatch, block, message) => {
+      const previous = planContentSchema.parse({
+        version: 2,
+        blocks: [
+          {
+            id: "checklist",
+            type: "checklist",
+            data: { items: [{ id: "item", label: "Keep this" }] },
+          },
+          {
+            id: "annotated-code",
+            type: "annotated-code",
+            data: { code: "const keep = true;" },
+          },
+        ],
+      });
+      const rawPatch = makePatch(block);
+      const parsedPatches = planContentPatchesSchema.parse([rawPatch]);
+
+      expect(
+        "block" in (parsedPatches[0] ?? {})
+          ? (parsedPatches[0] as { block: unknown }).block
+          : (parsedPatches[0] as { blocks: unknown[] }).blocks[0],
+      ).toEqual(block);
+      expect(() => applyPlanContentPatches(previous, parsedPatches)).toThrow(
+        message,
+      );
+    },
+  );
+
+  it("keeps unchanged legacy defaults through replacement patch parsing", () => {
+    const previous = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy-checklist", type: "checklist", data: {} },
+        { id: "legacy-code", type: "annotated-code", data: {} },
+      ],
+    });
+    const patches = planContentPatchesSchema.parse([
+      {
+        op: "replace-blocks",
+        blocks: [
+          { id: "legacy-checklist", type: "checklist", data: {} },
+          { id: "legacy-code", type: "annotated-code", data: {} },
+        ],
+      },
+    ]);
+
+    const next = applyPlanContentPatches(previous, patches);
+    expect(next.blocks).toMatchObject([
+      { id: "legacy-checklist", data: { items: [] } },
+      { id: "legacy-code", data: { code: "" } },
+    ]);
+  });
+
+  it("rejects incomplete authored blocks in append and replacement patches", () => {
+    const incompleteQuestionBlock = {
+      id: "incomplete-questions",
+      type: "question-form",
+      data: {},
+    } as never;
+
+    expect(() =>
+      applyPlanContentPatches(basePlan(), [
+        { op: "append-block", block: incompleteQuestionBlock },
+      ]),
+    ).toThrow(/require data\.questions/i);
+    expect(() =>
+      applyPlanContentPatches(basePlan(), [
+        {
+          op: "replace-blocks",
+          blocks: [incompleteQuestionBlock],
+        },
+      ]),
+    ).toThrow(/question-form blocks require data\.questions/i);
+  });
+
   it("replace-blocks rejects a set with duplicate ids", () => {
     expect(() =>
       applyPlanContentPatches(basePlan(), [
@@ -1126,10 +1187,6 @@ describe("replace-blocks and replace-block validation", () => {
     expect(blk?.type).toBe("callout");
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* patch-wireframe-html: find/replace mechanics                               */
-/* -------------------------------------------------------------------------- */
 
 describe("patch-wireframe-html: find/replace mechanics", () => {
   const htmlWireframe = (html: string): PlanContent =>
@@ -1170,7 +1227,6 @@ describe("patch-wireframe-html: find/replace mechanics", () => {
   });
 
   it("BUG PROBE: an empty replacement that deletes content is allowed", () => {
-    // find present once, replace with "" deletes it. Should succeed (delete op).
     const next = applyPlanContentPatches(
       htmlWireframe("<span>keep</span><span>drop</span>"),
       [
@@ -1185,8 +1241,6 @@ describe("patch-wireframe-html: find/replace mechanics", () => {
   });
 
   it("BUG PROBE: a replace whose output contains the find string + all:true does NOT infinite loop", () => {
-    // split/join is single-pass so this is safe, but pin the behavior: replacing
-    // "x" with "xx" using all:true should double each x once, not forever.
     const next = applyPlanContentPatches(htmlWireframe("<p>x x</p>"), [
       {
         op: "patch-wireframe-html",
@@ -1198,11 +1252,218 @@ describe("patch-wireframe-html: find/replace mechanics", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* Whole-plan validation gating                                               */
-/* -------------------------------------------------------------------------- */
-
 describe("applyPlanContentPatches validates the input plan first", () => {
+  it("preserves untouched legacy defaults during an unrelated block update", () => {
+    const legacy = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy", type: "question-form", data: {} },
+        {
+          id: "legacy-tabs",
+          type: "tabs",
+          data: {
+            tabs: [
+              {
+                id: "legacy-tab",
+                label: "Legacy tab",
+                blocks: [
+                  { id: "legacy-nested", type: "question-form", data: {} },
+                ],
+              },
+            ],
+          },
+        },
+        { id: "copy", type: "rich-text", data: { markdown: "Original." } },
+      ],
+    });
+
+    const next = applyPlanContentPatches(legacy, [
+      { op: "update-block", blockId: "legacy", patch: { title: "Questions" } },
+      {
+        op: "update-block",
+        blockId: "legacy-tabs",
+        patch: { title: "Legacy questions" },
+      },
+      { op: "update-rich-text", blockId: "copy", markdown: "Updated." },
+    ]);
+
+    expect(next.blocks[0]).toMatchObject({
+      id: "legacy",
+      type: "question-form",
+      title: "Questions",
+      data: { questions: [] },
+    });
+    expect(next.blocks[1]).toMatchObject({
+      id: "legacy-tabs",
+      title: "Legacy questions",
+      type: "tabs",
+      data: {
+        tabs: [
+          {
+            blocks: [
+              {
+                id: "legacy-nested",
+                type: "question-form",
+                data: { questions: [] },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(next.blocks[2]).toMatchObject({
+      id: "copy",
+      type: "rich-text",
+      data: { markdown: "Updated." },
+    });
+  });
+
+  it.each(["tabs", "columns"] as const)(
+    "preserves unchanged nested legacy defaults in update-block %s patches",
+    (type) => {
+      const nestedQuestion = {
+        id: "legacy-nested-questions",
+        type: "question-form",
+        data: {},
+      };
+      const containerData =
+        type === "tabs"
+          ? {
+              tabs: [
+                {
+                  id: "tab",
+                  label: "Questions",
+                  blocks: [nestedQuestion],
+                },
+              ],
+            }
+          : {
+              columns: [
+                {
+                  id: "column",
+                  blocks: [nestedQuestion],
+                },
+              ],
+            };
+      const content = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [{ id: "container", type, data: containerData }],
+      });
+      const existing = content.blocks[0];
+      if (!existing || existing.type !== type) {
+        throw new Error(`expected ${type} container`);
+      }
+
+      const next = applyPlanContentPatches(content, [
+        {
+          op: "update-block",
+          blockId: "container",
+          patch: { data: existing.data as unknown as Record<string, unknown> },
+        },
+      ]);
+
+      expect(next.blocks[0]).toMatchObject({
+        id: "container",
+        type,
+        data:
+          type === "tabs"
+            ? {
+                tabs: [
+                  {
+                    blocks: [
+                      {
+                        id: "legacy-nested-questions",
+                        type: "question-form",
+                        data: { questions: [] },
+                      },
+                    ],
+                  },
+                ],
+              }
+            : {
+                columns: [
+                  {
+                    blocks: [
+                      {
+                        id: "legacy-nested-questions",
+                        type: "question-form",
+                        data: { questions: [] },
+                      },
+                    ],
+                  },
+                ],
+              },
+      });
+    },
+  );
+
+  it.each(["tabs", "columns"] as const)(
+    "rejects incomplete nested authoring data in update-block %s patches",
+    (type) => {
+      const existingNestedBlock = {
+        id: "existing",
+        type: "rich-text",
+        data: { markdown: "Existing." },
+      };
+      const content = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [
+          {
+            id: "container",
+            type,
+            data:
+              type === "tabs"
+                ? {
+                    tabs: [
+                      {
+                        id: "tab",
+                        label: "Tab",
+                        blocks: [existingNestedBlock],
+                      },
+                    ],
+                  }
+                : {
+                    columns: [{ id: "column", blocks: [existingNestedBlock] }],
+                  },
+          },
+        ],
+      });
+      const data: Record<string, unknown> =
+        type === "tabs"
+          ? {
+              tabs: [
+                {
+                  id: "tab",
+                  label: "Tab",
+                  blocks: [
+                    { id: "incomplete", type: "question-form", data: {} },
+                  ],
+                },
+              ],
+            }
+          : {
+              columns: [
+                {
+                  id: "column",
+                  blocks: [{ id: "incomplete", type: "checklist", data: {} }],
+                },
+              ],
+            };
+
+      expect(() =>
+        applyPlanContentPatches(content, [
+          {
+            op: "update-block",
+            blockId: "container",
+            patch: { data },
+          },
+        ]),
+      ).toThrow(
+        /require (data\.(questions|items)|at least one (questions|items))/i,
+      );
+    },
+  );
+
   it("throws when the starting content is already invalid", () => {
     const broken = {
       version: 2,

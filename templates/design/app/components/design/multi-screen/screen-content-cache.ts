@@ -1,6 +1,8 @@
+import { isStandaloneHttpUrl } from "@shared/html-content";
 import type { ReactNode } from "react";
 
 import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
+import { resolveScreenHeightMode } from "./screen-height";
 import type {
   FrameGeometry,
   MultiScreenCanvasProps,
@@ -8,6 +10,7 @@ import type {
   ScreenContentCacheEntry,
   ScreenFile,
   ScreenMetadata,
+  ScreenContentRenderOptions,
   ScreenPreviewState,
   ScreenSourceType,
 } from "./types";
@@ -30,6 +33,8 @@ export function sameResolvedMetadata(
     a.title === b.title &&
     a.width === b.width &&
     a.height === b.height &&
+    a.heightPinned === b.heightPinned &&
+    a.heightMode === b.heightMode &&
     a.previewUrl === b.previewUrl
   );
 }
@@ -49,6 +54,8 @@ function sameScreenMetadataInput(
     a.title === b.title &&
     a.width === b.width &&
     a.height === b.height &&
+    a.heightPinned === b.heightPinned &&
+    a.heightMode === b.heightMode &&
     a.url === b.url &&
     a.previewUrl === b.previewUrl &&
     a.bridgeUrl === b.bridgeUrl &&
@@ -65,11 +72,6 @@ export function pruneResolvedMetadataCache(
   }
 }
 
-/** Keep cached React content nodes for screens that still exist, even while an
- * overview iframe is LRU-evicted. The node is cheap compared with its mounted
- * browsing context and lets a revisit reuse the already-built DesignCanvas
- * element. Deleted screens are still pruned so create/delete churn cannot grow
- * this cache without bound. */
 export function pruneScreenContentCache(
   cache: Map<string, ScreenContentCacheEntry>,
   existingScreenIds: ReadonlySet<string>,
@@ -126,27 +128,31 @@ export function getCachedScreenContentNode(
   renderScreenContent: NonNullable<
     MultiScreenCanvasProps["renderScreenContent"]
   >,
+  options?: ScreenContentRenderOptions,
 ): ReactNode {
   const width = Math.max(1, Math.round(geometry.width));
   const height = Math.max(1, Math.round(geometry.height));
+  const renderKey = options?.cacheKey;
   const prior = cache.get(screen.id);
   if (
     prior &&
     prior.screen === screen &&
     prior.renderScreenContent === renderScreenContent &&
+    prior.renderKey === renderKey &&
     sameResolvedMetadata(prior.metadata, metadata) &&
     prior.width === width &&
     prior.height === height
   ) {
     return prior.contentNode;
   }
-  const contentNode = renderScreenContent(screen, metadata, geometry);
+  const contentNode = renderScreenContent(screen, metadata, geometry, options);
   cache.set(screen.id, {
     screen,
     metadata,
     width,
     height,
     renderScreenContent,
+    renderKey,
     contentNode,
   });
   return contentNode;
@@ -176,6 +182,11 @@ export function resolveScreenMetadata(
   const height =
     deviceViewport?.height ??
     (metadata.height && metadata.height > 0 ? metadata.height : 2560);
+  const heightMode = resolveScreenHeightMode(
+    metadata.heightMode,
+    metadata.heightPinned,
+    metadata.sourceType,
+  );
   return {
     source:
       normalizeSource(metadata.sourceType ?? metadata.source) ??
@@ -187,6 +198,8 @@ export function resolveScreenMetadata(
     title: metadata.title,
     width,
     height,
+    heightPinned: heightMode === "fixed",
+    heightMode,
     previewUrl,
   };
 }
@@ -215,8 +228,8 @@ function deriveSource(
   screen: ScreenFile,
   previewUrl?: string,
 ): ScreenSourceType {
-  const haystack =
-    `${screen.filename} ${screen.content.slice(0, 4000)}`.toLowerCase();
+  // Markup that merely links to a loopback or fusion URL (a media src) is still inline.
+  const haystack = screen.filename.toLowerCase();
   const url = getUrl(previewUrl ?? screen.content);
   if (
     url?.hostname === "localhost" ||
@@ -260,13 +273,6 @@ export function getPreviewUrl(content: string) {
 }
 
 function getUrl(value: string | undefined) {
-  if (!value) return undefined;
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url
-      : undefined;
-  } catch {
-    return undefined;
-  }
+  if (!value || !isStandaloneHttpUrl(value)) return undefined;
+  return new URL(value.trim());
 }

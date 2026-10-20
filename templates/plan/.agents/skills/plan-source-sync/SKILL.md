@@ -52,7 +52,7 @@ Annotation/Connector markup, optional `assets/`, and optional
   pass that read's `plan.updatedAt` as `expectedUpdatedAt`. Re-read the plan
   after the patch and verify that unrelated MDX files and visual surfaces were
   preserved.
-- In Agent Native Desktop, the Plan menu can link a user-chosen local folder for
+- In Agent-Native Desktop, the Plan menu can link a user-chosen local folder for
   the current plan, write the exported MDX files to it, import local edits back
   through `import-visual-plan-source`, and optionally auto-export whenever the
   hosted plan changes. This is a native desktop bridge; it does not require a

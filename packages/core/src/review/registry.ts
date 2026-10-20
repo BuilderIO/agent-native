@@ -42,6 +42,7 @@ function accessContextFrom(
   return {
     userEmail: ctx.userEmail ?? undefined,
     orgId: ctx.orgId ?? undefined,
+    transaction: ctx.transaction as AccessContext["transaction"],
   };
 }
 
@@ -73,9 +74,6 @@ export async function resolveReviewableResourceAccess(
     };
   }
 
-  // Fail closed: unregistered types, and registered types without an access
-  // resolver that aren't shareable, never invent ownership. bypassScope on
-  // review queries is only safe after a real resource ACL.
   return null;
 }
 

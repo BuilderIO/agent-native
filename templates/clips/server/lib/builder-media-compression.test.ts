@@ -35,10 +35,11 @@ vi.mock("@agent-native/core/db", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  BUILDER_ASSETS_WRITE_SCOPE: "builder:assets:write",
   captureRouteError: vi.fn(),
   getRequestOrgId: vi.fn(() => "org-test"),
   resolveSecret: vi.fn(async (key: string) => process.env[key] ?? null),
-  resolveBuilderPrivateKey: vi.fn(async () => "bpk-test"),
+  resolveBuilderApiAuthorization: vi.fn(async () => "Bearer bpk-test"),
   runWithRequestContext: (ctx: unknown, fn: () => unknown) =>
     mockRunWithRequestContext(ctx, fn),
 }));
@@ -253,8 +254,12 @@ describe("builder-media-compression", () => {
     expect(result?.status).toBe("failed");
     expect(fetch).toHaveBeenCalledTimes(1);
     const [requestUrl] = vi.mocked(fetch).mock.calls[0];
-    expect(String(requestUrl)).toContain("/api/v1/compress-media/");
-    expect(String(requestUrl)).not.toContain("/compressed");
+    expect(
+      requestUrl instanceof URL ? requestUrl.toString() : requestUrl,
+    ).toContain("/api/v1/compress-media/");
+    expect(
+      requestUrl instanceof URL ? requestUrl.toString() : requestUrl,
+    ).not.toContain("/compressed");
     expect(mockWriteAppState).toHaveBeenLastCalledWith(
       "recording-builder-compression-rec-give-up",
       expect.objectContaining({
@@ -349,7 +354,9 @@ describe("builder-media-compression", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
-        if (String(input) === compressedUrl) {
+        if (
+          (input instanceof URL ? input.toString() : input) === compressedUrl
+        ) {
           return new Response("partial derivative", {
             status: 206,
             headers: { "content-range": "bytes 0-1023/183000000" },
@@ -367,7 +374,8 @@ describe("builder-media-compression", () => {
 
     expect(result?.status).toBe("worker-queued");
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe(
+    const requestUrl = vi.mocked(fetch).mock.calls[0][0];
+    expect(requestUrl instanceof URL ? requestUrl.toString() : requestUrl).toBe(
       "https://worker.example.com/media/enqueue",
     );
     expect(fetch).not.toHaveBeenCalledWith(compressedUrl, expect.anything());
@@ -514,11 +522,15 @@ describe("builder-media-compression", () => {
     );
     expect(fetch).toHaveBeenCalledOnce();
     const [requestUrl] = vi.mocked(fetch).mock.calls[0];
-    expect(String(requestUrl)).toContain(
-      encodeURIComponent("assets/org-probe/asset-worker"),
-    );
-    expect(String(requestUrl)).not.toContain("attacker.example.com");
-    expect(String(requestUrl)).not.toContain("other-asset");
+    expect(
+      requestUrl instanceof URL ? requestUrl.toString() : requestUrl,
+    ).toContain(encodeURIComponent("assets/org-probe/asset-worker"));
+    expect(
+      requestUrl instanceof URL ? requestUrl.toString() : requestUrl,
+    ).not.toContain("attacker.example.com");
+    expect(
+      requestUrl instanceof URL ? requestUrl.toString() : requestUrl,
+    ).not.toContain("other-asset");
   });
 
   it("skips sweep state when the SQL session does not own the recording", async () => {

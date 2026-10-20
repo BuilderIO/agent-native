@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { createApp, createRouter, defineEventHandler } from "h3";
 import { describe, expect, it } from "vitest";
 
+import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
+import { signEmbedSessionToken } from "./embed-session.js";
 import {
   computeInlineScriptHash,
   createSecurityHeadersMiddleware,
@@ -121,13 +123,11 @@ describe("createSecurityHeadersMiddleware", () => {
 
     const res = await app.request("http://localhost/settings");
 
-    // App documents intentionally omit CSP so framework bootstrap scripts and
-    // Google Tag Manager are not blocked by a shared header.
     expect(res.headers.get("Content-Security-Policy")).toBeNull();
     expect(res.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
   });
 
-  it("allows iframe navigations to satisfy cross-origin isolated parents", async () => {
+  it("allows ordinary iframe navigations without isolating their subresources", async () => {
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());
 
@@ -151,8 +151,85 @@ describe("createSecurityHeadersMiddleware", () => {
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
       "cross-origin",
     );
-    expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
-      "require-corp",
+    expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBeNull();
+  });
+
+  it("keeps a same-origin Referer on embed responses", async () => {
+    const previousSecret = process.env.OAUTH_STATE_SECRET;
+    process.env.OAUTH_STATE_SECRET = "embed-header-test-secret";
+    try {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/apps/design",
+        ttlSeconds: 60,
+      });
+
+      const app = createApp();
+      app.use(createSecurityHeadersMiddleware());
+
+      const router = createRouter();
+      router.get(
+        "/apps/design",
+        defineEventHandler(() => new Response("ok")),
+      );
+      app.use(router);
+
+      const res = await app.request("http://localhost/apps/design", {
+        headers: {
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+          host: "localhost",
+        },
+      });
+
+      expect(res.headers.get("Referrer-Policy")).toBe("same-origin");
+      expect(res.headers.get("Cross-Origin-Opener-Policy")).toBe("same-origin");
+      expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
+        "require-corp",
+      );
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.OAUTH_STATE_SECRET;
+      } else {
+        process.env.OAUTH_STATE_SECRET = previousSecret;
+      }
+    }
+  });
+
+  it("keeps the cross-origin default on ordinary responses", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+
+    const router = createRouter();
+    router.get(
+      "/settings",
+      defineEventHandler(() => new Response("ok")),
+    );
+    app.use(router);
+
+    const res = await app.request("http://localhost/settings");
+
+    expect(res.headers.get("Referrer-Policy")).toBe(
+      "strict-origin-when-cross-origin",
+    );
+  });
+
+  it("keeps popups this page opens reachable", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+
+    const router = createRouter();
+    router.get(
+      "/settings",
+      defineEventHandler(() => new Response("ok")),
+    );
+    app.use(router);
+
+    const res = await app.request("http://localhost/settings");
+
+    // `same-origin` severs the OAuth popup once it loads the `unsafe-none`
+    // waiting page, leaving it blank with an "allow popups" error.
+    expect(res.headers.get("Cross-Origin-Opener-Policy")).toBe(
+      "same-origin-allow-popups",
     );
   });
 });

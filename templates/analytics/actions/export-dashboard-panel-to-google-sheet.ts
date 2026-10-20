@@ -2,14 +2,14 @@ import { defineAction } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
-import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import { interpolateDashboardPanelSql } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import {
   isDashboardPanelSource,
   normalizeDashboardPanelQuery,
 } from "../server/lib/dashboard-panel-query";
 import { resolveAnalyticsPanelSource } from "../server/lib/dashboard-panel-source-resolver";
-import { getDashboard } from "../server/lib/dashboards-store";
 import { exportDashboardPanelToGoogleSheet } from "../server/lib/google-sheets-export";
+import { openDashboard } from "../server/lib/open-dashboard";
 
 type DashboardPanel = {
   id?: unknown;
@@ -31,19 +31,20 @@ function asPanels(config: Record<string, unknown>): DashboardPanel[] {
     : [];
 }
 
-function missingKeyMessage(result: unknown): string | null {
+function panelFailureMessage(result: unknown): string | null {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return null;
   }
   const value = result as { error?: unknown; message?: unknown };
-  return value.error === "missing_api_key" && typeof value.message === "string"
+  if (typeof value.error !== "string" || !value.error) return null;
+  return typeof value.message === "string" && value.message
     ? value.message
-    : null;
+    : value.error;
 }
 
 export default defineAction({
   description:
-    "Export one accessible Analytics SQL dashboard table panel's underlying query results to a newly created Google Sheet using the connected Google Drive account. Returns the Sheet URL, spreadsheet id, row count, and export metadata. Only chartType=table panels are supported.",
+    "Export one accessible Analytics SQL dashboard table panel's underlying query results to a newly created Google Sheet using the connected Google Sheets account. Returns the Sheet URL, spreadsheet id, row count, and export metadata. Only chartType=table panels are supported.",
   schema: z.object({
     dashboardId: z.string().trim().min(1).describe("The SQL dashboard ID"),
     panelId: z.string().trim().min(1).describe("The table panel ID"),
@@ -60,17 +61,20 @@ export default defineAction({
       );
     }
 
-    const dashboard = await getDashboard(dashboardId, {
+    const opened = await openDashboard(dashboardId, {
       email: context.userEmail,
       orgId: context.orgId ?? null,
     });
-    if (!dashboard || dashboard.kind !== "sql") {
+    const dashboard = opened?.saved;
+    if (!opened || (dashboard && dashboard.kind !== "sql")) {
       throw Object.assign(new Error("Dashboard not found"), {
         statusCode: 404,
       });
     }
 
-    const panel = asPanels(dashboard.config).find(
+    const config = dashboard ? dashboard.config : opened.builtin.config;
+    const title = dashboard ? dashboard.title : opened.builtin.title;
+    const panel = asPanels(config).find(
       (candidate) => candidate.id === panelId,
     );
     if (!panel) {
@@ -90,15 +94,15 @@ export default defineAction({
 
     const rawQuery =
       typeof panel.sql === "string"
-        ? interpolate(panel.sql, filters, { failClosedTimeVariables: true })
+        ? interpolateDashboardPanelSql(panel.sql, filters, panel)
         : panel.sql;
     const query = normalizeDashboardPanelQuery(panel.source, rawQuery);
     const result = await resolveAnalyticsPanelSource(
       { source: panel.source, query },
       context,
     );
-    const missing = missingKeyMessage(result);
-    if (missing) throw new Error(missing);
+    const failure = panelFailureMessage(result);
+    if (failure) throw new Error(failure);
     if (
       !result ||
       typeof result !== "object" ||
@@ -126,8 +130,8 @@ export default defineAction({
     return exportDashboardPanelToGoogleSheet({
       dashboardId,
       dashboardTitle:
-        typeof dashboard.title === "string" && dashboard.title.trim()
-          ? dashboard.title
+        typeof title === "string" && title.trim()
+          ? title
           : "Analytics dashboard",
       panelId,
       panelTitle:

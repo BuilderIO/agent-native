@@ -1,29 +1,3 @@
-/**
- * Reset chunk scratch space for a recording without aborting the recording
- * itself. Used by the recorder when it needs to discard the chunks it
- * already streamed up (because they're going to be replaced with a
- * compressed blob) — without flipping the row to `failed`, which is what
- * `abort.post.ts` does.
- *
- * Optionally accepts compression metadata in the body — surfaced into
- * `recording-compression-{id}` (a separate sub-key from
- * `recording-upload-{id}`) so:
- *   1. `finalize-recording` can include it in `captureRouteError` extras
- *      (so Sentry tells us originalBytes / compressedBytes / ratio if the
- *      Builder.io upload still fails after compression).
- *   2. The library card can show "Compressed from XXX MB" if we want to
- *      surface that in the UI later.
- *
- * The dedicated sub-key is important: the recorder's own `onChunk`
- * callback overwrites `recording-upload-{id}` whole-cloth on every chunk
- * upload (it's the simplest way to drive the progress poller), so storing
- * compression metadata there would have it clobbered the moment the
- * post-compression re-upload starts. The separate key is read-only from
- * the compression path's perspective.
- *
- * Route: POST /api/uploads/:recordingId/reset-chunks
- */
-
 import { randomUUID } from "node:crypto";
 
 import {
@@ -31,12 +5,10 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
-import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import type { UploadMode } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import {
   defineEventHandler,
   getRouterParam,
@@ -45,9 +17,11 @@ import {
   type H3Event,
 } from "h3";
 
-import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
+import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
+import { snapshotUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -55,13 +29,21 @@ import {
 } from "../../../../lib/recordings.js";
 import {
   deleteResumableSession,
+  getResumableSession,
   setResumableSession,
+  type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
+import { S3MultipartStartError } from "../../../../lib/s3-upload-provider.js";
 import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
 import {
   renewUploadLease,
   uploadLeaseExpiry,
 } from "../../../../lib/upload-lease.js";
+import {
+  reacquireHostedClipRecordingForRetry,
+  resolveClipsVideoStorage,
+} from "../../../../lib/video-storage.js";
 import { allowsSqlRecordingChunkScratch } from "../../../../lib/video-storage.js";
 
 interface CompressionMeta {
@@ -70,6 +52,66 @@ interface CompressionMeta {
   ratio?: number;
   elapsedMs?: number;
   outputMimeType?: string;
+}
+
+interface PendingResumableCleanup {
+  recordingId: string;
+  generationId: string | null;
+  ownerGenerationId: string | null;
+  claimId: string | null;
+  session: StoredResumableSession;
+}
+
+function parsePendingResumableCleanup(
+  raw: Record<string, unknown> | null,
+  recordingId: string,
+): PendingResumableCleanup | null {
+  if (!raw) return null;
+  const session = raw.session;
+  const generationId = raw.generationId;
+  const ownerGenerationId = raw.ownerGenerationId;
+  const claimId = raw.claimId;
+  if (
+    raw.recordingId !== recordingId ||
+    !session ||
+    typeof session !== "object" ||
+    Array.isArray(session) ||
+    !(generationId === null || typeof generationId === "string") ||
+    (ownerGenerationId !== undefined &&
+      ownerGenerationId !== null &&
+      typeof ownerGenerationId !== "string") ||
+    (claimId !== undefined && claimId !== null && typeof claimId !== "string")
+  ) {
+    throw new Error(
+      `Invalid resumable cleanup state for recording ${recordingId}`,
+    );
+  }
+
+  const candidate = session as Record<string, unknown>;
+  if (
+    typeof candidate.providerId !== "string" ||
+    typeof candidate.sessionId !== "string" ||
+    !candidate.meta ||
+    typeof candidate.meta !== "object" ||
+    Array.isArray(candidate.meta) ||
+    typeof candidate.bytesUploaded !== "number" ||
+    !Number.isFinite(candidate.bytesUploaded) ||
+    (candidate.lastCommittedIndex !== undefined &&
+      typeof candidate.lastCommittedIndex !== "number")
+  ) {
+    throw new Error(
+      `Invalid resumable session in cleanup state for recording ${recordingId}`,
+    );
+  }
+
+  return {
+    recordingId,
+    generationId,
+    ownerGenerationId:
+      ownerGenerationId === undefined ? null : ownerGenerationId,
+    claimId: claimId === undefined ? null : claimId,
+    session: candidate as unknown as StoredResumableSession,
+  };
 }
 
 function normalizeVideoMimeType(value: unknown): string | null {
@@ -95,14 +137,34 @@ function pickString(value: unknown, max: number): string | undefined {
   return trimmed.slice(0, max);
 }
 
-export default defineEventHandler(async (event: H3Event) => {
-  const recordingId = getRouterParam(event, "recordingId");
+export async function handleResetRecordingChunks(
+  event: H3Event,
+  override?: {
+    recordingId?: string;
+    ownerEmail?: string;
+    orgId?: string;
+  },
+) {
+  const recordingId =
+    override?.recordingId ?? getRouterParam(event, "recordingId");
   if (!recordingId) {
     setResponseStatus(event, 400);
     return { error: "Missing recordingId" };
   }
 
-  const { userEmail: ownerEmail, orgId } = await getEventOwnerContext(event);
+  const { ownerEmail, orgId, authUserId } = override?.ownerEmail
+    ? {
+        ownerEmail: override.ownerEmail,
+        orgId: override.orgId,
+        authUserId: undefined,
+      }
+    : await getEventOwnerContext(event).then(
+        ({ userEmail, orgId, authUserId }) => ({
+          ownerEmail: userEmail,
+          orgId,
+          authUserId,
+        }),
+      );
   const body = (await readBody(event).catch(() => null)) as {
     compression?: CompressionMeta | null;
     requestStreaming?: boolean;
@@ -111,15 +173,14 @@ export default defineEventHandler(async (event: H3Event) => {
     uploadGenerationId?: string;
     useGenerationFence?: boolean;
   } | null;
-  const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
-    userEmail: ownerEmail,
-    userKey: ownerEmail,
-    orgId,
-  });
-
-  // Sanitize compression metadata. The recorder is the only client we trust
-  // here, but the values land in Sentry extras — so we still bound them to
-  // numbers / strings to avoid surprise.
+  const requestedStreamingMimeType =
+    body?.requestStreaming === true
+      ? normalizeVideoMimeType(body.mimeType)
+      : null;
+  if (body?.requestStreaming === true && !requestedStreamingMimeType) {
+    setResponseStatus(event, 400);
+    return { error: "A supported video mimeType is required for retry" };
+  }
   const compression: CompressionMeta | null = body?.compression
     ? {
         originalBytes: pickNumber(body.compression.originalBytes),
@@ -130,16 +191,20 @@ export default defineEventHandler(async (event: H3Event) => {
       }
     : null;
 
-  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  return runWithRequestContext(requestContext, async () => {
     const db = getDb();
 
     const [existing] = await db
       .select({
         id: schema.recordings.id,
         status: schema.recordings.status,
+        failureCode: schema.recordings.failureCode,
         videoUrl: schema.recordings.videoUrl,
+        storageMode: schema.recordings.storageMode,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
+        recordingPlatform: schema.recordings.recordingPlatform,
       })
       .from(schema.recordings)
       .where(
@@ -154,10 +219,34 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
+    if (existing.failureCode === "taken_down") {
+      setResponseStatus(event, 409);
+      return { error: "Recording is no longer available.", terminal: true };
+    }
+
+    const storage = await resolveClipsVideoStorage({
+      intent: "existing",
+      recordingId,
+      email: ownerEmail,
+      userId: authUserId,
+    });
+    const maxUploadBytes =
+      storage.mode === "hosted"
+        ? storage.maxClipBytes
+        : MAX_RECORDING_UPLOAD_BYTES;
+
     if (existing.status === "ready" && existing.videoUrl) {
       setResponseStatus(event, 409);
       return { error: "Recording is already ready" };
     }
+
+    // New recordings snapshot at creation; a missing snapshot here belongs to older work.
+    const recoveryEnabled = await snapshotUploadRecoveryPolicy(
+      ownerEmail,
+      orgId,
+      recordingId,
+      true,
+    );
 
     const requestedAttemptId =
       typeof body?.attemptId === "string" &&
@@ -167,7 +256,10 @@ export default defineEventHandler(async (event: H3Event) => {
         : null;
     const existingAttemptId = existing.uploadAttemptId ?? null;
     const existingGenerationId = existing.uploadGenerationId ?? null;
-    if (recoveryEnabled && existingAttemptId !== requestedAttemptId) {
+    if (
+      existingAttemptId !== null &&
+      existingAttemptId !== requestedAttemptId
+    ) {
       setResponseStatus(event, 409);
       return {
         error: "A newer upload retry is already active.",
@@ -180,7 +272,10 @@ export default defineEventHandler(async (event: H3Event) => {
       body.uploadGenerationId.length <= 128
         ? body.uploadGenerationId
         : null;
-    if (recoveryEnabled && existingGenerationId !== requestedGenerationId) {
+    if (
+      existingGenerationId !== null &&
+      existingGenerationId !== requestedGenerationId
+    ) {
       setResponseStatus(event, 409);
       return {
         error: "A newer upload generation is already active.",
@@ -203,28 +298,64 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording upload is no longer resettable" };
     }
 
+    if (storage.mode === "hosted") {
+      const reservation = await reacquireHostedClipRecordingForRetry({
+        recordingId,
+        ownerEmail,
+        userId: authUserId,
+      });
+      if (!reservation.ok) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Hosted recording storage is temporarily unavailable.",
+          reason: reservation.reason,
+        };
+      }
+    }
+
     // Fence this reset before deleting any provider or buffered state. A
     // retry that lost the token race must not tear down the winner's session.
     const now = new Date().toISOString();
-    // Only clients that can carry the returned generation may opt into the
-    // fence. Retry claims always opt in; legacy reset callers keep the null
-    // generation wire contract until they are upgraded.
     const useGenerationFence =
-      recoveryEnabled &&
-      (requestedAttemptId !== null ||
-        requestedGenerationId !== null ||
-        body?.useGenerationFence === true);
+      existingAttemptId !== null ||
+      existingGenerationId !== null ||
+      (recoveryEnabled &&
+        (requestedAttemptId !== null ||
+          requestedGenerationId !== null ||
+          body?.useGenerationFence === true));
     const nextGenerationId = useGenerationFence ? randomUUID() : null;
     const uploadStateKey = `recording-upload-${recordingId}`;
     const uploadStateSnapshot = await readAppState(uploadStateKey);
+    const cleanupStateKey = `recording-resumable-cleanup-${recordingId}`;
+    const cleanupStateSnapshot = await readAppState(cleanupStateKey);
+    const parsedCleanup = parsePendingResumableCleanup(
+      cleanupStateSnapshot,
+      recordingId,
+    );
+    const pendingCleanup =
+      parsedCleanup &&
+      (parsedCleanup.ownerGenerationId === null
+        ? !useGenerationFence
+        : parsedCleanup.ownerGenerationId === existingGenerationId)
+        ? parsedCleanup
+        : null;
+    const discardedGenerationId = pendingCleanup
+      ? pendingCleanup.generationId
+      : existingGenerationId;
+    const discardedResumableSession =
+      pendingCleanup?.session ??
+      (await getResumableSession(recordingId, existingGenerationId));
     const reset = await db
       .update(schema.recordings)
       .set({
         status: "uploading",
         failureReason: null,
+        failureCode: null,
         uploadProgress: 0,
         uploadGenerationId: nextGenerationId,
-        ...(!recoveryEnabled ? { uploadAttemptId: null } : {}),
+        ...(!recoveryEnabled && existingAttemptId === null
+          ? { uploadAttemptId: null }
+          : {}),
         uploadLeaseExpiresAt: uploadLeaseExpiry(),
         updatedAt: now,
       })
@@ -233,6 +364,10 @@ export default defineEventHandler(async (event: H3Event) => {
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           eq(schema.recordings.status, existing.status),
+          or(
+            isNull(schema.recordings.failureCode),
+            ne(schema.recordings.failureCode, "taken_down"),
+          ),
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, existingAttemptId),
@@ -251,28 +386,91 @@ export default defineEventHandler(async (event: H3Event) => {
       };
     }
 
+    let cleanupClaim: PendingResumableCleanup | null = null;
+    if (discardedResumableSession) {
+      const candidate: PendingResumableCleanup = {
+        recordingId,
+        generationId: discardedGenerationId,
+        ownerGenerationId: nextGenerationId,
+        claimId: randomUUID(),
+        session: discardedResumableSession,
+      };
+      const claimed = await compareAndSetAppState(
+        cleanupStateKey,
+        cleanupStateSnapshot,
+        candidate as unknown as Record<string, unknown>,
+      );
+      if (claimed) cleanupClaim = candidate;
+    }
+
+    let resumableCleanupFailed = false;
+    if (discardedResumableSession) {
+      if (cleanupClaim) {
+        const cleaned = await abortResumableUploadSession(
+          discardedResumableSession,
+          { label: `reset-${recordingId}` },
+        );
+        if (!cleaned) {
+          if (!allowsSqlRecordingChunkScratch()) {
+            setResponseStatus(event, 502);
+            return {
+              error:
+                "The previous recording upload could not be cleaned up. Retry the upload restart.",
+            };
+          }
+          console.warn(
+            `[reset-chunks-${recordingId}] provider cleanup failed; using buffered retry and retaining cleanup claim`,
+          );
+          resumableCleanupFailed = true;
+        }
+        if (!resumableCleanupFailed) {
+          const released = await compareAndSetAppState(
+            cleanupStateKey,
+            cleanupClaim as unknown as Record<string, unknown>,
+            null,
+          );
+          if (!released) {
+            console.warn(
+              `[reset-chunks-${recordingId}] cleanup claim changed while releasing it`,
+            );
+          }
+        }
+      }
+    }
     const cleared = await deleteRecordingChunks(
       ownerEmail,
       recordingId,
-      existingGenerationId,
+      discardedGenerationId,
     );
-    // Clear any stale resumable session so a buffered retry does not
-    // accidentally route through handleResumableChunk with stale offsets.
-    await deleteResumableSession(recordingId, existingGenerationId).catch(
-      () => {},
-    );
+    if (!discardedResumableSession || cleanupClaim || resumableCleanupFailed) {
+      try {
+        await deleteResumableSession(recordingId, discardedGenerationId);
+      } catch (error) {
+        console.warn(
+          `[reset-chunks-${recordingId}] local resumable session cleanup failed`,
+          error,
+        );
+        setResponseStatus(event, 502);
+        return {
+          error:
+            "The previous recording upload could not be reset locally. Retry the upload restart.",
+        };
+      }
+    }
 
     let uploadMode: UploadMode = "buffered";
     let compensateStartedSession: (() => Promise<void>) | null = null;
-    if (body?.requestStreaming === true) {
-      const mimeType = normalizeVideoMimeType(body.mimeType);
+    const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
+    const shouldRetryStreaming =
+      body?.requestStreaming === true && !resumableCleanupFailed;
+    if (shouldRetryStreaming) {
+      const mimeType = requestedStreamingMimeType;
       if (!mimeType) {
         setResponseStatus(event, 400);
         return { error: "A supported video mimeType is required for retry" };
       }
 
-      const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
-      const uploadProvider = await getActiveFileUploadProviderForRequest();
+      const uploadProvider = storage.provider;
       if (
         shouldEnableStreamingUpload({
           client: "desktop",
@@ -287,7 +485,7 @@ export default defineEventHandler(async (event: H3Event) => {
           const session = await uploadProvider.resumable.startSession(
             filename,
             mimeType,
-            MAX_RECORDING_UPLOAD_BYTES,
+            maxUploadBytes,
           );
           await setResumableSession(
             recordingId,
@@ -319,6 +517,85 @@ export default defineEventHandler(async (event: H3Event) => {
           uploadMode = "streaming";
         } catch (err) {
           if (!bufferedFallbackAvailable) {
+            if (err instanceof S3MultipartStartError) {
+              const failureReason = `Multipart upload could not start (${err.status}).`;
+              const failedAt = new Date().toISOString();
+              const failed = await db
+                .update(schema.recordings)
+                .set({
+                  status: "failed",
+                  failureCode: "multipart_start_failed",
+                  failureReason,
+                  updatedAt: failedAt,
+                })
+                .where(
+                  and(
+                    eq(schema.recordings.id, recordingId),
+                    ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                    eq(schema.recordings.status, "uploading"),
+                    nextGenerationId === null
+                      ? isNull(schema.recordings.uploadGenerationId)
+                      : eq(
+                          schema.recordings.uploadGenerationId,
+                          nextGenerationId,
+                        ),
+                    existingAttemptId === null
+                      ? isNull(schema.recordings.uploadAttemptId)
+                      : eq(
+                          schema.recordings.uploadAttemptId,
+                          existingAttemptId,
+                        ),
+                  ),
+                )
+                .returning({ id: schema.recordings.id });
+              if (failed.length === 1) {
+                const uploadStateUpdated = await compareAndSetAppState(
+                  uploadStateKey,
+                  uploadStateSnapshot,
+                  {
+                    ...(uploadStateSnapshot ?? {}),
+                    recordingId,
+                    status: "failed",
+                    failureCode: "multipart_start_failed",
+                    failureReason,
+                    uploadAttemptId: existingAttemptId,
+                    uploadGenerationId: nextGenerationId,
+                    updatedAt: failedAt,
+                  },
+                );
+                if (!uploadStateUpdated) {
+                  console.info(
+                    `[reset-chunks-${recordingId}] upload state changed after multipart start failure; preserving replacement state`,
+                  );
+                }
+                trackRecordingFailure({
+                  recordingId,
+                  userId: ownerEmail,
+                  uploadAttemptId: existingAttemptId,
+                  platform: existing.recordingPlatform,
+                  failureCode: "multipart_start_failed",
+                  failureStage: "multipart_start",
+                  httpStatus: err.status,
+                });
+                await reconcileMeetingOnRecordingFailed({
+                  recordingId,
+                  ownerEmail,
+                });
+              } else {
+                setResponseStatus(event, 409);
+                return {
+                  error: "A newer upload retry is already active.",
+                  staleAttempt: true,
+                };
+              }
+              setResponseStatus(event, 502);
+              return {
+                error: failureReason,
+                failureCode: "multipart_start_failed",
+                failureStage: "multipart_start",
+                httpStatus: err.status,
+              };
+            }
             setResponseStatus(event, 502);
             return {
               error: `Could not restart recording upload: ${
@@ -340,8 +617,9 @@ export default defineEventHandler(async (event: H3Event) => {
       }
     }
 
+    const preservedAttemptId = existingAttemptId;
     const resetLease = await renewUploadLease(recordingId, {
-      attemptId: recoveryEnabled ? existingAttemptId : null,
+      attemptId: preservedAttemptId,
       generationId: nextGenerationId,
     });
     if (!resetLease.held) {
@@ -353,9 +631,6 @@ export default defineEventHandler(async (event: H3Event) => {
       };
     }
 
-    // Reset the per-recording upload progress so the UI poller sees the
-    // re-upload restart from 0 and doesn't briefly show "100% then
-    // re-running" on the post-compression chunked upload pass.
     const uploadStateUpdated = await compareAndSetAppState(
       uploadStateKey,
       uploadStateSnapshot,
@@ -365,9 +640,9 @@ export default defineEventHandler(async (event: H3Event) => {
         progress: 0,
         chunksReceived: 0,
         bytesReceived: 0,
-        uploadAttemptId: recoveryEnabled ? existingAttemptId : null,
+        uploadAttemptId: preservedAttemptId,
         uploadGenerationId: nextGenerationId,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
         updatedAt: now,
       },
     );
@@ -387,8 +662,7 @@ export default defineEventHandler(async (event: H3Event) => {
         );
       if (
         current?.status !== "uploading" ||
-        (current.uploadAttemptId ?? null) !==
-          (recoveryEnabled ? existingAttemptId : null) ||
+        (current.uploadAttemptId ?? null) !== preservedAttemptId ||
         (current.uploadGenerationId ?? null) !== nextGenerationId
       ) {
         setResponseStatus(event, 409);
@@ -399,10 +673,6 @@ export default defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    // Stash compression metadata under its own key. We don't merge it into
-    // `recording-upload-{id}` because the recorder client overwrites that
-    // key on every chunk upload — any compression context written there
-    // would be clobbered before `finalize-recording` could read it.
     if (compression) {
       await writeAppState(`recording-compression-${recordingId}`, {
         recordingId,
@@ -420,4 +690,8 @@ export default defineEventHandler(async (event: H3Event) => {
       uploadGenerationId: nextGenerationId,
     };
   });
-});
+}
+
+export default defineEventHandler((event: H3Event) =>
+  handleResetRecordingChunks(event),
+);

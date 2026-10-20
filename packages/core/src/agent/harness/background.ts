@@ -10,7 +10,7 @@ import type {
   BackgroundAgentTranscriptEvent,
   ListBackgroundAgentRunsOptions,
 } from "../../code-agents/background-run.js";
-import { abortRun } from "../run-manager.js";
+import { abortRunDurably } from "../run-manager.js";
 import { getRunEventsSince } from "../run-store.js";
 import type { AgentChatEvent, RunEvent } from "../types.js";
 import {
@@ -114,14 +114,34 @@ export async function stopAgentHarnessBackgroundRun(
   ) {
     return missingHarnessRunResult(runId);
   }
+  const failures: unknown[] = [];
   if (session.runId) {
-    abortRun(session.runId, "user");
+    try {
+      await abortRunDurably(session.runId, "user", { allowNotStarted: true });
+    } catch (error) {
+      failures.push(error);
+    }
   }
-  await stopLiveAgentHarnessSession({
-    sessionId: session.id,
-    scope: options,
-  });
-  await markAgentHarnessSessionStopped(session.id, "stopped");
+  try {
+    await stopLiveAgentHarnessSession({
+      sessionId: session.id,
+      scope: options,
+    });
+  } catch (error) {
+    failures.push(error);
+  }
+  try {
+    await markAgentHarnessSessionStopped(
+      session.id,
+      failures.length > 0 ? "errored" : "stopped",
+    );
+  } catch (error) {
+    failures.push(error);
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "Agent Harness background stop failed.");
+  }
   return {
     ok: true,
     runId,
@@ -152,7 +172,7 @@ function toAgentHarnessBackgroundRun(
     },
     title: `${session.harnessName} harness`,
     subtitle: session.status === "running" ? "Running" : undefined,
-    status: backgroundStatus(session.status),
+    status: backgroundStatus(session.status, Boolean(session.pendingApproval)),
     phase: session.status,
     createdAt,
     updatedAt,
@@ -286,12 +306,13 @@ function parseRunEvent(row: {
 
 function backgroundStatus(
   status: AgentHarnessSessionStatus,
+  needsApproval: boolean,
 ): BackgroundAgentRun["status"] {
   if (status === "running") return "running";
   if (status === "errored") return "errored";
-  if (status === "idle" || status === "stopped" || status === "destroyed") {
-    return "completed";
-  }
+  if (needsApproval) return "needs-approval";
+  if (status === "idle") return "paused";
+  if (status === "stopped" || status === "destroyed") return "completed";
   return "unknown";
 }
 
@@ -327,7 +348,11 @@ async function controlAgentHarnessBackgroundRun(
   }
   if (input.command === "approve" || input.command === "deny") {
     const session = await getAgentHarnessSessionByRunId(input.runId);
-    if (!session || session.ownerEmail !== scope.ownerEmail) {
+    if (
+      !session ||
+      session.ownerEmail !== scope.ownerEmail ||
+      (scope.orgId !== undefined && session.orgId !== scope.orgId)
+    ) {
       return missingHarnessRunResult(input.runId);
     }
     const pending = session.pendingApproval as { id?: unknown } | undefined;

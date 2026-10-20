@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -27,8 +27,6 @@ export default defineAction({
       origin: getRequestContext()?.requestOrigin,
     });
   },
-  // Minting this scoped, expiring read link does not mutate the recording or
-  // expose data outside the caller's existing access scope, so it is safe for
-  // Plan mode's read-only investigation workflow.
   readOnly: true,
+  mcpTool: false,
 });

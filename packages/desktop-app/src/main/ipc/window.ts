@@ -1,32 +1,47 @@
 import { IPC } from "@shared/ipc-channels";
-import {
-  BrowserWindow,
-  ipcMain,
-  type IpcMainEvent,
-  type IpcMainInvokeEvent,
-} from "electron";
+import { BrowserWindow, ipcMain, type IpcMainEvent } from "electron";
 
-/** Registers the basic frameless-window control IPC handlers (minimize/maximize/close/is-maximized). */
+type WindowModeTarget = Pick<
+  BrowserWindow,
+  "isFullScreen" | "setFullScreen" | "isMaximized" | "maximize" | "restore"
+>;
+
+export function toggleWindowMode(
+  window: WindowModeTarget,
+  platform = process.platform,
+): void {
+  if (platform === "darwin") {
+    window.setFullScreen(!window.isFullScreen());
+    return;
+  }
+
+  if (window.isMaximized()) window.restore();
+  else window.maximize();
+}
+
 export function registerWindowIpc(): void {
   ipcMain.on(IPC.WINDOW_MINIMIZE, (event: IpcMainEvent) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
 
-  ipcMain.on(IPC.WINDOW_MAXIMIZE, (event: IpcMainEvent) => {
+  ipcMain.on(IPC.WINDOW_TOGGLE_WINDOW_MODE, (event: IpcMainEvent) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
-    win.isMaximized() ? win.restore() : win.maximize();
+    toggleWindowMode(win);
   });
 
   ipcMain.on(IPC.WINDOW_CLOSE, (event: IpcMainEvent) => {
     BrowserWindow.fromWebContents(event.sender)?.close();
   });
 
-  ipcMain.handle(
-    IPC.WINDOW_IS_MAXIMIZED,
-    (event: IpcMainInvokeEvent): boolean => {
-      return (
-        BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
+  ipcMain.on(
+    IPC.WINDOW_NATIVE_BUTTONS_VISIBILITY,
+    (event: IpcMainEvent, visible: unknown) => {
+      if (process.platform !== "darwin" || typeof visible !== "boolean") {
+        return;
+      }
+      BrowserWindow.fromWebContents(event.sender)?.setWindowButtonVisibility(
+        visible,
       );
     },
   );

@@ -1,9 +1,13 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  draftReadFilter,
+  resolveDraftReadScope,
+} from "../server/lib/library-access.js";
 import { serializeAsset } from "./_helpers.js";
 
 export default defineAction({
@@ -29,6 +33,8 @@ export default defineAction({
     const libraryIds = accessibleLibraries.map((row) => row.id);
     if (!libraryIds.length) return { count: 0, assets: [] };
 
+    const scope = await resolveDraftReadScope(libraryIds);
+    const draftFilter = draftReadFilter(scope, schema.assets);
     const rows = await db
       .select()
       .from(schema.assets)
@@ -37,6 +43,7 @@ export default defineAction({
           inArray(schema.assets.libraryId, libraryIds),
           eq(schema.assets.role, "generated"),
           eq(schema.assets.status, "candidate"),
+          ...(draftFilter ? [draftFilter] : []),
         ),
       )
       .orderBy(desc(schema.assets.createdAt))

@@ -1,5 +1,6 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
+  assertBuilderDesignSystemCodeIndexingAllowed,
   buildBuilderDesignSystemIndexFiles,
   startBuilderDesignSystemIndex,
 } from "@agent-native/core/server";
@@ -10,6 +11,7 @@ import {
 import { z } from "zod";
 
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 
 const codeFileSchema = z.object({
   filename: z.string().trim().min(1).describe("File name or relative path"),
@@ -32,11 +34,36 @@ const codeFileSchema = z.object({
     ),
 });
 
+const githubSourceSchema = z.object({
+  repoUrl: z.string().trim().min(1).describe("GitHub repository URL"),
+  ref: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe("Optional branch, tag, or commit"),
+  include: z
+    .array(z.string().trim().min(1))
+    .optional()
+    .describe("Optional repository-relative files or folders to include"),
+  exclude: z
+    .array(z.string().trim().min(1))
+    .optional()
+    .describe("Optional repository-relative files or folders to exclude"),
+  instructions: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe("Optional indexing guidance for this repository"),
+});
+
 export default defineAction({
   description:
     "Start Builder DSI design-system indexing from connected code, a GitHub repository, code/design files, and optional design.md guidance. " +
     "Use this instead of local import-code/import-github when the user wants a reusable brand kit or design system. " +
-    "Requires Builder.io to be connected (free tier available); Builder owns the indexed design-system docs, generated guidance, token/component extraction, and job state.",
+    "Private GitHub repositories use the saved GITHUB_TOKEN server-side; the token is never sent to Builder or exposed to the client. " +
+    "Use Builder.io (free tier available) to index design-system docs, generate guidance, extract tokens and components, and track job state.",
   schema: z.object({
     projectName: z
       .string()
@@ -49,7 +76,15 @@ export default defineAction({
     githubRepoUrl: z
       .string()
       .optional()
-      .describe("GitHub repository URL to index with Builder"),
+      .describe("Legacy single GitHub repository URL to index with Builder"),
+    githubSources: z
+      .array(githubSourceSchema)
+      .min(1)
+      .max(20)
+      .optional()
+      .describe(
+        "GitHub repositories to index in one design system. Each source may specify a branch/tag/commit and repository-relative files or folders.",
+      ),
     connectedProjectId: z
       .string()
       .optional()
@@ -69,22 +104,25 @@ export default defineAction({
     projectName,
     description,
     githubRepoUrl,
+    githubSources,
     connectedProjectId,
     codeFiles,
     designMd,
   }) => {
+    await assertDesignSystemWorkflowsEnabled();
+    if (githubRepoUrl || githubSources?.length || codeFiles?.length) {
+      await assertBuilderDesignSystemCodeIndexingAllowed();
+    }
     const files = buildBuilderDesignSystemIndexFiles({
       codeFiles,
       designMd,
-      // Agent action payloads intentionally stay at the core 2 MB inline
-      // budget. Fail loudly instead of silently dropping a larger `.fig`;
-      // the setup screen's guarded multipart route supports up to 200 MB.
       overflowBehavior: "throw",
     });
     const result = await startBuilderDesignSystemIndex({
       projectName,
       description,
       githubRepoUrl,
+      githubRepos: githubSources,
       connectedProjectId,
       files,
     });
@@ -97,12 +135,24 @@ export default defineAction({
       orgId: getRequestOrgId(),
       projectName,
       description,
+      githubSources:
+        githubSources ?? (githubRepoUrl ? [{ repoUrl: githubRepoUrl }] : []),
+      sourceKind:
+        (githubSources?.length || githubRepoUrl) &&
+        (codeFiles?.length || designMd)
+          ? "mixed"
+          : githubSources?.length || githubRepoUrl
+            ? "github"
+            : codeFiles?.length || designMd
+              ? "code"
+              : undefined,
     });
 
     return {
       ...result,
       ...proxy,
       uploadedFileCount: files.length,
+      githubSourceCount: githubSources?.length ?? (githubRepoUrl ? 1 : 0),
     };
   },
 });

@@ -59,13 +59,13 @@ export function ErrorsPanel() {
 
   const issues = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
-  // Refresh list + detail when a capture or agent edit records an
-  // "error-issues" change (useDbSync bumps the version this hook reads).
   useEffect(() => {
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["action", "list-error-issues"],
     });
-    queryClient.invalidateQueries({ queryKey: ["action", "get-error-issue"] });
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "get-error-issue"],
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync]);
 
@@ -74,7 +74,6 @@ export function ErrorsPanel() {
     [issues, selectedId],
   );
 
-  // Mirror the current selection into application_state for the agent.
   useEffect(() => {
     const value = selectedIssue
       ? {
@@ -155,10 +154,10 @@ export function ErrorsPanel() {
             : t.reopenedToast,
       );
     } catch (err) {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-error-issues"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-error-issue"],
       });
       toast.error(

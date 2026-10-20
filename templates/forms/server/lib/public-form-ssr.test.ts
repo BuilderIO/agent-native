@@ -1,3 +1,7 @@
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  SSR_QUERY_CACHE_KEY_HEADER,
+} from "@agent-native/core/shared";
 import { describe, expect, it, vi } from "vitest";
 
 const mockGetAppBasePath = vi.hoisted(() => vi.fn(() => ""));
@@ -7,6 +11,7 @@ const mockGetRequestURL = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getAppBasePath: () => mockGetAppBasePath(),
+  getForwardedRequestURL: () => mockGetRequestURL(),
 }));
 
 vi.mock("h3", () => ({
@@ -33,6 +38,7 @@ import {
   invalidatePublicFormCache,
   renderPublicFormHtml,
   renderPublicForm,
+  safeRedirectUrl,
 } from "./public-form-ssr";
 
 function createDbWithRows(rows: unknown[]) {
@@ -97,11 +103,20 @@ describe("public form SSR", () => {
     expect(html).toContain(
       '<meta property="og:title" content="Customer intake">',
     );
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe("query");
     expect(html).toContain(
       '<meta property="og:description" content="Tell us what you need.">',
     );
     expect(html).toContain(
-      "/api/forms/og/customer-intake-123/og.png?v=2026-07-14T12%3A00%3A00.000Z",
+      '<meta name="twitter:title" content="Customer intake">',
+    );
+    expect(html).toContain(
+      '<meta name="twitter:description" content="Tell us what you need.">',
+    );
+    expect(html).toContain(
+      `/api/forms/og/customer-intake-123/og.png?v=${encodeURIComponent(
+        `2026-07-14T12:00:00.000Z-${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}`,
+      )}`,
     );
   });
 
@@ -181,6 +196,10 @@ describe("public form SSR", () => {
     expect(first.html).toContain(
       'fetch(PUBLIC_FORM_API, { cache: "no-store" })',
     );
+    expect(first.html).toContain("if (response.status === 404)");
+    expect(first.html).toContain(
+      'currentUrl.searchParams.set("v", String(Date.now()));',
+    );
 
     rows[0] = {
       ...rows[0],
@@ -197,7 +216,7 @@ describe("public form SSR", () => {
     );
   });
 
-  it("renders conditional metadata and disables hidden required controls", async () => {
+  it("hides initially invisible conditional fields and submits scrubbed page context", async () => {
     mockGetDb.mockReturnValue(
       createDbWithRows([
         {
@@ -241,6 +260,184 @@ describe("public form SSR", () => {
     expect(html).toContain(
       'data-cond-field="event_type" data-cond-op="equals" data-cond-val="Physical"',
     );
+    expect(html).toContain(
+      'data-field-id="venue" data-cond-field="event_type" data-cond-op="equals" data-cond-val="Physical" style="display:none" data-hidden="1"',
+    );
+    expect(html).toContain(
+      "var checked = el.querySelector('input[type=\"radio\"]:checked');",
+    );
+    expect(html).toContain(
+      "if (checked && checked.value) data[f.id] = checked.value;",
+    );
     expect(html).toContain("control.disabled = !show");
+    expect(html).toContain("var pageUrl = scrubPageUrl(window.location.href);");
+    expect(html).toContain("_meta: { pageUrl: pageUrl }");
+    expect(html).toContain('"share_token"');
+    expect(html).toContain('"access_token"');
+    expect(html).toContain('"session"');
+    expect(html).toContain("Array.from(params.keys()).forEach(function(key)");
+    expect(html).toContain('params.set(key, "<redacted>")');
+  });
+
+  it("renders file fields and uploads references before JSON submission", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: "form-files-123",
+          slug: "file-feedback",
+          title: "File feedback",
+          description: null,
+          ownerEmail: "owner@example.test",
+          updatedAt: "2026-07-23T12:00:00.000Z",
+          fields: JSON.stringify([
+            {
+              id: "screenshots",
+              type: "file",
+              label: "Screenshots",
+              required: true,
+              multiple: true,
+              accept: "image/png,.webp",
+              maxSizeBytes: 5242880,
+              maxFiles: 3,
+            },
+          ]),
+          settings: "{}",
+          status: "published",
+          deletedAt: null,
+        },
+      ]),
+    );
+
+    const { html } = await renderPublicFormHtml(
+      "https://forms.example.test/f/file-feedback",
+    );
+
+    expect(html).toContain(
+      '<input type="file" name="screenshots" class="fi fi-file" accept="image/png,.webp" multiple required>',
+    );
+    expect(html).toContain('var UPLOAD_PATH = "/api/upload/";');
+    expect(html).toContain('"maxSizeBytes":5242880');
+    expect(html).toContain('"maxFiles":3');
+    expect(html).toContain("function collectFiles()");
+    expect(html).toContain('body.append("fieldId", f.id);');
+    expect(html).toContain('body.append("file", file, file.name);');
+    expect(html).toContain("uploadFiles(filesByField)");
+    expect(html).toContain('btn.textContent = "Uploading...";');
+  });
+
+  it("ships localized copy for validation rules the browser cannot check", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: "form-unsafe-pattern-123",
+          slug: "unsafe-pattern",
+          title: "Unsafe pattern",
+          description: null,
+          ownerEmail: "owner@example.test",
+          updatedAt: "2026-07-23T12:00:00.000Z",
+          fields: JSON.stringify([
+            {
+              id: "name",
+              type: "text",
+              label: "Name",
+              required: true,
+              validation: { pattern: "^([A-Za-z]+\\s?)+$" },
+            },
+          ]),
+          settings: "{}",
+          status: "published",
+          deletedAt: null,
+        },
+      ]),
+    );
+
+    const { html } = await renderPublicFormHtml(
+      "https://forms.example.test/f/unsafe-pattern",
+    );
+
+    expect(html).toContain("function localizedUncheckablePattern(label)");
+    expect(html).toContain("function localizedTooLongPattern(label)");
+    expect(html).toContain("navigator.languages");
+    expect(html).toContain("此表单中“{label}”的规则无法校验");
+    expect(html).toContain("字段“{label}”的值过长");
+    expect(html).toContain("if (key === locale)");
+    expect(html).toContain("return localizedUncheckablePattern(f.label)");
+    expect(html).toContain("return localizedTooLongPattern(f.label)");
+    expect(html).not.toContain(
+      'f.label + " has a validation rule that cannot be checked',
+    );
+  });
+
+  it.each([
+    {
+      name: "legacy success message",
+      settings: {},
+      mode: "message",
+    },
+    {
+      name: "legacy redirect",
+      settings: { redirectUrl: "https://example.test/thanks" },
+      mode: "redirect",
+    },
+    {
+      name: "message then refresh",
+      settings: {
+        completionMode: "message_then_refresh",
+        completionRefreshSeconds: 7,
+      },
+      mode: "message_then_refresh",
+    },
+    {
+      name: "immediate refresh",
+      settings: { completionMode: "refresh" },
+      mode: "refresh",
+    },
+  ])("renders the $name completion flow", async ({ settings, mode }) => {
+    const slug = `completion-${mode}`;
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: `form-${mode}`,
+          slug,
+          title: "Completion test",
+          description: null,
+          ownerEmail: "owner@example.test",
+          updatedAt: "2026-07-23T12:00:00.000Z",
+          fields: "[]",
+          settings: JSON.stringify(settings),
+          status: "published",
+          deletedAt: null,
+        },
+      ]),
+    );
+
+    const { html } = await renderPublicFormHtml(
+      `https://forms.example.test/f/${slug}`,
+    );
+
+    expect(html).toContain(`var COMPLETION_MODE = "${mode}";`);
+    if (mode === "redirect") {
+      expect(html).toContain('var REDIRECT = "https://example.test/thanks";');
+    }
+    if (mode === "message_then_refresh") {
+      expect(html).toContain("var COMPLETION_REFRESH_MS = 7000;");
+      expect(html).toContain(
+        "window.setTimeout(function() { window.location.reload(); }, COMPLETION_REFRESH_MS);",
+      );
+      expect(html).toContain(
+        'if ((COMPLETION_MODE === "message" || COMPLETION_MODE === "message_then_refresh") && html.classList.contains("embedded")',
+      );
+    }
+    if (mode === "refresh") {
+      expect(html).toContain(
+        'if (COMPLETION_MODE === "refresh") { window.location.reload(); return; }',
+      );
+    }
+  });
+
+  it("allows root-relative redirects without allowing protocol-relative URLs", () => {
+    expect(safeRedirectUrl("/thanks")).toBe("/thanks");
+    expect(safeRedirectUrl("/\\\\evil.example.test/thanks")).toBe("");
+    expect(safeRedirectUrl("//external.example.test/thanks")).toBe("");
   });
 });

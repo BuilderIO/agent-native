@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  allowsSamplingParams,
   DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,
   normalizeReasoningEffortForModel,
@@ -8,20 +9,42 @@ import {
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   stepDownReasoningEffort,
+  supportsClaudeAdaptiveThinking,
 } from "./reasoning-effort.js";
 
 describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
-  it("uses Medium as the default and never exposes legacy Auto", () => {
-    expect(DEFAULT_REASONING_EFFORT).toBe("medium");
+  it("uses High as the default and never exposes legacy Auto", () => {
+    expect(DEFAULT_REASONING_EFFORT).toBe("high");
     expect(getReasoningEffortOptionsForModel("claude-sonnet-5")).not.toContain(
       "auto",
     );
-    expect(reasoningEffortLabel("auto")).toBe("Medium");
+    expect(reasoningEffortLabel("auto")).toBe("High");
   });
 
   it("includes xhigh for claude-opus-4-7", () => {
     const opts = getReasoningEffortOptionsForModel("claude-opus-4-7");
     expect(opts).toContain("xhigh");
+  });
+
+  it("supports direct GPT-6 and Opus 5.5 reasoning", () => {
+    expect(getReasoningEffortOptionsForModel("gpt-6-sol")).toContain("xhigh");
+    expect(getReasoningEffortOptionsForModel("openai/gpt-6-luna")).toContain(
+      "xhigh",
+    );
+    expect(
+      getReasoningEffortOptionsForModel("anthropic/claude-opus-5.5"),
+    ).toContain("xhigh");
+    expect(supportsClaudeAdaptiveThinking("claude-opus-5-5")).toBe(true);
+  });
+
+  it("supports adaptive xhigh reasoning for Claude Haiku 5.5", () => {
+    expect(getReasoningEffortOptionsForModel("claude-haiku-5-5")).toContain(
+      "xhigh",
+    );
+    expect(supportsClaudeAdaptiveThinking("claude-haiku-5-5")).toBe(true);
+    expect(
+      getReasoningEffortOptionsForModel("anthropic/claude-haiku-5.5"),
+    ).toContain("xhigh");
   });
 
   it("includes xhigh for claude-opus-4-8", () => {
@@ -87,17 +110,16 @@ describe("normalizeReasoningEffortForModel", () => {
     );
   });
 
-  it("normalizes legacy auto and missing effort to medium", () => {
+  it("normalizes legacy auto and missing effort to high", () => {
     expect(normalizeReasoningEffortForModel("claude-opus-4-8", "auto")).toBe(
-      "medium",
+      "high",
     );
     expect(normalizeReasoningEffortForModel("claude-opus-4-8", undefined)).toBe(
-      "medium",
+      "high",
     );
   });
 
   it("returns undefined for models that do not support reasoning", () => {
-    // Groq models have no reasoning effort options
     expect(
       normalizeReasoningEffortForModel("llama-3.3-70b-versatile", "high"),
     ).toBeUndefined();
@@ -108,12 +130,12 @@ describe("normalizeReasoningEffortForModel", () => {
 });
 
 describe("resolveReasoningEffortSelection", () => {
-  it("migrates legacy auto and missing selections to medium", () => {
+  it("migrates legacy auto and missing selections to high", () => {
     expect(resolveReasoningEffortSelection("claude-sonnet-5", "auto")).toBe(
-      "medium",
+      "high",
     );
     expect(resolveReasoningEffortSelection("claude-sonnet-5", undefined)).toBe(
-      "medium",
+      "high",
     );
   });
 
@@ -122,7 +144,7 @@ describe("resolveReasoningEffortSelection", () => {
       "high",
     );
     expect(resolveReasoningEffortSelection("claude-sonnet-4-6", "xhigh")).toBe(
-      "medium",
+      "high",
     );
   });
 });
@@ -137,10 +159,10 @@ describe("normalizeReasoningEffortForRequest", () => {
     ).toBe("minimal");
   });
 
-  it("uses Medium when the request omits an effort", () => {
+  it("uses High when the request omits an effort", () => {
     expect(
       normalizeReasoningEffortForRequest("claude-sonnet-5", undefined),
-    ).toBe("medium");
+    ).toBe("high");
   });
 });
 
@@ -161,5 +183,54 @@ describe("stepDownReasoningEffort", () => {
 
   it("passes through undefined unchanged", () => {
     expect(stepDownReasoningEffort(undefined)).toBeUndefined();
+  });
+});
+
+describe("allowsSamplingParams", () => {
+  it("blocks sampling whenever the request carries thinking", () => {
+    expect(
+      allowsSamplingParams({
+        model: "claude-haiku-4-5-20251001",
+        thinkingEnabled: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("blocks sampling on the Claude families that removed it", () => {
+    for (const model of [
+      "claude-sonnet-5",
+      "claude-haiku-5-5",
+      "claude-opus-4-7",
+      "claude-opus-4-8",
+      "claude-opus-5",
+      "claude-opus-5-5",
+      "claude-fable-5",
+      "anthropic/claude-sonnet-5",
+    ]) {
+      expect(allowsSamplingParams({ model, thinkingEnabled: false })).toBe(
+        false,
+      );
+    }
+  });
+
+  it("keeps sampling on thinking-off models that still accept it", () => {
+    for (const model of [
+      "claude-haiku-4-5-20251001",
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
+      "gpt-5.6-sol",
+      "gpt-6-sol",
+      "gemini-3-1-pro",
+    ]) {
+      expect(allowsSamplingParams({ model, thinkingEnabled: false })).toBe(
+        true,
+      );
+    }
+  });
+
+  it("leaves an unknown model alone", () => {
+    expect(
+      allowsSamplingParams({ model: undefined, thinkingEnabled: true }),
+    ).toBe(true);
   });
 });

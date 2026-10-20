@@ -1,0 +1,724 @@
+import Ajv2020 from "ajv/dist/2020.js";
+import { describe, expect, it } from "vitest";
+
+import { SchemaReferenceError } from "../../json-schema/local-refs.js";
+import { UnusableSchemaError } from "../../json-schema/unusable-schema.js";
+import { flattenComposedRootSchema } from "./flatten-composed-root-schema.js";
+
+type JsonSchema = Record<string, unknown>;
+
+const ajv = new Ajv2020({ strict: false, allErrors: true });
+
+function validates(schema: JsonSchema, input: unknown): boolean {
+  return ajv.validate(schema, input) as boolean;
+}
+
+function flatten(schema: JsonSchema, inputs: unknown[] = []) {
+  const flat = flattenComposedRootSchema(schema) as Record<string, any>;
+  for (const key of ["anyOf", "oneOf", "allOf"]) {
+    expect(flat).not.toHaveProperty(key);
+  }
+  for (const input of inputs) {
+    if (validates(schema, input)) expect(validates(flat, input)).toBe(true);
+  }
+  return {
+    flat,
+    admits: (input: unknown) => validates(flat, input),
+  };
+}
+
+describe("flattenComposedRootSchema", () => {
+  describe("property merging", () => {
+    it("keeps both bounds when allOf branches constrain one property", () => {
+      const schema = {
+        type: "object",
+        allOf: [
+          { properties: { name: { type: "string", minLength: 3 } } },
+          { properties: { name: { type: "string", maxLength: 10 } } },
+        ],
+      };
+      const inputs = [
+        { name: "ab" },
+        { name: "abcd" },
+        { name: "a".repeat(12) },
+      ];
+      const { flat, admits } = flatten(schema, inputs);
+
+      expect(flat.properties.name).toEqual({
+        allOf: [
+          { type: "string", minLength: 3 },
+          { type: "string", maxLength: 10 },
+        ],
+      });
+      expect(admits({ name: "abcd" })).toBe(true);
+      expect(admits({ name: "ab" })).toBe(false);
+      expect(admits({ name: "a".repeat(12) })).toBe(false);
+    });
+
+    it("conjoins a root property with the same property on a branch", () => {
+      const schema = {
+        type: "object",
+        properties: { name: { type: "string", minLength: 3 } },
+        anyOf: [
+          { properties: { name: { maxLength: 10 } } },
+          { properties: { name: { maxLength: 20 } } },
+        ],
+        allOf: [{ properties: { name: { pattern: "^a" } } }],
+      };
+      const inputs = [
+        { name: "ab" },
+        { name: "abcd" },
+        { name: "bcde" },
+        { name: "a".repeat(15) },
+        { name: "a".repeat(25) },
+      ];
+      const { flat, admits } = flatten(schema, inputs);
+
+      expect(flat.properties.name).toEqual({
+        allOf: [
+          { type: "string", minLength: 3 },
+          { anyOf: [{ maxLength: 10 }, { maxLength: 20 }] },
+          { pattern: "^a" },
+        ],
+      });
+      expect(admits({ name: "abcd" })).toBe(true);
+      expect(admits({ name: "a".repeat(15) })).toBe(true);
+      expect(admits({ name: "ab" })).toBe(false);
+      expect(admits({ name: "bcde" })).toBe(false);
+      expect(admits({ name: "a".repeat(25) })).toBe(false);
+    });
+
+    it("declares an identical property once", () => {
+      const name = { type: "string", minLength: 1 };
+      const { flat } = flatten({
+        type: "object",
+        properties: { name },
+        allOf: [{ properties: { name } }, { properties: { name } }],
+        anyOf: [{ properties: { name } }, { properties: { name } }],
+      });
+
+      expect(flat.properties.name).toEqual(name);
+    });
+
+    it("keeps a property schema whole when it has keywords beside anyOf", () => {
+      const nullableText = {
+        description: "Text or nothing",
+        anyOf: [{ type: "string" }, { type: "null" }],
+      };
+      const { flat, admits } = flatten(
+        {
+          type: "object",
+          anyOf: [
+            { properties: { value: nullableText } },
+            { properties: { value: { type: "number" } } },
+          ],
+        },
+        [{ value: "x" }, { value: null }, { value: 1 }, { value: true }],
+      );
+
+      expect(flat.properties.value).toEqual({
+        anyOf: [nullableText, { type: "number" }],
+      });
+      expect(admits({ value: true })).toBe(false);
+    });
+
+    it("folds a sole-keyword anyOf property into the branch variants", () => {
+      const { flat } = flatten({
+        type: "object",
+        anyOf: [
+          {
+            properties: {
+              value: { anyOf: [{ type: "string" }, { type: "null" }] },
+            },
+          },
+          { properties: { value: { type: "number" } } },
+        ],
+      });
+
+      expect(flat.properties.value).toEqual({
+        anyOf: [{ type: "string" }, { type: "null" }, { type: "number" }],
+      });
+    });
+  });
+
+  describe("required", () => {
+    it("requires what every anyOf branch requires and every allOf key", () => {
+      const { flat } = flatten({
+        type: "object",
+        required: ["id"],
+        anyOf: [{ required: ["a", "b"] }, { required: ["b", "c"] }],
+        allOf: [{ required: ["d"] }, { required: ["e"] }],
+      });
+
+      expect(flat.required).toEqual(["id", "b", "d", "e"]);
+    });
+
+    it("requires nothing from an anyOf with a non-object branch", () => {
+      const { flat } = flatten({
+        type: "object",
+        anyOf: [{ required: ["a"] }, true],
+      });
+
+      expect(flat.required).toEqual([]);
+    });
+  });
+
+  describe("additionalProperties", () => {
+    const closed = (key: string) => ({
+      type: "object",
+      properties: { [key]: { type: "string" } },
+      required: [key],
+      additionalProperties: false,
+    });
+
+    it("closes the root when every anyOf branch is closed", () => {
+      const inputs = [{ a: "x" }, { b: "x" }, { a: "x", extra: 1 }];
+      const { flat, admits } = flatten(
+        { anyOf: [closed("a"), closed("b")] },
+        inputs,
+      );
+
+      expect(flat.additionalProperties).toBe(false);
+      expect(admits({ a: "x", extra: 1 })).toBe(false);
+    });
+
+    it("leaves the root open when one anyOf branch is open", () => {
+      const open = { properties: { b: { type: "string" } } };
+      const inputs = [{ a: "x" }, { b: "x", extra: 1 }];
+      const { flat, admits } = flatten({ oneOf: [closed("a"), open] }, inputs);
+
+      expect(flat).not.toHaveProperty("additionalProperties");
+      expect(admits({ b: "x", extra: 1 })).toBe(true);
+    });
+
+    it("closes the root when any allOf branch is closed", () => {
+      const open = { properties: { b: { type: "string" } } };
+      const { flat, admits } = flatten({ allOf: [closed("a"), open] }, [
+        { a: "x" },
+      ]);
+
+      expect(flat.additionalProperties).toBe(false);
+      expect(admits({ a: "x", extra: 1 })).toBe(false);
+    });
+
+    it("keeps the root's own additionalProperties: false", () => {
+      const { flat } = flatten({
+        type: "object",
+        properties: { sql: { type: "string" } },
+        additionalProperties: false,
+        oneOf: [{ required: ["sql"] }, { properties: { other: {} } }],
+      });
+
+      expect(flat.additionalProperties).toBe(false);
+    });
+
+    it("does not close over patternProperties the branches disagree on", () => {
+      const schema = {
+        anyOf: [
+          { ...closed("a"), patternProperties: { "^x-": { type: "string" } } },
+          closed("b"),
+        ],
+      };
+      const inputs = [{ a: "x", "x-trace": "t" }, { b: "x" }];
+      const { flat, admits } = flatten(schema, inputs);
+
+      expect(flat).not.toHaveProperty("additionalProperties");
+      expect(flat).not.toHaveProperty("patternProperties");
+      expect(admits({ a: "x", "x-trace": "t" })).toBe(true);
+    });
+
+    it("keeps shared patternProperties but leaves pattern branches open", () => {
+      const patternProperties = { "^x-": { type: "string" } };
+      const schema = {
+        anyOf: [
+          { ...closed("a"), patternProperties },
+          { ...closed("b"), patternProperties },
+        ],
+      };
+      const inputs = [
+        { a: "x", "x-trace": "t" },
+        { b: "x", "x-trace": 1 },
+      ];
+      const { flat, admits } = flatten(schema, inputs);
+
+      expect(flat).not.toHaveProperty("additionalProperties");
+      expect(flat.patternProperties).toEqual(patternProperties);
+      expect(admits({ a: "x", "x-trace": 1 })).toBe(false);
+    });
+  });
+
+  describe("allOf branch constraints", () => {
+    it("takes the tightest minProperties and maxProperties", () => {
+      const { flat } = flatten({
+        type: "object",
+        minProperties: 1,
+        allOf: [{ minProperties: 2, maxProperties: 5 }, { maxProperties: 4 }],
+      });
+
+      expect(flat.minProperties).toBe(2);
+      expect(flat.maxProperties).toBe(4);
+    });
+
+    it("keeps propertyNames from one branch and conjoins several", () => {
+      const lower = { pattern: "^[a-z]+$" };
+      const short = { maxLength: 8 };
+
+      expect(
+        flatten({ allOf: [{ propertyNames: lower }, {}] }).flat.propertyNames,
+      ).toEqual(lower);
+
+      const { flat, admits } = flatten(
+        { allOf: [{ propertyNames: lower }, { propertyNames: short }] },
+        [{ abc: 1 }, { ABC: 1 }, { abcdefghij: 1 }],
+      );
+      expect(flat.propertyNames).toEqual({ allOf: [lower, short] });
+      expect(admits({ abc: 1 })).toBe(true);
+      expect(admits({ ABC: 1 })).toBe(false);
+      expect(admits({ abcdefghij: 1 })).toBe(false);
+    });
+
+    it("merges patternProperties by pattern", () => {
+      const { flat, admits } = flatten(
+        {
+          allOf: [
+            { patternProperties: { "^x-": { type: "string" } } },
+            {
+              patternProperties: {
+                "^x-": { maxLength: 3 },
+                "^n-": { type: "number" },
+              },
+            },
+          ],
+        },
+        [{ "x-a": "ab" }, { "x-a": "abcd" }, { "n-a": "1" }],
+      );
+
+      expect(flat.patternProperties).toEqual({
+        "^x-": { allOf: [{ type: "string" }, { maxLength: 3 }] },
+        "^n-": { type: "number" },
+      });
+      expect(admits({ "x-a": "ab", "n-a": 1 })).toBe(true);
+      expect(admits({ "x-a": "abcd" })).toBe(false);
+      expect(admits({ "n-a": "1" })).toBe(false);
+    });
+  });
+
+  describe("anyOf/oneOf branch constraints", () => {
+    it("keeps a constraint every branch declares identically", () => {
+      const propertyNames = { pattern: "^[a-z]+$" };
+      const { flat } = flatten({
+        oneOf: [
+          { propertyNames, minProperties: 1, maxProperties: 3 },
+          { propertyNames, minProperties: 1, maxProperties: 3 },
+        ],
+      });
+
+      expect(flat).toMatchObject({
+        propertyNames,
+        minProperties: 1,
+        maxProperties: 3,
+      });
+    });
+
+    it("drops a constraint the branches disagree on", () => {
+      const schema = {
+        anyOf: [
+          { propertyNames: { pattern: "^[a-z]+$" }, minProperties: 1 },
+          { minProperties: 2, maxProperties: 3 },
+        ],
+      };
+      const inputs = [{ ABC: 1 }, { a: 1 }, { a: 1, b: 2, c: 3, d: 4 }];
+      const { flat } = flatten(schema, inputs);
+
+      expect(flat).not.toHaveProperty("propertyNames");
+      expect(flat).not.toHaveProperty("minProperties");
+      expect(flat).not.toHaveProperty("maxProperties");
+    });
+  });
+
+  describe("dropped keywords", () => {
+    it("drops branch keywords a flat root cannot express", () => {
+      const schema = {
+        allOf: [
+          {
+            properties: { card: { type: "string" }, cvc: { type: "string" } },
+            dependentRequired: { card: ["cvc"] },
+            not: { required: ["legacy"] },
+          },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [{ card: "4" }, { legacy: 1 }]);
+
+      for (const key of ["dependentRequired", "not"]) {
+        expect(flat).not.toHaveProperty(key);
+      }
+      expect(validates(schema, { card: "4" })).toBe(false);
+      expect(admits({ card: "4" })).toBe(true);
+    });
+  });
+
+  it("flattens a nested composition inside a branch first", () => {
+    const schema = {
+      anyOf: [
+        {
+          allOf: [
+            {
+              properties: { a: { type: "string" } },
+              required: ["a"],
+              additionalProperties: false,
+            },
+            { properties: { a: { minLength: 2 } } },
+          ],
+        },
+        {
+          properties: { b: { type: "number" } },
+          required: ["b"],
+          additionalProperties: false,
+        },
+      ],
+    };
+    const inputs = [{ a: "xy" }, { a: "x" }, { b: 1 }, { b: 1, c: 2 }];
+    const { flat, admits } = flatten(schema, inputs);
+
+    expect(flat.properties.a).toEqual({
+      allOf: [{ type: "string" }, { minLength: 2 }],
+    });
+    expect(flat.additionalProperties).toBe(false);
+    expect(flat.required).toEqual([]);
+    expect(admits({ a: "x" })).toBe(false);
+    expect(admits({ b: 1, c: 2 })).toBe(false);
+  });
+
+  describe("open branches", () => {
+    it("leaves a key unconstrained when an open branch does not declare it", () => {
+      const schema = {
+        type: "object",
+        anyOf: [
+          { type: "object", properties: { x: { type: "string" } } },
+          { type: "object", properties: { y: { type: "string" } } },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [
+        { x: 42, y: "yes" },
+        { x: "a", y: 1 },
+      ]);
+
+      expect(validates(schema, { x: 42, y: "yes" })).toBe(true);
+      expect(admits({ x: 42, y: "yes" })).toBe(true);
+      expect(flat.properties.x.anyOf[0]).toEqual({ type: "string" });
+    });
+
+    it("constrains a key by a branch's additionalProperties schema", () => {
+      const schema = {
+        anyOf: [
+          {
+            type: "object",
+            properties: { x: { type: "string" } },
+            additionalProperties: { type: "number" },
+          },
+          {
+            type: "object",
+            properties: { y: { type: "string" } },
+            additionalProperties: false,
+          },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [
+        { x: "a", y: 2 },
+        { y: "b" },
+        { x: "a", z: 3 },
+      ]);
+
+      expect(flat.properties.y).toEqual({
+        anyOf: [{ type: "number" }, { type: "string" }],
+      });
+      expect(flat.additionalProperties).toEqual({ type: "number" });
+      expect(admits({ y: true })).toBe(false);
+    });
+
+    it("writes an unconstrained key with the caller's any-value schema", () => {
+      const flat = flattenComposedRootSchema(
+        {
+          type: "object",
+          anyOf: [
+            { properties: { x: { type: "string" } } },
+            { properties: { y: { type: "string" } } },
+          ],
+        },
+        { anyValue: () => ({ $ref: "#/$defs/JsonValue" }) },
+      ) as Record<string, any>;
+
+      expect(flat.properties.x).toEqual({
+        anyOf: [{ type: "string" }, { $ref: "#/$defs/JsonValue" }],
+      });
+    });
+  });
+
+  describe("boolean subschemas", () => {
+    it("keeps a nested anyOf whole when one of its branches is true", () => {
+      const schema = {
+        type: "object",
+        anyOf: [
+          {
+            type: "object",
+            properties: { value: { anyOf: [true, { type: "string" }] } },
+          },
+          { type: "object", properties: { value: { type: "number" } } },
+        ],
+      };
+      const { flat } = flatten(schema, [{ value: false }, { value: "x" }]);
+
+      expect(flat.properties.value).toEqual({
+        anyOf: [{ anyOf: [true, { type: "string" }] }, { type: "number" }],
+      });
+    });
+
+    it("leaves out only the boolean that cannot change a nested composition", () => {
+      const union = flatten({
+        type: "object",
+        anyOf: [
+          { properties: { a: { anyOf: [false, { type: "string" }] } } },
+          { properties: { a: { type: "number" } } },
+        ],
+      }).flat;
+      const intersection = flatten({
+        type: "object",
+        allOf: [
+          {
+            properties: {
+              b: { allOf: [true, { type: "string" }] },
+              c: { allOf: [false, { type: "string" }] },
+            },
+          },
+          { properties: { b: { minLength: 1 }, c: { minLength: 1 } } },
+        ],
+      }).flat;
+
+      expect(union.properties.a).toEqual({
+        anyOf: [{ type: "string" }, { type: "number" }],
+      });
+      expect(intersection.properties.b).toEqual({
+        allOf: [{ type: "string" }, { minLength: 1 }],
+      });
+      expect(intersection.properties.c).toEqual({
+        allOf: [{ allOf: [false, { type: "string" }] }, { minLength: 1 }],
+      });
+    });
+
+    it("conjoins pattern and name constraints with false deciding them", () => {
+      const { flat, admits } = flatten({
+        type: "object",
+        allOf: [
+          { patternProperties: { "^x": false }, propertyNames: true },
+          {
+            patternProperties: { "^x": { type: "string" } },
+            propertyNames: true,
+          },
+        ],
+      });
+
+      expect(flat.patternProperties).toEqual({ "^x": false });
+      expect(flat).not.toHaveProperty("propertyNames");
+      expect(admits({ xa: "s" })).toBe(false);
+    });
+
+    it("lists no argument sets when one branch admits any of them", () => {
+      for (const open of [
+        true,
+        { type: "object", properties: { note: { type: "string" } } },
+      ]) {
+        const flat = flattenComposedRootSchema({
+          type: "object",
+          anyOf: [
+            {
+              properties: { mode: { const: "a" }, x: { type: "string" } },
+              required: ["mode", "x"],
+            },
+            {
+              properties: { mode: { const: "b" }, y: { type: "string" } },
+              required: ["mode", "y"],
+            },
+            open,
+          ],
+        });
+
+        expect(flat).not.toHaveProperty("description");
+      }
+    });
+  });
+
+  describe("local references", () => {
+    it("rebases definitions local to a removed branch", () => {
+      const schema = {
+        anyOf: [
+          {
+            type: "object",
+            $defs: { Item: { type: "string", minLength: 2 } },
+            properties: { a: { $ref: "#/anyOf/0/$defs/Item" } },
+            required: ["a"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            properties: { b: { type: "number" } },
+            required: ["b"],
+            additionalProperties: false,
+          },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [{ a: "xy" }, { b: 1 }]);
+
+      expect(flat.properties.a.$ref).toMatch(/^#\/\$defs\//);
+      expect(admits({ a: "x" })).toBe(false);
+    });
+
+    it("rebases a reference that points into a branch", () => {
+      const schema = {
+        type: "object",
+        properties: { copy: { $ref: "#/anyOf/0/properties/a" } },
+        anyOf: [
+          { properties: { a: { type: "string" } } },
+          { properties: { b: { type: "number" } } },
+        ],
+      };
+      const { admits } = flatten(schema, [
+        { copy: "s", a: "t" },
+        { copy: "s", b: 1 },
+      ]);
+
+      expect(admits({ copy: 1 })).toBe(false);
+    });
+
+    it("keeps a recursive root definition", () => {
+      const schema = {
+        type: "object",
+        $defs: {
+          Node: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              children: { type: "array", items: { $ref: "#/$defs/Node" } },
+            },
+          },
+        },
+        properties: { tree: { $ref: "#/$defs/Node" } },
+        anyOf: [
+          { required: ["tree"] },
+          { properties: { flag: { type: "boolean" } }, required: ["flag"] },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [
+        { tree: { name: "a", children: [{ name: "b", children: [] }] } },
+        { flag: true },
+      ]);
+
+      expect(flat.$defs).toEqual(schema.$defs);
+      expect(admits({ tree: { children: [{ name: 1 }] } })).toBe(false);
+    });
+
+    it("rebases a branch definition that refers to itself", () => {
+      const schema = {
+        anyOf: [
+          {
+            type: "object",
+            $defs: {
+              Link: {
+                type: "object",
+                properties: { next: { $ref: "#/anyOf/0/$defs/Link" } },
+              },
+            },
+            properties: { head: { $ref: "#/anyOf/0/$defs/Link" } },
+          },
+          {
+            type: "object",
+            properties: { z: { type: "string" } },
+            required: ["z"],
+          },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [
+        { head: { next: { next: {} } } },
+        { z: "1" },
+      ]);
+
+      const name = String(flat.properties.head.anyOf?.[0]?.$ref ?? "");
+      expect(name).toMatch(/^#\/\$defs\//);
+      expect(admits({ z: "1", head: { next: { next: 1 } } })).toBe(true);
+    });
+
+    it("keeps a root definition a branch refers to", () => {
+      const schema = {
+        type: "object",
+        $defs: { Id: { type: "string", minLength: 1 } },
+        oneOf: [
+          { properties: { id: { $ref: "#/$defs/Id" } }, required: ["id"] },
+          {
+            properties: {
+              ids: { type: "array", items: { $ref: "#/$defs/Id" } },
+            },
+            required: ["ids"],
+          },
+        ],
+      };
+      const { flat } = flatten(schema, [{ id: "a" }, { ids: ["a", "b"] }]);
+
+      expect(flat.$defs).toEqual(schema.$defs);
+    });
+  });
+
+  it("describes which fields go together once the branches are merged", () => {
+    const { flat } = flatten({
+      type: "object",
+      description: "Run one migration phase.",
+      anyOf: [
+        {
+          properties: { phase: { const: "plan" }, plan: { type: "object" } },
+          required: ["phase", "plan"],
+        },
+        {
+          properties: {
+            phase: { const: "verify" },
+            digest: { type: "string" },
+          },
+          required: ["phase", "digest"],
+        },
+      ],
+    });
+
+    expect(flat.description).toBe(
+      'Run one migration phase.\n\nPass one of these argument sets:\n- phase="plan": requires plan\n- phase="verify": requires digest',
+    );
+  });
+
+  it("throws on a branch reference with no target instead of dropping it", () => {
+    const schema = {
+      type: "object",
+      anyOf: [
+        { $ref: "#/$defs/Missing" },
+        { type: "object", properties: { ok: { type: "string" } } },
+      ],
+    };
+
+    expect(() => flattenComposedRootSchema(schema)).toThrow(
+      SchemaReferenceError,
+    );
+  });
+
+  it.each([
+    { allOf: [{ type: "object", required: ["id"] }, { type: "string" }] },
+    { type: "object", anyOf: [{ type: "string" }, false] },
+  ])(
+    "refuses a root no object satisfies instead of widening it: %j",
+    (schema) => {
+      expect(() => flattenComposedRootSchema(schema)).toThrow(
+        UnusableSchemaError,
+      );
+    },
+  );
+
+  it("returns a schema without a root composition as-is", () => {
+    const schema = { type: "object", properties: { q: { type: "string" } } };
+
+    expect(flattenComposedRootSchema(schema)).toBe(schema);
+  });
+});

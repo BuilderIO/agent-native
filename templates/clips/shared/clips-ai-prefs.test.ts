@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_CLIPS_RECORDING_VISIBILITY,
   buildFullVideoAiInstructions,
   fullVideoAiModelSelection,
   isIncludeFullVideoInAiEnabled,
@@ -8,6 +9,10 @@ import {
 } from "../shared/clips-ai-prefs.js";
 
 describe("clips-ai-prefs", () => {
+  it("uses public visibility when no recording preference is saved", () => {
+    expect(DEFAULT_CLIPS_RECORDING_VISIBILITY).toBe("public");
+  });
+
   it("defaults includeFullVideoInAi to off", () => {
     expect(isIncludeFullVideoInAiEnabled(undefined)).toBe(false);
     expect(isIncludeFullVideoInAiEnabled({})).toBe(false);

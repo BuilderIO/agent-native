@@ -1,4 +1,3 @@
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { useComposer, useComposerRuntime } from "@assistant-ui/react";
 import {
   IconArrowUp,
@@ -13,9 +12,14 @@ import {
   IconClipboardList,
   IconKey,
   IconPencil,
-  IconPlugConnected,
+  IconHelpCircle,
+  IconAlertCircle,
+  IconLoader2,
+  IconRefresh,
 } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
+import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -23,19 +27,46 @@ import React, {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useImperativeHandle,
   useMemo,
 } from "react";
+import { toast } from "sonner";
 
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
-import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
+import { formatAttachmentError } from "./attachment-accept.js";
+import {
+  searchComposerContextActions,
+  type ComposerContextMenuItem,
+} from "./ComposerContextMenu.js";
+import {
+  ComposerPlusMenu,
+  type ComposerTerminalModeControl,
+} from "./ComposerPlusMenu.js";
+import {
+  areComposerContextItemsReady,
+  ComposerContextError,
+  snapshotComposerContextItems,
+  type ComposerContextSnapshot,
+} from "./context-items.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import { FileReference } from "./extensions/FileReference.js";
 import { MentionReference } from "./extensions/MentionReference.js";
 import { SkillReference } from "./extensions/SkillReference.js";
+import { MentionItemMedia } from "./MentionItemMedia.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
+import {
+  filterModelGroupsForAgent,
+  isClaudeCodeAgentId,
+  resolvePreferredAgentModel,
+} from "./model-selection.js";
 import {
   createPastedAttachmentFile,
   readClipboardPaste,
@@ -47,11 +78,13 @@ import {
   DEFAULT_REASONING_EFFORT,
   formatPromptContextItems,
   getReasoningEffortOptionsForModel,
+  getComposerReferenceEventTarget,
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   type AgentChatContextItem,
   type AgentComposerReference,
   type AgentComposerReferenceInsertPayload,
+  type ComposerTranslate,
   type ReasoningEffort,
   type VoiceContextPack,
   useComposerRuntimeAdapters,
@@ -69,10 +102,122 @@ import { useSkills } from "./use-skills.js";
 import { RealtimeVoiceModeBoundary } from "./useRealtimeVoiceMode.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
+/**
+ * What a send would take from the composer at one moment, so a host that held
+ * a send back can tell the draft it held from one the person kept editing.
+ */
+export interface ComposerDraftSnapshot {
+  text: string;
+  /** Each reference exactly as it would be submitted, stably serialized. */
+  referenceKeys: string[];
+  attachmentIds: string[];
+}
+
+/** The same value always serializes the same, whatever order its keys were set in. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+const attachmentFileInstances = new WeakMap<object, number>();
+let nextAttachmentFileInstance = 0;
+
+/**
+ * Names and ids can repeat: a replacement file may carry the same name, and
+ * the image adapter has used the name as the id. The attachment's own File
+ * object is what tells one file from another, so it is part of the identity.
+ */
+function composerAttachmentIdentity(attachment: {
+  id?: string;
+  name?: string;
+  file?: unknown;
+}): string {
+  const label = attachment.id ?? attachment.name ?? "";
+  const file = attachment.file;
+  if (!file || typeof file !== "object") return label;
+  let instance = attachmentFileInstances.get(file);
+  if (instance === undefined) {
+    instance = ++nextAttachmentFileInstance;
+    attachmentFileInstances.set(file, instance);
+  }
+  return `${label}#${instance}`;
+}
+
+export function composerDraftSnapshot(
+  text: string,
+  references: readonly Reference[],
+  attachments: readonly { id?: string; name?: string; file?: unknown }[],
+): ComposerDraftSnapshot {
+  return {
+    text,
+    referenceKeys: references.map((ref) => stableJson(ref)),
+    attachmentIds: attachments.map(composerAttachmentIdentity),
+  };
+}
+
+export function sameComposerDraft(
+  a: ComposerDraftSnapshot,
+  b: ComposerDraftSnapshot,
+): boolean {
+  return (
+    a.text === b.text &&
+    JSON.stringify(a.referenceKeys) === JSON.stringify(b.referenceKeys) &&
+    JSON.stringify(a.attachmentIds) === JSON.stringify(b.attachmentIds)
+  );
+}
+
 export interface TiptapComposerHandle {
   focus(): void;
-  setText(text: string): void;
+  /** Add a file through the same attachment pipeline as paste and drop. */
+  addAttachment(file: File): Promise<unknown>;
+  /** Insert text through the editor's normal input path. */
+  insertText(text: string): void;
+  /**
+   * Insert text at the current selection, keeping the existing draft. Typed
+   * triggers such as `@` open their menus as if the person typed them.
+   */
+  insertTextAtCursor?(text: string): void;
+  /**
+   * Replace the draft. Each reference becomes a chip in place of
+   * `text.slice(start, end)`; one that overlaps another or crosses a line
+   * break stays text.
+   */
+  setText(text: string, references?: readonly ComposerTextReference[]): void;
+  /** Submit replacement text with the current attachments and context, without editing the draft on failure. */
+  submitWithText(text: string): Promise<boolean>;
+  /** Submit the current draft as if the person pressed send. */
+  submit?(): Promise<boolean>;
+  /** The draft as a send would take it right now. */
+  getDraftSnapshot?(): ComposerDraftSnapshot;
   insertReference(ref: AgentComposerReference): void;
+  replaceReference(refType: string, ref: AgentComposerReference | null): void;
+  getSelection(): ComposerTextSelection | null;
+  setSelection(
+    start: number,
+    end?: number,
+    direction?: ComposerTextSelection["direction"],
+  ): void;
+  dismissPopover(): boolean;
+}
+
+export interface ComposerTextSelection {
+  start: number;
+  end: number;
+  direction: "forward" | "backward" | "none";
+}
+
+/** A chip standing for `text.slice(start, end)` of a draft's plain text. */
+export interface ComposerTextReference {
+  start: number;
+  end: number;
+  reference: AgentComposerReference;
 }
 
 export type ComposerSubmitIntent = "immediate" | "queued";
@@ -81,6 +226,12 @@ export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
 export interface TiptapComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
+  steer?: boolean;
+  contextItems?: ComposerContextSnapshot;
+  /** Clear the submitted draft once the host owns the message and its failure recovery. */
+  onLocalSubmit?: () => void;
+  /** Mode instructions, separate from provider-owned context awaiting revalidation. */
+  composerModeContext?: string;
 }
 
 export function canSubmitComposerContent(options: {
@@ -155,13 +306,104 @@ export function resolveContextChipBackspaceAction(options: {
 }
 
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const FILE_COMPARISON_CHUNK_BYTES = 64 * 1024;
+const MAX_ATTACHMENT_COMPARISON_BYTES = 16 * 1024 * 1024;
+const MAX_ATTACHMENT_COMPARISONS = 128;
+
+type AttachmentComparisonBudget = {
+  remainingBytes: number;
+  remainingComparisons: number;
+};
+
+function normalizeAttachmentContentType(contentType: string | undefined) {
+  return contentType?.trim().toLowerCase() || "application/octet-stream";
+}
+
+async function haveSameFileContents(
+  first: Blob,
+  second: Blob,
+  budget: AttachmentComparisonBudget,
+) {
+  if (first === second) return true;
+  if (first.size !== second.size) return false;
+
+  for (
+    let offset = 0;
+    offset < first.size;
+    offset += FILE_COMPARISON_CHUNK_BYTES
+  ) {
+    const end = Math.min(offset + FILE_COMPARISON_CHUNK_BYTES, first.size);
+    const comparisonBytes = (end - offset) * 2;
+    if (comparisonBytes > budget.remainingBytes) return false;
+    budget.remainingBytes -= comparisonBytes;
+    const [firstChunk, secondChunk] = await Promise.all([
+      first.slice(offset, end).arrayBuffer(),
+      second.slice(offset, end).arrayBuffer(),
+    ]);
+    budget.remainingBytes +=
+      comparisonBytes - firstChunk.byteLength - secondChunk.byteLength;
+    const firstBytes = new Uint8Array(firstChunk);
+    const secondBytes = new Uint8Array(secondChunk);
+    if (firstBytes.some((byte, index) => byte !== secondBytes[index])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function haveSameAttachmentInput(
+  first: { file: Blob; name: string; contentType: string },
+  second: { file: Blob; name: string; contentType: string },
+  budget: AttachmentComparisonBudget,
+) {
+  if (budget.remainingComparisons === 0) return false;
+  budget.remainingComparisons -= 1;
+  const firstExtension = first.name.match(/\.[^.]+$/)?.[0].toLowerCase() ?? "";
+  const secondExtension =
+    second.name.match(/\.[^.]+$/)?.[0].toLowerCase() ?? "";
+  if (
+    firstExtension !== secondExtension ||
+    first.contentType !== second.contentType
+  ) {
+    return false;
+  }
+  return haveSameFileContents(first.file, second.file, budget);
+}
+
+function isBlob(value: unknown): value is Blob {
+  return typeof Blob !== "undefined" && value instanceof Blob;
+}
+
+function isSameComposerAttachment(
+  current: { id: string; file?: unknown },
+  submitted: { id: string; file?: unknown },
+) {
+  return (
+    current.id === submitted.id &&
+    (current === submitted ||
+      (submitted.file != null && current.file === submitted.file))
+  );
+}
+
+function isSameComposerAttachmentSnapshot(
+  current: { id: string; file?: unknown },
+  snapshot: { id: string; file?: unknown },
+) {
+  return current.id === snapshot.id && current.file === snapshot.file;
+}
+
+// Host Add-menu actions listed among "@" suggestions. Picking one runs the
+// action or opens its picker as a dialog instead of inserting a mention.
+const COMPOSER_CONTEXT_ENTRY_SOURCE = "composer-context";
 
 function composerReferenceFromMentionItem(
   item: MentionItem,
 ): AgentComposerReference {
   return {
-    label: item.label,
+    label: item.referenceLabel ?? item.label,
     icon: item.icon || "file",
+    media: item.media,
     source: item.source,
     refType: item.refType,
     refId: item.refId || null,
@@ -174,10 +416,34 @@ function composerReferenceFromMentionItem(
   };
 }
 
+export function mentionItemMatchesQuery(
+  item: MentionItem,
+  query: string,
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  return [item.label, ...(item.aliases ?? []), item.description ?? ""].some(
+    (candidate) => candidate.toLowerCase().includes(normalizedQuery),
+  );
+}
+
+export function findExactMentionItem(
+  items: MentionItem[],
+  query: string,
+): MentionItem | undefined {
+  const normalizedQuery = query.toLowerCase();
+  return items.find((item) =>
+    [item.label, ...(item.aliases ?? [])].some(
+      (candidate) => candidate.toLowerCase() === normalizedQuery,
+    ),
+  );
+}
+
 function mentionReferenceAttrs(ref: AgentComposerReference) {
   return {
     label: ref.label,
     icon: ref.icon || "file",
+    media: ref.media || null,
     source: ref.source,
     refType: ref.refType,
     refId: ref.refId || null,
@@ -279,8 +545,11 @@ function filterMentionItemsForSlots(
 
 function isDocumentAttachment(value: Record<string, unknown>): boolean {
   if (value.type === "document") return true;
-  const contentType = String(value.contentType ?? "").toLowerCase();
-  const name = String(value.name ?? "").toLowerCase();
+  const contentType =
+    typeof value.contentType === "string"
+      ? value.contentType.toLowerCase()
+      : "";
+  const name = typeof value.name === "string" ? value.name.toLowerCase() : "";
   return contentType === "application/pdf" || name.endsWith(".pdf");
 }
 
@@ -289,10 +558,12 @@ export function getOversizedDocumentAttachmentError(
   options: {
     maxBytes?: number;
     label?: string;
+    translate?: ComposerTranslate;
   } = {},
 ): string | null {
   const maxBytes = options.maxBytes ?? MAX_DOCUMENT_ATTACHMENT_BYTES;
   const label = options.label ?? "PDFs";
+  const t = options.translate;
   for (const attachment of attachments) {
     if (!attachment || typeof attachment !== "object") continue;
     const candidate = attachment as Record<string, unknown>;
@@ -305,8 +576,18 @@ export function getOversizedDocumentAttachmentError(
         ? candidate.name
         : file.name;
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    const maxMb = (maxBytes / 1024 / 1024).toFixed(0);
-    return `"${name}" is ${mb} MB. ${label} are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
+    const maxMb = Number((maxBytes / 1024 / 1024).toFixed(1)).toString();
+    return (
+      t?.("agentChat.composer.documentTooLarge", {
+        defaultValue:
+          '"{{name}}" is {{size}} MB. {{label}} are capped at {{maxSize}} MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+        name,
+        size: mb,
+        label,
+        maxSize: maxMb,
+      }) ??
+      `"${name}" is ${mb} MB. ${label} are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`
+    );
   }
   return null;
 }
@@ -318,7 +599,7 @@ export function getComposerSubmitIntentForEnterKey(
   if (event.key !== "Enter" || event.shiftKey) return null;
 
   const queuedModifierPressed = isMac ? event.metaKey : event.ctrlKey;
-  if (queuedModifierPressed) return "queued";
+  if (queuedModifierPressed) return "immediate";
 
   if (!event.metaKey && !event.ctrlKey) return "immediate";
 
@@ -352,14 +633,31 @@ export function getComposerPopoverPosition(
   }
 }
 
+export function getComposerPopoverAnchorPosition(
+  view: Pick<EditorView, "coordsAtPos" | "dom">,
+  pos: number,
+): { top: number; left: number; width?: number } | null {
+  const position = getComposerPopoverPosition(view, pos);
+  if (!position) return null;
+  const root = view.dom.closest<HTMLElement>(
+    '[data-agent-composer-slot="root"]',
+  );
+  const rect = root?.getBoundingClientRect();
+  if (!rect || rect.width <= 0) return position;
+  return { top: rect.top, left: rect.left, width: rect.width };
+}
+
 export function displayableComposerModeMessage(options: {
   messagePrefix: string;
   trimmedText: string;
   attachmentCount: number;
+  attachedContextFallback?: string;
 }): string {
   const modePrompt =
     options.trimmedText ||
-    (options.attachmentCount > 0 ? "Use the attached context." : "");
+    (options.attachmentCount > 0
+      ? (options.attachedContextFallback ?? "Use the attached context.")
+      : "");
   return `${options.messagePrefix}${modePrompt}`;
 }
 
@@ -369,10 +667,65 @@ function uniquifyComposerImageFile(file: File): File {
   return new File([file], uniqueName, { type: file.type });
 }
 
-function composerDocumentHasContent(doc: {
+type ComposerDocument = {
   textContent: string;
   descendants: (callback: (node: any) => boolean | void) => void;
-}): boolean {
+};
+
+type ComposerDraftEditor = {
+  isDestroyed?: boolean;
+  getHTML(): string;
+  state: { doc: ComposerDocument };
+};
+
+const COMPOSER_DRAFT_SAVE_DELAY_MS = 300;
+const COMPOSER_DRAFT_FORMAT = "agent-composer-draft-v1";
+
+function readComposerDraft(value: string): {
+  html: string;
+  slotReferences: AgentComposerReference[];
+} {
+  if (!value.startsWith(`{"format":"${COMPOSER_DRAFT_FORMAT}"`)) {
+    return { html: value, slotReferences: [] };
+  }
+  const parsed = JSON.parse(value);
+  if (
+    parsed?.format !== COMPOSER_DRAFT_FORMAT ||
+    typeof parsed.html !== "string" ||
+    !Array.isArray(parsed.slotReferences)
+  ) {
+    throw new Error("Stored composer draft has an invalid format.");
+  }
+  return { html: parsed.html, slotReferences: parsed.slotReferences };
+}
+
+function writeComposerDraft(
+  draftKey: string | null,
+  html: string,
+  slotReferences: AgentComposerReference[],
+): void {
+  if (!draftKey) return;
+  try {
+    if (!html.trim() && slotReferences.length === 0) {
+      localStorage.removeItem(draftKey);
+    } else if (slotReferences.length > 0) {
+      localStorage.setItem(
+        draftKey,
+        JSON.stringify({
+          format: COMPOSER_DRAFT_FORMAT,
+          html,
+          slotReferences,
+        }),
+      );
+    } else {
+      localStorage.setItem(draftKey, html);
+    }
+  } catch {
+    // coercion-ok: Browser storage is optional and can be unavailable or full.
+  }
+}
+
+function composerDocumentHasContent(doc: ComposerDocument): boolean {
   if (doc.textContent.trim().length > 0) return true;
   let hasContent = false;
   doc.descendants((node: any) => {
@@ -389,33 +742,115 @@ function composerDocumentHasContent(doc: {
   return hasContent;
 }
 
+function persistComposerDraft(
+  draftKey: string | null,
+  editor: ComposerDraftEditor,
+  slotReferences: AgentComposerReference[],
+): void {
+  if (!composerDocumentHasContent(editor.state.doc) && !slotReferences.length) {
+    writeComposerDraft(draftKey, "", []);
+    return;
+  }
+  writeComposerDraft(draftKey, editor.getHTML(), slotReferences);
+}
+
+function clearComposerDraft(
+  draftKey: string | null,
+  expectedValue?: string | null,
+): void {
+  if (!draftKey) return;
+  try {
+    if (
+      expectedValue !== undefined &&
+      localStorage.getItem(draftKey) !== expectedValue
+    ) {
+      // A submit that started against this key may resolve long after its
+      // composer instance unmounted. If a freshly mounted composer reused
+      // the exact same scope (e.g. the host reopens the same popover before
+      // the earlier submit settles) and the visitor typed something new,
+      // localStorage now holds that newer draft — leave it alone instead of
+      // wiping out a draft this stale submit never wrote.
+      return;
+    }
+    localStorage.removeItem(draftKey);
+  } catch {
+    // coercion-ok: browser storage is optional and can be unavailable or full.
+  }
+}
+
 export function handleComposerFileDrop(options: {
   event: Pick<DragEvent, "dataTransfer" | "preventDefault" | "stopPropagation">;
   addAttachment: (file: File) => Promise<unknown>;
-  onError?: (error: unknown) => void;
+  attachmentsEnabled?: boolean;
+  onError?: (error: unknown, fileName: string) => void;
 }): boolean {
   const droppedFiles = Array.from(options.event.dataTransfer?.files ?? []);
   if (droppedFiles.length === 0) return false;
 
   options.event.preventDefault();
   options.event.stopPropagation();
-  const attachments = droppedFiles.map(uniquifyComposerImageFile);
+  if (options.attachmentsEnabled === false) return true;
+  let errorReported = false;
   void Promise.all(
-    attachments.map((file) => options.addAttachment(file)),
-  ).catch((error) => {
-    options.onError?.(error);
-  });
+    droppedFiles.map(async (droppedFile) => {
+      try {
+        await options.addAttachment(uniquifyComposerImageFile(droppedFile));
+      } catch (error) {
+        if (errorReported) return;
+        errorReported = true;
+        options.onError?.(error, droppedFile.name);
+      }
+    }),
+  );
   return true;
 }
 
-const BUILT_IN_COMMANDS: SlashCommand[] = [
-  { name: "clear", description: "Start a new chat", icon: "clear" },
-  { name: "new", description: "Start a new chat", icon: "new" },
-  { name: "history", description: "Browse all chats", icon: "history" },
-  { name: "plan", description: "Switch to read-only planning", icon: "plan" },
-  { name: "act", description: "Switch back to acting", icon: "act" },
-  { name: "help", description: "Show available commands", icon: "help" },
-];
+function builtInCommands(t: ComposerTranslate): SlashCommand[] {
+  return [
+    {
+      name: "clear",
+      description: t("agentChat.commands.clearShort", {
+        defaultValue: "Start a new chat",
+      }),
+      icon: "clear",
+    },
+    {
+      name: "new",
+      description: t("agentChat.commands.newShort", {
+        defaultValue: "Start a new chat",
+      }),
+      icon: "new",
+    },
+    {
+      name: "history",
+      description: t("agentChat.commands.history", {
+        defaultValue: "Browse all chats",
+      }),
+      icon: "history",
+    },
+    {
+      name: "plan",
+      description: t("agentChat.commands.plan", {
+        defaultValue: "Switch to read-only planning",
+      }),
+      icon: "plan",
+    },
+    {
+      name: "act",
+      description: t("agentChat.commands.act", {
+        defaultValue: "Switch back to acting",
+      }),
+      icon: "act",
+    },
+    {
+      name: "help",
+      description: t("agentChat.commands.help", {
+        defaultValue: "Show available commands",
+      }),
+      icon: "help",
+    },
+  ];
+}
 
 function normalizeSlashCommandName(name: string): string {
   return name.replace(/^\/+/, "").trim().toLowerCase();
@@ -448,19 +883,13 @@ function mergeSlashSkills(skills: SkillResult[]): SkillResult[] {
 const COMPOSER_MODE_CONFIGS: Record<
   ComposerMode,
   {
-    label: string;
     icon: React.ComponentType<{ className?: string }>;
-    placeholder: string;
-    messagePrefix: string;
     getContext: (prompt: string) => string;
     beforeSend?: () => void;
   }
 > = {
   skill: {
-    label: "Create Skill",
     icon: IconBulb,
-    placeholder: "Describe the skill you want to create...",
-    messagePrefix: "Create a skill: ",
     getContext: (prompt) =>
       `The user wants to create an agent skill. Their description: "${prompt}"
 
@@ -482,10 +911,7 @@ After creating, update the shared AGENTS.md resource to reference the new skill 
 Keep the skill concise (under 500 lines) and actionable.`,
   },
   job: {
-    label: "Schedule Task",
     icon: IconClock,
-    placeholder: "Describe what should happen and when...",
-    messagePrefix: "Create a recurring job: ",
     getContext: (prompt) =>
       `The user wants to create a recurring job. Their description: "${prompt}"
 
@@ -498,10 +924,7 @@ Use the manage-jobs tool with action "create" to create this. You need to:
 The job will run automatically on the schedule. Make the instructions specific — include which actions to call and what to do with results.`,
   },
   automation: {
-    label: "Create Automation",
     icon: IconBolt,
-    placeholder: "Describe what you want to automate...",
-    messagePrefix: "Create an automation: ",
     beforeSend: () => {
       window.dispatchEvent(
         new CustomEvent("agent-panel:set-mode", {
@@ -515,10 +938,7 @@ The job will run automatically on the schedule. Make the instructions specific �
 Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
   },
   extension: {
-    label: "Create Extension",
     icon: IconTool,
-    placeholder: "Describe the interactive extension you want to build...",
-    messagePrefix: "Create an extension: ",
     getContext: (prompt) =>
       `The user wants to create an interactive extension (sandboxed mini-app). Their description: "${prompt}"
 
@@ -532,6 +952,60 @@ Prefer appAction()/appFetch() for app data. Some actions return JSON strings for
   },
 };
 
+function localizedComposerModeConfig(mode: ComposerMode, t: ComposerTranslate) {
+  const config = COMPOSER_MODE_CONFIGS[mode];
+  const copies: Record<
+    ComposerMode,
+    { label: string; placeholder: string; messagePrefix: string }
+  > = {
+    skill: {
+      label: t("agentChat.composer.createSkill", {
+        defaultValue: "Create Skill",
+      }),
+      placeholder: t("agentChat.composer.describeSkill", {
+        defaultValue: "Describe the skill you want to create...",
+      }),
+      messagePrefix: t("agentChat.composer.createSkillPrefix", {
+        defaultValue: "Create a skill: ",
+      }),
+    },
+    job: {
+      label: t("agentChat.composer.scheduleTask", {
+        defaultValue: "Schedule Task",
+      }),
+      placeholder: t("agentChat.composer.describeSchedule", {
+        defaultValue: "Describe what should happen and when...",
+      }),
+      messagePrefix: t("agentChat.composer.scheduleTaskPrefix", {
+        defaultValue: "Create a recurring job: ",
+      }),
+    },
+    automation: {
+      label: t("agentChat.composer.createAutomation", {
+        defaultValue: "Create Automation",
+      }),
+      placeholder: t("agentChat.composer.describeAutomation", {
+        defaultValue: "Describe what you want to automate...",
+      }),
+      messagePrefix: t("agentChat.composer.createAutomationPrefix", {
+        defaultValue: "Create an automation: ",
+      }),
+    },
+    extension: {
+      label: t("agentChat.composer.createExtension", {
+        defaultValue: "Create Extension",
+      }),
+      placeholder: t("agentChat.composer.describeExtension", {
+        defaultValue: "Describe the interactive extension you want to build...",
+      }),
+      messagePrefix: t("agentChat.composer.createExtensionPrefix", {
+        defaultValue: "Create an extension: ",
+      }),
+    },
+  };
+  return { ...config, ...copies[mode] };
+}
+
 function ComposerModeChip({
   mode,
   onRemove,
@@ -539,7 +1013,8 @@ function ComposerModeChip({
   mode: ComposerMode;
   onRemove: () => void;
 }) {
-  const config = COMPOSER_MODE_CONFIGS[mode];
+  const t = useComposerRuntimeAdapters().translate!;
+  const config = localizedComposerModeConfig(mode, t);
   const Icon = config.icon;
   return (
     <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground">
@@ -548,6 +1023,7 @@ function ComposerModeChip({
       <button
         type="button"
         onClick={onRemove}
+        aria-label={t("agentChat.common.cancel", { defaultValue: "Cancel" })}
         className="ms-0.5 rounded-sm text-muted-foreground hover:text-foreground cursor-pointer"
       >
         <IconX className="h-3 w-3" />
@@ -558,11 +1034,44 @@ function ComposerModeChip({
 
 type ExecMode = "build" | "plan";
 
+export interface ComposerAgentOption {
+  /** Stable host-defined identifier for the agent runtime. */
+  id: string;
+  /** Human-readable runtime name shown in the picker. */
+  label: string;
+  /** Optional icon shown beside the runtime name. */
+  icon?: React.ReactNode;
+  /** Optional short detail shown below the runtime name. */
+  description?: string;
+  /** Whether this runtime can be selected right now. */
+  configured?: boolean;
+  /** Optional status text such as "Installed" or "Sign in". */
+  statusLabel?: string;
+}
+
 export interface TiptapComposerProps {
   placeholder?: string;
+  /** Accessible name for the editable prompt surface. */
+  ariaLabel?: string;
   disabled?: boolean;
+  /** Unset preserves generic references; false excludes inactive chats; true reports sidebar readiness. */
+  isReferenceTarget?: boolean;
+  /** Disable the + and @ launchers while the editor stays editable. */
+  contextControlsDisabled?: boolean;
+  /** Prevent submission without making the editable surface lose focus. */
+  submissionDisabled?: boolean;
+  /** Disable only the send control while the submission is being accepted. */
+  sendButtonDisabled?: boolean;
+  /** Show progress in the send control while a pre-submit check is running. */
+  sendButtonBusy?: boolean;
+  /** Prevent submission while a host request is in flight. */
+  submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
+  /** Disable file attachments while keeping text chat available. */
+  attachmentsEnabled?: boolean;
+  onAttachmentRequest?: () => void;
+  contextButtonTooltipDisabled?: boolean;
   /** Label used in the visible document attachment limit error. */
   documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
@@ -570,6 +1079,8 @@ export interface TiptapComposerProps {
   initialText?: string;
   /** Stable key used to re-apply the seeded text. */
   initialTextKey?: string | number;
+  /** Chips placed into `initialText`, as `setText` takes them. */
+  initialReferences?: readonly ComposerTextReference[];
   /**
    * When provided, called instead of composerRuntime.send(). Used for queue
    * mode and standalone prompt popovers. Receives the live composer
@@ -580,16 +1091,35 @@ export interface TiptapComposerProps {
     references: Reference[],
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
+  onEmptySubmit?: () => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
-  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
+  onSubmissionPendingChange?: (pending: boolean) => void;
+  /** Scope where a failed submission should be recovered after the host forks. */
+  getSubmitFailureDraftScope?: () => string | null;
   /**
-   * Clear the editor after an onSubmit handler runs. Standalone workflows that
-   * may fail outside the composer can keep the draft visible for quick edits.
+   * Clear the submitted draft after local ownership or successful submission.
+   * Standalone workflows may keep the draft visible for quick edits.
    */
   clearOnSubmit?: boolean;
+  /** Clear the submitted text before awaiting the host request. */
+  clearOnSubmitImmediately?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  mentionItems?: MentionItem[];
+  /** Why some of `mentionItems` could not load, shown in the @ popover. */
+  mentionItemsError?: string;
+  onRetryMentionItems?: () => void;
+  mentionPopoverDensity?: "default" | "stacked";
+  includeDefaultMentionSearch?: boolean;
+  onReferencesChange?: (references: Reference[]) => void;
+  onEscape?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onSelectionChange?: (selection: ComposerTextSelection) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
   /** Whether the default send action will wait behind existing work. */
@@ -613,7 +1143,7 @@ export interface TiptapComposerProps {
   slashCommands?: SlashCommand[];
   /** Additional slash skills surfaced in the shared / menu. */
   slashSkills?: SkillResult[];
-  /** Include built-in sidebar slash commands like /clear and /help. Default true. */
+  /** Include built-in sidebar slash commands when onSlashCommand is provided. */
   includeDefaultSlashCommands?: boolean;
   /** Include app-discovered skills from the default agent endpoint. Default true. */
   includeDefaultSlashSkills?: boolean;
@@ -631,30 +1161,50 @@ export interface TiptapComposerProps {
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
-  /** Selected reasoning effort override for this conversation */
+  /** Selected provider engine for this conversation */
+  selectedEngine?: string;
+  /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
+  /** Show the legacy provider-level Auto model option (default: true). */
+  showAutoModelOption?: boolean;
+  /** Controlled open state for hosts that resize around the model picker. */
+  modelSelectorOpen?: boolean;
   /** Available models grouped by provider */
   availableModels?: Array<{
     engine: string;
     label: string;
     models: string[];
+    modelDisplayNames?: Readonly<Record<string, string>>;
     configured: boolean;
+    statusLabel?: string;
+    isSubscription?: boolean;
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
-  /** Callback when user picks a reasoning effort */
+  /** Callback when user picks an effort */
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /** Local or hosted agent runtimes shown above the model list. */
+  availableAgents?: ComposerAgentOption[];
+  /** Selected agent runtime identifier. Defaults to the built-in agent. */
+  selectedAgent?: string;
+  /** Show only the selected agent in the model control. */
+  agentOnly?: boolean;
+  /** Mark the selected runtime as the hosted tools-only harness mode. */
+  hostedHarness?: boolean;
+  /** Callback when the user picks an agent runtime. */
+  onAgentChange?: (agent: string) => void;
+  /** Called when the shared model picker opens or closes. */
+  onModelSelectorOpenChange?: (open: boolean) => void;
   /**
    * Disable Builder/provider status polling for hosts that supply provider
    * state through another channel, such as Electron IPC.
    */
   providerConnectStatusEnabled?: boolean;
   /**
-   * Override the Builder.io connect action in the model picker. When provided,
-   * clicking "Connect Builder.io" calls this instead of opening a browser popup.
-   * Used by the Electron desktop app to route through the native IPC handler.
+   * Handle the existing-account choice in the Builder chooser in the model
+   * picker. "Create and activate" always uses the shared one-click flow.
    */
   onConnectProvider?: () => void;
   /** Route local runtime setup through the host's native bridge. */
@@ -667,17 +1217,23 @@ export interface TiptapComposerProps {
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
   /** Keyed context nuggets staged for the next submitted prompt. */
-  contextItems?: AgentChatContextItem[];
+  contextItems?: readonly AgentChatContextItem[];
   /** Remove a staged context nugget by key. */
   onRemoveContextItem?: (key: string) => void;
+  onInspectContextItem?: (key: string) => void;
+  onRetryContextItem?: (key: string) => void;
+  /** Shared + menu entries; matching IDs replace built-in full-mode actions. */
+  contextMenuItems?: readonly ComposerContextMenuItem[];
   /**
    * Controls the "+" menu next to the composer. `"full"` (default) shows the
    * normal Upload / Skill / Job / Automation / MCP picker, plus Extension when
-   * `extensionTools` is true. `"upload-only"` collapses it to a single button
-   * that opens the file picker directly. `"hidden"` hides attachment controls
-   * for text-only prompt surfaces.
+   * `extensionTools` is true. `"upload-only"` provides the shared upload and
+   * host-context launcher without full-mode actions. `"hidden"` suppresses
+   * the launcher unless the host explicitly provides `contextMenuItems`.
    */
-  plusMenuMode?: "full" | "upload-only" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
+  terminalModeControl?: ComposerTerminalModeControl;
   /**
    * Include extension creation in the full "+" menu. Defaults to false so
    * apps opt into the extension capability deliberately.
@@ -695,28 +1251,106 @@ export interface TiptapComposerProps {
   interceptBuildRequestsForBuilder?: boolean;
   /**
    * Called when a drag-drop or paste attachment fails (e.g. unsupported format,
-   * size cap). Use this to surface a visible error in the parent chat surface
-   * rather than silently swallowing the problem.
+   * size cap) so the host can show it in its own surface. Without it, the
+   * composer shows the message inline.
    */
   onAttachmentError?: (message: string) => void;
 }
 
-function plainTextToDoc(text: string) {
-  const lines = text.length > 0 ? text.split(/\r?\n/) : [""];
+interface TextChip {
+  start: number;
+  end: number;
+  attrs: ReturnType<typeof mentionReferenceAttrs>;
+}
+
+function plainTextToDoc(text: string, chips: readonly TextChip[] = []) {
+  const ordered = [...chips].sort((a, b) => a.start - b.start);
+  const lines: { start: number; end: number }[] = [];
+  let lineStart = 0;
+  for (const separator of text.matchAll(/\r?\n/g)) {
+    lines.push({ start: lineStart, end: separator.index });
+    lineStart = separator.index + separator[0].length;
+  }
+  lines.push({ start: lineStart, end: text.length });
   return {
     type: "doc",
-    content: lines.map((line) => ({
-      type: "paragraph",
-      content: line ? [{ type: "text", text: line }] : [],
-    })),
+    content: lines.map((line) => {
+      const content: Record<string, unknown>[] = [];
+      let cursor = line.start;
+      const addText = (end: number) => {
+        if (end > cursor) {
+          content.push({ type: "text", text: text.slice(cursor, end) });
+        }
+      };
+      for (const chip of ordered) {
+        if (
+          chip.start < cursor ||
+          line.end < chip.end ||
+          chip.end <= chip.start
+        )
+          continue;
+        addText(chip.start);
+        content.push({ type: "mentionReference", attrs: chip.attrs });
+        cursor = chip.end;
+      }
+      addText(line.end);
+      // Drafts are reported trimmed, so a chip that ends one lost the space
+      // picking it added; without it the next word typed joins the chip's text.
+      if (
+        cursor === text.length &&
+        content.at(-1)?.type === "mentionReference"
+      ) {
+        content.push({ type: "text", text: " " });
+      }
+      return { type: "paragraph", content };
+    }),
   };
 }
 
 /** Tiptap keeps the Editor object truthy after destroy but clears commandManager. */
+// The session shell hides its tree with an inline display: none (RequireSession).
+function isInsideHiddenShell(element: HTMLElement): boolean {
+  for (
+    let node: HTMLElement | null = element;
+    node;
+    node = node.parentElement
+  ) {
+    if (node.style?.display === "none") return true;
+  }
+  return false;
+}
+
 export function isComposerEditorUsable<T extends { isDestroyed?: boolean }>(
   editor: T | null | undefined,
 ): editor is T {
   return Boolean(editor && editor.isDestroyed !== true);
+}
+
+export function focusComposerEditorWhenVisible(
+  editor: Editor | null | undefined,
+): void {
+  if (!isComposerEditorUsable(editor)) return;
+  const dom = editor.view.dom;
+  if (isInsideHiddenShell(dom) && typeof ResizeObserver !== "undefined") {
+    let observer: ResizeObserver;
+    const disconnect = () => {
+      observer.disconnect();
+      editor.off("destroy", disconnect);
+    };
+    observer = new ResizeObserver(() => {
+      if (!isComposerEditorUsable(editor)) {
+        disconnect();
+        return;
+      }
+      if (isInsideHiddenShell(dom)) return;
+      disconnect();
+      if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+    });
+    editor.on("destroy", disconnect);
+    observer.observe(dom);
+    return;
+  }
+  editor.commands.focus("end");
 }
 
 export function createTiptapComposerExtensions(
@@ -757,25 +1391,37 @@ function ModeSelector({
   mode,
   onChange,
   planModeDisabled = false,
-  planModeDisabledReason = "Open Agent Native Desktop to use Plan mode.",
+  planModeDisabledReason,
 }: {
   mode: ExecMode;
   onChange: (mode: ExecMode) => void;
   planModeDisabled?: boolean;
   planModeDisabledReason?: string;
 }) {
+  const t = useComposerRuntimeAdapters().translate!;
   const [open, setOpen] = useState(false);
+  const resolvedPlanModeDisabledReason =
+    planModeDisabledReason ??
+    t("agentChat.composer.planDesktopRequired", {
+      defaultValue: "Open Agent-Native Desktop to use Plan mode.",
+    });
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={mode === "build" ? "Act mode" : "Plan mode"}
+          aria-label={
+            mode === "build"
+              ? t("agentChat.composer.actMode", { defaultValue: "Act mode" })
+              : t("agentChat.plan.mode", { defaultValue: "Plan mode" })
+          }
           data-agent-composer-slot="mode-button"
           className="agent-composer-mode-button shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
-          {mode === "build" ? "Act" : "Plan"}
+          {mode === "build"
+            ? t("agentChat.plan.act", { defaultValue: "Act" })
+            : t("agentChat.composer.plan", { defaultValue: "Plan" })}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
       </PopoverTrigger>
@@ -798,19 +1444,23 @@ function ModeSelector({
         >
           <IconPencil className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
-            <span className="font-medium text-foreground text-[13px]">Act</span>
+            <span className="font-medium text-foreground text-[13px]">
+              {t("agentChat.plan.act", { defaultValue: "Act" })}
+            </span>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Use tools and make approved changes
+              {t("agentChat.composer.actDescription", {
+                defaultValue: "Use tools and make approved changes",
+              })}
             </p>
           </div>
           {mode === "build" && (
-            <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+            <IconCheck className="size-4 shrink-0 text-primary" />
           )}
         </button>
         <button
           type="button"
           disabled={planModeDisabled}
-          title={planModeDisabled ? planModeDisabledReason : undefined}
+          title={planModeDisabled ? resolvedPlanModeDisabledReason : undefined}
           onClick={() => {
             if (planModeDisabled) return;
             onChange("plan");
@@ -825,16 +1475,18 @@ function ModeSelector({
           <IconClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
             <span className="font-medium text-foreground text-[13px]">
-              Plan
+              {t("agentChat.composer.plan", { defaultValue: "Plan" })}
             </span>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               {planModeDisabled
-                ? planModeDisabledReason
-                : "Read-only research and approval first"}
+                ? resolvedPlanModeDisabledReason
+                : t("agentChat.composer.planDescription", {
+                    defaultValue: "Read-only research and approval first",
+                  })}
             </p>
           </div>
           {mode === "plan" && !planModeDisabled && (
-            <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+            <IconCheck className="size-4 shrink-0 text-primary" />
           )}
         </button>
       </PopoverContent>
@@ -844,24 +1496,122 @@ function ModeSelector({
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
-  "codex-cli": "ChatGPT subscription",
-  "claude-fable-5": "Fable 5",
+  "codex-cli": "Codex",
+  "claude-cli": "Claude Code",
+  "pi-cli": "Pi",
+  "opencode-cli": "OpenCode",
+  "claude-fable-5": "Claude Fable 5",
+  "claude-fable-5-1": "Claude Fable 5.1",
+  "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
+  "deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
   "deepseek-v3-1": "DeepSeek v3.1",
+  "z-ai-glm-4-5": "Z-AI GLM 4.5",
+  "z-ai-glm-5-1": "Z-AI GLM 5.1",
+  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
+  "grok-code-fast": "Grok Code Fast",
+  "x-ai/grok-build-0.1": "Grok Build 0.1",
+  "gpt-6-1-sol": "GPT-6.1 Sol",
+  "gemini-3-1-pro": "Gemini 3.1 Pro",
+  "gemini-3-8-flash": "Gemini 3.8 Flash",
+  "google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+  "google/gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "google/gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
+  "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
+  "deepseek/deepseek-chat-v3.1": "DeepSeek v3.1",
+  "z-ai/glm-4.5": "Z-AI GLM 4.5",
+  "z-ai/glm-5.1": "Z-AI GLM 5.1",
+  "z-ai/glm-5.3-flash": "Z-AI GLM 5.3 Flash",
+  "x-ai/grok-4.7": "Grok 4.7",
+  "qwen/qwen3-coder": "Qwen3 Coder",
+  "moonshotai/kimi-k2.5": "Kimi K2.5",
   "z-ai/glm-5.2": "GLM 5.2",
+  "openai/gpt-6-astra": "GPT-6 Astra",
+  "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
+  "gpt-6.1-sol": "GPT-6.1 Sol",
+  "gpt-6-luna": "GPT-6 Luna",
+  "openai/gpt-6.1-sol": "GPT-6.1 Sol",
+  "openai/gpt-6-luna": "GPT-6 Luna",
+  "anthropic/claude-opus-5.5": "Claude Opus 5.5",
+  "anthropic/claude-sonnet-5.5": "Claude Sonnet 5.5",
+  "anthropic/claude-fable-5.1": "Claude Fable 5.1",
+  "google/gemini-3.8-flash": "Gemini 3.8 Flash",
+  "qwen/qwen3.8-max-0902": "Qwen 3.8 Max",
+  "meta/muse-spark-1.3": "Muse Spark 1.3",
+  "inception/mercury-2.5": "Mercury 2.5",
+  "claude-opus-5-5": "Claude Opus 5.5",
+  "claude-opus-4-8": "Claude Opus 4.8",
+  "claude-sonnet-5-5": "Claude Sonnet 5.5",
+  "claude-sonnet-5": "Claude Sonnet 5",
+  "gpt-5-4": "GPT-5.4",
+  "gpt-5-5": "GPT-5.5",
+  "gpt-5-4-mini": "GPT-5.4 Mini",
+  "gpt-5-1-codex-mini": "GPT-5.1 Codex Mini",
+  "claude-haiku-4-5": "Claude Haiku 4.5",
+  "gemini-3-5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "gemini-3-1-flash-lite": "Gemini 3.1 Flash-Lite",
 };
+
+const LOCAL_RUNTIME_ENGINES = new Set([
+  "codex-cli",
+  "claude-cli",
+  "pi-cli",
+  "opencode-cli",
+]);
+
+export function isLocalRuntimeEngine(engine?: string): boolean {
+  return engine !== undefined && LOCAL_RUNTIME_ENGINES.has(engine);
+}
+
+export function hasConfiguredCloudProvider(
+  groups: ReadonlyArray<{ engine: string; configured: boolean }>,
+): boolean {
+  return groups.some(
+    (group) => group.configured && !isLocalRuntimeEngine(group.engine),
+  );
+}
+
+function isOpenAiModelId(model: string): boolean {
+  const normalizedModel = model.toLowerCase();
+  return (
+    normalizedModel.startsWith("gpt-") ||
+    normalizedModel.startsWith("openai/gpt-")
+  );
+}
+
+export function isOpenAiModelProviderGroup(group: {
+  engine: string;
+  label: string;
+  models: string[];
+}): boolean {
+  const engine = group.engine.toLowerCase();
+  const label = group.label.toLowerCase();
+  if (engine === "codex-cli") {
+    return group.models.some(isOpenAiModelId);
+  }
+  return (
+    engine.includes("openai") ||
+    label.includes("openai") ||
+    group.models.some(isOpenAiModelId)
+  );
+}
+
+const HARNESS_AGENTS_DOCS_URL =
+  "https://www.agent-native.com/docs/harness-agents";
 
 export const MODEL_SELECTOR_POPOVER_STYLE = {
   fontSize: 13,
   maxHeight: "min(500px, var(--radix-popover-content-available-height, 500px))",
 } satisfies React.CSSProperties;
 
-export function shouldShowModelSelectorSkeleton(
-  isLoading: boolean,
-  engineCount: number,
-): boolean {
-  return isLoading && engineCount === 0;
-}
+const MODEL_SELECTOR_POPOVER_CLASS =
+  "box-border w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none";
+const PICKER_HELP_BUTTON_CLASS =
+  "flex size-3 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground";
+const PICKER_HELP_ICON_CLASS = "size-2";
 
 /**
  * With nothing connected, every family is a dead "needs API key" row, so the
@@ -875,46 +1625,69 @@ export function shouldShowOnlyConnectPath(
   return showBuilderCta && groups.every((group) => !group.configured);
 }
 
-function friendlyModelName(model: string): string {
-  if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
-  // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD] → Tier Major[.Minor]
-  const claude = model.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-\d{8,})?$/,
+/**
+ * When nothing is routable yet, the model hook resolves `selectedModel` to
+ * `""` rather than pre-selecting something unusable — that reflects "nothing
+ * chosen," not "nothing to show." The picker itself still has a job to do in
+ * that state (its connect-provider CTAs). During the initial discovery window
+ * the list is empty too, but the button still needs to exist so the picker can
+ * reveal its loading or setup state instead of making the composer look
+ * incomplete.
+ */
+export function shouldRenderModelSelector(
+  availableModels: ReadonlyArray<unknown> | undefined,
+  onModelChange: unknown,
+): boolean {
+  return Boolean(availableModels && onModelChange);
+}
+
+function friendlyModelName(model: string, t?: ComposerTranslate): string {
+  if (model === "auto") {
+    return (
+      t?.("agentChat.composer.defaultModel", {
+        defaultValue: "Default model",
+      }) ?? "Default model"
+    );
+  }
+  const friendlyName = Object.hasOwn(FRIENDLY_MODEL_NAMES, model)
+    ? FRIENDLY_MODEL_NAMES[model]
+    : undefined;
+  if (friendlyName !== undefined) return friendlyName;
+  const normalizedModel = model.replace(/^(?:anthropic|openai|google)\//, "");
+  // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD].
+  const undatedModel = normalizedModel.replace(/-\d{8,}$/, "");
+  const claude = undatedModel.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
-    return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
+    return `Claude ${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
-  // GPT: gpt-{major}-{minor}[-suffix] or gpt-{major}.{minor}[-suffix]
-  if (model.startsWith("gpt-")) {
-    const rest = model.slice(4);
-    const gpt = rest.match(/^(\d+)[.-](\d+)(?:[.-](.+))?$/);
-    if (gpt) {
-      const suffix = gpt[3]
-        ? " " +
-          gpt[3]
-            .split("-")
-            .map((s) => s[0].toUpperCase() + s.slice(1))
-            .join(" ")
-        : "";
-      return `GPT-${gpt[1]}.${gpt[2]}${suffix}`;
-    }
-    return `GPT-${rest}`;
+  // GPT: gpt-{major}[-minor][-variant] → GPT-Major[.Minor] Variant.
+  const gpt = normalizedModel.match(/^gpt-(\d+)(?:[.-](\d+))?(?:[.-](.+))?$/);
+  if (gpt) {
+    const version = `${gpt[1]}${gpt[2] ? `.${gpt[2]}` : ""}`;
+    const variant = gpt[3]
+      ?.split("-")
+      .map((part) => part[0].toUpperCase() + part.slice(1))
+      .join(" ");
+    return `GPT-${version}${variant ? ` ${variant}` : ""}`;
   }
-  if (/^o\d/.test(model)) return model;
-  // Gemini: gemini-{major}-{minor}-{variant}[-preview] → Gemini Major.Minor Variant
-  const geminiVersioned = model.match(
-    /^gemini-(\d+)-(\d+)-(.+?)(?:-preview)?$/,
+  if (/^o\d/.test(normalizedModel)) return normalizedModel;
+  // Gemini: gemini-{version.parts}-{variant}[-preview] → Gemini Version Variant.
+  const geminiVersioned = normalizedModel.match(
+    /^gemini-(\d+(?:[-.]\d+)+)-(.+?)(?:-preview)?$/,
   );
   if (geminiVersioned) {
-    const variant = geminiVersioned[3]
+    const variant = geminiVersioned[2]
       .split("-")
       .map((s) => s[0].toUpperCase() + s.slice(1))
       .join(" ");
-    return `Gemini ${geminiVersioned[1]}.${geminiVersioned[2]} ${variant}`;
+    const version = geminiVersioned[1].replace(/-/g, ".");
+    return `Gemini ${version} ${variant}`.replace("Flash Lite", "Flash-Lite");
   }
   // Gemini: gemini-{version.parts}[-preview] → Gemini Version Parts
-  const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
+  const gemini = normalizedModel.match(/^gemini-(.+?)(?:-preview)?$/);
   if (gemini) {
     const parts = gemini[1]
       .split("-")
@@ -925,51 +1698,138 @@ function friendlyModelName(model: string): string {
   return model;
 }
 
-export function compactComposerModelName(model: string): string {
-  const gpt56Variant = model.match(
-    /^(?:openai\/)?gpt-5[.-]6[.-](sol|terra|luna)$/i,
-  )?.[1];
-  if (gpt56Variant) {
-    return gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
-  }
-  return friendlyModelName(model);
+export function compactComposerModelName(
+  model: string,
+  t?: ComposerTranslate,
+): string {
+  const fullName = friendlyModelName(model, t);
+  if (model === "auto" || LOCAL_RUNTIME_ENGINES.has(model)) return fullName;
+  if (/^DeepSeek\b/i.test(fullName)) return fullName;
+  const shortName = fullName
+    .replace(/^GPT-\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^Gemini\s+\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^Claude\s+/i, "")
+    .replace(/^Qwen\s*\d*(?:\.\d+)?\s*/i, "")
+    .replace(/^(DeepSeek)\s+v?\d+(?:\.\d+)?/i, "$1")
+    .replace(/^Z-AI\s*/i, "")
+    .replace(/^Grok\s*/i, "")
+    .replace(/\s+[a-z]*\d+(?:\.\d+)*$/i, "")
+    .trim();
+  return shortName || fullName;
 }
 
 export function compactComposerReasoningEffortLabel(
   effort: ReasoningEffort,
+  t?: ComposerTranslate,
 ): string {
-  if (effort === "medium" || effort === "auto") return "Med";
-  if (effort === "minimal") return "Min";
-  if (effort === "xhigh") return "XHigh";
-  return reasoningEffortLabel(effort);
+  if (effort === "medium" || effort === "auto") {
+    return (
+      t?.("agentChat.composer.reasoningMediumShort", {
+        defaultValue: "Med",
+      }) ?? "Med"
+    );
+  }
+  if (effort === "minimal") {
+    return (
+      t?.("agentChat.composer.reasoningMinimalShort", {
+        defaultValue: "Min",
+      }) ?? "Min"
+    );
+  }
+  if (effort === "xhigh") {
+    return (
+      t?.("agentChat.composer.reasoningExtraHighShort", {
+        defaultValue: "XHigh",
+      }) ?? "XHigh"
+    );
+  }
+  return t
+    ? localizedReasoningEffortLabel(t, effort, reasoningEffortLabel(effort))
+    : reasoningEffortLabel(effort);
 }
 
-/**
- * Deduplicate models to only the latest version per family.
- * e.g. [opus-4-7, opus-4-6, opus-4-5] → [opus-4-7]
- */
-function latestModelsOnly(models: string[]): string[] {
-  const seen = new Set<string>();
-  return models.filter((m) => {
-    // Claude: family = tier (opus/sonnet/haiku)
-    const claude = m.match(/^claude-(opus|sonnet|haiku)-/);
-    if (claude) {
-      if (seen.has(claude[1])) return false;
-      seen.add(claude[1]);
-      return true;
+function localizedReasoningEffortLabel(
+  t: ComposerTranslate,
+  effort: ReasoningEffort,
+  defaultValue: string,
+): string {
+  switch (effort) {
+    case "auto":
+      return t("agentChat.composer.reasoningEffort.auto", { defaultValue });
+    case "none":
+      return t("agentChat.composer.reasoningEffort.none", { defaultValue });
+    case "minimal":
+      return t("agentChat.composer.reasoningEffort.minimal", { defaultValue });
+    case "low":
+      return t("agentChat.composer.reasoningEffort.low", { defaultValue });
+    case "medium":
+      return t("agentChat.composer.reasoningEffort.medium", { defaultValue });
+    case "high":
+      return t("agentChat.composer.reasoningEffort.high", { defaultValue });
+    case "xhigh":
+      return t("agentChat.composer.reasoningEffort.xhigh", { defaultValue });
+    case "max":
+      return t("agentChat.composer.reasoningEffort.max", { defaultValue });
+  }
+}
+
+function versionedModelFamily(
+  model: string,
+): { family: string; version: number[] } | undefined {
+  const id = model.replace(/^(?:anthropic|openai|google)\//i, "");
+  const claude = id.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?/,
+  );
+  if (claude) {
+    return {
+      family: `claude-${claude[1]}`,
+      version: [Number(claude[2]), Number(claude[3] ?? 0)],
+    };
+  }
+  const gpt = id.match(/^gpt-(\d+)(?:[.-](\d+))?(?:[.-](.+))?$/);
+  if (gpt?.[3]) {
+    return {
+      family: `gpt-${gpt[3]}`,
+      version: [Number(gpt[1]), Number(gpt[2] ?? 0)],
+    };
+  }
+  const gemini = id.match(/^gemini-(\d+)(?:[.-](\d+))?-(.+?)(?:-preview)?$/);
+  if (gemini) {
+    return {
+      family: `gemini-${gemini[3]}`,
+      version: [Number(gemini[1]), Number(gemini[2] ?? 0)],
+    };
+  }
+  return undefined;
+}
+
+function compareModelVersions(
+  left: readonly number[],
+  right: readonly number[],
+) {
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+/** Keep the newest version of each Claude, Gemini, and GPT tier. */
+function latestModelsOnly(models: readonly string[]): string[] {
+  const latest = new Map<string, { id: string; version: number[] }>();
+  for (const id of models) {
+    const candidate = versionedModelFamily(id);
+    if (!candidate) continue;
+    const current = latest.get(candidate.family);
+    if (
+      !current ||
+      compareModelVersions(candidate.version, current.version) > 0
+    ) {
+      latest.set(candidate.family, { id, version: candidate.version });
     }
-    // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
-    // OpenAI reasoning: each is its own family
-    // Gemini: family = gemini-{major} + variant
-    const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
-    if (gemini) {
-      const family = gemini[2]; // flash, pro, etc.
-      if (seen.has(`gemini-${family}`)) return false;
-      seen.add(`gemini-${family}`);
-      return true;
-    }
-    return true;
-  });
+  }
+  const latestIds = new Set([...latest.values()].map(({ id }) => id));
+  return models.filter((id) => !versionedModelFamily(id) || latestIds.has(id));
 }
 
 /**
@@ -993,27 +1853,22 @@ const MODEL_COST_TIERS: ReadonlyArray<readonly [string, 1 | 2 | 3]> = [
   ["pro", 3],
 ];
 
-const COST_TIER_LABELS = { 1: "Lower", 2: "Medium", 3: "Higher" } as const;
-
 export function composerModelCostTier(model: string): 1 | 2 | 3 | undefined {
   const normalized = model.toLowerCase();
   return MODEL_COST_TIERS.find(([token]) => normalized.includes(token))?.[1];
 }
 
 function ModelCostTier({ model }: { model: string }) {
+  const t = useComposerRuntimeAdapters().translate!;
   const tier = composerModelCostTier(model);
   if (!tier) return null;
-  return (
-    <>
-      <span
-        aria-hidden="true"
-        className="shrink-0 text-[11px] tabular-nums text-muted-foreground/60"
-      >
-        {"$".repeat(tier)}
-      </span>
-      <span className="sr-only">{COST_TIER_LABELS[tier]} cost</span>
-    </>
-  );
+  const costLabel =
+    tier === 1
+      ? t("agentChat.composer.costLower", { defaultValue: "Lower cost" })
+      : tier === 2
+        ? t("agentChat.composer.costMedium", { defaultValue: "Medium cost" })
+        : t("agentChat.composer.costHigher", { defaultValue: "Higher cost" });
+  return <span className="sr-only">{costLabel}</span>;
 }
 
 /**
@@ -1046,36 +1901,65 @@ function ModelSelector({
   model,
   effort,
   engines,
+  agents,
+  selectedAgent,
+  selectedEngine,
+  agentOnly = false,
+  hostedHarness = false,
+  showAutoModelOption = true,
   modelListLoading = false,
+  open: controlledOpen,
   onChange,
   onEffortChange,
+  onAgentChange,
+  onModelSelectorOpenChange,
   providerConnectStatusEnabled = true,
   onConnectProvider,
   onConnectLocalRuntime,
+  terminalModeControl,
   imageModel,
 }: {
   model: string;
+  selectedEngine?: string;
   effort?: ReasoningEffort;
+  agents?: ComposerAgentOption[];
+  selectedAgent?: string;
+  hostedHarness?: boolean;
   engines: Array<{
     engine: string;
     label: string;
     models: string[];
+    modelDisplayNames?: Readonly<Record<string, string>>;
     configured: boolean;
+    statusLabel?: string;
+    isSubscription?: boolean;
   }>;
+  agentOnly?: boolean;
+  showAutoModelOption?: boolean;
   modelListLoading?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
+  onAgentChange?: (agent: string) => void;
   providerConnectStatusEnabled?: boolean;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  terminalModeControl?: ComposerTerminalModeControl;
+  onModelSelectorOpenChange?: (open: boolean) => void;
   imageModel?: ComposerImageModelMenu;
+  open?: boolean;
 }) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
   const reasoning = adapters.models?.reasoning;
   const defaultEffort = reasoning?.defaultEffort ?? DEFAULT_REASONING_EFFORT;
-  const [open, setOpen] = useState(false);
-  const autoModelGroup = engines.find((group) => group.models.includes("auto"));
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const isClaudeCodeAgent = isClaudeCodeAgentId(selectedAgent);
+  const autoModelGroup = showAutoModelOption
+    ? isClaudeCodeAgent
+      ? undefined
+      : engines.find((group) => group.models.includes("auto"))
+    : undefined;
   const providerGroups = useMemo(
     () =>
       engines
@@ -1086,119 +1970,240 @@ function ModelSelector({
         .filter((group) => group.models.length > 0),
     [engines],
   );
-  const effortOptions =
-    reasoning?.getOptionsForModel?.(model) ??
-    getComposerReasoningEffortOptions(model);
+  const isCodexAgent =
+    selectedAgent === "codex" || selectedAgent === "codex-cli";
+  const modelProviderGroups = useMemo(() => {
+    const hasCodexLocalGroup = providerGroups.some(
+      (group) => group.engine === "codex-cli",
+    );
+    const groups = providerGroups.flatMap((group) => {
+      if (group.engine === "claude-cli") {
+        return isClaudeCodeAgent ? [group] : [];
+      }
+      if (group.engine === "codex-cli") {
+        return isCodexAgent && isOpenAiModelProviderGroup(group) ? [group] : [];
+      }
+      if (
+        isCodexAgent &&
+        hasCodexLocalGroup &&
+        group.engine === "ai-sdk:openai"
+      ) {
+        return [];
+      }
+      if (LOCAL_RUNTIME_ENGINES.has(group.engine)) return [];
+      if (!isCodexAgent) return [group];
+      if (!isOpenAiModelProviderGroup(group)) return [];
+
+      const isExplicitOpenAiProvider =
+        group.engine.toLowerCase().includes("openai") ||
+        group.label.toLowerCase().includes("openai");
+      const models = isExplicitOpenAiProvider
+        ? group.models
+        : group.models.filter(isOpenAiModelId);
+      return models.length > 0 ? [{ ...group, models }] : [];
+    });
+    return filterModelGroupsForAgent(selectedAgent, groups);
+  }, [isClaudeCodeAgent, isCodexAgent, providerGroups, selectedAgent]);
+  const preferredAgentModel = useMemo(
+    () => resolvePreferredAgentModel(selectedAgent, modelProviderGroups),
+    [modelProviderGroups, selectedAgent],
+  );
+  const selectedModelIsAvailable = modelProviderGroups.some(
+    (group) =>
+      group.models.includes(model) &&
+      (selectedEngine === undefined || group.engine === selectedEngine),
+  );
+  useEffect(() => {
+    if (
+      !isClaudeCodeAgent ||
+      selectedModelIsAvailable ||
+      !preferredAgentModel
+    ) {
+      return;
+    }
+    onChange(preferredAgentModel.model, preferredAgentModel.engine);
+  }, [
+    isClaudeCodeAgent,
+    onChange,
+    preferredAgentModel,
+    selectedModelIsAvailable,
+  ]);
+  const effortOptions = agentOnly
+    ? []
+    : (reasoning?.getOptionsForModel?.(model) ??
+      getComposerReasoningEffortOptions(model));
   const selectedEffort =
     reasoning?.resolve?.(model, effort) ??
     resolveReasoningEffortSelection(model, effort ?? defaultEffort);
-  const effortLabel = reasoning?.label ?? reasoningEffortLabel;
+  const effortLabel = useCallback(
+    (value: ReasoningEffort) =>
+      localizedReasoningEffortLabel(
+        t,
+        value,
+        (reasoning?.label ?? reasoningEffortLabel)(value),
+      ),
+    [reasoning?.label, t],
+  );
+  const selectedAgentOption = agents?.find(
+    (agent) => agent.id === (selectedAgent ?? "default"),
+  );
+  const selectedAgentLabel = selectedAgentOption?.label ?? "Default";
 
-  // Collapse non-selected families by default. The family containing the
-  // currently-selected model stays expanded so the user sees their pick at
-  // a glance; clicking another family's header expands it inline.
-  const selectedGroupKey = useMemo(() => {
-    const found = providerGroups.find((g) => g.models.includes(model));
-    return found ? `${found.engine}:${found.label}` : null;
-  }, [model, providerGroups]);
+  const [detailSection, setDetailSection] = useState<
+    "agent" | "model" | "effort" | "mode" | null
+  >(null);
+  const resolvedSection = detailSection ?? (agentOnly ? "agent" : "model");
 
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    () => new Set(selectedGroupKey ? [selectedGroupKey] : []),
+  const setPickerOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (controlledOpen === undefined) setInternalOpen(nextOpen);
+      if (nextOpen) setDetailSection(agentOnly ? "agent" : null);
+      onModelSelectorOpenChange?.(nextOpen);
+    },
+    [agentOnly, controlledOpen, onModelSelectorOpenChange],
   );
 
-  // Reset expansion when the popover re-opens so the picker always lands
-  // on the "selected family expanded, others collapsed" view.
-  useEffect(() => {
-    if (open) {
-      setExpandedGroups(new Set(selectedGroupKey ? [selectedGroupKey] : []));
-    }
-  }, [open, selectedGroupKey]);
-
-  const toggleGroup = useCallback((key: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
-  // The reasoning effort list is collapsed by default — it's a secondary
-  // control most users don't touch, so it stays tucked behind a header that
-  // reveals the current effort at a glance. Reset to collapsed on each open.
-  const [reasoningExpanded, setReasoningExpanded] = useState(false);
-  useEffect(() => {
-    if (open) setReasoningExpanded(false);
-  }, [open]);
-
-  // The optional image-model section follows the same collapsed-by-default
-  // pattern; the current selection shows next to the header.
-  const [imageExpanded, setImageExpanded] = useState(false);
-  useEffect(() => {
-    if (open) setImageExpanded(false);
-  }, [open]);
-  const imageModelLabel =
-    imageModel?.options.find((option) => option.value === imageModel.value)
-      ?.label ?? imageModel?.value;
-  const showModelListSkeleton = shouldShowModelSelectorSkeleton(
-    modelListLoading,
-    engines.length,
-  );
-
-  // When Builder.io isn't connected, surface a one-click connect path —
-  // it unlocks every model family (Claude, OpenAI, Gemini) without the
-  // user having to paste individual API keys.
+  const visibleProviderGroups = modelProviderGroups;
+  // Keep setup actions visible, but do not show unusable model rows until one
+  // provider or local agent is ready.
   const builderFlow = adapters.builder!.useConnectFlow!({
     enabled: providerConnectStatusEnabled,
+    provisionAccount: true,
     trackingSource: "composer_builder_cta",
   });
+  const BuilderConnectPopover = adapters.builder?.BuilderConnectPopover;
   const hasConfiguredBuilderModels = providerGroups.some(
     (group) => group.engine === "builder" && group.configured,
   );
-  const showBuilderCta =
-    (builderFlow.hasFetchedStatus ||
-      (!providerConnectStatusEnabled && !!onConnectProvider)) &&
-    !builderFlow.configured &&
-    !builderFlow.envManaged &&
-    !hasConfiguredBuilderModels;
+  const hasConfiguredCloudProviderReady =
+    hasConfiguredCloudProvider(providerGroups);
+  const hasConnectedSubscription = providerGroups.some(
+    (group) =>
+      hasConfiguredCloudProviderReady &&
+      group.configured &&
+      group.isSubscription &&
+      !LOCAL_RUNTIME_ENGINES.has(group.engine),
+  );
+  const hasUnconfiguredVisibleModels = modelProviderGroups.some(
+    (group) => !group.configured,
+  );
+  const hasConfiguredProvider = providerGroups.some(
+    (group) => group.configured,
+  );
+  const showBuilderAction =
+    !isClaudeCodeAgent &&
+    !hasConfiguredCloudProviderReady &&
+    (Boolean(onConnectProvider) ||
+      (providerConnectStatusEnabled &&
+        !builderFlow.configured &&
+        !builderFlow.envManaged &&
+        !hasConfiguredBuilderModels &&
+        !hasConnectedSubscription));
+  const showAddKeysAction =
+    !isClaudeCodeAgent &&
+    !hasConfiguredCloudProviderReady &&
+    (hasUnconfiguredVisibleModels || showBuilderAction);
+  const showProviderActions = showBuilderAction || showAddKeysAction;
   const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
-    showBuilderCta,
+    showProviderActions,
     providerGroups,
   );
+  const selectedModelProviderGroups = modelProviderGroups.filter(
+    (group) =>
+      group.models.includes(model) &&
+      (!selectedEngine || group.engine === selectedEngine),
+  );
+  const selectedModelDisplayName = selectedModelProviderGroups
+    .map((group) => group.modelDisplayNames?.[model])
+    .find((displayName) => typeof displayName === "string");
+  const selectedModelProviderGroup =
+    selectedModelProviderGroups.find(
+      (group) => group.engine === selectedEngine,
+    ) ?? selectedModelProviderGroups[0];
+  const selectedModelFriendlyName =
+    selectedModelDisplayName ?? friendlyModelName(model, t);
+  const selectedModelHasDuplicateName =
+    selectedModelProviderGroup !== undefined &&
+    modelProviderGroups.some(
+      (group) =>
+        group.engine !== selectedModelProviderGroup.engine &&
+        group.models.some(
+          (candidate) =>
+            (group.modelDisplayNames?.[candidate] ??
+              friendlyModelName(candidate, t)) === selectedModelFriendlyName,
+        ),
+    );
+  const selectedModelProviderLabel = selectedModelProviderGroup?.label.replace(
+    / · Builder\.io$/i,
+    "",
+  );
+  const selectedModelDisplayLabel = selectedModelHasDuplicateName
+    ? `${selectedModelFriendlyName} · ${selectedModelProviderLabel}`
+    : selectedModelFriendlyName;
+  const selectedModelNeedsConnection =
+    onlyConnectPathAvailable ||
+    (selectedModelProviderGroups.length > 0 &&
+      selectedModelProviderGroups.every((group) => !group.configured));
+  const selectedModelName = selectedModelNeedsConnection
+    ? showBuilderAction
+      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+      : t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
+    : selectedModelDisplayLabel;
+  const selectedModelLabel = selectedModelName;
+  const selectedModelButtonLabel = selectedModelNeedsConnection
+    ? selectedModelLabel
+    : selectedModelFriendlyName;
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
-    } catch {}
+    } catch {
+      // coercion-ok: browser storage is optional and can be unavailable or full.
+    }
     window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
-    setOpen(false);
-  }, []);
+    setPickerOpen(false);
+  }, [setPickerOpen]);
   const connectLocalRuntime = useCallback(
     (engine: string) => {
       onConnectLocalRuntime?.(engine);
-      setOpen(false);
+      setPickerOpen(false);
     },
-    [onConnectLocalRuntime],
+    [onConnectLocalRuntime, setPickerOpen],
   );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setPickerOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
           data-agent-composer-slot="model-button"
-          aria-label={`Model: ${friendlyModelName(model)}${
+          aria-label={`${t("agentChat.composer.model", {
+            defaultValue: "Model",
+          })}: ${selectedModelButtonLabel}${
             effortOptions.length > 0
-              ? `. Reasoning: ${effortLabel(selectedEffort)}`
+              ? `. ${t("agentChat.composer.effort", {
+                  defaultValue: "Effort",
+                })}: ${effortLabel(selectedEffort)}`
+              : ""
+          }${
+            selectedAgentOption && selectedAgentOption.id !== "default"
+              ? `. Agent: ${selectedAgentLabel}`
               : ""
           }`}
-          className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className="agent-composer-model-button flex min-w-0 max-w-none shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">
-            {compactComposerModelName(model)}
+            {selectedAgentOption?.icon ? (
+              <span className="me-1 inline-flex shrink-0 align-middle text-muted-foreground">
+                {selectedAgentOption.icon}
+              </span>
+            ) : null}
+            {selectedAgentOption && selectedAgentOption.id !== "default"
+              ? selectedAgentLabel
+              : selectedModelButtonLabel}
           </span>
           {effortOptions.length > 0 && (
-            <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
-              · {compactComposerReasoningEffortLabel(selectedEffort)}
+            <span className="agent-composer-model-effort min-w-0 shrink-0 truncate text-muted-foreground/70">
+              · {compactComposerReasoningEffortLabel(selectedEffort, t)}
             </span>
           )}
           <IconChevronDown className="h-3 w-3 shrink-0 opacity-60" />
@@ -1210,316 +2215,660 @@ function ModelSelector({
         sideOffset={6}
         collisionPadding={8}
         data-agent-native-composer-popover="true"
-        className="z-[260] box-border w-72 overflow-y-auto rounded-lg border-border p-0 py-1 shadow-lg"
+        className={`z-[260] overflow-visible ${MODEL_SELECTOR_POPOVER_CLASS}`}
         style={MODEL_SELECTOR_POPOVER_STYLE}
       >
-        {showBuilderCta && (
-          <>
-            <button
-              type="button"
-              onClick={() => {
-                if (onConnectProvider) {
-                  onConnectProvider();
-                } else {
-                  builderFlow.start();
-                }
-              }}
-              disabled={!onConnectProvider && builderFlow.connecting}
-              className="flex w-full items-start gap-2 px-3 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
+        <Popover open={detailSection !== null} onOpenChange={() => undefined}>
+          <PopoverAnchor asChild>
+            <div
+              className="flex flex-col"
+              role="tablist"
+              aria-label={t("agentChat.composer.pickerSections", {
+                defaultValue: "Picker sections",
+              })}
             >
-              <IconPlugConnected className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
-              <span className="flex-1 min-w-0">
-                <span className="block text-[12px] font-medium text-foreground">
-                  {!onConnectProvider && builderFlow.connecting
-                    ? t("agentPanel.connectingBuilder", {
-                        defaultValue: "Connecting Builder.io…",
-                      })
-                    : t("agentPanel.connectBuilderIo", {
-                        defaultValue: "Connect Builder.io",
-                      })}
-                </span>
-                <span className="block text-[11px] text-muted-foreground">
-                  {t("agentPanel.builderModelCredits", {
-                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                  })}
-                </span>
-              </span>
-            </button>
-            {!onConnectProvider && builderFlow.error && (
-              <p
-                role="alert"
-                className="px-3 pb-2 ps-9 text-[11px] text-destructive"
-              >
-                {builderFlow.error}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={openLlmSettings}
-              className="flex w-full items-start gap-2 px-3 py-2 text-start hover:bg-accent/50"
-            >
-              <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block text-[12px] font-medium text-foreground">
-                  {t("agentPanel.addOwnKeys", {
-                    defaultValue: "Add your own keys",
-                  })}
-                </span>
-                <span className="block text-[11px] text-muted-foreground">
-                  {t("agentPanel.configureProviderKeys", {
-                    defaultValue:
-                      "Configure Anthropic, OpenAI, or another provider",
-                  })}
-                </span>
-              </span>
-            </button>
-            {!onlyConnectPathAvailable && (
-              <div className="my-1 border-t border-border" />
-            )}
-          </>
-        )}
-        {imageModel && imageModel.options.length > 0 && (
-          <>
-            <div className="flex items-center hover:bg-accent/30">
-              <button
-                type="button"
-                aria-expanded={imageExpanded}
-                onClick={() => setImageExpanded((prev) => !prev)}
-                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
-              >
-                {imageExpanded ? (
-                  <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                ) : (
-                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                )}
-                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                  {imageModel.label ?? "Image model"}
-                </span>
-                {!imageExpanded && imageModelLabel && (
-                  <span className="text-[11px] text-muted-foreground/80 truncate">
-                    {imageModelLabel}
+              {agents && agents.length > 0 && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "agent"}
+                  onClick={() => setDetailSection("agent")}
+                  onMouseEnter={() => setDetailSection("agent")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "agent"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="flex min-w-0 items-center">
+                    <span className="shrink-0 text-[12px] font-medium">
+                      Agent
+                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          role="img"
+                          aria-label={t("agentChat.composer.harnessAgentHelp", {
+                            defaultValue: "Learn about harness agents",
+                          })}
+                          onClick={(event) => event.stopPropagation()}
+                          className={`ms-1.5 ${PICKER_HELP_BUTTON_CLASS}`}
+                        >
+                          <IconHelpCircle
+                            aria-hidden="true"
+                            className={PICKER_HELP_ICON_CLASS}
+                            strokeWidth={1.8}
+                          />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        <span className="block">
+                          {hostedHarness
+                            ? t("agentChat.composer.hostedHarnessDescription", {
+                                defaultValue:
+                                  "Hosted mode uses app tools only. For full coding with a repository and shell, use Agent-Native Desktop.",
+                              })
+                            : t("agentChat.composer.harnessAgentDescription", {
+                                defaultValue:
+                                  "Harnesses run their own coding loop and local tools.",
+                              })}
+                        </span>
+                        <a
+                          href={HARNESS_AGENTS_DOCS_URL}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 block underline underline-offset-2 hover:no-underline"
+                        >
+                          {t("agentChat.composer.learnMoreHarnessAgents", {
+                            defaultValue: "Learn more about harness agents",
+                          })}
+                        </a>
+                      </TooltipContent>
+                    </Tooltip>
                   </span>
-                )}
-              </button>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {selectedAgentLabel}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                </button>
+              )}
+              {!agentOnly && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "model"}
+                  onClick={() => setDetailSection("model")}
+                  onMouseEnter={() => setDetailSection("model")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "model"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="shrink-0 text-[12px] font-medium">
+                    Model
+                  </span>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {selectedModelLabel}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                </button>
+              )}
+              {!agentOnly && effortOptions.length > 0 && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "effort"}
+                  onClick={() => setDetailSection("effort")}
+                  onMouseEnter={() => setDetailSection("effort")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "effort"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="shrink-0 text-[12px] font-medium">
+                    {t("agentChat.composer.effort", {
+                      defaultValue: "Effort",
+                    })}
+                  </span>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {effortLabel(selectedEffort)}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                </button>
+              )}
+              {terminalModeControl && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "mode"}
+                  onClick={() => setDetailSection("mode")}
+                  onMouseEnter={() => setDetailSection("mode")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "mode"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="shrink-0 text-[12px] font-medium">
+                    {t("agentPanel.mode", { defaultValue: "Mode" })}
+                  </span>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {terminalModeControl.enabled
+                      ? t("agentPanel.cli", { defaultValue: "CLI" })
+                      : t("agentPanel.uiMode", { defaultValue: "UI" })}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                </button>
+              )}
             </div>
-            {imageExpanded &&
-              imageModel.options.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    imageModel.onChange(option.value);
-                    setImageExpanded(false);
-                  }}
-                  className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
-                >
-                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                    {option.label}
-                  </span>
-                  {option.value === imageModel.value && (
-                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                  )}
-                </button>
-              ))}
-            <div className="my-1 border-t border-border" />
-          </>
-        )}
-        {showModelListSkeleton && <ModelSelectorSkeleton />}
-        {autoModelGroup && !onlyConnectPathAvailable && (
-          <button
-            type="button"
-            onClick={() => {
-              onChange("auto", autoModelGroup.engine);
-              setOpen(false);
-            }}
-            className="flex w-full items-center gap-3 px-3 py-1.5 text-start hover:bg-accent/50"
+          </PopoverAnchor>
+          <PopoverContent
+            side="right"
+            align="start"
+            sideOffset={4}
+            alignOffset={-8}
+            collisionPadding={8}
+            className={`z-[320] overflow-visible ${MODEL_SELECTOR_POPOVER_CLASS}`}
+            style={MODEL_SELECTOR_POPOVER_STYLE}
           >
-            <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-              Auto
-            </span>
-            {model === "auto" && (
-              <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-            )}
-          </button>
-        )}
-        {autoModelGroup &&
-          providerGroups.length > 0 &&
-          !onlyConnectPathAvailable && (
-            <div className="my-1 border-t border-border" />
-          )}
-        {!onlyConnectPathAvailable &&
-          providerGroups.map((group) => {
-            const models = latestModelsOnly(group.models);
-            const groupKey = `${group.engine}:${group.label}`;
-            const isExpanded = expandedGroups.has(groupKey);
-            const ChevronIcon = isExpanded ? IconChevronDown : IconChevronRight;
-            return (
-              <div key={groupKey}>
-                <div className="flex items-center hover:bg-accent/30">
-                  <button
-                    type="button"
-                    aria-expanded={isExpanded}
-                    onClick={() => toggleGroup(groupKey)}
-                    className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
-                  >
-                    <ChevronIcon className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                    <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                      {group.label}
-                    </span>
-                    {!isExpanded && groupKey === selectedGroupKey && (
-                      <span className="text-[11px] text-muted-foreground/80 truncate">
-                        {friendlyModelName(model)}
-                      </span>
+            <div className="max-h-[min(500px,var(--radix-popover-content-available-height,500px))] overflow-y-auto">
+              <div
+                className="min-h-0 min-w-0"
+                role="tabpanel"
+                aria-label={resolvedSection}
+              >
+                {resolvedSection === "agent" && agents && (
+                  <div className="flex flex-col">
+                    {agents.map((agent) => {
+                      const isSelected =
+                        agent.id === (selectedAgent ?? "default");
+                      const isConfigured = agent.configured !== false;
+                      const canConnect =
+                        !isConfigured && Boolean(onConnectLocalRuntime);
+                      const statusLabel =
+                        agent.statusLabel ??
+                        (!isConfigured ? "Unavailable" : undefined);
+                      return (
+                        <div
+                          key={agent.id}
+                          className="group flex items-center rounded-md hover:bg-accent/30"
+                        >
+                          <button
+                            type="button"
+                            disabled={!isConfigured || !onAgentChange}
+                            aria-current={isSelected ? "true" : undefined}
+                            onClick={() => {
+                              if (!isConfigured) return;
+                              onAgentChange?.(agent.id);
+                              setPickerOpen(false);
+                            }}
+                            className={`flex min-w-0 flex-1 items-center gap-0.5 px-2 py-2 text-start ${
+                              isConfigured
+                                ? "hover:bg-accent/50"
+                                : "cursor-default opacity-50"
+                            }`}
+                          >
+                            {agent.icon ? (
+                              <span
+                                className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+                                aria-hidden="true"
+                              >
+                                {agent.icon}
+                              </span>
+                            ) : null}
+                            <span
+                              className={`min-w-0 truncate text-[12px] ${
+                                isSelected
+                                  ? "text-foreground"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {agent.label}
+                            </span>
+                            {agent.description && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    role="img"
+                                    aria-label={`${agent.label} details`}
+                                    onClick={(event) => event.stopPropagation()}
+                                    className={PICKER_HELP_BUTTON_CLASS}
+                                  >
+                                    <IconHelpCircle
+                                      aria-hidden="true"
+                                      className={PICKER_HELP_ICON_CLASS}
+                                      strokeWidth={1.8}
+                                    />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent
+                                  side="left"
+                                  className="max-w-xs"
+                                >
+                                  {agent.description}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                            <span
+                              className="min-w-0 flex-1"
+                              aria-hidden="true"
+                            />
+                            {isSelected && isConfigured && (
+                              <IconCheck className="size-4 shrink-0 text-primary" />
+                            )}
+                          </button>
+                          {!isConfigured && statusLabel && (
+                            <button
+                              type="button"
+                              disabled={!canConnect}
+                              className="ms-auto max-w-[6rem] shrink-0 truncate px-2 py-2 text-end text-[10px] text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground focus-visible:opacity-100 disabled:cursor-default"
+                              onClick={() => {
+                                if (canConnect) connectLocalRuntime(agent.id);
+                              }}
+                            >
+                              {statusLabel}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {resolvedSection === "model" && (
+                  <>
+                    {showProviderActions && (
+                      <>
+                        {showBuilderAction && BuilderConnectPopover ? (
+                          <>
+                            <BuilderConnectPopover
+                              flow={builderFlow}
+                              onConnect={(provisionAccount) => {
+                                if (onConnectProvider && !provisionAccount) {
+                                  onConnectProvider();
+                                } else {
+                                  builderFlow.start({ provisionAccount });
+                                }
+                              }}
+                            >
+                              <button
+                                type="button"
+                                disabled={builderFlow.connecting}
+                                className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
+                              >
+                                {builderFlow.connecting ? (
+                                  <IconLoader2
+                                    aria-hidden="true"
+                                    className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary"
+                                  />
+                                ) : null}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-[12px] font-medium text-foreground">
+                                    {builderFlow.connecting
+                                      ? t("agentPanel.connectingBuilder", {
+                                          defaultValue:
+                                            "Setting up Builder.io…",
+                                        })
+                                      : t("agentPanel.connectBuilderIo", {
+                                          defaultValue: "Use Builder.io",
+                                        })}
+                                  </span>
+                                  <span className="block text-[11px] text-muted-foreground">
+                                    {t("agentPanel.builderModelCredits", {
+                                      defaultValue:
+                                        "Free credits for Claude, OpenAI & Gemini",
+                                    })}
+                                  </span>
+                                </span>
+                              </button>
+                            </BuilderConnectPopover>
+                            {!onConnectProvider && builderFlow.error && (
+                              <p
+                                role="alert"
+                                className="px-2 pb-2 ps-8 text-[11px] text-destructive"
+                              >
+                                {builderFlow.error}
+                              </p>
+                            )}
+                          </>
+                        ) : null}
+                        {showAddKeysAction && (
+                          <button
+                            type="button"
+                            onClick={openLlmSettings}
+                            className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                          >
+                            <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-[12px] font-medium text-foreground">
+                                {t("agentPanel.addOwnKeys", {
+                                  defaultValue: "Add your own keys",
+                                })}
+                              </span>
+                              <span className="block text-[11px] text-muted-foreground">
+                                {t("agentPanel.configureProviderKeys", {
+                                  defaultValue:
+                                    "Choose a cloud, gateway, or local provider",
+                                })}
+                              </span>
+                            </span>
+                          </button>
+                        )}
+                      </>
                     )}
-                  </button>
-                  {!group.configured && (
-                    <button
-                      type="button"
-                      className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
-                      onClick={() =>
-                        group.engine === "codex-cli" && onConnectLocalRuntime
-                          ? connectLocalRuntime(group.engine)
-                          : openLlmSettings()
-                      }
-                    >
-                      {group.engine === "codex-cli" && onConnectLocalRuntime
-                        ? "sign in"
-                        : "needs API key"}
-                    </button>
-                  )}
-                </div>
-                {isExpanded &&
-                  models.map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => {
-                        if (!group.configured) {
-                          if (
-                            group.engine === "codex-cli" &&
-                            onConnectLocalRuntime
-                          ) {
-                            connectLocalRuntime(group.engine);
-                          } else {
-                            openLlmSettings();
-                          }
-                          return;
-                        }
-                        onChange(m, group.engine);
-                        const nextOptions =
-                          getReasoningEffortOptionsForModel(m);
-                        if (
-                          nextOptions.length > 0 &&
-                          !nextOptions.includes(selectedEffort)
-                        ) {
-                          onEffortChange?.(defaultEffort);
-                        }
-                        setOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start ${
-                        group.configured
-                          ? "hover:bg-accent/50"
-                          : "opacity-40 cursor-default"
-                      }`}
-                    >
-                      <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                        {friendlyModelName(m)}
-                      </span>
-                      <ModelCostTier model={m} />
-                      {m === model && group.configured && (
-                        <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                    {hasConfiguredCloudProviderReady &&
+                      imageModel &&
+                      imageModel.options.length > 0 && (
+                        <div className="mt-2 pt-1">
+                          <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {imageModel.label ??
+                              t("agentChat.composer.imageModel", {
+                                defaultValue: "Image model",
+                              })}
+                          </div>
+                          {imageModel.options.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => {
+                                imageModel.onChange(option.value);
+                                setPickerOpen(false);
+                              }}
+                              className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                            >
+                              <span
+                                className={`min-w-0 flex-1 truncate text-[12px] ${
+                                  option.value === imageModel.value
+                                    ? "text-foreground"
+                                    : "text-muted-foreground"
+                                }`}
+                              >
+                                {option.label}
+                              </span>
+                              {option.value === imageModel.value && (
+                                <IconCheck className="size-4 shrink-0 text-primary" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
                       )}
-                    </button>
-                  ))}
+                    {hasConfiguredProvider &&
+                      isCodexAgent &&
+                      !modelListLoading &&
+                      !onlyConnectPathAvailable &&
+                      modelProviderGroups.length === 0 && (
+                        <button
+                          type="button"
+                          onClick={openLlmSettings}
+                          className="flex w-full items-center rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
+                            {t("agentChat.composer.noOpenAiModels", {
+                              defaultValue: "No OpenAI models configured",
+                            })}
+                          </span>
+                          <span className="shrink-0 text-[11px] text-muted-foreground/70">
+                            Configure
+                          </span>
+                        </button>
+                      )}
+                    {hasConfiguredProvider &&
+                      autoModelGroup &&
+                      !onlyConnectPathAvailable && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onChange("auto", autoModelGroup.engine);
+                            setPickerOpen(false);
+                          }}
+                          className="mt-1 flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
+                        >
+                          <span
+                            className={`min-w-0 flex-1 truncate text-[13px] ${
+                              model === "auto"
+                                ? "text-foreground"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {t("agentChat.composer.auto", {
+                              defaultValue: "Auto",
+                            })}
+                          </span>
+                          {model === "auto" && (
+                            <IconCheck className="size-4 shrink-0 text-primary" />
+                          )}
+                        </button>
+                      )}
+                    {hasConfiguredProvider &&
+                      !onlyConnectPathAvailable &&
+                      visibleProviderGroups.map((group, groupIndex) => {
+                        const latestModels =
+                          group.engine === "chatgpt-subscription"
+                            ? group.models
+                            : latestModelsOnly(group.models);
+                        const models = group.models.filter(
+                          (candidate) =>
+                            latestModels.includes(candidate) ||
+                            candidate === model,
+                        );
+                        const showProviderLabels =
+                          visibleProviderGroups.length > 1;
+                        const isLocalRuntime =
+                          group.engine === "codex-cli" ||
+                          group.engine === "claude-cli";
+                        const canConnectLocalRuntime =
+                          isLocalRuntime && Boolean(onConnectLocalRuntime);
+                        const statusLabel =
+                          group.statusLabel ??
+                          (!group.configured
+                            ? canConnectLocalRuntime
+                              ? t("agentChat.auth.logIn", {
+                                  defaultValue: "Sign in",
+                                })
+                              : t("agentChat.composer.needsApiKey", {
+                                  defaultValue: "needs API key",
+                                })
+                            : undefined);
+                        return (
+                          <div
+                            key={`${group.engine}:${group.label}`}
+                            className={
+                              showProviderLabels && groupIndex > 0
+                                ? "mt-2 pt-1"
+                                : ""
+                            }
+                          >
+                            {showProviderLabels && (
+                              <div className="group flex items-center px-2 py-1">
+                                <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  {group.label.replace(/ · Builder\.io$/i, "")}
+                                </span>
+                                {!group.configured && statusLabel && (
+                                  <button
+                                    type="button"
+                                    aria-label={statusLabel}
+                                    className="ms-auto max-w-[9rem] shrink-0 cursor-pointer truncate px-0 py-1 text-end text-[10px] text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground focus-visible:opacity-100"
+                                    onClick={() =>
+                                      canConnectLocalRuntime
+                                        ? connectLocalRuntime(group.engine)
+                                        : openLlmSettings()
+                                    }
+                                  >
+                                    {statusLabel}
+                                  </button>
+                                )}
+                                {group.configured && statusLabel && (
+                                  <span className="ms-auto max-w-[9rem] shrink-0 truncate py-1 text-end text-[10px] text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                                    {statusLabel}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {models.map((m) => {
+                              const isSelected =
+                                m === model && group.configured;
+                              return (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => {
+                                    if (!group.configured) {
+                                      if (canConnectLocalRuntime) {
+                                        connectLocalRuntime(group.engine);
+                                      } else {
+                                        openLlmSettings();
+                                      }
+                                      return;
+                                    }
+                                    onChange(m, group.engine);
+                                    const nextOptions =
+                                      getReasoningEffortOptionsForModel(m);
+                                    if (
+                                      nextOptions.length > 0 &&
+                                      !nextOptions.includes(selectedEffort)
+                                    ) {
+                                      onEffortChange?.(defaultEffort);
+                                    }
+                                    setPickerOpen(false);
+                                  }}
+                                  className={`group flex w-full items-center gap-3 rounded-md px-2 py-2 text-start ${
+                                    group.configured
+                                      ? "hover:bg-accent/50"
+                                      : "cursor-default opacity-40"
+                                  }`}
+                                >
+                                  <span
+                                    className={`min-w-0 flex-1 truncate text-[12px] ${
+                                      isSelected
+                                        ? "text-foreground"
+                                        : "text-muted-foreground"
+                                    }`}
+                                  >
+                                    {group.modelDisplayNames?.[m] ??
+                                      friendlyModelName(m, t)}
+                                  </span>
+                                  <ModelCostTier model={m} />
+                                  {!showProviderLabels && statusLabel && (
+                                    <span className="hidden max-w-[9rem] shrink-0 truncate text-[10px] text-muted-foreground/70 group-hover:inline">
+                                      {statusLabel}
+                                    </span>
+                                  )}
+                                  {isSelected && (
+                                    <IconCheck className="size-4 shrink-0 text-primary" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                  </>
+                )}
+                {resolvedSection === "effort" && effortOptions.length > 0 && (
+                  <div className="flex flex-col">
+                    {effortOptions.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => onEffortChange?.(option)}
+                        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                      >
+                        <span
+                          className={`min-w-0 flex-1 truncate text-[12px] ${
+                            option === selectedEffort
+                              ? "text-foreground"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {effortLabel(option)}
+                        </span>
+                        {option === selectedEffort && (
+                          <IconCheck className="size-4 shrink-0 text-primary" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {resolvedSection === "mode" && terminalModeControl && (
+                  <div className="flex flex-col">
+                    {[
+                      {
+                        enabled: false,
+                        label: t("agentPanel.uiMode", { defaultValue: "UI" }),
+                      },
+                      {
+                        enabled: true,
+                        label: t("agentPanel.cli", { defaultValue: "CLI" }),
+                      },
+                    ].map((option) => (
+                      <button
+                        key={option.label}
+                        type="button"
+                        onClick={() => {
+                          terminalModeControl.onChange(option.enabled);
+                          setPickerOpen(false);
+                        }}
+                        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                      >
+                        <span
+                          className={`min-w-0 flex-1 truncate text-[12px] ${
+                            option.enabled === terminalModeControl.enabled
+                              ? "text-foreground"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {option.label}
+                        </span>
+                        {option.enabled === terminalModeControl.enabled && (
+                          <IconCheck className="size-4 shrink-0 text-primary" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            );
-          })}
-        {!showModelListSkeleton &&
-          !onlyConnectPathAvailable &&
-          effortOptions.length > 0 && (
-            <>
-              <div className="my-1 border-t border-border" />
-              <div className="flex items-center hover:bg-accent/30">
-                <button
-                  type="button"
-                  aria-expanded={reasoningExpanded}
-                  onClick={() => setReasoningExpanded((prev) => !prev)}
-                  className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
-                >
-                  {reasoningExpanded ? (
-                    <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                  )}
-                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                    Reasoning
-                  </span>
-                  {!reasoningExpanded && (
-                    <span className="text-[11px] text-muted-foreground/80 truncate">
-                      {effortLabel(selectedEffort)}
-                    </span>
-                  )}
-                </button>
-              </div>
-              {reasoningExpanded &&
-                effortOptions.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => onEffortChange?.(option)}
-                    className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
-                  >
-                    <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                      {effortLabel(option)}
-                    </span>
-                    {option === selectedEffort && (
-                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                    )}
-                  </button>
-                ))}
-            </>
-          )}
+            </div>
+          </PopoverContent>
+        </Popover>
       </PopoverContent>
     </Popover>
   );
 }
 
-function ModelSelectorSkeleton() {
-  return (
-    <div
-      className="space-y-1 px-2 py-2"
-      role="status"
-      aria-label="Loading models"
-    >
-      <span className="sr-only">Loading models…</span>
-      {["w-24", "w-32", "w-20", "w-28"].map((width, index) => (
-        <div key={index} className="flex items-center gap-1.5 px-1 py-1.5">
-          <Skeleton className="size-3 rounded-sm" />
-          <Skeleton className={`h-3 ${width}`} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 type PopoverState = {
   type: "@" | "/";
-  position: { top: number; left: number };
+  position: { top: number; left: number; width?: number };
   startPos: number;
   query: string;
 } | null;
 
 export function TiptapComposer({
-  placeholder = "Message agent...",
+  placeholder,
+  ariaLabel,
   disabled = false,
+  isReferenceTarget,
+  contextControlsDisabled = false,
+  submissionDisabled = false,
+  sendButtonDisabled = false,
+  sendButtonBusy = false,
+  submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
+  attachmentsEnabled = true,
+  onAttachmentRequest,
+  contextButtonTooltipDisabled = false,
   focusRef,
   initialText,
   initialTextKey,
+  initialReferences,
   onSubmit,
+  onEmptySubmit,
   onBeforeSubmit,
+  onSubmissionPendingChange,
+  getSubmitFailureDraftScope,
   clearOnSubmit = true,
+  clearOnSubmitImmediately = false,
   onTextChange,
   actionButton,
   willQueue = false,
@@ -1540,29 +2889,73 @@ export function TiptapComposer({
   planModeDisabledReason,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   selectedModel,
+  selectedEngine,
   selectedEffort,
+  showAutoModelOption = true,
+  modelSelectorOpen,
   availableModels,
   modelListLoading,
   onModelChange,
   onEffortChange,
+  availableAgents,
+  selectedAgent,
+  agentOnly = false,
+  hostedHarness,
+  onAgentChange,
+  onModelSelectorOpenChange,
   providerConnectStatusEnabled,
   onConnectProvider,
   onConnectLocalRuntime,
   imageModelMenu,
   draftScope,
-  contextItems = [],
+  contextItems: providedContextItems,
   onRemoveContextItem,
+  onRetryContextItem,
+  contextMenuItems,
   plusMenuMode = "full",
+  terminalModeControl,
   extensionTools = false,
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
+  mentionItems: hostMentionItems = [],
+  mentionItemsError,
+  onRetryMentionItems,
+  mentionPopoverDensity = "default",
+  includeDefaultMentionSearch = true,
+  onReferencesChange,
+  onEscape,
+  onFocus,
+  onBlur,
+  onSelectionChange,
 }: TiptapComposerProps) {
+  const contextItems = providedContextItems ?? [];
+  const hasContextMenu =
+    (contextMenuItems !== undefined || plusMenuMode !== "hidden") &&
+    !(attachmentsEnabled && attachButton);
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
+  const initialReferencesRef = useRef(initialReferences);
+  initialReferencesRef.current = initialReferences;
+  const textChips = useCallback(
+    (references: readonly ComposerTextReference[] = []): TextChip[] =>
+      references.flatMap(({ start, end, reference }) => {
+        const normalized = adapters.agentChat!.normalizeReference!(
+          reference,
+        ) as AgentComposerReference | null;
+        return normalized
+          ? [{ start, end, attrs: mentionReferenceAttrs(normalized) }]
+          : [];
+      }),
+    [adapters],
+  );
   const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
     defaultValue: willQueue ? "Queue message" : "Send message",
   });
   const [popover, setPopover] = useState<PopoverState>(null);
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [contextEntryRequest, setContextEntryRequest] = useState<{
+    id: string;
+  } | null>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
   const lastComposerRuntimeSyncRef = useRef<{
@@ -1570,19 +2963,80 @@ export function TiptapComposer({
     runConfigSignature: string;
   } | null>(null);
   const submitInFlightRef = useRef(false);
+  const attachmentCleanupPendingRef = useRef(0);
+  const mountedRef = useRef(false);
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const [editorHasText, setEditorHasText] = useState(false);
+  const [referenceRevision, setReferenceRevision] = useState(0);
   const [slotReferences, setSlotReferences] = useState<
     AgentComposerReference[]
   >([]);
+  const slotReferencesRef = useRef(slotReferences);
+  slotReferencesRef.current = slotReferences;
+  const updateSlotReferences = useCallback(
+    (update: React.SetStateAction<AgentComposerReference[]>) => {
+      const next =
+        typeof update === "function"
+          ? update(slotReferencesRef.current)
+          : update;
+      slotReferencesRef.current = next;
+      setSlotReferences(next);
+    },
+    [],
+  );
   const [selectedContextItemKey, setSelectedContextItemKey] = useState<
     string | null
   >(null);
   const composerText = useComposer((state) => state.text);
   const composerAttachments = useComposer((state) => state.attachments);
+  const [
+    failedAttachmentCleanupSnapshots,
+    setFailedAttachmentCleanupSnapshots,
+  ] = useState<typeof composerAttachments>([]);
+  const [contextSubmissionError, setContextSubmissionError] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    if (failedAttachmentCleanupSnapshots.length > 0) return;
+    setContextSubmissionError(null);
+  }, [failedAttachmentCleanupSnapshots.length, providedContextItems]);
+  useEffect(() => {
+    if (failedAttachmentCleanupSnapshots.length === 0) return;
+    const remainingFailedAttachments = failedAttachmentCleanupSnapshots.filter(
+      (submitted) =>
+        composerAttachments.some((current) =>
+          isSameComposerAttachment(current, submitted),
+        ),
+    );
+    if (
+      remainingFailedAttachments.length ===
+      failedAttachmentCleanupSnapshots.length
+    ) {
+      return;
+    }
+    setFailedAttachmentCleanupSnapshots(remainingFailedAttachments);
+    if (remainingFailedAttachments.length === 0) {
+      setContextSubmissionError(null);
+    }
+  }, [composerAttachments, failedAttachmentCleanupSnapshots]);
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
-    disabled,
+    disabled:
+      disabled ||
+      submissionDisabled ||
+      submitting ||
+      !areComposerContextItemsReady(contextItems) ||
+      composerAttachments.some((current) =>
+        failedAttachmentCleanupSnapshots.some((submitted) =>
+          isSameComposerAttachment(current, submitted),
+        ),
+      ),
   });
   const primaryAction = resolveComposerPrimaryAction({
     canSubmit: canSend,
@@ -1597,8 +3051,13 @@ export function TiptapComposer({
 
   // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
+  const composingRef = useRef(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const onAttachmentErrorRef = useRef(onAttachmentError);
-  onAttachmentErrorRef.current = onAttachmentError;
+  // Many standalone prompts pass no handler; a rejected file must still say so.
+  onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
   const execModeRef = useRef(execMode);
   execModeRef.current = execMode;
   const onExecModeChangeRef = useRef(onExecModeChange);
@@ -1606,14 +3065,73 @@ export function TiptapComposer({
   const planModeDisabledRef = useRef(planModeDisabled);
   planModeDisabledRef.current = planModeDisabled;
 
-  const { items: mentionItems, isLoading: mentionsLoading } = useMentionSearch(
+  const {
+    items: mentionItems,
+    isLoading: mentionsLoading,
+    error: mentionsError,
+    retry: retryMentions,
+    settledQuery: settledMentionQuery,
+  } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
-    popover?.type === "@",
+    includeDefaultMentionSearch && (contextMenuOpen || popover?.type === "@"),
   );
+  const mentionQuery = popover?.type === "@" ? popover.query : "";
   const filteredMentionItems = useMemo(
-    () => filterMentionItemsForSlots(mentionItems, slotReferences),
-    [mentionItems, slotReferences],
+    () =>
+      filterMentionItemsForSlots(
+        [
+          // Host items arrive unfiltered; the default search filters itself.
+          ...hostMentionItems.filter((item) =>
+            mentionItemMatchesQuery(item, mentionQuery),
+          ),
+          ...mentionItems,
+        ].filter(
+          (item, index, items) =>
+            items.findIndex((candidate) => candidate.id === item.id) === index,
+        ),
+        slotReferences,
+      ),
+    [hostMentionItems, mentionItems, mentionQuery, slotReferences],
   );
+  const inlineMentionItems = useMemo(() => {
+    if (
+      popover?.type !== "@" ||
+      !hasContextMenu ||
+      disabled ||
+      contextControlsDisabled ||
+      !contextMenuItems?.length
+    )
+      return filteredMentionItems;
+    const addContextLabel = t("agentChat.composer.addContext", {
+      defaultValue: "Add context",
+    });
+    return [
+      ...searchComposerContextActions(contextMenuItems, mentionQuery)
+        // Custom pages only render inside the + menu.
+        .filter(({ action }) => !action.disabled && !action.render)
+        .map(
+          ({ action, categories }): MentionItem => ({
+            id: `${COMPOSER_CONTEXT_ENTRY_SOURCE}:${action.id}`,
+            label: action.label,
+            description: action.description,
+            source: COMPOSER_CONTEXT_ENTRY_SOURCE,
+            refType: COMPOSER_CONTEXT_ENTRY_SOURCE,
+            refId: action.id,
+            section: categories[0] ?? addContextLabel,
+          }),
+        ),
+      ...filteredMentionItems,
+    ];
+  }, [
+    popover?.type,
+    hasContextMenu,
+    disabled,
+    contextControlsDisabled,
+    contextMenuItems,
+    mentionQuery,
+    filteredMentionItems,
+    t,
+  ]);
 
   const {
     skills,
@@ -1621,14 +3139,14 @@ export function TiptapComposer({
     isLoading: skillsLoading,
   } = useSkills(includeDefaultSlashSkills && popover?.type === "/");
 
-  const allSlashCommands = useMemo(
-    () =>
-      mergeSlashCommands([
-        ...(includeDefaultSlashCommands ? BUILT_IN_COMMANDS : []),
-        ...slashCommands,
-      ]),
-    [includeDefaultSlashCommands, slashCommands],
-  );
+  const allSlashCommands = useMemo(() => {
+    // A command without a host callback would be deleted as an invisible no-op.
+    if (!onSlashCommand) return [];
+    return mergeSlashCommands([
+      ...(includeDefaultSlashCommands ? builtInCommands(t) : []),
+      ...slashCommands,
+    ]);
+  }, [includeDefaultSlashCommands, onSlashCommand, slashCommands, t]);
 
   const allSlashSkills = useMemo(
     () =>
@@ -1662,24 +3180,52 @@ export function TiptapComposer({
   }, [allSlashSkills, popover]);
 
   // Keep refs in sync with state
-  const mentionItemsRef = useRef(filteredMentionItems);
-  mentionItemsRef.current = filteredMentionItems;
+  // Results for an earlier query are stale until the search for this one
+  // settles, so auto-close may not treat them as final. Host mention items
+  // carry no readiness signal (they may still be loading), so only a settled
+  // default search can end a query as "nothing matches".
+  const mentionSearchSettled =
+    includeDefaultMentionSearch &&
+    !mentionsLoading &&
+    settledMentionQuery === mentionQuery;
   const filteredCommandsRef = useRef(filteredCommands);
   filteredCommandsRef.current = filteredCommands;
   const filteredSkillsRef = useRef(filteredSkills);
   filteredSkillsRef.current = filteredSkills;
+  const launchersDisabledRef = useRef(disabled || contextControlsDisabled);
+  launchersDisabledRef.current = disabled || contextControlsDisabled;
   const onSlashCommandRef = useRef(onSlashCommand);
   onSlashCommandRef.current = onSlashCommand;
+  const announceSlashCommand = useCallback((command: SlashCommand) => {
+    const handler = onSlashCommandRef.current;
+    if (!handler) return;
+    handler(command.name);
+    toast.success(`/${command.name}`, {
+      description: command.description,
+      duration: 1800,
+    });
+  }, []);
   const onTextChangeRef = useRef(onTextChange);
   onTextChangeRef.current = onTextChange;
   const contextItemsRef = useRef(contextItems);
   contextItemsRef.current = contextItems;
+  const contextItemsProvidedRef = useRef(providedContextItems !== undefined);
+  contextItemsProvidedRef.current = providedContextItems !== undefined;
+  const submissionDisabledRef = useRef(
+    disabled || submissionDisabled || submitting,
+  );
+  submissionDisabledRef.current = disabled || submissionDisabled || submitting;
   const onRemoveContextItemRef = useRef(onRemoveContextItem);
   onRemoveContextItemRef.current = onRemoveContextItem;
   const selectedContextItemKeyRef = useRef<string | null>(null);
   selectedContextItemKeyRef.current = selectedContextItemKey;
   const initialTextKeyRef = useRef<string | number | undefined>(undefined);
+  const hasCheckedInitialDraftRef = useRef(false);
   const seenReferenceInsertIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!hasContextMenu) setContextMenuOpen(false);
+  }, [hasContextMenu]);
 
   useEffect(() => {
     if (
@@ -1696,83 +3242,385 @@ export function TiptapComposer({
     popoverStateRef.current = null;
   }, []);
 
-  // Persist draft to localStorage so hot-reloads don't lose the prompt
-  const draftKey = getComposerDraftKey(draftScope);
-  const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // A query nothing matches is plain text ("@builder.io", "@3pm"), so end the
+  // mention there instead of holding later keys.
   useEffect(() => {
-    return () => {
-      clearTimeout(draftTimerRef.current);
+    if (
+      mentionQuery &&
+      mentionSearchSettled &&
+      inlineMentionItems.length === 0
+    ) {
+      closePopover();
+    }
+  }, [mentionQuery, mentionSearchSettled, inlineMentionItems, closePopover]);
+
+  // The + menu runs a request from its own effect, which fires before this one;
+  // clear it so a remounted menu cannot run the same action again.
+  useEffect(() => {
+    if (contextEntryRequest) setContextEntryRequest(null);
+  }, [contextEntryRequest]);
+
+  // Persist draft to localStorage so refreshes don't lose the prompt.
+  const hasDraftScope = Boolean(draftScope?.trim());
+  const draftKey =
+    hasDraftScope || initialText === undefined
+      ? getComposerDraftKey(draftScope)
+      : null;
+  const draftKeyRef = useRef(draftKey);
+  const draftScopeGenerationRef = useRef(0);
+  const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
+  const attachmentAddQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const attachmentSubmissionBarrierRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
+  const submittingAttachmentIdsRef = useRef(new Set<string>());
+  const pendingAttachmentAddsRef = useRef(
+    new Map<number, Set<Promise<void>>>(),
+  );
+  const pendingAttachmentFilesRef = useRef(new Map<File, number>());
+  const staleAttachmentFilesRef = useRef(new Set<File>());
+  const staleAttachmentSnapshotsRef = useRef(
+    new Set<(typeof composerAttachments)[number]>(),
+  );
+  const cleanStaleAttachments = useCallback(async () => {
+    await attachmentCleanupRef.current;
+    for (const file of staleAttachmentFilesRef.current) {
+      const cleanup = attachmentCleanupRef.current.then(async () => {
+        const index = composerRuntime
+          .getState()
+          .attachments.findIndex((attachment) => attachment.file === file);
+        if (index === -1) return;
+        await composerRuntime.getAttachmentByIndex(index).remove();
+      });
+      attachmentCleanupRef.current = cleanup.catch((error) => {
+        console.error("Could not remove stale composer attachment", error);
+      });
+      await cleanup;
+      staleAttachmentFilesRef.current.delete(file);
+    }
+    for (const staleAttachment of staleAttachmentSnapshotsRef.current) {
+      const cleanup = attachmentCleanupRef.current.then(async () => {
+        const index = composerRuntime
+          .getState()
+          .attachments.findIndex((attachment) =>
+            isSameComposerAttachmentSnapshot(attachment, staleAttachment),
+          );
+        if (index === -1) return;
+        await composerRuntime.getAttachmentByIndex(index).remove();
+      });
+      attachmentCleanupRef.current = cleanup.catch((error) => {
+        console.error("Could not remove stale composer attachment", error);
+      });
+      await cleanup;
+      staleAttachmentSnapshotsRef.current.delete(staleAttachment);
+    }
+  }, [composerRuntime]);
+  const createAttachmentSubmissionBarrier = useCallback(() => {
+    const drain = async () => {
+      while (true) {
+        const pendingAdds = [
+          ...pendingAttachmentAddsRef.current.values(),
+        ].flatMap((additions) => [...additions]);
+        const addQueue = attachmentAddQueueRef.current;
+        await addQueue;
+        await Promise.all(pendingAdds);
+        await cleanStaleAttachments();
+        if (
+          staleAttachmentFilesRef.current.size > 0 ||
+          staleAttachmentSnapshotsRef.current.size > 0
+        ) {
+          throw new Error("Previous draft attachments could not be removed.");
+        }
+        const hasNewPendingAdds = [...pendingAttachmentAddsRef.current.values()]
+          .flatMap((additions) => [...additions])
+          .some((addition) => !pendingAdds.includes(addition));
+        if (addQueue !== attachmentAddQueueRef.current || hasNewPendingAdds) {
+          continue;
+        }
+        return composerRuntime.getState().attachments;
+      }
     };
+    return drain();
+  }, [cleanStaleAttachments, composerRuntime]);
+  const addAttachmentForCurrentScope = useCallback(
+    (file: File) => {
+      setAttachmentError(null);
+      const scopeGeneration = draftScopeGenerationRef.current;
+      const submissionBarrier = attachmentSubmissionBarrierRef.current;
+      let resolveOperation!: () => void;
+      let rejectOperation!: (error: unknown) => void;
+      const operation = new Promise<void>((resolve, reject) => {
+        resolveOperation = resolve;
+        rejectOperation = reject;
+      });
+      const scopeBarrier = operation.then(
+        () => undefined,
+        () => undefined,
+      );
+      const scopeAdds =
+        pendingAttachmentAddsRef.current.get(scopeGeneration) ?? new Set();
+      scopeAdds.add(scopeBarrier);
+      pendingAttachmentAddsRef.current.set(scopeGeneration, scopeAdds);
+
+      const run = async () => {
+        const reservation = attachmentAddQueueRef.current.then(async () => {
+          await submissionBarrier;
+          const priorScopeAdds = [...pendingAttachmentAddsRef.current]
+            .filter(([generation]) => generation !== scopeGeneration)
+            .flatMap(([, additions]) => [...additions]);
+          await Promise.all(priorScopeAdds);
+          await cleanStaleAttachments();
+          if (draftScopeGenerationRef.current !== scopeGeneration) return false;
+
+          const existingFiles = composerRuntime
+            .getState()
+            .attachments.flatMap((attachment) => {
+              if (submittingAttachmentIdsRef.current.has(attachment.id))
+                return [];
+              return isBlob(attachment.file)
+                ? [
+                    {
+                      file: attachment.file,
+                      name: attachment.name,
+                      contentType: normalizeAttachmentContentType(
+                        attachment.contentType,
+                      ),
+                    },
+                  ]
+                : [];
+            });
+          const pendingFiles = [...pendingAttachmentFilesRef.current].flatMap(
+            ([pendingFile, pendingGeneration]) =>
+              pendingGeneration === scopeGeneration
+                ? [
+                    {
+                      file: pendingFile,
+                      name: pendingFile.name,
+                      contentType: normalizeAttachmentContentType(
+                        pendingFile.type,
+                      ),
+                    },
+                  ]
+                : [],
+          );
+          const filesToCompare = [...existingFiles, ...pendingFiles];
+          const candidate = {
+            file,
+            name: file.name,
+            contentType: normalizeAttachmentContentType(file.type),
+          };
+          const comparisonBudget = {
+            remainingBytes: MAX_ATTACHMENT_COMPARISON_BYTES,
+            remainingComparisons: MAX_ATTACHMENT_COMPARISONS,
+          };
+          for (const existingFile of filesToCompare) {
+            if (comparisonBudget.remainingComparisons === 0) break;
+            if (
+              await haveSameAttachmentInput(
+                candidate,
+                existingFile,
+                comparisonBudget,
+              )
+            ) {
+              return false;
+            }
+          }
+
+          pendingAttachmentFilesRef.current.set(file, scopeGeneration);
+          return true;
+        });
+        attachmentAddQueueRef.current = reservation.then(
+          () => undefined,
+          () => undefined,
+        );
+
+        try {
+          if (!(await reservation)) return;
+          if (draftScopeGenerationRef.current !== scopeGeneration) {
+            if (
+              pendingAttachmentFilesRef.current.get(file) === scopeGeneration
+            ) {
+              pendingAttachmentFilesRef.current.delete(file);
+            }
+            return;
+          }
+          const addition = composerRuntime.addAttachment(file);
+          const removeIfStale = async () => {
+            if (draftScopeGenerationRef.current === scopeGeneration) return;
+            staleAttachmentFilesRef.current.add(file);
+            await cleanStaleAttachments();
+          };
+          const settledAddition = addition.then(removeIfStale, removeIfStale);
+          try {
+            return await addition;
+          } finally {
+            await settledAddition;
+          }
+        } finally {
+          if (pendingAttachmentFilesRef.current.get(file) === scopeGeneration) {
+            pendingAttachmentFilesRef.current.delete(file);
+          }
+        }
+      };
+      void run().then(resolveOperation, rejectOperation);
+      void operation.then(
+        () => {
+          scopeAdds.delete(scopeBarrier);
+          if (scopeAdds.size === 0) {
+            pendingAttachmentAddsRef.current.delete(scopeGeneration);
+          }
+        },
+        () => {
+          scopeAdds.delete(scopeBarrier);
+          if (scopeAdds.size === 0) {
+            pendingAttachmentAddsRef.current.delete(scopeGeneration);
+          }
+        },
+      );
+      return operation;
+    },
+    [cleanStaleAttachments, composerRuntime],
+  );
+  useLayoutEffect(() => {
+    if (draftKeyRef.current !== draftKey) {
+      draftKeyRef.current = draftKey;
+      draftScopeGenerationRef.current += 1;
+      for (const attachment of composerRuntime.getState().attachments) {
+        staleAttachmentSnapshotsRef.current.add(attachment);
+      }
+    }
+  }, [composerRuntime, draftKey]);
+  const draftEditorRef = useRef<ComposerDraftEditor | null>(null);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelScheduledDraftPersist = useCallback(() => {
+    if (draftSaveTimerRef.current === null) return;
+    clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = null;
   }, []);
+  const flushComposerDraft = useCallback(() => {
+    cancelScheduledDraftPersist();
+    const ed = draftEditorRef.current;
+    if (!ed || !isComposerEditorUsable(ed)) return;
+    persistComposerDraft(draftKeyRef.current, ed, slotReferencesRef.current);
+  }, [cancelScheduledDraftPersist]);
+  const scheduleComposerDraftPersist = useCallback(
+    (ed: ComposerDraftEditor) => {
+      draftEditorRef.current = ed;
+      cancelScheduledDraftPersist();
+      const key = draftKeyRef.current;
+      if (!key) return;
+      draftSaveTimerRef.current = setTimeout(() => {
+        draftSaveTimerRef.current = null;
+        if (draftKeyRef.current !== key || draftEditorRef.current !== ed) {
+          return;
+        }
+        persistComposerDraft(key, ed, slotReferencesRef.current);
+      }, COMPOSER_DRAFT_SAVE_DELAY_MS);
+    },
+    [cancelScheduledDraftPersist],
+  );
+  const previousDraftKeyRef = useRef(draftKey);
   useEffect(() => {
     lastComposerRuntimeSyncRef.current = null;
   }, [composerRuntime]);
   // Tiptap reads extension config once at init; ref keeps runtime prop
   // changes visible to Placeholder's function form.
-  const placeholderRef = useRef(placeholder);
-  useEffect(() => {
-    placeholderRef.current = composerMode
-      ? COMPOSER_MODE_CONFIGS[composerMode].placeholder
-      : placeholder;
-  }, [placeholder, composerMode]);
+  const resolvedPlaceholder = composerMode
+    ? localizedComposerModeConfig(composerMode, t).placeholder
+    : (placeholder ??
+      t("agentChat.composer.messageAgent", {
+        defaultValue: "Message agent...",
+      }));
+  const placeholderRef = useRef(resolvedPlaceholder);
+  placeholderRef.current = resolvedPlaceholder;
 
   const editor = useEditor({
     extensions: createTiptapComposerExtensions(() => placeholderRef.current),
     editable: !disabled,
-    onCreate: ({ editor: ed }) => {
-      // Restore draft on mount
-      try {
-        if (initialText !== undefined) {
-          ed.commands.setContent(plainTextToDoc(initialText));
-          ed.commands.focus("end");
-          setEditorHasText(composerDocumentHasContent(ed.state.doc));
-          initialTextKeyRef.current = initialTextKey ?? initialText;
-        } else {
-          const saved = localStorage.getItem(draftKey);
-          if (saved) {
-            ed.commands.setContent(saved);
-            ed.commands.focus("end");
-            setEditorHasText(composerDocumentHasContent(ed.state.doc));
-          }
-        }
-        onTextChangeRef.current?.(ed.state.doc.textContent.trim());
-      } catch {}
-    },
     onUpdate: ({ editor: ed }) => {
       // Drive the send button's enabled state from the actual editor contents;
       // the composer runtime is only synced on submit, so its isEmpty lags.
       setEditorHasText(composerDocumentHasContent(ed.state.doc));
-      onTextChangeRef.current?.(ed.state.doc.textContent.trim());
+      setAttachmentError(null);
+      onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
+      setReferenceRevision((revision) => revision + 1);
 
-      // Debounce-save draft to localStorage
-      clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = setTimeout(() => {
-        try {
-          const html = ed.getHTML();
-          const isEmpty = !composerDocumentHasContent(ed.state.doc);
-          if (isEmpty) {
-            localStorage.removeItem(draftKey);
-          } else {
-            localStorage.setItem(draftKey, html);
-          }
-        } catch {}
-      }, 300);
+      scheduleComposerDraftPersist(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => {
-      const { from, to } = ed.state.selection;
+      const { from, to, anchor, head } = ed.state.selection;
+      if (ed.isFocused)
+        onSelectionChange?.({
+          start: from,
+          end: to,
+          direction:
+            anchor === head ? "none" : anchor > head ? "backward" : "forward",
+        });
       if (selectedContextItemKeyRef.current && (from !== to || from > 1)) {
         selectedContextItemKeyRef.current = null;
         setSelectedContextItemKey(null);
       }
     },
+    onFocus,
+    onBlur,
     editorProps: {
       attributes: {
+        "aria-label": ariaLabel ?? resolvedPlaceholder,
+        "aria-multiline": "true",
+        "aria-disabled": String(disabled || contextControlsDisabled),
+        role: "textbox",
         "data-agent-composer-variant": layoutVariant,
         "data-agent-composer-slot": "editor-input",
         class:
           "agent-composer-prosemirror flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
       },
-      handlePaste: (_view, event) => {
+      handleDOMEvents: {
+        compositionstart: () => {
+          composingRef.current = true;
+          return false;
+        },
+        compositionend: () => {
+          composingRef.current = false;
+          return false;
+        },
+        keydown: (_view, event) => {
+          if (event.key !== "Escape" || !event.defaultPrevented) return false;
+          if (
+            event.isComposing ||
+            event.keyCode === 229 ||
+            composingRef.current
+          ) {
+            event.stopPropagation();
+            return true;
+          }
+          if (popoverStateRef.current) {
+            closePopover();
+          } else {
+            onEscape?.();
+          }
+          event.stopPropagation();
+          return true;
+        },
+      },
+      handlePaste: (view, event) => {
+        if (disabled) {
+          if (event.clipboardData?.files.length) {
+            event.preventDefault();
+            return true;
+          }
+          return false;
+        }
+        if (!attachmentsEnabled) {
+          if (event.clipboardData?.files.length) {
+            event.preventDefault();
+            const pastedText = readClipboardPaste(event.clipboardData).text;
+            if (pastedText) {
+              view.pasteText(pastedText, new Event("paste") as ClipboardEvent);
+            }
+            return true;
+          }
+          return false;
+        }
         const paste = readClipboardPaste(event.clipboardData);
         const pastedText = paste.text;
         const files = Array.from(event.clipboardData?.files ?? []).filter(
@@ -1798,12 +3646,15 @@ export function TiptapComposer({
           }
 
           void Promise.all(
-            attachments.map((file) => composerRuntime.addAttachment(file)),
+            attachments.map((file) => addAttachmentForCurrentScope(file)),
           ).catch((error) => {
-            const msg =
-              error instanceof Error
-                ? error.message
-                : "Could not attach the pasted image. Try a different format.";
+            const msg = formatAttachmentError(
+              error,
+              t("agentChat.composer.pastedImageError", {
+                defaultValue:
+                  "Could not attach the pasted image. Try a different format.",
+              }),
+            );
             onAttachmentErrorRef.current?.(msg);
           });
           return true;
@@ -1818,37 +3669,54 @@ export function TiptapComposer({
         // which cuts off mid-stream on large files and triggers a spin.
         if (shouldConvertClipboardToAttachment(paste)) {
           event.preventDefault();
-          void composerRuntime
-            .addAttachment(createPastedAttachmentFile(paste))
-            .catch((error) => {
-              const msg =
-                error instanceof Error
-                  ? error.message
-                  : "Could not attach the pasted text.";
-              onAttachmentErrorRef.current?.(msg);
-            });
+          void addAttachmentForCurrentScope(
+            createPastedAttachmentFile(paste),
+          ).catch((error) => {
+            const msg = formatAttachmentError(
+              error,
+              t("agentChat.composer.pastedTextError", {
+                defaultValue: "Could not attach the pasted text.",
+              }),
+            );
+            onAttachmentErrorRef.current?.(msg);
+          });
           return true;
         }
 
         return false;
       },
       handleDrop: (_view, event) => {
+        if (disabled || !attachmentsEnabled) {
+          if (event.dataTransfer?.files.length) {
+            event.preventDefault();
+            return true;
+          }
+          return false;
+        }
         // Drag-and-drop files (decks, images, PDFs, etc.) into the composer.
         // Mark handled drops as consumed so the chat-wide drop target does not
         // add the same file a second time.
         return handleComposerFileDrop({
           event: event as DragEvent,
-          addAttachment: (file) => composerRuntime.addAttachment(file),
-          onError: (error) => {
-            const msg =
-              error instanceof Error
-                ? error.message
-                : "Could not attach the dropped file. Try a different format.";
-            onAttachmentErrorRef.current?.(msg);
+          addAttachment: addAttachmentForCurrentScope,
+          attachmentsEnabled,
+          onError: (error, fileName) => {
+            const msg = formatAttachmentError(
+              error,
+              t("agentChat.composer.droppedFileError", {
+                defaultValue:
+                  "Could not attach the dropped file. Try a different format.",
+              }),
+            );
+            onAttachmentErrorRef.current?.(`${fileName}: ${msg}`);
           },
         });
       },
       handleKeyDown: (view, event) => {
+        if (event.isComposing || event.keyCode === 229) {
+          event.stopPropagation();
+          return false;
+        }
         const pop = popoverStateRef.current;
 
         // Handle popover keyboard nav
@@ -1863,7 +3731,26 @@ export function TiptapComposer({
             popoverRef.current?.moveDown();
             return true;
           }
-          if (event.key === "Enter") {
+          if (
+            (event.key === "Enter" ||
+              (event.key === "Tab" && !event.shiftKey)) &&
+            popoverRef.current?.activateRetry()
+          ) {
+            event.preventDefault();
+            return true;
+          }
+          // A mention comes only from an explicit pick of a highlighted row. With
+          // nothing highlighted, even while a search is pending, the "@" is
+          // plain text: Enter submits it and a late result changes nothing.
+          const highlighted =
+            pop.type === "@" ? popoverRef.current?.getSelectedMention() : null;
+          if (event.key === "Enter" && pop.type === "@" && !highlighted) {
+            closePopover();
+          } else if (event.key === "Tab" && !event.shiftKey && highlighted) {
+            event.preventDefault();
+            selectMention(view, pop, highlighted);
+            return true;
+          } else if (event.key === "Enter") {
             event.preventDefault();
             const idx = popoverRef.current?.getSelectedIndex() ?? 0;
             const currentCommands = filteredCommandsRef.current;
@@ -1901,7 +3788,9 @@ export function TiptapComposer({
         const cursorAtStart = from === to && from <= 1;
         if (event.key === "Backspace" && onRemoveContextItemRef.current) {
           const chipAction = resolveContextChipBackspaceAction({
-            contextItemKeys: contextItemsRef.current.map((item) => item.key),
+            contextItemKeys: contextItemsRef.current
+              .filter((item) => item.removable !== false)
+              .map((item) => item.key),
             selectedKey: selectedContextItemKeyRef.current,
             cursorAtStart,
           });
@@ -1913,9 +3802,6 @@ export function TiptapComposer({
             } else {
               selectedContextItemKeyRef.current = null;
               setSelectedContextItemKey(null);
-              contextItemsRef.current = contextItemsRef.current.filter(
-                (item) => item.key !== chipAction.key,
-              );
               onRemoveContextItemRef.current?.(chipAction.key);
             }
             return true;
@@ -1955,7 +3841,7 @@ export function TiptapComposer({
 
         // Submit on Enter. Shift+Enter inserts a newline and keeps the
         // composer scrolled to the caret.
-        // Cmd+Enter on macOS / Ctrl+Enter elsewhere marks the submit queued.
+        // Cmd+Enter on macOS / Ctrl+Enter elsewhere steers the active run.
         if (event.key === "Enter" && event.shiftKey) {
           event.preventDefault();
           return insertComposerHardBreakAndScrollIntoView(view);
@@ -1964,20 +3850,34 @@ export function TiptapComposer({
         const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
         if (submitIntent) {
           event.preventDefault();
-          void submitComposer(submitIntent);
+          void submitComposer(
+            submitIntent,
+            undefined,
+            isMac ? event.metaKey : event.ctrlKey,
+          );
+          return true;
+        }
+
+        if (event.key === "Escape" && onEscape) {
+          event.preventDefault();
+          event.stopPropagation();
+          onEscape();
           return true;
         }
 
         // Detect @ trigger — only when preceded by start-of-text, space, or newline
-        // (not after alphanumeric chars, which would indicate an email address)
+        // (not after alphanumeric chars, which would indicate an email address).
+        // Keep the typed "@" in the draft and focus in the editor: a focus-taking
+        // menu here would swallow the rest of a literal like "@builder.io".
         if (event.key === "@") {
+          if (launchersDisabledRef.current) return false;
           const { from } = view.state.selection;
           const textBefore = view.state.doc.textBetween(
             Math.max(0, from - 1),
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            const position = getComposerPopoverPosition(view, from);
+            const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
             setTimeout(() => {
               const state: PopoverState = {
@@ -2001,7 +3901,7 @@ export function TiptapComposer({
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            const position = getComposerPopoverPosition(view, from);
+            const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
             setTimeout(() => {
               const state: PopoverState = {
@@ -2022,13 +3922,39 @@ export function TiptapComposer({
     },
   });
 
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    draftEditorRef.current = editor;
+    const flush = () => {
+      cancelScheduledDraftPersist();
+      persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      cancelScheduledDraftPersist();
+      persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      if (draftEditorRef.current === editor) draftEditorRef.current = null;
+    };
+  }, [cancelScheduledDraftPersist, draftKey, editor]);
+
+  // Placeholder decorations are computed by ProseMirror. Dispatching an empty
+  // transaction makes a locale or composer-mode change visible immediately.
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    editor.view.dispatch(editor.state.tr.setSelection(editor.state.selection));
+  }, [editor, resolvedPlaceholder]);
+
   // A tab can stay mounted while becoming the active composer later. Publish
   // its existing draft when the host starts observing it so contextual UI is
   // correct immediately after a tab switch, not only after the next keystroke.
   useEffect(() => {
     if (!isComposerEditorUsable(editor) || !onTextChange) return;
-    onTextChange(editor.state.doc.textContent.trim());
-  }, [editor, onTextChange]);
+    const currentText = editor.getText({ blockSeparator: "\n" }).trim();
+    if (initialText === undefined) onTextChange(currentText);
+  }, [editor, initialText, onTextChange]);
 
   const insertReference = useCallback(
     (ref: AgentComposerReference) => {
@@ -2036,7 +3962,7 @@ export function TiptapComposer({
       const ed = editor;
       if (!normalized || !isComposerEditorUsable(ed)) return;
       if (normalized.slotKey) {
-        setSlotReferences((current) =>
+        updateSlotReferences((current) =>
           applySlotReferenceChanges(current, [normalized]),
         );
         ed.commands.focus("end");
@@ -2047,7 +3973,7 @@ export function TiptapComposer({
           (item: AgentComposerReference) => item.slotKey,
         )
       ) {
-        setSlotReferences((current) =>
+        updateSlotReferences((current) =>
           applySlotReferenceChanges(
             current,
             normalized.relatedReferences ?? [],
@@ -2064,11 +3990,14 @@ export function TiptapComposer({
         .run();
       setEditorHasText(true);
     },
-    [editor],
+    [editor, updateSlotReferences],
   );
 
   const insertReferenceIfEmpty = useCallback(
     (payload: AgentComposerReferenceInsertPayload) => {
+      const ed = editor;
+      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
+        return;
       const insertMessageId =
         typeof payload.insertMessageId === "string"
           ? payload.insertMessageId
@@ -2077,9 +4006,6 @@ export function TiptapComposer({
         if (seenReferenceInsertIdsRef.current.has(insertMessageId)) return;
         seenReferenceInsertIdsRef.current.add(insertMessageId);
       }
-      const ed = editor;
-      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
-        return;
       const normalized = adapters.agentChat!.normalizeReference!(
         payload,
       ) as any;
@@ -2095,8 +4021,16 @@ export function TiptapComposer({
   );
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || isReferenceTarget === false) return;
+    const acceptsReferenceEvent = (event: Event) => {
+      const target = getComposerReferenceEventTarget(event);
+      return (
+        !target ||
+        (isComposerEditorUsable(editor) && target === editor.view.dom)
+      );
+    };
     const handleEvent = (event: Event) => {
+      if (!acceptsReferenceEvent(event)) return;
       const payload = (event as CustomEvent).detail;
       const normalized = adapters.agentChat!.normalizeReference!(
         payload,
@@ -2120,6 +4054,7 @@ export function TiptapComposer({
       if (event.data?.type !== AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE) {
         return;
       }
+      if (!acceptsReferenceEvent(event)) return;
       const payload = event.data.data;
       const normalized = adapters.agentChat!.normalizeReference!(
         payload,
@@ -2135,37 +4070,188 @@ export function TiptapComposer({
     };
     window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, handleEvent);
     window.addEventListener("message", handleMessage);
+    const element = isComposerEditorUsable(editor) ? editor.view.dom : null;
+    const reportUnavailable = () => {
+      if (isReferenceTarget === true && element)
+        window.dispatchEvent(
+          new CustomEvent("agentNative:composer-reference-unavailable", {
+            detail: element,
+          }),
+        );
+    };
+    if (isReferenceTarget === true) editor?.on("destroy", reportUnavailable);
+    if (isReferenceTarget === true && element && !disabled) {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:composer-reference-ready", {
+          detail: element,
+        }),
+      );
+    } else reportUnavailable();
     return () => {
+      reportUnavailable();
+      editor?.off("destroy", reportUnavailable);
       window.removeEventListener(
         AGENT_CHAT_INSERT_REFERENCE_EVENT,
         handleEvent,
       );
       window.removeEventListener("message", handleMessage);
     };
-  }, [adapters, insertReferenceIfEmpty]);
+  }, [adapters, insertReferenceIfEmpty, isReferenceTarget]);
 
   useImperativeHandle(focusRef, () => ({
     focus() {
-      if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+      // An editor inside a hidden session shell cannot take focus, and nothing
+      // re-runs this when the shell is shown. Focus on the first size change.
+      focusComposerEditorWhenVisible(editor);
     },
-    setText(text: string) {
+    addAttachment(file: File) {
+      return addAttachmentForCurrentScope(file);
+    },
+    insertText(text: string) {
       if (!isComposerEditorUsable(editor)) return;
-      editor.commands.setContent(plainTextToDoc(text));
+      editor.commands.setContent(plainTextToDoc(""), { emitUpdate: false });
       editor.commands.focus("end");
-      const trimmed = editor.state.doc.textContent.trim();
+      if (!document.execCommand("insertText", false, text)) {
+        editor.commands.insertContent(text);
+      }
+    },
+    insertTextAtCursor(text: string) {
+      if (!isComposerEditorUsable(editor)) return;
+      editor.commands.focus();
+      const mention = text === "@" && !launchersDisabledRef.current;
+      let inserted = text;
+      if (mention) {
+        const { from } = editor.state.selection;
+        const before = editor.state.doc.textBetween(
+          Math.max(0, from - 1),
+          from,
+        );
+        if (from > 1 && before !== "" && !/\s/.test(before)) inserted = ` @`;
+      }
+      // The popover anchors on the selection right after this insert, but an
+      // execCommand edit reaches the editor state only once ProseMirror reads
+      // the DOM back, so an @ goes through the editor directly.
+      if (
+        mention ||
+        typeof document.execCommand !== "function" ||
+        !document.execCommand("insertText", false, inserted)
+      ) {
+        editor.commands.insertContent(inserted);
+      }
+      if (!mention) return;
+      const view = editor.view;
+      const startPos = view.state.selection.from;
+      const position = getComposerPopoverAnchorPosition(view, startPos - 1);
+      if (!position) return;
+      const state: PopoverState = {
+        type: "@",
+        position,
+        startPos,
+        query: "",
+      };
+      popoverStateRef.current = state;
+      setPopover(state);
+    },
+    setText(text: string, references?: readonly ComposerTextReference[]) {
+      if (!isComposerEditorUsable(editor)) return;
+      editor.commands.setContent(plainTextToDoc(text, textChips(references)));
+      editor.commands.focus("end");
+      const trimmed = editor.getText({ blockSeparator: "\n" }).trim();
       setEditorHasText(trimmed.length > 0);
-      setSlotReferences([]);
+      updateSlotReferences([]);
       composerRuntime.setText(trimmed);
       onTextChangeRef.current?.(trimmed);
-      try {
-        if (trimmed) {
-          localStorage.setItem(draftKey, editor.getHTML());
-        } else {
-          localStorage.removeItem(draftKey);
-        }
-      } catch {}
+      flushComposerDraft();
+    },
+    submitWithText: (text: string) => submitComposer("immediate", text),
+    submit: () => submitComposer("immediate"),
+    getDraftSnapshot: () => {
+      const { text, references } = extractComposerPayload();
+      return composerDraftSnapshot(
+        text,
+        references,
+        composerRuntime.getState().attachments,
+      );
     },
     insertReference,
+    replaceReference(refType, ref) {
+      if (!isComposerEditorUsable(editor)) return;
+      const positions: number[] = [];
+      editor.state.doc.descendants((node: any, pos: number) => {
+        if (
+          node.type.name === "mentionReference" &&
+          node.attrs.refType === refType
+        ) {
+          positions.push(pos);
+        }
+      });
+      if (positions.length === 0) {
+        if (ref) insertReference(ref);
+        return;
+      }
+      const referencePosition = positions[0]!;
+      const node = editor.state.doc.nodeAt(referencePosition);
+      if (!node) return;
+      const normalized = ref
+        ? (adapters.agentChat!.normalizeReference!(
+            ref,
+          ) as AgentComposerReference)
+        : null;
+      editor
+        .chain()
+        .focus()
+        .command(({ tr }) => {
+          for (const duplicatePosition of positions.slice(1).reverse()) {
+            const duplicate = tr.doc.nodeAt(duplicatePosition);
+            if (duplicate) {
+              tr.delete(
+                duplicatePosition,
+                duplicatePosition + duplicate.nodeSize,
+              );
+            }
+          }
+          if (normalized) {
+            tr.setNodeMarkup(
+              referencePosition,
+              undefined,
+              mentionReferenceAttrs(normalized),
+            );
+          } else {
+            tr.delete(referencePosition, referencePosition + node.nodeSize);
+          }
+          return true;
+        })
+        .run();
+    },
+    getSelection() {
+      if (!isComposerEditorUsable(editor)) return null;
+      const { from, to, anchor, head } = editor.state.selection;
+      return {
+        start: from,
+        end: to,
+        direction:
+          anchor === head ? "none" : anchor > head ? "backward" : "forward",
+      };
+    },
+    setSelection(start, end = start, direction = "none") {
+      if (!isComposerEditorUsable(editor)) return;
+      const maxPosition = editor.state.doc.content.size;
+      const boundedStart = Math.max(1, Math.min(start, maxPosition));
+      const boundedEnd = Math.max(1, Math.min(end, maxPosition));
+      const anchor = direction === "backward" ? boundedEnd : boundedStart;
+      const head = direction === "backward" ? boundedStart : boundedEnd;
+      editor.commands.focus();
+      editor.view.dispatch(
+        editor.state.tr.setSelection(
+          TextSelection.create(editor.state.doc, anchor, head),
+        ),
+      );
+    },
+    dismissPopover() {
+      if (!popoverStateRef.current) return false;
+      closePopover();
+      return true;
+    },
   }));
 
   const handleSelectMode = useCallback(
@@ -2262,7 +4348,12 @@ export function TiptapComposer({
       3200,
     );
     if (activeContext) {
-      snippets.push({ label: "Active app context", value: activeContext });
+      snippets.push({
+        label: t("agentChat.composer.activeAppContext", {
+          defaultValue: "Active app context",
+        }),
+        value: activeContext,
+      });
     }
 
     const selectedReferences = trimVoiceContextValue(
@@ -2271,7 +4362,9 @@ export function TiptapComposer({
     );
     if (selectedReferences) {
       snippets.push({
-        label: "Selected references",
+        label: t("agentChat.composer.selectedReferences", {
+          defaultValue: "Selected references",
+        }),
         value: selectedReferences,
       });
     }
@@ -2279,16 +4372,35 @@ export function TiptapComposer({
     const draft = isComposerEditorUsable(editor)
       ? trimVoiceContextValue(editor.state.doc.textContent, 1200)
       : null;
-    if (draft) snippets.push({ label: "Current draft", value: draft });
+    if (draft) {
+      snippets.push({
+        label: t("agentChat.composer.currentDraft", {
+          defaultValue: "Current draft",
+        }),
+        value: draft,
+      });
+    }
 
     if (typeof document !== "undefined") {
       const title = trimVoiceContextValue(document.title, 160);
-      if (title) snippets.push({ label: "Page title", value: title });
+      if (title) {
+        snippets.push({
+          label: t("agentChat.composer.pageTitle", {
+            defaultValue: "Page title",
+          }),
+          value: title,
+        });
+      }
     }
 
     if (typeof window !== "undefined") {
       const route = trimVoiceContextValue(window.location.pathname, 240);
-      if (route) snippets.push({ label: "Route", value: route });
+      if (route) {
+        snippets.push({
+          label: t("agentChat.composer.route", { defaultValue: "Route" }),
+          value: route,
+        });
+      }
     }
 
     if (snippets.length === 0) return undefined;
@@ -2297,13 +4409,15 @@ export function TiptapComposer({
       mode: "dictation",
       snippets,
     };
-  }, [adapters, contextItems, editor, slotReferences]);
+  }, [adapters, contextItems, editor, slotReferences, t]);
 
   const voice = useVoiceDictation({
     onTranscript: insertTranscript,
     onLiveUpdate: handleLiveUpdate,
     contextPack: buildVoiceContextPack,
   });
+  const voiceCancelRef = useRef(voice.cancel);
+  voiceCancelRef.current = voice.cancel;
 
   // Clean up live text if voice session ends without a final transcript (cancel/error)
   useEffect(() => {
@@ -2370,15 +4484,18 @@ export function TiptapComposer({
   }, [voiceEnabled, voice]);
 
   const extractComposerPayload = useCallback(() => {
+    const currentSlotReferences = slotReferencesRef.current;
     const ed = editor;
     if (!isComposerEditorUsable(ed)) {
       return {
-        text: slotReferences.map((ref) => slotReferenceTitle(ref)).join(", "),
-        references: slotReferences.map(referenceFromComposerReference),
+        text: currentSlotReferences
+          .map((ref) => slotReferenceTitle(ref))
+          .join(", "),
+        references: currentSlotReferences.map(referenceFromComposerReference),
       };
     }
 
-    const references: Reference[] = slotReferences.map(
+    const references: Reference[] = currentSlotReferences.map(
       referenceFromComposerReference,
     );
 
@@ -2408,7 +4525,7 @@ export function TiptapComposer({
     const rawText = textParts.join("").trim();
     const text =
       rawText ||
-      slotReferences.map((ref) => slotReferenceTitle(ref)).join(", ");
+      currentSlotReferences.map((ref) => slotReferenceTitle(ref)).join(", ");
 
     ed.state.doc.descendants((node: any) => {
       if (node.type.name === "fileReference") {
@@ -2450,7 +4567,22 @@ export function TiptapComposer({
     });
 
     return { text, references };
-  }, [editor, slotReferences]);
+  }, [editor]);
+
+  const referencesSignatureRef = useRef("");
+  useEffect(() => {
+    if (!onReferencesChange) return;
+    const references = extractComposerPayload().references;
+    const signature = JSON.stringify(references);
+    if (signature === referencesSignatureRef.current) return;
+    referencesSignatureRef.current = signature;
+    onReferencesChange(references);
+  }, [
+    referenceRevision,
+    slotReferences,
+    extractComposerPayload,
+    onReferencesChange,
+  ]);
 
   const syncComposerRuntimeState = useCallback(
     (text: string, references: Reference[]) => {
@@ -2499,39 +4631,178 @@ export function TiptapComposer({
     return { text, references };
   }, [extractComposerPayload, syncComposerRuntimeState]);
 
-  const clearEditorAfterSubmit = useCallback(() => {
-    const ed = editor;
-    if (!isComposerEditorUsable(ed)) return;
-    ed.commands.clearContent();
-    setEditorHasText(false);
-    setSlotReferences([]);
-    resetComposerRuntimeState();
-    try {
-      localStorage.removeItem(draftKey);
-    } catch {}
-    closePopover();
-  }, [closePopover, draftKey, editor, resetComposerRuntimeState]);
+  const clearEditorAfterSubmit = useCallback(
+    (
+      expectedDraftSnapshot?: string | null,
+      submittedSlotReferences?: AgentComposerReference[],
+      clearText = true,
+    ) => {
+      const remainingSlotReferences =
+        submittedSlotReferences === undefined
+          ? []
+          : slotReferencesRef.current.filter(
+              (reference) => !submittedSlotReferences.includes(reference),
+            );
+      updateSlotReferences(remainingSlotReferences);
+      if (!clearText) return;
+
+      // A caller may close/unmount the host popover as soon as submit starts
+      // (before awaiting the round trip), which destroys this editor instance
+      // while the submit promise is still in flight. The persisted draft has
+      // no dependency on the live editor, so it must be cleared unconditionally
+      // here — gating it behind `isComposerEditorUsable` left the old prompt
+      // stuck in localStorage forever, ready to resurface on the next mount.
+      // `expectedDraftSnapshot` guards a narrower race: a fresh composer
+      // instance may reuse this exact scope and persist its own draft before
+      // this stale submit settles, so only clear when localStorage still
+      // holds what this submit actually wrote.
+      cancelScheduledDraftPersist();
+      clearComposerDraft(draftKey, expectedDraftSnapshot);
+      const ed = editor;
+      if (isComposerEditorUsable(ed)) {
+        ed.commands.clearContent();
+        ed.commands.focus("end");
+        setEditorHasText(false);
+        resetComposerRuntimeState();
+      }
+      closePopover();
+    },
+    [
+      cancelScheduledDraftPersist,
+      closePopover,
+      draftKey,
+      editor,
+      resetComposerRuntimeState,
+      updateSlotReferences,
+    ],
+  );
 
   const submitComposer = useCallback(
-    async (intent: ComposerSubmitIntent = "immediate") => {
+    async (
+      intent: ComposerSubmitIntent = "immediate",
+      textOverride?: string,
+      steer = false,
+    ): Promise<boolean> => {
+      const submitIntent = steer ? "immediate" : willQueue ? "queued" : intent;
       const ed = editor;
-      if (!isComposerEditorUsable(ed)) return;
-      if (submitInFlightRef.current) return;
+      if (!isComposerEditorUsable(ed)) return false;
+      if (submitInFlightRef.current || attachmentCleanupPendingRef.current > 0)
+        return false;
+      if (
+        submissionDisabledRef.current ||
+        !areComposerContextItemsReady(contextItemsRef.current)
+      )
+        return false;
 
-      const { text, references } = syncComposerState();
-      const attachments = composerRuntime.getState().attachments;
-      if (!text.trim() && references.length === 0 && attachments.length === 0)
-        return;
+      const attachmentScopeGeneration = draftScopeGenerationRef.current;
+      submitInFlightRef.current = true;
+      if (!onBeforeSubmit) onSubmissionPendingChange?.(true);
+      const attachmentSubmissionBarrier = createAttachmentSubmissionBarrier();
+      let attachmentSnapshot: typeof composerAttachments;
+      try {
+        attachmentSnapshot = await attachmentSubmissionBarrier;
+      } catch (error) {
+        if (
+          mountedRef.current &&
+          draftScopeGenerationRef.current === attachmentScopeGeneration
+        ) {
+          setContextSubmissionError(
+            formatAttachmentError(
+              error,
+              t("agentChat.composer.submitFailed", {
+                defaultValue: "Could not submit. Try again.",
+              }),
+            ),
+          );
+        }
+        return false;
+      } finally {
+        submitInFlightRef.current = false;
+        if (!onBeforeSubmit) onSubmissionPendingChange?.(false);
+      }
+      if (
+        !isComposerEditorUsable(ed) ||
+        draftScopeGenerationRef.current !== attachmentScopeGeneration ||
+        draftKeyRef.current !== draftKey ||
+        submissionDisabledRef.current ||
+        !areComposerContextItemsReady(contextItemsRef.current)
+      ) {
+        return false;
+      }
+      if (
+        composerRuntime
+          .getState()
+          .attachments.some((current) =>
+            failedAttachmentCleanupSnapshots.some((submitted) =>
+              isSameComposerAttachment(current, submitted),
+            ),
+          )
+      ) {
+        setContextSubmissionError(
+          t("agentChat.composer.attachmentsRemainAfterSubmit", {
+            defaultValue:
+              "The message was sent, but some attachments remain. Remove them before sending again.",
+          }),
+        );
+        return false;
+      }
+      setContextSubmissionError(null);
+      let contextSnapshot: ComposerContextSnapshot | undefined;
+
+      draftEditorRef.current = ed;
+      flushComposerDraft();
+      const submittingDraftKey = draftKeyRef.current;
+      const submittingDraftGeneration = draftScopeGenerationRef.current;
+      // Snapshot exactly what flushComposerDraft just persisted so a
+      // same-scope draft written by a later, unrelated composer instance
+      // (see clearComposerDraft) is never mistaken for this submission's.
+      let submittingDraftSnapshot = submittingDraftKey
+        ? (() => {
+            try {
+              return localStorage.getItem(submittingDraftKey);
+            } catch {
+              // coercion-ok: browser storage is optional and can be unavailable or full; treat as "nothing to compare against" like the rest of this file's draft helpers.
+              return null;
+            }
+          })()
+        : null;
+      const isCurrentDraftScope = () =>
+        draftKeyRef.current === submittingDraftKey &&
+        draftScopeGenerationRef.current === submittingDraftGeneration;
+      let { text: draftText, references } = syncComposerState();
+      let text = textOverride ?? draftText;
+      let attachments = attachmentSnapshot;
+      let submittedSlotReferences = slotReferencesRef.current;
+      let submittedEditorDocument = ed.state.doc;
+      let submittedDraftHtml = ed.getHTML();
+      if (!text.trim() && references.length === 0 && attachments.length === 0) {
+        if (!onEmptySubmit) return false;
+        try {
+          await onEmptySubmit();
+          return true;
+        } catch (error) {
+          setContextSubmissionError(
+            formatAttachmentError(
+              error,
+              t("agentChat.composer.submitFailed", {
+                defaultValue: "Could not submit. Try again.",
+              }),
+            ),
+          );
+          return false;
+        }
+      }
       const oversizedDocumentError = getOversizedDocumentAttachmentError(
         attachments,
         {
           maxBytes: maxDocumentAttachmentBytes,
           label: documentAttachmentLimitLabel,
+          translate: t,
         },
       );
       if (oversizedDocumentError) {
         onAttachmentErrorRef.current?.(oversizedDocumentError);
-        return;
+        return false;
       }
       const cancelActiveVoice = () => {
         if (
@@ -2544,65 +4815,373 @@ export function TiptapComposer({
       };
 
       // Intercept slash commands typed directly (e.g. "/clear" + Enter)
-      const trimmed = text.trim();
-      if (trimmed.startsWith("/") && references.length === 0) {
-        const cmdName = normalizeSlashCommandName(trimmed);
-        const matched = allSlashCommands.find((c) => c.name === cmdName);
-        if (matched) {
+      let trimmed = text.trim();
+      const handleLocalSubmission = () => {
+        if (trimmed.startsWith("/") && references.length === 0) {
+          const cmdName = normalizeSlashCommandName(trimmed);
+          const matched = allSlashCommands.find((c) => c.name === cmdName);
+          if (matched) {
+            clearEditorAfterSubmit();
+            announceSlashCommand(matched);
+            return true;
+          }
+        }
+
+        // Builder iframe delegation: when this app is mounted inside the
+        // Builder.io webview and the user typed a "build me an app/agent"
+        // prompt, hand it up to the parent Builder chat instead of sending
+        // it to this app's domain agent. Builder is the code-writing agent;
+        // the local agent (dispatch, mail, etc.) cannot scaffold workspace
+        // apps from inside its own iframe.
+        if (
+          !composerMode &&
+          interceptBuildRequestsForBuilder &&
+          adapters.builder!.tryDelegateBuildRequest!(trimmed)
+        ) {
+          cancelActiveVoice();
           clearEditorAfterSubmit();
-          onSlashCommandRef.current?.(matched.name);
+          return true;
+        }
+        return false;
+      };
+
+      const clearSubmittedDraft = () => {
+        if (
+          !isComposerEditorUsable(ed) ||
+          ed.state.doc.eq(submittedEditorDocument)
+        ) {
+          clearEditorAfterSubmit(
+            submittingDraftSnapshot,
+            submittedSlotReferences,
+          );
+          return true;
+        }
+
+        clearEditorAfterSubmit(
+          submittingDraftSnapshot,
+          submittedSlotReferences,
+          false,
+        );
+        const currentDocument = ed.state.doc;
+        const submittedDocumentSize = submittedEditorDocument.content.size;
+        const sameBlockCount =
+          currentDocument.content.childCount ===
+          submittedEditorDocument.content.childCount;
+        const submittedPrefixSize =
+          submittedDocumentSize - (sameBlockCount ? 1 : 0);
+        const currentText = extractComposerPayload().text;
+        if (
+          textOverride === undefined &&
+          text.length > 0 &&
+          currentText.startsWith(text) &&
+          currentText.length > text.length &&
+          isCurrentDraftScope() &&
+          submittedPrefixSize <= currentDocument.content.size &&
+          currentDocument.content
+            .cut(0, submittedPrefixSize)
+            .eq(submittedEditorDocument.content)
+        ) {
+          const followUpDocument =
+            currentDocument.content.cut(submittedPrefixSize);
+          ed.commands.setContent({
+            type: "doc",
+            content: followUpDocument.toJSON(),
+          });
+          const current = syncComposerState();
+          if (!current.text && current.references.length === 0) {
+            clearEditorAfterSubmit(submittingDraftSnapshot, [], true);
+          } else {
+            flushComposerDraft();
+          }
+          return true;
+        }
+
+        return false;
+      };
+
+      const clearImmediately = clearOnSubmitImmediately && clearOnSubmit;
+      const clearedBeforePreflight =
+        clearImmediately && Boolean(onBeforeSubmit);
+      const restoreSubmittedDraft = (preserveFollowUp = false) => {
+        const forkScope = getSubmitFailureDraftScope?.();
+        if (!clearImmediately && !forkScope) return;
+        const recoveryKey = forkScope
+          ? getComposerDraftKey(forkScope)
+          : submittingDraftKey;
+        const isForkRecovery = recoveryKey !== submittingDraftKey;
+        if (isForkRecovery) {
+          clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
+        }
+        let currentDraft: string | null = null;
+        try {
+          currentDraft = recoveryKey ? localStorage.getItem(recoveryKey) : null;
+        } catch {
+          // coercion-ok: Browser storage is optional and can be unavailable or full.
+        }
+        const editorIsCurrentScope =
+          isComposerEditorUsable(ed) && draftKeyRef.current === recoveryKey;
+        const hasFollowUp =
+          editorIsCurrentScope &&
+          (composerDocumentHasContent(ed.state.doc) ||
+            slotReferencesRef.current.length > 0);
+        const canPreserveFollowUp =
+          preserveFollowUp &&
+          !isForkRecovery &&
+          hasFollowUp &&
+          (currentDraft === null ||
+            currentDraft === submittingDraftSnapshot ||
+            (() => {
+              try {
+                const savedDraft = readComposerDraft(currentDraft);
+                return (
+                  savedDraft.html === ed.getHTML() &&
+                  JSON.stringify(savedDraft.slotReferences) ===
+                    JSON.stringify(slotReferencesRef.current)
+                );
+              } catch {
+                // coercion-ok: Never overwrite an unreadable stored draft.
+                return false;
+              }
+            })());
+        if (
+          currentDraft !== null &&
+          (isForkRecovery || currentDraft !== submittingDraftSnapshot) &&
+          !canPreserveFollowUp
+        ) {
           return;
         }
-      }
 
-      // Builder iframe delegation: when this app is mounted inside the
-      // Builder.io webview and the user typed a "build me an app/agent"
-      // prompt, hand it up to the parent Builder chat instead of sending
-      // it to this app's domain agent. Builder is the code-writing agent;
-      // the local agent (dispatch, mail, etc.) cannot scaffold workspace
-      // apps from inside its own iframe.
-      if (
-        !composerMode &&
-        interceptBuildRequestsForBuilder &&
-        adapters.builder!.tryDelegateBuildRequest!(trimmed)
-      ) {
+        if (editorIsCurrentScope) {
+          if (hasFollowUp && !canPreserveFollowUp) {
+            return;
+          }
+          if (canPreserveFollowUp) {
+            ed.commands.setContent({
+              type: "doc",
+              content: [
+                ...(composerDocumentHasContent(submittedEditorDocument)
+                  ? submittedEditorDocument.content.content.map((node) =>
+                      node.toJSON(),
+                    )
+                  : []),
+                ...(composerDocumentHasContent(ed.state.doc)
+                  ? ed.state.doc.content.content.map((node) => node.toJSON())
+                  : []),
+              ],
+            });
+            updateSlotReferences(
+              applySlotReferenceChanges(
+                submittedSlotReferences,
+                slotReferencesRef.current,
+              ),
+            );
+          } else {
+            ed.commands.setContent(submittedEditorDocument.toJSON());
+            updateSlotReferences(submittedSlotReferences);
+          }
+          const restored = syncComposerState();
+          setEditorHasText(
+            restored.text.trim().length > 0 || restored.references.length > 0,
+          );
+          onTextChangeRef.current?.(restored.text);
+          flushComposerDraft();
+          return;
+        }
+
+        if (
+          composerDocumentHasContent(submittedEditorDocument) ||
+          submittedSlotReferences.length > 0
+        ) {
+          writeComposerDraft(
+            recoveryKey,
+            submittedDraftHtml,
+            submittedSlotReferences,
+          );
+        }
+      };
+
+      if (handleLocalSubmission()) return true;
+
+      if (clearedBeforePreflight) {
         cancelActiveVoice();
-        clearEditorAfterSubmit();
-        return;
+        clearEditorAfterSubmit(
+          submittingDraftSnapshot,
+          submittedSlotReferences,
+        );
       }
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
         try {
-          const shouldSubmit = await onBeforeSubmit();
-          if (!shouldSubmit) return;
+          const shouldSubmit = await onBeforeSubmit(
+            composerDraftSnapshot(text, references, attachments),
+          );
+          if (!shouldSubmit) {
+            restoreSubmittedDraft(true);
+            return false;
+          }
+        } catch (error) {
+          restoreSubmittedDraft(true);
+          if (mountedRef.current && isCurrentDraftScope()) {
+            setContextSubmissionError(
+              formatAttachmentError(
+                error,
+                t("agentChat.composer.submitFailed", {
+                  defaultValue: "Could not submit. Try again.",
+                }),
+              ),
+            );
+          }
+          return false;
         } finally {
           submitInFlightRef.current = false;
         }
       }
-      if (!isComposerEditorUsable(ed)) return;
+      if (
+        !isComposerEditorUsable(ed) ||
+        !isCurrentDraftScope() ||
+        submissionDisabledRef.current ||
+        !areComposerContextItemsReady(contextItemsRef.current)
+      ) {
+        restoreSubmittedDraft(true);
+        return false;
+      }
 
-      // Composer mode: send with context via agent chat bridge
-      if (composerMode) {
-        const config = COMPOSER_MODE_CONFIGS[composerMode];
-        config.beforeSend?.();
-        const message = displayableComposerModeMessage({
-          messagePrefix: config.messagePrefix,
-          trimmedText: trimmed,
-          attachmentCount: attachments.length,
-        });
-        const modePrompt =
-          trimmed ||
-          (attachments.length > 0 ? "Use the attached context." : "");
+      if (onBeforeSubmit && !clearedBeforePreflight) {
+        submitInFlightRef.current = true;
+        onSubmissionPendingChange?.(true);
+        let preflightAttachmentSnapshot: typeof composerAttachments;
+        try {
+          preflightAttachmentSnapshot =
+            await createAttachmentSubmissionBarrier();
+        } catch (error) {
+          restoreSubmittedDraft(true);
+          if (mountedRef.current && isCurrentDraftScope()) {
+            setContextSubmissionError(
+              formatAttachmentError(
+                error,
+                t("agentChat.composer.submitFailed", {
+                  defaultValue: "Could not submit. Try again.",
+                }),
+              ),
+            );
+          }
+          return false;
+        } finally {
+          submitInFlightRef.current = false;
+          onSubmissionPendingChange?.(false);
+        }
+
+        const current = syncComposerState();
+        if (textOverride === undefined) {
+          text = current.text;
+          submittedEditorDocument = ed.state.doc;
+          submittedDraftHtml = ed.getHTML();
+        }
+        references = current.references;
+        submittedSlotReferences = slotReferencesRef.current;
+        attachments = preflightAttachmentSnapshot;
+        trimmed = text.trim();
+        if (
+          !text.trim() &&
+          references.length === 0 &&
+          attachments.length === 0
+        ) {
+          return false;
+        }
+        const currentOversizedDocumentError =
+          getOversizedDocumentAttachmentError(attachments, {
+            maxBytes: maxDocumentAttachmentBytes,
+            label: documentAttachmentLimitLabel,
+            translate: t,
+          });
+        if (currentOversizedDocumentError) {
+          onAttachmentErrorRef.current?.(currentOversizedDocumentError);
+          return false;
+        }
+        flushComposerDraft();
+        submittingDraftSnapshot = submittingDraftKey
+          ? (() => {
+              try {
+                return localStorage.getItem(submittingDraftKey);
+              } catch {
+                // coercion-ok: browser storage is optional and can be unavailable or full; treat as "nothing to compare against" like the rest of this file's draft helpers.
+                return null;
+              }
+            })()
+          : null;
+        if (textOverride === undefined && handleLocalSubmission()) return true;
+      }
+
+      try {
+        contextSnapshot = snapshotComposerContextItems(
+          contextItemsProvidedRef.current ? contextItemsRef.current : undefined,
+        );
+      } catch (error) {
+        if (!(error instanceof ComposerContextError)) {
+          restoreSubmittedDraft(true);
+          throw error;
+        }
+        if (error.code === "not-ready") {
+          restoreSubmittedDraft(true);
+          return false;
+        }
+        setContextSubmissionError(
+          t("agentChat.composer.contextLimitExceeded", {
+            defaultValue:
+              "Context is too large. Remove an item or attach a smaller selection.",
+          }),
+        );
+        restoreSubmittedDraft(true);
+        return false;
+      }
+
+      const modeConfig = composerMode
+        ? localizedComposerModeConfig(composerMode, t)
+        : undefined;
+      const modePrompt =
+        trimmed ||
+        (attachments.length > 0
+          ? t("agentChat.composer.useAttachedContext", {
+              defaultValue: "Use the attached context.",
+            })
+          : "");
+      const composerModeContext = modeConfig?.getContext(modePrompt);
+      const submissionText = modeConfig
+        ? displayableComposerModeMessage({
+            messagePrefix: modeConfig.messagePrefix,
+            trimmedText: trimmed,
+            attachmentCount: attachments.length,
+            attachedContextFallback: t(
+              "agentChat.composer.useAttachedContext",
+              {
+                defaultValue: "Use the attached context.",
+              },
+            ),
+          })
+        : text;
+
+      // Raw Tiptap hosts without a submit handler retain the legacy bridge.
+      if (modeConfig && !onSubmit) {
+        modeConfig.beforeSend?.();
+        const contextItemsText = contextSnapshot?.length
+          ? formatPromptContextItems(contextSnapshot)
+          : "";
+        const context = contextItemsText
+          ? `${composerModeContext}\n\n${contextItemsText}`
+          : composerModeContext;
         if (attachments.length > 0) {
           composerRuntime.setText(
-            `${message}\n\n<context>\n${config.getContext(modePrompt)}\n</context>`,
+            `${submissionText}\n\n<context>\n${context}\n</context>`,
           );
           composerRuntime.send();
         } else {
           adapters.agentChat!.sendToAgentChat!({
-            message,
-            context: config.getContext(modePrompt),
+            message: submissionText,
+            context,
+            ...(contextSnapshot === undefined
+              ? {}
+              : { contextItems: contextSnapshot }),
             mode:
               execMode === "plan"
                 ? "plan"
@@ -2613,62 +5192,399 @@ export function TiptapComposer({
           });
         }
         cancelActiveVoice();
-        if (isComposerEditorUsable(ed)) ed.commands.clearContent();
-        setEditorHasText(false);
-        setSlotReferences([]);
-        setComposerMode(null);
-        composerModeRef.current = null;
-        try {
-          localStorage.removeItem(draftKey);
-        } catch {}
-        closePopover();
-        return;
+        if (clearedBeforePreflight || clearSubmittedDraft()) {
+          setComposerMode(null);
+          composerModeRef.current = null;
+        }
+        return true;
       }
 
-      if (onSubmit) {
-        onSubmit(text, references, attachments, { intent });
-        // Clear any pending attachments now that the host has them.
-        void composerRuntime.clearAttachments().catch(() => {});
+      const currentOnSubmit = onSubmitRef.current;
+      if (currentOnSubmit) {
+        if (submitInFlightRef.current) return false;
+        const submittedAttachments = [...attachments];
+        const submittedScopeGeneration = draftScopeGenerationRef.current;
+        submittingAttachmentIdsRef.current = new Set(
+          submittedAttachments.map((attachment) => attachment.id),
+        );
+        submitInFlightRef.current = true;
+        let locallySubmitted = false;
+        let settled = false;
+        let submittedAttachmentCleanup = Promise.resolve();
+        const clearSubmittedAttachmentIds = () => {
+          submittingAttachmentIdsRef.current = new Set();
+        };
+        const recordFailedAttachmentCleanup = () => {
+          const remainingAttachments = composerRuntime.getState().attachments;
+          setFailedAttachmentCleanupSnapshots((failed) => [
+            ...failed,
+            ...submittedAttachments.filter((submitted) =>
+              remainingAttachments.some((current) =>
+                isSameComposerAttachment(current, submitted),
+              ),
+            ),
+          ]);
+          setContextSubmissionError(
+            t("agentChat.composer.attachmentsRemainAfterSubmit", {
+              defaultValue:
+                "The message was sent, but some attachments remain. Remove them before sending again.",
+            }),
+          );
+        };
+        const reconcileFailedSubmissionAttachments = async () => {
+          let releaseBarrier!: () => void;
+          const submissionBarrier = new Promise<void>((resolve) => {
+            releaseBarrier = resolve;
+          });
+          const pendingAddQueue = attachmentAddQueueRef.current;
+          const pendingScopeAdds = [
+            ...(pendingAttachmentAddsRef.current.get(
+              submittedScopeGeneration,
+            ) ?? []),
+          ];
+          const failedDuplicateAttachments: (typeof composerAttachments)[number][] =
+            [];
+          attachmentSubmissionBarrierRef.current = submissionBarrier;
+          try {
+            await pendingAddQueue;
+            await Promise.all(pendingScopeAdds);
+            if (
+              !mountedRef.current ||
+              !isCurrentDraftScope() ||
+              draftScopeGenerationRef.current !== submittedScopeGeneration
+            )
+              return;
+
+            const retainedSubmittedAttachments = submittedAttachments.filter(
+              (submitted) =>
+                composerRuntime
+                  .getState()
+                  .attachments.some((current) =>
+                    isSameComposerAttachment(current, submitted),
+                  ),
+            );
+            const submittedFileInputs = retainedSubmittedAttachments.flatMap(
+              (attachment) =>
+                isBlob(attachment.file)
+                  ? [
+                      {
+                        file: attachment.file,
+                        name: attachment.name,
+                        contentType: normalizeAttachmentContentType(
+                          attachment.contentType,
+                        ),
+                      },
+                    ]
+                  : [],
+            );
+            const comparisonBudget = {
+              remainingBytes: MAX_ATTACHMENT_COMPARISON_BYTES,
+              remainingComparisons: MAX_ATTACHMENT_COMPARISONS,
+            };
+            let cleanupFailed = false;
+            let cleanupError: unknown;
+            for (const attachment of composerRuntime.getState().attachments) {
+              if (
+                submittedAttachments.some((submitted) =>
+                  isSameComposerAttachment(attachment, submitted),
+                ) ||
+                !isBlob(attachment.file)
+              )
+                continue;
+              const candidate = {
+                file: attachment.file,
+                name: attachment.name,
+                contentType: normalizeAttachmentContentType(
+                  attachment.contentType,
+                ),
+              };
+              let duplicatesSubmittedAttachment = false;
+              for (const submittedFile of submittedFileInputs) {
+                if (comparisonBudget.remainingComparisons === 0) break;
+                if (
+                  await haveSameAttachmentInput(
+                    candidate,
+                    submittedFile,
+                    comparisonBudget,
+                  )
+                ) {
+                  duplicatesSubmittedAttachment = true;
+                  break;
+                }
+              }
+              if (!duplicatesSubmittedAttachment) continue;
+              try {
+                const index = composerRuntime
+                  .getState()
+                  .attachments.findIndex((item) =>
+                    isSameComposerAttachment(item, attachment),
+                  );
+                if (index >= 0) {
+                  await composerRuntime.getAttachmentByIndex(index).remove();
+                }
+              } catch (error) {
+                cleanupFailed = true;
+                cleanupError ??= error;
+                failedDuplicateAttachments.push(attachment);
+              }
+            }
+            if (cleanupFailed) throw cleanupError;
+          } catch (error) {
+            if (mountedRef.current && isCurrentDraftScope()) {
+              const remainingFailedDuplicates =
+                failedDuplicateAttachments.filter((failedDuplicate) =>
+                  composerRuntime
+                    .getState()
+                    .attachments.some((current) =>
+                      isSameComposerAttachment(current, failedDuplicate),
+                    ),
+                );
+              if (remainingFailedDuplicates.length > 0) {
+                setFailedAttachmentCleanupSnapshots((failed) => [
+                  ...failed,
+                  ...remainingFailedDuplicates.filter(
+                    (candidate) =>
+                      !failed.some((current) =>
+                        isSameComposerAttachment(current, candidate),
+                      ),
+                  ),
+                ]);
+              }
+              onAttachmentErrorRef.current?.(
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+            console.error(
+              "Could not reconcile submitted composer attachments",
+              error,
+            );
+          } finally {
+            clearSubmittedAttachmentIds();
+            if (attachmentSubmissionBarrierRef.current === submissionBarrier) {
+              attachmentSubmissionBarrierRef.current = Promise.resolve();
+            }
+            releaseBarrier();
+          }
+        };
+        onSubmissionPendingChange?.(true);
+        const clearSubmittedComposer = () => {
+          if (clearOnSubmit) {
+            clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
+          }
+          if (!mountedRef.current || !isCurrentDraftScope()) return;
+          // Remove by captured identity; later uploads belong to the next draft.
+          attachmentCleanupPendingRef.current += 1;
+          const cleanup = attachmentCleanupRef.current.then(async () => {
+            const results = await Promise.allSettled(
+              submittedAttachments.map(async (attachment) => {
+                const index = composerRuntime
+                  .getState()
+                  .attachments.findIndex((item) =>
+                    isSameComposerAttachment(item, attachment),
+                  );
+                return index < 0
+                  ? undefined
+                  : composerRuntime.getAttachmentByIndex(index).remove();
+              }),
+            );
+            const failedRemoval = results.find(
+              (result) => result.status === "rejected",
+            );
+            if (failedRemoval?.status === "rejected") {
+              throw failedRemoval.reason;
+            }
+          });
+          submittedAttachmentCleanup = cleanup
+            .catch((error) => {
+              if (mountedRef.current && isCurrentDraftScope()) {
+                onAttachmentErrorRef.current?.(
+                  error instanceof Error ? error.message : String(error),
+                );
+                recordFailedAttachmentCleanup();
+              }
+              console.error("Could not clear submitted attachments", error);
+            })
+            .finally(() => {
+              attachmentCleanupPendingRef.current -= 1;
+            });
+          if (!isComposerEditorUsable(ed)) return;
+          if (!clearOnSubmit) {
+            closePopover();
+            return;
+          }
+          if (ed.state.doc !== submittedEditorDocument) {
+            flushComposerDraft();
+            return;
+          }
+          cancelActiveVoice();
+          cancelScheduledDraftPersist();
+          ed.commands.clearContent();
+          ed.commands.focus("end");
+          setEditorHasText(false);
+          setSlotReferences((current) =>
+            current.filter(
+              (reference) => !submittedSlotReferences.includes(reference),
+            ),
+          );
+          if (composerModeRef.current === composerMode) {
+            setComposerMode(null);
+            composerModeRef.current = null;
+          }
+          resetComposerRuntimeState();
+          closePopover();
+        };
+        const onLocalSubmit = () => {
+          if (settled || locallySubmitted || !clearOnSubmit) return;
+          // A suggested prompt does not transfer ownership of an unrelated draft.
+          if (draftText && text !== draftText) return;
+          locallySubmitted = true;
+          clearSubmittedComposer();
+        };
+        try {
+          setContextSubmissionError(null);
+          if (clearImmediately && !clearedBeforePreflight) {
+            cancelActiveVoice();
+            clearSubmittedDraft();
+          }
+          await currentOnSubmit(
+            submissionText,
+            references,
+            submittedAttachments,
+            {
+              intent: submitIntent,
+              ...(steer ? { steer: true } : {}),
+              onLocalSubmit,
+              ...(composerModeContext === undefined
+                ? {}
+                : { composerModeContext }),
+              ...(contextSnapshot === undefined
+                ? {}
+                : { contextItems: contextSnapshot }),
+            },
+          );
+        } catch (error) {
+          if (locallySubmitted) {
+            restoreSubmittedDraft(true);
+            await submittedAttachmentCleanup;
+            clearSubmittedAttachmentIds();
+            return true;
+          }
+          restoreSubmittedDraft(true);
+          if (mountedRef.current && isCurrentDraftScope()) {
+            setContextSubmissionError(
+              formatAttachmentError(
+                error,
+                t("agentChat.composer.submitFailed", {
+                  defaultValue: "Could not submit. Try again.",
+                }),
+              ),
+            );
+          }
+          await reconcileFailedSubmissionAttachments();
+          return false;
+        } finally {
+          settled = true;
+          submitInFlightRef.current = false;
+          onSubmissionPendingChange?.(false);
+        }
+
+        if (!isCurrentDraftScope()) {
+          clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
+          if (locallySubmitted) await submittedAttachmentCleanup;
+          clearSubmittedAttachmentIds();
+          return true;
+        }
+        if (!locallySubmitted) {
+          const clearSubmittedAttachments = attachmentCleanupRef.current.then(
+            async () => {
+              for (const attachment of submittedAttachments) {
+                const index = composerRuntime
+                  .getState()
+                  .attachments.findIndex((item) =>
+                    isSameComposerAttachment(item, attachment),
+                  );
+                if (index === -1) continue;
+                await composerRuntime.getAttachmentByIndex(index).remove();
+              }
+            },
+          );
+          attachmentCleanupRef.current = clearSubmittedAttachments.then(
+            () => undefined,
+            () => undefined,
+          );
+          if (clearOnSubmit && !clearOnSubmitImmediately) {
+            cancelActiveVoice();
+            if (
+              clearSubmittedDraft() &&
+              composerModeRef.current === composerMode
+            ) {
+              setComposerMode(null);
+              composerModeRef.current = null;
+            }
+          }
+          attachmentCleanupPendingRef.current += 1;
+          try {
+            await clearSubmittedAttachments;
+          } catch {
+            recordFailedAttachmentCleanup();
+            return true;
+          } finally {
+            attachmentCleanupPendingRef.current -= 1;
+            clearSubmittedAttachmentIds();
+          }
+        }
+        await submittedAttachmentCleanup;
+        clearSubmittedAttachmentIds();
         if (!clearOnSubmit) {
           closePopover();
-          return;
+          return true;
         }
-        cancelActiveVoice();
-        clearEditorAfterSubmit();
-        return;
+        if (mountedRef.current && isCurrentDraftScope())
+          modeConfig?.beforeSend?.();
+        return true;
       } else {
+        if (textOverride !== undefined) composerRuntime.setText(text);
         composerRuntime.send();
       }
       cancelActiveVoice();
-      if (isComposerEditorUsable(ed)) ed.commands.clearContent();
-      setEditorHasText(false);
-      setSlotReferences([]);
-      try {
-        localStorage.removeItem(draftKey);
-      } catch {}
-      closePopover();
+      if (!clearedBeforePreflight) clearSubmittedDraft();
+      return true;
     },
     [
       closePopover,
       clearEditorAfterSubmit,
+      cancelScheduledDraftPersist,
       composerMode,
       composerRuntime,
       draftKey,
       editor,
+      failedAttachmentCleanupSnapshots,
+      cleanStaleAttachments,
+      createAttachmentSubmissionBarrier,
+      flushComposerDraft,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,
+      clearOnSubmitImmediately,
+      getSubmitFailureDraftScope,
       onBeforeSubmit,
-      onSubmit,
+      onEmptySubmit,
+      onSubmissionPendingChange,
+      extractComposerPayload,
       syncComposerState,
+      updateSlotReferences,
+      slotReferences,
+      resetComposerRuntimeState,
       voice,
       allSlashCommands,
+      announceSlashCommand,
+      willQueue,
+      t,
     ],
   );
 
   // Helper functions that operate on the editor view directly
   // These are called from handleKeyDown which can't use React state
-  function selectMention(
-    _view: any,
+  function insertSelectedMention(
     pop: NonNullable<PopoverState>,
     item: MentionItem,
   ) {
@@ -2677,8 +5593,80 @@ export function TiptapComposer({
     const currentPos = ed.state.selection.from;
     // startPos is after the trigger char, so -1 to include the @ or /
     const deleteFrom = Math.max(0, pop.startPos - 1);
-    ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
-    insertReference(composerReferenceFromMentionItem(item));
+    if (item.source === COMPOSER_CONTEXT_ENTRY_SOURCE && item.refId) {
+      ed.chain()
+        .focus()
+        .deleteRange({ from: deleteFrom, to: currentPos })
+        .run();
+      setContextEntryRequest({ id: item.refId });
+      return;
+    }
+    const normalized = adapters.agentChat!.normalizeReference!(
+      composerReferenceFromMentionItem(item),
+    ) as AgentComposerReference | null;
+    if (!normalized) return;
+    if (normalized.slotKey) {
+      ed.chain()
+        .focus()
+        .deleteRange({ from: deleteFrom, to: currentPos })
+        .run();
+      insertReference(normalized);
+      return;
+    }
+    if (normalized.relatedReferences?.some((reference) => reference.slotKey)) {
+      updateSlotReferences((current) =>
+        applySlotReferenceChanges(current, normalized.relatedReferences ?? []),
+      );
+    }
+    if (item.replaceExisting) {
+      let existingPosition: number | null = null;
+      ed.state.doc.descendants((node: any, pos: number) => {
+        if (
+          existingPosition === null &&
+          node.type.name === "mentionReference" &&
+          node.attrs.refType === normalized.refType
+        ) {
+          existingPosition = pos;
+          return false;
+        }
+      });
+      if (existingPosition !== null) {
+        const position = existingPosition;
+        ed.chain()
+          .focus()
+          .command(({ tr }) => {
+            tr.delete(deleteFrom, currentPos);
+            tr.setNodeMarkup(
+              tr.mapping.map(position),
+              undefined,
+              mentionReferenceAttrs(normalized),
+            );
+            tr.insertText(" ", tr.selection.from);
+            return true;
+          })
+          .run();
+        setEditorHasText(true);
+        return;
+      }
+    }
+    ed.chain()
+      .focus()
+      .deleteRange({ from: deleteFrom, to: currentPos })
+      .insertContent({
+        type: "mentionReference",
+        attrs: mentionReferenceAttrs(normalized),
+      })
+      .insertContent(" ")
+      .run();
+    setEditorHasText(true);
+  }
+
+  function selectMention(
+    _view: any,
+    pop: NonNullable<PopoverState>,
+    item: MentionItem,
+  ) {
+    insertSelectedMention(pop, item);
     popoverStateRef.current = null;
     setPopover(null);
   }
@@ -2695,7 +5683,7 @@ export function TiptapComposer({
     ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
     popoverStateRef.current = null;
     setPopover(null);
-    onSlashCommandRef.current?.(command.name);
+    announceSlashCommand(command);
   }
 
   function selectSkill(
@@ -2723,18 +5711,11 @@ export function TiptapComposer({
   // Popover select handlers for click-based selection (from MentionPopover)
   const handleSelectMention = useCallback(
     (item: MentionItem) => {
-      if (!isComposerEditorUsable(editor) || !popover) return;
-      const currentPos = editor.state.selection.from;
-      const deleteFrom = Math.max(0, popover.startPos - 1);
-      editor
-        .chain()
-        .focus()
-        .deleteRange({ from: deleteFrom, to: currentPos })
-        .run();
-      insertReference(composerReferenceFromMentionItem(item));
+      if (!popover) return;
+      insertSelectedMention(popover, item);
       closePopover();
     },
-    [editor, popover, closePopover, insertReference],
+    [popover, closePopover, insertReference],
   );
 
   const handleSelectCommand = useCallback(
@@ -2748,9 +5729,9 @@ export function TiptapComposer({
         .deleteRange({ from: deleteFrom, to: currentPos })
         .run();
       closePopover();
-      onSlashCommand?.(command.name);
+      announceSlashCommand(command);
     },
-    [editor, popover, closePopover, onSlashCommand],
+    [editor, popover, closePopover, announceSlashCommand],
   );
 
   const handleSelectSkill = useCallback(
@@ -2773,11 +5754,43 @@ export function TiptapComposer({
     [editor, popover, closePopover],
   );
 
+  const popoverOpen = popover !== null;
+  useLayoutEffect(() => {
+    if (!popoverOpen || !isComposerEditorUsable(editor)) return;
+    const frame =
+      editor.view.dom.closest<HTMLElement>(
+        '[data-agent-composer-slot="root"]',
+      ) ?? editor.view.dom;
+    const measure = () => {
+      const current = popoverStateRef.current;
+      if (!current || !isComposerEditorUsable(editor)) return;
+      const position = getComposerPopoverAnchorPosition(
+        editor.view,
+        editor.state.selection.from,
+      );
+      if (!position) return;
+      const updated = { ...current, position };
+      popoverStateRef.current = updated;
+      setPopover(updated);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(frame);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [editor, popoverOpen]);
+
   // Track query text as user types after trigger
   useEffect(() => {
     if (!isComposerEditorUsable(editor) || !popover) return;
 
     const updateHandler = () => {
+      if (composingRef.current) return;
       const pop = popoverStateRef.current;
       if (!pop) return;
       const { from } = editor.state.selection;
@@ -2823,30 +5836,96 @@ export function TiptapComposer({
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
+    if (initialText !== undefined) return;
+    if (previousDraftKeyRef.current !== draftKey) return;
     if (composerText !== "") return;
     if (editor.isEmpty) return;
     editor.commands.clearContent();
-  }, [composerText, editor]);
+  }, [composerText, draftKey, editor, initialText]);
 
   useEffect(() => {
-    if (!isComposerEditorUsable(editor) || initialText === undefined) return;
+    if (!isComposerEditorUsable(editor)) return;
+    const draftKeyChanged = previousDraftKeyRef.current !== draftKey;
+    previousDraftKeyRef.current = draftKey;
+    if (draftKeyChanged) {
+      voiceAnchorRef.current = null;
+      prevVoiceInsertRef.current = "";
+      voiceCancelRef.current();
+      editor.commands.clearContent(false);
+      initialTextKeyRef.current = undefined;
+      hasCheckedInitialDraftRef.current = false;
+      setEditorHasText(false);
+      updateSlotReferences([]);
+      setComposerMode(null);
+      composerModeRef.current = null;
+      lastComposerRuntimeSyncRef.current = null;
+      composerRuntime.setText("");
+      const cleanupGeneration = draftScopeGenerationRef.current;
+      attachmentCleanupRef.current = attachmentCleanupRef.current
+        .then(() => composerRuntime.clearAttachments())
+        .catch((error) => {
+          if (draftScopeGenerationRef.current === cleanupGeneration) {
+            console.error(
+              "Could not clear attachments while changing composer scope",
+              error,
+            );
+          }
+        });
+      onTextChangeRef.current?.("");
+    }
     const key = initialTextKey ?? initialText;
-    if (initialTextKeyRef.current === key) return;
-    initialTextKeyRef.current = key;
-    editor.commands.setContent(plainTextToDoc(initialText));
-    editor.commands.focus("end");
-    const trimmed = editor.state.doc.textContent.trim();
-    setEditorHasText(trimmed.length > 0);
-    composerRuntime.setText(trimmed);
-    onTextChangeRef.current?.(trimmed);
-    try {
-      if (trimmed) {
-        localStorage.setItem(draftKey, editor.getHTML());
-      } else {
-        localStorage.removeItem(draftKey);
+    let saved: string | null = null;
+    if (draftKey) {
+      try {
+        saved = localStorage.getItem(draftKey);
+      } catch {
+        // coercion-ok: browser storage is optional and can be unavailable or full.
       }
-    } catch {}
-  }, [composerRuntime, draftKey, editor, initialText, initialTextKey]);
+    }
+    const shouldRestoreSavedDraft = !hasCheckedInitialDraftRef.current;
+    hasCheckedInitialDraftRef.current = true;
+    const savedDraft = saved ? readComposerDraft(saved) : null;
+
+    try {
+      if (savedDraft && editor.isEmpty && shouldRestoreSavedDraft) {
+        editor.commands.setContent(savedDraft.html);
+        updateSlotReferences(savedDraft.slotReferences);
+        editor.commands.focus("end");
+        if (initialText !== undefined) initialTextKeyRef.current = key;
+      } else if (initialText === undefined) {
+        onTextChangeRef.current?.(
+          editor.getText({ blockSeparator: "\n" }).trim(),
+        );
+        return;
+      } else if (initialTextKeyRef.current !== key) {
+        initialTextKeyRef.current = key;
+        editor.commands.setContent(
+          plainTextToDoc(initialText, textChips(initialReferencesRef.current)),
+        );
+      } else {
+        return;
+      }
+      const trimmed = editor.getText({ blockSeparator: "\n" }).trim();
+      setEditorHasText(
+        composerDocumentHasContent(editor.state.doc) ||
+          slotReferencesRef.current.length > 0,
+      );
+      composerRuntime.setText(trimmed);
+      onTextChangeRef.current?.(trimmed);
+      scheduleComposerDraftPersist(editor);
+    } catch {
+      // coercion-ok: a stale editor during unmount should not block the refresh path.
+    }
+  }, [
+    composerRuntime,
+    draftKey,
+    editor,
+    initialText,
+    initialTextKey,
+    scheduleComposerDraftPersist,
+    textChips,
+    updateSlotReferences,
+  ]);
 
   // Tiptap only reads `editable` at init; prop changes need setEditable.
   useEffect(() => {
@@ -2855,10 +5934,75 @@ export function TiptapComposer({
     if (disabled) editor.commands.blur();
   }, [editor, disabled]);
 
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    editor.setOptions({
+      editorProps: {
+        ...editor.options.editorProps,
+        attributes: {
+          ...(editor.options.editorProps?.attributes as
+            | Record<string, string>
+            | undefined),
+          "aria-disabled": String(disabled || contextControlsDisabled),
+        },
+      },
+    });
+  }, [editor, disabled, contextControlsDisabled]);
+
+  const launchersDisabled = disabled || contextControlsDisabled;
+
+  const contextLauncherItems = useMemo(() => {
+    const sections = new Map<string, ComposerContextMenuItem[]>();
+    for (const item of filteredMentionItems) {
+      const section = item.section || "Other";
+      const entries = sections.get(section) ?? [];
+      entries.push({
+        id: `mention:${item.id}`,
+        label: item.label,
+        description: item.description,
+        onSelect: () => insertReference(composerReferenceFromMentionItem(item)),
+      });
+      sections.set(section, entries);
+    }
+    const sectionKeys: Record<string, string> = {
+      Agents: "agents",
+      "Connected Agents": "connectedAgents",
+      Files: "files",
+      Other: "other",
+    };
+    return [
+      ...(contextMenuItems ?? []),
+      ...Array.from(sections)
+        .sort(([left], [right]) => {
+          const order = (section: string) =>
+            section === "Agents"
+              ? 0
+              : section === "Connected Agents"
+                ? 1
+                : section === "Files"
+                  ? 3
+                  : section === "Other"
+                    ? 4
+                    : 2;
+          return order(left) - order(right) || left.localeCompare(right);
+        })
+        .map(([section, children]) => ({
+          id: `mentions:${section}`,
+          label: sectionKeys[section]
+            ? t(`agentChat.mentions.sections.${sectionKeys[section]}`, {
+                defaultValue: section,
+              })
+            : section,
+          children,
+        })),
+    ];
+  }, [contextMenuItems, filteredMentionItems, insertReference, t]);
+
   return (
     <RealtimeVoiceModeBoundary>
       <style>{`
-        .aui-composer .ProseMirror p.is-editor-empty:first-child::before {
+        .aui-composer .ProseMirror p.is-editor-empty:first-child::before,
+        .aui-composer .ProseMirror p.is-empty:first-child:last-child::before {
           content: attr(data-placeholder);
           color: var(--color-muted-foreground);
           opacity: 0.5;
@@ -2894,9 +6038,13 @@ export function TiptapComposer({
           {slotReferences.map((ref) => (
             <span
               key={ref.slotKey}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground shadow-sm"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground shadow-sm"
             >
-              <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <MentionItemMedia
+                media={ref.media}
+                size="sm"
+                fallbackIcon="clipboard"
+              />
               {ref.slotLabel && (
                 <span className="shrink-0 text-muted-foreground">
                   {ref.slotLabel}
@@ -2906,14 +6054,17 @@ export function TiptapComposer({
               <button
                 type="button"
                 onClick={() => {
-                  setSlotReferences((current) =>
+                  updateSlotReferences((current) =>
                     removeSlotReference(current, ref),
                   );
                   if (isComposerEditorUsable(editor)) {
                     editor.commands.focus("end");
                   }
                 }}
-                aria-label={`Remove ${slotReferenceTitle(ref)} reference`}
+                aria-label={t("agentChat.composer.removeReference", {
+                  defaultValue: "Remove {{name}} reference",
+                  name: slotReferenceTitle(ref),
+                })}
                 className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <IconX className="h-3 w-3" />
@@ -2921,35 +6072,96 @@ export function TiptapComposer({
             </span>
           ))}
           {contextItems.map((item) => (
-            <span
-              key={item.key}
-              data-state={
-                selectedContextItemKey === item.key ? "selected" : undefined
-              }
-              className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium text-foreground ${
-                selectedContextItemKey === item.key
-                  ? "border-ring bg-accent ring-2 ring-ring/40"
-                  : "border-border bg-muted/50"
-              }`}
-            >
-              <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate">{item.title}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  selectedContextItemKeyRef.current = null;
-                  setSelectedContextItemKey(null);
-                  onRemoveContextItem?.(item.key);
-                }}
-                aria-label={`Remove ${item.title} context`}
-                className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            <React.Fragment key={item.key}>
+              <span
+                data-context-key={item.key}
+                data-context-status={item.status ?? "ready"}
+                title={item.statusMessage}
+                data-state={
+                  selectedContextItemKey === item.key ? "selected" : undefined
+                }
+                className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium text-foreground ${
+                  selectedContextItemKey === item.key
+                    ? "border-ring bg-accent ring-2 ring-ring/40"
+                    : "border-border bg-muted/50"
+                }`}
               >
-                <IconX className="h-3 w-3" />
-              </button>
-            </span>
+                {item.status === "pending" ? (
+                  <IconLoader2
+                    aria-label={t("agentChat.composer.contextPending", {
+                      defaultValue: "Context pending",
+                    })}
+                    className="size-3 shrink-0 animate-spin motion-reduce:animate-none text-muted-foreground"
+                  />
+                ) : item.status === "error" ? (
+                  <IconAlertCircle
+                    aria-label={t("agentChat.composer.contextError", {
+                      defaultValue: "Context failed",
+                    })}
+                    className="size-3 shrink-0 text-destructive"
+                  />
+                ) : (
+                  <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
+                )}
+                <span className="min-w-0 truncate">{item.title}</span>
+                {onRemoveContextItem && item.removable !== false ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      selectedContextItemKeyRef.current = null;
+                      setSelectedContextItemKey(null);
+                      onRemoveContextItem?.(item.key);
+                    }}
+                    aria-label={t("agentChat.composer.removeContext", {
+                      defaultValue: "Remove {{name}} context",
+                      name: item.title,
+                    })}
+                    className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                ) : null}
+              </span>
+              {item.status === "error" && onRetryContextItem ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => onRetryContextItem(item.key)}
+                      aria-label={t("agentChat.composer.retryContext", {
+                        defaultValue: "Retry {{name}} context",
+                        name: item.title,
+                      })}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      <IconRefresh aria-hidden="true" className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("agentChat.composer.retryContext", {
+                      defaultValue: "Retry {{name}} context",
+                      name: item.title,
+                    })}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </React.Fragment>
           ))}
         </div>
       )}
+      {contextSubmissionError ? (
+        <p role="alert" className="px-2 text-xs text-destructive">
+          {contextSubmissionError}
+        </p>
+      ) : null}
+      {attachmentError ? (
+        <p
+          role="alert"
+          className="break-words px-2.5 pt-2 text-xs text-destructive"
+        >
+          {attachmentError}
+        </p>
+      ) : null}
       <div
         data-agent-composer-variant={layoutVariant}
         data-agent-composer-slot="editor-wrap"
@@ -2970,28 +6182,95 @@ export function TiptapComposer({
         data-agent-composer-slot="toolbar"
         className="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5"
       >
-        {attachButton ??
-          (plusMenuMode === "hidden" ? null : (
-            <ComposerPlusMenu
-              onSelectMode={handleSelectMode}
-              mode={plusMenuMode}
-              extensionTools={extensionTools}
-              onAttachmentError={onAttachmentError}
-            />
-          ))}
+        {!launchersDisabled && attachmentsEnabled && attachButton ? (
+          attachButton
+        ) : hasContextMenu ? (
+          <ComposerPlusMenu
+            contextMenuItems={launchersDisabled ? [] : contextLauncherItems}
+            openEntry={contextEntryRequest}
+            mode={
+              launchersDisabled || plusMenuMode === "hidden"
+                ? "upload-only"
+                : plusMenuMode
+            }
+            onSelectMode={handleSelectMode}
+            terminalModeControl={terminalModeControl}
+            extensionTools={extensionTools}
+            attachmentsEnabled={attachmentsEnabled}
+            open={contextMenuOpen}
+            onOpenChange={setContextMenuOpen}
+            loading={mentionsLoading}
+            error={
+              mentionsError
+                ? t("agentChat.composer.contextLoadFailed", {
+                    defaultValue: "Could not load context.",
+                  })
+                : undefined
+            }
+            onRetry={retryMentions}
+            onRestoreFocus={
+              launchersDisabled
+                ? undefined
+                : () => {
+                    if (isComposerEditorUsable(editor)) editor.commands.focus();
+                  }
+            }
+            addAttachment={
+              attachmentsEnabled ? addAttachmentForCurrentScope : undefined
+            }
+            onAttachmentRequest={onAttachmentRequest}
+            contextButtonTooltipDisabled={contextButtonTooltipDisabled}
+            attachmentAccept={composerRuntime.getState().attachmentAccept}
+            onAttachmentError={onAttachmentError}
+            onDisabledFocus={() => {
+              const root = editor?.view.dom.closest<HTMLElement>(
+                '[data-agent-composer-slot="root"]',
+              );
+              const localTarget = Array.from(
+                root?.querySelectorAll<HTMLElement>(
+                  '[data-agent-composer-slot="stop-button"]:not(:disabled), button:not(:disabled)',
+                ) ?? [],
+              ).find((element) => !element.closest("[hidden]"));
+              if (localTarget) {
+                localTarget.focus();
+                return;
+              }
+              const pageTarget = Array.from(
+                document.querySelectorAll<HTMLElement>(
+                  'button:not(:disabled), a[href], input:not([type="hidden"]):not(:disabled), textarea:not(:disabled)',
+                ),
+              ).find(
+                (element) =>
+                  !root?.contains(element) && !element.closest("[hidden]"),
+              );
+              pageTarget?.focus();
+            }}
+            disabled={launchersDisabled}
+          />
+        ) : null}
         {toolbarSlot ?? modeControl}
         <div data-agent-composer-slot="toolbar-spacer" className="flex-1" />
-        {selectedModel && availableModels && onModelChange && (
+        {shouldRenderModelSelector(availableModels, onModelChange) && (
           <ModelSelector
-            model={selectedModel}
+            model={selectedModel ?? ""}
+            selectedEngine={selectedEngine}
+            open={modelSelectorOpen}
             effort={selectedEffort}
-            engines={availableModels}
+            engines={availableModels!}
+            agents={availableAgents}
+            selectedAgent={selectedAgent}
+            agentOnly={agentOnly}
+            hostedHarness={hostedHarness}
+            showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
-            onChange={onModelChange}
+            onChange={onModelChange!}
             onEffortChange={onEffortChange}
+            onAgentChange={onAgentChange}
+            onModelSelectorOpenChange={onModelSelectorOpenChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}
+            terminalModeControl={terminalModeControl}
             imageModel={imageModelMenu}
           />
         )}
@@ -3016,12 +6295,24 @@ export function TiptapComposer({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => void submitComposer("immediate")}
-                    disabled={!canSend}
+                    onClick={(event) =>
+                      void submitComposer(
+                        "immediate",
+                        undefined,
+                        event.metaKey || event.ctrlKey,
+                      )
+                    }
+                    disabled={!canSend || sendButtonDisabled}
+                    aria-label={sendButtonTooltip}
+                    aria-busy={sendButtonBusy || undefined}
                     data-agent-composer-slot="send-button"
-                    className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    <IconArrowUp className="h-3.5 w-3.5" />
+                    {sendButtonBusy ? (
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <IconArrowUp className="h-3.5 w-3.5" />
+                    )}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>{sendButtonTooltip}</TooltipContent>
@@ -3032,13 +6323,16 @@ export function TiptapComposer({
       </div>
       <MentionPopover
         ref={popoverRef}
+        density={mentionPopoverDensity}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
-        mentionItems={filteredMentionItems}
+        mentionItems={inlineMentionItems}
         skills={filteredSkills}
         commands={filteredCommands}
         hint={hint}
         isLoading={popover?.type === "@" ? mentionsLoading : skillsLoading}
+        error={mentionItemsError}
+        onRetry={onRetryMentionItems}
         query={popover?.query ?? ""}
         onSelectMention={handleSelectMention}
         onSelectSkill={handleSelectSkill}

@@ -1,0 +1,78 @@
+slug: understand-what-your-coding-agent-changed
+job_id: job-pr-recap
+app: plans
+audience: technical
+title: "Understand what your coding agent changed"
+subhead: "Turn a pull request, commit, branch, or diff into a visual walkthrough with diagrams and explanations of the changes."
+meta_description: "Get a visual walkthrough of a pull request, commit, branch, or diff, with diagrams and annotated code. Free, open-source Plans from Agent-Native."
+cta_label: "Plan visually"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://plan.agent-native.com"
+screenshot_alt: "A visual plan in Plans: a canvas of three mobile screens above a written plan with a goal and a comment indicator"
+old_way:
+  heading: "How most people do it today"
+  body: "Your agent hands you a diff the size of a feature. Reading it line by line is the review, and the part you most need to understand is buried in file nine."
+new_way:
+  heading: "How it works in Plans"
+  steps:
+    - "Add the planning skills to your coding agent by running npx @agent-native/core@latest skills add visual-plan."
+    - "Run the visual recap command on a pull request, commit, branch, or diff."
+    - "Read the walkthrough: the behavior that changed, the files it touched, and annotated code. Leave comments, or share it for teammates to review."
+todays_stack:
+  heading: "What a recap adds to your review"
+  items:
+    - text: "**Starting cold on a large diff** makes the most important change easy to miss."
+    - text: "**A pull request description** says what changed, but rarely how the change behaves."
+    - text: "**A call with whoever made the change** answers questions, but nothing is written down afterward."
+  in_app: "A recap guides your review. It doesn't replace it: you still read the actual code and check the tests."
+story: null
+faqs:
+  - q: "Can I use Plans to review code that is already written?"
+    a: "Yes. Use the visual recap command with a pull request, commit, branch, or diff to get a visual explanation of the change. Use the recap to guide your review of the actual code and tests."
+  - q: "Does the recap replace reading the code?"
+    a: "No. It's a guide for your review. You still read the actual code and check the tests."
+  - q: "Where are recaps saved, and can I share them?"
+    a: "Plans are stored in the hosted Plans app by default. A local-files mode keeps them off it, and you can export plans as HTML, Markdown, or JSON. People you share a plan with can open and edit it as guests, without signing up. You sign in to save or share your own plans."
+  - q: "Is Plans free?"
+    a: "Yes. Plans is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Review your next change visually"
+cta_band_subhead: "Turn a pull request into a walkthrough you can read in minutes."
+updated: 2026-10-14
+internal:
+  job: "Understand a PR or diff an agent wrote"
+  recurs_when: "Every PR"
+  first_session: "Install the skill, run one recap"
+  return_signal: "Second recap within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "claude code review (US 2,500/mo, KD 10) has unclear intent. Check the results page before writing for it. what is a pull request (1,700) is generic and low intent."
+  basis: "hypothesis (recurs on every PR)"
+  verify: "Command name and install steps against the Plans page. Search intent for 'claude code review'."
+frequency: per-project
+how_often_label: "Every pull request"
+roles: [engineering]
+connects_to: ["Claude Code", "Codex"]
+next_jobs: [bug-reports-with-console-logs, see-what-your-coding-agent-plans]
+recipes:
+  - id: recap-pr
+    title: "Recap a pull request before you review it"
+    when: "Use this when your coding agent opens a pull request."
+    steps:
+      - "Ask your agent to run /visual-recap on the pull request."
+    prompt: "Use /visual-recap on this pull request: [link]"
+    result: "You'll get a walkthrough of the behavior that changed, the files it touched, and annotated code."
+    how_often: "Every pull request"
+  - id: share-recap
+    title: "Share the recap with a reviewer"
+    when: "Use this when someone else needs to review the change."
+    steps:
+      - "Share the recap link."
+    result: "People you share it with can open it in the browser without signing up, and they'll know where to look first."
+    how_often: "Every pull request"
+  - id: recap-every-pr
+    title: "Recap every pull request automatically"
+    when: "Use this when you want a recap on every pull request without asking for one."
+    steps:
+      - "Run npx @agent-native/core@latest skills add visual-plan --with-github-action."
+      - "Run npx @agent-native/recap-cli@latest recap setup."
+      - "Commit the workflow and open a pull request."
+    result: "Each pull request gets a comment with a screenshot and a link to the recap. It's informational and never blocks merging."
+    how_often: "Every pull request"

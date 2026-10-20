@@ -3,6 +3,7 @@ import { IconHistory, IconLoader2, IconRotate } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,9 +55,12 @@ export function AnalysisHistoryPanel({
   canRestore?: boolean;
 }) {
   const t = useT();
-  const { data: revisions, isLoading } = useAnalysisRevisions(
-    open ? analysisId : null,
-  );
+  const {
+    data: revisions,
+    isLoading,
+    isError,
+    refetch,
+  } = useAnalysisRevisions(open ? analysisId : null);
   const restoreRevision = useRestoreAnalysisRevision(analysisId);
   const [pendingRestore, setPendingRestore] = useState<AnalysisRevision | null>(
     null,
@@ -98,6 +102,13 @@ export function AnalysisHistoryPanel({
                   className="animate-spin text-muted-foreground"
                 />
               </div>
+            ) : isError ? (
+              <ResourceLoadError
+                inline
+                message={t("sidebar.analysesLoadFailed")}
+                retryLabel={t("sidebar.retry")}
+                onRetry={() => void refetch()}
+              />
             ) : !revisions?.length ? (
               <div className="px-6 py-12 text-center text-xs text-muted-foreground">
                 {t("analyses.historyEmpty")}

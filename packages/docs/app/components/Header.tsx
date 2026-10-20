@@ -1,9 +1,10 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { FeedbackButton } from "@agent-native/core/client/ui";
-import { IconMessage } from "@tabler/icons-react";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
 
+import { firstPartyAppUrl } from "./deployment-links";
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
 import DocsLanguagePicker from "./DocsLanguagePicker";
 import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
@@ -14,9 +15,11 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "./ui/context-menu";
+import { useSearchModal } from "./use-search-modal";
 
-const DOCS_FEEDBACK_URL =
-  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
+const DOCS_FEEDBACK_URL = firstPartyAppUrl(
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+);
 
 const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),
@@ -98,30 +101,6 @@ function CloseIcon() {
   );
 }
 
-function useSearchModal() {
-  const [open, setOpen] = useState(false);
-  const [everOpened, setEverOpened] = useState(false);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setEverOpened(true);
-        setOpen(true);
-      }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
-  const openModal = () => {
-    setEverOpened(true);
-    setOpen(true);
-  };
-
-  return { open, setOpen, everOpened, openModal };
-}
-
 export default function Header() {
   const { open, setOpen, everOpened, openModal } = useSearchModal();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -150,10 +129,6 @@ export default function Header() {
 
   useEffect(() => {
     if (!isHome) return;
-    // AgentSidebar wraps content in an overflow-auto div, so the window
-    // typically doesn't scroll. Listening on document with capture: true
-    // catches scroll events from any descendant scroll container, regardless
-    // of when AgentSidebar mounts or which element is actually scrolling.
     const onScroll = (e: Event) => {
       const target = e.target;
       let top = 0;
@@ -183,7 +158,7 @@ export default function Header() {
   return (
     <>
       <header
-        className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
+        className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
       >
         <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
           <ContextMenu>
@@ -214,18 +189,18 @@ export default function Header() {
                 <img
                   src="/agent-native-logo-light.svg"
                   alt="Agent-Native"
-                  width={1023}
-                  height={120}
-                  className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:block dark:hidden"
+                  width={1286}
+                  height={317}
+                  className="hidden aspect-[1286/317] h-10 w-auto min-[380px]:block dark:hidden"
                   loading="lazy"
                   decoding="async"
                 />
                 <img
                   src="/agent-native-logo-dark.svg"
                   alt="Agent-Native"
-                  width={1023}
-                  height={120}
-                  className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:dark:block"
+                  width={1286}
+                  height={317}
+                  className="hidden aspect-[1286/317] h-10 w-auto min-[380px]:dark:block"
                   loading="lazy"
                   decoding="async"
                 />
@@ -345,7 +320,7 @@ export default function Header() {
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               title={t("header.askAssistant")}
             >
-              <IconMessage size={16} stroke={1.5} />
+              <IconLayoutSidebarRight size={16} stroke={1.5} />
             </button>
 
             {/* Mobile hamburger */}

@@ -8,10 +8,16 @@ import {
   readClientAppState,
   useActionMutation,
   useActionQuery,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
-import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
+import {
+  CreativeContextShareSheet,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import {
   IconCheck,
   IconClipboard,
@@ -33,7 +39,6 @@ import {
   IconSettings,
   IconTrash,
   IconUpload,
-  IconVideo,
   IconX,
 } from "@tabler/icons-react";
 import {
@@ -66,6 +71,10 @@ import {
   AssetPreviewDialog,
   type PreviewAsset,
 } from "@/components/asset/AssetPreviewDialog";
+import {
+  FileUploadStorageGate,
+  getFileUploadStorageState,
+} from "@/components/FileUploadStorageGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -124,7 +133,12 @@ import {
   type AssetUploadResult,
 } from "@/lib/upload-results";
 
-import { type AssetVariantState, type ImageRole } from "../../shared/api";
+import {
+  canApproveWithRole,
+  MAX_ASSET_UPLOAD_BATCH_BYTES,
+  type AssetVariantState,
+  type ImageRole,
+} from "../../shared/api";
 
 export type VariantSlot = AssetVariantState["slots"][number];
 
@@ -311,7 +325,10 @@ function assetUpdatedTime(asset: any): number {
 
 export function loader({ params, request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  return redirect(`/library/${params.id}${url.search}`);
+  return withSsrHtmlContentType(
+    redirect(`/library/${params.id}${url.search}`),
+    { varyByQuery: true },
+  );
 }
 
 export default function BrandKitDetailRedirect() {
@@ -336,13 +353,17 @@ export function BrandKitDetailRoute({
   headerMode?: "full" | "actions";
 } = {}) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageState = getFileUploadStorageState(fileUploadStatus);
+  const canUploadFiles = fileStorageState === "configured";
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const urlTab = libraryTabFromValue(searchParams.get("tab"));
   const libraryId = explicitLibraryId ?? id!;
+  const { session } = useSession();
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
-  const updateLibrary = useActionMutation("update-library");
+
   const archiveLibrary = useActionMutation("archive-library");
   const duplicateLibrary = useActionMutation("duplicate-library");
   const updateAsset = useActionMutation("update-asset");
@@ -353,7 +374,7 @@ export function BrandKitDetailRoute({
   const prepareSessionContinuation = useActionMutation(
     "prepare-generation-session-continuation",
   );
-  const { data: presetData } = useActionQuery("list-generation-presets", {
+  const { data: presetData } = useActionQuery("list-templates", {
     libraryId,
   }) as any;
   const { data: sessionData } = useActionQuery("list-generation-sessions", {
@@ -362,6 +383,7 @@ export function BrandKitDetailRoute({
   const queryClient = useQueryClient();
   const [folderOpen, setFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [headerPrimaryActionsTarget, setHeaderPrimaryActionsTarget] =
@@ -392,6 +414,7 @@ export function BrandKitDetailRoute({
   );
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingStorageUploadRef = useRef<File[] | null>(null);
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const createFolder = useActionMutation("create-folder");
@@ -406,7 +429,7 @@ export function BrandKitDetailRoute({
 
   useEffect(() => {
     if (urlTab === "settings") {
-      navigate(`/brand-kits/${libraryId}/settings`, { replace: true });
+      void navigate(`/brand-kits/${libraryId}/settings`, { replace: true });
       return;
     }
     if (!urlTab) return;
@@ -428,8 +451,14 @@ export function BrandKitDetailRoute({
   }, [headerMode, libraryId]);
 
   const library = data?.library;
+  const canApprove = canApproveWithRole(library?.accessRole);
+  const canRerunRun = (run: { ownerEmail?: string | null }) => {
+    if (canApprove) return true;
+    const mine = session?.email?.trim().toLowerCase();
+    return Boolean(mine) && run.ownerEmail?.trim().toLowerCase() === mine;
+  };
   const folders = (data?.folders ?? []) as any[];
-  const generationPresets = ((presetData as any)?.presets ?? []) as any[];
+  const generationPresets = ((presetData as any)?.templates ?? []) as any[];
   const generationSessions = ((sessionData as any)?.sessions ?? []) as any[];
   const serverAssets = (data?.assets ?? []) as any[];
   const assets = serverAssets
@@ -802,9 +831,21 @@ export function BrandKitDetailRoute({
       );
   }
 
-  async function upload(files: FileList | null, category = "style-only") {
-    if (!files?.length || uploading) return;
+  async function upload(
+    files: FileList | File[] | null,
+    category = "style-only",
+  ) {
+    if (!canUploadFiles || !files?.length || uploading) return;
     const selectedFiles = Array.from(files);
+    const oversizedFile = selectedFiles.find(
+      (file) => file.size > MAX_ASSET_UPLOAD_BATCH_BYTES,
+    );
+    if (oversizedFile) {
+      toast.error(
+        `${t("library.uploadFailed")}: ${oversizedFile.name} (${(oversizedFile.size / 1024 / 1024).toFixed(1)} MB > ${MAX_ASSET_UPLOAD_BATCH_BYTES / 1024 / 1024} MB)`,
+      );
+      return;
+    }
     const uploadChunks = chunkAssetUploads(selectedFiles);
     const selectedFolderId =
       activeFolderId && activeFolderId !== "all" ? activeFolderId : null;
@@ -946,12 +987,34 @@ export function BrandKitDetailRoute({
     }
   }
 
+  function requestUpload(files: FileList | null = null) {
+    if (uploading) return;
+    if (canUploadFiles) {
+      if (files?.length) void upload(files);
+      else fileInputRef.current?.click();
+      return;
+    }
+    const selectedFiles = Array.from(files ?? []);
+    if (selectedFiles.length > 0) {
+      pendingStorageUploadRef.current = selectedFiles;
+    }
+    setStorageSetupOpen(true);
+  }
+
+  useEffect(() => {
+    if (!canUploadFiles) return;
+    setStorageSetupOpen(false);
+    const pendingFiles = pendingStorageUploadRef.current;
+    pendingStorageUploadRef.current = null;
+    if (pendingFiles) void upload(pendingFiles);
+  }, [canUploadFiles, upload]);
+
   async function archiveCurrentLibrary() {
     if (!library || archiveLibrary.isPending) return;
     try {
       await archiveLibrary.mutateAsync({ id: library.id });
       toast.success(t("library.brandKitArchived"));
-      navigate("/library");
+      void navigate("/library");
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -968,7 +1031,7 @@ export function BrandKitDetailRoute({
         id: library.id,
       })) as any;
       toast.success(t("library.privateBrandKitCopyCreated"));
-      navigate(`/library/${copy.id}`);
+      void navigate(`/library/${copy.id}`);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -1078,7 +1141,7 @@ export function BrandKitDetailRoute({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t("library.searchAssets")}
-              className="h-9 w-full pl-8 pr-8 sm:w-64"
+              className="w-full pl-8 pr-8 sm:w-64"
             />
             {search && (
               <button
@@ -1097,7 +1160,7 @@ export function BrandKitDetailRoute({
               setMediaFilter(value as "all" | "image" | "video")
             }
           >
-            <SelectTrigger className="h-9 w-full sm:w-32">
+            <SelectTrigger className="w-full sm:w-32">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1129,8 +1192,8 @@ export function BrandKitDetailRoute({
       pendingUploads={uploads}
       folders={folders}
       promotingReferenceKeys={promotingReferenceKeys}
-      onUploadClick={() => fileInputRef.current?.click()}
-      onDrop={(files) => void upload(files)}
+      onUploadClick={() => requestUpload()}
+      onDrop={(files) => requestUpload(files)}
       onMoveToReferences={(asset, slot) => {
         void handleMoveToReferences(asset, slot);
       }}
@@ -1147,7 +1210,7 @@ export function BrandKitDetailRoute({
     <Button
       variant="outline"
       className="gap-2"
-      onClick={() => fileInputRef.current?.click()}
+      onClick={() => requestUpload()}
       disabled={uploading}
     >
       {uploading ? (
@@ -1217,11 +1280,11 @@ export function BrandKitDetailRoute({
   );
   const shareAction = (
     <ShareButton
-      trigger="label-icon"
       resourceType="asset-library"
       resourceId={library.id}
+      allowedRoles={["viewer", "editor", "admin"]}
       resourceTitle={library.title}
-      triggerClassName="h-10 gap-2 px-4 border-input bg-background hover:bg-accent hover:text-accent-foreground"
+      triggerClassName="h-10 px-4 border-input bg-background hover:bg-accent hover:text-accent-foreground"
     />
   );
   const headerActions = (
@@ -1261,8 +1324,8 @@ export function BrandKitDetailRoute({
                 <Badge variant="outline">{library.visibility}</Badge>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground"
                   asChild
                   aria-label={t("library.editBrandKit")}
                 >
@@ -1286,7 +1349,11 @@ export function BrandKitDetailRoute({
         accept="image/png,image/jpeg,image/webp,image/avif,video/mp4,video/quicktime,video/x-m4v,video/webm"
         multiple
         className="hidden"
-        onChange={(event) => upload(event.target.files)}
+        disabled={!canUploadFiles}
+        onChange={(event) => {
+          requestUpload(event.currentTarget.files);
+          event.currentTarget.value = "";
+        }}
       />
 
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
@@ -1352,10 +1419,19 @@ export function BrandKitDetailRoute({
           e.preventDefault();
           dragCounterRef.current = 0;
           setIsDragOver(false);
-          void upload(e.dataTransfer.files);
+          requestUpload(e.dataTransfer.files);
         }}
       >
-        {isDragOver && (
+        <FileUploadStorageGate
+          state={fileStorageState}
+          open={storageSetupOpen}
+          onOpenChange={setStorageSetupOpen}
+          onDismiss={() => {
+            pendingStorageUploadRef.current = null;
+          }}
+          onRetry={() => void fileUploadStatus.refetch()}
+        />
+        {canUploadFiles && isDragOver && (
           <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
             <IconUpload className="h-10 w-10 text-primary" />
             <span className="text-base font-semibold text-primary">
@@ -1395,16 +1471,30 @@ export function BrandKitDetailRoute({
                 folders={folders}
                 savingSlotId={savingCandidateSlotId}
                 promotingReferenceKeys={promotingReferenceKeys}
-                onSave={(slot, folderId) => {
-                  void handleSaveLiveCandidate(slot, folderId);
-                }}
-                onSaveDraft={(asset, folderId) => {
-                  void handleSaveDraftCandidate(asset, folderId);
-                }}
-                onMoveToReferences={handleMoveLiveCandidateToReferences}
-                onMoveDraftToReferences={(asset) => {
-                  void handleMoveToReferences(asset);
-                }}
+                onSave={
+                  canApprove
+                    ? (slot, folderId) => {
+                        void handleSaveLiveCandidate(slot, folderId);
+                      }
+                    : undefined
+                }
+                onSaveDraft={
+                  canApprove
+                    ? (asset, folderId) => {
+                        void handleSaveDraftCandidate(asset, folderId);
+                      }
+                    : undefined
+                }
+                onMoveToReferences={
+                  canApprove ? handleMoveLiveCandidateToReferences : undefined
+                }
+                onMoveDraftToReferences={
+                  canApprove
+                    ? (asset) => {
+                        void handleMoveToReferences(asset);
+                      }
+                    : undefined
+                }
               />
             ) : (
               <div className="flex min-h-64 items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
@@ -1462,13 +1552,16 @@ export function BrandKitDetailRoute({
                       rerunGeneration.isPending || refreshGeneration.isPending
                     }
                     onCreateHandoff={() => createHandoffFromRun(run)}
-                    onRerun={() =>
-                      run.mediaType === "video"
-                        ? refreshGeneration.mutate({ runId: run.id })
-                        : rerunGeneration.mutate({
-                            runId: run.id,
-                            source: "ui",
-                          })
+                    onRerun={
+                      canRerunRun(run)
+                        ? () =>
+                            run.mediaType === "video"
+                              ? refreshGeneration.mutate({ runId: run.id })
+                              : rerunGeneration.mutate({
+                                  runId: run.id,
+                                  source: "ui",
+                                })
+                        : undefined
                     }
                   />
                 ))}
@@ -1534,7 +1627,7 @@ function RunCard({
 }: {
   run: any;
   assetById?: Map<string, any>;
-  onRerun: () => void;
+  onRerun?: () => void;
   onCreateHandoff: () => void;
   rerunning?: boolean;
 }) {
@@ -1609,18 +1702,20 @@ function RunCard({
               {t("brandKitDetail.handoff")}
             </Button>
           ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            disabled={rerunning}
-            onClick={onRerun}
-          >
-            <IconRefresh className="h-4 w-4" />
-            {mediaType === "video" && run.status !== "completed"
-              ? t("brandKitDetail.refresh")
-              : t("brandKitDetail.rerunThis")}
-          </Button>
+          {onRerun ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={rerunning}
+              onClick={onRerun}
+            >
+              <IconRefresh className="h-4 w-4" />
+              {mediaType === "video" && run.status !== "completed"
+                ? t("brandKitDetail.refresh")
+                : t("brandKitDetail.rerunThis")}
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -1643,7 +1738,7 @@ function RunCard({
         />
         <RunFact
           label={t("brandKitDetail.refs")}
-          value={`${selectedReferenceIds.length} ${String(referenceSelection.mode ?? "selected")}`}
+          value={`${selectedReferenceIds.length} ${typeof referenceSelection.mode === "string" ? referenceSelection.mode : "selected"}`}
         />
         <RunFact
           label={t("brandKitDetail.grounding")}
@@ -1799,9 +1894,6 @@ function assetDisplayTitle(asset: any): string {
   );
 }
 
-// Content-only references are images attached as subject/content for a single
-// request. They are not part of the curated brand kit, so they are kept out of
-// the References grid (matching how list-libraries excludes them from counts).
 function isContentOnlyReference(asset: any): boolean {
   return (
     asset?.role === "subject_reference" || asset?.metadata?.intent === "subject"
@@ -2100,8 +2192,8 @@ function AssetSwimlaneBoard({
   pendingUploads: PendingUpload[];
   folders: any[];
   promotingReferenceKeys: Set<string>;
-  onUploadClick: () => void;
-  onDrop: (files: FileList) => void;
+  onUploadClick?: () => void;
+  onDrop?: (files: FileList) => void;
   onMoveToReferences: (asset: any, slot?: any) => void;
   onRemoveFromReferences: (asset: any) => void;
   selectedIds: Set<string>;
@@ -2110,8 +2202,9 @@ function AssetSwimlaneBoard({
   onRestoreOptimisticDelete?: (ids: string[]) => void;
 }) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const [bulkContextOpen, setBulkContextOpen] = useState(false);
-  const [previewAsset, setPreviewAsset] = useState<any | null>(null);
+  const [previewAsset, setPreviewAsset] = useState<any>(null);
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
@@ -2405,7 +2498,7 @@ function AssetSwimlaneBoard({
             {onSave ? (
               <Button
                 size="sm"
-                className="h-8 px-2 text-xs"
+                className="px-2 text-xs"
                 onClick={onSave}
                 disabled={busy}
               >
@@ -2493,6 +2586,8 @@ function AssetSwimlaneBoard({
     }
     return (
       <button
+        type="button"
+        disabled={!onUploadClick || !onDrop}
         onClick={onUploadClick}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes("Files")) e.preventDefault();
@@ -2500,7 +2595,7 @@ function AssetSwimlaneBoard({
         onDrop={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onDrop(e.dataTransfer.files);
+          onDrop?.(e.dataTransfer.files);
         }}
         className="flex min-h-90 w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
@@ -2664,17 +2759,19 @@ function AssetSwimlaneBoard({
                   {t("brandKitDetail.removeFromReferences")}
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setBulkContextOpen(true)}
-                disabled={deleting || changingReference}
-              >
-                <IconLink className="h-4 w-4" />
-                Add to context
-                {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
-              </Button>
+              {creativeContextEnabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBulkContextOpen(true)}
+                  disabled={deleting || changingReference}
+                >
+                  <IconLink className="h-4 w-4" />
+                  Add to context
+                  {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"
@@ -2703,18 +2800,20 @@ function AssetSwimlaneBoard({
           ) : null}
         </div>
       )}
-      <CreativeContextShareSheet
-        open={bulkContextOpen}
-        onOpenChange={setBulkContextOpen}
-        resources={selectedAssets.map((asset) => ({
-          appId: "assets",
-          resourceType: "asset",
-          resourceId: asset.id,
-          title: assetDisplayTitle(asset),
-          updatedAt: asset.updatedAt,
-          preview: { kind: "document" as const, label: "Asset" },
-        }))}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={bulkContextOpen}
+          onOpenChange={setBulkContextOpen}
+          resources={selectedAssets.map((asset) => ({
+            appId: "assets",
+            resourceType: "asset",
+            resourceId: asset.id,
+            title: assetDisplayTitle(asset),
+            updatedAt: asset.updatedAt,
+            preview: { kind: "document" as const, label: "Asset" },
+          }))}
+        />
+      ) : null}
 
       {viewMode === "cards" ? (
         <AssetCardsView items={visibleGalleryItems} />
@@ -2732,9 +2831,11 @@ function AssetSwimlaneBoard({
           }
           items={visibleGalleryItems}
           action={
-            <Button variant="outline" size="sm" onClick={onUploadClick}>
-              {t("library.add")}
-            </Button>
+            onUploadClick ? (
+              <Button variant="outline" size="sm" onClick={onUploadClick}>
+                {t("library.add")}
+              </Button>
+            ) : undefined
           }
           empty={
             scope === "references" && assets.length > 0 ? (
@@ -2984,9 +3085,9 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                       <TooltipTrigger asChild>
                         <Button
                           type="button"
-                          size="icon"
+                          size="icon-sm"
                           variant="secondary"
-                          className="size-8 border border-border/80 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
+                          className="border border-border/80 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -3259,12 +3360,13 @@ function LaneDropTarget({
 }: {
   title: string;
   body: string;
-  onClick: () => void;
-  onDrop: (files: FileList) => void;
+  onClick?: () => void;
+  onDrop?: (files: FileList) => void;
 }) {
   return (
     <button
       type="button"
+      disabled={!onClick || !onDrop}
       onClick={onClick}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) e.preventDefault();
@@ -3272,7 +3374,7 @@ function LaneDropTarget({
       onDrop={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        onDrop(e.dataTransfer.files);
+        onDrop?.(e.dataTransfer.files);
       }}
       className="flex h-full min-h-37 w-full items-center justify-center rounded-md px-4 text-center transition hover:bg-muted/25"
     >
@@ -3355,6 +3457,7 @@ function AssetActionsMenu({
   onOpenPreview?: () => void;
 }) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const [contextOpen, setContextOpen] = useState(false);
   return (
     <>
@@ -3363,8 +3466,8 @@ function AssetActionsMenu({
           <Button
             type="button"
             variant="secondary"
-            size="icon"
-            className="h-8 w-8 shadow-sm"
+            size="icon-sm"
+            className="shadow-sm"
             aria-label={t("library.assetActions")}
             disabled={busy}
           >
@@ -3390,16 +3493,18 @@ function AssetActionsMenu({
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              setContextOpen(true);
-            }}
-          >
-            <IconLink className="mr-2 h-4 w-4 shrink-0" />
-            Add to context
-            {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
-          </DropdownMenuItem>
+          {creativeContextEnabled ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setContextOpen(true);
+              }}
+            >
+              <IconLink className="mr-2 h-4 w-4 shrink-0" />
+              Add to context
+              {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
+            </DropdownMenuItem>
+          ) : null}
           {onMoveToReferences ? (
             <DropdownMenuItem
               onSelect={(event) => {
@@ -3463,278 +3568,21 @@ function AssetActionsMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <CreativeContextShareSheet
-        open={contextOpen}
-        onOpenChange={setContextOpen}
-        resource={{
-          appId: "assets",
-          resourceType: "asset",
-          resourceId: asset.id,
-          title: assetDisplayTitle(asset),
-          updatedAt: asset.updatedAt,
-          preview: { kind: "document", label: "Asset" },
-        }}
-      />
-    </>
-  );
-}
-
-function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
-  const t = useT();
-  const isChecking = upload.status === "checking";
-  return (
-    <div className="w-36 shrink-0 overflow-hidden rounded-md border border-dashed border-border bg-background sm:w-39">
-      <div className="flex aspect-4/3 items-center justify-center bg-muted/30">
-        <div className="flex flex-col items-center gap-2 text-muted-foreground">
-          <Spinner className="h-5 w-5" />
-          <span className="text-xs font-medium">
-            {isChecking ? t("library.checking") : t("library.uploading")}
-          </span>
-        </div>
-      </div>
-      <div className="p-2.5">
-        <div className="flex items-center gap-2 truncate text-xs font-medium">
-          {upload.mediaType === "video" ? (
-            <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <span className="truncate">{upload.name}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AssetLaneTile({
-  asset,
-  folders,
-  selected,
-  deleting,
-  saving,
-  promoting,
-  onToggle,
-  onDelete,
-  updateAsset,
-  onSave,
-  onMoveToReferences,
-}: {
-  asset: any;
-  folders: any[];
-  selected: boolean;
-  deleting?: boolean;
-  saving?: boolean;
-  promoting?: boolean;
-  onToggle: (checked: boolean) => void;
-  onDelete: () => void;
-  updateAsset: any;
-  onSave?: () => void;
-  onMoveToReferences?: () => void;
-}) {
-  const t = useT();
-  const [contextOpen, setContextOpen] = useState(false);
-  const displayTitle = assetDisplayTitle(asset);
-  const sourceText = assetLineageSourceText(asset);
-  const canMoveToReferences = Boolean(onMoveToReferences);
-  const hasPrimaryActions = Boolean(onSave || canMoveToReferences);
-  const categoryLabel = assetCategoryLabel(asset);
-  const busy = deleting || saving || promoting;
-
-  return (
-    <div
-      className={[
-        "group relative w-36 shrink-0 overflow-hidden rounded-md border bg-background transition sm:w-39",
-        selected
-          ? "border-primary ring-2 ring-primary/25"
-          : "border-border/80 hover:border-foreground/20",
-        deleting ? "opacity-60" : "",
-      ].join(" ")}
-      aria-busy={busy}
-    >
-      <div className="absolute left-2 top-2 z-10">
-        <Checkbox
-          checked={selected}
-          onCheckedChange={(checked) => onToggle(checked === true)}
-          aria-label={t("library.selectAsset", { title: displayTitle })}
-          className={[
-            "border-2 border-foreground/40 bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
-            selected ? "sm:opacity-100" : "",
-          ].join(" ")}
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={contextOpen}
+          onOpenChange={setContextOpen}
+          resource={{
+            appId: "assets",
+            resourceType: "asset",
+            resourceId: asset.id,
+            title: assetDisplayTitle(asset),
+            updatedAt: asset.updatedAt,
+            preview: { kind: "document", label: "Asset" },
+          }}
         />
-      </div>
-      <div className="absolute right-2 top-2 z-10">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-              aria-label={t("library.assetActions")}
-              disabled={busy}
-            >
-              <IconDotsVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              <Link to={`/asset/${asset.id}`}>
-                <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
-                {t("library.viewDetails")}
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                setContextOpen(true);
-              }}
-            >
-              <IconLink className="mr-2 h-4 w-4 shrink-0" />
-              Add to context
-              {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
-            </DropdownMenuItem>
-            {canMoveToReferences ? (
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onMoveToReferences?.();
-                }}
-              >
-                <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-                {t("library.addToReferences")}
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-                {t("library.moveTo")}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                <DropdownMenuItem
-                  onSelect={() =>
-                    updateAsset.mutate({
-                      id: asset.id,
-                      folderId: null,
-                    })
-                  }
-                >
-                  {t("library.unfiled")}
-                </DropdownMenuItem>
-                {folders.map((folder) => (
-                  <DropdownMenuItem
-                    key={folder.id}
-                    onSelect={() =>
-                      updateAsset.mutate({
-                        id: asset.id,
-                        folderId: folder.id,
-                      })
-                    }
-                  >
-                    {folder.title}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-              onSelect={onDelete}
-            >
-              <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-              {t("assetDetail.delete")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      <Link to={`/asset/${asset.id}`} className="block outline-none">
-        <div className="relative aspect-4/3 bg-muted">
-          <AssetPreview asset={asset} />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
-            <div className="flex items-center gap-1.5 truncate text-xs font-medium">
-              {asset.mediaType === "video" ? (
-                <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              ) : (
-                <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              )}
-              <span className="truncate">{displayTitle}</span>
-            </div>
-            <div className="mt-1 flex min-w-0 items-center gap-1 overflow-hidden text-[10px] font-medium text-muted-foreground">
-              {sourceText ? (
-                <span className="truncate">{sourceText}</span>
-              ) : (
-                <>
-                  <span className="truncate">{asset.status}</span>
-                  {categoryLabel ? (
-                    <>
-                      <span className="shrink-0 text-muted-foreground/60">
-                        /
-                      </span>
-                      <span className="truncate">{categoryLabel}</span>
-                    </>
-                  ) : null}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </Link>
-      {hasPrimaryActions ? (
-        <div className="space-y-2 border-t border-border/70 p-2">
-          <div
-            className={
-              onSave && canMoveToReferences
-                ? "grid grid-cols-1 gap-2"
-                : "grid grid-cols-2 gap-2"
-            }
-          >
-            {onSave ? (
-              <Button
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={onSave}
-                disabled={busy}
-              >
-                {saving ? (
-                  <Spinner className="h-3.5 w-3.5" />
-                ) : (
-                  t("library.save")
-                )}
-              </Button>
-            ) : null}
-            {canMoveToReferences ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className={
-                  onSave ? "h-8 px-2 text-xs" : "col-span-2 h-8 px-2 text-xs"
-                }
-                onClick={onMoveToReferences}
-                disabled={busy}
-                title={t("library.addToReferences")}
-              >
-                {promoting ? (
-                  <Spinner className="h-3.5 w-3.5" />
-                ) : (
-                  t("library.addToReferences")
-                )}
-              </Button>
-            ) : null}
-          </div>
-        </div>
       ) : null}
-      <CreativeContextShareSheet
-        open={contextOpen}
-        onOpenChange={setContextOpen}
-        resource={{
-          appId: "assets",
-          resourceType: "asset",
-          resourceId: asset.id,
-          title: displayTitle,
-          updatedAt: asset.updatedAt,
-          preview: { kind: "document", label: "Asset" },
-        }}
-      />
-    </div>
+    </>
   );
 }
 
@@ -3747,6 +3595,7 @@ export function LiveCandidatesStage({
   allowCreateFolder = true,
   savingSlotId,
   promotingReferenceKeys,
+  canApproveLibrary,
   onSave,
   onSaveDraft,
   onMoveToReferences,
@@ -3762,14 +3611,19 @@ export function LiveCandidatesStage({
   allowCreateFolder?: boolean;
   savingSlotId: string | null;
   promotingReferenceKeys: Set<string>;
-  onSave: (slot: VariantSlot, folderId: string | null) => void;
-  onSaveDraft: (asset: any, folderId: string | null) => void;
-  onMoveToReferences: (slot: VariantSlot) => void;
-  onMoveDraftToReferences: (asset: any) => void;
+  canApproveLibrary?: (libraryId?: string | null) => boolean;
+  onSave?: (slot: VariantSlot, folderId: string | null) => void;
+  onSaveDraft?: (asset: any, folderId: string | null) => void;
+  onMoveToReferences?: (slot: VariantSlot) => void;
+  onMoveDraftToReferences?: (asset: any) => void;
   onUse?: (slot: VariantSlot) => void;
   onUseDraft?: (asset: any) => void;
 }) {
   const t = useT();
+  const mayApproveIn = (candidateLibraryId?: string | null) =>
+    canApproveLibrary
+      ? canApproveLibrary(candidateLibraryId ?? libraryId)
+      : true;
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const deleteAsset = useActionMutation("delete-asset");
   const queryClient = useQueryClient();
@@ -3780,7 +3634,7 @@ export function LiveCandidatesStage({
     asset?: any;
   } | null>(null);
   const dismissing = dismissSlot.isPending || deleteAsset.isPending;
-  const totalCount = slots.length + draftAssets.length;
+
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
 
   async function handleDismissCandidate() {
@@ -3852,9 +3706,9 @@ export function LiveCandidatesStage({
     if (!canUseCandidate) {
       return (
         <Button
-          variant="outline"
+          variant="outline-destructive"
           size="sm"
-          className="h-8 w-full justify-center px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="w-full justify-center px-2 text-xs"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3867,7 +3721,7 @@ export function LiveCandidatesStage({
         {onUseCandidate ? (
           <Button
             size="sm"
-            className="h-8 min-w-0 justify-center px-2 text-xs"
+            className="min-w-0 justify-center px-2 text-xs"
             onClick={onUseCandidate}
             disabled={busy}
           >
@@ -3875,32 +3729,36 @@ export function LiveCandidatesStage({
           </Button>
         ) : null}
         <div className="grid min-w-0 grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-          <CandidateSaveMenu
-            libraryId={actionLibraryId}
-            folders={candidateFolders}
-            allowCreateFolder={allowCreateFolder}
-            saving={saving}
-            disabled={busy}
-            onSave={(folderId) => onSaveCandidate?.(folderId)}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 min-w-0 px-2 text-xs"
-            onClick={onAddToReferences}
-            disabled={busy}
-          >
-            {promoting ? (
-              <Spinner className="h-3.5 w-3.5" />
-            ) : (
-              t("library.addToReferences")
-            )}
-          </Button>
+          {onSaveCandidate ? (
+            <CandidateSaveMenu
+              libraryId={actionLibraryId}
+              folders={candidateFolders}
+              allowCreateFolder={allowCreateFolder}
+              saving={saving}
+              disabled={busy}
+              onSave={(folderId) => onSaveCandidate(folderId)}
+            />
+          ) : null}
+          {onAddToReferences ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-w-0 px-2 text-xs"
+              onClick={onAddToReferences}
+              disabled={busy}
+            >
+              {promoting ? (
+                <Spinner className="h-3.5 w-3.5" />
+              ) : (
+                t("library.addToReferences")
+              )}
+            </Button>
+          ) : null}
         </div>
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 min-w-0 justify-center px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          className="min-w-0 justify-center px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3937,9 +3795,9 @@ export function LiveCandidatesStage({
     if (!canUseCandidate) {
       return (
         <Button
-          variant="outline"
+          variant="outline-destructive"
           size="sm"
-          className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="h-7 px-2 text-xs"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3959,27 +3817,31 @@ export function LiveCandidatesStage({
             {t("library.useCandidate")}
           </Button>
         ) : null}
-        <CandidateSaveMenu
-          libraryId={actionLibraryId}
-          folders={candidateFolders}
-          allowCreateFolder={allowCreateFolder}
-          saving={saving}
-          disabled={busy}
-          onSave={(folderId) => onSaveCandidate?.(folderId)}
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 px-2 text-xs"
-          onClick={onAddToReferences}
-          disabled={busy}
-        >
-          {promoting ? (
-            <Spinner className="h-3.5 w-3.5" />
-          ) : (
-            t("library.addToReferences")
-          )}
-        </Button>
+        {onSaveCandidate ? (
+          <CandidateSaveMenu
+            libraryId={actionLibraryId}
+            folders={candidateFolders}
+            allowCreateFolder={allowCreateFolder}
+            saving={saving}
+            disabled={busy}
+            onSave={(folderId) => onSaveCandidate(folderId)}
+          />
+        ) : null}
+        {onAddToReferences ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={onAddToReferences}
+            disabled={busy}
+          >
+            {promoting ? (
+              <Spinner className="h-3.5 w-3.5" />
+            ) : (
+              t("library.addToReferences")
+            )}
+          </Button>
+        ) : null}
         <Button
           variant="ghost"
           size="sm"
@@ -4027,8 +3889,14 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: libraryId,
-        onSaveCandidate: (folderId) => onSave(slot, folderId),
-        onAddToReferences: () => onMoveToReferences(slot),
+        onSaveCandidate:
+          onSave && mayApproveIn(libraryId)
+            ? (folderId) => onSave(slot, folderId)
+            : undefined,
+        onAddToReferences:
+          onMoveToReferences && mayApproveIn(libraryId)
+            ? () => onMoveToReferences(slot)
+            : undefined,
         onUseCandidate: onUse ? () => onUse(slot) : undefined,
         onDismiss: () =>
           setDismissTarget({
@@ -4042,8 +3910,14 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: libraryId,
-        onSaveCandidate: (folderId) => onSave(slot, folderId),
-        onAddToReferences: () => onMoveToReferences(slot),
+        onSaveCandidate:
+          onSave && mayApproveIn(libraryId)
+            ? (folderId) => onSave(slot, folderId)
+            : undefined,
+        onAddToReferences:
+          onMoveToReferences && mayApproveIn(libraryId)
+            ? () => onMoveToReferences(slot)
+            : undefined,
         onUseCandidate: onUse ? () => onUse(slot) : undefined,
         onDismiss: () =>
           setDismissTarget({
@@ -4086,8 +3960,14 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: asset.libraryId,
-        onSaveCandidate: (folderId) => onSaveDraft(asset, folderId),
-        onAddToReferences: () => onMoveDraftToReferences(asset),
+        onSaveCandidate:
+          onSaveDraft && mayApproveIn(asset.libraryId)
+            ? (folderId) => onSaveDraft(asset, folderId)
+            : undefined,
+        onAddToReferences:
+          onMoveDraftToReferences && mayApproveIn(asset.libraryId)
+            ? () => onMoveDraftToReferences(asset)
+            : undefined,
         onUseCandidate: onUseDraft ? () => onUseDraft(asset) : undefined,
         onDismiss: () =>
           setDismissTarget({
@@ -4101,8 +3981,14 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: asset.libraryId,
-        onSaveCandidate: (folderId) => onSaveDraft(asset, folderId),
-        onAddToReferences: () => onMoveDraftToReferences(asset),
+        onSaveCandidate:
+          onSaveDraft && mayApproveIn(asset.libraryId)
+            ? (folderId) => onSaveDraft(asset, folderId)
+            : undefined,
+        onAddToReferences:
+          onMoveDraftToReferences && mayApproveIn(asset.libraryId)
+            ? () => onMoveDraftToReferences(asset)
+            : undefined,
         onUseCandidate: onUseDraft ? () => onUseDraft(asset) : undefined,
         onDismiss: () =>
           setDismissTarget({
@@ -4398,7 +4284,7 @@ function CandidateSaveMenu({
         <DropdownMenuTrigger asChild>
           <Button
             size="sm"
-            className="h-8 min-w-0 px-2 text-xs"
+            className="min-w-0 px-2 text-xs"
             disabled={disabled}
           >
             {pending ? (
@@ -4532,7 +4418,9 @@ function LiveCandidatesActions({
   const hasFailed = failedCount > 0;
   const isClearing = dismissSlots.isPending || deleteAssets.isPending;
   const actionLabel =
-    pending === "failed" ? t("library.dismissFailed") : t("library.clearAll");
+    pending === "failed"
+      ? t("library.dismissFailed")
+      : t("library.clearAllWithCount", { count: totalCount });
   const busyLabel =
     pending === "failed" ? t("library.dismissing") : t("library.clearing");
 
@@ -4634,8 +4522,7 @@ function LiveCandidatesActions({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            size="icon-sm"
             aria-label={t("library.candidateActions")}
             title={t("library.candidateActions")}
             disabled={isClearing}
@@ -4644,26 +4531,28 @@ function LiveCandidatesActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            disabled={!hasFailed || isClearing}
-            onSelect={(event) => {
-              event.preventDefault();
-              setPending("failed");
-            }}
-          >
-            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.dismissFailedWithCount", { count: failedCount })}
-          </DropdownMenuItem>
+          {hasFailed ? (
+            <DropdownMenuItem
+              disabled={isClearing}
+              onSelect={(event) => {
+                event.preventDefault();
+                setPending("failed");
+              }}
+            >
+              <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.dismissFailedWithCount", { count: failedCount })}
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem
             className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            disabled={isClearing}
+            disabled={isClearing || totalCount === 0}
             onSelect={(event) => {
               event.preventDefault();
               setPending("all");
             }}
           >
             <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.clearAll")}
+            {t("library.clearAllWithCount", { count: totalCount })}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

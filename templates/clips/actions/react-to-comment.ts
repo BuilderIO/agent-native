@@ -1,15 +1,4 @@
-/**
- * Toggle the current user's emoji reaction on a comment.
- *
- * Stores reactions as a JSON map of emoji -> [emails] on the comment row's
- * `emojiReactionsJson` column. Calling with the same emoji twice removes the
- * user from that bucket.
- *
- * Usage:
- *   pnpm action react-to-comment --commentId=<id> --emoji="🔥"
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -73,9 +62,6 @@ export default defineAction({
         next[args.emoji] = nextBucket;
       }
 
-      // Compare-and-swap: only commit if the JSON column still matches what
-      // we read. A concurrent reaction that landed first will have changed
-      // it, so the WHERE will not match and we retry the read-modify-write.
       const updated = await db
         .update(schema.recordingComments)
         .set({
@@ -91,7 +77,6 @@ export default defineAction({
         .returning({ id: schema.recordingComments.id });
 
       if (updated.length > 0) {
-        // Removing a reaction is not an event worth emailing about.
         const notified = had
           ? null
           : await notifyRecordingReaction({

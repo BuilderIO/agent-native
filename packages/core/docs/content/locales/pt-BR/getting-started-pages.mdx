@@ -7,14 +7,16 @@ description: "Crie uma rota React que chame sua ação e exiba o resultado."
 
 Esta é a terceira parte da série Primeiros passos. Em [Adicionar uma ação](/docs/getting-started-actions)
 você criou `analyze-text`. Aqui, você chamará essa mesma ação a partir de uma rota.
-Ainda não é preciso usar um banco de dados: o Chat já inclui o runtime de SQL para
-quando você precisar persistir dados do domínio.
+Este exemplo não precisa de uma nova tabela de banco de dados. O Chat já armazena
+o histórico do chat em SQL; adicione suas próprias tabelas quando precisar
+persistir dados do domínio.
 
 ## Crie a rota {#add-a-page}
 
-Os arquivos de rota em `app/routes/` são detectados automaticamente. Crie
-`app/routes/text-analyses.tsx`; ela estará disponível em
-`http://localhost:8080/text-analyses`.
+O servidor de desenvolvimento lê os arquivos de rota ao iniciar. Crie
+`app/routes/text-analyses.tsx` e reinicie `pnpm dev` se ele já estiver em execução.
+Abra a URL local exibida por `pnpm dev` e acrescente `/text-analyses`; a porta
+pode mudar se 8080 já estiver em uso.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -60,7 +62,7 @@ export default function TextAnalysesRoute() {
 `useActionQuery` chama a mesma ação somente leitura usada pelo agente. A página não
 precisa de uma rota de API personalizada, uma segunda camada de dados ou SQL ainda.
 
-Abra `http://localhost:8080/text-analyses` ou peça ao agente:
+Abra a URL local exibida com `/text-analyses` acrescentado ou peça ao agente:
 
 > Navigate to `/text-analyses`.
 

@@ -1,4 +1,4 @@
-/** Shared style clipboard for copy/paste style (Cmd+Option+C / Cmd+Option+V) */
+import type { SlideStylePatch, SlideStyleSnapshot } from "./slide-style";
 
 export interface CopiedStyle {
   color?: string;
@@ -13,7 +13,65 @@ export function setCopiedStyle(s: CopiedStyle | null): void {
   copiedStyle = s;
 }
 
-// Brand palette — persisted in localStorage
+export type CopiedElementStyle = Pick<
+  SlideStylePatch,
+  | "color"
+  | "fontFamily"
+  | "backgroundColor"
+  | "fontSize"
+  | "fontWeight"
+  | "fontStyle"
+  | "textDecoration"
+  | "lineHeight"
+  | "textAlign"
+  | "opacity"
+  | "borderRadius"
+  | "borderWidth"
+  | "borderColor"
+  | "paddingLeft"
+  | "paddingRight"
+  | "paddingTop"
+  | "paddingBottom"
+>;
+
+let copiedElementStyle: CopiedElementStyle | null = null;
+
+function px(value: number): string {
+  return `${Number.isInteger(value) ? value : Number(value.toFixed(2))}px`;
+}
+
+export function copiedElementStyleFromSnapshot(
+  snapshot: SlideStyleSnapshot,
+): CopiedElementStyle {
+  return {
+    color: snapshot.color,
+    fontFamily: snapshot.fontFamily,
+    backgroundColor: snapshot.backgroundColor,
+    fontSize: px(snapshot.fontSize),
+    fontWeight: snapshot.fontWeight,
+    fontStyle: snapshot.fontStyle,
+    textDecoration: snapshot.textDecoration,
+    lineHeight: String(snapshot.lineHeight),
+    textAlign: snapshot.textAlign,
+    opacity: String(Math.max(0, Math.min(100, snapshot.opacity)) / 100),
+    borderRadius: px(snapshot.borderRadius),
+    borderWidth: px(snapshot.borderWidth),
+    borderColor: snapshot.borderColor,
+    paddingLeft: px(snapshot.paddingX),
+    paddingRight: px(snapshot.paddingX),
+    paddingTop: px(snapshot.paddingY),
+    paddingBottom: px(snapshot.paddingY),
+  };
+}
+
+export function getCopiedElementStyle(): CopiedElementStyle | null {
+  return copiedElementStyle ? { ...copiedElementStyle } : null;
+}
+
+export function setCopiedElementStyle(style: CopiedElementStyle | null): void {
+  copiedElementStyle = style ? { ...style } : null;
+}
+
 const STORAGE_KEY = "slide-brand-palette";
 
 const DEFAULT_PALETTE = [

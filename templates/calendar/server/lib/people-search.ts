@@ -36,6 +36,7 @@ interface ContactCacheEntry {
 
 const CONTACT_CACHE_TTL = 10 * 60 * 1000;
 const contactCache = new Map<string, ContactCacheEntry>();
+const contactCacheLoads = new Map<string, Promise<ContactCacheEntry>>();
 
 const GENERIC_EMAIL_DOMAINS = new Set([
   "gmail.com",
@@ -255,36 +256,50 @@ async function loadCachedContactPeople(
     return cached;
   }
 
-  const people = new Map<string, PersonResult>();
-  let contactsLimited = false;
+  const pending = contactCacheLoads.get(cacheKey);
+  if (pending) return pending;
 
-  await Promise.all(
-    clients.map(async (client) => {
-      try {
-        const [connections, otherContacts] = await Promise.all([
-          listConnectionPages(client.accessToken, "connections"),
-          listConnectionPages(client.accessToken, "otherContacts"),
-        ]);
+  const load = (async () => {
+    const people = new Map<string, PersonResult>();
+    let contactsLimited = false;
 
-        for (const person of extractPeople(connections, "contact")) {
-          mergeCachedContact(people, person);
+    await Promise.all(
+      clients.map(async (client) => {
+        try {
+          const [connections, otherContacts] = await Promise.all([
+            listConnectionPages(client.accessToken, "connections"),
+            listConnectionPages(client.accessToken, "otherContacts"),
+          ]);
+
+          for (const person of extractPeople(connections, "contact")) {
+            mergeCachedContact(people, person);
+          }
+          for (const person of extractPeople(otherContacts, "otherContact")) {
+            mergeCachedContact(people, person);
+          }
+        } catch (error) {
+          if (permissionLimited(error)) contactsLimited = true;
         }
-        for (const person of extractPeople(otherContacts, "otherContact")) {
-          mergeCachedContact(people, person);
-        }
-      } catch (error) {
-        if (permissionLimited(error)) contactsLimited = true;
-      }
-    }),
-  );
+      }),
+    );
 
-  const entry: ContactCacheEntry = {
-    people: Array.from(people.values()),
-    contactsLimited,
-    expiresAt: Date.now() + CONTACT_CACHE_TTL,
-  };
-  contactCache.set(cacheKey, entry);
-  return entry;
+    const entry: ContactCacheEntry = {
+      people: Array.from(people.values()),
+      contactsLimited,
+      expiresAt: Date.now() + CONTACT_CACHE_TTL,
+    };
+    contactCache.set(cacheKey, entry);
+    return entry;
+  })();
+
+  contactCacheLoads.set(cacheKey, load);
+  try {
+    return await load;
+  } finally {
+    if (contactCacheLoads.get(cacheKey) === load) {
+      contactCacheLoads.delete(cacheKey);
+    }
+  }
 }
 
 export async function searchPeopleForUser(

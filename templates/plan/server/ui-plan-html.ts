@@ -766,7 +766,10 @@ button, input, textarea { font: inherit; }
 .canvas-controls button:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
 .canvas-viewport { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: var(--grid-size) var(--grid-size); background-position: var(--grid-offset-x) var(--grid-offset-y); }
 .canvas-viewport.is-panning { cursor: grabbing; user-select: none; }
-.board-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+/* No will-change on the pan/zoom canvas: it pins a raster at the scale it was
+   promoted at, so zooming in stretches that texture instead of re-rasterizing
+   and the board stays blurry. A plain 2D transform re-rasterizes crisply. */
+.board-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .board-note, .board-frame, .board-card, .board-group-label, .flow-connector, .canvas-helper-note, .canvas-annotation, .annotation-arrow { position: absolute; }
 .board-note, .board-frame, .board-card, .canvas-helper-note, .canvas-annotation { z-index: 2; color: var(--ink); cursor: default; }
 .board-group-label { z-index: 2; display: flex; align-items: center; color: var(--ink); font: 760 18px/1 var(--doc-font); }

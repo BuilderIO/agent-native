@@ -26,6 +26,7 @@ export function QueryErrorState({
         <IconAlertTriangle className="size-7 text-destructive" />
         <p className="text-sm text-destructive">{t("empty.genericError")}</p>
         <Button
+          type="button"
           size="sm"
           variant="outline"
           onClick={onRetry}

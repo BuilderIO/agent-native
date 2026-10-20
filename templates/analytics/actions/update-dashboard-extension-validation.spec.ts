@@ -16,13 +16,19 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: vi.fn(async () => undefined),
+  getText: vi.fn(async () => ""),
   hasCollabState: vi.fn(async () => false),
   seedFromText: vi.fn(async () => undefined),
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: vi.fn(async () => undefined),
   getDashboard: vi.fn(),
-  upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
+  upsertDashboardOutcome: vi.fn(async () => ({
+    dashboard: { archivedAt: null },
+    didWrite: true,
+  })),
+  DashboardConflictError: class DashboardConflictError extends Error {},
 }));
 
 vi.mock("../server/lib/bigquery", () => ({
@@ -87,6 +93,36 @@ describe("validateDashboardConfig — extension panels", () => {
       name: "Bad SQL Panel",
       panels: [{ id: "p1", title: "No source", chartType: "metric", width: 1 }],
     });
-    expect(error).toMatch(/panel\[0\]\.(sql|source) is required/);
+    expect(error).toMatch(/panel "p1" \("No source"\) sql is missing/);
+    expect(error).toMatch(/panel "p1" \("No source"\) source is missing/);
+  });
+
+  it("repairs panel fields that were saved inside config", () => {
+    const config = {
+      name: "Recovered dashboard",
+      panels: [
+        {
+          id: "panel-1",
+          title: "Old title",
+          sql: "SELECT 1 AS value",
+          source: "first-party",
+          chartType: "metric",
+          width: 1,
+          config: {
+            sql: "SELECT activity_window, overlap_users FROM overlap_users",
+            chartType: "table",
+            columns: [{ key: "activity_window" }],
+          },
+        },
+      ],
+    };
+
+    expect(validateDashboardConfig(config)).toBeNull();
+    expect(config.panels[0]).toMatchObject({
+      chartType: "table",
+      config: { columns: [{ key: "activity_window" }] },
+    });
+    expect(config.panels[0].config).not.toHaveProperty("sql");
+    expect(config.panels[0].config).not.toHaveProperty("chartType");
   });
 });

@@ -14,12 +14,16 @@ import {
 } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { stepVideoFrame } from "@/lib/video-frame-stepping";
 
-import { clampSeek, VideoPlayer, type VideoPlayerHandle } from "./video-player";
+import {
+  clampSeek,
+  isMediaVersionRefresh,
+  VideoPlayer,
+  type VideoPlayerHandle,
+} from "./video-player";
 
 vi.mock("@agent-native/core/client/analytics", () => ({
-  // Re-exported by `@/lib/utils`, which video-player.tsx (and its children)
-  // import `cn` from.
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter(Boolean).join(" "),
   captureClientException: vi.fn(),
@@ -30,22 +34,20 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  // Pulled in transitively by PlaybackCommentOverlay's avatar lookup.
   useAvatarUrl: () => null,
+  callAction: vi.fn(),
 }));
+
+vi.mock("@/lib/video-frame-stepping", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/video-frame-stepping")>();
+  return { ...actual, stepVideoFrame: vi.fn(actual.stepVideoFrame) };
+});
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-// happy-dom's <video>/<audio> stub always reports `canPlayType() === ""`
-// (unimplemented), which would make the component's Safari-webm
-// `unsupportedFormat` probe (see video-player.tsx) treat every source as
-// undecodable and render the "unsupported format" placeholder instead of a
-// real <video> element. Stub it to report support so the real element mounts
-// — `play()`/`pause()` themselves are implemented natively by happy-dom
-// (they flip `paused` and synchronously dispatch `play`/`playing`/`pause`),
-// so no further HTMLMediaElement stubbing is needed.
 let canPlayTypeSpy: ReturnType<typeof vi.spyOn>;
 
 beforeAll(() => {
@@ -126,6 +128,37 @@ describe("VideoPlayer playback", () => {
     return video;
   }
 
+  function getPlayerControls(): HTMLDivElement {
+    const scrubber = container.querySelector<HTMLElement>(
+      "[data-player-scrubber]",
+    );
+    const controls = scrubber?.parentElement?.parentElement;
+    if (!(controls instanceof HTMLDivElement)) {
+      throw new Error("player controls did not render");
+    }
+    return controls;
+  }
+
+  it("renders without throwing when a stored video URL is malformed", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="http://["
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toBe("http://[");
+  });
+
   it("toggles play/pause on the real video element when the surface is clicked", () => {
     const surface = getPlayerSurface();
     const video = getVideo();
@@ -150,17 +183,249 @@ describe("VideoPlayer playback", () => {
     expect(onPause).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a paused clip paused when its playback speed changes", () => {
+    const video = getVideo();
+    const playSpy = vi.spyOn(video, "play");
+
+    act(() => {
+      getPlayerSurface().click();
+    });
+    expect(video.paused).toBe(false);
+
+    act(() => {
+      handleRef.current?.pause();
+      handleRef.current?.setSpeed(1.5);
+      vi.advanceTimersByTime(20);
+    });
+
+    expect(video.playbackRate).toBe(1.5);
+    expect(video.paused).toBe(true);
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs queued frame steps in order instead of netting them", async () => {
+    const video = getVideo();
+
+    // A step back from the first frame can't move, so , , . ends one in.
+    await act(async () => {
+      handleRef.current?.stepFrame(-1);
+      handleRef.current?.stepFrame(-1);
+      handleRef.current?.stepFrame(1);
+    });
+
+    expect(video.currentTime).toBeCloseTo(1 / 30, 2);
+  });
+
+  it("drops queued frame steps once another seek takes over", async () => {
+    const video = getVideo();
+    vi.mocked(stepVideoFrame).mockImplementationOnce(async () => {
+      // The viewer scrubs while the first step is in flight.
+      handleRef.current?.seek(2000);
+      return false;
+    });
+
+    await act(async () => {
+      handleRef.current?.stepFrame(1);
+      handleRef.current?.stepFrame(1);
+    });
+
+    expect(video.currentTime).toBe(2);
+  });
+
+  it("only pauses while the key that paused playback is held", async () => {
+    const video = getVideo();
+    // A known duration keeps the pause from probing for one by seeking.
+    Object.defineProperty(video, "duration", { value: 10, configurable: true });
+    act(() => {
+      getPlayerSurface().click();
+    });
+    const playingAt = video.currentTime;
+
+    await act(async () => {
+      handleRef.current?.stepFrame(1);
+      handleRef.current?.stepFrame(1, true);
+      handleRef.current?.stepFrame(1, true);
+    });
+    expect(video.paused).toBe(true);
+    expect(video.currentTime).toBe(playingAt);
+
+    await act(async () => {
+      handleRef.current?.stepFrame(1);
+    });
+    expect(video.currentTime).toBeCloseTo(playingAt + 1 / 30, 2);
+  });
+
+  it("keeps playback errors above the player controls", () => {
+    const video = getVideo();
+    vi.spyOn(video, "load").mockImplementation(() => {});
+
+    for (let i = 0; i < 3; i++) {
+      act(() => {
+        video.dispatchEvent(new Event("error"));
+      });
+    }
+
+    const error = container.querySelector<HTMLElement>('[role="status"]');
+    expect(error?.textContent).toContain("Video could not be loaded.");
+    expect(error?.parentElement?.className).toContain("top-3");
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("z-20");
+  });
+
+  it("retries a second playback error with a fresh cache-bust before failing", () => {
+    const video = getVideo();
+    const load = vi.spyOn(video, "load").mockImplementation(() => {});
+
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("stops picture-in-picture playback when the player unmounts", () => {
+    const video = getVideo();
+    const exitPictureInPicture = vi.fn().mockResolvedValue(undefined);
+    const pipElementDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "pictureInPictureElement",
+    );
+    const exitPipDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "exitPictureInPicture",
+    );
+
+    Object.defineProperty(document, "pictureInPictureElement", {
+      configurable: true,
+      value: video,
+    });
+    Object.defineProperty(document, "exitPictureInPicture", {
+      configurable: true,
+      value: exitPictureInPicture,
+    });
+
+    try {
+      act(() => {
+        getPlayerSurface().click();
+      });
+      expect(video.paused).toBe(false);
+
+      act(() => {
+        root.render(null);
+      });
+
+      expect(video.paused).toBe(true);
+      expect(exitPictureInPicture).toHaveBeenCalledOnce();
+    } finally {
+      if (pipElementDescriptor) {
+        Object.defineProperty(
+          document,
+          "pictureInPictureElement",
+          pipElementDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "pictureInPictureElement");
+      }
+      if (exitPipDescriptor) {
+        Object.defineProperty(
+          document,
+          "exitPictureInPicture",
+          exitPipDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "exitPictureInPicture");
+      }
+    }
+  });
+
+  it("shows buffering while autoplay starts instead of a second play button", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/slack-clip.webm"
+            durationMs={10_000}
+            autoPlay
+            persistPlaybackPosition={false}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    expect(video.autoplay).toBe(true);
+    expect(container.textContent).toContain("Buffering");
+    expect(
+      container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+    ).toBeNull();
+
+    act(() => {
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(container.textContent).not.toContain("Buffering");
+    expect(
+      container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+    ).toBeNull();
+  });
+
+  it("restores click-to-play when autoplay is blocked", async () => {
+    const playSpy = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockRejectedValue(
+        new DOMException("Autoplay blocked", "NotAllowedError"),
+      );
+
+    try {
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <VideoPlayer
+              ref={(instance) => {
+                handleRef.current = instance;
+              }}
+              recordingId="recording-1"
+              videoUrl="https://cdn.example.com/slack-clip.webm"
+              durationMs={10_000}
+              autoPlay
+              persistPlaybackPosition={false}
+            />
+          </TooltipProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(playSpy).toHaveBeenCalled();
+      expect(container.textContent).not.toContain("Buffering");
+      expect(
+        container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+      ).not.toBeNull();
+    } finally {
+      playSpy.mockRestore();
+    }
+  });
+
   it("keeps the center play control actionable before media readiness events fire", () => {
     const video = getVideo();
     const centerPlay = container.querySelector<HTMLButtonElement>(
       'button[aria-label="videoPlayer.playClip"]',
     );
+    const playIcon = centerPlay?.querySelector("svg");
 
-    // Mobile Safari can remain at HAVE_NOTHING until playback is initiated,
-    // so loadeddata/canplay may not arrive before the user needs this control.
     expect(video.readyState).toBe(0);
     expect(container.textContent).not.toContain("Preparing clip");
     expect(centerPlay).not.toBeNull();
+    expect(playIcon).not.toBeNull();
+    expect(playIcon?.getAttribute("class")).not.toContain("ml-[6%]");
 
     act(() => {
       centerPlay?.click();
@@ -168,6 +433,171 @@ describe("VideoPlayer playback", () => {
 
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps paused progress visible and interactive after the idle timeout", () => {
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).not.toContain("pointer-events-none");
+  });
+
+  it("hides playback comments while the end CTA is visible", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-end",
+                content: "This should stay below the CTA.",
+                videoTimestampMs: 9_900,
+              },
+            ]}
+            cta={{
+              id: "cta-1",
+              label: "Visit site",
+              url: "https://example.com",
+              color: "#000000",
+              placement: "end",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(9_900);
+    });
+
+    expect(
+      container.querySelector("[data-player-playback-comment]"),
+    ).toBeNull();
+    expect(
+      container.querySelector<HTMLElement>("[data-player-end-cta]")?.style
+        .zIndex,
+    ).toBe("60");
+    expect(container.textContent).toContain("Visit site");
+  });
+
+  it("keeps an active marker hover preview above the playback comment", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-active",
+                content: "This is active.",
+                videoTimestampMs: 1_000,
+              },
+            ]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(1_000);
+    });
+
+    const marker = container.querySelector<HTMLButtonElement>(
+      '[aria-label="1 comment"]',
+    );
+    act(() => {
+      marker?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+
+    const hoverPreview = container.querySelector("[data-player-comment-hover]");
+    const playbackComment = container.querySelector(
+      "[data-player-playback-comment]",
+    );
+    expect(hoverPreview).not.toBeNull();
+    expect(playbackComment).not.toBeNull();
+    expect(hoverPreview?.className).toContain("z-50");
+    expect(playbackComment?.className).toContain("z-40");
+    expect(getPlayerControls().className).toContain("z-20");
+  });
+
+  it("keeps throughout CTAs above playback comments", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-throughout",
+                content: "This is active.",
+                videoTimestampMs: 1_000,
+              },
+            ]}
+            cta={{
+              id: "cta-throughout",
+              label: "Visit site",
+              url: "https://example.com",
+              color: "#000000",
+              placement: "throughout",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(1_000);
+    });
+
+    const cta = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://example.com"]',
+    );
+    expect(cta?.parentElement?.className).toContain("z-50");
+    expect(
+      container.querySelector("[data-player-playback-comment]"),
+    ).not.toBeNull();
+  });
+
+  it("keeps the pause control visible on mobile after the idle timeout", () => {
+    const video = getVideo();
+    Object.defineProperty(video, "paused", {
+      configurable: true,
+      value: false,
+    });
+
+    act(() => {
+      video.dispatchEvent(new Event("play"));
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).toContain("sm:pointer-events-none");
+    expect(
+      container.querySelector('button[aria-label="Pause"]'),
+    ).not.toBeNull();
   });
 
   it("keeps owner playback on the same-origin media request path", () => {
@@ -232,6 +662,26 @@ describe("VideoPlayer playback", () => {
     expect(getVideo().getAttribute("src")).toContain("media=repaired");
   });
 
+  it("uses an updated timestamp as the media version when the replacement size is unchanged", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="2026-08-13T12:00:00.000Z"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain(
+      "media=2026-08-13T12%3A00%3A00.000Z",
+    );
+  });
+
   it("starts after an intro cut instead of rewinding into the excluded range", () => {
     act(() => {
       root.render(
@@ -273,6 +723,63 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
+  it("syncs time on the frame playback crosses a caption boundary", () => {
+    const onTimeUpdate = vi.fn();
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            transcriptSegments={[
+              { startMs: 0, endMs: 1_000, text: "First line." },
+              { startMs: 1_000, endMs: 2_000, text: "Second line." },
+            ]}
+            onTimeUpdate={onTimeUpdate}
+          />
+        </TooltipProvider>,
+      );
+    });
+    const video = getVideo();
+    act(() => {
+      getPlayerSurface().click();
+    });
+    expect(video.paused).toBe(false);
+    onTimeUpdate.mockClear();
+
+    video.currentTime = 0.5;
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    expect(onTimeUpdate).not.toHaveBeenCalled();
+
+    video.currentTime = 1.02;
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    expect(onTimeUpdate).toHaveBeenCalledWith(1020, 10_000);
+
+    video.currentTime = 2.5;
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    const frames = vi.spyOn(window, "requestAnimationFrame");
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(frames).not.toHaveBeenCalled();
+
+    video.currentTime = 0.5;
+    act(() => {
+      video.dispatchEvent(new Event("timeupdate"));
+    });
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    expect(frames).toHaveBeenCalled();
+  });
+
   it("shows the edited duration without exposing cut ranges", () => {
     act(() => {
       root.render(
@@ -295,6 +802,86 @@ describe("VideoPlayer playback", () => {
     expect(container.textContent).toContain("0:00/0:08");
     expect(container.textContent).not.toContain("0:00/0:10");
     expect(container.textContent).not.toContain("10 sec");
+  });
+
+  it("reports native playback time directly on the original timeline", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 2_000, endMs: 4_000, excluded: true }],
+              blurs: [],
+            })}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    Object.defineProperty(video, "currentTime", {
+      configurable: true,
+      value: 6,
+    });
+
+    expect(handleRef.current?.getCurrentOriginalMs()).toBe(6_000);
+  });
+
+  it("reports imperative native seeks to the parent playback clock", () => {
+    const onTimeUpdate = vi.fn();
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            onTimeUpdate={onTimeUpdate}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(4_000);
+    });
+
+    expect(onTimeUpdate).toHaveBeenCalledWith(4_000, 10_000);
+  });
+
+  it("reads the latest Loom position from the imperative handle", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://www.loom.com/share/loom-recording"
+            embedProvider="loom"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(4_000);
+    });
+
+    expect(handleRef.current?.getCurrentOriginalMs()).toBe(4_000);
   });
 
   it("stops a hung play attempt and leaves playback retryable", () => {
@@ -354,12 +941,20 @@ describe("VideoPlayer playback", () => {
       .mockReturnValue(new Promise<void>(() => {}));
 
     act(() => {
-      handleRef.current?.play();
+      void handleRef.current?.play();
     });
 
     expect(playSpy).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Buffering");
     expect(container.textContent).not.toContain("Starting playback");
+
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).not.toContain("pointer-events-none");
   });
 
   it.each(["AbortError", "NotAllowedError"])(
@@ -401,7 +996,7 @@ describe("VideoPlayer playback", () => {
     video.currentTime = 10;
 
     act(() => {
-      handleRef.current?.play();
+      void handleRef.current?.play();
     });
 
     expect(video.currentTime).toBe(0);
@@ -417,9 +1012,6 @@ describe("VideoPlayer playback", () => {
     });
     expect(video.paused).toBe(false);
 
-    // Reaching end of stream can fire "ended" while the browser leaves paused
-    // false (MSE end-of-stream / DB-duration mismatch). The play button must
-    // still restart from the beginning rather than pausing a finished clip.
     video.currentTime = 10;
     Object.defineProperty(video, "ended", { configurable: true, value: true });
     act(() => {
@@ -434,9 +1026,14 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
-  it("suppresses the synthetic click that follows a touch tap instead of double-toggling playback", () => {
+  it("toggles playback on touch taps and suppresses the synthetic follow-up click", () => {
     const surface = getPlayerSurface();
     const video = getVideo();
+
+    act(() => {
+      surface.click();
+    });
+    expect(video.paused).toBe(false);
 
     act(() => {
       surface.dispatchEvent(
@@ -463,14 +1060,9 @@ describe("VideoPlayer playback", () => {
       );
     });
 
-    // A touch tap on the surface only reveals controls (matching native
-    // mobile players) — it must not start playback on its own.
     expect(video.paused).toBe(true);
-    expect(onPlay).not.toHaveBeenCalled();
+    expect(onPause).toHaveBeenCalledTimes(1);
 
-    // Real browsers fire a synthetic "click" immediately after a touch tap.
-    // The component must swallow exactly that one click rather than treating
-    // it as a second, independent activation.
     act(() => {
       surface.dispatchEvent(
         new MouseEvent("click", { bubbles: true, cancelable: true }),
@@ -478,17 +1070,155 @@ describe("VideoPlayer playback", () => {
     });
 
     expect(video.paused).toBe(true);
-    expect(onPlay).not.toHaveBeenCalled();
+    expect(onPlay).toHaveBeenCalledOnce();
 
-    // A later, unrelated real click still toggles playback normally — proving
-    // the suppression is a one-shot flag consumed by the synthetic click, not
-    // a broken click handler.
     act(() => {
       surface.click();
     });
 
     expect(video.paused).toBe(false);
-    expect(onPlay).toHaveBeenCalledTimes(1);
+    expect(onPlay).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses WebKit video fullscreen when the player container cannot enter fullscreen", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+    const enterFullscreen = vi.fn();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: enterFullscreen,
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Fullscreen (F)"]')
+        ?.click();
+    });
+
+    expect(enterFullscreen).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers WebKit video fullscreen when the document API is unavailable", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    const enterFullscreen = vi.fn();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: enterFullscreen,
+    });
+    const fullscreenEnabledDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "fullscreenEnabled",
+    );
+    Object.defineProperty(document, "fullscreenEnabled", {
+      configurable: true,
+      value: false,
+    });
+
+    try {
+      act(() => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Fullscreen (F)"]',
+          )
+          ?.click();
+      });
+
+      expect(requestFullscreen).not.toHaveBeenCalled();
+      expect(enterFullscreen).toHaveBeenCalledTimes(1);
+    } finally {
+      if (fullscreenEnabledDescriptor) {
+        Object.defineProperty(
+          document,
+          "fullscreenEnabled",
+          fullscreenEnabledDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "fullscreenEnabled");
+      }
+    }
+  });
+
+  it("retries video fullscreen when a mobile container request is a no-op", async () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    const enterFullscreen = vi.fn();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: enterFullscreen,
+    });
+    const fullscreenEnabledDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "fullscreenEnabled",
+    );
+    Object.defineProperty(document, "fullscreenEnabled", {
+      configurable: true,
+      value: true,
+    });
+
+    try {
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Fullscreen (F)"]',
+          )
+          ?.click();
+        await Promise.resolve();
+      });
+
+      expect(requestFullscreen).toHaveBeenCalledTimes(1);
+      expect(enterFullscreen).toHaveBeenCalledTimes(1);
+    } finally {
+      if (fullscreenEnabledDescriptor) {
+        Object.defineProperty(
+          document,
+          "fullscreenEnabled",
+          fullscreenEnabledDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "fullscreenEnabled");
+      }
+    }
+  });
+
+  it("uses a fixed viewport when fullscreen APIs are unavailable", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: undefined,
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Fullscreen (F)"]')
+        ?.click();
+    });
+
+    expect(surface.className).toContain("fixed");
+    expect(surface.className).toContain("h-dvh");
   });
 });
 
@@ -498,10 +1228,6 @@ describe("clampSeek", () => {
 
   it("returns integer millisecond inputs unchanged", () => {
     const v = videoWith(600);
-    // Clamping used to route through seconds (ms / 1000 -> Math.floor(sec *
-    // 1000)), which loses 1ms for ~1% of integers. The timeupdate handler
-    // treated that delta as a real seek target and pulled playback backwards,
-    // flushing the decoder and replaying the last fraction of a second.
     for (let ms = 0; ms <= 600_000; ms++) {
       if (clampSeek(ms, v, 600_000) !== ms) {
         throw new Error(`clampSeek(${ms}) === ${clampSeek(ms, v, 600_000)}`);
@@ -531,5 +1257,37 @@ describe("clampSeek", () => {
 
   it("never returns a negative time", () => {
     expect(clampSeek(-5, videoWith(600), 600_000)).toBe(0);
+  });
+});
+
+describe("isMediaVersionRefresh", () => {
+  const base = "/api/video/rec-1";
+
+  it("detects a media version bump on the same recording", () => {
+    expect(isMediaVersionRefresh(`${base}?media=a`, `${base}?media=b`)).toBe(
+      true,
+    );
+  });
+
+  it("ignores identical media versions", () => {
+    expect(isMediaVersionRefresh(`${base}?media=a`, `${base}?media=a`)).toBe(
+      false,
+    );
+  });
+
+  it("ignores cache-bust recovery params", () => {
+    expect(
+      isMediaVersionRefresh(`${base}?media=a&cb=1`, `${base}?media=a`),
+    ).toBe(false);
+  });
+
+  it("treats a different recording as a new source, not a refresh", () => {
+    expect(
+      isMediaVersionRefresh(`${base}?media=a`, "/api/video/rec-2?media=b"),
+    ).toBe(false);
+  });
+
+  it("treats a missing source as not a refresh", () => {
+    expect(isMediaVersionRefresh(undefined, `${base}?media=b`)).toBe(false);
   });
 });

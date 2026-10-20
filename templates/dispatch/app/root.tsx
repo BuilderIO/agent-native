@@ -1,17 +1,22 @@
-import { configureTracking } from "@agent-native/core/client/analytics";
+import {
+  configureTracking,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
+  getBrowserTabId,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { Layout as AppLayout } from "@agent-native/dispatch/components";
+import {
+  Layout as AppLayout,
+  RequireDispatchAccess,
+} from "@agent-native/dispatch/components";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -22,6 +27,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -68,7 +74,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#0f172a" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -90,7 +95,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
+const TAB_ID = getBrowserTabId();
 
 function DbSyncSetup() {
   const qc = useQueryClient();
@@ -127,10 +132,6 @@ function DbSyncSetup() {
   return null;
 }
 
-/**
- * Reads ?thread=<id> from the URL on mount and opens that thread in the
- * full-page chat route.
- */
 function useThreadDeepLink() {
   const navigate = useNavigate();
   const handled = useRef(false);
@@ -142,7 +143,7 @@ function useThreadDeepLink() {
     handled.current = true;
 
     params.delete("thread");
-    navigate(
+    void navigate(
       {
         pathname: "/chat",
         search: params.toString() ? `?${params.toString()}` : "",
@@ -176,34 +177,78 @@ function ThemeToggleItem() {
   );
 }
 
-function AppContent() {
+function PrivateAppContent() {
+  return (
+    <RequireDispatchAccess>
+      <PrivateAppShell />
+    </RequireDispatchAccess>
+  );
+}
+
+function PrivateAppShell() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const location = useLocation();
+  const commandMenuOpenRef = useRef(false);
+  const openCommandMenu = useCallback(() => {
+    if (!commandMenuOpenRef.current) {
+      trackEvent("dispatch_command_menu_opened", {
+        app_name: "dispatch",
+        template_name: "dispatch",
+      });
+      commandMenuOpenRef.current = true;
+    }
+    setCmdkOpen(true);
+  }, []);
+  useCommandMenuShortcut(openCommandMenu);
+  const handleCommandMenuOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) openCommandMenu();
+      else commandMenuOpenRef.current = false;
+      setCmdkOpen(open);
+    },
+    [openCommandMenu],
+  );
   return (
     <>
       <DbSyncSetup />
       <CommandMenu
         open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
+        onOpenChange={handleCommandMenuOpenChange}
         changelog={changelog}
         changelogKey="dispatch"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          {location.pathname === "/home" ||
+          location.pathname === "/overview" ? (
+            <CommandMenu.Item onSelect={() => navigate("/automations")}>
+              {t("settings.openAutomations")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/automations") ? (
+            <CommandMenu.Item onSelect={() => navigate("/destinations")}>
+              {t("settings.openDelivery")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/destinations") ? (
+            <CommandMenu.Item onSelect={() => navigate("/automations")}>
+              {t("settings.openAutomations")}
+            </CommandMenu.Item>
+          ) : null}
+          <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
             <IconHierarchy2 size={16} />
             {t("root.openAgent")}
-          </CommandMenu.Item>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>
           <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
-      <AppLayout extensions={dispatchExtensions} agentPageHref="/agent">
+      <AppLayout
+        extensions={dispatchExtensions}
+        agentPageHref="/settings/agent"
+      >
         <Outlet />
       </AppLayout>
     </>
@@ -216,13 +261,22 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        toaster={<Toaster richColors position="bottom-left" closeButton />}
+        skeletonLayout="launchpad"
+        toaster={
+          <Toaster
+            richColors
+            position="bottom-left"
+            closeButton
+            offset={{ bottom: 44, left: 32 }}
+            mobileOffset={{ bottom: 44, left: 16 }}
+          />
+        }
         i18n={{ catalog: i18nCatalog }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

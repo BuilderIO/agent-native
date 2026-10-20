@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -30,6 +30,8 @@ export interface RewindExtensionRequest {
   updatedAt: string;
   preRollRecordingId?: string;
   actualDurationMs?: number;
+  preRollWidth?: number;
+  preRollHeight?: number;
   error?: string;
 }
 

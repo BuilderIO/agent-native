@@ -1,8 +1,39 @@
+function builderAppToolLabels(
+  labels: Record<string, string>,
+): Record<string, string> {
+  const withFormerNames: Record<string, string> = { ...labels };
+  for (const [name, label] of Object.entries(labels)) {
+    withFormerNames[name.replace("builder", "fusion")] = label;
+  }
+  return withFormerNames;
+}
+
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   "delete-file": "remove screen",
   "get-design-snapshot": "get screen snapshot",
   "edit-design": "edit screen",
+  // Design's Builder app tools. The "fusion" names are from before the
+  // rename and still appear in saved chats.
+  ...builderAppToolLabels({
+    "send-builder-message": "ask Builder",
+    "apply-builder-edits": "apply edits with Builder",
+    "list-builder-edits": "list Builder edits",
+    "queue-builder-edit": "queue an edit for Builder",
+    "create-builder-app": "create app",
+    "add-builder-screens": "add app screens",
+    "sync-builder-app": "sync app",
+    "push-builder-app": "push app",
+    "deploy-builder-app": "deploy app",
+    "get-builder-deploy-status": "check deploy status",
+  }),
 };
+
+/** A tool's display name, when it has one other than its humanized id. */
+export function toolDisplayName(
+  toolName: string | undefined,
+): string | undefined {
+  return TOOL_DISPLAY_NAMES[(toolName ?? "").trim()];
+}
 
 export function humanizeToolName(toolName: string | undefined): string {
   const raw = (toolName ?? "").trim();
@@ -26,6 +57,16 @@ export function humanizeToolName(toolName: string | undefined): string {
   return (name || "tool").toLowerCase();
 }
 
+export function toolLabel(
+  translate: (key: string, options?: Record<string, unknown>) => string,
+  toolName: string | undefined,
+): string {
+  const humanized = humanizeToolName(toolName);
+  const raw = (toolName ?? "").trim();
+  if (!raw) return humanized;
+  return translate(`agentChat.toolLabels.${raw}`, { defaultValue: humanized });
+}
+
 export function runningToolLabel(toolName: string | undefined): string {
   return `Running ${humanizeToolName(toolName)}`;
 }
@@ -40,13 +81,122 @@ export function humanizeToolLabelText(
   return text.split(tool).join(humanizeToolName(tool));
 }
 
+export interface ToolCallRowContext {
+  text: string;
+  mono: boolean;
+  kind: "file" | "data" | "url";
+}
+
+const TOOL_CALL_CONTEXT_KEYS = [
+  "cmd",
+  "command",
+  "script",
+  "sql",
+  "query",
+  "pattern",
+  "path",
+  "filePath",
+  "filename",
+  "url",
+] as const;
+
+export function resolveToolCallRowContext(
+  args: Record<string, unknown> | undefined,
+): ToolCallRowContext | null {
+  if (!args) return null;
+
+  for (const key of TOOL_CALL_CONTEXT_KEYS) {
+    const value = args[key];
+    if (typeof value !== "string") continue;
+    const text = value.trim().replace(/\s*\n\s*/g, " ");
+    if (!text) continue;
+    return {
+      text,
+      kind:
+        key === "path" || key === "filePath" || key === "filename"
+          ? "file"
+          : key === "url"
+            ? "url"
+            : "data",
+      mono:
+        key === "cmd" ||
+        key === "command" ||
+        key === "script" ||
+        key === "sql" ||
+        key === "path" ||
+        key === "filePath" ||
+        key === "filename",
+    };
+  }
+
+  return null;
+}
+
 type ToolDisplayPart = {
   type?: string;
   toolCallId?: string;
   toolName?: string;
   argsText?: string;
   args?: Record<string, unknown>;
+  result?: unknown;
+  outcome?: "unknown";
+  activity?: boolean;
+  structuredMeta?: Record<string, unknown>;
 };
+
+const ACTIVE_AGENT_ACTIVITY_PHASES = new Set([
+  "reasoning",
+  "tool",
+  "responding",
+]);
+
+export function isDelegatedAgentToolCall(part: ToolDisplayPart): boolean {
+  return (
+    part.type === "tool-call" && part.toolName?.startsWith("agent:") === true
+  );
+}
+
+function hasActiveDelegatedAgentActivity(part: ToolDisplayPart): boolean {
+  const snapshot = part.structuredMeta?.agentActivity;
+  if (!snapshot || typeof snapshot !== "object") return false;
+
+  const record = snapshot as {
+    activePhase?: unknown;
+    toolCalls?: unknown;
+  };
+  if (
+    typeof record.activePhase === "string" &&
+    ACTIVE_AGENT_ACTIVITY_PHASES.has(record.activePhase)
+  ) {
+    return true;
+  }
+
+  return (
+    Array.isArray(record.toolCalls) &&
+    record.toolCalls.some(
+      (tool) =>
+        tool != null &&
+        typeof tool === "object" &&
+        (tool as { status?: unknown }).status === "running",
+    )
+  );
+}
+
+export function isToolCallInFlight(part: ToolDisplayPart): boolean {
+  if (part.type !== "tool-call") return false;
+  if (part.result !== undefined || part.outcome === "unknown") return false;
+  return part.activity !== true || isDelegatedAgentToolCall(part);
+}
+
+export function isToolCallActive(part: ToolDisplayPart): boolean {
+  if (isToolCallInFlight(part)) return true;
+  return (
+    isDelegatedAgentToolCall(part) &&
+    part.outcome !== "unknown" &&
+    (part.structuredMeta?.agentPending === true ||
+      hasActiveDelegatedAgentActivity(part))
+  );
+}
 
 function normalizedAgentName(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -67,12 +217,6 @@ function callAgentTarget(part: ToolDisplayPart): string | null {
   }
 }
 
-/**
- * `call-agent` emits both its ordinary tool row and a richer `agent:<name>`
- * progress row. Keep the ordinary part in message state for tool completion
- * and history, but let presentation code suppress it once the richer row is
- * available.
- */
 export function isCallAgentToolCallShadowed(
   parts: readonly ToolDisplayPart[],
   index: number,

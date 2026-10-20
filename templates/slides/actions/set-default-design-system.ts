@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -20,7 +20,7 @@ export default defineAction({
       .default(true)
       .describe("Whether this design system should be the default"),
   }),
-  run: async ({ id, isDefault = true }) => {
+  run: async ({ id, isDefault }) => {
     await assertAccess("design-system", id, "editor");
 
     const db = getDb();
@@ -46,11 +46,6 @@ export default defineAction({
       throw new Error("Only the owner can set a design system as default");
     }
 
-    // Use a transaction to atomically unset all defaults then set the new one.
-    // Without a transaction, concurrent set-default requests can interleave and
-    // leave multiple design systems marked as default.
-    // Only unset/set design systems owned by this user — isDefault is a per-owner
-    // flag and must not bleed across users when operating on shared resources.
     await db.transaction(async (tx) => {
       const targetScope = orgId
         ? and(

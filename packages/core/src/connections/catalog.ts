@@ -27,13 +27,21 @@ export type WorkspaceConnectionProviderId =
   | "figma"
   | "notion"
   | "gmail"
+  | "google_calendar"
   | "google_drive"
+  | "bigquery"
+  | "google_docs"
+  | "google_sheets"
+  | "google_slides"
   | "hubspot"
   | "salesforce"
   | "jira"
   | "sentry"
   | "granola"
   | "clips"
+  | "dbt"
+  | "sigma"
+  | "anthropic-managed-agents"
   | "generic";
 
 export interface WorkspaceConnectionCredentialKey {
@@ -43,11 +51,20 @@ export interface WorkspaceConnectionCredentialKey {
   required?: boolean;
 }
 
+export interface WorkspaceConnectionConfigurationField {
+  key: string;
+  label: string;
+  description?: string;
+  required?: boolean;
+  defaultValue?: string;
+}
+
 export interface WorkspaceConnectionProvider {
   id: WorkspaceConnectionProviderId;
   label: string;
   description: string;
   credentialKeys: readonly WorkspaceConnectionCredentialKey[];
+  configurationFields?: readonly WorkspaceConnectionConfigurationField[];
   capabilities: readonly WorkspaceConnectionCapability[];
   recommendedTemplateUses: readonly WorkspaceConnectionTemplateUse[];
   oauth?: {
@@ -70,6 +87,35 @@ export function defineWorkspaceConnectionProvider<
 >(provider: T): T {
   return provider;
 }
+
+const GOOGLE_CREDENTIAL_KEYS = [
+  {
+    key: "GOOGLE_CLIENT_ID",
+    label: "Managed Google OAuth client ID",
+    description:
+      "Resolved from the workspace's shared Google OAuth application. Users do not paste a key to connect a service.",
+    required: true,
+  },
+  {
+    key: "GOOGLE_CLIENT_SECRET",
+    label: "Managed Google OAuth client secret",
+    description:
+      "Resolved from the workspace's shared Google OAuth application. Users do not paste a key to connect a service.",
+    required: true,
+  },
+] as const satisfies readonly WorkspaceConnectionCredentialKey[];
+
+const GOOGLE_OAUTH_BASE = {
+  provider: "google",
+  authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenUrl: "https://oauth2.googleapis.com/token",
+} as const;
+
+function googleOAuth(scopes: readonly string[], provider = "google") {
+  return { ...GOOGLE_OAUTH_BASE, provider, scopes };
+}
+
+const GOOGLE_IDENTITY_SCOPES = ["openid", "email", "profile"] as const;
 
 export const WORKSPACE_CONNECTION_PROVIDERS = [
   defineWorkspaceConnectionProvider({
@@ -162,38 +208,52 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     label: "Gmail",
     description:
       "Mailbox messages and threads for search, triage, customer context, and agent replies.",
-    credentialKeys: [
-      {
-        key: "GOOGLE_CLIENT_ID",
-        label: "Google OAuth client ID",
-        required: true,
-      },
-      {
-        key: "GOOGLE_CLIENT_SECRET",
-        label: "Google OAuth client secret",
-        required: true,
-      },
-    ],
+    credentialKeys: GOOGLE_CREDENTIAL_KEYS,
     capabilities: ["search", "import", "messages"],
     recommendedTemplateUses: ["mail", "brain", "dispatch"],
+    oauth: googleOAuth([
+      ...GOOGLE_IDENTITY_SCOPES,
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.settings.basic",
+      "https://www.googleapis.com/auth/contacts.readonly",
+      "https://www.googleapis.com/auth/contacts.other.readonly",
+    ]),
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "google_calendar",
+    label: "Google Calendar",
+    description:
+      "Calendars and events for scheduling, availability, reminders, and meeting workflows.",
+    credentialKeys: GOOGLE_CREDENTIAL_KEYS,
+    capabilities: ["search", "import", "meetings"],
+    recommendedTemplateUses: ["calendar", "brain", "dispatch", "mail"],
+    oauth: googleOAuth([
+      ...GOOGLE_IDENTITY_SCOPES,
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
+    ]),
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "bigquery",
+    label: "BigQuery",
+    description:
+      "BigQuery datasets and SQL jobs for analytics and data exploration.",
+    credentialKeys: GOOGLE_CREDENTIAL_KEYS,
+    capabilities: ["search"],
+    recommendedTemplateUses: ["analytics"],
+    oauth: googleOAuth([
+      ...GOOGLE_IDENTITY_SCOPES,
+      "https://www.googleapis.com/auth/bigquery",
+    ]),
   }),
   defineWorkspaceConnectionProvider({
     id: "google_drive",
     label: "Google Drive",
     description:
       "Drive files, Docs, Sheets, and Slides for document search and import workflows.",
-    credentialKeys: [
-      {
-        key: "GOOGLE_CLIENT_ID",
-        label: "Google OAuth client ID",
-        required: true,
-      },
-      {
-        key: "GOOGLE_CLIENT_SECRET",
-        label: "Google OAuth client secret",
-        required: true,
-      },
-    ],
+    credentialKeys: GOOGLE_CREDENTIAL_KEYS,
     capabilities: ["search", "import", "docs"],
     recommendedTemplateUses: [
       "brain",
@@ -202,12 +262,50 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       "dispatch",
       "analytics",
     ],
-    oauth: {
-      provider: "google",
-      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
-      scopes: ["https://www.googleapis.com/auth/drive.file"],
-    },
+    oauth: googleOAuth([
+      ...GOOGLE_IDENTITY_SCOPES,
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/drive.readonly",
+    ]),
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "google_docs",
+    label: "Google Docs",
+    description:
+      "Google Docs files for source material, document search, and agent-assisted writing workflows.",
+    credentialKeys: GOOGLE_CREDENTIAL_KEYS,
+    capabilities: ["search", "import", "docs"],
+    recommendedTemplateUses: ["brain", "content", "slides", "dispatch"],
+    oauth: googleOAuth([
+      ...GOOGLE_IDENTITY_SCOPES,
+      "https://www.googleapis.com/auth/documents.readonly",
+    ]),
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "google_sheets",
+    label: "Google Sheets",
+    description:
+      "Google Sheets workbooks for analysis, reporting, imports, and structured agent workflows.",
+    credentialKeys: GOOGLE_CREDENTIAL_KEYS,
+    capabilities: ["search", "import", "docs"],
+    recommendedTemplateUses: ["analytics", "brain", "content", "dispatch"],
+    oauth: googleOAuth(
+      [...GOOGLE_IDENTITY_SCOPES, "https://www.googleapis.com/auth/drive.file"],
+      "google_sheets",
+    ),
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "google_slides",
+    label: "Google Slides",
+    description:
+      "Google Slides presentations for reference imports, visual context, and presentation workflows.",
+    credentialKeys: GOOGLE_CREDENTIAL_KEYS,
+    capabilities: ["search", "import", "docs"],
+    recommendedTemplateUses: ["brain", "content", "slides", "dispatch"],
+    oauth: googleOAuth([
+      ...GOOGLE_IDENTITY_SCOPES,
+      "https://www.googleapis.com/auth/presentations.readonly",
+    ]),
   }),
   defineWorkspaceConnectionProvider({
     id: "hubspot",
@@ -357,10 +455,97 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     id: "clips",
     label: "Clips",
     description:
-      "Agent-native Clips exports and recordings for transcript import and searchable meeting context.",
+      "Agent-Native Clips exports and recordings for transcript import and searchable meeting context.",
     credentialKeys: [],
     capabilities: ["search", "import", "meetings"],
     recommendedTemplateUses: ["brain", "clips"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "sigma",
+    label: "Sigma",
+    description:
+      "Read Sigma workbooks and reviewed dashboard examples for Analytics data discovery.",
+    credentialKeys: [
+      {
+        key: "SIGMA_CLIENT_ID",
+        label: "Sigma client ID",
+        description:
+          "Stored in the workspace vault and exchanged server-side for a short-lived API token.",
+        required: true,
+      },
+      {
+        key: "SIGMA_CLIENT_SECRET",
+        label: "Sigma client secret",
+        description:
+          "Stored in the workspace vault and exchanged server-side for a short-lived API token.",
+        required: true,
+      },
+      {
+        key: "SIGMA_BASE_URL",
+        label: "Sigma API base URL",
+        description:
+          "Optional cloud-region API origin. Defaults to the AWS API origin.",
+        required: false,
+      },
+    ],
+    oauth: {
+      provider: "sigma",
+      authorizationUrl: "https://aws-api.sigmacomputing.com/mcp/authorize",
+      tokenUrl: "https://aws-api.sigmacomputing.com/mcp/token",
+      scopes: ["api:access"],
+    },
+    capabilities: ["search"],
+    recommendedTemplateUses: ["analytics"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "dbt",
+    label: "dbt Semantic Layer",
+    description:
+      "Owner-defined dbt metrics and semantic models for governed Analytics queries.",
+    credentialKeys: [
+      {
+        key: "DBT_SEMANTIC_LAYER_TOKEN",
+        label: "dbt Semantic Layer token",
+        description:
+          "Optional read-only service token with Semantic Layer Only and Metadata Only permissions. Store the one-time token in the workspace vault.",
+        required: false,
+      },
+    ],
+    configurationFields: [
+      {
+        key: "semanticLayerBaseUrl",
+        label: "dbt Semantic Layer URL",
+        description:
+          "HTTPS GraphQL endpoint for this dbt account. The host must belong to dbt.com or getdbt.com.",
+        required: true,
+      },
+      {
+        key: "semanticLayerEnvironmentId",
+        label: "dbt environment ID",
+        description:
+          "Environment that contains the approved Semantic Layer definitions.",
+        required: true,
+      },
+    ],
+    capabilities: ["search"],
+    recommendedTemplateUses: ["analytics"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "anthropic-managed-agents",
+    label: "Anthropic Managed Agents",
+    description:
+      "Hosted Anthropic agents that run their own tools and context while Agent-Native keeps the app workflow and approvals.",
+    credentialKeys: [
+      {
+        key: "ANTHROPIC_API_KEY",
+        label: "Anthropic API key",
+        description:
+          "API key for the Anthropic Managed Agents API. Store it in the workspace vault.",
+        required: true,
+      },
+    ],
+    capabilities: ["code"],
+    recommendedTemplateUses: ["brain", "dispatch", "factory"],
   }),
   defineWorkspaceConnectionProvider({
     id: "generic",

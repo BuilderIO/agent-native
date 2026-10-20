@@ -164,8 +164,24 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 
 設定此標誌後，電子郵件/密碼註冊不需要電子郵件
 驗證和註冊驗證電子郵件未傳送。僅將其用於品質檢查
-或預覽環境，並使用 `+qa` 地址命名測試帳戶
-(`name+qa@example.com`)，因此很容易識別。
+或預覽環境，並使用 `+autoz` 地址命名測試帳戶
+(`name+autoz@example.com`)，因此很容易識別。
+
+## 電子郵件驗證政策 {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION` 只是本機和 QA 的便利設定，託管部署會忽略它。若要
+為任何環境（包括正式環境）宣告該政策，請在設定中宣告：
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+部署別名為 `AUTH_REQUIRE_EMAIL_VERIFICATION=0`。宣告的值優先於
+`AUTH_SKIP_EMAIL_VERIFICATION` 和各環境的預設值。
+
+`false` 會將未經驗證的位址當作登入憑證接受——任何人都可以宣稱擁有任何電子郵件
+位址——因此僅在註冊已透過其他方式受限時使用。在沒有電子郵件供應商的部署上設定
+`true` 則會停用密碼註冊，因為驗證信永遠無法送達。
 
 ## 社交提供者 {#social-providers}
 
@@ -295,7 +311,11 @@ https://mail.agent-native.com/mcp
 
 </Diagram>
 
-設定時存取權杖使用 `A2A_SECRET` 進行簽名，否則使用 `BETTER_AUTH_SECRET` 進行簽名。它們攜帶簽名的使用者/組織身分和 `mcp:read`、`mcp:write` 和/或 `mcp:apps` 範圍，並且受眾綁定到確切的 MCP 資源 URL。重新整理權杖僅儲存為雜湊值並在每次重新整理時輪換。工具呼叫和 MCP Apps 資源讀取在與登入使用者相同的請求脈絡中執行；嵌入式 MCP 應用程式 iframe 永遠不會接收原始 OAuth 權杖。
+設定時存取權杖使用 `A2A_SECRET` 進行簽名，否則使用 `BETTER_AUTH_SECRET` 進行簽名。它們攜帶簽名的使用者/組織身分和 `mcp:read`、`mcp:write` 和/或 `mcp:apps` 範圍，並且受眾綁定到確切的 MCP 資源 URL。重新整理權杖僅儲存為雜湊值，且不會輪換：重新整理時會傳回同一個權杖，重新整理授權沒有固定的有效期限，但仍可撤銷。每次請求和每次重新整理都會重新檢查使用者是否仍屬於權杖所屬的組織，因此被移除的成員會在下一次請求時失去 MCP 存取權。工具呼叫和 MCP Apps 資源讀取在與登入使用者相同的請求脈絡中執行；嵌入式 MCP 應用程式 iframe 永遠不會接收原始 OAuth 權杖。
+
+新的 MCP 授權碼和重新整理權杖會記錄簽發時的擁有者。權杖交換會以 `invalid_grant` 拒絕未繫結擁有者的舊授權或擁有者繫結不符的授權，不會推斷舊授權的擁有者。有意變更電子郵件地址時，簽發身分也會更新。舊地址也會隨之停用：變更前為其簽發的存取權杖和 Connect 權杖會遭到拒絕，而且除非有帳戶重新註冊該地址，否則不會再為其簽發新權杖。OAuth 用戶端會在下一次重新整理時取得新地址的權杖。成員離職處理會撤銷或刪除授權，不會將簽發繫結轉移給他人。
+
+OAuth 擁有者繫結更新要求每個現有的 OAuth 連線[重新連線一次](/docs/external-agents#reconnect)。更新上線後，舊 OAuth 存取權杖會遭拒。未繫結擁有者的舊重新整理權杖會傳回 `invalid_grant`，尚未使用的舊授權碼必須重新開始同意流程。新簽發的存取權杖使用設定的有效期限，並在每次請求時檢查成員資格。此次切換不會變更舊 A2A 格式的 `mcp-connect` 認證或跨應用程式 A2A 權杖。使用舊 OAuth 格式 Connect 權杖的連線也必須重新連線。
 
 `npx @agent-native/core@latest connect <url> --client claude-code` 為此標準流程寫入僅 URL 的 MCP 條目。對於無法執行遠端 MCP OAuth 的用戶端，請使用“連線”頁面或 `npx @agent-native/core@latest connect --token <token>` 回退來寫入顯式不記名權杖條目。
 
@@ -414,7 +434,7 @@ function SignInCta() {
 
 一般應用程式頁面會為所有訪客使用同一個非個人化、可公開快取的 SSR 外殼。`AppProviders` 會在用戶端檢查工作階段；造訪 `/dashboard` 等私人路徑時，它會在掛載私人應用程式介面之前將匿名訪客重新導向至 `/sign-in?return=%2Fdashboard`。登入後，訪客會返回 `/dashboard`。公開或 SEO 路由請使用 `isPublicPath`；透過 MCP 內嵌權杖等其他受限機制驗證的介面請使用 `sessionBypass`。
 
-此外殼的快取時長是一個部署範圍的設定——關於 `AGENT_NATIVE_SSR_CACHE`，參見 [SSR Caching](/docs/deployment#ssr-caching)。縮短或停用快取只會改變時長；SSR 仍會在剝離 cookie 後渲染匿名分支。
+此外殼的快取時長是一個部署範圍的設定——關於 `AGENT_NATIVE_SSR_CACHE`，參見 [SSR Caching](/docs/ssr-caching)。縮短或停用快取只會改變時長；SSR 仍會在剝離 cookie 後渲染匿名分支。
 
 ### 幕後花絮：GoogleOAuth
 
@@ -439,6 +459,7 @@ const state = encodeOAuthState({
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                    | 更好的驗證簽名金鑰（如果未設定，則自動生成）                                                                         |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | 在 QA/預覽環境中設定為 `1`，讓電子郵件/密碼註冊無需驗證即可繼續進行；預設情況下跳過本機開發/測試                     |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | 設定為 `0` 或 `1` 可為任何環境（包括正式環境）宣告密碼註冊的驗證政策；優先於 `AUTH_SKIP_EMAIL_VERIFICATION`          |
 | `AUTH_DISABLED`                         | 設定為`true`或`1`跳過登入/註冊；所有請求都作為一個共用使用者執行（僅限本機開發/預覽 - 不適用於真實使用者的正式環境） |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 設定為 `1` 以在新的開發資料庫上停用本機主機自動登入                                                                  |
 | `AUTH_MODE`                             | `local` 僅解析 CLI/代理身分（開發使用者 `pnpm action` 作為其執行）；絕不繞過瀏覽器登入                               |
@@ -455,3 +476,13 @@ const state = encodeOAuthState({
 | `ACCESS_TOKEN`                          | MCP/連線用戶端的靜態承載回退；不是瀏覽器驗證                                                                         |
 | `ACCESS_TOKENS`                         | MCP/connect 用戶端的逗號分隔靜態承載回退；不是瀏覽器驗證                                                             |
 | `A2A_SECRET`                            | JWT 簽名的 A2A 跨應用驗證的共用金鑰，以及 MCP OAuth 存取權杖簽名（如果存在）                                         |
+
+Dispatch 的 `desktop.workspace-sso` 旗標預設關閉，且只控制可用性；驗證、簽章、nonce、來源、回呼、工作階段及撤銷檢查一律強制執行。旗標關閉或無法讀取時，Desktop 不會變更逐一應用程式登入、登出或設定。
+User-Agent 中的 Canary 標記僅是可用性提示，不是遠端證明；驗證與授權皆不信任該標記。
+每個 Desktop 版本都可以在裝置偏好設定 `desktopSsoEnabled` 為 true（預設值）時初始化代理程式；明確持久化的 `false` 仍代表使用者選擇退出。Dispatch 的 `desktop.workspace-sso` 旗標也必須啟用。Canary User-Agent 標記不再控制代理程式初始化，只用於識別更新頻道。
+Canary 不會攔截匿名使用者前往應用程式登入頁面的導覽。使用者必須在 Desktop 設定中，為目前啟用的已註冊應用程式明確選擇工作區登入；一般應用程式登入仍是預設路徑。
+一般瀏覽器繼續使用逐一應用程式登入。自我託管應用程式僅在使用剩餘的明確 Desktop 或伺服器端聯邦路徑時需要 `AGENT_NATIVE_IDENTITY_HUB_URL`。
+
+## 管理式部署與邀請
+
+管理式部署請設定 `AUTH_SIGNUP=invited`、`ORG_CREATION=closed` 和 `AUTO_CREATE_DEFAULT_ORG=0`。[管理式部署指南](/docs/administered-deployments)說明引導管理員、邀請和允許的電子郵件網域。成員邀請與依網域加入是不同規則。

@@ -20,19 +20,21 @@ describe("resolveAgentChatMcpOptions", () => {
     const resolved = resolveAgentChatMcpOptions({
       mcp: {
         enabled: false,
-        catalog: "app",
         connectorCatalog: ["list-emails"],
         externalAgents: { writes: "ask_app_only" },
         builtinCrossAppTools: false,
         title: "Mail",
+        widgetDomain: "https://mail.agent-native.com",
+        instructions: "Call view-screen before editing.",
       },
     });
     expect(resolved.enabled).toBe(false);
-    expect(resolved.catalog).toBe("app");
     expect(resolved.connectorCatalog).toEqual(["list-emails"]);
     expect(resolved.externalAgents).toEqual({ writes: "ask_app_only" });
     expect(resolved.builtinCrossAppTools).toBe(false);
     expect(resolved.title).toBe("Mail");
+    expect(resolved.widgetDomain).toBe("https://mail.agent-native.com");
+    expect(resolved.instructions).toBe("Call view-screen before editing.");
   });
 
   it("accepts the deprecated top-level keys and warns", () => {
@@ -54,8 +56,6 @@ describe("resolveAgentChatMcpOptions", () => {
 
   it("treats `disableMcp: true` and `mcp.enabled: false` as agreeing", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    // The two forms are inverses, so a naive equality check would read this
-    // pair as a conflict and refuse to boot an app that migrated correctly.
     const resolved = resolveAgentChatMcpOptions({
       disableMcp: true,
       mcp: { enabled: false },
@@ -84,5 +84,51 @@ describe("resolveAgentChatMcpOptions", () => {
         mcp: { title: "New" },
       }),
     ).toThrow(/mcpServerInfo\.title/);
+  });
+
+  it("throws when an inert connectorCatalog sits next to catalog: app", () => {
+    expect(() =>
+      resolveAgentChatMcpOptions({
+        mcp: { catalog: "app", connectorCatalog: ["list-scouts"] },
+      }),
+    ).toThrow(/connectorCatalog/);
+  });
+
+  it("accepts the curated directory catalog profile", () => {
+    const resolved = resolveAgentChatMcpOptions({
+      mcp: {
+        connectorCatalog: ["view-screen", "navigate"],
+        directoryProfile: {
+          connectorCatalog: ["create-deck"],
+          instructions: "Create editable decks.",
+          widgets: false,
+          keyToolNames: ["create-deck"],
+        },
+      },
+    });
+
+    expect(resolved.catalog).toBeUndefined();
+    expect(resolved.connectorCatalog).toEqual(["view-screen", "navigate"]);
+    expect(resolved.directoryProfile).toEqual({
+      connectorCatalog: ["create-deck"],
+      instructions: "Create editable decks.",
+      widgets: false,
+      keyToolNames: ["create-deck"],
+    });
+  });
+
+  it("accepts either one on its own", () => {
+    expect(
+      resolveAgentChatMcpOptions({ mcp: { catalog: "app" } }).connectorCatalog,
+    ).toBeUndefined();
+    expect(
+      resolveAgentChatMcpOptions({ mcp: { connectorCatalog: ["list-scouts"] } })
+        .catalog,
+    ).toBeUndefined();
+    expect(
+      resolveAgentChatMcpOptions({
+        mcp: { catalog: "app", connectorCatalog: [] },
+      }).catalog,
+    ).toBe("app");
   });
 });

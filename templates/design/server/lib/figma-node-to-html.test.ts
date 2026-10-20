@@ -55,9 +55,6 @@ describe("gradientAngleDegrees", () => {
   });
 
   it("corrects for a non-square box instead of using the raw normalized angle", () => {
-    // A tall, narrow box: the normalized diagonal (0,0)->(1,1) is NOT 45deg
-    // in real pixel space here, so the derived CSS angle must differ from
-    // the naive 135deg square-box answer.
     const paint: FigmaPaint = {
       type: "GRADIENT_LINEAR",
       gradientHandlePositions: [
@@ -69,8 +66,7 @@ describe("gradientAngleDegrees", () => {
     };
     const angle = gradientAngleDegrees(paint, { width: 50, height: 200 });
     expect(angle).not.toBe(135);
-    // dx=50, dy=200 -> atan2(200,50) ~= 75.96deg -> +90 ~= 165.96deg
-    expect(angle).toBeCloseTo(165.96, 1);
+    expect(angle).toBeCloseTo(104.04, 1);
   });
 
   it("returns null when gradientHandlePositions is missing", () => {
@@ -175,7 +171,7 @@ describe("mapFigmaNodeToHtml - strokes", () => {
     expect(html).toContain("outline-offset: 0px");
   });
 
-  it("renders per-side stroke weights as per-side borders and marks non-INSIDE as approximated", () => {
+  it("places each side's stroke where strokeAlign puts it, not inside the box", () => {
     const node: FigmaNode = {
       id: "2:2",
       type: "RECTANGLE",
@@ -191,12 +187,17 @@ describe("mapFigmaNodeToHtml - strokes", () => {
       children: [node],
     };
     const { html, fidelity } = mapFigmaNodeToHtml(root);
-    expect(html).toContain("border-top: 1px solid");
-    expect(html).toContain("border-right: 2px solid");
-    expect(html).toContain("border-bottom: 3px solid");
-    expect(html).toContain("border-left: 4px solid");
+    expect(html).toContain("inset 0px 0.5px 0 0");
+    expect(html).toContain("0px -0.5px 0 0");
+    expect(html).toContain("inset -1px 0px 0 0");
+    expect(html).toContain("1px 0px 0 0");
+    expect(html).toContain("inset 0px -1.5px 0 0");
+    expect(html).toContain("0px 1.5px 0 0");
+    expect(html).toContain("inset 2px 0px 0 0");
+    expect(html).toContain("-2px 0px 0 0");
+    expect(html).not.toContain("border-top");
     expect(fidelity.entries.find((e) => e.nodeId === "2:2")?.level).toBe(
-      "approximated",
+      "exact",
     );
   });
 });
@@ -227,7 +228,6 @@ describe("mapFigmaNodeToHtml - text", () => {
       ],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    // 20 * 150 / 100 = 30px
     expect(html).toContain("line-height: 30px");
     expect(html).toContain("letter-spacing: 0.5px");
     expect(html).toContain("text-transform: uppercase");
@@ -335,12 +335,37 @@ describe("mapFigmaNodeToHtml - auto layout", () => {
     expect(html).toContain("flex-direction: row");
     expect(html).toContain("justify-content: space-between");
     expect(html).toContain("align-items: center");
-    expect(html).toContain("column-gap: 16px");
+    expect(html).not.toContain("column-gap: 16px");
     expect(html).toContain("padding: 4px 8px 4px 8px");
-    // Auto-layout children are flex items: no manual left/top.
     expect(html).not.toMatch(/data-figma-node-id="4:1"[^>]*left:/);
-    // FILL sizing child grows along the main axis.
     expect(html).toContain("flex-grow: 1");
+  });
+
+  it("maps itemSpacing to a gap when the row is not distributing space", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 400, 100),
+      layoutMode: "HORIZONTAL",
+      itemSpacing: 16,
+      primaryAxisAlignItems: "MIN",
+      children: [
+        {
+          id: "5:1",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(0, 0, 50, 92),
+          layoutSizingHorizontal: "FIXED",
+        },
+        {
+          id: "5:2",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(66, 0, 50, 92),
+          layoutSizingHorizontal: "FIXED",
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root);
+    expect(html).toContain("column-gap: 16px");
   });
 
   it("keeps layoutPositioning ABSOLUTE children out of auto-layout flow", () => {
@@ -368,13 +393,6 @@ describe("mapFigmaNodeToHtml - auto layout", () => {
   });
 
   it("maps horizontal FILL sizing to align-self: stretch (not flex-grow) under a VERTICAL (column) parent", () => {
-    // Regression test: a column auto-layout frame's main axis is vertical, so
-    // a child with layoutSizingHorizontal: "FILL" wants to stretch across the
-    // cross axis (align-self: stretch), not grow along the main axis
-    // (flex-grow/flex-basis). The old implementation ignored the parent's
-    // layoutMode and always mapped horizontal-FILL to flex-grow, which left
-    // `width: auto` with no stretch on column children -- they sized to
-    // content and overflowed the frame instead of filling its width.
     const root: FigmaNode = {
       id: "root",
       type: "FRAME",
@@ -420,8 +438,6 @@ describe("mapFigmaNodeToHtml - auto layout", () => {
       ],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    // Vertical FILL under a column parent grows along the (vertical) main
-    // axis.
     expect(html).toContain("flex-grow: 1");
     expect(html).toContain("flex-basis: 0%");
     expect(html).not.toContain("align-self: stretch");
@@ -458,8 +474,6 @@ describe("mapFigmaNodeToHtml - fills layering", () => {
       ],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    // The gradient (top layer in Figma) must be the first background-image
-    // value, and the solid becomes the plain background-color underneath.
     expect(html).toContain("background-image: linear-gradient(90deg,");
     expect(html).toContain("background-color: rgba(255, 0, 0, 1)");
   });
@@ -481,11 +495,6 @@ describe("mapFigmaNodeToHtml - fills layering", () => {
     const { html } = mapFigmaNodeToHtml(root, {
       imageFillUrls: { "hash-1": "https://example.com/img.png" },
     });
-    // The rendered `style="..."` attribute HTML-escapes embedded quotes (the
-    // CSS `url("...")` quoting is legitimate CSS but would otherwise
-    // prematurely terminate the surrounding double-quoted HTML attribute --
-    // see the styleAttr() doc comment). A real browser parses `&quot;` back
-    // to `"` before CSS parsing, so this remains a valid quoted url().
     expect(html).toContain("url(&quot;https://example.com/img.png&quot;)");
     expect(html).toContain("background-size: cover");
   });
@@ -506,19 +515,10 @@ describe("mapFigmaNodeToHtml - fills layering", () => {
       ],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    // The style attribute must not contain a bare, unescaped `"` -- every
-    // quote inside the attribute value has to be `&quot;`.
     const styleAttrMatch = html.match(/style="([^"]*(?:&quot;[^"]*)*)"/g);
     expect(styleAttrMatch).not.toBeNull();
-    // Every style="..." attribute's raw content is `&quot;`-escaped, not a
-    // literal quote -- if font-family's `"Inter"` leaked through unescaped,
-    // the regex above would fail to capture the whole attribute (it would
-    // terminate early) and the assertion below would catch the literal `"`.
     expect(html).toContain("font-family: &quot;Inter&quot;, sans-serif");
     expect(html).not.toMatch(/style="[^"]*font-family: "Inter"/);
-    // The properties declared AFTER font-family in object-key order must
-    // still be present and inside the same attribute -- this is exactly
-    // what silently disappeared before the fix.
     expect(html).toContain("font-size: 20px");
     expect(html).toContain("display: flex");
   });
@@ -550,7 +550,7 @@ describe("mapFigmaNodeToHtml - effects and blend modes", () => {
     };
     const { html, fidelity } = mapFigmaNodeToHtml(root);
     expect(html).toContain("box-shadow: 2px 4px 8px 1px rgba(0, 0, 0, 0.5)");
-    expect(html).toContain("filter: blur(6px)");
+    expect(html).toContain("filter: blur(2.7px)");
     const entry = fidelity.entries.find((e) => e.nodeId === "6:1");
     expect(entry?.level).toBe("approximated");
   });
@@ -743,7 +743,152 @@ describe("mapFigmaNodeToHtml - image fallback", () => {
   });
 });
 
-describe("mapFigmaNodeToHtml - preserved Figma semantics", () => {
+describe("mapFigmaNodeToHtml - vector geometry", () => {
+  function vectorNode(overrides: Partial<FigmaNode> = {}): FigmaNode {
+    return {
+      id: "9:1",
+      name: "Logo",
+      type: "VECTOR",
+      absoluteBoundingBox: box(10, 20, 40, 40),
+      fills: [{ type: "SOLID", color: { r: 1, g: 0, b: 0, a: 1 } }],
+      fillGeometry: [{ path: "M0 0 L40 0 L40 40 Z", windingRule: "NONZERO" }],
+      ...overrides,
+    };
+  }
+
+  function frameWith(child: FigmaNode): FigmaNode {
+    return {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 100, 100),
+      children: [child],
+    };
+  }
+
+  it("draws a VECTOR with fillGeometry as a real <path>, not a rendered PNG", () => {
+    const root = frameWith(vectorNode());
+    expect(collectFallbackNodeIds(root)).toEqual([]);
+
+    const { html, fidelity } = mapFigmaNodeToHtml(root, {
+      fallbackImageUrls: { "9:1": "https://example.test/render.png" },
+    });
+    expect(html).toContain("<svg");
+    expect(html).toContain('d="M0 0 L40 0 L40 40 Z"');
+    expect(html).toContain('fill="rgba(255, 0, 0, 1)"');
+    expect(html).toContain('viewBox="0 0 40 40"');
+    expect(html).not.toContain("<img");
+    expect(
+      fidelity.entries.find((entry) => entry.nodeId === "9:1")?.level,
+    ).toBe("exact");
+  });
+
+  it("maps the EVENODD winding rule to fill-rule: evenodd (and NONZERO to nonzero)", () => {
+    const evenOdd = mapFigmaNodeToHtml(
+      frameWith(
+        vectorNode({
+          fillGeometry: [{ path: "M0 0 L40 40 Z", windingRule: "EVENODD" }],
+        }),
+      ),
+    ).html;
+    expect(evenOdd).toContain('fill-rule="evenodd"');
+
+    const nonZero = mapFigmaNodeToHtml(frameWith(vectorNode())).html;
+    expect(nonZero).toContain('fill-rule="nonzero"');
+  });
+
+  it("emits an SVG gradient def for a gradient-filled vector", () => {
+    const { html, fidelity } = mapFigmaNodeToHtml(
+      frameWith(
+        vectorNode({
+          fills: [
+            {
+              type: "GRADIENT_LINEAR",
+              gradientHandlePositions: [
+                { x: 0, y: 0.5 },
+                { x: 1, y: 0.5 },
+                { x: 0, y: 0 },
+              ],
+              gradientStops: [
+                { position: 0, color: { r: 1, g: 0, b: 0, a: 1 } },
+                { position: 1, color: { r: 0, g: 0, b: 1, a: 0.5 } },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    expect(html).toContain("<defs>");
+    expect(html).toContain('<linearGradient id="fg-9-1-fill-0-0"');
+    expect(html).toContain('x1="0" y1="0.5" x2="1" y2="0.5"');
+    expect(html).toContain('stop-color="rgb(0, 0, 255)" stop-opacity="0.5"');
+    expect(html).toContain('fill="url(#fg-9-1-fill-0-0)"');
+    expect(
+      fidelity.entries.find((entry) => entry.nodeId === "9:1")?.level,
+    ).toBe("exact");
+  });
+
+  it("fills strokeGeometry (Figma returns the stroke already outlined) with the stroke paint", () => {
+    const { html } = mapFigmaNodeToHtml(
+      frameWith(
+        vectorNode({
+          strokes: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 } }],
+          strokeWeight: 2,
+          strokeGeometry: [{ path: "M0 0 L40 0", windingRule: "NONZERO" }],
+        }),
+      ),
+    );
+    expect(html).toContain('d="M0 0 L40 0" fill="rgba(0, 0, 0, 1)"');
+    expect(html).not.toContain("stroke-width");
+  });
+
+  it("still falls back to the rendered image when a vector has no geometry", () => {
+    const root = frameWith(
+      vectorNode({ fillGeometry: undefined, strokeGeometry: undefined }),
+    );
+    expect(collectFallbackNodeIds(root)).toEqual(["9:1"]);
+
+    const { html, fidelity } = mapFigmaNodeToHtml(root, {
+      fallbackImageUrls: { "9:1": "https://example.test/render.png" },
+    });
+    expect(html).toContain("<img");
+    expect(html).not.toContain("<svg");
+    expect(
+      fidelity.entries.find((entry) => entry.nodeId === "9:1")?.level,
+    ).toBe("image-fallback");
+  });
+
+  it("keeps rasterizing a vector whose paint SVG cannot express (image fill, conic gradient)", () => {
+    for (const fills of [
+      [{ type: "IMAGE", imageRef: "abc" }] as FigmaPaint[],
+      [{ type: "GRADIENT_ANGULAR", gradientStops: [] }] as FigmaPaint[],
+    ]) {
+      expect(collectFallbackNodeIds(frameWith(vectorNode({ fills })))).toEqual([
+        "9:1",
+      ]);
+    }
+  });
+
+  it("renders a BOOLEAN_OPERATION's flattened geometry without also rendering its operands", () => {
+    const root = frameWith(
+      vectorNode({
+        type: "BOOLEAN_OPERATION",
+        children: [
+          {
+            id: "9:2",
+            type: "VECTOR",
+            absoluteBoundingBox: box(10, 20, 10, 10),
+          },
+        ],
+      }),
+    );
+    expect(collectFallbackNodeIds(root)).toEqual([]);
+    const { html } = mapFigmaNodeToHtml(root);
+    expect(html).toContain('d="M0 0 L40 0 L40 40 Z"');
+    expect(html).not.toContain('data-figma-node-id="9:2"');
+  });
+});
+
+describe("mapFigmaNodeToHtml - preserved source node semantics", () => {
   it("keeps bounded component, variable, and interaction metadata inert", () => {
     const root: FigmaNode = {
       id: "instance",
@@ -861,5 +1006,383 @@ describe("collectImageFillRefs", () => {
     };
     expect(collectFallbackNodeIds(root)).toEqual(["n2"]);
     expect(collectImageFillRefs(root)).toEqual(["hash-a"]);
+  });
+});
+
+describe("mapFigmaNodeToHtml - per-paint opacity and blend mode", () => {
+  function styleOf(html: string, nodeId: string): string {
+    const match = html.match(
+      new RegExp(`data-figma-node-id="${nodeId}"[^>]*style="([^"]*)"`),
+    );
+    expect(match).not.toBeNull();
+    return match![1]!.replace(/&quot;/g, '"');
+  }
+
+  it("moves an IMAGE paint with opacity into an overlay div instead of dropping the opacity", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 200, 100),
+      children: [
+        {
+          id: "img",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(0, 0, 200, 100),
+          fills: [
+            { type: "SOLID", color: { r: 1, g: 0, b: 0, a: 1 } },
+            {
+              type: "IMAGE",
+              imageRef: "ref-a",
+              scaleMode: "FILL",
+              opacity: 0.5,
+            },
+          ],
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root, {
+      imageFillUrls: { "ref-a": "https://example.test/a.png" },
+    });
+    expect(html).toContain('data-figma-fill-layer="IMAGE"');
+    expect(html).toContain("opacity: 0.5");
+    expect(html).toContain("url(&quot;https://example.test/a.png&quot;)");
+    expect(styleOf(html, "img")).not.toContain("url(");
+    expect(styleOf(html, "img")).toContain(
+      "background-color: rgba(255, 0, 0, 1)",
+    );
+  });
+
+  it("keeps a fully opaque IMAGE paint in the background stack", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 200, 100),
+      children: [
+        {
+          id: "img",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(0, 0, 200, 100),
+          fills: [{ type: "IMAGE", imageRef: "ref-a", scaleMode: "FILL" }],
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root, {
+      imageFillUrls: { "ref-a": "https://example.test/a.png" },
+    });
+    expect(html).not.toContain("data-figma-fill-layer");
+    expect(styleOf(html, "img")).toContain('url("https://example.test/a.png")');
+  });
+
+  it("lifts paints stacked above an opacity-carrying image into overlays too", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 200, 100),
+      children: [
+        {
+          id: "img",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(0, 0, 200, 100),
+          fills: [
+            { type: "IMAGE", imageRef: "ref-a", opacity: 0.4 },
+            { type: "SOLID", color: { r: 0, g: 0, b: 1, a: 0.25 } },
+          ],
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root, {
+      imageFillUrls: { "ref-a": "https://example.test/a.png" },
+    });
+    const overlays = html.match(/data-figma-fill-layer="(\w+)"/g) ?? [];
+    expect(overlays).toEqual([
+      'data-figma-fill-layer="IMAGE"',
+      'data-figma-fill-layer="SOLID"',
+    ]);
+    expect(html.indexOf('data-figma-fill-layer="IMAGE"')).toBeLessThan(
+      html.indexOf('data-figma-fill-layer="SOLID"'),
+    );
+    const solidOverlay = html.match(
+      /data-figma-fill-layer="SOLID" style="([^"]*)"/,
+    )![1]!;
+    expect(solidOverlay).toContain("rgba(0, 0, 255, 0.25)");
+    expect(solidOverlay).not.toContain("opacity");
+  });
+
+  it("escalates a node with a per-paint blend mode to an image fallback", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 200, 100),
+      children: [
+        {
+          id: "blend",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(0, 0, 200, 100),
+          fills: [
+            { type: "SOLID", color: { r: 1, g: 1, b: 0, a: 1 } },
+            {
+              type: "SOLID",
+              blendMode: "MULTIPLY",
+              color: { r: 0, g: 0, b: 1, a: 1 },
+            },
+          ],
+        },
+      ],
+    };
+    const { fidelity } = mapFigmaNodeToHtml(root, {
+      fallbackImageUrls: { blend: "https://example.test/blend.png" },
+    });
+    expect(
+      fidelity.entries.find((entry) => entry.nodeId === "blend")?.level,
+    ).toBe("image-fallback");
+  });
+});
+
+describe("mapFigmaNodeToHtml - blur radius scale", () => {
+  it("scales BACKGROUND_BLUR by the same fitted factor as LAYER_BLUR", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 100, 100),
+      children: [
+        {
+          id: "bg",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(0, 0, 50, 50),
+          effects: [{ type: "BACKGROUND_BLUR", radius: 12 }],
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root);
+    expect(html).toContain("backdrop-filter: blur(5.4px)");
+  });
+});
+
+describe("mapFigmaNodeToHtml - rotation and rotated-parent geometry", () => {
+  it("applies rotation without flipping the sign", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 400, 300),
+      children: [
+        {
+          id: "rotated",
+          type: "RECTANGLE",
+          rotation: (-17 * Math.PI) / 180,
+          size: { x: 190, y: 138 },
+          relativeTransform: [
+            [
+              Math.cos((17 * Math.PI) / 180),
+              Math.sin((17 * Math.PI) / 180),
+              280,
+            ],
+            [
+              -Math.sin((17 * Math.PI) / 180),
+              Math.cos((17 * Math.PI) / 180),
+              54,
+            ],
+          ],
+          absoluteBoundingBox: box(
+            280,
+            54 - 190 * Math.sin((17 * Math.PI) / 180),
+            190 * Math.cos((17 * Math.PI) / 180) +
+              138 * Math.sin((17 * Math.PI) / 180),
+            190 * Math.sin((17 * Math.PI) / 180) +
+              138 * Math.cos((17 * Math.PI) / 180),
+          ),
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root);
+    const match = html.match(
+      /matrix\((-?[\d.]+), (-?[\d.]+), (-?[\d.]+), (-?[\d.]+), 0, 0\)/,
+    );
+    expect(match).not.toBeNull();
+    const [m11, m12] = [Number(match![1]), Number(match![2])];
+    expect((Math.atan2(m12, m11) * 180) / Math.PI).toBeCloseTo(-17, 1);
+  });
+
+  it("positions a child of a rotated parent in the parent's own unrotated frame", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(4650, 0, 420, 480),
+      size: { x: 420, y: 480 },
+      relativeTransform: [
+        [1, 0, 4650],
+        [0, 1, 0],
+      ],
+      children: [
+        {
+          id: "parent",
+          type: "FRAME",
+          rotation: -Math.PI / 12,
+          size: { x: 120, y: 80 },
+          relativeTransform: [
+            [Math.cos(Math.PI / 12), Math.sin(Math.PI / 12), 240],
+            [-Math.sin(Math.PI / 12), Math.cos(Math.PI / 12), 30],
+          ],
+          absoluteBoundingBox: box(
+            4890,
+            30 - 120 * Math.sin(Math.PI / 12),
+            120 * Math.cos(Math.PI / 12) + 80 * Math.sin(Math.PI / 12),
+            120 * Math.sin(Math.PI / 12) + 80 * Math.cos(Math.PI / 12),
+          ),
+          children: [
+            {
+              id: "child",
+              type: "RECTANGLE",
+              size: { x: 60, y: 30 },
+              relativeTransform: [
+                [1, 0, 20],
+                [0, 1, 20],
+              ],
+              absoluteBoundingBox: box(
+                4890 +
+                  20 * Math.cos(Math.PI / 12) +
+                  20 * Math.sin(Math.PI / 12),
+                30 + 20 * Math.cos(Math.PI / 12) - 80 * Math.sin(Math.PI / 12),
+                60 * Math.cos(Math.PI / 12) + 30 * Math.sin(Math.PI / 12),
+                60 * Math.sin(Math.PI / 12) + 30 * Math.cos(Math.PI / 12),
+              ),
+            },
+          ],
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root);
+    const style = html
+      .match(/data-figma-node-id="child"[^>]*style="([^"]*)"/)![1]!
+      .replace(/&quot;/g, '"');
+    expect(style).toContain("left: 20px");
+    expect(style).toContain("top: 20px");
+    expect(style).toContain("width: 60px");
+    expect(style).toContain("height: 30px");
+  });
+
+  it("still un-rotates the AABB when the node carries no relativeTransform/size", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 400, 300),
+      children: [
+        {
+          id: "aabbOnly",
+          type: "FRAME",
+          rotation: -Math.PI / 12,
+          absoluteBoundingBox: box(
+            100,
+            0,
+            120 * Math.cos(Math.PI / 12) + 80 * Math.sin(Math.PI / 12),
+            120 * Math.sin(Math.PI / 12) + 80 * Math.cos(Math.PI / 12),
+          ),
+          children: [],
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root);
+    const style = html.match(
+      /data-figma-node-id="aabbOnly"[^>]*style="([^"]*)"/,
+    )![1]!;
+    expect(Number(style.match(/width: ([\d.]+)px/)![1])).toBeCloseTo(120, 0);
+    expect(Number(style.match(/height: ([\d.]+)px/)![1])).toBeCloseTo(80, 0);
+  });
+});
+
+describe("text typography escalation (bug: ordinary labels rasterized)", () => {
+  const textNode = (extra: Record<string, unknown>): FigmaNode => ({
+    id: "t",
+    type: "TEXT",
+    characters: "Home",
+    absoluteBoundingBox: { x: 0, y: 0, width: 80, height: 24 },
+    fills: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 } }],
+    style: { fontFamily: "Inter", fontSize: 16, ...extra } as never,
+    ...({} as Record<string, never>),
+  });
+
+  const render = (node: FigmaNode) =>
+    mapFigmaNodeToHtml({
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: { x: 0, y: 0, width: 200, height: 100 },
+      children: [node],
+    });
+
+  it("keeps single-paragraph text editable when paragraphSpacing is set", () => {
+    const { html, fidelity } = render(textNode({ paragraphSpacing: 16 }));
+    expect(html).toContain("Home");
+    expect(html).not.toContain("<img");
+    expect(fidelity.summary.imageFallback).toBe(0);
+  });
+
+  it("still escalates when the text actually has multiple paragraphs", () => {
+    const node = textNode({ paragraphSpacing: 16 });
+    node.characters = "First paragraph\nSecond paragraph";
+    const { fidelity } = render(node);
+    expect(fidelity.summary.imageFallback).toBe(1);
+  });
+
+  it("ignores listSpacing on text that is not a list, and honours it when it is", () => {
+    expect(
+      render(textNode({ listSpacing: 8 })).fidelity.summary.imageFallback,
+    ).toBe(0);
+    const list = textNode({ listSpacing: 8 });
+    list.lineTypes = ["UNORDERED"];
+    expect(render(list).fidelity.summary.imageFallback).toBe(1);
+  });
+
+  it("still escalates genuinely unrepresentable typography", () => {
+    expect(
+      render(textNode({ opentypeFlags: { smcp: 1 } })).fidelity.summary
+        .imageFallback,
+    ).toBe(1);
+    expect(
+      render(
+        textNode({ hyperlink: { type: "URL", url: "https://example.com" } }),
+      ).fidelity.summary.imageFallback,
+    ).toBe(1);
+  });
+});
+
+describe("mapFigmaNodeToHtml - TRUNCATE", () => {
+  it("puts text-overflow on the span so the ellipsis actually renders", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 300, 50),
+      children: [
+        {
+          id: "truncated",
+          type: "TEXT",
+          absoluteBoundingBox: box(0, 0, 260, 22),
+          characters: "This single line is much too long to fit",
+          style: { fontSize: 16, textAutoResize: "TRUNCATE" },
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root);
+    const span = html.match(/<span style="([^"]*)"/)![1]!;
+    expect(span).toContain("text-overflow: ellipsis");
+    expect(span).toContain("overflow: hidden");
+    expect(span).toContain("display: block");
+  });
+
+  it("emits a bare span for non-truncated text", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 300, 50),
+      children: [
+        {
+          id: "plain",
+          type: "TEXT",
+          absoluteBoundingBox: box(0, 0, 260, 22),
+          characters: "Plain",
+          style: { fontSize: 16 },
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root);
+    expect(html).toContain("<span>Plain</span>");
   });
 });

@@ -23,14 +23,15 @@ vi.mock("./auth.js", () => ({
 }));
 
 const resolveSecret = vi.hoisted(() => vi.fn());
-const resolveBuilderCredentials = vi.hoisted(() => vi.fn());
+const resolveBuilderGatewayAuth = vi.hoisted(() => vi.fn());
 const gatewayBaseUrl = vi.hoisted(() => ({
   value: "https://api.builder.io/agent-native/gateway/v1",
 }));
-vi.mock("./credential-provider.js", () => ({
+vi.mock("./credential-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
-  resolveBuilderCredentials: (...args: unknown[]) =>
-    resolveBuilderCredentials(...args),
+  resolveBuilderGatewayAuth: (...args: unknown[]) =>
+    resolveBuilderGatewayAuth(...args),
   getBuilderGatewayBaseUrl: () => gatewayBaseUrl.value,
 }));
 
@@ -44,6 +45,8 @@ vi.mock("../agent/engine/builder-gateway-headers.js", () => ({
 const runWithRequestContext = vi.hoisted(() => vi.fn());
 vi.mock("./request-context.js", () => ({
   runWithRequestContext: (...args: unknown[]) => runWithRequestContext(...args),
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => undefined,
 }));
 
 vi.mock("./framework-request-handler.js", () => ({
@@ -55,10 +58,13 @@ vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: (...args: unknown[]) => actionsToEngineTools(...args),
 }));
 
+import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   mountRealtimeVoiceRoutes,
   REALTIME_VOICE_CAPABILITY_HEADER,
+  REALTIME_VOICE_MODEL_HEADER,
+  REALTIME_VOICE_PROTOCOL_HEADER,
   REALTIME_VOICE_MAX_SDP_BYTES,
   REALTIME_VOICE_MAX_SESSION_BYTES,
   REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES,
@@ -73,6 +79,31 @@ import {
   resolveRealtimeVoiceReasoningEffort,
   resolveRealtimeVoiceTranscriptionLanguage,
 } from "./realtime-voice.js";
+
+const FUSION_RUNTIME_FLAGS = [
+  "FUSION_ENVIRONMENT",
+  "FUSION_ENV_ORIGIN",
+  "VITE_FUSION_ENV_ORIGIN",
+] as const;
+
+function clearFusionRuntimeFlags(): Record<string, string | undefined> {
+  const previous: Record<string, string | undefined> = {};
+  for (const key of FUSION_RUNTIME_FLAGS) {
+    previous[key] = process.env[key];
+    delete process.env[key];
+  }
+  return previous;
+}
+
+function restoreFusionRuntimeFlags(
+  previous: Record<string, string | undefined>,
+): void {
+  for (const key of FUSION_RUNTIME_FLAGS) {
+    const value = previous[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
 
 type Handler = (event: ReturnType<typeof fakeEvent>) => Promise<unknown>;
 
@@ -211,10 +242,16 @@ async function issueToolCapability(
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue(
-      new Response("v=0\r\ns=capability\r\n", {
-        status: 201,
-        headers: { "content-type": "application/sdp" },
-      }),
+      new Response(
+        JSON.stringify({
+          session: { id: "session-capability" },
+          transport: { type: "webrtc", sdp: "v=0\r\ns=capability\r\n" },
+        }),
+        {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        },
+      ),
     ),
   );
   const event = sessionEvent(undefined, headers);
@@ -231,8 +268,6 @@ function withToolCapability(
   return { ...headers, [REALTIME_VOICE_CAPABILITY_HEADER]: capability };
 }
 
-/** Mirrors the browser client, which adopts the re-issued capability whenever
- * a tool search widens the manifest. */
 function adoptCapability(current: string, result: unknown): string {
   const next = (result as { capability?: unknown } | null)?.capability;
   return typeof next === "string" ? next : current;
@@ -247,11 +282,7 @@ beforeEach(() => {
     orgId: "org-session",
   });
   resolveSecret.mockResolvedValue("sk-test-example");
-  resolveBuilderCredentials.mockResolvedValue({
-    privateKey: null,
-    publicKey: null,
-    userId: null,
-  });
+  resolveBuilderGatewayAuth.mockResolvedValue(null);
   runWithRequestContext.mockImplementation(
     async (_context: unknown, callback: () => Promise<unknown>) => callback(),
   );
@@ -328,7 +359,7 @@ describe("mountRealtimeVoiceRoutes", () => {
     });
     expect(tool.statusCode).toBe(403);
     expect(getSession).not.toHaveBeenCalled();
-    expect(resolveBuilderCredentials).not.toHaveBeenCalled();
+    expect(resolveBuilderGatewayAuth).not.toHaveBeenCalled();
     expect(resolveSecret).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(executeTool).not.toHaveBeenCalled();
@@ -359,7 +390,11 @@ describe("realtime voice inline preferences", () => {
     expect(resolveRealtimeVoiceLanguagePreference("invalid", "fr-FR")).toBe(
       "fr",
     );
-    expect(resolveRealtimeVoiceReasoningEffort("instant")).toBe("minimal");
+    expect(resolveRealtimeVoiceReasoningEffort("instant")).toBe("low");
+    expect(resolveRealtimeVoiceReasoningEffort("instant", "live")).toBe("low");
+    expect(resolveRealtimeVoiceReasoningEffort("instant", "realtime")).toBe(
+      "minimal",
+    );
     expect(resolveRealtimeVoiceReasoningEffort("balanced")).toBe("low");
     expect(resolveRealtimeVoiceReasoningEffort("deep")).toBe("medium");
     expect(resolveRealtimeVoiceReasoningEffort("__proto__")).toBe("low");
@@ -370,9 +405,9 @@ describe("realtime voice inline preferences", () => {
 
 describe("realtime voice session route", () => {
   it("keeps navigation tools visible when a template registry exceeds the tool cap", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue([
@@ -402,6 +437,11 @@ describe("realtime voice session route", () => {
         inputSchema: { type: "object", properties: {} },
       },
       {
+        name: "chat-history",
+        description: "Search previous conversations",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
         name: "tool-search",
         description: "Discover tools",
         inputSchema: { type: "object", properties: {} },
@@ -412,29 +452,30 @@ describe("realtime voice session route", () => {
       .mockResolvedValue(new Response("v=0\r\ns=builder\r\n", { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const { handlers } = mount();
+    const { handlers } = mount({ model: "gpt-realtime-2.1" });
     await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const request = JSON.parse(String(init.body));
     expect(
       request.session.tools
-        .slice(0, 5)
+        .slice(0, 6)
         .map((tool: { name: string }) => tool.name),
     ).toEqual([
       "navigate",
       "set-url-path",
       "set-search-params",
       "view-screen",
+      "chat-history",
       "tool-search",
     ]);
     expect(request.session.tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
   });
 
   it("caps tools to the Builder realtime gateway contract", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue(
@@ -452,7 +493,7 @@ describe("realtime voice session route", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const { handlers } = mount();
+    const { handlers } = mount({ model: "gpt-realtime-2.1" });
     await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -463,9 +504,9 @@ describe("realtime voice session route", () => {
   });
 
   it("packs tools within the Builder realtime session byte budget", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue(
@@ -486,7 +527,7 @@ describe("realtime voice session route", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const { handlers } = mount();
+    const { handlers } = mount({ model: "gpt-realtime-2.1" });
     await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -499,9 +540,9 @@ describe("realtime voice session route", () => {
   });
 
   it("rejects tool schemas over the UTF-8 byte limit", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue([
@@ -529,7 +570,7 @@ describe("realtime voice session route", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const { handlers } = mount();
+    const { handlers } = mount({ model: "gpt-realtime-2.1" });
     await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -590,6 +631,7 @@ describe("realtime voice session route", () => {
       .fn()
       .mockResolvedValue("The current view is the calendar.");
     const { handlers } = mount({
+      model: "gpt-realtime-2.1",
       resolveOrgId: async () => "org-custom",
       getInstructions,
     });
@@ -670,6 +712,117 @@ describe("realtime voice session route", () => {
     expect(realtimeSession.instructions).toContain(
       "The current view is the calendar.",
     );
+    expect(realtimeSession.instructions).toContain("chat-history");
+    expect(realtimeSession.instructions).toContain("finish or correct");
+  });
+
+  it("uses GPT-Live by default and delegates app tools to Responses", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session: { id: "live-session-1" },
+          transport: { type: "webrtc", sdp: "v=0\r\ns=live\r\n" },
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    const event = sessionEvent(undefined, {
+      "x-agent-native-realtime-intelligence": "instant",
+    });
+    await expect(
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
+    ).resolves.toBe("v=0\r\ns=live\r\n");
+
+    expect(event.responseHeaders).toMatchObject({
+      [REALTIME_VOICE_PROTOCOL_HEADER]: "live",
+      [REALTIME_VOICE_MODEL_HEADER]: "gpt-live-1",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/live/sessions");
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer sk-test-example",
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      transport: { type: "webrtc", sdp: "v=0\r\ns=agent-native\r\n" },
+      session: {
+        model: "gpt-live-1",
+        audio: { output: { voice: "marin" } },
+        delegation: {
+          type: "responses",
+          responses: {
+            model: "gpt-6-luna",
+            reasoning: { effort: "low" },
+            tool_choice: "auto",
+            tools: [
+              expect.objectContaining({ type: "function", name: "navigate" }),
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps the legacy transport for SDP-only compatibility callers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=legacy\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    const event = sessionEvent(undefined, {
+      [REALTIME_VOICE_PROTOCOL_HEADER]: "realtime",
+      "x-agent-native-realtime-intelligence": "instant",
+    });
+    await expect(
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
+    ).resolves.toBe("v=0\r\ns=legacy\r\n");
+
+    expect(event.responseHeaders).toMatchObject({
+      [REALTIME_VOICE_PROTOCOL_HEADER]: "realtime",
+      [REALTIME_VOICE_MODEL_HEADER]: "gpt-realtime-2.1",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/realtime/calls");
+    const form = init.body as FormData;
+    expect(form.get("sdp")).toBe("v=0\r\ns=agent-native\r\n");
+    expect(JSON.parse(form.get("session") as string)).toMatchObject({
+      type: "realtime",
+      model: "gpt-realtime-2.1",
+      reasoning: { effort: "minimal" },
+    });
+  });
+
+  it("uses Realtime effort for a configured Realtime model without a protocol header", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=configured-realtime\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount({ model: "gpt-realtime-2.1" });
+    const event = sessionEvent(undefined, {
+      "x-agent-native-realtime-intelligence": "instant",
+    });
+    await expect(
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
+    ).resolves.toBe("v=0\r\ns=configured-realtime\r\n");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/realtime/calls");
+    const form = init.body as FormData;
+    expect(JSON.parse(form.get("session") as string)).toMatchObject({
+      model: "gpt-realtime-2.1",
+      reasoning: { effort: "minimal" },
+    });
   });
 
   it("never returns the API key on missing/upstream failures", async () => {
@@ -705,10 +858,38 @@ describe("realtime voice session route", () => {
     });
   });
 
+  it("answers a credits-site visitor with the one line, and its owner with the fix", async () => {
+    const { handlers } = mount();
+    resolveSecret.mockResolvedValue(null);
+
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    const fusionFlags = clearFusionRuntimeFlags();
+    try {
+      const visitorEvent = sessionEvent();
+      await expect(
+        handlers.get(REALTIME_VOICE_SESSION_PATH)!(visitorEvent),
+      ).resolves.toEqual({
+        error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        code: "realtime_voice_setup_required",
+      });
+      expect(visitorEvent.statusCode).toBe(409);
+    } finally {
+      delete process.env.BUILDER_GATEWAY_TOKEN;
+      restoreFusionRuntimeFlags(fusionFlags);
+    }
+
+    const ownerEvent = sessionEvent();
+    const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
+      ownerEvent,
+    )) as { error: string };
+    expect(ownerResult.error).toContain("Use Builder.io");
+    expect(ownerResult.error).toContain("OpenAI API key");
+  });
+
   it("uses Builder managed realtime automatically when connected", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
-      privateKey: "bpk-private-test",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-private-test",
+      spaceId: "space-public-test",
       userId: "builder-user-test",
     });
     const fetchMock = vi.fn().mockResolvedValue(
@@ -740,25 +921,72 @@ describe("realtime voice session route", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({
       sdp: "v=0\r\ns=agent-native\r\n",
       session: {
-        type: "realtime",
-        model: "gpt-realtime-2.1",
+        model: "gpt-live-1",
         audio: {
-          input: {
-            transcription: {
-              model: "gpt-4o-mini-transcribe",
-              language: "en",
-            },
+          output: { voice: "marin" },
+        },
+        delegation: {
+          type: "responses",
+          responses: {
+            model: "gpt-6-luna",
+            tool_choice: "auto",
           },
         },
-        tool_choice: "auto",
       },
     });
   });
 
+  it("hides the Builder gateway's realtime rejection behind the one visitor line", async () => {
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer btk-site-token",
+      spaceId: "space-public-test",
+      userId: null,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                message: "credits exhausted",
+                code: "credits-limit-reached",
+              },
+            }),
+            {
+              status: 402,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      ),
+    );
+    const { handlers } = mount();
+
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    const fusionFlags = clearFusionRuntimeFlags();
+    try {
+      const visitorEvent = sessionEvent();
+      await expect(
+        handlers.get(REALTIME_VOICE_SESSION_PATH)!(visitorEvent),
+      ).resolves.toEqual({ error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
+      expect(visitorEvent.statusCode).toBe(402);
+    } finally {
+      delete process.env.BUILDER_GATEWAY_TOKEN;
+      restoreFusionRuntimeFlags(fusionFlags);
+    }
+
+    const ownerEvent = sessionEvent();
+    const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
+      ownerEvent,
+    )) as { error: string };
+    expect(ownerResult.error).toContain("rejected the realtime session (402)");
+    expect(ownerResult.error).toContain("credits exhausted");
+  });
+
   it("accepts same-origin SDP through a host-rewriting reverse proxy", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
-      privateKey: "bpk-private-test",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-private-test",
+      spaceId: "space-public-test",
       userId: "builder-user-test",
     });
     const fetchMock = vi.fn().mockResolvedValue(
@@ -786,9 +1014,9 @@ describe("realtime voice session route", () => {
 
   it("honors a local Builder gateway base URL", async () => {
     gatewayBaseUrl.value = "http://127.0.0.1:8181/agent-native/gateway/v1";
-    resolveBuilderCredentials.mockResolvedValue({
-      privateKey: "bpk-private-test",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-private-test",
+      spaceId: "space-public-test",
       userId: "builder-user-test",
     });
     const fetchMock = vi.fn().mockResolvedValue(
@@ -945,6 +1173,136 @@ describe("realtime voice tool route", () => {
       output: "rare action complete",
     });
   });
+
+  it("expands tools discovered through queries or names, not only a single query", async () => {
+    const actions = discoveryActions();
+    const executeTool = vi.fn(
+      async (request: { name: string; args: Record<string, unknown> }) =>
+        request.name === "tool-search"
+          ? {
+              status: "completed" as const,
+              output: JSON.stringify({
+                results: [
+                  {
+                    name: request.args.names
+                      ? "other-rare-action"
+                      : "rare-action",
+                  },
+                ],
+              }),
+            }
+          : { status: "completed" as const, output: "done" },
+    );
+    const { handlers } = mount({ actions, executeTool });
+    const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+    let capability = await issueToolCapability(handlers);
+
+    for (const [args, expected] of [
+      [{ queries: ["rare capability"] }, "rare-action"],
+      [{ names: ["other-rare-action"] }, "other-rare-action"],
+    ] as const) {
+      const search = (await handler(
+        toolEvent(
+          {
+            name: "tool-search",
+            args,
+            callId: `call_${expected}`,
+            sessionId: "voice-session-batch",
+          },
+          withToolCapability(capability),
+        ),
+      )) as Record<string, unknown>;
+      expect(
+        (search.expandedTools as Array<{ name: string }>).map(
+          (tool) => tool.name,
+        ),
+      ).toEqual([expected]);
+      capability = adoptCapability(capability, search);
+    }
+
+    for (const name of ["rare-action", "other-rare-action"]) {
+      const call = await handler(
+        toolEvent(
+          {
+            name,
+            args: {},
+            callId: `call_use_${name}`,
+            sessionId: "voice-session-batch",
+          },
+          withToolCapability(capability),
+        ),
+      );
+      expect(call).toMatchObject({ status: "completed", output: "done" });
+    }
+
+    const blank = (await handler(
+      toolEvent(
+        {
+          name: "tool-search",
+          args: { queries: [" "], names: [] },
+          callId: "call_blank",
+          sessionId: "voice-session-batch",
+        },
+        withToolCapability(capability),
+      ),
+    )) as Record<string, unknown>;
+    expect(blank).not.toHaveProperty("expandedTools");
+  });
+
+  it.each([
+    ["a bare string queries", { queries: "rare capability" }, "rare-action"],
+    [
+      "a bare string names",
+      { names: "other-rare-action" },
+      "other-rare-action",
+    ],
+  ])(
+    "grants what the search returned for %s, as the search itself reads it",
+    async (_label, args, expected) => {
+      const executeTool = vi.fn(
+        async (request: { name: string; args: Record<string, unknown> }) =>
+          request.name === "tool-search"
+            ? {
+                status: "completed" as const,
+                output: JSON.stringify({ results: [{ name: expected }] }),
+              }
+            : { status: "completed" as const, output: "done" },
+      );
+      const { handlers } = mount({ actions: discoveryActions(), executeTool });
+      const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+      const capability = await issueToolCapability(handlers);
+
+      const search = (await handler(
+        toolEvent(
+          {
+            name: "tool-search",
+            args,
+            callId: "call_string_form",
+            sessionId: "voice-session-string-form",
+          },
+          withToolCapability(capability),
+        ),
+      )) as Record<string, unknown>;
+      expect(
+        (search.expandedTools as Array<{ name: string }>).map(
+          (tool) => tool.name,
+        ),
+      ).toEqual([expected]);
+
+      const call = await handler(
+        toolEvent(
+          {
+            name: expected,
+            args: {},
+            callId: "call_use_string_form",
+            sessionId: "voice-session-string-form",
+          },
+          withToolCapability(adoptCapability(capability, search)),
+        ),
+      );
+      expect(call).toMatchObject({ status: "completed", output: "done" });
+    },
+  );
 
   it("does not expand menu searches and expires session grants", async () => {
     vi.useFakeTimers();

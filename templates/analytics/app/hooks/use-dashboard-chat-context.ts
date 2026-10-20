@@ -5,13 +5,14 @@ import {
   type AgentSidebarStateChangeDetail,
   useAgentChatContext,
 } from "@agent-native/core/client/agent-chat";
-import {
-  deleteClientAppState,
-  readClientAppState,
-  setClientAppState,
-} from "@agent-native/core/client/hooks";
-import { useCallback, useEffect, useState } from "react";
+import { setClientAppState } from "@agent-native/core/client/hooks";
+import { REAL_DATA_REQUIRED_MARKER } from "@shared/real-data-marker";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  clearSelectedDashboardObjectIfOwned,
+  type SelectedDashboardObject,
+} from "@/lib/selected-object";
 import { TAB_ID } from "@/lib/tab-id";
 
 const DASHBOARD_CONTEXT_KEY = "analytics-selected-dashboard";
@@ -26,6 +27,7 @@ export interface DashboardChatContextArgs {
   title?: string | null;
   panelCount?: number;
   canEdit?: boolean;
+  editing?: boolean;
 }
 
 export interface DashboardPanelChatContextArgs {
@@ -51,11 +53,28 @@ export interface DashboardChatContextResult {
   ) => void;
 }
 
+const REQUEST_MARKER = new RegExp(REAL_DATA_REQUIRED_MARKER, "gi");
+
+/**
+ * Titles, ids, and the URL's query are all free text an author or a link
+ * controls, and the chat guard reads any chat context carrying the request
+ * marker as the request itself. Rewrite whole published text, not chosen fields.
+ */
+function withoutRequestMarker(text: string): string {
+  return text.replace(REQUEST_MARKER, (marker) => marker.replace(/_/g, " "));
+}
+
+/** As encodeURIComponent, with "_" escaped too, so an id can't spell the request marker. */
+function encodeSelectionPart(part: string): string {
+  return encodeURIComponent(part).replace(/_/g, "%5F");
+}
+
 function dashboardContext(
   args: Required<Pick<DashboardChatContextArgs, "id" | "kind">> & {
     title: string;
     panelCount?: number;
     canEdit?: boolean;
+    editing?: boolean;
   },
 ): string {
   const lines = [
@@ -69,6 +88,13 @@ function dashboardContext(
   if (typeof args.canEdit === "boolean") {
     lines.push(`User can edit: ${args.canEdit ? "yes" : "no"}`);
   }
+  if (args.canEdit && typeof args.editing === "boolean") {
+    lines.push(
+      args.editing
+        ? "Dashboard mode: edit (the user's own drags and renames save for everyone)"
+        : "Dashboard mode: view (moving or editing panels, renaming, adding, editing, showing or hiding key dates and data notes, and undo on the page wait for edit mode, and the user's column drags stay in their browser; saving a view, restoring history, archiving, deleting, and adding a first panel still work and apply to everyone)",
+    );
+  }
   if (typeof window !== "undefined") {
     lines.push(
       `Current URL: ${window.location.pathname}${window.location.search}`,
@@ -80,32 +106,10 @@ function dashboardContext(
   return lines.join("\n");
 }
 
-async function deleteSelectedObjectIfOwned(dashboardId: string) {
-  try {
-    const current = await readClientAppState<Record<string, unknown>>(
-      SELECTED_OBJECT_STATE_KEY,
-    );
-    if (current?.[SELECTED_OBJECT_SOURCE_FIELD] !== TAB_ID) return;
-    const selectedDashboardId =
-      current.type === "dashboard"
-        ? current.id
-        : current.type === "dashboard-panel"
-          ? current.dashboardId
-          : null;
-    if (selectedDashboardId !== dashboardId) return;
-    await deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
-      keepalive: true,
-      requestSource: TAB_ID,
-    });
-  } catch {
-    // Best effort only; avoid clearing another tab's selected object on errors.
-  }
-}
-
 function panelSelectionMarker(dashboardId: string, panelId: string): string {
-  return `Analytics panel selection: dashboard=${encodeURIComponent(
+  return `Analytics panel selection: dashboard=${encodeSelectionPart(
     dashboardId,
-  )}; panel=${encodeURIComponent(panelId)}`;
+  )}; panel=${encodeSelectionPart(panelId)}`;
 }
 
 function parsePanelSelection(
@@ -137,7 +141,7 @@ function isAgentSidebarOpenInDocument(): boolean {
 export function useDashboardChatContext(
   args: DashboardChatContextArgs,
 ): DashboardChatContextResult {
-  const { id, kind, title, panelCount, canEdit } = args;
+  const { id, kind, title, panelCount, canEdit, editing } = args;
   const [isAgentSidebarOpen, setIsAgentSidebarOpen] = useState(
     isAgentSidebarOpenInDocument,
   );
@@ -153,6 +157,8 @@ export function useDashboardChatContext(
       ? panelSelection.panelId
       : null;
   const hasSelectedPanel = selectedPanelId !== null;
+  const publishedSelectionRef = useRef<SelectedDashboardObject | null>(null);
+  const suppressDashboardContextRef = useRef(false);
 
   const selectPanelForChat = useCallback(
     (
@@ -161,8 +167,11 @@ export function useDashboardChatContext(
     ) => {
       if (!id) return;
       if (options.openSidebar !== true && !isAgentSidebarOpen) return;
-      const displayDashboardTitle = title?.trim() || id;
-      const displayPanelTitle = panel.panelTitle.trim() || panel.panelId;
+      suppressDashboardContextRef.current = false;
+      const displayDashboardTitle = withoutRequestMarker(title?.trim() || id);
+      const displayPanelTitle = withoutRequestMarker(
+        panel.panelTitle.trim() || panel.panelId,
+      );
       const contextLines = [
         panelSelectionMarker(id, panel.panelId),
         `The user selected this ${panel.panelKind} on the Analytics dashboard "${displayDashboardTitle}".`,
@@ -176,40 +185,36 @@ export function useDashboardChatContext(
         panel.configId ? `Explorer config id: ${panel.configId}` : "",
         panel.extensionId ? `Extension id: ${panel.extensionId}` : "",
         kind === "sql"
-          ? "Inspect this panel with get-sql-dashboard (includeConfig: true) before changing it, then use mutate-dashboard for edits."
+          ? `Inspect this panel with get-sql-dashboard (panelIds: [${JSON.stringify(panel.panelId)}]) before changing it, then use mutate-dashboard for edits.`
           : "Inspect the linked Explorer config before changing this chart.",
       ].filter(Boolean);
+      const selection: SelectedDashboardObject = {
+        type: "dashboard-panel",
+        dashboardId: id,
+        dashboardKind: kind,
+        dashboardTitle: displayDashboardTitle,
+        panelId: panel.panelId,
+        panelTitle: displayPanelTitle,
+        panelKind: panel.panelKind,
+        chartType: panel.chartType || undefined,
+        source: panel.source || undefined,
+        configId: panel.configId || undefined,
+        extensionId: panel.extensionId || undefined,
+        [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
+      };
 
-      // The panel context occupies one stable composer slot, so selecting a
-      // different panel replaces the prior chip instead of accumulating chips.
       setAgentChatContextItem({
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         title: displayPanelTitle,
-        context: contextLines.join("\n"),
+        context: withoutRequestMarker(contextLines.join("\n")),
         openSidebar: options.openSidebar === true,
         focus: options.focus ?? false,
       });
-      setClientAppState(
-        SELECTED_OBJECT_STATE_KEY,
-        {
-          type: "dashboard-panel",
-          dashboardId: id,
-          dashboardKind: kind,
-          dashboardTitle: displayDashboardTitle,
-          panelId: panel.panelId,
-          panelTitle: displayPanelTitle,
-          panelKind: panel.panelKind,
-          chartType: panel.chartType || undefined,
-          source: panel.source || undefined,
-          configId: panel.configId || undefined,
-          extensionId: panel.extensionId || undefined,
-          [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
-        },
-        {
-          keepalive: true,
-          requestSource: TAB_ID,
-        },
-      ).catch(() => {});
+      setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
+        keepalive: true,
+        requestSource: TAB_ID,
+      }).catch(() => {});
+      publishedSelectionRef.current = selection;
     },
     [id, isAgentSidebarOpen, kind, title],
   );
@@ -234,53 +239,81 @@ export function useDashboardChatContext(
       );
   }, []);
 
-  // Dashboard metadata lands in pieces — title first, then panel count, then
-  // the access role. Publishing each piece costs a round-trip and a sync event
-  // that invalidates every mounted query, so only the settled value is sent.
+  useEffect(() => {
+    const handleNewChat = () => {
+      removeAgentChatContextItem({
+        key: DASHBOARD_CONTEXT_KEY,
+        openSidebar: false,
+      });
+      removeAgentChatContextItem({
+        key: DASHBOARD_PANEL_CONTEXT_KEY,
+        openSidebar: false,
+      });
+      const publishedSelection = publishedSelectionRef.current;
+      publishedSelectionRef.current = null;
+      suppressDashboardContextRef.current = true;
+      if (publishedSelection) {
+        void clearSelectedDashboardObjectIfOwned(publishedSelection);
+      }
+    };
+
+    window.addEventListener("agent-chat:new-chat", handleNewChat);
+    return () =>
+      window.removeEventListener("agent-chat:new-chat", handleNewChat);
+  }, []);
+
   useEffect(() => {
     if (!id) return;
-    const displayTitle = title?.trim() || id;
+    suppressDashboardContextRef.current = false;
+    const dashboardTitle = withoutRequestMarker(title?.trim() || id);
     const timer = setTimeout(() => {
+      if (suppressDashboardContextRef.current) return;
       setAgentChatContextItem({
         key: DASHBOARD_CONTEXT_KEY,
-        title: `Dashboard: ${displayTitle}`,
-        context: dashboardContext({
-          id,
-          kind,
-          title: displayTitle,
-          panelCount,
-          canEdit,
-        }),
+        title: `Dashboard: ${dashboardTitle}`,
+        context: withoutRequestMarker(
+          dashboardContext({
+            id,
+            kind,
+            title: dashboardTitle,
+            panelCount,
+            canEdit,
+            editing,
+          }),
+        ),
         openSidebar: false,
         focus: false,
       });
     }, CONTEXT_PUBLISH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [canEdit, id, kind, panelCount, title]);
+  }, [canEdit, editing, id, kind, panelCount, title]);
 
   useEffect(() => {
     if (!id || hasSelectedPanel) return;
-    const displayTitle = title?.trim() || id;
+    if (suppressDashboardContextRef.current) return;
+    const dashboardTitle = withoutRequestMarker(title?.trim() || id);
+    const selection: SelectedDashboardObject = {
+      type: "dashboard",
+      id,
+      kind,
+      title: dashboardTitle,
+      panelCount,
+      canEdit,
+      ...(canEdit && typeof editing === "boolean"
+        ? { mode: editing ? "edit" : "view" }
+        : {}),
+      [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
+    };
     const timer = setTimeout(() => {
-      setClientAppState(
-        SELECTED_OBJECT_STATE_KEY,
-        {
-          type: "dashboard",
-          id,
-          kind,
-          title: displayTitle,
-          panelCount,
-          canEdit,
-          [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
-        },
-        {
-          keepalive: true,
-          requestSource: TAB_ID,
-        },
-      ).catch(() => {});
+      if (suppressDashboardContextRef.current) return;
+      setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
+        keepalive: true,
+        requestSource: TAB_ID,
+      }).catch(() => {});
+      publishedSelectionRef.current = selection;
     }, CONTEXT_PUBLISH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [canEdit, hasSelectedPanel, id, kind, panelCount, title]);
+  }, [canEdit, editing, hasSelectedPanel, id, kind, panelCount, title]);
 
   useEffect(() => {
     if (!id) return;
@@ -293,7 +326,7 @@ export function useDashboardChatContext(
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         openSidebar: false,
       });
-      deleteSelectedObjectIfOwned(id);
+      void clearSelectedDashboardObjectIfOwned(publishedSelectionRef.current);
     };
   }, [id]);
 

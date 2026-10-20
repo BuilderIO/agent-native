@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { listWorkspaceResourceOptions } from "../server/lib/workspace-resources-store.js";
@@ -8,7 +8,14 @@ export default defineAction({
     "List lightweight workspace resource options for selectors, without returning full content.",
   schema: z.object({
     kind: z
-      .enum(["skill", "instruction", "agent", "knowledge", "mcp-server"])
+      .enum([
+        "skill",
+        "instruction",
+        "agent",
+        "agent-file",
+        "knowledge",
+        "mcp-server",
+      ])
       .optional()
       .describe("Filter by resource kind"),
   }),

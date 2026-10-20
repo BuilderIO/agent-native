@@ -11,7 +11,7 @@ import {
 const insertPendingTaskMock = vi.hoisted(() => vi.fn());
 const isDuplicateEventErrorMock = vi.hoisted(() => vi.fn(() => false));
 const recordDispatchAttemptMock = vi.hoisted(() => vi.fn());
-const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const resolveOrgScopeForEmailMock = vi.hoisted(() => vi.fn());
 const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./pending-tasks-store.js", () => ({
@@ -21,7 +21,8 @@ vi.mock("./pending-tasks-store.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
-  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+  getOrgContext: vi.fn(async () => ({ orgId: null })),
+  resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
 vi.mock("../agent/production-agent.js", async () => {
@@ -90,7 +91,10 @@ function createAdapter(sendResponse = vi.fn()): PlatformAdapter {
 describe("integration webhook handler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-qa",
+    });
     insertPendingTaskMock.mockResolvedValue(undefined);
     isDuplicateEventErrorMock.mockReturnValue(false);
     resolveOwnerEngineApiKeyMock.mockResolvedValue({
@@ -142,6 +146,26 @@ describe("integration webhook handler", () => {
       }),
     );
     expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("persists a confirmed personal scope with the queued message", async () => {
+    resolveOrgScopeForEmailMock.mockResolvedValueOnce({ status: "personal" });
+
+    await handleWebhook(createEvent(), {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "alice+qa@agent-native.test",
+      incoming: createIncoming(1002),
+    });
+
+    const task = insertPendingTaskMock.mock.calls[0][0];
+    expect(task.orgId).toBeNull();
+    expect(JSON.parse(task.payload)).toMatchObject({
+      principalType: "user",
+      orgScope: "personal",
+    });
   });
 
   it("never returns a verification challenge before authenticating it", async () => {
@@ -335,13 +359,27 @@ describe("integration webhook handler", () => {
 
   it("does not reflect inbound Host into self-dispatch URLs in production", () => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEPLOY_PRIME_URL", "");
     vi.stubEnv("APP_URL", "");
     vi.stubEnv("URL", "");
     vi.stubEnv("DEPLOY_URL", "");
     vi.stubEnv("BETTER_AUTH_URL", "");
 
     expect(() => resolveBaseUrl(createEvent())).toThrow(
-      /requires APP_URL, URL, DEPLOY_URL, or BETTER_AUTH_URL/,
+      /requires DEPLOY_PRIME_URL, DEPLOY_URL, URL, APP_URL, or BETTER_AUTH_URL/,
+    );
+  });
+
+  it("dispatches to this deploy, not production, on a deploy preview", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEPLOY_PRIME_URL", "https://preview--app.netlify.app");
+    vi.stubEnv("APP_URL", "https://app.example.com");
+    vi.stubEnv("URL", "");
+    vi.stubEnv("DEPLOY_URL", "");
+    vi.stubEnv("BETTER_AUTH_URL", "");
+
+    expect(resolveBaseUrl(createEvent())).toBe(
+      "https://preview--app.netlify.app",
     );
   });
 
@@ -395,9 +433,6 @@ describe("integration webhook handler", () => {
   });
 
   it("resolves the integration key for the engine the plugin selected", async () => {
-    // Provenance lives in `resolveOwnerEngineApiKey` (see
-    // owner-engine-api-key.spec.ts); this only guards the pass-through, since
-    // dropping `engineOption` here would silently restore the untagged key.
     resolveOwnerEngineApiKeyMock.mockResolvedValue({
       apiKey: "sk-openai-deploy",
       apiKeyEnvVar: "OPENAI_API_KEY",

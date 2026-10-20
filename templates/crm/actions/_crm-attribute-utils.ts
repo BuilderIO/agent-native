@@ -1,11 +1,3 @@
-/**
- * Shared plumbing for the CRM attribute (typed schema) actions.
- *
- * `crm_field_policies` IS the attribute table — there is no parallel one — so
- * every helper here reads and writes that table and translates it to the
- * `CrmAttributeDefinition` shape the contract publishes.
- */
-
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray } from "drizzle-orm";
 
@@ -24,19 +16,10 @@ export type CrmAttributeRow = typeof schema.crmFieldPolicies.$inferSelect;
 export type CrmAttributeOptionRow =
   typeof schema.crmAttributeOptions.$inferSelect;
 
-/** Longest attribute slug we will mint; the column is untyped TEXT. */
 const MAX_API_SLUG_LENGTH = 64;
 
-// The single `attributeType -> value_type` mapping lives in
-// `shared/crm-attributes.ts` so server-side writers (native adapter, mirror)
-// can use it too without an actions/ -> server/ import.
 export { legacyValueTypeFor } from "../shared/crm-attributes.js";
 
-/**
- * Immutable snake_case slug for a title. Minted once at create time: the slug
- * is the `field_name` every stored value row is keyed by, so renaming it would
- * orphan history rather than rename anything.
- */
 export function toApiSlug(title: string): string {
   const slug = title
     .normalize("NFKD")
@@ -64,11 +47,6 @@ export function requireAttributeType(type: CrmAttributeType): void {
   }
 }
 
-/**
- * Stored JSON config, or a typed error. An unreadable blob is NOT silently
- * reported as an empty config — an attribute whose currency code cannot be read
- * must fail loudly, not render as "no currency configured".
- */
 export function parseAttributeJson(
   attributeId: string,
   column: "config_json" | "fill_config_json",
@@ -115,12 +93,7 @@ export function toAttributeDefinition(
     id: row.id,
     connectionId: row.connectionId,
     target: row.target,
-    // `object_type` is populated for every attribute, including list ones where
-    // it mirrors `target_id`; `target_id` is null on rows written by adapters
-    // that predate the typed surface.
     targetId: row.targetId ?? row.objectType,
-    // Same relationship in reverse: `field_name` is the NOT NULL column the
-    // value writer keys on, and the migration seeded `api_slug` from it.
     apiSlug: row.apiSlug ?? row.fieldName,
     label: row.label,
     ...(row.description === null ? {} : { description: row.description }),
@@ -149,7 +122,6 @@ export function toAttributeDefinition(
   };
 }
 
-/** Access-scoped options for a set of attributes, keyed by attribute id. */
 export async function loadAttributeOptions(input: {
   attributeIds: string[];
   includeArchived: boolean;
@@ -183,11 +155,6 @@ export async function loadAttributeOptions(input: {
   return byAttribute;
 }
 
-/**
- * Load one attribute the caller may edit. `assertAccess` is the authority on
- * the decision; the row is re-read through `accessFilter` so a caller can never
- * observe a row the list surface would hide.
- */
 export async function requireEditableAttribute(
   attributeId: string,
 ): Promise<CrmAttributeRow> {

@@ -25,6 +25,7 @@ describe("direct browser relay contract", () => {
     expect(relayOperationClass("browser.stop")).toBe("browser.observe");
     expect(relayOperationClass("browser.attach")).toBe("browser.control");
     expect(relayOperationClass("browser.click")).toBe("browser.control");
+    expect(relayOperationClass("browser.open-tab")).toBe("browser.control");
   });
 
   it("maps only the reviewed browser-control surface and disables screenshots", () => {
@@ -43,6 +44,13 @@ describe("direct browser relay contract", () => {
       target: { observationId: "observation-example", backendNodeId: 42 },
       button: "left",
     });
+    expect(
+      controlCommand(
+        "browser.open-tab",
+        { url: "https://example.com/next" },
+        {},
+      ),
+    ).toEqual({ type: "open-tab", url: "https://example.com/next" });
     expect(() => controlCommand("browser.evaluate", {}, {})).toThrow(
       "Unsupported remote browser action",
     );

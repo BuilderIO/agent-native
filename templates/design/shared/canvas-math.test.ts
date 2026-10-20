@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   assignRegions,
   canvasToScreenPoint,
-  computeEqualGapGuides,
   computeMoveSnap,
+  computeProximityMeasurements,
   computeResizeSnap,
+  computeDragSnap,
+  computeSpacingSnap,
   DEFAULT_ASSIGNED_REGION_GAP,
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -13,6 +15,9 @@ import {
   getAngleFromCenter,
   getCameraForBounds,
   getDraftGeometryFromPoints,
+  quantizeToStep,
+  WHOLE_PIXEL_SNAP_STEP,
+  getElementWorldBoundsForZoomFit,
   getFrameBounds,
   getFrameGroupBounds,
   getNudgeDelta,
@@ -67,8 +72,6 @@ describe("canvas camera math", () => {
   });
 
   it("exports the canonical MultiScreenCanvas zoom range (CV23)", () => {
-    // MultiScreenCanvas.tsx imports these instead of redeclaring its own
-    // MIN_ZOOM/MAX_ZOOM constants, so the two never drift apart silently.
     expect(DEFAULT_CANVAS_MIN_ZOOM).toBe(2);
     expect(DEFAULT_CANVAS_MAX_ZOOM).toBe(25600);
     expect(DEFAULT_CANVAS_MIN_ZOOM).toBeLessThan(DEFAULT_CANVAS_MAX_ZOOM);
@@ -118,6 +121,61 @@ describe("canvas snap and resize math", () => {
     ).toEqual({ x: 130, y: 100, width: 120, height: 150 });
   });
 
+  it("clamps a resized frame to maximum bounds while preserving the anchor", () => {
+    const origin = { x: 20, y: 30, width: 360, height: 315 };
+
+    expect(
+      resizeFrameFromDelta(origin, "e", 100, 0, {
+        minWidth: 24,
+        maxWidth: 400,
+      }),
+    ).toEqual({ ...origin, width: 400 });
+    expect(
+      resizeFrameFromDelta(origin, "w", -100, 0, {
+        minWidth: 24,
+        maxWidth: 400,
+      }),
+    ).toEqual({ ...origin, x: -20, width: 400 });
+  });
+
+  it("combines per-frame min/max limits when resizing a Screen group", () => {
+    const frames = [
+      { id: "a", geometry: { x: 0, y: 0, width: 360, height: 315 } },
+      { id: "b", geometry: { x: 400, y: 0, width: 300, height: 315 } },
+    ];
+    const result = resizeFrameGroupFromDelta(
+      frames,
+      { x: 0, y: 0, width: 700, height: 315 },
+      "e",
+      300,
+      0,
+      {
+        minWidth: 1,
+        minHeight: 1,
+        frameSizeBoundsById: {
+          a: { maxWidth: 400 },
+          b: { maxWidth: 400 },
+        },
+      },
+    );
+
+    expect(result.bounds.width).toBeCloseTo(700 * (400 / 360));
+    expect(result.frames[0]?.geometry.width).toBeCloseTo(400);
+    expect(result.frames[1]?.geometry.width).toBeCloseTo(400 * (300 / 360));
+  });
+
+  it("does not snap a frame beyond its maximum width", () => {
+    const snap = computeResizeSnap(
+      { x: 0, y: 0, width: 398, height: 100 },
+      [{ id: "target", geometry: { x: 405, y: 0, width: 120, height: 120 } }],
+      "e",
+      { thresholdScreenPx: 10, zoom: 100, minWidth: 1, maxWidth: 400 },
+    );
+
+    expect(snap.frame.width).toBe(400);
+    expect(snap.guides).toEqual([]);
+  });
+
   it("snaps resizing edges to sibling edges", () => {
     const snap = computeResizeSnap(
       { x: 0, y: 0, width: 198, height: 100 },
@@ -133,10 +191,6 @@ describe("canvas snap and resize math", () => {
   });
 
   it("preserves aspect ratio when a corner-resize snap would otherwise snap both axes independently", () => {
-    // Frame is 300x150 (2:1 ratio), dragged via "se". Two siblings placed far
-    // apart on the OTHER axis (so neither can coincidentally win the wrong
-    // axis's candidate): one 2px past the frame's right edge, one 5px past
-    // the frame's bottom edge.
     const frame = { x: 0, y: 0, width: 300, height: 150 };
     const stationary = [
       {
@@ -148,8 +202,6 @@ describe("canvas snap and resize math", () => {
         geometry: { x: 900, y: 155, width: 150, height: 150 },
       },
     ];
-    // Without aspect preservation, x snaps to 302 (2px away) AND y
-    // independently snaps to 155 (5px away) — 302x155 is not 2:1 anymore.
     const independentSnap = computeResizeSnap(frame, stationary, "se", {
       thresholdScreenPx: 6,
       zoom: 100,
@@ -160,10 +212,6 @@ describe("canvas snap and resize math", () => {
       independentSnap.frame.width / independentSnap.frame.height,
     ).not.toBeCloseTo(2, 1);
 
-    // With aspect preservation, only the closer axis (x, 2px away vs y's
-    // 5px away) snaps, and the other axis (height) is rescaled from the
-    // original 2:1 ratio instead of independently snapping to its own
-    // nearby sibling.
     const aspectSnap = computeResizeSnap(frame, stationary, "se", {
       thresholdScreenPx: 6,
       zoom: 100,
@@ -175,15 +223,10 @@ describe("canvas snap and resize math", () => {
       ratio,
       5,
     );
-    // Exactly one guide (the axis that actually snapped), not two.
     expect(aspectSnap.guides).toHaveLength(1);
   });
 
   it("preserves aspect ratio for an edge-only handle by centering the derived axis", () => {
-    // "e" only touches width directly; with preserveAspectRatio the derived
-    // height change must be centered vertically (matching
-    // resizeFrameFromDelta's own from-center convention for the
-    // aspect-derived axis), not anchored to the original top edge.
     const frame = { x: 0, y: 100, width: 198, height: 100 };
     const stationary = [
       { id: "target", geometry: { x: 200, y: 0, width: 50, height: 50 } },
@@ -197,7 +240,6 @@ describe("canvas snap and resize math", () => {
     const ratio = frame.width / frame.height;
     const expectedHeight = snap.frame.width / ratio;
     expect(snap.frame.height).toBeCloseTo(expectedHeight, 5);
-    // Centered vertically around the original vertical midpoint.
     const originalCenterY = frame.y + frame.height / 2;
     const newCenterY = snap.frame.y + snap.frame.height / 2;
     expect(newCenterY).toBeCloseTo(originalCenterY, 5);
@@ -251,21 +293,14 @@ describe("canvas snap and resize math", () => {
   });
 
   it("snaps a move against a rotated sibling's rotated (world-space) AABB", () => {
-    // A 100x100 square rotated 45deg around (450,50) becomes a diamond whose
-    // rotated AABB spans roughly x:[379,521], y:[-21,121] — its unrotated
-    // local bounds (x:[400,500]) would snap at a completely different edge
-    // than what's visually drawn.
     const stationary = [
       {
         id: "target",
         geometry: { x: 400, y: 0, width: 100, height: 100, rotation: 45 },
       },
     ];
-    const rotatedAABBLeft = 450 - Math.SQRT2 * 50; // ~378.6
+    const rotatedAABBLeft = 450 - Math.SQRT2 * 50;
 
-    // Placed just 1px away from the rotated AABB's left edge — within the
-    // default snap threshold — should snap to it, even though this is far
-    // from the unrotated bounds' left edge (400).
     const moving = [
       {
         id: "moving",
@@ -321,19 +356,7 @@ describe("canvas snap and resize math", () => {
   });
 
   describe("resize-snap respects a small per-call minimum (CV-snap-min)", () => {
-    // Regression test: computeResizeSnap used to hardcode the 120px
-    // screen-frame minimum (via clampFrameSize -> MIN_CANVAS_FRAME_WIDTH/
-    // HEIGHT) regardless of what minimum the caller's own non-snap resize
-    // used, so a small shape snapping near a sibling edge got force-inflated
-    // to 120x120. minWidth/minHeight on ResizeSnapOptions must be threaded
-    // through to the same clamp so a small object's snap respects its own
-    // minimum instead.
     it("does not inflate a small shape's snapped width past its own minWidth", () => {
-      // Frame is small (20px) and its right edge sits 2px from a sibling's
-      // left edge at x=200 — well within the snap threshold, so it snaps to
-      // width 200. Without minWidth threaded through, the snap result used
-      // to be clamped up to 120 minimum instead of staying at the (still far
-      // larger than 8) snapped width.
       const snap = computeResizeSnap(
         { x: 180, y: 0, width: 18, height: 18 },
         [{ id: "target", geometry: { x: 200, y: 0, width: 50, height: 50 } }],
@@ -344,10 +367,6 @@ describe("canvas snap and resize math", () => {
     });
 
     it("clamps a snapped resize to the caller's own small minimum, not the 120 default", () => {
-      // Frame's right edge (source, at x=12) snaps to the sibling's left
-      // edge at x=6 (6px away, within the default 6px threshold) — the snap
-      // offset alone (-6) would shrink the frame to 6px, below its small 8px
-      // minimum, so the small minimum (not 120) must still apply.
       const snap = computeResizeSnap(
         { x: 0, y: 0, width: 12, height: 12 },
         [{ id: "target", geometry: { x: 6, y: 500, width: 50, height: 50 } }],
@@ -359,8 +378,6 @@ describe("canvas snap and resize math", () => {
     });
 
     it("still clamps to the 120 screen default when no minWidth/minHeight is passed", () => {
-      // Default behavior for callers that don't pass minimums stays exactly
-      // as before this fix — screens are unaffected.
       const snap = computeResizeSnap(
         { x: 0, y: 0, width: 12, height: 12 },
         [{ id: "target", geometry: { x: 6, y: 500, width: 50, height: 50 } }],
@@ -387,17 +404,9 @@ describe("canvas snap and resize math", () => {
     });
   });
 
-  describe("resizeFrameFromDelta flip-normalization (Figma-parity CV-flip)", () => {
-    // Regression tests: dragging a resize handle past the frame's opposite
-    // edge used to just pin the size at the minimum instead of flipping the
-    // shape (handle roles swap, x/y adjust, size stays positive) the way
-    // real Figma does. Flip only applies when the caller passes a small
-    // effective minimum (below the 120 screen-frame default) — screens that
-    // rely on the 120 default keep clamping exactly as before.
-
+  describe("resizeFrameFromDelta flip normalization", () => {
     it("flips horizontally when the 'e' handle is dragged past the west edge", () => {
       const origin = { x: 100, y: 100, width: 150, height: 150 };
-      // dx = -200 drags the east edge 50px past the fixed west edge (100).
       const result = resizeFrameFromDelta(origin, "e", -200, 0, {
         minWidth: 8,
         minHeight: 8,
@@ -410,7 +419,6 @@ describe("canvas snap and resize math", () => {
 
     it("flips horizontally when the 'w' handle is dragged past the east edge", () => {
       const origin = { x: 100, y: 100, width: 150, height: 150 };
-      // dx = 200 drags the west edge 50px past the fixed east edge (250).
       const result = resizeFrameFromDelta(origin, "w", 200, 0, {
         minWidth: 8,
         minHeight: 8,
@@ -443,9 +451,6 @@ describe("canvas snap and resize math", () => {
 
     it("flips both axes when a corner handle is dragged past the opposite corner", () => {
       const origin = { x: 100, y: 100, width: 150, height: 150 };
-      // "se" (anchored at the fixed "nw" corner, 100,100) dragged up-and-left
-      // by 180px on each axis: raw width/height = 150 - 180 = -30 (30px past
-      // the nw anchor on each axis).
       const result = resizeFrameFromDelta(origin, "se", -180, -180, {
         minWidth: 8,
         minHeight: 8,
@@ -458,9 +463,6 @@ describe("canvas snap and resize math", () => {
 
     it("clamps to the small minimum instead of a sub-minimum flip overshoot", () => {
       const origin = { x: 100, y: 100, width: 150, height: 150 };
-      // dx = 152 only drags 2px past the east anchor (250) — smaller than
-      // the 8px minimum, so the frame should floor to 8 while keeping the
-      // anchor (250) fixed, extending in the flipped direction.
       const result = resizeFrameFromDelta(origin, "w", 152, 0, {
         minWidth: 8,
         minHeight: 8,
@@ -472,7 +474,6 @@ describe("canvas snap and resize math", () => {
     it("does NOT flip and keeps pinning at the 120 default when no minimum override is passed", () => {
       const origin = { x: 100, y: 100, width: 150, height: 150 };
       const result = resizeFrameFromDelta(origin, "e", -200, 0);
-      // Old pin-at-minimum behavior: width floors at 120, x stays at origin.
       expect(result.width).toBe(120);
       expect(result.x).toBe(100);
     });
@@ -491,9 +492,6 @@ describe("canvas snap and resize math", () => {
       const origin = { x: 100, y: 100, width: 150, height: 150 };
       const centerX = origin.x + origin.width / 2;
       const centerY = origin.y + origin.height / 2;
-      // resizeFromCenter doubles the delta; a small inward drag easily
-      // crosses to a "negative" raw size, but must stay centered rather than
-      // anchor-flip like the non-center case.
       const result = resizeFrameFromDelta(origin, "se", -100, -100, {
         resizeFromCenter: true,
         minWidth: 8,
@@ -508,7 +506,7 @@ describe("canvas snap and resize math", () => {
     });
 
     it("preserves aspect ratio through a corner flip (shift+flip)", () => {
-      const origin = { x: 0, y: 0, width: 200, height: 100 }; // 2:1 ratio
+      const origin = { x: 0, y: 0, width: 200, height: 100 };
       const result = resizeFrameFromDelta(origin, "se", -260, -140, {
         preserveAspectRatio: true,
         minWidth: 8,
@@ -520,9 +518,7 @@ describe("canvas snap and resize math", () => {
     });
 
     it("preserves aspect ratio through an edge-only handle flip (shift+flip)", () => {
-      const origin = { x: 0, y: 100, width: 200, height: 100 }; // 2:1 ratio
-      // "e" only directly drags width; height is aspect-derived. Flip width
-      // past the west edge and confirm height stays derived and positive.
+      const origin = { x: 0, y: 100, width: 200, height: 100 };
       const result = resizeFrameFromDelta(origin, "e", -220, 0, {
         preserveAspectRatio: true,
         minWidth: 8,
@@ -534,9 +530,6 @@ describe("canvas snap and resize math", () => {
     });
 
     it("keeps the existing rotated-frame minimum-size behavior unaffected by flip changes", () => {
-      // Existing rotation test (kept passing): resizeRotatedFrameFromDelta
-      // composes on top of resizeFrameFromDelta, so this indirectly
-      // exercises the refactored function for the non-flip minimum path.
       const origin = { x: 0, y: 0, width: 200, height: 100, rotation: 45 };
       const result = resizeRotatedFrameFromDelta(origin, "se", 100, 0, {
         preserveAspectRatio: true,
@@ -549,10 +542,6 @@ describe("canvas snap and resize math", () => {
     });
 
     it("flips through resizeRotatedFrameFromDelta and re-anchors in world space", () => {
-      // A rotated frame's "e" handle dragged far enough (in local/unrotated
-      // space) to flip past the west edge — the wrapper should still produce
-      // a positive-size, correctly re-anchored world-space result instead of
-      // throwing or returning a negative size.
       const origin = { x: 100, y: 100, width: 150, height: 150, rotation: 0 };
       const result = resizeRotatedFrameFromDelta(origin, "e", -200, 0, {
         minWidth: 8,
@@ -563,13 +552,6 @@ describe("canvas snap and resize math", () => {
     });
 
     it("flips through resizeFrameGroupFromDelta's single-frame call shape (matches the real drag call site)", () => {
-      // MultiScreenCanvas.tsx always resizes through resizeFrameGroupFromDelta
-      // (even for a single selected object), passing a small explicit
-      // minWidth/minHeight (8 for draft primitives, 1 for real frames/
-      // screens) rather than relying on the 120 default. This exercises that
-      // exact shape end-to-end to confirm getGroupMinimumBounds's per-group
-      // minimum computation doesn't dilute the small minimum back up to 120
-      // for a lone frame, and that the flip still applies.
       const origin = {
         id: "solo",
         geometry: { x: 100, y: 100, width: 150, height: 150 },
@@ -591,92 +573,426 @@ describe("canvas snap and resize math", () => {
   });
 });
 
-describe("computeEqualGapGuides (smart spacing, CV11)", () => {
-  it("detects a moving frame evenly spaced between two horizontal neighbors", () => {
-    // left sibling ends at x=100, moving frame spans 140-240 (gap 40 before),
-    // right sibling starts at x=280 (gap 40 after). All share the same y
-    // range so they cross-overlap on the y axis.
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-      { id: "right", geometry: { x: 280, y: 0, width: 100, height: 100 } },
-    ];
-    const guides = computeEqualGapGuides(moving, stationary);
-    expect(guides).toHaveLength(1);
-    expect(guides[0].orientation).toBe("vertical");
-    expect(guides[0].gap).toBeCloseTo(40);
-    expect(guides[0].bands[0].gapStart).toBeCloseTo(100);
-    expect(guides[0].bands[0].gapEnd).toBeCloseTo(140);
-    expect(guides[0].bands[1].gapStart).toBeCloseTo(240);
-    expect(guides[0].bands[1].gapEnd).toBeCloseTo(280);
+describe("computeMoveSnap guide fan-out", () => {
+  const square = (id: string, x: number, y: number) => ({
+    id,
+    geometry: { x, y, width: 100, height: 100 },
   });
 
-  it("detects vertical (above/below) equal spacing symmetrically", () => {
-    const moving = { x: 0, y: 150, width: 100, height: 100 };
-    const stationary = [
-      { id: "above", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-      { id: "below", geometry: { x: 0, y: 300, width: 100, height: 100 } },
-    ];
-    const guides = computeEqualGapGuides(moving, stationary);
-    expect(guides).toHaveLength(1);
-    expect(guides[0].orientation).toBe("horizontal");
-    expect(guides[0].gap).toBeCloseTo(50);
+  const bar = (id: string, y: number, width: number) => ({
+    id,
+    geometry: { x: 0, y, width, height: 100 },
   });
 
-  it("returns no guide when the two gaps clearly differ", () => {
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-      { id: "right", geometry: { x: 400, y: 0, width: 100, height: 100 } }, // gap 160, not 40
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
+  it("draws one guide through every frame sharing the snapped edge", () => {
+    const guides = computeMoveSnap(
+      [square("moving", 3, 600)],
+      [bar("a", 0, 140), bar("b", 200, 180), bar("c", 400, 220)],
+      { thresholdScreenPx: 6, zoom: 100 },
+    ).guides;
+
+    const vertical = guides.filter((guide) => guide.orientation === "vertical");
+    expect(vertical).toHaveLength(1);
+    expect(vertical[0].position).toBe(0);
+    expect(vertical[0].start).toBe(0);
+    expect(vertical[0].end).toBe(700);
   });
 
-  it("respects a custom tolerance", () => {
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } }, // gap 40
-      { id: "right", geometry: { x: 283, y: 0, width: 100, height: 100 } }, // gap 43
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
+  it("draws both the left-edge and right-edge guide when one offset satisfies both", () => {
+    const guides = computeMoveSnap(
+      [square("moving", 2, 300)],
+      [
+        bar("left-edge", 0, 60),
+        {
+          id: "right-edge",
+          geometry: { x: -400, y: 0, width: 500, height: 50 },
+        },
+      ],
+      { thresholdScreenPx: 6, zoom: 100 },
+    ).guides;
+
+    const positions = guides
+      .filter((guide) => guide.orientation === "vertical")
+      .map((guide) => guide.position)
+      .sort((a, b) => a - b);
+    expect(positions).toEqual([0, 100]);
+  });
+
+  it("spans the guide from the post-snap position, not where the pointer left the frame", () => {
+    const guides = computeMoveSnap(
+      [square("moving", 3, -300)],
+      [square("target", 0, 0)],
+      { thresholdScreenPx: 6, zoom: 100 },
+    ).guides;
+
+    const vertical = guides.find((guide) => guide.orientation === "vertical");
+    expect(vertical?.start).toBe(-300);
+    expect(vertical?.end).toBe(100);
+  });
+});
+
+describe("computeDragSnap precedence", () => {
+  const far = [
+    { id: "far", geometry: { x: 5000, y: 5000, width: 100, height: 100 } },
+  ];
+  const row = (...xs: number[]) =>
+    xs.map((x, index) => ({
+      id: `s${index}`,
+      geometry: { x, y: 0, width: 100, height: 100 },
+    }));
+
+  it("rounds to the pixel grid on an axis with no guide on it", () => {
+    const snap = computeDragSnap(
+      [
+        {
+          id: "moving",
+          geometry: { x: 10.3, y: 20.8, width: 100, height: 100 },
+        },
+      ],
+      far,
+      { thresholdScreenPx: 6, zoom: 100, snapStep: WHOLE_PIXEL_SNAP_STEP },
+    );
+    expect(snap.dx).toBeCloseTo(-0.3);
+    expect(snap.dy).toBeCloseTo(0.2);
+  });
+
+  it("never rounds an alignment snap away", () => {
+    const snap = computeDragSnap(
+      [{ id: "moving", geometry: { x: 10.3, y: 0, width: 100, height: 100 } }],
+      [{ id: "target", geometry: { x: 8.5, y: 0, width: 100, height: 100 } }],
+      { thresholdScreenPx: 6, zoom: 100, snapStep: WHOLE_PIXEL_SNAP_STEP },
+    );
+    expect(snap.dx).toBeCloseTo(-1.8);
+  });
+
+  it("keeps the pixel grid off by default", () => {
     expect(
-      computeEqualGapGuides(moving, stationary, { toleranceCanvasPx: 5 }),
+      computeDragSnap(
+        [
+          {
+            id: "moving",
+            geometry: { x: 10.3, y: 0, width: 100, height: 100 },
+          },
+        ],
+        far,
+        { thresholdScreenPx: 6, zoom: 100 },
+      ).dx,
+    ).toBe(0);
+  });
+
+  it("lets an alignment snap beat an available spacing snap on the same axis", () => {
+    const snap = computeDragSnap(
+      [{ id: "moving", geometry: { x: 102, y: 0, width: 100, height: 100 } }],
+      row(0, 400),
+      {
+        thresholdScreenPx: 6,
+        zoom: 100,
+      },
+    );
+    expect(snap.dx).toBeCloseTo(-2);
+    expect(snap.spacingGuides).toEqual([]);
+  });
+
+  it("applies the spacing snap on the axis alignment left free", () => {
+    const snap = computeDragSnap(
+      [{ id: "moving", geometry: { x: 205, y: 0, width: 100, height: 100 } }],
+      row(0, 400),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.dx).toBeCloseTo(-5);
+    expect(snap.spacingGuides).toHaveLength(1);
+  });
+
+  it("drops spacing guides for a multi-frame drag", () => {
+    const snap = computeDragSnap(
+      [
+        { id: "a", geometry: { x: 205, y: 0, width: 100, height: 100 } },
+        { id: "b", geometry: { x: 205, y: 400, width: 100, height: 100 } },
+      ],
+      row(0, 400),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.spacingGuides).toEqual([]);
+  });
+});
+
+describe("computeDragSnap respects a Shift-locked axis", () => {
+  const stationary = [
+    { id: "far", geometry: { x: 5000, y: 5000, width: 100, height: 100 } },
+  ];
+
+  it("does not let the pixel grid reintroduce motion on the locked axis", () => {
+    const snap = computeDragSnap(
+      [
+        {
+          id: "moving",
+          geometry: { x: 10.3, y: 20.8, width: 100, height: 100 },
+        },
+      ],
+      stationary,
+      {
+        thresholdScreenPx: 6,
+        zoom: 100,
+        snapStep: WHOLE_PIXEL_SNAP_STEP,
+        lockedAxes: { y: true },
+      },
+    );
+    expect(snap.dx).toBeCloseTo(-0.3);
+    expect(snap.dy, "Shift pinned y, so nothing may move it").toBe(0);
+  });
+
+  it("does not let an alignment snap move the locked axis either", () => {
+    const snap = computeDragSnap(
+      [{ id: "moving", geometry: { x: 0, y: 102, width: 100, height: 100 } }],
+      [{ id: "target", geometry: { x: 0, y: 100, width: 100, height: 100 } }],
+      { thresholdScreenPx: 6, zoom: 100, lockedAxes: { y: true } },
+    );
+    expect(snap.dy).toBe(0);
+  });
+
+  it("emits no spacing chrome on an axis it was not allowed to move", () => {
+    const row = [
+      { id: "a", geometry: { x: 0, y: 0, width: 100, height: 100 } },
+      { id: "b", geometry: { x: 400, y: 0, width: 100, height: 100 } },
+    ];
+    const snap = computeSpacingSnap(
+      { x: 200, y: 0, width: 100, height: 100 },
+      row,
+      { thresholdScreenPx: 6, zoom: 100, lockedAxes: { x: true } },
+    );
+    expect(snap.dx).toBe(0);
+    expect(
+      snap.guides,
+      "the gaps are genuinely equal, but alignment owns this axis",
+    ).toEqual([]);
+  });
+});
+
+describe("review regressions", () => {
+  const f = (x: number, y: number, w = 100, h = 100) => ({
+    id: `${x}-${y}`,
+    geometry: { x, y, width: w, height: h },
+  });
+
+  it("draws no guide on a Shift-locked axis the frame was not moved onto", () => {
+    const snap = computeDragSnap([f(500, 203)], [f(0, 200)], {
+      zoom: 100,
+      thresholdScreenPx: 6,
+      snapStep: WHOLE_PIXEL_SNAP_STEP,
+      lockedAxes: { y: true },
+    });
+    expect(snap.dy).toBe(0);
+    expect(
+      snap.guides.filter((guide) => guide.orientation === "horizontal"),
+      "the frame sits at 203/253/303; guides at 200/250/300 describe nowhere",
+    ).toEqual([]);
+  });
+
+  it("draws the spacing guide on the side the snap actually matched", () => {
+    const snap = computeSpacingSnap(
+      { x: 380, y: 0, width: 100, height: 100 },
+      [f(0, 0), f(200, 0), f(575, 0)],
+      { zoom: 100, thresholdScreenPx: 6 },
+    );
+    expect(snap.dx).toBeCloseTo(-5);
+    expect(snap.guides).toHaveLength(1);
+    expect(snap.guides[0].gap).toBeCloseTo(100);
+  });
+
+  it("does not let the pixel grid round away a spacing snap", () => {
+    const snap = computeDragSnap(
+      [f(380, 0)],
+      [f(0, 0), f(200.3, 0), f(575, 0)],
+      { zoom: 100, thresholdScreenPx: 6, snapStep: WHOLE_PIXEL_SNAP_STEP },
+    );
+    expect(
+      snap.dx,
+      "rounding to -5 undoes the fractional rhythm the user just snapped to",
+    ).toBeCloseTo(-5.3);
+  });
+});
+
+describe("computeProximityMeasurements", () => {
+  const near = [
+    { id: "right", geometry: { x: 220, y: 0, width: 100, height: 100 } },
+  ];
+
+  it("reports the gap to the nearest neighbour on an axis", () => {
+    const found = computeProximityMeasurements(
+      { x: 0, y: 0, width: 100, height: 100 },
+      near,
+      { zoom: 100 },
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].orientation).toBe("vertical");
+    expect(found[0].gap).toBeCloseTo(120);
+  });
+
+  it("stays quiet for a neighbour beyond the range", () => {
+    expect(
+      computeProximityMeasurements(
+        { x: 0, y: 0, width: 100, height: 100 },
+        [{ id: "far", geometry: { x: 900, y: 0, width: 100, height: 100 } }],
+        { zoom: 100 },
+      ),
+    ).toEqual([]);
+  });
+
+  it("scales the range with zoom so it stays a constant on-screen distance", () => {
+    const moving = { x: 0, y: 0, width: 100, height: 100 };
+    const target = [
+      { id: "right", geometry: { x: 340, y: 0, width: 100, height: 100 } },
+    ];
+    expect(
+      computeProximityMeasurements(moving, target, { zoom: 50 }),
     ).toHaveLength(1);
+    expect(computeProximityMeasurements(moving, target, { zoom: 200 })).toEqual(
+      [],
+    );
   });
 
-  it("ignores stationary frames that don't cross-overlap the moving frame's extent", () => {
-    // "left" is entirely above the moving frame's y-range on the x-axis
-    // gap-detection pass, so it shouldn't produce a horizontal-axis gap
-    // candidate at all — this guards against treating a diagonal neighbor
-    // as if it were directly beside the moving frame.
-    const moving = { x: 140, y: 200, width: 100, height: 100 };
-    const stationary = [
-      { id: "diagonal", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
+  it("reports one measurement per axis, nearest wins", () => {
+    const found = computeProximityMeasurements(
+      { x: 200, y: 200, width: 100, height: 100 },
+      [
+        { id: "closer", geometry: { x: 340, y: 200, width: 50, height: 100 } },
+        { id: "further", geometry: { x: 420, y: 200, width: 50, height: 100 } },
+        { id: "below", geometry: { x: 200, y: 360, width: 100, height: 50 } },
+      ],
+      { zoom: 100 },
+    );
+    expect(found.map((m) => m.orientation).sort()).toEqual([
+      "horizontal",
+      "vertical",
+    ]);
+    expect(found.find((m) => m.orientation === "vertical")?.gap).toBeCloseTo(
+      40,
+    );
   });
 
-  it("only pairs the closest gap on each side, not every combinatorial match", () => {
-    // Two candidates on the "before" side (gap 40 and gap 90) and one on
-    // "after" (gap 40) — should pair with the CLOSER before-candidate (40),
-    // not emit a guide for the farther one too.
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "near-left", geometry: { x: 0, y: 0, width: 100, height: 100 } }, // gap 40
-      { id: "far-left", geometry: { x: -150, y: 0, width: 100, height: 100 } }, // gap 90 (still "before", further)
-      { id: "right", geometry: { x: 280, y: 0, width: 100, height: 100 } }, // gap 40
-    ];
-    const guides = computeEqualGapGuides(moving, stationary);
-    expect(guides).toHaveLength(1);
-    expect(guides[0].gap).toBeCloseTo(40);
+  it("goes quiet when snapping is bypassed", () => {
+    expect(
+      computeProximityMeasurements(
+        { x: 0, y: 0, width: 100, height: 100 },
+        near,
+        { zoom: 100, bypass: true },
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("spacing guide rhythm chaining", () => {
+  const row = (...xs: number[]) =>
+    xs.map((x, index) => ({
+      id: `s${index}`,
+      geometry: { x, y: 0, width: 100, height: 100 },
+    }));
+
+  it("lights every gap in an evenly spaced run, not just the pair it snapped to", () => {
+    const snap = computeSpacingSnap(
+      { x: 500, y: 0, width: 100, height: 100 },
+      row(0, 124, 248, 372),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.dx).toBeCloseTo(-4);
+    expect(snap.guides).toHaveLength(1);
+    expect(snap.guides[0].bands).toHaveLength(4);
+    expect(snap.guides[0].gap).toBeCloseTo(24);
   });
 
-  it("produces no guide for a lone neighbor with nothing to pair against", () => {
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
+  it("leaves out gaps in the run that do not match", () => {
+    const snap = computeSpacingSnap(
+      { x: 480, y: 0, width: 100, height: 100 },
+      row(0, 124, 300),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.guides[0].bands).toHaveLength(2);
+    expect(snap.guides[0].gap).toBeCloseTo(76);
+  });
+});
+
+describe("computeSpacingSnap", () => {
+  const row = (...xs: number[]) =>
+    xs.map((x, index) => ({
+      id: `s${index}`,
+      geometry: { x, y: 0, width: 100, height: 100 },
+    }));
+
+  it("centers the frame between its two neighbors", () => {
+    const snap = computeSpacingSnap(
+      { x: 205, y: 0, width: 100, height: 100 },
+      row(0, 400),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.dx).toBeCloseTo(-5);
+    expect(snap.dy).toBe(0);
+    expect(snap.guides).toHaveLength(1);
+    expect(snap.guides[0].gap).toBeCloseTo(100);
+  });
+
+  it("matches a gap that already exists between two other frames", () => {
+    const snap = computeSpacingSnap(
+      { x: 252, y: 0, width: 100, height: 100 },
+      row(0, 124),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.dx).toBeCloseTo(-4);
+    expect(snap.guides).toHaveLength(1);
+    expect(snap.guides[0].gap).toBeCloseTo(24);
+  });
+
+  it("leaves an axis alone once an alignment snap has claimed it", () => {
+    const snap = computeSpacingSnap(
+      { x: 205, y: 0, width: 100, height: 100 },
+      row(0, 400),
+      { thresholdScreenPx: 6, zoom: 100, lockedAxes: { x: true } },
+    );
+    expect(snap.dx).toBe(0);
+  });
+
+  it("goes fully quiet when snapping is bypassed, like the alignment pass", () => {
+    const snap = computeSpacingSnap(
+      { x: 200, y: 0, width: 100, height: 100 },
+      row(0, 400),
+      { thresholdScreenPx: 6, zoom: 100, bypass: true },
+    );
+    expect(snap).toEqual({ dx: 0, dy: 0, guides: [] });
+  });
+
+  it("does not label two near-equal gaps as equal on an axis it could not move", () => {
+    const snap = computeSpacingSnap(
+      { x: 200, y: 0, width: 100, height: 100 },
+      row(0, 404),
+      { thresholdScreenPx: 6, zoom: 100, lockedAxes: { x: true } },
+    );
+    expect(snap.dx).toBe(0);
+    expect(snap.guides).toEqual([]);
+  });
+
+  it("ignores neighbors that are too far off the rhythm to match", () => {
+    const snap = computeSpacingSnap(
+      { x: 300, y: 0, width: 100, height: 100 },
+      row(0, 124),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.dx).toBe(0);
+    expect(snap.guides).toEqual([]);
+  });
+
+  it("keeps the snap tolerance constant in screen px across zoom levels", () => {
+    const moving = { x: 205, y: 0, width: 100, height: 100 };
+    expect(
+      computeSpacingSnap(moving, row(0, 400), {
+        thresholdScreenPx: 6,
+        zoom: 400,
+      }).dx,
+    ).toBe(0);
+    expect(
+      computeSpacingSnap(moving, row(0, 400), {
+        thresholdScreenPx: 6,
+        zoom: 100,
+      }).dx,
+    ).toBeCloseTo(-5);
   });
 });
 
@@ -725,7 +1041,6 @@ describe("canvas rotation math", () => {
 
 describe("rotateFrameGroupAroundCenter (multi-selection rotate, CV14)", () => {
   it("orbits each frame's center around the group pivot and spins each frame the same amount", () => {
-    // Two 100x100 frames side by side, group center at (150, 50).
     const frames = [
       { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } },
       { id: "right", geometry: { x: 200, y: 0, width: 100, height: 100 } },
@@ -734,10 +1049,6 @@ describe("rotateFrameGroupAroundCenter (multi-selection rotate, CV14)", () => {
 
     const rotated = rotateFrameGroupAroundCenter(frames, groupCenter, 90);
 
-    // Before rotating, centers were at (50,50) and (250,50) — 100px left and
-    // right of the pivot (150,50). A 90deg (clockwise, y-down) orbit turns
-    // "100px left of pivot" into "100px above pivot" and "100px right of
-    // pivot" into "100px below pivot".
     const left = rotated.find((f) => f.id === "left")!;
     const right = rotated.find((f) => f.id === "right")!;
     const leftCenter = {
@@ -753,9 +1064,6 @@ describe("rotateFrameGroupAroundCenter (multi-selection rotate, CV14)", () => {
     expect(rightCenter.x).toBeCloseTo(150);
     expect(rightCenter.y).toBeCloseTo(150);
 
-    // Every frame also spins around its OWN center by the same delta —
-    // this is what makes it look like the whole group rotates rigidly
-    // rather than each frame just relocating without spinning.
     expect(left.geometry.rotation).toBe(90);
     expect(right.geometry.rotation).toBe(90);
   });
@@ -800,8 +1108,6 @@ describe("rotateFrameGroupAroundCenter (multi-selection rotate, CV14)", () => {
 describe("rotation-aware resize", () => {
   it("rotatePoint matches the CSS rotate(deg) forward direction", () => {
     const center = { x: 50, y: 50 };
-    // A point directly to the right of center, rotated 90deg, should land
-    // directly below center (screen-space y grows downward).
     const rotated = rotatePoint({ x: 100, y: 50 }, center, 90);
     expect(rotated.x).toBeCloseTo(50);
     expect(rotated.y).toBeCloseTo(100);
@@ -828,17 +1134,12 @@ describe("rotation-aware resize", () => {
       rotation: 90,
     };
     const originCenter = { x: 200, y: 175 };
-    // "se" handle keeps the nw corner (100,100) fixed in LOCAL space; find its
-    // world position before the resize so we can assert it stays put after.
     const nwWorldBefore = rotatePoint(
       { x: origin.x, y: origin.y },
       originCenter,
       origin.rotation,
     );
 
-    // Drag in world space. Because the frame is rotated 90deg, a world-space
-    // rightward drag corresponds to a local-space downward (height) drag —
-    // this is exactly the behavior a rotation-unaware resize gets wrong.
     const result = resizeRotatedFrameFromDelta(origin, "se", 30, 0);
 
     expect(result.rotation).toBe(90);
@@ -849,18 +1150,11 @@ describe("rotation-aware resize", () => {
     );
     expect(nwWorldAfter.x).toBeCloseTo(nwWorldBefore.x);
     expect(nwWorldAfter.y).toBeCloseTo(nwWorldBefore.y);
-    // The world-space rightward drag became a local-space height change
-    // (since the frame is rotated 90deg), so width should be unaffected.
     expect(result.width).toBeCloseTo(origin.width);
     expect(result.height).not.toBeCloseTo(origin.height, 0);
   });
 
   it("follows the handle's rotated visual direction, not world axes", () => {
-    // A 200x150 frame rotated 90deg visually presents its "e" (east/width)
-    // handle pointing toward world +y (since the whole frame is rotated a
-    // quarter turn). Dragging that handle in the direction it visually points
-    // should grow width — the exact case CV1 reports as broken when resize
-    // math ignores rotation.
     const origin = { x: 0, y: 0, width: 200, height: 150, rotation: 90 };
     const result = resizeRotatedFrameFromDelta(origin, "e", 0, 40);
     expect(result.width).toBeCloseTo(origin.width + 40);
@@ -886,9 +1180,6 @@ describe("rotation-aware resize", () => {
   });
 
   it("keeps the frame CENTER world-fixed when resizeFromCenter is set on a rotated frame", () => {
-    // Alt/option-resize of a rotated frame should grow symmetrically about
-    // the frame's own visual center (Figma behavior), not pivot around the
-    // opposite corner the way a plain (non-center) resize does.
     const origin = {
       x: 100,
       y: 100,
@@ -911,17 +1202,11 @@ describe("rotation-aware resize", () => {
     };
     expect(centerAfter.x).toBeCloseTo(centerBefore.x);
     expect(centerAfter.y).toBeCloseTo(centerBefore.y);
-    // Sanity: the resize actually changed the geometry (center-invariant
-    // doesn't mean no-op) — with a 30deg rotation, a world-space (40, 20)
-    // drag resolves to a local-space delta whose height component is
-    // negative, so height should shrink while width grows.
     expect(result.width).toBeGreaterThan(origin.width);
     expect(result.height).toBeLessThan(origin.height);
   });
 
   it("keeps the opposite anchor world-fixed (not the center) when resizeFromCenter is NOT set on a rotated frame", () => {
-    // Contrast case for the test above: default (non-center) resize must
-    // keep behaving as a corner/edge-anchored resize, moving the center.
     const origin = {
       x: 100,
       y: 100,
@@ -933,9 +1218,6 @@ describe("rotation-aware resize", () => {
       x: origin.x + origin.width / 2,
       y: origin.y + origin.height / 2,
     };
-    // "se" handle keeps the nw corner fixed in LOCAL space; find its world
-    // position before the resize so we can assert it stays put after, and
-    // that the center (unlike the resizeFromCenter case above) moves.
     const nwWorldBefore = rotatePoint(
       { x: origin.x, y: origin.y },
       originCenter,
@@ -1006,8 +1288,6 @@ describe("resizeRotatedFrameFromDeltaWithSnap", () => {
 
   it("falls back to the plain (non-rotated) snap path when rotation is 0", () => {
     const origin = { x: 0, y: 0, width: 100, height: 100 };
-    // A sibling positioned so its left edge sits just past the resized right
-    // edge, within the snap threshold once converted from screen px.
     const stationary = [
       { id: "sibling", geometry: { x: 145, y: 0, width: 50, height: 50 } },
     ];
@@ -1030,13 +1310,6 @@ describe("resizeRotatedFrameFromDeltaWithSnap", () => {
   });
 
   it("snaps a slightly-rotated frame's world AABB edge against a nearby sibling edge", () => {
-    // Documented approximation (see resizeRotatedFrameFromDeltaWithSnap's own
-    // doc comment): snapping compares the frame's actual world-space AABB
-    // against stationary siblings' world bounds, with the handle mapped by
-    // nearest quadrant (15° → quadrant 0, "e" stays "e"). A sibling whose
-    // left edge sits just inside the unsnapped AABB's right edge should pull
-    // the resize so the AABB right edge lands (approximately, cos² factor at
-    // off-axis angles) on the sibling's left edge.
     const origin = { x: 0, y: 0, width: 100, height: 100, rotation: 15 };
     const unsnapped = resizeRotatedFrameFromDelta(origin, "e", 44, 0);
     const unsnappedRight = getRotatedFrameAABB(unsnapped).right;
@@ -1057,8 +1330,6 @@ describe("resizeRotatedFrameFromDeltaWithSnap", () => {
     );
     expect(frame.rotation).toBe(15);
     expect(guides.length).toBeGreaterThan(0);
-    // The world AABB right edge lands on the sibling's left edge (within the
-    // documented off-axis approximation tolerance), pulling the frame in.
     expect(
       Math.abs(getRotatedFrameAABB(frame).right - siblingLeft),
     ).toBeLessThan(1);
@@ -1066,10 +1337,6 @@ describe("resizeRotatedFrameFromDeltaWithSnap", () => {
   });
 
   it("snaps along the correct world axis at 90°: dragging the local east edge snaps the world BOTTOM edge", () => {
-    // At 90° the local east edge faces due south, so a downward drag grows
-    // the frame's world-space height. A sibling whose top edge sits just past
-    // the unsnapped world bottom must pull the resize down to meet it — an
-    // x-axis (unrotated-local) comparison would find nothing to snap to.
     const origin = { x: 0, y: 0, width: 100, height: 100, rotation: 90 };
     const unsnapped = resizeRotatedFrameFromDelta(origin, "e", 0, 40);
     const unsnappedBottom = getRotatedFrameAABB(unsnapped).bottom;
@@ -1090,15 +1357,12 @@ describe("resizeRotatedFrameFromDeltaWithSnap", () => {
     );
     expect(frame.rotation).toBe(90);
     expect(guides.length).toBeGreaterThan(0);
-    // Exact at axis-aligned rotations: the world bottom edge lands flush on
-    // the sibling's top edge, growing the local width from 140 to 145.
     expect(getRotatedFrameAABB(frame).bottom).toBeCloseTo(unsnappedBottom + 5);
     expect(frame.width).toBeCloseTo(145);
   });
 
   it("snaps along the correct world axis at 180°: dragging the local east edge snaps the world LEFT edge", () => {
     const origin = { x: 0, y: 0, width: 100, height: 100, rotation: 180 };
-    // At 180° the local east edge faces due west: drag left to grow.
     const unsnapped = resizeRotatedFrameFromDelta(origin, "e", -40, 0);
     const unsnappedLeft = getRotatedFrameAABB(unsnapped).left;
     expect(unsnappedLeft).toBeCloseTo(-40);
@@ -1124,7 +1388,6 @@ describe("resizeRotatedFrameFromDeltaWithSnap", () => {
 
   it("snaps along the correct world axis at 270°: dragging the local east edge snaps the world TOP edge", () => {
     const origin = { x: 0, y: 0, width: 100, height: 100, rotation: 270 };
-    // At 270° the local east edge faces due north: drag up to grow.
     const unsnapped = resizeRotatedFrameFromDelta(origin, "e", 0, -40);
     const unsnappedTop = getRotatedFrameAABB(unsnapped).top;
     expect(unsnappedTop).toBeCloseTo(-40);
@@ -1149,14 +1412,9 @@ describe("resizeRotatedFrameFromDeltaWithSnap", () => {
   });
 
   it("skips snapping entirely (never wrong-axis) when the rotation is far off-axis", () => {
-    // 45° is the farthest possible from any axis-aligned orientation: the
-    // frame's true edges match no axis-aligned box, so snapping is skipped
-    // (no guides) and the resize is exactly the unsnapped rotated resize.
     const origin = { x: 0, y: 0, width: 100, height: 100, rotation: 45 };
     const unsnapped = resizeRotatedFrameFromDelta(origin, "e", 30, 30);
     const aabb = getRotatedFrameAABB(unsnapped);
-    // Siblings hugging every side of the unsnapped AABB — any snap attempt on
-    // any axis would find a candidate within threshold.
     const stationary = [
       {
         id: "right",
@@ -1259,12 +1517,6 @@ describe("rotatedRectIntersects", () => {
   });
 
   it("detects a plus/hash crossing where neither shape's corners are contained", () => {
-    // A long, thin frame (300x20) rotated 45deg becomes a diagonal bar
-    // through the middle of the canvas. A thin vertical marquee crosses
-    // straight through its middle. Neither the marquee's corners land inside
-    // the rotated bar, nor do the bar's corners land inside the thin
-    // marquee — a corner-containment-only test (the CV5 bug) misses this
-    // entirely even though the two shapes clearly overlap where they cross.
     const { bounds, center } = boundsAndCenterOf({
       x: 0,
       y: 140,
@@ -1342,12 +1594,6 @@ describe("rotatedRectIntersects", () => {
   });
 
   it("rotates a child's bounds around an ancestor frame's center, not its own", () => {
-    // Simulates the layer-marquee case: a child element's own geometry (near
-    // one edge of its parent frame) must rotate rigidly around the PARENT
-    // frame's center, not the child's own center, to match how it renders.
-    // Rotating this child 90deg around the frame's center (150,150) sweeps
-    // its corners from x:[180,220]/y:[95,105] to x:[195,205]/y:[180,220] —
-    // from the top-right area down to the bottom-right area.
     const childBounds = { left: 180, top: 95, right: 220, bottom: 105 };
     const frameCenter = { x: 150, y: 150 };
     const rectOverRotatedPosition = { x: 190, y: 190, width: 40, height: 40 };
@@ -1359,8 +1605,6 @@ describe("rotatedRectIntersects", () => {
         90,
       ),
     ).toBe(true);
-    // Sanity check: the same rect does NOT intersect the child's original
-    // (unrotated) position, proving the center override actually took effect.
     expect(
       rotatedRectIntersects(
         rectOverRotatedPosition,
@@ -1385,22 +1629,16 @@ describe("getResizeCursorForHandle", () => {
   });
 
   it("rotates the cursor pick by exactly 90deg of frame rotation", () => {
-    // A 90deg-rotated frame's "e" handle now visually points where "s" used
-    // to point, so it should present the ns-resize cursor instead of ew.
     expect(getResizeCursorForHandle("e", 90)).toBe("ns-resize");
     expect(getResizeCursorForHandle("n", 90)).toBe("ew-resize");
   });
 
   it("quantizes a 45deg rotation to the diagonal cursor", () => {
-    // "e" (0deg) + 45deg rotation = 45deg, which is exactly the "se" angle.
     expect(getResizeCursorForHandle("e", 45)).toBe("nwse-resize");
   });
 
   it("quantizes an arbitrary rotation to the nearest 45deg increment", () => {
-    // 20deg of rotation is closer to 0 than to 45, so "e" still reads as
-    // roughly horizontal (ew-resize).
     expect(getResizeCursorForHandle("e", 20)).toBe("ew-resize");
-    // 30deg is closer to 45 than to 0.
     expect(getResizeCursorForHandle("e", 30)).toBe("nwse-resize");
   });
 
@@ -1419,7 +1657,6 @@ describe("getDraftGeometryFromPoints shape-draw modifiers", () => {
   });
 
   it("constrains to a square using the larger dragged dimension (shift)", () => {
-    // Dragging further right than down: the wider axis (80) wins for both.
     expect(
       getDraftGeometryFromPoints(
         { x: 100, y: 100 },
@@ -1428,7 +1665,6 @@ describe("getDraftGeometryFromPoints shape-draw modifiers", () => {
       ),
     ).toEqual({ x: 100, y: 100, width: 80, height: 80 });
 
-    // Dragging further down than right: the taller axis (80) wins for both.
     expect(
       getDraftGeometryFromPoints(
         { x: 100, y: 100 },
@@ -1439,9 +1675,6 @@ describe("getDraftGeometryFromPoints shape-draw modifiers", () => {
   });
 
   it("preserves each axis's own drag direction when constrained to a square", () => {
-    // Dragging up-and-left from start: both the resulting x and y must stay
-    // anchored so the shape still ends up up-and-left of start, not
-    // accidentally flipped to down-and-right.
     const result = getDraftGeometryFromPoints(
       { x: 200, y: 200 },
       { x: 120, y: 170 },
@@ -1449,13 +1682,11 @@ describe("getDraftGeometryFromPoints shape-draw modifiers", () => {
     );
     expect(result.width).toBe(80);
     expect(result.height).toBe(80);
-    expect(result.x).toBe(120); // left of start, matches drag direction
-    expect(result.y).toBe(120); // above start (200 - 80), matches square size
+    expect(result.x).toBe(120);
+    expect(result.y).toBe(120);
   });
 
   it("draws outward from center in both directions (alt)", () => {
-    // start is the CENTER; dragging 40px right/down should produce an 80x80
-    // box centered on start, not a 40x40 box anchored at start.
     expect(
       getDraftGeometryFromPoints(
         { x: 150, y: 150 },
@@ -1466,9 +1697,6 @@ describe("getDraftGeometryFromPoints shape-draw modifiers", () => {
   });
 
   it("combines square and fromCenter (shift+alt)", () => {
-    // Dragging further right (dx=60) than down (dy=20) from center: fromCenter
-    // doubles each raw half-extent (120 x 40) before square unifies them to
-    // the larger side (120), and the box is centered on start.
     expect(
       getDraftGeometryFromPoints(
         { x: 150, y: 150 },
@@ -1495,6 +1723,177 @@ describe("getDraftGeometryFromPoints shape-draw modifiers", () => {
   });
 });
 
+describe("whole-pixel canvas geometry", () => {
+  it("draws a shape on whole pixels even from a fractional zoomed pointer", () => {
+    expect(
+      getDraftGeometryFromPoints(
+        { x: 192.1, y: 168.4 },
+        { x: 320.62, y: 268.9 },
+      ),
+    ).toEqual({ x: 192, y: 168, width: 129, height: 100 });
+  });
+
+  it("draws from the center on whole pixels too — the half-extent is where the .5 comes from", () => {
+    expect(
+      getDraftGeometryFromPoints(
+        { x: 100, y: 100 },
+        { x: 143.5, y: 120 },
+        { fromCenter: true },
+      ),
+    ).toEqual({ x: 57, y: 80, width: 87, height: 40 });
+  });
+
+  it("lands a resize on whole pixels at the whole-pixel step", () => {
+    const snap = computeResizeSnap(
+      { x: 40.6, y: 80.2, width: 320.4, height: 240.7 },
+      [],
+      "se",
+      {
+        zoom: 100,
+        thresholdScreenPx: 6,
+        minWidth: 1,
+        minHeight: 1,
+        snapStep: WHOLE_PIXEL_SNAP_STEP,
+      },
+    );
+    expect(snap.frame).toEqual({ x: 41, y: 80, width: 320, height: 241 });
+  });
+
+  it("leaves a guide-claimed edge on its guide rather than rounding it off the line", () => {
+    const snap = computeResizeSnap(
+      { x: 0, y: 0, width: 199.6, height: 100 },
+      [
+        {
+          id: "neighbour",
+          geometry: { x: 200.5, y: 0, width: 50, height: 100 },
+        },
+      ],
+      "e",
+      {
+        zoom: 100,
+        thresholdScreenPx: 6,
+        minWidth: 1,
+        minHeight: 1,
+        snapStep: WHOLE_PIXEL_SNAP_STEP,
+      },
+    );
+    expect(snap.guides).toHaveLength(1);
+    expect(snap.frame.width).toBe(200.5);
+  });
+
+  it("keeps an aspect-locked resize on its ratio and quantizes only the origin", () => {
+    const snap = computeResizeSnap(
+      { x: 40.6, y: 80.2, width: 200.5, height: 100.25 },
+      [],
+      "nw",
+      {
+        zoom: 100,
+        thresholdScreenPx: 6,
+        minWidth: 1,
+        minHeight: 1,
+        snapStep: WHOLE_PIXEL_SNAP_STEP,
+        preserveAspectRatio: true,
+      },
+    );
+    expect(snap.frame).toEqual({
+      x: 41,
+      y: 80,
+      width: 200.5,
+      height: 100.25,
+    });
+  });
+
+  it("does not quantize until a caller asks for a step", () => {
+    const snap = computeResizeSnap(
+      { x: 40.6, y: 80.2, width: 320.4, height: 240.7 },
+      [],
+      "se",
+      { zoom: 100, thresholdScreenPx: 6, minWidth: 1, minHeight: 1 },
+    );
+    expect(snap.frame.x).toBe(40.6);
+  });
+
+  it("lands on the nearest multiple of a step, and on whole px without one", () => {
+    expect(quantizeToStep(19, 8)).toBe(16);
+    expect(quantizeToStep(21, 8)).toBe(24);
+    expect(quantizeToStep(192.1, 8)).toBe(192);
+    expect(quantizeToStep(192.1, WHOLE_PIXEL_SNAP_STEP)).toBe(192);
+    expect(quantizeToStep(192.6)).toBe(193);
+  });
+
+  it("passes a non-finite value through instead of coercing it to a plausible zero", () => {
+    expect(quantizeToStep(Number.NaN)).toBeNaN();
+    expect(quantizeToStep(Number.POSITIVE_INFINITY)).toBe(
+      Number.POSITIVE_INFINITY,
+    );
+  });
+});
+
+describe("layout grid snapping", () => {
+  const moving = [
+    { id: "a", geometry: { x: 100, y: 100, width: 80, height: 40 } },
+  ];
+
+  it("lands a drag on the frame's grid, not just on a whole pixel", () => {
+    const snap = computeDragSnap(
+      [{ id: "a", geometry: { x: 103.4, y: 118.9, width: 80, height: 40 } }],
+      [],
+      { zoom: 100, thresholdScreenPx: 6, snapStep: 8 },
+    );
+    expect(103.4 + snap.dx).toBe(104);
+    expect(118.9 + snap.dy).toBe(120);
+  });
+
+  it("leaves an alignment guide's axis on the guide instead of pulling it to the grid", () => {
+    const snap = computeDragSnap(
+      [{ id: "a", geometry: { x: 101, y: 100, width: 80, height: 40 } }],
+      [{ id: "b", geometry: { x: 102, y: 400, width: 80, height: 40 } }],
+      { zoom: 100, thresholdScreenPx: 6, snapStep: 8 },
+    );
+    expect(snap.guides.some((guide) => guide.orientation === "vertical")).toBe(
+      true,
+    );
+    expect(101 + snap.dx).toBe(102);
+  });
+
+  it("does not snap at all while the bypass modifier is held", () => {
+    const snap = computeDragSnap(
+      [{ id: "a", geometry: { x: 103.4, y: 118.9, width: 80, height: 40 } }],
+      [],
+      { zoom: 100, thresholdScreenPx: 6, snapStep: 8, bypass: true },
+    );
+    expect(snap.dx).toBe(0);
+    expect(snap.dy).toBe(0);
+  });
+
+  it("lands a resize on the grid too", () => {
+    const snap = computeResizeSnap(
+      { x: 100, y: 100, width: 83.5, height: 41.2 },
+      [],
+      "se",
+      {
+        zoom: 100,
+        thresholdScreenPx: 6,
+        minWidth: 1,
+        minHeight: 1,
+        snapStep: 8,
+      },
+    );
+    expect(snap.frame.width).toBe(80);
+    expect(snap.frame.height).toBe(40);
+  });
+
+  it("keeps the whole-pixel floor for a frame with no grid", () => {
+    const snap = computeDragSnap(moving, [], {
+      zoom: 100,
+      thresholdScreenPx: 6,
+      snapStep: WHOLE_PIXEL_SNAP_STEP,
+    });
+    expect(snap.dx).toBe(0);
+    expect(snap.dy).toBe(0);
+  });
+});
+
 describe("canvas group bounds and camera math", () => {
   it("computes the bounding box for selected frames", () => {
     expect(
@@ -1512,6 +1911,26 @@ describe("canvas group bounds and camera math", () => {
       centerX: 35,
       centerY: 80,
     });
+  });
+
+  it("translates a selected element's screen-local rect into world-space bounds for zoom-to-selection", () => {
+    const screenGeometry: FrameGeometry = {
+      x: 500,
+      y: 1000,
+      width: 1440,
+      height: 3000,
+    };
+    const localRect = { x: 40, y: 20, width: 300, height: 64 };
+    expect(getElementWorldBoundsForZoomFit(screenGeometry, localRect)).toEqual(
+      getFrameBounds({ x: 540, y: 1020, width: 300, height: 64 }),
+    );
+    const wholeScreenBounds = getFrameBounds(screenGeometry);
+    const elementBounds = getElementWorldBoundsForZoomFit(
+      screenGeometry,
+      localRect,
+    );
+    expect(elementBounds.width).toBeLessThan(wholeScreenBounds.width);
+    expect(elementBounds.height).toBeLessThan(wholeScreenBounds.height);
   });
 
   it("fits bounds into the viewport using the canvas camera convention", () => {
@@ -1606,7 +2025,7 @@ describe("canvas ruler and pixel grid math", () => {
 });
 
 describe("canvas nudge math", () => {
-  it("maps arrow keys to deltas and multiplies by shift", () => {
+  it("maps arrow keys to deltas and takes the big step with shift", () => {
     expect(getNudgeDelta("ArrowLeft")).toEqual({
       dx: -1,
       dy: 0,
@@ -1619,6 +2038,19 @@ describe("canvas nudge math", () => {
       step: 10,
       snap: { bypass: false, reason: null },
     });
+  });
+
+  it("takes the caller's configured nudge amounts over the defaults", () => {
+    expect(
+      getNudgeDelta(
+        "ArrowRight",
+        { shiftKey: true },
+        { baseStep: 2, bigStep: 24 },
+      ),
+    ).toMatchObject({ dx: 24, step: 24 });
+    expect(
+      getNudgeDelta("ArrowRight", {}, { baseStep: 2, bigStep: 24 }),
+    ).toMatchObject({ dx: 2, step: 2 });
   });
 
   it("marks snap bypass metadata when a bypass modifier is held", () => {

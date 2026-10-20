@@ -1,0 +1,697 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import {
+  expect,
+  test,
+  type Page,
+  type Request,
+  type TestInfo,
+} from "@playwright/test";
+
+import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
+import {
+  renderReviewMarkdown,
+  reviewSignupJourney,
+  type JourneyStep,
+} from "../lib/agent-review";
+import {
+  createQaEmail,
+  isMailosaurInconclusiveError,
+  verificationLinkFor,
+  waitForVerificationEmail,
+} from "../lib/mailosaur";
+import { selectedSignupTargets, type SignupTarget } from "../lib/targets";
+
+const FINDINGS_PATH = join(
+  process.cwd(),
+  "e2e/signup/test-results/signup-agent/findings.md",
+);
+const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
+const REVIEW_SURFACE_LOADING_SELECTOR =
+  "[data-first-run-startup-loading]:visible, [aria-busy='true']:not(.sr-only):visible, .skeleton-shimmer:visible";
+const EMAIL_LINK_LANDING_PATH = "/_agent-native/auth/email-link/landing";
+const MAGIC_LINK_VERIFY_PATH = "/_agent-native/auth/ba/magic-link/verify";
+const SECRETS_ENDPOINTS = new Set([
+  "/_agent-native/secrets",
+  "/_agent-native/secrets/adhoc",
+]);
+
+type PostLinkState = "onboarding" | "app" | "unresolved";
+
+async function waitForPostLinkState(
+  page: Page,
+  pendingRequests?: Map<Request, number>,
+): Promise<PostLinkState> {
+  const deadline = Date.now() + REVIEW_SURFACE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (
+      (await page.locator('[data-onboarding-screen="role"]:visible').count()) >
+      0
+    ) {
+      return "onboarding";
+    }
+    const bodyText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    const appHidden = page.locator('[data-first-run-app-hidden="true"]');
+    const loadingSurface = page.locator(REVIEW_SURFACE_LOADING_SELECTOR);
+    if (
+      bodyText.trim().length >= 40 &&
+      (await appHidden.count()) === 0 &&
+      (await loadingSurface.count()) === 0 &&
+      (pendingRequests?.size ?? 0) === 0
+    ) {
+      return "app";
+    }
+    await page.waitForTimeout(500);
+  }
+  return "unresolved";
+}
+
+async function continueFromEmailLinkLanding(page: Page): Promise<void> {
+  const pageUrl = new URL(page.url());
+  const landingPath = pageUrl.pathname;
+  expect(landingPath.endsWith(EMAIL_LINK_LANDING_PATH)).toBe(true);
+
+  const form = page.locator("form");
+  await expect(form).toHaveAttribute("method", "post");
+  const action = await form.getAttribute("action");
+  expect(action).toBeTruthy();
+  const actionUrl = new URL(action!, page.url());
+  expect(actionUrl.origin).toBe(pageUrl.origin);
+  expect(actionUrl.pathname).toBe(landingPath);
+
+  const continueButton = form.locator('button[type="submit"]');
+  await expect(continueButton).toBeVisible();
+  const continueResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    return (
+      request.method() === "POST" &&
+      new URL(response.url()).pathname === landingPath
+    );
+  });
+  await continueButton.click();
+  expect((await continueResponse).status()).toBe(303);
+  await expect.poll(() => new URL(page.url()).pathname).not.toBe(landingPath);
+  expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
+}
+
+async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
+  const role = page.locator('[data-testid="first-run-role"]');
+  if (!(await role.isVisible().catch(() => false))) return false;
+
+  await role.getByRole("button", { name: /skip for now/i }).click();
+
+  // "Configure manually" now completes onboarding and redirects straight to
+  // Settings from the merged choice screen — there is no separate tools step
+  // on this path.
+  const skipManual = page.locator(
+    '[data-testid="first-run-open-key-settings"]',
+  );
+  await expect(skipManual).toBeVisible();
+
+  const completionResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    return (
+      request.method() === "POST" &&
+      new URL(response.url()).pathname ===
+        "/_agent-native/onboarding/first-run/complete"
+    );
+  });
+
+  await skipManual.click();
+
+  const completion = await completionResponse;
+  expect(completion.ok()).toBe(true);
+  await expect(page.locator("[data-first-run-app-hidden]")).toHaveCount(0);
+  await expect(page.locator("[data-onboarding-screen]")).toHaveCount(0);
+  return true;
+}
+
+async function fillMagicLinkEmail(page: Page, email: string): Promise<void> {
+  const emailInput = page.locator("#m-email");
+  const submit = page.locator("#magic-link-submit");
+  await emailInput.fill(email);
+  await expect(emailInput).toHaveValue(email);
+  await expect
+    .poll(
+      async () => {
+        await emailInput.fill(email);
+        return submit.isEnabled();
+      },
+      {
+        message:
+          "email signup form never became ready after accepting the test address",
+      },
+    )
+    .toBe(true);
+}
+
+function agentTargets(): SignupTarget[] {
+  const all = selectedSignupTargets();
+  if (all.length === 0) {
+    throw new Error("Signup agent lane resolved no targets.");
+  }
+  const requested = process.env.SIGNUP_AGENT_APPS?.trim();
+  if (requested) {
+    const wanted = new Set(
+      requested
+        .split(",")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    if (wanted.has("all")) return all;
+    const picked = all.filter((target) => wanted.has(target.app));
+    if (picked.length === 0) {
+      throw new Error(
+        `SIGNUP_AGENT_APPS=${requested} matched none of the eligible targets.`,
+      );
+    }
+    return picked;
+  }
+  const dayIndex = Math.floor(Date.now() / 86_400_000);
+  return [all[dayIndex % all.length]!];
+}
+
+function trackNetwork(page: Page, origin: string) {
+  const networkEvents: string[] = [];
+  const pendingRequests = new Map<Request, number>();
+  const isDiagnosticRequest = (url: string): boolean => {
+    try {
+      const parsed = new URL(url);
+      return (
+        parsed.origin === origin &&
+        (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
+          parsed.pathname.startsWith("/_agent-native/actions/") ||
+          SECRETS_ENDPOINTS.has(parsed.pathname) ||
+          parsed.pathname.endsWith(EMAIL_LINK_LANDING_PATH) ||
+          parsed.pathname.endsWith(MAGIC_LINK_VERIFY_PATH) ||
+          parsed.pathname === "/_agent-native/auth/magic-link" ||
+          parsed.pathname === "/_agent-native/auth/session" ||
+          parsed.pathname === "/_agent-native/org/me" ||
+          parsed.pathname === "/ask" ||
+          parsed.pathname === "/home")
+      );
+    } catch {
+      return false;
+    }
+  };
+  page.on("request", (request) => {
+    const url = request.url();
+    if (!isDiagnosticRequest(url)) return;
+    pendingRequests.set(request, Date.now());
+  });
+  page.on("response", (response) => {
+    if (!isDiagnosticRequest(response.url())) return;
+    const url = response.url();
+    const pathname = new URL(url).pathname;
+    const request = response.request();
+    const startedAt = pendingRequests.get(request);
+    if (!SECRETS_ENDPOINTS.has(pathname)) pendingRequests.delete(request);
+    const elapsed =
+      startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+    networkEvents.push(
+      `${request.method()} ${response.status()} ${pathname} ${elapsed}`,
+    );
+  });
+  page.on("requestfinished", (request) => {
+    const url = request.url();
+    if (!isDiagnosticRequest(url)) return;
+    const pathname = new URL(url).pathname;
+    if (!SECRETS_ENDPOINTS.has(pathname)) return;
+    const startedAt = pendingRequests.get(request);
+    pendingRequests.delete(request);
+    const elapsed =
+      startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+    networkEvents.push(`FINISHED ${request.method()} ${pathname} ${elapsed}`);
+  });
+  page.on("requestfailed", (request) => {
+    if (!isDiagnosticRequest(request.url())) return;
+    const url = request.url();
+    const pathname = new URL(url).pathname;
+    const startedAt = pendingRequests.get(request);
+    pendingRequests.delete(request);
+    if (SECRETS_ENDPOINTS.has(pathname)) {
+      const elapsed =
+        startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+      networkEvents.push(
+        `FAILED ${request.method()} ${pathname} ${elapsed} ${request.failure()?.errorText ?? "unknown"}`,
+      );
+      return;
+    }
+    networkEvents.push(
+      `FAILED ${request.method()} ${pathname} ${request.failure()?.errorText ?? "unknown"}`,
+    );
+  });
+  return { networkEvents, pendingRequests };
+}
+
+async function capture(
+  page: Page,
+  label: string,
+  consoleErrors: string[],
+  networkEvents: string[],
+  pendingRequests: Map<Request, number>,
+  testInfo: TestInfo,
+): Promise<JourneyStep> {
+  const domDiagnostics = await page
+    .evaluate(() => {
+      const describe = (selector: string) =>
+        [...document.querySelectorAll<HTMLElement>(selector)].map((element) => {
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return {
+            selector,
+            tag: element.tagName.toLowerCase(),
+            id: element.id || undefined,
+            className:
+              typeof element.className === "string"
+                ? element.className.slice(0, 180)
+                : undefined,
+            textLength: element.innerText.trim().length,
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          };
+        });
+
+      return JSON.stringify(
+        {
+          readyState: document.readyState,
+          title: document.title,
+          bodyTextLength: document.body?.innerText.trim().length ?? 0,
+          bodyChildren: [...(document.body?.children ?? [])].map((element) => ({
+            tag: element.tagName.toLowerCase(),
+            id: element.id || undefined,
+            className:
+              typeof element.className === "string"
+                ? element.className.slice(0, 180)
+                : undefined,
+          })),
+          surfaces: [
+            "#root",
+            "main",
+            ".analytics-ask-page",
+            ".analytics-chat-panel",
+            ".agent-panel-root",
+            "[data-agent-empty-state]",
+            "[data-first-run-startup-loading]",
+            "[data-onboarding-screen]",
+            "[data-onboarding-loading]",
+            "[data-first-run-app-hidden]",
+          ].flatMap(describe),
+        },
+        null,
+        2,
+      );
+    })
+    .catch((error) => `<DOM diagnostics unreadable: ${String(error)}>`);
+  const pending = [...pendingRequests.entries()].map(
+    ([request, startedAt]) =>
+      `PENDING ${request.method()} ${new URL(request.url()).pathname} ${Date.now() - startedAt}ms`,
+  );
+  const requestDiagnostics = [...networkEvents.slice(-30), ...pending];
+  const diagnosticText = `DOM diagnostics:\n${domDiagnostics}\n\nNetwork diagnostics:\n${requestDiagnostics.join(" | ") || "none"}`;
+  console.log(
+    `[signup-agent] ${label} network: ${requestDiagnostics.join(" | ") || "none"}`,
+  );
+  const visibleText = await page
+    .locator("body")
+    .innerText()
+    .then(
+      (text) => `${diagnosticText}\n\nVisible text:\n${text.slice(0, 6_000)}`,
+      (error) =>
+        `${diagnosticText}\n\n<page text unreadable: ${String(error)}>`,
+    );
+
+  const screenshot = await page.screenshot({ fullPage: false });
+  const screenshotPath = testInfo.outputPath(
+    `${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`,
+  );
+  mkdirSync(dirname(screenshotPath), { recursive: true });
+  writeFileSync(screenshotPath, screenshot);
+
+  return {
+    label,
+    url: page.url(),
+    visibleText,
+    screenshot,
+    consoleErrors: [...consoleErrors],
+    networkEvents: requestDiagnostics,
+  };
+}
+
+const targets = agentTargets();
+const reports: string[] = [];
+
+test.afterAll(() => {
+  if (reports.length === 0) return;
+  mkdirSync(dirname(FINDINGS_PATH), { recursive: true });
+  writeFileSync(FINDINGS_PATH, reports.join("\n\n"), "utf8");
+});
+
+for (const target of targets) {
+  test(`agent review of ${target.environment} ${target.app} signup`, async ({
+    browser,
+    page,
+  }, testInfo) => {
+    test.setTimeout(420_000);
+    const { errors } = collectAppPageErrors(page, target.origin);
+    const initialPageNetwork = trackNetwork(page, target.origin);
+    let postLinkPage: Page = page;
+    let postLinkErrors = () => errors;
+    let postLinkNetwork = initialPageNetwork;
+    const steps: JourneyStep[] = [];
+    const email = createQaEmail(target.app, target.environment);
+    const emailRequestedAt = Date.now() - 5_000;
+    let originalVerificationMessageId: string | undefined;
+
+    await test.step("open the sign-in page", async () => {
+      await page.goto(`${target.origin}/sign-in`, {
+        waitUntil: "domcontentloaded",
+      });
+      await renderedText(page, `${target.origin}/sign-in`);
+      steps.push(
+        await capture(
+          page,
+          "sign-in page",
+          errors,
+          initialPageNetwork.networkEvents,
+          initialPageNetwork.pendingRequests,
+          testInfo,
+        ),
+      );
+    });
+
+    await test.step("request a sign-in link", async () => {
+      const emailResult = waitForVerificationEmail(
+        email,
+        emailRequestedAt,
+      ).then(
+        (message) => ({ status: "fulfilled" as const, message }),
+        (error) => ({ status: "rejected" as const, error }),
+      );
+      const submit = page.locator("#magic-link-submit");
+      await fillMagicLinkEmail(page, email);
+      await submit.click();
+      await page.waitForTimeout(4_000);
+      steps.push(
+        await capture(
+          page,
+          "after requesting the link",
+          errors,
+          initialPageNetwork.networkEvents,
+          initialPageNetwork.pendingRequests,
+          testInfo,
+        ),
+      );
+      const result = await emailResult;
+      if (result.status === "rejected") {
+        if (isMailosaurInconclusiveError(result.error)) {
+          const marker = testInfo.outputPath("mailosaur-inconclusive.txt");
+          mkdirSync(dirname(marker), { recursive: true });
+          writeFileSync(marker, `${result.error.message}\n`, "utf8");
+          testInfo.skip(true, `INCONCLUSIVE: ${result.error.message}`);
+          return;
+        }
+        throw result.error;
+      }
+      const message = result.message;
+      originalVerificationMessageId = message.id;
+      const link = verificationLinkFor(message, target.origin);
+      const verificationPage = await page.context().newPage();
+      const { errors: verificationErrors } = collectAppPageErrors(
+        verificationPage,
+        target.origin,
+      );
+      const verificationPageNetwork = trackNetwork(
+        verificationPage,
+        target.origin,
+      );
+      const verificationResponse = await verificationPage.goto(link, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(verificationResponse).toBeTruthy();
+      expect(verificationResponse!.status()).toBeLessThan(400);
+      expect(new URL(verificationPage.url()).origin).toBe(target.origin);
+      expect(
+        new URL(verificationPage.url()).pathname.endsWith(
+          EMAIL_LINK_LANDING_PATH,
+        ),
+      ).toBe(true);
+      steps.push(
+        await capture(
+          verificationPage,
+          "scanner-safe email-link confirmation",
+          [...errors, ...verificationErrors],
+          verificationPageNetwork.networkEvents,
+          verificationPageNetwork.pendingRequests,
+          testInfo,
+        ),
+      );
+      await continueFromEmailLinkLanding(verificationPage);
+      const postLinkState = await waitForPostLinkState(
+        verificationPage,
+        verificationPageNetwork.pendingRequests,
+      );
+      steps.push(
+        await capture(
+          verificationPage,
+          `after Continue (${postLinkState})`,
+          [...errors, ...verificationErrors],
+          verificationPageNetwork.networkEvents,
+          verificationPageNetwork.pendingRequests,
+          testInfo,
+        ),
+      );
+      if (postLinkState === "onboarding") {
+        await completeFirstRunOnboarding(verificationPage);
+        await waitForPostLinkState(
+          verificationPage,
+          verificationPageNetwork.pendingRequests,
+        );
+        steps.push(
+          await capture(
+            verificationPage,
+            "after completing first-run onboarding",
+            [...errors, ...verificationErrors],
+            verificationPageNetwork.networkEvents,
+            verificationPageNetwork.pendingRequests,
+            testInfo,
+          ),
+        );
+      }
+      postLinkPage = verificationPage;
+      postLinkErrors = () => [...errors, ...verificationErrors];
+      postLinkNetwork = verificationPageNetwork;
+    });
+
+    await test.step("reload the way a stuck user would", async () => {
+      await postLinkPage.reload({ waitUntil: "domcontentloaded" });
+      await waitForPostLinkState(postLinkPage, postLinkNetwork.pendingRequests);
+      steps.push(
+        await capture(
+          postLinkPage,
+          "after a browser reload",
+          postLinkErrors(),
+          postLinkNetwork.networkEvents,
+          postLinkNetwork.pendingRequests,
+          testInfo,
+        ),
+      );
+    });
+
+    if (target.app === "content") {
+      await test.step("return to Recent from a new session", async () => {
+        const context = await browser.newContext();
+        try {
+          const signInPage = await context.newPage();
+          const { errors: signInErrors } = collectAppPageErrors(
+            signInPage,
+            target.origin,
+          );
+          const signInNetwork = trackNetwork(signInPage, target.origin);
+          await signInPage.goto(`${target.origin}/sign-in`, {
+            waitUntil: "domcontentloaded",
+          });
+          await renderedText(signInPage, `${target.origin}/sign-in`);
+          await fillMagicLinkEmail(signInPage, email);
+          const emailRequestedAt = Date.now() - 5_000;
+          const emailResult = waitForVerificationEmail(
+            email,
+            emailRequestedAt,
+            new Set(
+              originalVerificationMessageId
+                ? [originalVerificationMessageId]
+                : [],
+            ),
+          ).then(
+            (message) => ({ status: "fulfilled" as const, message }),
+            (error) => ({ status: "rejected" as const, error }),
+          );
+          await signInPage.locator("#magic-link-submit").click();
+          const result = await emailResult;
+          if (result.status === "rejected") {
+            if (isMailosaurInconclusiveError(result.error)) {
+              const marker = testInfo.outputPath("mailosaur-inconclusive.txt");
+              mkdirSync(dirname(marker), { recursive: true });
+              writeFileSync(marker, `${result.error.message}\n`, "utf8");
+              testInfo.skip(true, `INCONCLUSIVE: ${result.error.message}`);
+              return;
+            }
+            throw result.error;
+          }
+
+          const returningPage = await context.newPage();
+          const { errors: returningErrors } = collectAppPageErrors(
+            returningPage,
+            target.origin,
+          );
+          const returningNetwork = trackNetwork(returningPage, target.origin);
+          await returningPage.goto(
+            verificationLinkFor(result.message, target.origin),
+            { waitUntil: "domcontentloaded" },
+          );
+          await continueFromEmailLinkLanding(returningPage);
+          expect(
+            await waitForPostLinkState(
+              returningPage,
+              returningNetwork.pendingRequests,
+            ),
+          ).toBe("app");
+
+          const recentToggle = returningPage.getByRole("button", {
+            name: "Recent",
+            exact: true,
+          });
+          await expect(recentToggle).toBeVisible();
+          if ((await recentToggle.getAttribute("aria-expanded")) !== "true") {
+            await recentToggle.click();
+          }
+          const recentSection = returningPage
+            .locator("section")
+            .filter({ has: recentToggle });
+          const recentNav = recentSection.getByRole("navigation", {
+            name: "Recent",
+            exact: true,
+          });
+          const recentEmpty = recentSection.getByText(/No recent visits/i);
+          await expect
+            .poll(
+              async () =>
+                (await recentNav.count()) + (await recentEmpty.count()),
+              { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+            )
+            .toBeGreaterThan(0);
+          await expect(
+            recentSection.getByText(/Something went wrong/i),
+          ).toHaveCount(0);
+          await expect(
+            recentSection.getByRole("button", { name: /Retry/i }),
+          ).toHaveCount(0);
+          steps.push(
+            await capture(
+              returningPage,
+              "content Recent after returning sign-in",
+              [...errors, ...signInErrors, ...returningErrors],
+              [
+                ...signInNetwork.networkEvents,
+                ...returningNetwork.networkEvents,
+              ],
+              new Map([
+                ...signInNetwork.pendingRequests,
+                ...returningNetwork.pendingRequests,
+              ]),
+              testInfo,
+            ),
+          );
+        } finally {
+          await context.close();
+        }
+      });
+    }
+
+    if (target.app === "design") {
+      await test.step("open API keys after signup", async () => {
+        const secretsResponses = Promise.all(
+          [...SECRETS_ENDPOINTS].map((pathname) =>
+            postLinkPage.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === pathname &&
+                response.request().method() === "GET",
+              { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+            ),
+          ),
+        );
+        await postLinkPage.goto(`${target.origin}/settings/keys`, {
+          waitUntil: "domcontentloaded",
+        });
+        const responses = await secretsResponses;
+        for (const [index, response] of responses.entries()) {
+          const pathname = [...SECRETS_ENDPOINTS][index];
+          expect(
+            response.ok(),
+            `GET ${pathname} returned HTTP ${response.status()}`,
+          ).toBe(true);
+        }
+        await expect(
+          postLinkPage.getByRole("heading", { name: /API keys/i }),
+        ).toBeVisible({ timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 });
+        await expect(postLinkPage.getByText(/No keys yet/i)).toBeVisible({
+          timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000,
+        });
+        await expect
+          .poll(
+            () =>
+              [...postLinkNetwork.pendingRequests.keys()].some((request) =>
+                SECRETS_ENDPOINTS.has(new URL(request.url()).pathname),
+              ),
+            { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+          )
+          .toBe(false);
+        await expect(
+          postLinkPage.locator(
+            '[role="status"][aria-label="Loading settings"]',
+          ),
+        ).toHaveCount(0, { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 });
+        steps.push(
+          await capture(
+            postLinkPage,
+            "design API keys",
+            postLinkErrors(),
+            postLinkNetwork.networkEvents,
+            postLinkNetwork.pendingRequests,
+            testInfo,
+          ),
+        );
+      });
+    }
+
+    const review = await reviewSignupJourney(
+      target.app,
+      target.environment,
+      steps,
+    );
+    const markdown = renderReviewMarkdown(
+      target.app,
+      target.environment,
+      review,
+    );
+    reports.push(markdown);
+    await test.info().attach(`agent-review-${target.app}`, {
+      body: markdown,
+      contentType: "text/markdown",
+    });
+    for (const step of steps) {
+      await test.info().attach(`${target.app}-${step.label}`, {
+        body: step.screenshot,
+        contentType: "image/png",
+      });
+    }
+    console.log(markdown);
+  });
+}

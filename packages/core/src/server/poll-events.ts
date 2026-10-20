@@ -26,27 +26,37 @@ export function canSeeAwarenessChangeForUser(
   return canSeeChangeForUser(change, userEmail, orgId);
 }
 
-/**
- * Stream in-process poll events over SSE.
- *
- * This is the fast path for agent/tool/action writes that happen in the same
- * server process. The regular /poll endpoint remains the cross-process and
- * serverless cold-start fallback because it can detect DB timestamp changes
- * even when the write happened somewhere this EventEmitter could not see.
- *
- * Also forwards awareness change events (cursor/presence updates) so
- * connected peers receive cursor moves push-style instead of waiting for
- * the next poll cycle. Polling fallback keeps working — cursors degrade
- * gracefully to poll cadence without SSE.
- *
- * `state` defaults to the process-wide instance so self-hosted apps are
- * unchanged; the hosted gateway passes a per-app instance to fan out that
- * app's events (awareness stays on the process-global emitter and is a v0
- * gateway Non-Goal).
- */
+export interface PollEventsHandlerOptions {
+  maxDurationMs?: number;
+}
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const ACCESS_CHECK_WAIT_MS = 10_000;
+
+export function validateSseMaxDurationMs(
+  value: unknown,
+  name = "maxDurationMs",
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value <= 0 ||
+    value > MAX_TIMER_DELAY_MS
+  ) {
+    throw new RangeError(
+      `${name} must be a positive finite number of milliseconds no greater than ${MAX_TIMER_DELAY_MS}; received ${typeof value === "number" ? value : JSON.stringify(value)}.`,
+    );
+  }
+  return value;
+}
+
 export function createPollEventsHandler(
   state: AppSyncState = getDefaultAppSyncState(),
+  options: PollEventsHandlerOptions = {},
 ) {
+  const maxDurationMs = validateSseMaxDurationMs(options.maxDurationMs);
+
   return defineEventHandler(async (event) => {
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {
@@ -60,22 +70,62 @@ export function createPollEventsHandler(
     const safePush = (data: string) => {
       if (closed) return;
       try {
-        stream.push(data);
+        void stream.push(data);
       } catch {
         // EventSource will reconnect; /poll catches anything missed.
       }
     };
 
-    const push = (change: ChangeEvent) => {
+    // An event whose access check is still running is held, and every later
+    // event queues behind it: the client's cursor only moves forward, so an
+    // event delivered after a newer one is discarded as already seen.
+    let held: Promise<void> | null = null;
+
+    const deliver = async (change: ChangeEvent) => {
+      const visibility = await state.resolveChangeVisibilityForUser(
+        change,
+        session.email,
+        session.orgId,
+        ACCESS_CHECK_WAIT_MS,
+      );
       if (closed) return;
-      if (!state.canSeeChangeForUser(change, session.email, session.orgId)) {
-        return;
+      if (visibility === "visible") {
+        safePush(JSON.stringify(change));
+      } else if (visibility === "pending") {
+        // The reconnecting client polls from its last delivered cursor.
+        closed = true;
+        void stream.close();
       }
-      safePush(JSON.stringify(change));
     };
 
-    // Awareness fast-path: forward cursor/presence events immediately.
-    // No ring-buffer needed — clients reconcile on the next poll if SSE is down.
+    const push = (change: ChangeEvent) => {
+      if (closed) return;
+      if (!held) {
+        const visibility = state.getChangeVisibilityForUser(
+          change,
+          session.email,
+          session.orgId,
+        );
+        if (visibility === "hidden") return;
+        if (visibility === "visible") {
+          safePush(JSON.stringify(change));
+          return;
+        }
+      }
+      const tail: Promise<void> = (held ?? Promise.resolve())
+        .then(() => deliver(change))
+        .catch(() => {})
+        .finally(() => {
+          if (held === tail) held = null;
+        });
+      held = tail;
+    };
+
+    const pushHeartbeat = () => {
+      if (closed) return;
+      void stream.push({ event: "heartbeat", data: "" });
+    };
+
     const pushAwareness = (change: AwarenessChangeEvent) => {
       if (closed) return;
       if (!canSeeAwarenessChangeForUser(change, session.email, session.orgId)) {
@@ -85,19 +135,24 @@ export function createPollEventsHandler(
     };
 
     state.getPollEmitter().on(POLL_CHANGE_EVENT, push);
-    // Awareness lives ONLY on the process-global emitter and is filtered via the
-    // module-level (default-state) access path — both untenable in a multi-app
-    // gateway process, where they'd leak another app's presence/document id and
-    // resolve access against the wrong tenant. Fail closed: only the default
-    // (in-process) instance forwards awareness. The gateway advertises
-    // `no-awareness` so collab keeps its own presence cadence.
     const forwardAwareness = state === getDefaultAppSyncState();
     if (forwardAwareness) {
       getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, pushAwareness);
     }
 
+    pushHeartbeat();
+    const heartbeatTimer = setInterval(pushHeartbeat, 10_000);
+    const lifespanTimer = maxDurationMs
+      ? setTimeout(() => {
+          closed = true;
+          void stream.close();
+        }, maxDurationMs)
+      : undefined;
+
     stream.onClosed(() => {
       closed = true;
+      clearInterval(heartbeatTimer);
+      if (lifespanTimer) clearTimeout(lifespanTimer);
       state.getPollEmitter().off(POLL_CHANGE_EVENT, push);
       if (forwardAwareness) {
         getAwarenessEmitter().off(AWARENESS_CHANGE_EVENT, pushAwareness);

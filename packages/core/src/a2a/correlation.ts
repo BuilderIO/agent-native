@@ -5,7 +5,6 @@ export const MAX_A2A_DELEGATION_HOPS = 3;
 
 const APP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
-// Model ids also carry `/` (provider-prefixed gateway ids).
 const MODEL_HINT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
 
 function boundedIdentifier(
@@ -28,20 +27,16 @@ export function sanitizeA2ACorrelationId(value: unknown): string | undefined {
   return boundedIdentifier(value, CORRELATION_ID_PATTERN);
 }
 
-/**
- * Keep only bounded, opaque ASCII correlation identifiers. These values
- * remain telemetry hints; authentication continues to come exclusively from
- * the verified A2A token/request context. `callerModel` is the one value here
- * a receiver may act on, and only as a preference — it never reaches identity,
- * org, access, or approval resolution, and it can only name a model the
- * receiver's own engine already offers (see `resolveDelegatedRunModel`).
- */
 export function sanitizeA2ACorrelationMetadata(
   value: unknown,
 ): A2ACorrelationMetadata {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const metadata = value as Record<string, unknown>;
   const callerApp = boundedIdentifier(metadata.callerApp, APP_ID_PATTERN);
+  const selectedReceiverApp = boundedIdentifier(
+    metadata.selectedReceiverApp,
+    APP_ID_PATTERN,
+  );
   const callerThreadId = sanitizeA2ACorrelationId(metadata.callerThreadId);
   const parentRunId = sanitizeA2ACorrelationId(metadata.parentRunId);
   const parentTurnId = sanitizeA2ACorrelationId(metadata.parentTurnId);
@@ -67,9 +62,6 @@ export function sanitizeA2ACorrelationMetadata(
       ].slice(0, MAX_A2A_DELEGATION_HOPS + 1)
     : [];
   const pathDepth = Math.min(MAX_A2A_DELEGATION_HOPS, visitedApps.length);
-  // Damaged lineage must never reset a nested call to depth zero. Derive at
-  // least the valid path length, and fail closed at the hop limit when a peer
-  // supplied an explicit but invalid depth.
   const delegationDepth =
     providedDelegationDepth !== undefined
       ? Math.max(providedDelegationDepth, pathDepth)
@@ -80,6 +72,7 @@ export function sanitizeA2ACorrelationMetadata(
           : undefined;
   return {
     ...(callerApp ? { callerApp } : {}),
+    ...(selectedReceiverApp ? { selectedReceiverApp } : {}),
     ...(callerThreadId ? { callerThreadId } : {}),
     ...(parentRunId ? { parentRunId } : {}),
     ...(parentTurnId ? { parentTurnId } : {}),

@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/**
- * file-lease.mjs — PreToolUse(Edit|Write|MultiEdit|NotebookEdit)
- *
- * Many agents share one checkout by design. Today they discover collisions
- * only after a diff quietly vanishes: "another agent landed its OWN complete
- * fix for the exact same bug in the exact same file, overwriting my in-progress
- * edits on disk". The inverse is just as costly — a false "you reverted my
- * work" accusation burns a whole investigation round.
- *
- * Two checks, both cheap:
- *   1. Another live session (lease newer than LEASE_TTL_MS) holds this file →
- *      deny and name the holder, so the agents coordinate instead of racing.
- *   2. The file changed on disk since THIS session last wrote it → deny, so a
- *      peer's landed edit is never silently overwritten by a stale buffer.
- *
- * Leases live in .claude/leases/ (gitignored) and are just a timestamp plus
- * the session id; a crashed session's lease expires on its own.
- */
 
 import { createHash } from "node:crypto";
 import {
@@ -49,8 +31,6 @@ const leasePath = path.join(
 const now = Date.now();
 const diskMtime = mtimeOf(file);
 
-// PostToolUse re-stamps the lease with the mtime our own write just produced.
-// Without that, our next edit to the same file would look like a peer's change.
 if (input.hook_event_name === "PostToolUse") {
   writeLease();
   allow();
@@ -78,19 +58,13 @@ if (
 if (
   previous &&
   previous.session === session &&
-  diskMtime !== null &&
   previous.mtime !== null &&
-  diskMtime > previous.mtime
+  (diskMtime === null || diskMtime > previous.mtime)
 ) {
-  // Record the mtime we just objected to BEFORE denying, so this fires once
-  // and the retry proceeds. Re-reading a file runs no hook, so without this
-  // the lease keeps its stale mtime, every retry compares against it, and the
-  // file is wedged for the full lease TTL — the deny becomes unsatisfiable
-  // rather than informative.
   writeLease();
   deny(
     `${show(file)} changed on disk since you last wrote it — ` +
-      `another agent edited it while you were working.\n\n` +
+      `another agent edited or deleted it while you were working.\n\n` +
       `Re-read the file before editing so you build on their change instead of ` +
       `reverting it. Losing a peer's landed work this way is the exact failure ` +
       `this check exists to prevent. Re-running this edit after re-reading will ` +
@@ -98,25 +72,41 @@ if (
   );
 }
 
-writeLease();
+if (!previous || previous.session === session) {
+  writeLease();
+  allow();
+}
+
+if (!writeLease(/* exclusive */ true)) {
+  const winner = readLease(leasePath);
+  if (winner && winner.session !== session && now - winner.at < LEASE_TTL_MS) {
+    deny(
+      `Another agent session (\`${winner.session.slice(0, 8)}\`) claimed ` +
+        `${show(file)} moments ago, winning a race to acquire it.\n\n` +
+        `Do not overwrite it. Work on a different file, or retry shortly.`,
+    );
+  }
+  writeLease();
+}
 allow();
 
-function writeLease() {
+function writeLease(exclusive = false) {
   try {
     mkdirSync(leaseDir, { recursive: true });
     sweep();
     writeFileSync(
       leasePath,
       JSON.stringify({ session, at: now, mtime: diskMtime, file }),
+      exclusive ? { flag: "wx" } : undefined,
     );
-  } catch {
-    // A lease we cannot record is a missed collision warning, not a reason to
-    // block the user's edit. Surface it and continue.
+    return true;
+  } catch (err) {
+    if (exclusive && err?.code === "EEXIST") return false;
     process.stderr.write("file-lease: could not record lease\n");
+    return true;
   }
 }
 
-/** Drop leases nobody has touched for an hour so the directory stays small. */
 function sweep() {
   try {
     for (const name of readdirSync(leaseDir)) {

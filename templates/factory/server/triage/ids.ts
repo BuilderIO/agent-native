@@ -13,9 +13,13 @@ export function itemDedupeKey(
     headSha?: string;
   },
   organizationId = "",
+  factoryId = "",
 ): string {
+  const factorySegment =
+    factoryId && factoryId !== "product-feedback" ? factoryId : "";
   return stableId(
     organizationId,
+    factorySegment,
     input.source,
     input.externalId,
     input.repository ?? "",

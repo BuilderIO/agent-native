@@ -138,13 +138,33 @@ export interface LocalWorkspaceResourceFile extends LocalWorkspaceResourceMeta {
   content: string;
 }
 
-export interface LocalWorkspaceResourceOptions extends LoadAgentNativeManifestOptions {}
+export interface LocalWorkspaceResourceOptions extends LoadAgentNativeManifestOptions {
+  maxResults?: number;
+  pathPrefix?: string;
+}
 
 export interface WriteLocalWorkspaceResourceOptions extends LocalWorkspaceResourceOptions {
   path: string;
   content: string;
   expectedHash?: string | null;
   ifNotExists?: boolean;
+}
+
+export interface DeleteLocalWorkspaceResourceIfCurrentOptions extends LocalWorkspaceResourceOptions {
+  path: string;
+  expectedHash: string;
+  expectedAbsolutePath: string;
+}
+
+export interface WriteLocalWorkspaceResourceIfCurrentOptions extends WriteLocalWorkspaceResourceOptions {
+  expectedHash: string;
+  expectedAbsolutePath: string;
+}
+
+export interface WriteLocalWorkspaceResourceIfAbsentAtPathOptions extends LocalWorkspaceResourceOptions {
+  path: string;
+  content: string;
+  expectedAbsolutePath: string;
 }
 
 const MANIFEST_FILE = "agent-native.json";
@@ -1183,6 +1203,8 @@ async function walkLocalWorkspaceSkillRoot(
   workspaceRoot: string,
   skillRoot: string,
   seenPaths: Set<string>,
+  maxResults: number,
+  pathPrefix?: string,
 ): Promise<LocalWorkspaceResourceMeta[]> {
   const absoluteRoot = path.join(workspaceRoot, skillRoot);
   try {
@@ -1194,6 +1216,7 @@ async function walkLocalWorkspaceSkillRoot(
 
   const files: LocalWorkspaceResourceMeta[] = [];
   async function walk(directory: string): Promise<void> {
+    if (files.length >= maxResults) return;
     let entries: fsSync.Dirent[];
     try {
       entries = await fs.readdir(directory, { withFileTypes: true });
@@ -1203,6 +1226,7 @@ async function walkLocalWorkspaceSkillRoot(
     }
 
     for (const entry of entries) {
+      if (files.length >= maxResults) break;
       if (entry.name === ".DS_Store") continue;
       const absolutePath = path.join(directory, entry.name);
       const relativeToSkillRoot = normalizeSlash(
@@ -1211,6 +1235,13 @@ async function walkLocalWorkspaceSkillRoot(
       const resourcePath = normalizeSlash(
         path.posix.join("skills", relativeToSkillRoot),
       );
+      if (
+        pathPrefix &&
+        !resourcePath.startsWith(pathPrefix) &&
+        !(entry.isDirectory() && pathPrefix.startsWith(`${resourcePath}/`))
+      ) {
+        continue;
+      }
       if (seenPaths.has(resourcePath)) continue;
       if (entry.isDirectory()) {
         await walk(absolutePath);
@@ -1235,12 +1266,22 @@ async function walkLocalWorkspaceSkillRoot(
 export async function listLocalWorkspaceResources(
   options: LocalWorkspaceResourceOptions = {},
 ): Promise<LocalWorkspaceResourceMeta[]> {
+  const maxResults =
+    options.maxResults === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, Math.floor(options.maxResults));
+  if (maxResults === 0) return [];
+
   const workspaceRoot = await resolveLocalWorkspaceRoot(options);
   if (!workspaceRoot) return [];
 
   const seenPaths = new Set<string>();
   const resources: LocalWorkspaceResourceMeta[] = [];
   for (const resourcePath of LOCAL_WORKSPACE_CONTROL_FILES) {
+    if (resources.length >= maxResults) break;
+    if (options.pathPrefix && !resourcePath.startsWith(options.pathPrefix)) {
+      continue;
+    }
     const { absolutePath } = localWorkspaceResourceAbsolutePath(
       workspaceRoot,
       resourcePath,
@@ -1256,11 +1297,14 @@ export async function listLocalWorkspaceResources(
   }
 
   for (const skillRoot of LOCAL_WORKSPACE_SKILL_ROOTS) {
+    if (resources.length >= maxResults) break;
     resources.push(
       ...(await walkLocalWorkspaceSkillRoot(
         workspaceRoot,
         skillRoot,
         seenPaths,
+        maxResults - resources.length,
+        options.pathPrefix,
       )),
     );
   }
@@ -1369,4 +1413,136 @@ export async function deleteLocalWorkspaceResource(
     }
   }
   return deleted;
+}
+
+export async function deleteLocalWorkspaceResourceIfCurrent(
+  options: DeleteLocalWorkspaceResourceIfCurrentOptions,
+): Promise<boolean> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) {
+    throw new Error("Local file mode is not enabled");
+  }
+  const { resourcePath, absolutePath } = localWorkspaceResourceAbsolutePath(
+    workspaceRoot,
+    options.path,
+    { preferExisting: true },
+  );
+  if (
+    !isSupportedLocalWorkspaceTextFile(resourcePath) ||
+    absolutePath !== path.resolve(options.expectedAbsolutePath)
+  ) {
+    return false;
+  }
+  return withWriteLock(absolutePath, async () => {
+    const existing = await readLocalWorkspaceResource({
+      ...options,
+      path: resourcePath,
+    });
+    if (
+      !existing ||
+      existing.absolutePath !== absolutePath ||
+      existing.hash !== options.expectedHash
+    ) {
+      return false;
+    }
+    try {
+      assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
+      await fs.unlink(absolutePath);
+      return true;
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return false;
+      throw error;
+    }
+  });
+}
+
+export async function writeLocalWorkspaceResourceIfCurrent(
+  options: WriteLocalWorkspaceResourceIfCurrentOptions,
+): Promise<LocalWorkspaceResourceMeta | null> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) {
+    throw new Error("Local file mode is not enabled");
+  }
+  const { resourcePath, absolutePath } = localWorkspaceResourceAbsolutePath(
+    workspaceRoot,
+    options.path,
+    { preferExisting: true },
+  );
+  if (
+    !isSupportedLocalWorkspaceTextFile(resourcePath) ||
+    absolutePath !== path.resolve(options.expectedAbsolutePath)
+  ) {
+    return null;
+  }
+  return withWriteLock(absolutePath, async () => {
+    const existing = await readLocalWorkspaceResource({
+      ...options,
+      path: resourcePath,
+    });
+    if (
+      !existing ||
+      existing.absolutePath !== absolutePath ||
+      existing.hash !== options.expectedHash
+    ) {
+      return null;
+    }
+    assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
+      allowMissingLeaf: true,
+    });
+    const tempPath = path.join(
+      path.dirname(absolutePath),
+      `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+    );
+    await fs.writeFile(tempPath, options.content, "utf8");
+    await fs.rename(tempPath, absolutePath);
+    const stat = await fs.stat(absolutePath);
+    return localWorkspaceResourceMeta(
+      resourcePath,
+      absolutePath,
+      options.content,
+      stat,
+    );
+  });
+}
+
+export async function writeLocalWorkspaceResourceIfAbsentAtPath(
+  options: WriteLocalWorkspaceResourceIfAbsentAtPathOptions,
+): Promise<LocalWorkspaceResourceMeta | null> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) {
+    throw new Error("Local file mode is not enabled");
+  }
+  const resourcePath = normalizeLocalWorkspaceResourcePath(options.path);
+  if (!isSupportedLocalWorkspaceTextFile(resourcePath)) return null;
+  const absolutePath = path.resolve(options.expectedAbsolutePath);
+  const candidates = localWorkspaceResourceDeletePaths(
+    workspaceRoot,
+    resourcePath,
+  );
+  if (
+    !candidates.includes(absolutePath) ||
+    candidates.some(fsSync.existsSync)
+  ) {
+    return null;
+  }
+  return withWriteLock(absolutePath, async () => {
+    if (candidates.some(fsSync.existsSync)) return null;
+    assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
+      allowMissingLeaf: true,
+    });
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    const tempPath = path.join(
+      path.dirname(absolutePath),
+      `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+    );
+    await fs.writeFile(tempPath, options.content, "utf8");
+    await fs.rename(tempPath, absolutePath);
+    const stat = await fs.stat(absolutePath);
+    return localWorkspaceResourceMeta(
+      resourcePath,
+      absolutePath,
+      options.content,
+      stat,
+    );
+  });
 }

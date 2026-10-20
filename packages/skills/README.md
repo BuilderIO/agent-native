@@ -34,7 +34,7 @@ skill installs. Explicit app-backed installs such as `visual-plan`,
 `@agent-native/core` so mode selection, MCP registration, and local-files
 instructions stay in one framework-owned flow.
 
-Generated Agent Native apps and workspaces can refresh their framework-provided
+Generated Agent-Native apps and workspaces can refresh their framework-provided
 `.agents/skills` from the latest installed CLI with:
 
 ```bash

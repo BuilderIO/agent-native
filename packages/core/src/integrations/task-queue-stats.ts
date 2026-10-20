@@ -1,12 +1,3 @@
-/**
- * Read-only observability helpers for the integration task queue.
- *
- * Lives in its own file so it stays out of `pending-tasks-store.ts`, which is
- * actively being edited by the agent that owns the queue itself. These
- * Queue reads never expose payloads or user text. The helper first runs the
- * additive schema guard so older deployments gain the dispatch diagnostic
- * columns before the SELECTs execute.
- */
 import { getDbExec } from "../db/client.js";
 import { ensureA2AContinuationsTable } from "./a2a-continuations-store.js";
 import { ensurePendingTasksTable } from "./pending-tasks-store.js";
@@ -69,17 +60,21 @@ const ZERO_STATS: TaskQueueStats = {
 };
 
 function isMissingTableError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err ?? "");
-  return /no such table|does not exist|relation .* does not exist|undefined_table/i.test(
-    msg,
-  );
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : (JSON.stringify(err ?? "") ?? "");
+  return /does not exist|relation .* does not exist|undefined_table/i.test(msg);
 }
 
-/**
- * Get a snapshot of the integration task queue health.
- *
- * Safe to call before the pending-tasks store has initialized the schema.
- */
+function stringValue(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (value == null) return fallback;
+  return JSON.stringify(value) ?? fallback;
+}
+
 export async function getTaskQueueStats(
   scope: TaskQueueStatsScope,
 ): Promise<TaskQueueStats> {
@@ -95,7 +90,6 @@ export async function getTaskQueueStats(
   const scopeArgs = [scope.ownerEmail, scope.orgId, scope.orgId];
 
   try {
-    // Status counts (pending, processing) — only need the live ones.
     const liveCounts = await client.execute({
       sql: `SELECT status, COUNT(*) AS c FROM integration_pending_tasks
             WHERE ${scopeSql}
@@ -113,9 +107,6 @@ export async function getTaskQueueStats(
       else if (status === "processing") processing = count;
     }
 
-    // Last-hour completion + failure counts. updated_at is the most reliable
-    // column — completed_at can be null on failed tasks, and created_at would
-    // miss tasks queued >1h ago that just finished now.
     const lastHourCounts = await client.execute({
       sql: `SELECT status, COUNT(*) AS c FROM integration_pending_tasks
             WHERE ${scopeSql}
@@ -133,7 +124,6 @@ export async function getTaskQueueStats(
       else if (status === "failed") failedLastHour = count;
     }
 
-    // Oldest pending task — used to surface stuck queues.
     let oldestPendingAgeSeconds = 0;
     if (pending > 0) {
       const oldest = await client.execute({
@@ -154,8 +144,6 @@ export async function getTaskQueueStats(
       }
     }
 
-    // Recent failures, capped at 5 — enough to spot patterns without
-    // blowing up the response payload.
     const failures = await client.execute({
       sql: `SELECT id, platform, error_message, attempts FROM integration_pending_tasks
             WHERE ${scopeSql}
@@ -167,9 +155,9 @@ export async function getTaskQueueStats(
     const recentFailures: RecentFailure[] = (
       failures.rows as Array<Record<string, unknown>>
     ).map((row) => ({
-      id: String(row.id ?? ""),
-      platform: String(row.platform ?? ""),
-      error: String(row.error_message ?? ""),
+      id: stringValue(row.id),
+      platform: stringValue(row.platform),
+      error: stringValue(row.error_message),
       attempts: Number(row.attempts ?? 0),
     }));
 
@@ -184,15 +172,15 @@ export async function getTaskQueueStats(
     });
     const recentTasks = (recent.rows as Array<Record<string, unknown>>).map(
       (row) => ({
-        id: String(row.id ?? ""),
-        platform: String(row.platform ?? ""),
-        status: String(row.status ?? ""),
+        id: stringValue(row.id),
+        platform: stringValue(row.platform),
+        status: stringValue(row.status),
         attempts: Number(row.attempts ?? 0),
         dispatch_attempts: Number(row.dispatch_attempts ?? 0),
         last_dispatch_outcome:
           row.last_dispatch_outcome == null
             ? null
-            : String(row.last_dispatch_outcome),
+            : stringValue(row.last_dispatch_outcome),
         age_seconds: Math.max(
           0,
           Math.floor((now - Number(row.created_at ?? now)) / 1000),
@@ -297,9 +285,9 @@ async function readA2AContinuationStats(
     const oldestCreatedAt = Number(live.rows[0]?.oldest_created_at ?? now);
     const recentOrphans = (orphaned.rows as Array<Record<string, unknown>>).map(
       (row) => ({
-        continuation_id: String(row.id ?? ""),
-        integration_task_id: String(row.integration_task_id ?? ""),
-        status: String(row.status ?? ""),
+        continuation_id: stringValue(row.id),
+        integration_task_id: stringValue(row.integration_task_id),
+        status: stringValue(row.status),
         attempts: Number(row.attempts ?? 0),
         age_seconds: Math.max(
           0,
@@ -331,7 +319,7 @@ async function readA2AContinuationStats(
 }
 
 function classifyA2AOrphanReason(value: unknown): string {
-  const message = String(value ?? "");
+  const message = stringValue(value);
   if (!message) return "missing_terminal_delivery";
   if (/timeout|timed out|abort/i.test(message)) return "timeout";
   if (/token|secret|auth|credential/i.test(message)) return "authentication";

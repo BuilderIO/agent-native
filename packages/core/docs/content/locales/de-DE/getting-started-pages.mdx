@@ -7,14 +7,16 @@ description: "Erstellen Sie eine React-Route, die Ihre Aktion aufruft und ihr Er
 
 Dies ist der dritte Teil der Reihe „Erste Schritte“. In [Eine Aktion hinzufügen](/docs/getting-started-actions)
 haben Sie `analyze-text` erstellt. Hier rufen Sie dieselbe Aktion aus einer Route
-auf. Eine Datenbank wird noch nicht benötigt: Chat enthält bereits die
-SQL-Laufzeitumgebung für den Fall, dass Sie Fachdaten speichern müssen.
+auf. Für dieses Beispiel ist keine neue Datenbanktabelle erforderlich. Chat
+speichert den Chatverlauf bereits in SQL; fügen Sie eigene Tabellen hinzu, wenn
+Sie Fachdaten speichern müssen.
 
 ## Die Route erstellen {#add-a-page}
 
-Routendateien in `app/routes/` werden automatisch erkannt. Erstellen Sie
-`app/routes/text-analyses.tsx`; die Route ist dann unter
-`http://localhost:8080/text-analyses` verfügbar.
+Der Entwicklungsserver liest Routendateien beim Start. Erstellen Sie
+`app/routes/text-analyses.tsx` und starten Sie `pnpm dev` neu, falls es bereits
+läuft. Öffnen Sie die von `pnpm dev` ausgegebene lokale URL und hängen Sie
+`/text-analyses` an; der Port kann sich ändern, wenn 8080 bereits belegt ist.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -61,7 +63,7 @@ export default function TextAnalysesRoute() {
 verwendet. Die Seite benötigt weder eine benutzerdefinierte API-Route noch eine
 zweite Datenschicht oder SQL.
 
-Öffnen Sie `http://localhost:8080/text-analyses` oder bitten Sie den Agenten:
+Öffnen Sie die ausgegebene lokale URL mit angehängtem `/text-analyses` oder bitten Sie den Agenten:
 
 > Navigate to `/text-analyses`.
 

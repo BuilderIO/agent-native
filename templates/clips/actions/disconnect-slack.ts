@@ -1,11 +1,4 @@
-/**
- * disconnect-slack
- *
- * Stops Clips from using a connected Slack workspace by deleting the encrypted
- * bot token and marking the install disconnected.
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 

@@ -1,14 +1,19 @@
-/**
- * Shared types between client and server
- */
+import type { RevealUnresolvedReason } from "../app/lib/slide-animation-elements";
+import {
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+  SLIDE_TRANSITION_SPEED,
+  type SlideTransitionType,
+} from "./slide-transitions";
 
 export interface DemoResponse {
   message: string;
 }
 
-// --- Default Style References ---
-
 export const DEFAULT_STYLE_REFERENCE_URLS: string[] = [];
+export const MAX_REFERENCE_IMAGE_INPUT_COUNT = 32;
+export const MAX_REFERENCE_IMAGE_COUNT = 8;
+export const MAX_GEMINI_REFERENCE_IMAGE_COUNT = 4;
 
 export function normalizeReferenceUrls(
   urls: readonly string[] | null | undefined,
@@ -23,16 +28,14 @@ export function normalizeReferenceUrls(
   return normalized;
 }
 
-// --- Image Generation ---
-
 export type ImageGenModel = "gemini" | "openai" | "auto";
 
 export interface ImageGenRequest {
   prompt: string;
   model: ImageGenModel;
   size?: string;
-  referenceImageUrls?: string[]; // URLs of reference images
-  uploadedReferenceImages?: string[]; // base64 data URLs
+  referenceImageUrls?: string[];
+  uploadedReferenceImages?: string[];
 }
 
 export interface ImageGenStatusResponse {
@@ -40,8 +43,6 @@ export interface ImageGenStatusResponse {
   openai: boolean;
   preferredProvider: string | null;
 }
-
-// --- AI Slide Generation ---
 
 export interface SlideGenerateRequest {
   topic: string;
@@ -57,14 +58,12 @@ export interface GeneratedSlide {
   layout: "title" | "content" | "two-column" | "image" | "blank";
   notes: string;
   background?: string;
-  imagePrompt?: string; // prompt to generate an image for this slide
+  imagePrompt?: string;
 }
 
 export interface SlideGenerateResponse {
   slides: GeneratedSlide[];
 }
-
-// --- Share Links ---
 
 export interface ShareDeckRequest {
   deck: {
@@ -82,23 +81,37 @@ export interface SharedDeckResponse {
   title: string;
   slides: SharedDeckSlide[];
   aspectRatio?: import("./aspect-ratios").AspectRatio;
-  /** Resolved at share creation so public links keep the deck's styling. */
   designSystem?: DesignSystemData;
 }
 
-export type SharedSlideTransition =
-  | "instant"
-  | "none"
-  | "fade"
-  | "slide"
-  | "zoom";
-
 export type SharedAnimationType = "appear" | "fade" | "slide-up" | "zoom";
+
+export type SharedAnimationIssueCode =
+  | "invalid-shape"
+  | "invalid-element-path"
+  | "missing-target"
+  | "unsupported-type"
+  | RevealUnresolvedReason;
+
+export interface SharedSlideAnimationIssue {
+  index: number;
+  id: string | null;
+  code: SharedAnimationIssueCode;
+}
+
+export const ANIMATION_TRIGGERS = ["on-click", "with-previous"] as const;
+export type AnimationTrigger = (typeof ANIMATION_TRIGGERS)[number];
+
+export function isAnimationTrigger(value: unknown): value is AnimationTrigger {
+  return (ANIMATION_TRIGGERS as readonly unknown[]).includes(value);
+}
 
 export interface SharedSlideAnimation {
   id: string;
   elementIndex: number;
   elementPath?: number[];
+  byParagraph?: boolean;
+  trigger?: AnimationTrigger;
   type: SharedAnimationType;
 }
 
@@ -108,18 +121,22 @@ export interface SharedDeckSlide {
   notes: string;
   layout: string;
   background?: string;
-  transition?: SharedSlideTransition;
+  transition?: SlideTransitionType;
+  transitionSpeed?: number;
   animations?: SharedSlideAnimation[];
+  animationIssues?: SharedSlideAnimationIssue[];
   splitByParagraph?: boolean;
 }
 
-const SHARED_SLIDE_TRANSITIONS = new Set<SharedSlideTransition>([
-  "instant",
-  "none",
-  "fade",
-  "slide",
-  "zoom",
-]);
+export interface SharedDeckSlideOptions {
+  includeNotes?: boolean;
+  /**
+   * Reveal resolution issues for this slide, computed on the server by
+   * slideRevealIssues. Resolving needs the parsed .fmd-slide, which this
+   * module does not parse, so the caller passes the result in.
+   */
+  revealIssues?: SharedSlideAnimationIssue[];
+}
 
 const SHARED_ANIMATION_TYPES = new Set<SharedAnimationType>([
   "appear",
@@ -137,7 +154,7 @@ function normalizeString(value: unknown, fallback: string): string {
 }
 
 function normalizeElementPath(value: unknown): number[] | undefined {
-  if (!Array.isArray(value)) return undefined;
+  if (!Array.isArray(value) || value.length === 0) return undefined;
   const path = value.filter(
     (part): part is number =>
       typeof part === "number" &&
@@ -151,10 +168,18 @@ function normalizeElementPath(value: unknown): number[] | undefined {
 function normalizeSlideAnimation(
   value: unknown,
   index: number,
-): SharedSlideAnimation | null {
-  if (!isRecord(value)) return null;
+): { animation: SharedSlideAnimation } | { issue: SharedSlideAnimationIssue } {
+  const id = isRecord(value) && typeof value.id === "string" ? value.id : null;
+  const issue = (code: SharedAnimationIssueCode) => ({
+    issue: { index, id, code },
+  });
+
+  if (!isRecord(value)) return issue("invalid-shape");
 
   const elementPath = normalizeElementPath(value.elementPath);
+  if (value.elementPath !== undefined && !elementPath) {
+    return issue("invalid-element-path");
+  }
   const rawElementIndex = value.elementIndex;
   const hasElementIndex =
     typeof rawElementIndex === "number" &&
@@ -162,42 +187,69 @@ function normalizeSlideAnimation(
     Number.isFinite(rawElementIndex) &&
     rawElementIndex >= 0;
 
-  if (!hasElementIndex && !elementPath) return null;
+  if (!hasElementIndex && !elementPath) return issue("missing-target");
 
   const rawType = value.type;
-  const type = SHARED_ANIMATION_TYPES.has(rawType as SharedAnimationType)
-    ? (rawType as SharedAnimationType)
-    : "slide-up";
+  if (!SHARED_ANIMATION_TYPES.has(rawType as SharedAnimationType)) {
+    return issue("unsupported-type");
+  }
+  const type = rawType as SharedAnimationType;
+  const byParagraph =
+    typeof value.byParagraph === "boolean" ? value.byParagraph : undefined;
+  const trigger = isAnimationTrigger(value.trigger) ? value.trigger : undefined;
 
-  // When an explicit `elementIndex` is present, trust it. Otherwise derive
-  // from the last segment of `elementPath` - keeps the index correlated
-  // with the path's actual leaf so consumers that fall back to
-  // `elementIndex` target the right element instead of silently defaulting
-  // to slide-element 0 (which created an ambiguity between 'animation
-  // explicitly targets element 0' and 'animation only had elementPath').
-  // At least one of the two must be present (guarded above by the
-  // `!hasElementIndex && !elementPath` early return).
   const resolvedElementIndex = hasElementIndex
     ? rawElementIndex
     : (elementPath![elementPath!.length - 1] ?? 0);
 
   return {
-    id: normalizeString(value.id, `animation-${index + 1}`),
-    elementIndex: resolvedElementIndex,
-    ...(elementPath ? { elementPath } : {}),
-    type,
+    animation: {
+      id: normalizeString(value.id, `animation-${index + 1}`),
+      elementIndex: resolvedElementIndex,
+      ...(elementPath ? { elementPath } : {}),
+      ...(byParagraph !== undefined ? { byParagraph } : {}),
+      ...(trigger ? { trigger } : {}),
+      type,
+    },
   };
+}
+
+export interface NormalizedSharedSlideAnimations {
+  animations: SharedSlideAnimation[];
+  /** The stored position of each kept animation, parallel to `animations`. */
+  storedIndices: number[];
+  /** Structural rejects only; reveal resolution is a separate pass. */
+  issues: SharedSlideAnimationIssue[];
+}
+
+export function normalizeSharedSlideAnimations(
+  values: readonly unknown[],
+): NormalizedSharedSlideAnimations {
+  const animations: SharedSlideAnimation[] = [];
+  const storedIndices: number[] = [];
+  const issues: SharedSlideAnimationIssue[] = [];
+  values.forEach((value, storedIndex) => {
+    const result = normalizeSlideAnimation(value, storedIndex);
+    if ("animation" in result) {
+      animations.push(result.animation);
+      storedIndices.push(storedIndex);
+    } else {
+      issues.push(result.issue);
+    }
+  });
+  return { animations, storedIndices, issues };
 }
 
 export function toSharedDeckSlide(
   value: unknown,
   index: number,
+  options: SharedDeckSlideOptions = {},
 ): SharedDeckSlide {
   const slide = isRecord(value) ? value : {};
   const shared: SharedDeckSlide = {
     id: normalizeString(slide.id, `slide-${index + 1}`),
     content: normalizeString(slide.content, ""),
-    notes: "",
+    notes: options.includeNotes ? normalizeString(slide.notes, "") : "",
     layout: normalizeString(slide.layout, "content"),
   };
 
@@ -205,8 +257,22 @@ export function toSharedDeckSlide(
     shared.background = slide.background;
   }
 
-  if (SHARED_SLIDE_TRANSITIONS.has(slide.transition as SharedSlideTransition)) {
-    shared.transition = slide.transition as SharedSlideTransition;
+  // Membership gates the value before normalizing. A key lookup in the legacy
+  // map alone would also accept inherited names such as "toString".
+  if (
+    (SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(slide.transition)
+  ) {
+    shared.transition = normalizeSlideTransition(slide.transition);
+  }
+
+  const transitionSpeed = slide.transitionSpeed;
+  if (
+    typeof transitionSpeed === "number" &&
+    Number.isInteger(transitionSpeed) &&
+    transitionSpeed >= SLIDE_TRANSITION_SPEED.min &&
+    transitionSpeed <= SLIDE_TRANSITION_SPEED.max
+  ) {
+    shared.transitionSpeed = transitionSpeed;
   }
 
   if (typeof slide.splitByParagraph === "boolean") {
@@ -214,20 +280,22 @@ export function toSharedDeckSlide(
   }
 
   if (Array.isArray(slide.animations)) {
-    const animations = slide.animations
-      .map((animation, animationIndex) =>
-        normalizeSlideAnimation(animation, animationIndex),
-      )
-      .filter((animation): animation is SharedSlideAnimation => !!animation);
-    if (animations.length > 0) {
-      shared.animations = animations;
+    const { animations, issues } = normalizeSharedSlideAnimations(
+      slide.animations,
+    );
+    if (animations.length > 0) shared.animations = animations;
+    // Unresolved reveals stay in `animations`; their reasons arrive as
+    // options.revealIssues, keyed by stored position.
+    const animationIssues = [...issues, ...(options.revealIssues ?? [])];
+    if (animationIssues.length > 0) {
+      shared.animationIssues = animationIssues.sort(
+        (a, b) => a.index - b.index,
+      );
     }
   }
 
   return shared;
 }
-
-// --- Deck Version History ---
 
 export interface DeckVersionSlidePreview {
   slideNumber: number;
@@ -264,8 +332,6 @@ export interface DeckVersion extends DeckVersionSummary {
     background?: string;
   }>;
 }
-
-// --- Design Systems ---
 
 export interface DesignSystemData {
   colors: {
@@ -306,8 +372,6 @@ export interface DesignSystemAsset {
   url: string;
   mimeType: string;
 }
-
-// --- Question Flow ---
 
 export interface QuestionFlowQuestion {
   id: string;

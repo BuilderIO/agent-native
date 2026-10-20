@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getThemeInitScript } from "./theme.js";
+import {
+  applyEmbeddedThemeUpdate,
+  buildEmbeddedThemeUpdate,
+  getThemeInitScript,
+  parseEmbeddedThemeUpdate,
+} from "./theme.js";
 
 function setPrefersDark(prefersDark: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -186,5 +191,54 @@ describe("getThemeInitScript", () => {
         );
       }
     }
+  });
+});
+
+describe("embedded theme updates", () => {
+  beforeEach(() => {
+    document.documentElement.className = "";
+    document.documentElement.removeAttribute("data-theme");
+    document.documentElement.style.cssText = "";
+  });
+
+  it("normalizes the shared theme message and applies the root mode", () => {
+    const update = parseEmbeddedThemeUpdate(
+      buildEmbeddedThemeUpdate("dark", {
+        "--background": "0 0% 13%",
+        "--not-a-theme-token": "red",
+      }),
+    );
+
+    expect(update).toEqual({
+      theme: "dark",
+      vars: { "--background": "0 0% 13%" },
+    });
+
+    applyEmbeddedThemeUpdate(document.documentElement, update!);
+
+    expect(document.documentElement.className).toBe("dark");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(
+      document.documentElement.style.getPropertyValue("--background"),
+    ).toBe("0 0% 13%");
+  });
+
+  it("keeps compatibility with the legacy isDark extension payload", () => {
+    expect(
+      parseEmbeddedThemeUpdate({
+        type: "agent-native-theme-update",
+        isDark: false,
+      }),
+    ).toEqual({ theme: "light" });
+  });
+
+  it("rejects unrelated or incomplete cross-window messages", () => {
+    expect(
+      parseEmbeddedThemeUpdate({ type: "other-message", isDark: true }),
+    ).toBe(null);
+    expect(
+      parseEmbeddedThemeUpdate({ type: "agent-native-theme-update" }),
+    ).toBe(null);
   });
 });

@@ -7,11 +7,30 @@ import {
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
 } from "@agent-native/core/server/ssr-handler";
-import { getRequestHeader, getRequestURL, setHeader, type H3Event } from "h3";
+import {
+  createError,
+  getRequestHeader,
+  getRequestURL,
+  setHeader,
+  type H3Event,
+} from "h3";
 
 import { estimateMarkdownTokens } from "../../../core/src/agent-web/index";
+import { isLegacyChunkRecoveryRequest } from "../../../core/src/shared/route-chunk-recovery-bootstrap.js";
+import {
+  applyCommunityAppSsrCacheHeaders,
+  applyDocsSsrCacheKeyHeaders,
+  isCloudGettingStartedPath,
+} from "../../lib/ssr-cache";
+import {
+  acceptsMarkdown,
+  agentWebAssetContentType,
+  appendVary,
+} from "../lib/agent-web-responses";
+import { fetchMarkdownMirror } from "../lib/markdown-mirror";
 
 const SITE_URL = "https://www.agent-native.com";
+const MARKDOWN_REWRITE_PREFIX = "/__agent-native-markdown";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ssrHandler = createH3SSRHandler(
@@ -30,7 +49,7 @@ export default async function docsHeadHandler(event: H3Event) {
     setSsrCacheHeaders(event);
     setHeader(event, "link", `<${SITE_URL}/llms.txt>; rel="llms-txt"`);
     if (asset.contentType.startsWith("text/markdown")) {
-      setHeader(event, "vary", "Accept");
+      setHeader(event, "vary", "Accept, Accept-Encoding");
       setHeader(
         event,
         "x-markdown-tokens",
@@ -42,9 +61,19 @@ export default async function docsHeadHandler(event: H3Event) {
 
   const response = await ssrHandler(event);
   const headers = new Headers(response.headers);
-  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
-    headers.set(k, v);
-  }
+  const requestUrl = getRequestURL(event);
+  const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
+  appendVary(headers, ["Accept", "Accept-Encoding"]);
+  applyDocsSsrCacheKeyHeaders(headers, {
+    varyByQuery: isCloudGettingStartedPath(requestUrl),
+    varyByLegacyRecovery: isLegacyRecovery,
+  });
+  applyCommunityAppSsrCacheHeaders(
+    headers,
+    requestUrl.pathname,
+    response.status,
+    { isLegacyRecovery },
+  );
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -53,9 +82,6 @@ export default async function docsHeadHandler(event: H3Event) {
 }
 
 function setSsrCacheHeaders(event: H3Event) {
-  // HEAD mirrors the GET cache policy exactly. Keep this tied to the framework
-  // resolver instead of app-level provider config so public docs deploys keep
-  // CDN SWR and Netlify durable caching without local header blocks.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }
@@ -67,27 +93,20 @@ function setSsrCacheHeaders(event: H3Event) {
 async function readHeadAssetForRequest(
   event: H3Event,
 ): Promise<{ content: string; contentType: string } | undefined> {
-  const pathname = getRequestURL(event).pathname.replace(/\/+$/, "") || "/";
-  const acceptsMarkdown =
-    getRequestHeader(event, "accept")?.includes("text/markdown") ?? false;
-  const contentTypeByPath: Record<string, string> = {
-    "/llms.txt": "text/plain; charset=utf-8",
-    "/llms-full.txt": "text/plain; charset=utf-8",
-    "/robots.txt": "text/plain; charset=utf-8",
-    "/sitemap.xml": "application/xml; charset=utf-8",
-  };
-  const contentType = contentTypeByPath[pathname];
+  const pathname = markdownRequestPath(event).replace(/\/+$/, "") || "/";
+  const wantsMarkdown = acceptsMarkdown(getRequestHeader(event, "accept"));
+  const contentType = agentWebAssetContentType(pathname);
   const isMarkdownPath = pathname.endsWith(".md");
   const relativePath = isMarkdownPath
     ? pathname.replace(/^\//, "")
     : contentType
       ? pathname.replace(/^\//, "")
-      : acceptsMarkdown
+      : wantsMarkdown
         ? markdownRelativePathForRequest(pathname)
         : undefined;
   if (!relativePath) return undefined;
 
-  const isMarkdown = isMarkdownPath || acceptsMarkdown;
+  const isMarkdown = isMarkdownPath || wantsMarkdown;
   const content = isMarkdown
     ? await readMarkdownContent(relativePath, event)
     : readLocalFile(relativePath);
@@ -97,6 +116,15 @@ async function readHeadAssetForRequest(
     content,
     contentType: contentType ?? "text/markdown; charset=utf-8",
   };
+}
+
+function markdownRequestPath(event: H3Event): string {
+  const pathname = getRequestURL(event).pathname;
+  if (pathname === MARKDOWN_REWRITE_PREFIX) return "/";
+  if (pathname.startsWith(`${MARKDOWN_REWRITE_PREFIX}/`)) {
+    return pathname.slice(MARKDOWN_REWRITE_PREFIX.length) || "/";
+  }
+  return pathname;
 }
 
 function markdownRelativePathForRequest(pathname: string): string {
@@ -112,18 +140,10 @@ async function readMarkdownContent(
   const localContent = readLocalFile(relativePath);
   if (localContent !== undefined) return localContent;
 
-  // Netlify publishes markdown mirrors as static files, but does not mount the
-  // publish directory beside every serverless function. Read the same mirror
-  // when the function bundle cannot see the local build output.
-  const staticUrl = new URL(`/${relativePath}`, getRequestURL(event));
-  const response = await fetch(staticUrl, {
-    headers: { accept: "text/markdown" },
-  });
-  if (!response.ok) return undefined;
-  const responseContentType =
-    response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (!responseContentType.includes("text/markdown")) return undefined;
-  return response.text();
+  const mirror = await fetchMarkdownMirror(relativePath, event);
+  if (mirror.kind === "found") return mirror.content;
+  if (mirror.kind === "absent") return undefined;
+  throw createError({ statusCode: 502, statusMessage: mirror.reason });
 }
 
 function readLocalFile(relativePath: string): string | undefined {

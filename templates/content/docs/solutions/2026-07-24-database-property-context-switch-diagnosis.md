@@ -43,7 +43,7 @@ dual-membership reproduction remains the causal proof.
 
 ### Executed database reproduction
 
-A disposable SQLite fixture was migrated and run through Content's real
+A disposable PGlite fixture was migrated and run through Content's real
 Drizzle property resolvers under Node 24. The fixture created:
 
 - one row page;
@@ -60,7 +60,7 @@ The same page produced:
 }
 ```
 
-The fixture and its SQLite sidecars were removed after the run.
+The fixture and its PGlite data directory were removed after the run.
 
 The existing cache-seeding unit test also passed under the repository's compiled
 runtime:
@@ -245,5 +245,5 @@ be called shipped; local interface evidence is supporting evidence only.
 ## Sources
 
 - Supplied, visually inspected preview and full-page comparison screenshots.
-- Current repository source and the disposable migrated SQLite reproduction.
+- Current repository source and the disposable migrated PGlite reproduction.
 - Historical comparison: PR #2303 and PR #2344 in repository history.

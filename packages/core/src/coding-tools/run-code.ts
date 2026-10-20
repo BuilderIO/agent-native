@@ -32,9 +32,18 @@
 import crypto from "node:crypto";
 import http from "node:http";
 
+import { createRunner, RunError, type HostFunctions } from "run";
+
+import { runActionInvocation } from "../action-invocation.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import {
+  getRequestContext,
+  getRequestRunContext,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import {
   failExpiredSandboxExecution,
   getSandboxExecutionForOwner,
@@ -56,10 +65,31 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
 const MAX_OUTPUT_CHARS = 200_000;
-/** Hard cap on bridge request bodies so sandboxed code can't exhaust parent memory. */
+const TOOL_ORCHESTRATION_DEFAULT_MAX_CALLS = 32;
+const TOOL_ORCHESTRATION_MAX_CALLS = 128;
+const TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES = 20;
 const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
+const RUN_MAX_CONSOLE_OUTPUT_BYTES = 512 * 1024;
+const RUN_MAX_RESULT_BYTES = 2 * 1024 * 1024;
+const RUN_MAX_SOURCE_BYTES = 256 * 1024;
 
-/** Tools callable via the sandbox bridge by default. */
+const runEvaluator = createRunner({
+  limits: {
+    memoryLimitBytes: 64 * 1024 * 1024,
+    maxStackSizeBytes: 2 * 1024 * 1024,
+    maxResultBytes: RUN_MAX_RESULT_BYTES,
+    maxConsoleOutputBytes: RUN_MAX_CONSOLE_OUTPUT_BYTES,
+    maxSourceBytes: RUN_MAX_SOURCE_BYTES,
+    maxHostFunctionArgumentsBytes: 1 * 1024 * 1024,
+    maxHostFunctionOutputBytes: 4 * 1024 * 1024,
+    maxBridgeRequests: 256,
+    maxInFlightBridgeRequests: 32,
+  },
+});
+
+export type SandboxCodeMode = "run-code" | "tool-orchestration";
+export type SandboxCodeEvaluator = "node" | "run";
+
 const DEFAULT_BRIDGE_TOOLS = new Set([
   "provider-api-request",
   "provider-api-docs",
@@ -69,31 +99,17 @@ const DEFAULT_BRIDGE_TOOLS = new Set([
 ]);
 
 export interface RunCodeOptions {
-  /**
-   * Extra tool names (beyond the default set) that the sandbox bridge will
-   * forward to the registered action registry.
-   */
   bridgeTools?: string[];
+  evaluator?: SandboxCodeEvaluator;
 }
 
-/**
- * Create a `run-code` ActionEntry.
- *
- * @param getActions  Supplier that returns the current action registry (called
- *                    at invocation time so updates are reflected).
- * @param opts        Optional configuration.
- */
 export function createRunCodeEntry(
   getActions: () => Record<string, ActionEntry>,
   opts: RunCodeOptions = {},
 ): ActionEntry {
   const extraBridgeTools = new Set(opts.bridgeTools ?? []);
+  const evaluator = opts.evaluator ?? "node";
 
-  // Make this entry's action surface available to the durable background
-  // executor (first registration wins — the host builds the full-surface
-  // production entry first). The executor re-runs `executeSandboxCode` with
-  // the same bridge allowlist under the enqueueing owner's request context,
-  // so background executions see the same tools as foreground ones.
   registerSandboxExecutionRunner({
     execute: ({ code, timeoutMs, context }) =>
       executeSandboxCode({
@@ -102,21 +118,38 @@ export function createRunCodeEntry(
         getActions,
         extraBridgeTools,
         context,
+        evaluator,
       }),
   });
+
+  const runtimeDescription =
+    evaluator === "run"
+      ? "The production evaluator is a hardened QuickJS runtime: it has no Node modules, filesystem, environment, network, timers, or imports; authenticated access is available only through the approved globals."
+      : "The sandbox runs with a scrubbed environment (no secrets) and, where the Node permission model is available, no filesystem access outside its own temp dir, no child processes, and no workers. Authenticated calls must go through the provided globals; direct network requests carry no credentials. Note: isolation is process-level (env scrub + Node permission model), not an OS-level container — outbound network from sandbox code is not blocked.";
+  const codeDescription =
+    evaluator === "run"
+      ? "JavaScript source to execute. Top-level await and return are allowed; Node ESM imports are not available. Required unless polling with executionId."
+      : "JavaScript source to execute. ESM syntax, top-level await allowed. Required unless polling with executionId.";
 
   return {
     readOnly: true,
     allowInPlanMode: false,
-    // Allow a generous per-call timeout so large data-processing jobs don't hit
-    // the agent-loop's default 60 s cap.
+    // The bridge can write workspace files and send provider and web writes, so
+    // over MCP this is a write that a read-only token cannot reach.
+    mcpAnnotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    },
     timeoutMs: MAX_TIMEOUT_MS,
     maxResultChars: MAX_OUTPUT_CHARS,
     tool: {
       description: [
-        "Execute JavaScript (Node.js, ESM, top-level await supported) in an isolated sandbox.",
+        evaluator === "run"
+          ? "Execute JavaScript (top-level await and return supported) in a hardened isolated QuickJS sandbox."
+          : "Execute JavaScript (Node.js, ESM, top-level await supported) in an isolated sandbox.",
         "Use this to fetch, join, aggregate, and reduce large datasets, returning only printed output to the conversation.",
-        "The sandbox runs with a scrubbed environment (no secrets) and, where the Node permission model is available, no filesystem access outside its own temp dir, no child processes, and no workers. Authenticated calls must go through the provided globals; direct network requests carry no credentials. Note: isolation is process-level (env scrub + Node permission model), not an OS-level container — outbound network from sandbox code is not blocked.",
+        runtimeDescription,
         "Available globals:",
         "  - `appAction(name, args?)` — call any registered agent-exposed read-only app action/tool and get its parsed result.",
         "    Use this to loop over app data readers and compose multi-source analyses without forcing every intermediate result into chat.",
@@ -125,8 +158,8 @@ export function createRunCodeEntry(
         "    Supports stageAs/saveToFile/fetchAllPages; use cursorBodyPath for POST-body pagination.",
         "    Example: `const data = await providerFetch('<provider-id>', '/records', { query: { limit: 100 } });`",
         "  - `providerRequest(provider, path, init?)` — same authenticated call, but returns the full provider-api envelope with request, response status/headers, truncation, and body metadata.",
-        "  - `providerFetchAll(provider, path, init?)` — generic pagination helper for cursor, page, and offset APIs. Pass `pagination: { itemsPath, cursorPath or nextCursorPath, cursorParam or cursorBodyPath, pageParam, offsetParam, pageSize, maxPages }`. Returns `{ items, pages, pageCount, itemCount, hasMore, lastCursor, stoppedReason }`.",
-        "  - `providerSearchAll(provider, path, init?, options?)` — streaming search helper for broad provider corpora such as transcripts, messages, tickets, issues, notes, events, or documents. Use this before hand-written loops when searching many provider records for terms/phrases/regexes or proving absence. Pass the same `pagination` config as `providerFetchAll`, plus options like `{ query, queries, terms, regex, textPaths, idPaths, metadataPaths, maxHits }`. Returns structured hits with item ids, paths, snippets, page/item indexes, and coverage fields (`pageCount`, `itemCount`, `hasMore`, `stoppedReason`).",
+        "  - `providerFetchAll(provider, path, init?)` — generic pagination helper for cursor, page, and offset APIs, for a cohort already narrowed by a server-side filter (not for finding one entity or topic). Pass `pagination: { itemsPath, cursorPath or nextCursorPath, cursorParam or cursorBodyPath, pageParam, offsetParam, pageSize, maxPages }`. Returns `{ items, pages, pageCount, itemCount, hasMore, lastCursor, stoppedReason }`.",
+        "  - `providerSearchAll(provider, path, init?, options?)` — streaming search helper for broad provider corpora such as transcripts, messages, tickets, issues, notes, events, or documents. Use this before hand-written loops when a bounded cohort must be searched for terms/phrases/regexes or an absence claim needs proof; if the provider has a search or semantic tool for the question, use that first. Pass the same `pagination` config as `providerFetchAll`, plus options like `{ query, queries, terms, regex, textPaths, idPaths, metadataPaths, maxHits }`. Returns structured hits with item ids, paths, snippets, page/item indexes, and coverage fields (`pageCount`, `itemCount`, `hasMore`, `stoppedReason`).",
         "  - `webFetch(url, init?)` — outbound HTTP request via the web-request action.",
         "    Returns `{ status, body }` where body is the response text. Supports responseMode, extract, includeLinks, search, maxChars, and saveToFile.",
         "    Example: `const { body } = await webFetch('https://api.example.com/data', { responseMode: 'raw' });`",
@@ -146,8 +179,7 @@ export function createRunCodeEntry(
         properties: {
           code: {
             type: "string",
-            description:
-              "JavaScript source to execute. ESM syntax, top-level await allowed. Required unless polling with executionId.",
+            description: codeDescription,
           },
           timeoutMs: {
             type: "number",
@@ -172,8 +204,6 @@ export function createRunCodeEntry(
       },
     },
     run: async (args: Record<string, string>, context?: ActionRunContext) => {
-      // Poll path: status/result lookup for a previously queued background
-      // execution. Takes precedence so a poll call never needs `code`.
       const requestedExecutionId =
         typeof args.executionId === "string" ? args.executionId.trim() : "";
       if (requestedExecutionId) {
@@ -189,8 +219,6 @@ export function createRunCodeEntry(
           ? Math.min(requestedMaxOutput, MAX_OUTPUT_CHARS)
           : DEFAULT_MAX_OUTPUT_CHARS;
 
-      // Background path: opt-in per call, or forced when the active sandbox
-      // adapter is the queued backend (AGENT_NATIVE_SANDBOX=background).
       const backgroundRequested =
         (args.background as unknown) === true ||
         (typeof args.background === "string" &&
@@ -218,6 +246,7 @@ export function createRunCodeEntry(
           getActions,
           extraBridgeTools,
           context,
+          evaluator,
         });
 
       const combined =
@@ -243,21 +272,15 @@ export function createRunCodeEntry(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Core execution (shared by the foreground path and the background executor)
-// ---------------------------------------------------------------------------
-
 export interface ExecuteSandboxCodeOptions {
-  /** Raw user JavaScript (ESM, top-level await allowed). */
   code: string;
-  /** Hard wall-clock timeout enforced by the adapter. */
   timeoutMs: number;
-  /** Supplier for the action registry the loopback bridge exposes. */
   getActions: () => Record<string, ActionEntry>;
-  /** Extra bridge tool names beyond the defaults. */
   extraBridgeTools?: Set<string>;
-  /** Request context (owner/org) applied to bridged tool calls. */
+  mode?: SandboxCodeMode;
+  maxToolCalls?: number;
   context?: ActionRunContext;
+  evaluator?: SandboxCodeEvaluator;
 }
 
 export interface ExecuteSandboxCodeResult {
@@ -268,21 +291,32 @@ export interface ExecuteSandboxCodeResult {
   bridgeToolsUsed: string[];
 }
 
-/**
- * Run one piece of sandbox code end-to-end: start the loopback bridge, build
- * the scrubbed env and wrapped module, execute through the active NON-QUEUED
- * sandbox adapter, and return the raw outputs. This is the exact machinery the
- * foreground `run-code` path always used, factored out so the durable
- * background executor reuses it verbatim (with the enqueueing owner's context)
- * instead of forking it.
- */
 export async function executeSandboxCode(
   options: ExecuteSandboxCodeOptions,
 ): Promise<ExecuteSandboxCodeResult> {
   const actions = options.getActions();
+  const mode = options.mode ?? "run-code";
+  const evaluator = options.evaluator ?? "node";
+
+  if (evaluator === "run") {
+    const bridge = createBridgeInvoker({
+      actions,
+      context: options.context,
+      defaultTools: DEFAULT_BRIDGE_TOOLS,
+      extraTools: options.extraBridgeTools ?? new Set(),
+      mode,
+      maxToolCalls: options.maxToolCalls,
+    });
+    return executeRunSandboxCode({
+      code: options.code,
+      timeoutMs: options.timeoutMs,
+      mode,
+      bridge,
+    });
+  }
+
   const bridgeToken = crypto.randomBytes(32).toString("hex");
 
-  // Start bridge server — resolves once the server is listening.
   const {
     bridgePort,
     getUsedTools,
@@ -293,11 +327,11 @@ export async function executeSandboxCode(
     options.context,
     DEFAULT_BRIDGE_TOOLS,
     options.extraBridgeTools ?? new Set(),
+    mode,
+    options.maxToolCalls,
   );
 
   try {
-    // Build scrubbed env — only safe POSIX vars, no secrets. The adapter
-    // points TMPDIR/TEMP/TMP at the sandbox's own temp dir.
     const safeEnv: Record<string, string> = {};
     for (const key of [
       "PATH",
@@ -311,15 +345,15 @@ export async function executeSandboxCode(
       if (process.env[key]) safeEnv[key] = process.env[key]!;
     }
 
-    // Delegate execution to the active sandbox adapter (local child process
-    // by default; remote adapters can be registered via ./sandbox). A queued
-    // (background) adapter is never used here — `resolveExecutionSandboxAdapter`
-    // falls back to local so execution can't recurse into the queue. The
-    // bridge, env scrub, module, and output formatting stay in the parent
-    // regardless of adapter.
     const { stdout, stderr, exitCode, timedOut } =
       await resolveExecutionSandboxAdapter().run({
-        moduleSource: buildSandboxModule(options.code, bridgePort, bridgeToken),
+        moduleSource: buildSandboxModule(
+          options.code,
+          bridgePort,
+          bridgeToken,
+          mode,
+          evaluator,
+        ),
         env: safeEnv,
         timeoutMs: options.timeoutMs,
         bridgePort,
@@ -333,15 +367,9 @@ export async function executeSandboxCode(
       bridgeToolsUsed: getUsedTools(),
     };
   } finally {
-    // The active sandbox adapter owns its own temp-file cleanup; the parent
-    // only tears down the bridge server here.
     cleanupBridge();
   }
 }
-
-// ---------------------------------------------------------------------------
-// Durable background executions
-// ---------------------------------------------------------------------------
 
 function structuredRunCodeError(payload: {
   code: string;
@@ -401,6 +429,7 @@ async function enqueueBackgroundRunCode(input: {
     owner,
     orgId: input.context?.orgId ?? null,
     threadId: input.context?.threadId ?? null,
+    allowedActionNames: getRequestRunContext()?.allowedActionNames,
   });
 
   const hasGetTool = Boolean(input.getActions()["get-code-execution"]);
@@ -421,12 +450,6 @@ async function enqueueBackgroundRunCode(input: {
   );
 }
 
-/**
- * Owner-scoped status/result lookup for a background execution, with
- * opportunistic recovery: a stale queued row (lost dispatch) or a running row
- * whose lease expired (dead executor) is re-driven; an expired row that
- * exhausted its attempts is reaped to `failed` so it never hangs forever.
- */
 async function describeSandboxExecutionForOwner(
   executionId: string,
   context?: ActionRunContext,
@@ -460,7 +483,6 @@ async function describeSandboxExecutionForOwner(
     `${pollHintFor(executionId, false)}.`;
 
   if (row.status === "queued") {
-    // Lost-dispatch recovery: re-drive a row that has sat unclaimed.
     if (now - row.updatedAt >= SANDBOX_EXECUTION_REDRIVE_AFTER_MS) {
       try {
         await driveSandboxExecution(row.id);
@@ -515,7 +537,6 @@ async function describeSandboxExecutionForOwner(
         2,
       );
     }
-    // Attempts exhausted — reap to a terminal failure and report that below.
     await failExpiredSandboxExecution(
       row.id,
       `Executor lease expired after ${row.attemptCount} attempt(s); the execution environment was likely terminated before the code finished. Split the computation into smaller chunks or persist intermediate results (e.g. workspaceWrite) and run again.`,
@@ -579,20 +600,9 @@ function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
   return full;
 }
 
-/**
- * Standalone, access-scoped poll tool for background executions. Behaviorally
- * identical to calling `run-code` with only `executionId`; hosts that register
- * it as `get-code-execution` give the model a dedicated volatile read tool (and
- * the enqueue guidance automatically points at it when present in the
- * registry). Keep the opt-out here rather than on `run-code`: repeated normal
- * run-code calls may execute writes or outbound requests and must retain the
- * agent loop's default duplicate-call protection.
- */
 export function createGetCodeExecutionEntry(): ActionEntry {
   return {
     readOnly: true,
-    // Polling with an identical executionId is the intended usage — the
-    // status changes over time, so this must not be deduped.
     dedupe: false,
     tool: {
       description:
@@ -625,15 +635,183 @@ export function createGetCodeExecutionEntry(): ActionEntry {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Bridge server
-// ---------------------------------------------------------------------------
-
 interface BridgeResult {
   server: http.Server;
   bridgePort: number;
   getUsedTools: () => string[];
   cleanup: () => void;
+}
+
+interface BridgeInvoker {
+  invoke: (toolName: string, args: Record<string, unknown>) => Promise<string>;
+  getUsedTools: () => string[];
+}
+
+interface BridgeInvokerOptions {
+  actions: Record<string, ActionEntry>;
+  context: ActionRunContext | undefined;
+  defaultTools: Set<string>;
+  extraTools: Set<string>;
+  mode: SandboxCodeMode;
+  maxToolCalls: number | undefined;
+}
+
+class BridgeInvocationError extends Error {
+  constructor(
+    readonly statusCode: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "BridgeInvocationError";
+  }
+}
+
+function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
+  const usedTools = new Set<string>();
+  const callBudget =
+    options.mode === "tool-orchestration"
+      ? {
+          count: 0,
+          max: normalizeToolCallBudget(options.maxToolCalls),
+        }
+      : undefined;
+
+  const invoke = async (
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<string> => {
+    const entry = options.actions[toolName];
+    if (!entry) {
+      throw new BridgeInvocationError(
+        404,
+        `Tool "${toolName}" is not registered.`,
+      );
+    }
+
+    const isReadOnlyAction =
+      entry.readOnly === true &&
+      entry.agentTool !== false &&
+      entry.uiOnly !== true &&
+      entry.toolCallable !== false &&
+      isCallableWithoutApproval(entry);
+    const childArgs =
+      options.mode === "tool-orchestration"
+        ? boundToolOrchestrationArgs(toolName, args)
+        : args;
+
+    if (options.mode === "tool-orchestration") {
+      if (callBudget && callBudget.count >= callBudget.max) {
+        throw new BridgeInvocationError(
+          429,
+          `Tool-orchestration child-call budget exceeded (${callBudget.max}). Aggregate the current results or increase maxToolCalls within its limit.`,
+        );
+      }
+      if (!isAllowedToolOrchestrationCall(toolName, childArgs, entry)) {
+        throw new BridgeInvocationError(
+          403,
+          `Tool "${toolName}" is not permitted by tool-orchestration. Only read-only tools and GET/HEAD provider or web reads without staging or saving files are allowed; call mutating tools directly.`,
+        );
+      }
+    } else {
+      if (!isCallableWithoutApproval(entry)) {
+        throw new BridgeInvocationError(
+          403,
+          `Tool "${toolName}" requires approval and cannot be called from sandbox code. Call it directly as a native tool.`,
+        );
+      }
+      if (
+        !options.defaultTools.has(toolName) &&
+        !options.extraTools.has(toolName) &&
+        !isReadOnlyAction
+      ) {
+        const isMutatingAction =
+          entry.agentTool !== false &&
+          entry.uiOnly !== true &&
+          entry.readOnly !== true;
+        throw new BridgeInvocationError(
+          403,
+          isMutatingAction
+            ? `Tool "${toolName}" is a mutating action and cannot be called from run-code (appAction only exposes read-only actions). Call "${toolName}" directly as a native tool. For large content bodies, stage the content and pass "contentFromAttachment" instead of an inline string rather than routing it through run-code.`
+            : `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
+        );
+      }
+    }
+
+    if (callBudget) callBudget.count += 1;
+    usedTools.add(toolName);
+    let servicePrincipalRefusedError:
+      | typeof import("../org/service-principal-guard.js").ServicePrincipalRefusedError
+      | undefined;
+    try {
+      const context = options.context;
+      if (context && parseServiceIdentityEmail(context.userEmail)) {
+        const guard = await import("../org/service-principal-guard.js");
+        servicePrincipalRefusedError = guard.ServicePrincipalRefusedError;
+        await guard.enforceServicePrincipalActionGrant({
+          email: context.userEmail,
+          orgId: context.orgId,
+          actionName: toolName,
+          caller: context.caller,
+        });
+      }
+      // Name the child, not `run-code`: a service principal's grant is checked
+      // against the action actually being run. Its own frame, so a raw child
+      // records none of the caller's approval.
+      const run = () =>
+        runActionInvocation(
+          entry,
+          childArgs,
+          options.context && { ...options.context, actionName: toolName },
+        );
+      const result =
+        options.context?.credentialScope === "org"
+          ? await runWithRequestContext(
+              {
+                ...getRequestContext(),
+                ...(options.context.userEmail
+                  ? { userEmail: options.context.userEmail }
+                  : {}),
+                orgId: options.context.orgId ?? undefined,
+                credentialScope: "org",
+              },
+              run,
+            )
+          : await run();
+      return formatBridgeResult(result);
+    } catch (error) {
+      if (error instanceof BridgeInvocationError) throw error;
+      if (
+        servicePrincipalRefusedError &&
+        error instanceof servicePrincipalRefusedError
+      ) {
+        throw new BridgeInvocationError(error.statusCode, error.message);
+      }
+      throw new BridgeInvocationError(
+        500,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
+
+  return {
+    invoke,
+    getUsedTools: () => Array.from(usedTools).sort(),
+  };
+}
+
+function formatBridgeResult(result: unknown): string {
+  if (typeof result === "string") return result;
+  const serialized = JSON.stringify(result, null, 2);
+  return serialized === undefined ? String(result) : serialized;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
 }
 
 async function startBridgeServer(
@@ -642,8 +820,17 @@ async function startBridgeServer(
   context: ActionRunContext | undefined,
   defaultTools: Set<string>,
   extraTools: Set<string>,
+  mode: SandboxCodeMode,
+  maxToolCalls: number | undefined,
 ): Promise<BridgeResult> {
-  const usedTools = new Set<string>();
+  const bridge = createBridgeInvoker({
+    actions,
+    context,
+    defaultTools,
+    extraTools,
+    mode,
+    maxToolCalls,
+  });
   const server = http.createServer((req, res) => {
     if (req.method !== "POST" || req.url !== "/tool") {
       res.writeHead(404);
@@ -675,15 +862,7 @@ async function startBridgeServer(
     });
     req.on("end", () => {
       if (rejected) return;
-      handleBridgeRequest(
-        body,
-        actions,
-        context,
-        defaultTools,
-        extraTools,
-        usedTools,
-        res,
-      );
+      handleBridgeRequest(body, bridge.invoke, res);
     });
     req.on("error", () => {
       res.writeHead(500);
@@ -708,24 +887,26 @@ async function startBridgeServer(
   return {
     server,
     bridgePort,
-    getUsedTools: () => Array.from(usedTools).sort(),
+    getUsedTools: bridge.getUsedTools,
     cleanup,
   };
 }
 
 function handleBridgeRequest(
   rawBody: string,
-  actions: Record<string, ActionEntry>,
-  context: ActionRunContext | undefined,
-  defaultTools: Set<string>,
-  extraTools: Set<string>,
-  usedTools: Set<string>,
+  invoke: BridgeInvoker["invoke"],
   res: http.ServerResponse,
 ): void {
-  let parsed: { tool?: string; args?: Record<string, string> };
+  let parsed: unknown;
   try {
     parsed = JSON.parse(rawBody);
   } catch {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Invalid JSON body" }));
+    return;
+  }
+
+  if (!isPlainRecord(parsed)) {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Invalid JSON body" }));
     return;
@@ -738,80 +919,344 @@ function handleBridgeRequest(
     return;
   }
 
-  // Enforce allowlist.
-  const entry = actions[toolName];
-  // Unknown/mistyped tool: report "not registered" (404) before the
-  // access-control branch below. Otherwise an undefined `entry` falls into the
-  // allowlist 403 and returns a misleading access error for a tool that simply
-  // does not exist. (Bridge-allowlisted tools always have an entry, so this
-  // cannot mask a legitimate allowlisted call.)
-  if (!entry) {
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `Tool "${toolName}" is not registered.` }));
-    return;
-  }
-  const isReadOnlyAction =
-    entry.readOnly === true &&
-    entry.agentTool !== false &&
-    entry.toolCallable !== false;
-  if (
-    !defaultTools.has(toolName) &&
-    !extraTools.has(toolName) &&
-    !isReadOnlyAction
-  ) {
-    // A registered, agent-exposed action that isn't read-only is a mutation.
-    // (Unknown tools already returned 404 above, so `entry` is defined here.)
-    // Point the caller at the native tool path instead of leaving them to guess
-    // (the common trap: retrying create-extension/update-extension through
-    // appAction, which cannot work).
-    const isMutatingAction =
-      entry.agentTool !== false && entry.readOnly !== true;
-    res.writeHead(403, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        error: isMutatingAction
-          ? `Tool "${toolName}" is a mutating action and cannot be called from run-code (appAction only exposes read-only actions). Call "${toolName}" directly as a native tool. For large content bodies, stage the content and pass "contentFromAttachment" instead of an inline string rather than routing it through run-code.`
-          : `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
-      }),
-    );
+  const toolArgs =
+    parsed.args === undefined
+      ? {}
+      : isPlainRecord(parsed.args)
+        ? parsed.args
+        : null;
+  if (!toolArgs) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Tool args must be a JSON object" }));
     return;
   }
 
-  const toolArgs = parsed.args ?? {};
-  usedTools.add(toolName);
-  // Run the tool with the parent request context so auth/org/owner resolution
-  // works exactly as it does in the normal agent loop.
-  entry
-    .run(toolArgs, context)
-    .then((result: unknown) => {
-      const body =
-        typeof result === "string" ? result : JSON.stringify(result, null, 2);
+  void invoke(toolName, toolArgs)
+    .then((body) => {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ result: body }));
     })
-    .catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      res.writeHead(500, { "Content-Type": "application/json" });
+    .catch((error: unknown) => {
+      const statusCode =
+        error instanceof BridgeInvocationError ? error.statusCode : 500;
+      const message = error instanceof Error ? error.message : String(error);
+      res.writeHead(statusCode, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: message }));
     });
 }
 
-// ---------------------------------------------------------------------------
-// Sandbox module template
-// ---------------------------------------------------------------------------
+interface RunBridgeResponse {
+  ok: boolean;
+  result?: string;
+  error?: string;
+}
 
-/**
- * Wrap the user's code in an ESM module that:
- *  1. Defines `providerFetch`, `providerRequest`, `providerFetchAll`,
- *     `providerSearchAll`, and `webFetch` helpers via the bridge.
- *  2. Runs the user's code as top-level await in an async IIFE.
- */
+async function executeRunSandboxCode(input: {
+  code: string;
+  timeoutMs: number;
+  mode: SandboxCodeMode;
+  bridge: BridgeInvoker;
+}): Promise<ExecuteSandboxCodeResult> {
+  const hostFunctions = {
+    bridge: {
+      call: async (...args: unknown[]): Promise<RunBridgeResponse> => {
+        const toolName = args[0];
+        const toolArgs = args[1];
+        if (typeof toolName !== "string" || !toolName.trim()) {
+          return { ok: false, error: "Missing tool name" };
+        }
+        if (toolArgs !== undefined && !isPlainRecord(toolArgs)) {
+          return { ok: false, error: "Tool args must be a JSON object" };
+        }
+        try {
+          return {
+            ok: true,
+            result: await input.bridge.invoke(
+              toolName.trim(),
+              (toolArgs as Record<string, unknown> | undefined) ?? {},
+            ),
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    },
+  } as HostFunctions;
+
+  try {
+    const result = await runEvaluator.run({
+      source: buildSandboxModule(input.code, 0, "", input.mode, "run"),
+      hostFunctions,
+      limits: { timeoutMs: input.timeoutMs },
+    });
+
+    if (result.status !== "completed") {
+      return {
+        stdout: "",
+        stderr: "Run was interrupted before it completed.",
+        exitCode: 1,
+        timedOut: false,
+        bridgeToolsUsed: input.bridge.getUsedTools(),
+      };
+    }
+
+    const value = result.value as { stdout?: unknown; stderr?: unknown };
+    if (typeof value?.stdout !== "string" || typeof value.stderr !== "string") {
+      return {
+        stdout: "",
+        stderr: "Run returned an invalid output envelope.",
+        exitCode: 1,
+        timedOut: false,
+        bridgeToolsUsed: input.bridge.getUsedTools(),
+      };
+    }
+    return {
+      stdout: value.stdout,
+      stderr: value.stderr,
+      exitCode: 0,
+      timedOut: false,
+      bridgeToolsUsed: input.bridge.getUsedTools(),
+    };
+  } catch (error) {
+    const timedOut = RunError.isInstance(error) && error.code === "RUN_TIMEOUT";
+    return {
+      stdout: "",
+      stderr: formatRunError(error),
+      exitCode: 1,
+      timedOut,
+      bridgeToolsUsed: input.bridge.getUsedTools(),
+    };
+  }
+}
+
+function formatRunError(error: unknown): string {
+  if (RunError.isInstance(error)) return `${error.code}: ${error.message}`;
+  return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeToolCallBudget(value: number | undefined): number {
+  if (!Number.isFinite(value) || !value || value <= 0) {
+    return TOOL_ORCHESTRATION_DEFAULT_MAX_CALLS;
+  }
+  return Math.min(Math.floor(value), TOOL_ORCHESTRATION_MAX_CALLS);
+}
+
+function isAllowedToolOrchestrationCall(
+  toolName: string,
+  args: Record<string, unknown>,
+  entry: ActionEntry,
+): boolean {
+  if (toolName === "workspace-files") {
+    return isCallableWithoutApproval(entry) && isReadOnlyWorkspaceRequest(args);
+  }
+  if (toolName === "provider-api-request") {
+    return isReadOnlyProviderApiRequest(args, entry);
+  }
+  return isReadOnlyOrchestrationAction(args, entry);
+}
+
+function isCallableWithoutApproval(entry: ActionEntry): boolean {
+  return entry.needsApproval === undefined || entry.needsApproval === false;
+}
+
+function isReadOnlyWorkspaceRequest(args: Record<string, unknown>): boolean {
+  const action = typeof args.action === "string" ? args.action : "";
+  return action === "read" || action === "list" || action === "grep";
+}
+
+function isReadOnlyProviderApiRequest(
+  args: Record<string, unknown>,
+  entry: ActionEntry,
+): boolean {
+  if (
+    !entry.tool ||
+    !isCallableWithoutApproval(entry) ||
+    entry.agentTool === false ||
+    entry.uiOnly === true ||
+    entry.allowInPlanMode === false
+  ) {
+    return false;
+  }
+  const method = String(args.method ?? "GET").toUpperCase();
+  return (
+    (method === "GET" || method === "HEAD") &&
+    args.stageAs == null &&
+    args.saveToFile == null
+  );
+}
+
+function isReadOnlyOrchestrationAction(
+  args: Record<string, unknown>,
+  entry: ActionEntry,
+): boolean {
+  if (
+    !entry.tool ||
+    !isCallableWithoutApproval(entry) ||
+    entry.agentTool === false ||
+    entry.uiOnly === true ||
+    entry.toolCallable === false ||
+    entry.allowInPlanMode === false
+  ) {
+    return false;
+  }
+
+  const planMode = entry.planMode;
+  if (!planMode) return entry.readOnly === true;
+
+  const input = args as any;
+  if (
+    planMode.allowedProperties &&
+    Object.keys(args).some((key) => !planMode.allowedProperties!.includes(key))
+  ) {
+    return false;
+  }
+  if (
+    planMode.omittedProperties?.some((key) =>
+      Object.prototype.hasOwnProperty.call(args, key),
+    )
+  ) {
+    return false;
+  }
+  if (
+    Object.entries(planMode.allowedValues ?? {}).some(([key, allowed]) => {
+      const value = args[key];
+      return (
+        value !== null &&
+        value !== undefined &&
+        (typeof value !== "string" || !allowed.includes(value))
+      );
+    })
+  ) {
+    return false;
+  }
+
+  try {
+    const effect =
+      typeof planMode.effect === "function"
+        ? planMode.effect(input)
+        : planMode.effect;
+    return effect === "read";
+  } catch (error) {
+    console.warn(
+      "[run-code] tool-orchestration read-only policy classifier failed closed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return false;
+  }
+}
+
+function boundToolOrchestrationArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (toolName !== "provider-api-request") return args;
+  const fetchAllPages = args.fetchAllPages;
+  if (
+    !fetchAllPages ||
+    typeof fetchAllPages !== "object" ||
+    Array.isArray(fetchAllPages)
+  ) {
+    return args;
+  }
+
+  const requestedMaxPages = Number(
+    (fetchAllPages as Record<string, unknown>).maxPages,
+  );
+  const maxPages =
+    Number.isInteger(requestedMaxPages) && requestedMaxPages > 0
+      ? Math.min(
+          Math.floor(requestedMaxPages),
+          TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES,
+        )
+      : TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES;
+
+  return {
+    ...args,
+    fetchAllPages: {
+      ...(fetchAllPages as Record<string, unknown>),
+      maxPages,
+    },
+  };
+}
+
 function buildSandboxModule(
   userCode: string,
   bridgePort: number,
   bridgeToken: string,
+  mode: SandboxCodeMode = "run-code",
+  evaluator: SandboxCodeEvaluator = "node",
 ): string {
-  return `
+  const orchestrationHelpers =
+    mode === "tool-orchestration"
+      ? `
+/**
+ * Search the live registry for read-only or conditionally read-only tools, then call one
+ * of the returned names with toolCall(). The parent host enforces the same
+ * policy again, so this is discovery guidance rather than an authorization
+ * boundary.
+ */
+async function toolSearch(query = "", options = {}) {
+  const rawResult = await _bridgeCall("tool-search", {
+    ...(query ? { query } : {}),
+    ...(options.limit !== undefined ? { limit: options.limit } : {}),
+    includeSchemas: true,
+    readOnlyOnly: true,
+  });
+  return _parseBridgeResult(rawResult);
+}
+
+async function toolCall(name, args = {}) {
+  return _parseBridgeResult(await _bridgeCall(name, args));
+}
+`
+      : "";
+  const workspaceMutationHelpers =
+    mode === "run-code"
+      ? `
+/**
+ * Write (create or overwrite) a workspace file. Use \`scratch/...\` for
+ * temporary staging files.
+ * \`content\` must be a string. Returns metadata
+ * { resourceId, path, contentType, sizeBytes, updatedAt }.
+ */
+async function workspaceWrite(path, content, contentType = "text/plain") {
+  const rawResult = await _bridgeCall("workspace-files", {
+    action: "write",
+    path,
+    content: typeof content === "string" ? content : JSON.stringify(content),
+    contentType,
+  });
+  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
+}
+
+/**
+ * Append text to a workspace file (creates if absent).
+ */
+async function workspaceAppend(path, content) {
+  const rawResult = await _bridgeCall("workspace-files", {
+    action: "append",
+    path,
+    content: typeof content === "string" ? content : JSON.stringify(content),
+  });
+  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
+}
+`
+      : "";
+  const bridgeSetup =
+    evaluator === "run"
+      ? `
+async function _bridgeCall(tool, args) {
+  const response = await bridge.call(tool, args);
+  if (!response || response.ok !== true) {
+    throw new Error(response?.error || "Bridge call failed");
+  }
+  return response.result;
+}
+`
+      : `
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
@@ -853,6 +1298,68 @@ async function _bridgeCall(tool, args) {
     req.end(body);
   });
 }
+`;
+  const runOutputPrelude =
+    evaluator === "run"
+      ? `
+let __runStdout = "";
+let __runStderr = "";
+let __runOutputTruncated = false;
+function __runFormat(value) {
+  if (typeof value === "string") return value;
+  if (typeof value === "undefined") return "undefined";
+  if (typeof value === "bigint") return String(value) + "n";
+  try {
+    const json = JSON.stringify(value);
+    return json === undefined ? String(value) : json;
+  } catch {
+    return String(value);
+  }
+}
+function __runWrite(stream, args) {
+  const text = args.map(__runFormat).join(" ") + "\\n";
+  const current = stream === "stderr" ? __runStderr : __runStdout;
+  const remaining = ${RUN_MAX_CONSOLE_OUTPUT_BYTES} - current.length;
+  if (remaining <= 0) {
+    __runOutputTruncated = true;
+    return;
+  }
+  const next = text.slice(0, remaining);
+  if (stream === "stderr") __runStderr += next;
+  else __runStdout += next;
+  if (next.length < text.length) __runOutputTruncated = true;
+}
+const __runConsole = Object.freeze({
+  log: (...args) => __runWrite("stdout", args),
+  info: (...args) => __runWrite("stdout", args),
+  debug: (...args) => __runWrite("stdout", args),
+  warn: (...args) => __runWrite("stderr", args),
+  error: (...args) => __runWrite("stderr", args),
+});
+const console = __runConsole;
+globalThis.console = __runConsole;
+`
+      : "";
+  const userExecution =
+    evaluator === "run"
+      ? `
+await (async () => {
+${userCode}
+})();
+return { stdout: __runStdout, stderr: __runStderr };
+`
+      : `
+// Run user code
+(async () => {
+${userCode}
+})().catch((err) => {
+  console.error("Unhandled error:", err?.message ?? String(err));
+  process.exit(1);
+});
+`;
+  return `
+${bridgeSetup}
+${runOutputPrelude}
 
 function _parseBridgeResult(rawResult) {
   if (typeof rawResult !== "string") return rawResult;
@@ -866,6 +1373,8 @@ function _parseBridgeResult(rawResult) {
 async function appAction(name, args = {}) {
   return _parseBridgeResult(await _bridgeCall(name, args));
 }
+
+${orchestrationHelpers}
 
 async function providerRequest(provider, apiPath, init = {}) {
   const method = (init.method || "GET").toUpperCase();
@@ -904,6 +1413,9 @@ async function providerFetch(provider, apiPath, init = {}) {
     if (typeof r.status === "number" && r.status >= 400) {
       const detail = typeof r.text === "string" ? r.text : JSON.stringify(r.json ?? "");
       throw new Error(\`Provider request failed (\${r.status}): \${String(detail).slice(0, 500)}\`);
+    }
+    if (r.truncated === true) {
+      throw new Error("Provider response was cut at the response size limit, so its body is incomplete. Request smaller pages or add a server-side filter; use providerRequest() to inspect the partial body.");
     }
     return r.json !== undefined ? r.json : r.text;
   }
@@ -1609,33 +2121,7 @@ async function workspaceReadMeta(path, opts = {}) {
   return _parseBridgeResult(rawResult);
 }
 
-/**
- * Write (create or overwrite) a workspace file. Use \`scratch/...\` for
- * temporary staging files.
- * \`content\` must be a string. Returns metadata
- * { resourceId, path, contentType, sizeBytes, updatedAt }.
- */
-async function workspaceWrite(path, content, contentType = "text/plain") {
-  const rawResult = await _bridgeCall("workspace-files", {
-    action: "write",
-    path,
-    content: typeof content === "string" ? content : JSON.stringify(content),
-    contentType,
-  });
-  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
-}
-
-/**
- * Append text to a workspace file (creates if absent).
- */
-async function workspaceAppend(path, content) {
-  const rawResult = await _bridgeCall("workspace-files", {
-    action: "append",
-    path,
-    content: typeof content === "string" ? content : JSON.stringify(content),
-  });
-  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
-}
+${workspaceMutationHelpers}
 
 /**
  * List workspace files, optionally filtered by path prefix.
@@ -1652,12 +2138,6 @@ async function workspaceList(prefix) {
   throw new Error("workspaceList: unexpected result shape: " + JSON.stringify(parsed).slice(0, 200));
 }
 
-// Run user code
-(async () => {
-${userCode}
-})().catch((err) => {
-  console.error("Unhandled error:", err?.message ?? String(err));
-  process.exit(1);
-});
+${userExecution}
 `;
 }

@@ -1,4 +1,3 @@
-// Store
 export {
   appStateGet,
   appStateGetMany,
@@ -12,7 +11,6 @@ export {
   type AppStateCompareAndSetOperation,
 } from "./store.js";
 
-// Emitter (for SSE wiring)
 export {
   getAppStateEmitter,
   emitAppStateChange,
@@ -20,7 +18,6 @@ export {
   type AppStateEvent,
 } from "./emitter.js";
 
-// H3 route handlers (for templates)
 export {
   getState,
   getStateMany,
@@ -34,7 +31,6 @@ export {
   deleteAllComposeDrafts,
 } from "./handlers.js";
 
-// Script helpers
 export {
   readAppState,
   writeAppState,

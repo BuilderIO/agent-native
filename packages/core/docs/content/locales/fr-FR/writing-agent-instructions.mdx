@@ -104,6 +104,14 @@ data and the same actions.
 
 Conservez un fichier d'instructions canoniques : `AGENTS.md`. Si un client attend `CLAUDE.md`, faites-en un lien symbolique vers `AGENTS.md` plutôt qu'une deuxième copie. Deux fichiers gérés manuellement dérivent, et l'agent se retrouve avec des règles contradictoires. Une source de vérité, reliée là où c'est nécessaire.
 
+`AGENTS.md` est la norme universelle sur laquelle s'appuie le framework, si bien que tout outil de codage IA qui lit les instructions de projet fonctionne immédiatement :
+
+- **Claude Code** : lit `CLAUDE.md` (lié par un symlink à `AGENTS.md` par la configuration de la CLI)
+- **Cursor** : lit directement `AGENTS.md`, ou `.cursorrules` (l'ancien emplacement de Cursor) s'il est présent
+- **Windsurf** : lit directement `AGENTS.md`, ou `.windsurfrules` (l'ancien emplacement de Windsurf) s'il est présent
+- **Codex, Gemini et autres** : fonctionnent via le panneau d'agent intégré
+- **Builder.io** : agent hébergé dans le cloud avec édition visuelle et collaboration
+
 ## Le frontmatter de SKILL.md doit dire ce que AND quand {#skill-frontmatter}
 
 Le `description` est la seule chose que l'agent voit lorsqu'il décide de lire ou non une compétence. Il doit répondre à deux questions : ce que couvre la compétence et quand la déclencher. Une description qui décrit uniquement le sujet ne se déclenchera pas.

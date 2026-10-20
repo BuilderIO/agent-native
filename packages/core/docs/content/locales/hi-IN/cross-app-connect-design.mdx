@@ -1,0 +1,15 @@
+---
+title: "Cross-App Connect और Agent-Native marketplace"
+description: "Agent-Native apps के बीच connect, provisioning और sign-in की दिशा।"
+---
+
+# Cross-App Connect और Agent-Native marketplace
+
+यह one-click app connection का design है। यह Dispatch को identity authority और मौजूदा PKCE flow को इस्तेमाल करता है, wildcard cookie नहीं जोड़ता।
+
+- Dispatch identity authority रहता है और organization membership signed assertion से आती है।
+- `/_agent-native/open` deep links संभालता है; local sign-in fallback रहता है।
+- Dynamic registration, Client ID metadata, consent और revocation marketplace के अगले चरण हैं।
+- `labs.connectApps` चालू होने पर `/connect` में cached `/apps.json` catalog दिखता है और मौजूदा identity handoff से पहले agent card जांची जाती है। Hub-side dynamic registration और revocation अगला चरण हैं।
+- यह संस्करण connection status या disconnect action नहीं दिखाता; hub में app registry पहले आवश्यक है।
+- [Cross-app SSO](/docs/cross-app-sso) देखें।

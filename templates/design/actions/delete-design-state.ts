@@ -1,10 +1,10 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -23,7 +23,6 @@ export default defineAction({
 
     const db = getDb();
 
-    // Verify the row belongs to this design before deleting.
     const [existing] = await db
       .select({ id: schema.designState.id, name: schema.designState.name })
       .from(schema.designState)

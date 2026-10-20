@@ -7,16 +7,37 @@ export interface FileResult {
 
 export interface SkillResult {
   name: string;
-  description: string;
+  description?: string;
   path: string;
   source: "codebase" | "resource";
 }
 
+export type MentionItemMedia =
+  | {
+      type: "text";
+      text: string;
+      backgroundColor?: string;
+    }
+  | {
+      type: "image";
+      src: string;
+      fit?: "contain" | "cover";
+      backgroundColor?: string;
+    }
+  | { type: "none" };
+
 export interface MentionItem {
   id: string;
   label: string;
+  /** Label stored in the inserted reference when it differs from the menu row. */
+  referenceLabel?: string;
+  /** Exact case-insensitive names that may commit this item with Space. */
+  aliases?: string[];
+  /** Replace the existing inline reference of this type instead of adding another. */
+  replaceExisting?: boolean;
   description?: string;
   icon?: string;
+  media?: MentionItemMedia;
   source: string;
   refType: string;
   refPath?: string;
@@ -44,6 +65,7 @@ export interface Reference {
 export interface MentionReferenceInsert {
   label: string;
   icon?: string;
+  media?: MentionItemMedia;
   source?: string;
   refType: string;
   refId?: string | null;

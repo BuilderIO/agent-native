@@ -1,8 +1,13 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  canReadDraftAsset,
+  resolveDraftReadScope,
+  sessionReadFilter,
+} from "../server/lib/library-access.js";
 import { GENERATION_SESSION_STATUSES } from "../shared/api.js";
 import {
   buildAssetLineage,
@@ -23,7 +28,15 @@ export default defineAction({
   readOnly: true,
   run: async ({ libraryId, status, limit }) => {
     await requireLibrary(libraryId);
-    const filters = [eq(schema.assetGenerationSessions.libraryId, libraryId)];
+    const scope = await resolveDraftReadScope([libraryId]);
+    const sessionFilter = sessionReadFilter(
+      scope,
+      schema.assetGenerationSessions,
+    );
+    const filters = [
+      eq(schema.assetGenerationSessions.libraryId, libraryId),
+      ...(sessionFilter ? [sessionFilter] : []),
+    ];
     if (status) filters.push(eq(schema.assetGenerationSessions.status, status));
     const db = getDb();
     const sessions = await db
@@ -52,12 +65,14 @@ export default defineAction({
           .filter((assetId): assetId is string => Boolean(assetId)),
       ),
     ];
-    const assetRows = itemAssetIds.length
-      ? await db
-          .select()
-          .from(schema.assets)
-          .where(inArray(schema.assets.id, itemAssetIds))
-      : [];
+    const assetRows = (
+      itemAssetIds.length
+        ? await db
+            .select()
+            .from(schema.assets)
+            .where(inArray(schema.assets.id, itemAssetIds))
+        : []
+    ).filter((asset) => canReadDraftAsset(scope, asset));
     const lineageById = buildAssetLineage(assetRows);
     const itemsBySessionId = new Map<string, typeof items>();
     for (const item of items) {

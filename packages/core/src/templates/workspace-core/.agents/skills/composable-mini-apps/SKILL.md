@@ -1,8 +1,8 @@
 ---
 name: composable-mini-apps
 description: >-
-  Build many focused workspace apps that compose through agent discovery and
-  A2A. Use when designing headless mini-apps or cross-app workflows.
+  Build focused workspace apps and cross-app workflows, using A2A only when a
+  task needs a peer-owned capability. Use when designing mini-app boundaries.
 scope: dev
 ---
 
@@ -12,15 +12,20 @@ scope: dev
 
 Prefer many one-job apps in a workspace over one oversized app. A headless app
 can own a provider, dataset, workflow, or specialist action surface without a
-full UI; the main agent composes those apps through discovery and A2A.
+full UI. This architecture does not make every task a cross-app task: use the
+current app's actions by default. Call a peer only when the user asks or the
+outcome requires data, credentials, or a capability only that peer can provide.
+A peer's availability or ability to enrich the result is not enough. The app
+that owns an artifact remains responsible for authoring and editing it.
 
 ## Shape
 
 - Give each mini-app one clear job, a concise `package.json` description, and
   action names that describe the job it owns.
 - Keep provider credentials and upstream API details in the app that owns that
-  provider or workflow. Other apps should delegate to it instead of copying its
-  integration code.
+  provider or workflow. When a task needs its peer-exclusive data, credentials,
+  or capability, delegate that bounded work instead of copying integration
+  code.
 - Use a tiny status/config screen only when users need to inspect state. A
   pure headless app is fine when its job is invoked by agents, automations, or
   sibling apps.
@@ -38,9 +43,10 @@ The main agent should discover available siblings before assuming capability:
 - Use the built-in `describe-workspace-apps` tool for actual capability.
   It reads each peer's live `/.well-known/agent-card.json` and returns its
   purpose plus any optional stable machine contracts; pass `app: "<id>"` for
-  one peer's full description. Call it before building something a sibling may
-  already own, before telling a user what is or is not possible across apps,
-  and whenever someone asks which app to use for a job.
+  one peer's full description. Use it only when the requested outcome depends
+  on peer-exclusive data or capability and you cannot tell which peer owns it
+  or whether a known peer can provide it, or when the user asks which app can
+  do the job.
 - Never hand-maintain a markdown or code list of what each workspace app does.
   A stale catalog is worse than none: it reads as authoritative while pointing
   at capabilities that moved or vanished. An app's purpose belongs in its own
@@ -52,9 +58,11 @@ The main agent should discover available siblings before assuming capability:
 - Code or CLI callers should use the first-class message-based A2A invocation
   path (`invokeAgent()` / `agent-native invoke`) when they need to ask an app
   by id, name, or URL.
-- In the agent loop, use `call-agent` with the sibling app id when another app
-  owns the work or data. Never call the current app through `call-agent`; use
-  local actions instead.
+- In the agent loop, use `call-agent` with the sibling app id only when the
+  requested outcome depends on peer-exclusive data or capability, or the user
+  explicitly asks you to involve that app. A sibling's availability or ability
+  to enrich the result is not enough. Never call the current app through
+  `call-agent`; use local actions instead.
 - Send a natural-language objective by default so the sibling can apply its own
   instructions, skills, schemas, data dictionary, credentials, and tools.
   `invokeAgentAction()` or `call-agent` with `action` + `input` is only for an

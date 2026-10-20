@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { queryScreenMemoryForAgent } from "@agent-native/core/mcp-client";
 import { z } from "zod";
 

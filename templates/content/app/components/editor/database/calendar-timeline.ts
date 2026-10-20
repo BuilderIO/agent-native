@@ -1,5 +1,3 @@
-// Calendar and timeline date utilities: month days, spans, range labels, date keys.
-// Pure logic — no React, no icons.
 import type {
   ContentDatabaseItem,
   ContentDatabaseView,
@@ -29,7 +27,9 @@ export function calendarDateKey(value: Date | DocumentPropertyValue) {
   if (dateKey) return dateKey;
   if (value === null || value === undefined || value === "") return null;
 
-  const date = new Date(String(value));
+  const date = new Date(
+    typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+  );
   if (Number.isNaN(date.getTime())) return null;
   return formatCalendarDateKey(date);
 }
@@ -76,7 +76,6 @@ export function databaseTimelineEndDateProperty(
   );
 }
 
-// Re-exported for convenience
 import { databaseCalendarDateProperties } from "./grouping";
 export { databaseCalendarDateProperties };
 
@@ -278,7 +277,10 @@ export function propertyDateValue(
 ) {
   if (!property || !property.value) return Number.NaN;
   const value = new Date(
-    documentPropertyDatePart(property.value, "start") || String(property.value),
+    documentPropertyDatePart(property.value, "start") ||
+      (typeof property.value === "string"
+        ? property.value
+        : (JSON.stringify(property.value) ?? "")),
   ).getTime();
   return Number.isFinite(value) ? value : Number.NaN;
 }

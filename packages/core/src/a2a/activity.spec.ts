@@ -25,7 +25,7 @@ function toolCallAfter(input: Record<string, unknown>, result = "ok") {
   return buildA2AAgentActivitySnapshot(state).toolCalls[0];
 }
 
-describe("Agent Native A2A activity", () => {
+describe("Agent-Native A2A activity", () => {
   it("records redacted tool input and a bounded result summary", () => {
     let state = createA2AAgentActivityState(1_000);
     state = applyA2AAgentActivityEvent(
@@ -52,8 +52,6 @@ describe("Agent Native A2A activity", () => {
       1_200,
     );
 
-    // A still-running call already carries its arguments — the point of the
-    // capture is diagnosing a call that never completes.
     const running = buildA2AAgentActivitySnapshot(state).toolCalls[0];
     expect(running.status).toBe("running");
     expect(JSON.parse(running.input!)).toEqual({
@@ -89,7 +87,6 @@ describe("Agent Native A2A activity", () => {
     expect(oneBigArg.input!.length).toBeLessThanOrEqual(
       MAX_A2A_ACTIVITY_TOOL_INPUT_CHARS,
     );
-    // Still parseable, and the clipped value says so rather than looking short.
     expect(JSON.parse(oneBigArg.input!).command).toContain("more chars");
 
     const manyArgs = toolCallAfter(

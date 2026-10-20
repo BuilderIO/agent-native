@@ -1,7 +1,11 @@
+import type { AgentNativeWebMcpTool } from "../client/webmcp.js";
+
 export type AgentNativeBrowserSessionRequestType =
   | "get-context"
   | "list-actions"
   | "run-action"
+  | "list-webmcp-tools"
+  | "run-webmcp-tool"
   | "command";
 
 export type AgentNativeBrowserSessionRequestStatus =
@@ -41,6 +45,7 @@ export interface AgentNativeBrowserSessionRecord {
   url?: string;
   context?: AgentNativeBrowserSessionJsonObject;
   actions: AgentNativeBrowserSessionAction[];
+  webmcpTools?: AgentNativeWebMcpTool[];
   connectedAt: number;
   lastSeenAt: number;
   expiresAt: number;
@@ -52,6 +57,7 @@ export interface AgentNativeBrowserSessionRequest {
   sessionId: string;
   type: AgentNativeBrowserSessionRequestType;
   name?: string;
+  origin?: string;
   command?: string;
   args?: unknown;
   payload?: unknown;
@@ -71,12 +77,14 @@ export interface RegisterAgentNativeBrowserSessionInput {
   url?: string;
   context?: AgentNativeBrowserSessionJsonObject;
   actions?: AgentNativeBrowserSessionAction[];
+  webmcpTools?: AgentNativeWebMcpTool[];
   ttlMs?: number;
 }
 
 export interface CreateAgentNativeBrowserSessionRequestInput {
   type: AgentNativeBrowserSessionRequestType;
   name?: string;
+  origin?: string;
   command?: string;
   args?: unknown;
   payload?: unknown;

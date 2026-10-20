@@ -4,7 +4,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useDocumentSyncStatus,
   useResolveDocumentSyncConflict,
@@ -20,11 +19,8 @@ export function NotionConflictBanner({
   canEdit = true,
 }: NotionConflictBannerProps) {
   const t = useT();
-  // Share autoSync state (and React Query cache) with DocumentToolbar.
-  const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const { data: syncStatus } = useDocumentSyncStatus(
     canEdit ? documentId : null,
-    { autoSync },
   );
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
   const [direction, setDirection] = useState<"pull" | "push" | null>(null);

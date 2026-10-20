@@ -4,6 +4,12 @@ import type { ReactNode } from "react";
 import { createElement } from "react";
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from "vitest";
+const testString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URLSearchParams
+      ? value.toString()
+      : (JSON.stringify(value) ?? "");
 
 import {
   SIDEBAR_COLLAPSED_STORAGE_KEY,
@@ -38,7 +44,7 @@ function stubFetch(initialGet: MockResponse) {
 
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "PUT") {
-      putCalls.push({ url, body: String(init.body ?? "") });
+      putCalls.push({ url, body: testString(init.body ?? "") });
       if (nextPutShouldFail) {
         nextPutShouldFail = false;
         throw new Error("network down");
@@ -146,7 +152,7 @@ describe("useSidebarCollapsed", () => {
     await waitFor(() => expect(result.current.collapsed).toBe(false));
 
     await act(async () => {
-      result.current.setCollapsed(true);
+      void result.current.setCollapsed(true);
     });
 
     await waitFor(() => expect(result.current.collapsed).toBe(true));
@@ -161,7 +167,6 @@ describe("useSidebarCollapsed", () => {
   });
 
   it("does not let an in-flight poll overwrite the optimistic update", async () => {
-    // Initial fetch: server says collapsed=false.
     const stub = stubFetch({
       ok: true,
       body: JSON.stringify({ collapsed: false }),
@@ -172,9 +177,6 @@ describe("useSidebarCollapsed", () => {
     });
     await waitFor(() => expect(result.current.collapsed).toBe(false));
 
-    // Make the *next* GET deliberately slow so it's still in flight when
-    // the user toggles. Without cancelQueries, this stale response would
-    // arrive after the optimistic write and snap collapsed back to false.
     let releaseSlowGet: (() => void) | null = null;
     let markSlowGetStarted: (() => void) | null = null;
     const slowGetStarted = new Promise<void>((resolve) => {
@@ -191,19 +193,14 @@ describe("useSidebarCollapsed", () => {
       });
     });
 
-    // Manually invalidate to kick off the slow GET (simulates a poll firing).
-    // Then immediately call setCollapsed(true).
     void client.invalidateQueries({ queryKey: QUERY_KEY });
     await slowGetStarted;
     await act(async () => {
       await result.current.setCollapsed(true);
     });
 
-    // Optimistic update committed.
     await waitFor(() => expect(result.current.collapsed).toBe(true));
 
-    // Now release the stale poll — it should NOT overwrite the optimistic
-    // value because cancelQueries aborted it.
     releaseSlowGet!();
     await new Promise((r) => setTimeout(r, 0));
     expect(result.current.collapsed).toBe(true);
@@ -219,12 +216,10 @@ describe("useSidebarCollapsed", () => {
     });
     await waitFor(() => expect(result.current.collapsed).toBe(false));
 
-    // Server has the same value (false). PUT will fail; invalidation should
-    // re-fetch the truth and drop the optimistic value back to false.
     stub.failNextPut();
     stub.setNextGet({ ok: true, body: JSON.stringify({ collapsed: false }) });
     await act(async () => {
-      result.current.setCollapsed(true);
+      void result.current.setCollapsed(true);
     });
 
     await waitFor(() => expect(stub.putCalls).toHaveLength(1));

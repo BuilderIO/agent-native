@@ -12,13 +12,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
-  // `where()` must behave both as a directly-awaited result (the initial
-  // multi-file lookup in insert-asset.ts) AND as a chain that supports a
-  // trailing `.limit(1)` (writeInlineSourceFile's internal re-select in
-  // server/source-workspace.ts, now used by the action's write path).
-  // Returning a real Promise with an extra `.limit()` method attached covers
-  // both call shapes with the same mocked resolved rows, narrowed by id when
-  // the predicate looks like `eq(designFiles.id, someId)`.
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
@@ -53,12 +46,10 @@ const mocks = vi.hoisted(() => {
   const db = {
     select: vi.fn(() => fileSelectChain),
     update: vi.fn(() => updateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+    transaction: vi.fn(async (callback) => callback(db)),
   };
 
-  // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile
-  // re-reads getText() right after seedFromText/applyText to persist the
-  // "authoritative" collab content back to SQL, so seedFromText must
-  // actually store what getText reads back. Cleared per-test in beforeEach.
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -98,6 +89,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/collab", () => {
   const seeded = mocks.seededCollabText;
   return {
+    CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
     hasCollabState: vi.fn().mockResolvedValue(false),
     getText: vi.fn(async (docId: string) => seeded.get(docId) ?? ""),
     applyText: vi.fn(async (docId: string, text: string) => {
@@ -107,6 +99,35 @@ vi.mock("@agent-native/core/collab", () => {
     seedFromText: vi.fn(async (docId: string, text: string) => {
       if (!seeded.has(docId)) seeded.set(docId, text);
     }),
+    applyTextToYDoc: vi.fn(
+      (doc: { content: string }, _fieldName: string, text: string) => {
+        doc.content = text;
+      },
+    ),
+    withPreparedYDocMutation: vi.fn(
+      async (
+        docId: string,
+        _requestSource: string | undefined,
+        run: (lease: {
+          doc: { content: string; getText: () => { toString: () => string } };
+          baseVersion: number | null;
+          persist: (_tx: unknown, text: string) => Promise<void>;
+        }) => Promise<unknown>,
+      ) => {
+        const doc = {
+          content: seeded.get(docId) ?? "",
+          getText: () => ({ toString: () => doc.content }),
+        };
+        const result = await run({
+          doc,
+          baseVersion: seeded.has(docId) ? 0 : null,
+          persist: async (_tx, text) => {
+            seeded.set(docId, text);
+          },
+        });
+        return result;
+      },
+    ),
   };
 });
 
@@ -127,8 +148,6 @@ vi.mock("../server/db/index.js", () => ({
 
 import action from "./insert-asset.js";
 
-// A URL containing a single quote — invalid to break out of `url('...')`,
-// but syntactically a valid http(s) URL (quote in a path segment).
 const MALICIOUS_URL =
   "https://evil.example.com/a'));</style><script>alert(1)</script><style x='.png";
 
@@ -167,7 +186,6 @@ describe("insert-asset", () => {
 
     const content = mocks.updateChain.set.mock.calls[0]?.[0]?.content as string;
     expect(content).toBeDefined();
-    // The raw single quote must never appear un-escaped inside the style value.
     expect(content).not.toContain("'));</style>");
     expect(content).not.toContain("<script>alert(1)</script>");
     expect(content).toContain("%27");

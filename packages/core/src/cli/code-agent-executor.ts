@@ -28,24 +28,28 @@ import {
   TOOL_SEARCH_ACTION_NAME,
 } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   formatPromptWithAttachments,
   type AgentPromptAttachment,
 } from "../code-agents/prompt-attachments.js";
 import {
   createCodingToolRegistry,
+  canonicalizeShellCommand,
   isReadOnlyShellCommand,
   runCodingCommand,
   truncateBashOutput,
   truncateCodingOutput,
   type StructuredToolMetadata,
 } from "../coding-tools/index.js";
+import { normalizeImageMediaType } from "../file-upload/attachment-bytes.js";
 import {
   buildMergedConfig,
   McpClientManager,
   mcpToolsToActionEntries,
   type McpToolInvocationPolicy,
 } from "../mcp-client/index.js";
+import type { McpPrincipal } from "../mcp-client/principal.js";
 import {
   readAgentsBundleFromFs,
   generateDevelopmentSkillsPromptBlock,
@@ -55,6 +59,7 @@ import {
   getAmbientUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -63,6 +68,18 @@ import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
 } from "../vite/agent-native-config-loader.js";
+import {
+  ClaudeCodeAuthStatusError,
+  runClaudeCodeParticipant,
+  type ClaudeCodeParticipantEvent,
+} from "./claude-code-participant.js";
+import { createCodeAgentAgentTools } from "./code-agent-agent-tools.js";
+import {
+  claudeMcpConfig,
+  codexMcpConfigArgs,
+  mergeCodeAgentMcpConfig,
+  restrictCodeAgentMcpConfig,
+} from "./code-agent-mcp-config.js";
 import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 import {
   addCodeAgentCommandToAllowlist,
@@ -85,7 +102,6 @@ export interface ExecuteCodeAgentRunOptions {
   reasoningEffort?: ReasoningEffort;
   attachments?: AgentPromptAttachment[];
   stdout?: NodeJS.WritableStream;
-  /** Keep tool output in transcript events when the caller has a structured UI. */
   streamToolOutputToStdout?: boolean;
   signal?: AbortSignal;
 }
@@ -117,23 +133,18 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const MAX_TOOL_OUTPUT_CHARS = 50_000;
 const MAX_FILE_READ_CHARS = 120_000;
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
+const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
+const MCP_CONFIG_REMOVE_ATTEMPTS = 3;
+const PI_CLI_ENGINE_NAME = "pi-cli";
+const OPENCODE_CLI_ENGINE_NAME = "opencode-cli";
+const CLAUDE_CLI_DEFAULT_MODEL = "claude-sonnet-5-5";
 const RECAP_SOURCE_TOOL_PROFILE = "recap-source";
 const RECAP_SOURCE_OUTPUT_FILE = "recap-source.json";
 
 type CodeAgentToolProfile = typeof RECAP_SOURCE_TOOL_PROFILE;
 
-/**
- * Number of most-recent transcript events reconstructed as native
- * EngineMessage objects (with proper tool-call / tool-result pairing).
- * Events older than this cap are summarised into a single compact text
- * preamble so the model retains broad context without token waste.
- */
 const STRUCTURED_HISTORY_RECENT_EVENTS = 40;
 
-/**
- * Per-tool-result text cap when reconstructing history.  Matches the overall
- * tool-output cap so old results don't balloon the context.
- */
 const STRUCTURED_HISTORY_RESULT_CAP = MAX_TOOL_OUTPUT_CHARS;
 
 export async function executeCodeAgentRun(
@@ -149,9 +160,6 @@ export async function executeCodeAgentRun(
   const rawAttachments =
     options.attachments ?? latestUserPromptAttachments(existing.id, prompt);
 
-  // Split attachments: images (dataUrl) go as engine image parts; text/file
-  // attachments are still inlined into the prompt text. This prevents 2 MB
-  // images from consuming ~700 K tokens of garbage when treated as plain text.
   const imageAttachments = rawAttachments.filter((a) => a.dataUrl);
   const textOnlyAttachments = rawAttachments.filter((a) => !a.dataUrl);
   const executionPrompt = formatPromptWithAttachments(
@@ -207,17 +215,53 @@ export async function executeCodeAgentRun(
     metadata: { status: "running", phase: "executing" },
   });
 
-  // Fall back to AGENT_ENGINE here too, mirroring resolveExecutorEngine below.
-  // Without it, `AGENT_ENGINE=codex-cli` skips this Codex branch and is handed
-  // to resolveEngine (LLM providers only), which throws `Unknown engine`.
   const requestedEngine = normalizeRequestedEngine(
-    metadataString(existing, "engine") ?? process.env.AGENT_ENGINE,
+    metadataString(existing, "engine") ?? getAppConfig().agent.engine,
   );
   if (requestedEngine === CODEX_CLI_ENGINE_NAME) {
     return executeCodexCliRun({
       run: existing,
       prompt: executionPrompt,
       model: options.model ?? metadataString(existing, "model"),
+      permissionMode: existing.permissionMode ?? "full-auto",
+      stdout: options.stdout,
+      streamToolOutputToStdout,
+      signal: options.signal,
+    });
+  }
+  if (requestedEngine === CLAUDE_CLI_ENGINE_NAME) {
+    return executeClaudeCliRun({
+      run: existing,
+      prompt: executionPrompt,
+      model: options.model ?? metadataString(existing, "model"),
+      reasoningEffort:
+        options.reasoningEffort ?? metadataReasoningEffort(existing),
+      permissionMode: existing.permissionMode ?? "full-auto",
+      stdout: options.stdout,
+      streamToolOutputToStdout,
+      signal: options.signal,
+    });
+  }
+  if (requestedEngine === PI_CLI_ENGINE_NAME) {
+    return executePiCliRun({
+      run: existing,
+      prompt: executionPrompt,
+      model: options.model ?? metadataString(existing, "model"),
+      reasoningEffort:
+        options.reasoningEffort ?? metadataReasoningEffort(existing),
+      permissionMode: existing.permissionMode ?? "full-auto",
+      stdout: options.stdout,
+      streamToolOutputToStdout,
+      signal: options.signal,
+    });
+  }
+  if (requestedEngine === OPENCODE_CLI_ENGINE_NAME) {
+    return executeOpenCodeCliRun({
+      run: existing,
+      prompt: executionPrompt,
+      model: options.model ?? metadataString(existing, "model"),
+      reasoningEffort:
+        options.reasoningEffort ?? metadataReasoningEffort(existing),
       permissionMode: existing.permissionMode ?? "full-auto",
       stdout: options.stdout,
       streamToolOutputToStdout,
@@ -256,7 +300,7 @@ export async function executeCodeAgentRun(
   const modelCandidate =
     options.model ??
     metadataString(existing, "model") ??
-    process.env.AGENT_MODEL ??
+    getAppConfig().agent.model ??
     (await getStoredModelForEngine(engine).catch(() => undefined)) ??
     engine.defaultModel;
   const model = normalizeModelForEngine(engine, modelCandidate);
@@ -268,8 +312,6 @@ export async function executeCodeAgentRun(
     process.env.AGENT_NATIVE_CODE_TOOL_PROFILE,
   );
 
-  // Holds structured metadata emitted by the coding tools side-channel.
-  // Keyed by tool name; consumed when the matching tool_start / tool_done fires.
   const pendingToolMeta = new Map<string, StructuredToolMetadata>();
 
   const actions = createLocalCodeAgentActions(
@@ -277,12 +319,9 @@ export async function executeCodeAgentRun(
     permissionMode,
     existing.id,
     (toolName, _phase, meta) => {
-      // Both "start" and "done" phases update the map; done has richer data.
       pendingToolMeta.set(toolName, meta);
     },
     (chunk) => {
-      // Structured desktop transcripts render tool output separately from
-      // assistant text. Keep the legacy terminal stream opt-in for them.
       if (streamToolOutputToStdout) {
         options.stdout?.write(chunk);
       }
@@ -291,7 +330,7 @@ export async function executeCodeAgentRun(
   );
   const mcpManager = toolProfile
     ? null
-    : await startCodeAgentMcpManager(existing.id);
+    : await startCodeAgentMcpManager(existing);
   if (mcpManager) {
     Object.assign(
       actions,
@@ -318,8 +357,6 @@ export async function executeCodeAgentRun(
   let assistantText = "";
   const outputSmoother = createCodeAgentOutputSmoother(options.stdout);
 
-  // Accumulate thinking text across deltas so we can persist a single event
-  // per reasoning block rather than one event per delta chunk.
   let pendingThinkingText = "";
   let thinkingFlushTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -339,7 +376,6 @@ export async function executeCodeAgentRun(
 
   const send = (event: AgentChatEvent) => {
     if (event.type === "text") {
-      // Flush any buffered thinking when real content arrives.
       if (thinkingFlushTimer !== undefined) {
         clearTimeout(thinkingFlushTimer);
         flushThinkingEvent();
@@ -350,7 +386,6 @@ export async function executeCodeAgentRun(
     }
     if (event.type === "thinking") {
       pendingThinkingText += event.text;
-      // Debounce: flush 300ms after the last delta so rapid chunks are merged.
       if (thinkingFlushTimer !== undefined) clearTimeout(thinkingFlushTimer);
       thinkingFlushTimer = setTimeout(flushThinkingEvent, 300);
       return;
@@ -429,8 +464,6 @@ export async function executeCodeAgentRun(
     );
     loopUsage = usageResult ?? null;
     writeCodeAgentUsageSnapshot(cwd, loopUsage);
-    // Persist cumulative token totals from this turn into the run record so
-    // the UI can display per-run usage statistics.
     if (loopUsage) {
       updateCodeAgentRunRecord(existing.id, (record) => ({
         metadata: {
@@ -591,6 +624,945 @@ export function codeAgentMcpInvocationPolicy(
   };
 }
 
+async function executeClaudeCliRun(options: {
+  run: CodeAgentRunRecord;
+  prompt: string;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  permissionMode: CodeAgentPermissionMode;
+  stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
+  signal?: AbortSignal;
+}): Promise<CodeAgentRunRecord | null> {
+  const cwd = options.run.cwd || process.cwd();
+  const model = normalizeClaudeCliModel(options.model);
+  const reasoningEffort = normalizeClaudeCliEffort(options.reasoningEffort);
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
+  const assistantText: string[] = [];
+  const claudeToolNames = new Map<string, string>();
+
+  appendCodeAgentTranscriptEvent({
+    runId: options.run.id,
+    kind: "status",
+    message: "Starting Claude Code with local Claude authentication.",
+    metadata: {
+      status: "running",
+      phase: "executing",
+      engine: CLAUDE_CLI_ENGINE_NAME,
+    },
+  });
+
+  let mcpConfigDir: string | undefined;
+  let followUpInput!: Parameters<typeof executeCodeAgentRun>[0];
+  // Runs exactly once per CLI run, when the CLI exits or its setup fails, so
+  // the run's status is decided from one final cleanup result. A config still
+  // on disk afterwards is recorded in the transcript, and on the success path
+  // it fails the run (see below).
+  const removeMcpConfig = () => {
+    const dir = mcpConfigDir;
+    if (!dir) return;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < MCP_CONFIG_REMOVE_ATTEMPTS; attempt++) {
+      try {
+        fs.rmSync(dir, {
+          recursive: true,
+          force: true,
+          maxRetries: 2,
+          retryDelay: 50,
+        });
+        mcpConfigDir = undefined;
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "note",
+      message: `Could not remove the temporary Claude MCP config at ${dir}: ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }`,
+      metadata: { engine: CLAUDE_CLI_ENGINE_NAME },
+    });
+  };
+  try {
+    // Deliver the same host-scoped servers the Codex path receives (see
+    // executeCodexCliRun), through a private file rather than argv because
+    // the headers can carry session cookies or bearer tokens.
+    const mcpPrincipal = resolveCodeAgentMcpPrincipal(options.run);
+    const mcpConfig = claudeMcpConfig(
+      process.env.MCP_SERVERS === undefined && mcpPrincipal
+        ? await buildMergedConfig(mcpPrincipal)
+        : null,
+    );
+    let mcpConfigPath: string | undefined;
+    let result: Awaited<ReturnType<typeof runClaudeCodeParticipant>>;
+    try {
+      if (mcpConfig) {
+        mcpConfigDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "agent-native-code-claude-"),
+        );
+        mcpConfigPath = path.join(mcpConfigDir, "mcp.json");
+        fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig), {
+          mode: 0o600,
+        });
+      }
+      result = await runClaudeCodeParticipant({
+        role:
+          options.permissionMode === "auto-edit" ||
+          options.permissionMode === "full-auto"
+            ? "driver"
+            : "watchdog",
+        prompt: buildClaudeCliPrompt(options.run, options.prompt),
+        cwd,
+        model,
+        effort: reasoningEffort,
+        mcpConfigPath,
+        mcpServerNames: mcpConfig ? Object.keys(mcpConfig.mcpServers) : [],
+        signal: options.signal,
+        onEvent: (event) => {
+          const text = appendClaudeParticipantTranscriptEvents(
+            options.run.id,
+            event,
+            claudeToolNames,
+          );
+          if (!text) return;
+          assistantText.push(text);
+          if (streamToolOutputToStdout) options.stdout?.write(text);
+        },
+      });
+    } finally {
+      // The CLI has exited (or never started); drop the credential-bearing
+      // config before any queued or steering follow-up starts its own run.
+      removeMcpConfig();
+    }
+    const finalMessage =
+      readClaudeParticipantResultText(result.events) ??
+      (assistantText.join("\n\n").trim() || "Claude Code run completed.");
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "system",
+      message: finalMessage,
+      metadata: {
+        role: "assistant",
+        engine: CLAUDE_CLI_ENGINE_NAME,
+        model,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+      },
+    });
+
+    // A run is not complete while the credential-bearing config is still on
+    // disk, and a follow-up must not start a new CLI run beside it: fail this
+    // run and leave any follow-up queued.
+    if (mcpConfigDir) {
+      throw new Error(
+        `Could not remove the temporary Claude MCP config at ${mcpConfigDir}; any queued follow-up was not started.`,
+      );
+    }
+    const pendingFollowUp = dequeueCodeAgentFollowUp(options.run.id);
+    if (pendingFollowUp) {
+      const message =
+        pendingFollowUp.mode === "queued"
+          ? "Claude Code run completed; running queued follow-up."
+          : "Claude Code run completed; applying steering follow-up.";
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message,
+        metadata: {
+          status: "running",
+          phase: "follow-up",
+          followUpId: pendingFollowUp.id,
+          followUpMode: pendingFollowUp.mode,
+          engine: CLAUDE_CLI_ENGINE_NAME,
+        },
+      });
+      if (pendingFollowUp.permissionMode) {
+        updateCodeAgentRunRecord(options.run.id, {
+          permissionMode: pendingFollowUp.permissionMode,
+        });
+      }
+      followUpInput = {
+        runId: options.run.id,
+        prompt: pendingFollowUp.prompt,
+        attachments:
+          pendingFollowUp.attachments ??
+          userPromptAttachmentsForEvent(
+            options.run.id,
+            pendingFollowUp.eventId,
+          ),
+        appendUserEvent: false,
+        stdout: options.stdout,
+        streamToolOutputToStdout: options.streamToolOutputToStdout,
+        signal: options.signal,
+      };
+    } else {
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message: "Claude Code run completed.",
+        metadata: {
+          status: "completed",
+          phase: "complete",
+          engine: CLAUDE_CLI_ENGINE_NAME,
+        },
+      });
+      return updateCodeAgentRunRecord(options.run.id, {
+        status: "completed",
+        phase: "complete",
+        needsApproval: false,
+        progress: {
+          label: "Complete",
+          completed: 1,
+          total: 1,
+          percent: 100,
+        },
+        metadata: {
+          executionCompletedAt: new Date().toISOString(),
+          engine: CLAUDE_CLI_ENGINE_NAME,
+          model,
+          ...(reasoningEffort ? { reasoningEffort } : {}),
+          permissionMode: options.permissionMode,
+        },
+      });
+    }
+  } catch (error) {
+    // A resume has no handle to this run's MCP config, so a stopped run whose
+    // config is still on disk fails instead of pausing.
+    const interrupted = options.signal?.aborted === true && !mcpConfigDir;
+    const message =
+      options.signal?.aborted && mcpConfigDir
+        ? `Could not remove the temporary Claude MCP config at ${mcpConfigDir} after the run was stopped.`
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    const executionError =
+      error instanceof ClaudeCodeAuthStatusError ? error.rawMessage : message;
+    const summary = interrupted
+      ? "Claude Code run paused."
+      : `Claude Code run failed: ${message}`;
+    if (streamToolOutputToStdout) options.stdout?.write(`\n${summary}\n`);
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "status",
+      message: summary,
+      metadata: {
+        status: interrupted ? "paused" : "errored",
+        phase: interrupted ? "paused" : "error",
+        engine: CLAUDE_CLI_ENGINE_NAME,
+      },
+    });
+    return updateCodeAgentRunRecord(options.run.id, {
+      status: interrupted ? "paused" : "errored",
+      phase: interrupted ? "paused" : "error",
+      progress: {
+        label: interrupted ? "Paused" : "Error",
+        completed: 0,
+        total: 1,
+        failed: interrupted ? 0 : 1,
+        percent: 0,
+      },
+      metadata: {
+        ...(interrupted
+          ? { executionPausedAt: new Date().toISOString() }
+          : {
+              executionError,
+              executionErroredAt: new Date().toISOString(),
+            }),
+        engine: CLAUDE_CLI_ENGINE_NAME,
+        model,
+      },
+    });
+  }
+  return executeCodeAgentRun(followUpInput);
+}
+
+function buildClaudeCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
+  const permissionMode = run.permissionMode ?? "full-auto";
+  const mode =
+    permissionMode === "auto-edit" || permissionMode === "full-auto"
+      ? "Auto"
+      : "Plan";
+  const modeInstruction =
+    mode === "Plan"
+      ? "Inspect and explain only. Do not edit files or run mutating commands."
+      : "Edit and verify as needed. Do not create, switch, reset, rebase, or stash git branches.";
+  const additionalSkillsRoot =
+    process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
+  return [
+    `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
+    `Treat ${run.cwd || process.cwd()} as the only project checkout for this run. Keep shell commands, file operations, git pushes, and pull requests rooted there; do not use absolute paths or .. to reach another checkout.`,
+    "Follow the repository AGENTS.md and any relevant skill instructions.",
+    ...(additionalSkillsRoot
+      ? [
+          `Additional installed Agent Plugin skills are available under ${additionalSkillsRoot}. Read any relevant SKILL.md files before acting.`,
+        ]
+      : []),
+    `Run mode: ${mode} (${permissionMode}). ${modeInstruction}`,
+    "",
+    "# User request",
+    prompt,
+  ].join("\n");
+}
+
+function normalizeClaudeCliModel(model: string | undefined): string {
+  const trimmed = model?.trim();
+  return !trimmed || trimmed === "auto" || trimmed === CLAUDE_CLI_ENGINE_NAME
+    ? CLAUDE_CLI_DEFAULT_MODEL
+    : trimmed;
+}
+
+function normalizeClaudeCliEffort(
+  effort: ReasoningEffort | undefined,
+): ReasoningEffort | undefined {
+  return effort && effort !== "auto" ? effort : undefined;
+}
+
+function appendClaudeParticipantTranscriptEvents(
+  runId: string,
+  event: ClaudeCodeParticipantEvent,
+  toolNames: Map<string, string>,
+): string | null {
+  const eventType = cliStringValue(event.type);
+  const message = asRecordValue(event.message);
+  const messageContent = Array.isArray(message?.content)
+    ? message.content.filter((part): part is Record<string, unknown> =>
+        isRecordValue(part),
+      )
+    : [];
+  const content =
+    messageContent.length > 0
+      ? messageContent
+      : eventType === "tool_use" || eventType === "tool_result"
+        ? [event]
+        : [];
+  let assistantText = "";
+
+  for (const part of content) {
+    const partType = cliStringValue(part.type);
+    if (eventType === "assistant" && partType === "text") {
+      const text = typeof part.text === "string" ? part.text : "";
+      if (!text.trim()) continue;
+      assistantText += text;
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "system",
+        message: text,
+        metadata: { role: "assistant", source: "claude-cli" },
+      });
+      continue;
+    }
+
+    if (eventType === "assistant" && partType === "thinking") {
+      const thinking = cliTranscriptValue(part.thinking ?? part.text);
+      if (!thinking) continue;
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: thinking,
+        metadata: { type: "thinking", source: "claude-cli" },
+      });
+      continue;
+    }
+
+    if (partType === "tool_use") {
+      const toolName =
+        cliStringValue(part.name) ?? cliStringValue(part.tool_name) ?? "tool";
+      const toolCallId = cliStringValue(part.id);
+      if (toolCallId) toolNames.set(toolCallId, toolName);
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Running ${toolName}.`,
+        metadata: {
+          type: "tool_start",
+          tool: toolName,
+          input: part.input ?? {},
+          ...(toolCallId ? { toolCallId } : {}),
+          source: "claude-cli",
+        },
+      });
+      continue;
+    }
+
+    if (partType === "tool_result") {
+      const toolCallId = cliStringValue(part.tool_use_id);
+      const toolName =
+        cliStringValue(part.tool_name) ??
+        (toolCallId ? toolNames.get(toolCallId) : undefined) ??
+        "tool";
+      const result = cliTranscriptValue(
+        part.content ?? part.output ?? part.result ?? "",
+      );
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Finished ${toolName}.`,
+        metadata: {
+          type: "tool_done",
+          tool: toolName,
+          result,
+          ...(part.is_error === true ? { isError: true } : {}),
+          ...(toolCallId ? { toolCallId } : {}),
+          source: "claude-cli",
+        },
+      });
+      if (toolCallId) toolNames.delete(toolCallId);
+    }
+  }
+
+  return assistantText.trim() || null;
+}
+
+function appendCodexCliTranscriptEvent(
+  runId: string,
+  event: Record<string, unknown>,
+): void {
+  const eventType = cliStringValue(event.type);
+  const item = asRecordValue(event.item);
+  if (eventType?.startsWith("item.") && item) {
+    const itemType = cliStringValue(item.type);
+    if (itemType === "agent_message") {
+      const text = cliStringValue(item.text ?? item.message ?? item.content);
+      if (text) {
+        appendCodeAgentTranscriptEvent({
+          runId,
+          kind: "system",
+          message: text,
+          metadata: {
+            role: "assistant",
+            source: "codex-cli",
+            cliEventType: eventType,
+            itemType,
+          },
+        });
+      }
+      return;
+    }
+
+    if (itemType === "reasoning") {
+      const text = cliTranscriptValue(item.text ?? item.summary);
+      if (text) {
+        appendCodeAgentTranscriptEvent({
+          runId,
+          kind: "status",
+          message: text,
+          metadata: {
+            type: "thinking",
+            source: "codex-cli",
+            cliEventType: eventType,
+            itemType,
+          },
+        });
+      }
+      return;
+    }
+
+    const toolName = codexCliToolName(itemType, item);
+    if (!toolName) return;
+    const toolCallId = cliStringValue(item.id);
+    const metadata = {
+      source: "codex-cli",
+      cliEventType: eventType,
+      itemType,
+      tool: toolName,
+      ...(toolCallId ? { toolCallId } : {}),
+    };
+    if (eventType === "item.started") {
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Running ${toolName}.`,
+        metadata: {
+          ...metadata,
+          type: "tool_start",
+          input: codexCliToolInput(item),
+        },
+      });
+    } else if (eventType === "item.completed") {
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Finished ${toolName}.`,
+        metadata: {
+          ...metadata,
+          type: "tool_done",
+          result: cliTranscriptValue(codexCliToolResult(item)),
+        },
+      });
+    } else {
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Working with ${toolName}.`,
+        metadata: { ...metadata, type: "activity" },
+      });
+    }
+    return;
+  }
+
+  if (eventType === "error" || eventType === "turn.failed") {
+    const message = cliStringValue(event.message ?? event.error) ?? eventType;
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message,
+      metadata: { type: "error", source: "codex-cli", cliEventType: eventType },
+    });
+  }
+}
+
+function codexCliToolName(
+  itemType: string | undefined,
+  item: Record<string, unknown>,
+): string | null {
+  switch (itemType) {
+    case "command_execution":
+      return "bash";
+    case "file_change":
+      return "file-change";
+    case "mcp_tool_call":
+      return (
+        cliStringValue(item.name) ?? cliStringValue(item.tool) ?? "mcp-tool"
+      );
+    case "web_search":
+      return "web-search";
+    case "function_call":
+      return cliStringValue(item.name) ?? "function";
+    default:
+      return itemType?.includes("tool")
+        ? (cliStringValue(item.name) ?? itemType)
+        : null;
+  }
+}
+
+function codexCliToolInput(item: Record<string, unknown>): unknown {
+  if (typeof item.command === "string") return { command: item.command };
+  return item.arguments ?? item.input ?? item.params ?? item.changes ?? {};
+}
+
+function codexCliToolResult(item: Record<string, unknown>): unknown {
+  return (
+    item.aggregated_output ??
+    item.output ??
+    item.result ??
+    item.error ??
+    item.content ??
+    item.status ??
+    ""
+  );
+}
+
+function consumeCodexJsonLine(
+  line: string,
+  onEvent?: (event: Record<string, unknown>) => void,
+): void {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{")) return;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (isRecordValue(parsed)) onEvent?.(parsed);
+  } catch {
+    // coercion-ok: older CLI output is intentionally ignored when it is not JSON.
+    // Older Codex versions and test doubles can still emit human-readable
+    // stdout. Keep that output available to terminal callers without making
+    // the structured transcript parser fail the run.
+  }
+}
+
+function cliStringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function cliTranscriptValue(value: unknown): string {
+  if (typeof value === "string") {
+    return truncateBashOutput(
+      truncateCodingOutput(value, MAX_TOOL_OUTPUT_CHARS),
+    );
+  }
+  if (value == null) return "";
+  try {
+    return truncateBashOutput(
+      truncateCodingOutput(JSON.stringify(value) ?? "", MAX_TOOL_OUTPUT_CHARS),
+    );
+  } catch {
+    return truncateCodingOutput(String(value), MAX_TOOL_OUTPUT_CHARS);
+  }
+}
+
+function readClaudeParticipantResultText(
+  events: ClaudeCodeParticipantEvent[],
+): string | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const result = events[index]?.result;
+    if (typeof result === "string" && result.trim()) return result.trim();
+  }
+  return null;
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function asRecordValue(value: unknown): Record<string, unknown> | null {
+  return isRecordValue(value) ? value : null;
+}
+
+interface SimpleLocalCliRunOptions {
+  run: CodeAgentRunRecord;
+  prompt: string;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  permissionMode: CodeAgentPermissionMode;
+  stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
+  signal?: AbortSignal;
+  engine: string;
+  label: string;
+  command: string;
+  args: string[];
+}
+
+async function executePiCliRun(options: {
+  run: CodeAgentRunRecord;
+  prompt: string;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  permissionMode: CodeAgentPermissionMode;
+  stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
+  signal?: AbortSignal;
+}): Promise<CodeAgentRunRecord | null> {
+  const model = normalizeLocalCliModel(options.model, PI_CLI_ENGINE_NAME);
+  const thinking = normalizePiCliThinking(options.reasoningEffort);
+  const args = ["--print", "--mode", "text", "--no-session"];
+  if (options.permissionMode === "read-only") {
+    args.push("--tools", "read,grep,find,ls");
+  }
+  if (model) args.push("--model", model);
+  if (thinking) args.push("--thinking", thinking);
+  args.push(buildLocalCliPrompt(options.run, options.prompt));
+  return executeSimpleLocalCliRun({
+    ...options,
+    engine: PI_CLI_ENGINE_NAME,
+    label: "Pi",
+    command: "pi",
+    args,
+    model,
+  });
+}
+
+async function executeOpenCodeCliRun(options: {
+  run: CodeAgentRunRecord;
+  prompt: string;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  permissionMode: CodeAgentPermissionMode;
+  stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
+  signal?: AbortSignal;
+}): Promise<CodeAgentRunRecord | null> {
+  const model = normalizeLocalCliModel(options.model, OPENCODE_CLI_ENGINE_NAME);
+  const variant = normalizeOpenCodeVariant(options.reasoningEffort);
+  const cwd = options.run.cwd || process.cwd();
+  const args = ["run", "--format", "default", "--dir", cwd];
+  if (options.permissionMode === "read-only") {
+    args.push("--agent", "plan");
+  }
+  if (model) args.push("--model", model);
+  if (variant) args.push("--variant", variant);
+  args.push(buildLocalCliPrompt(options.run, options.prompt));
+  return executeSimpleLocalCliRun({
+    ...options,
+    engine: OPENCODE_CLI_ENGINE_NAME,
+    label: "OpenCode",
+    command: "opencode",
+    args,
+    model,
+  });
+}
+
+async function executeSimpleLocalCliRun(
+  options: SimpleLocalCliRunOptions,
+): Promise<CodeAgentRunRecord | null> {
+  const cwd = options.run.cwd || process.cwd();
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
+  appendCodeAgentTranscriptEvent({
+    runId: options.run.id,
+    kind: "status",
+    message: `Starting ${options.label} locally.`,
+    metadata: {
+      status: "running",
+      phase: "executing",
+      engine: options.engine,
+    },
+  });
+
+  try {
+    const result = await runLocalCliProcess({
+      command: options.command,
+      args: options.args,
+      cwd,
+      prompt: options.prompt,
+      stdout: options.stdout,
+      streamToolOutputToStdout,
+      signal: options.signal,
+    });
+    if (result.exitCode !== 0) {
+      const interrupted = options.signal?.aborted === true;
+      const message =
+        result.error ||
+        result.stderr.trim() ||
+        `${options.label} exited with ${result.exitSignal ?? result.exitCode}.`;
+      const summary = interrupted
+        ? `${options.label} run paused.`
+        : `${options.label} run failed: ${message}`;
+      if (streamToolOutputToStdout) options.stdout?.write(`\n${summary}\n`);
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message: summary,
+        metadata: {
+          status: interrupted ? "paused" : "errored",
+          phase: interrupted ? "paused" : "error",
+          engine: options.engine,
+          exitCode: result.exitCode,
+          exitSignal: result.exitSignal,
+        },
+      });
+      return updateCodeAgentRunRecord(options.run.id, {
+        status: interrupted ? "paused" : "errored",
+        phase: interrupted ? "paused" : "error",
+        progress: {
+          label: interrupted ? "Paused" : "Error",
+          completed: 0,
+          total: 1,
+          failed: interrupted ? 0 : 1,
+          percent: 0,
+        },
+        metadata: {
+          ...(interrupted
+            ? { executionPausedAt: new Date().toISOString() }
+            : {
+                executionError: message,
+                executionErroredAt: new Date().toISOString(),
+              }),
+          engine: options.engine,
+          ...(options.model ? { model: options.model } : {}),
+        },
+      });
+    }
+
+    const finalMessage =
+      result.stdout.trim() || `${options.label} run completed.`;
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "system",
+      message: finalMessage,
+      metadata: {
+        role: "assistant",
+        engine: options.engine,
+        ...(options.model ? { model: options.model } : {}),
+      },
+    });
+
+    const pendingFollowUp = dequeueCodeAgentFollowUp(options.run.id);
+    if (pendingFollowUp) {
+      const message =
+        pendingFollowUp.mode === "queued"
+          ? `${options.label} run completed; running queued follow-up.`
+          : `${options.label} run completed; applying steering follow-up.`;
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message,
+        metadata: {
+          status: "running",
+          phase: "follow-up",
+          followUpId: pendingFollowUp.id,
+          followUpMode: pendingFollowUp.mode,
+          engine: options.engine,
+        },
+      });
+      if (pendingFollowUp.permissionMode) {
+        updateCodeAgentRunRecord(options.run.id, {
+          permissionMode: pendingFollowUp.permissionMode,
+        });
+      }
+      return executeCodeAgentRun({
+        runId: options.run.id,
+        prompt: pendingFollowUp.prompt,
+        attachments:
+          pendingFollowUp.attachments ??
+          userPromptAttachmentsForEvent(
+            options.run.id,
+            pendingFollowUp.eventId,
+          ),
+        appendUserEvent: false,
+        stdout: options.stdout,
+        streamToolOutputToStdout: options.streamToolOutputToStdout,
+        signal: options.signal,
+      });
+    }
+
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "status",
+      message: `${options.label} run completed.`,
+      metadata: {
+        status: "completed",
+        phase: "complete",
+        engine: options.engine,
+      },
+    });
+    return updateCodeAgentRunRecord(options.run.id, {
+      status: "completed",
+      phase: "complete",
+      needsApproval: false,
+      progress: {
+        label: "Complete",
+        completed: 1,
+        total: 1,
+        percent: 100,
+      },
+      metadata: {
+        executionCompletedAt: new Date().toISOString(),
+        engine: options.engine,
+        ...(options.model ? { model: options.model } : {}),
+        permissionMode: options.permissionMode,
+      },
+    });
+  } catch (error) {
+    const interrupted = options.signal?.aborted === true;
+    const message = error instanceof Error ? error.message : String(error);
+    const summary = interrupted
+      ? `${options.label} run paused.`
+      : `${options.label} run failed: ${message}`;
+    if (streamToolOutputToStdout) options.stdout?.write(`\n${summary}\n`);
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "status",
+      message: summary,
+      metadata: {
+        status: interrupted ? "paused" : "errored",
+        phase: interrupted ? "paused" : "error",
+        engine: options.engine,
+      },
+    });
+    return updateCodeAgentRunRecord(options.run.id, {
+      status: interrupted ? "paused" : "errored",
+      phase: interrupted ? "paused" : "error",
+      progress: {
+        label: interrupted ? "Paused" : "Error",
+        completed: 0,
+        total: 1,
+        failed: interrupted ? 0 : 1,
+        percent: 0,
+      },
+      metadata: {
+        ...(interrupted
+          ? { executionPausedAt: new Date().toISOString() }
+          : {
+              executionError: message,
+              executionErroredAt: new Date().toISOString(),
+            }),
+        engine: options.engine,
+        ...(options.model ? { model: options.model } : {}),
+      },
+    });
+  }
+}
+
+function runLocalCliProcess(options: {
+  command: string;
+  args: string[];
+  cwd: string;
+  prompt: string;
+  stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
+  signal?: AbortSignal;
+}): Promise<CodexCliProcessResult> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const child = spawn(options.command, options.args, {
+      cwd: options.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: process.env,
+    });
+    const finish = (
+      result: Omit<CodexCliProcessResult, "stdout" | "stderr">,
+    ) => {
+      if (settled) return;
+      settled = true;
+      options.signal?.removeEventListener("abort", onAbort);
+      resolve({ ...result, stdout, stderr });
+    };
+    const onAbort = () => child.kill("SIGTERM");
+    if (options.signal) {
+      if (options.signal.aborted) onAbort();
+      else options.signal.addEventListener("abort", onAbort, { once: true });
+    }
+    child.stdout?.on("data", (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      if (options.streamToolOutputToStdout ?? true) {
+        options.stdout?.write(text);
+      }
+    });
+    child.stderr?.on("data", (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+      if (options.streamToolOutputToStdout ?? true) {
+        options.stdout?.write(text);
+      }
+    });
+    child.on("error", (error) =>
+      finish({
+        exitCode: null,
+        exitSignal: null,
+        error: error.message,
+      }),
+    );
+    child.on("close", (exitCode, exitSignal) =>
+      finish({ exitCode, exitSignal }),
+    );
+    child.stdin?.end();
+  });
+}
+
+function buildLocalCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
+  return buildClaudeCliPrompt(run, prompt);
+}
+
+function normalizeLocalCliModel(
+  model: string | undefined,
+  engine: string,
+): string | undefined {
+  const trimmed = model?.trim();
+  if (!trimmed || trimmed === "auto" || trimmed === engine) return undefined;
+  return trimmed;
+}
+
+function normalizePiCliThinking(
+  effort: ReasoningEffort | undefined,
+): string | undefined {
+  if (!effort || effort === "auto" || effort === "none") return undefined;
+  return effort === "max" ? "xhigh" : effort;
+}
+
+function normalizeOpenCodeVariant(
+  effort: ReasoningEffort | undefined,
+): string | undefined {
+  if (!effort || effort === "auto" || effort === "none") return undefined;
+  return effort;
+}
+
 async function executeCodexCliRun(options: {
   run: CodeAgentRunRecord;
   prompt: string;
@@ -609,20 +1581,38 @@ async function executeCodexCliRun(options: {
   const streamToolOutputToStdout =
     options.streamToolOutputToStdout ??
     process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
+  const additionalSkillsRoot =
+    process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
+  const mcpPrincipal = resolveCodeAgentMcpPrincipal(options.run);
+  const mcpConfig =
+    process.env.MCP_SERVERS === undefined && mcpPrincipal
+      ? await buildMergedConfig(mcpPrincipal)
+      : null;
   const args = [
+    ...codexMcpConfigArgs(mcpConfig),
     "--ask-for-approval",
     "never",
-    "exec",
-    "--cd",
-    cwd,
-    "--color",
-    "never",
-    "--skip-git-repo-check",
     "--sandbox",
     codexSandboxForPermissionMode(options.permissionMode),
+    "--cd",
+    cwd,
+    "exec",
+    "--color",
+    "never",
+    "--json",
+    "--skip-git-repo-check",
+    "--ignore-user-config",
     "--output-last-message",
     outputPath,
   ];
+  if (additionalSkillsRoot && fs.existsSync(additionalSkillsRoot)) {
+    args.splice(
+      args.indexOf("--output-last-message"),
+      0,
+      "--add-dir",
+      additionalSkillsRoot,
+    );
+  }
   if (model) args.push("--model", model);
   args.push("-");
 
@@ -644,6 +1634,9 @@ async function executeCodexCliRun(options: {
       prompt: buildCodexCliPrompt(options.run, options.prompt),
       stdout: options.stdout,
       streamToolOutputToStdout,
+      onEvent: (event) => {
+        appendCodexCliTranscriptEvent(options.run.id, event);
+      },
       signal: options.signal,
     });
 
@@ -786,11 +1779,13 @@ function runCodexCliProcess(options: {
   prompt: string;
   stdout?: NodeJS.WritableStream;
   streamToolOutputToStdout?: boolean;
+  onEvent?: (event: Record<string, unknown>) => void;
   signal?: AbortSignal;
 }): Promise<CodexCliProcessResult> {
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
+    let pendingJson = "";
     let settled = false;
     const child = spawn("codex", options.args, {
       cwd: options.cwd,
@@ -815,6 +1810,13 @@ function runCodexCliProcess(options: {
     child.stdout?.on("data", (chunk) => {
       const text = chunk.toString();
       stdout += text;
+      pendingJson += text;
+      let newline = pendingJson.indexOf("\n");
+      while (newline !== -1) {
+        consumeCodexJsonLine(pendingJson.slice(0, newline), options.onEvent);
+        pendingJson = pendingJson.slice(newline + 1);
+        newline = pendingJson.indexOf("\n");
+      }
       if (options.streamToolOutputToStdout ?? true) {
         options.stdout?.write(text);
       }
@@ -835,6 +1837,8 @@ function runCodexCliProcess(options: {
       });
     });
     child.on("exit", (exitCode, exitSignal) => {
+      if (pendingJson.trim())
+        consumeCodexJsonLine(pendingJson, options.onEvent);
       finish({ exitCode, exitSignal });
     });
     child.stdin?.end(options.prompt);
@@ -851,9 +1855,17 @@ function buildCodexCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
     mode === "Plan"
       ? "Inspect and explain only. Do not edit files or run mutating commands."
       : "Edit and verify as needed. Do not create, switch, reset, rebase, or stash git branches.";
+  const additionalSkillsRoot =
+    process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   return [
     `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
+    `Treat ${run.cwd || process.cwd()} as the only project checkout for this run. Keep shell commands, file operations, git pushes, and pull requests rooted there; do not use absolute paths or .. to reach another checkout.`,
     "Follow the repository AGENTS.md and any relevant skill instructions.",
+    ...(additionalSkillsRoot
+      ? [
+          `Additional installed Agent Plugin skills are available under ${additionalSkillsRoot}. Read any relevant SKILL.md files before acting.`,
+        ]
+      : []),
     `Run mode: ${mode} (${permissionMode}). ${modeInstruction}`,
     "",
     "# User request",
@@ -901,11 +1913,6 @@ export async function executeExistingCodeAgentRun(
   return executeCodeAgentRun({ ...options, runId, appendUserEvent: false });
 }
 
-/**
- * Add the pending approval command to the per-project allowlist, then approve
- * and auto-resume.  Future occurrences of this exact command will bypass the
- * approval gate without prompting.
- */
 export async function executeApproveAlwaysCodeAgentApproval(
   runId: string,
   options: CodeAgentApprovalExecutionOptions = {},
@@ -1006,8 +2013,6 @@ export async function executePendingCodeAgentApproval(
       timedOut: result.timedOut,
     },
   });
-  // Clear the pending approval and immediately auto-resume so the model sees
-  // the command result and can continue — no manual "Resume" click needed.
   updateCodeAgentRunRecord(runId, {
     status: "running",
     phase: "approval-resuming",
@@ -1034,11 +2039,6 @@ export async function executePendingCodeAgentApproval(
   });
 }
 
-/**
- * Deny a pending approval: record the denial, feed it back to the model as a
- * "command denied by user" result, and immediately resume the run so the model
- * can adapt its plan without leaving the run dangling.
- */
 export async function executeDenyCodeAgentApproval(
   runId: string,
   options: CodeAgentApprovalExecutionOptions = {},
@@ -1163,9 +2163,12 @@ function metadataString(
 }
 
 async function startCodeAgentMcpManager(
-  runId: string,
+  run: CodeAgentRunRecord,
 ): Promise<McpClientManager | null> {
-  const config = await buildMergedConfig().catch((err) => {
+  const runId = run.id;
+  const principal = resolveCodeAgentMcpPrincipal(run);
+  if (!principal) return null;
+  const config = await buildMergedConfig(principal).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     appendCodeAgentTranscriptEvent({
       runId,
@@ -1175,9 +2178,17 @@ async function startCodeAgentMcpManager(
     });
     return null;
   });
-  if (!config || Object.keys(config.servers ?? {}).length === 0) return null;
+  const effectiveConfig = restrictCodeAgentMcpConfig(
+    mergeCodeAgentMcpConfig(config),
+  );
+  if (
+    !effectiveConfig ||
+    Object.keys(effectiveConfig.servers ?? {}).length === 0
+  ) {
+    return null;
+  }
 
-  const manager = new McpClientManager(config);
+  const manager = new McpClientManager(effectiveConfig);
   await manager.start().catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     appendCodeAgentTranscriptEvent({
@@ -1203,6 +2214,20 @@ async function startCodeAgentMcpManager(
     },
   });
   return manager;
+}
+
+function resolveCodeAgentMcpPrincipal(
+  run: CodeAgentRunRecord,
+): McpPrincipal | null {
+  const userEmail =
+    metadataString(run, "ownerEmail") ??
+    metadataString(run, "userEmail") ??
+    getAmbientUserEmail();
+  if (!userEmail) return null;
+  return {
+    userEmail,
+    orgId: metadataString(run, "orgId") ?? getAmbientOrgId() ?? null,
+  };
 }
 
 function runWithOptionalCodeAgentRequestContext<T>(
@@ -1235,12 +2260,12 @@ async function resolveExecutorEngine(
   registerBuiltinEngines();
   if (!hasAnyProviderCredential()) return null;
   return resolveEngine({
-    engineOption: requestedEngine ?? process.env.AGENT_ENGINE,
+    engineOption: requestedEngine ?? getAppConfig().agent.engine,
   });
 }
 
 function hasAnyProviderCredential(): boolean {
-  if (process.env.AGENT_ENGINE) return true;
+  if (getAppConfig().agent.engine) return true;
   if (PROVIDER_ENV_VARS.some((key) => Boolean(process.env[key]))) return true;
   return Boolean(
     process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY,
@@ -1278,14 +2303,6 @@ function createFakeCodeAgentEngine(text: string): AgentEngine {
   };
 }
 
-const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
-
 function buildCodeAgentMessages(
   run: CodeAgentRunRecord,
   prompt: string,
@@ -1293,8 +2310,6 @@ function buildCodeAgentMessages(
 ): EngineMessage[] {
   const allEvents = listCodeAgentTranscriptEvents(run.id);
 
-  // Split events into an "older" prefix (summarised) and a "recent" tail
-  // (reconstructed as native structured messages).
   const splitAt = Math.max(
     0,
     allEvents.length - STRUCTURED_HISTORY_RECENT_EVENTS,
@@ -1302,9 +2317,6 @@ function buildCodeAgentMessages(
   const olderEvents = allEvents.slice(0, splitAt);
   const recentEvents = allEvents.slice(splitAt);
 
-  // Build a compact text preamble from any events that pre-date the recent
-  // window.  Reuses the old flat-text approach so the model still has broad
-  // context without paying for full token cost on every old tool result.
   let preamble = "";
   if (olderEvents.length > 0) {
     const summaryLines = olderEvents
@@ -1338,36 +2350,26 @@ function buildCodeAgentMessages(
     }
   }
 
-  // Reconstruct the recent events as native EngineMessage objects.
-  // We build up a sequence of user/assistant messages, pairing tool-call
-  // events (from tool_start metadata) with their matching tool-result events
-  // (from tool_done metadata), and accumulating assistant text from system
-  // events with role=assistant.
   const structuredMessages = buildStructuredMessagesFromEvents(recentEvents);
 
-  // Separate image attachments from text attachments. Images are passed as
-  // proper EngineImagePart entries rather than inlined base64 text (which
-  // would consume ~700K tokens per megabyte of image data).
   const imageParts: import("../agent/engine/types.js").EngineImagePart[] = [];
   const unsupportedImageNotes: string[] = [];
 
   for (const att of attachments ?? []) {
     if (!att.dataUrl) continue;
-    const match = att.dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
-    if (!match) continue;
-    const mime = match[1].toLowerCase();
-    if (SUPPORTED_IMAGE_MEDIA_TYPES.has(mime)) {
+    const parsed = parseBase64DataUrl(att.dataUrl);
+    if (!parsed) continue;
+    const mime = normalizeImageMediaType(parsed.mediaType);
+    if (mime) {
       imageParts.push({
         type: "image",
-        data: match[2],
-        mediaType:
-          mime as import("../agent/engine/types.js").EngineImagePart["mediaType"],
+        data: parsed.data,
+        mediaType: mime,
       });
     } else {
-      // Unsupported format — inject a note so the model understands what happened.
       const label = att.name ? `"${att.name}"` : "An image";
       unsupportedImageNotes.push(
-        `[${label} could not be processed — unsupported image format (${mime}). ` +
+        `[${label} could not be processed — unsupported image format (${parsed.mediaType}). ` +
           `Only JPEG, PNG, GIF, and WebP are supported.]`,
       );
     }
@@ -1378,7 +2380,6 @@ function buildCodeAgentMessages(
       ? `\n\n${unsupportedImageNotes.join("\n")}`
       : "";
 
-  // The current prompt (plus optional preamble) becomes the final user message.
   const promptText = [preamble, prompt, notesBlock]
     .filter(Boolean)
     .join("\n\n");
@@ -1386,22 +2387,15 @@ function buildCodeAgentMessages(
   const promptContent: import("../agent/engine/types.js").EngineContentPart[] =
     [...imageParts, { type: "text", text: promptText }];
 
-  // If there are structured messages from the recent window and the last one
-  // is a user message that already contains the current prompt (happens when
-  // appendUserEvent added a "user" event that got included), de-duplicate by
-  // using the structured messages as-is but replacing the last user message's
-  // content with the enriched content (images + prompt).
   if (structuredMessages.length > 0) {
     const lastMsg = structuredMessages[structuredMessages.length - 1];
     if (lastMsg.role === "user") {
-      // Replace last user message content with the enriched prompt content.
       structuredMessages[structuredMessages.length - 1] = {
         role: "user",
         content: promptContent,
       };
       return structuredMessages;
     }
-    // Last message is assistant — append a new user message.
     return [...structuredMessages, { role: "user", content: promptContent }];
   }
 
@@ -1430,7 +2424,6 @@ function buildCodeAgentMessages(
 export function buildStructuredMessagesFromEvents(
   events: readonly import("./code-agent-runs.js").CodeAgentTranscriptEvent[],
 ): EngineMessage[] {
-  // We accumulate into a flat list and then merge adjacent same-role messages.
   type PendingMessage =
     | {
         role: "user";
@@ -1443,12 +2436,9 @@ export function buildStructuredMessagesFromEvents(
 
   const pending: PendingMessage[] = [];
 
-  // Track in-flight tool-call IDs keyed by event id so tool_done can
-  // reference the corresponding call.
   const toolCallIdByEventOrder = new Map<string, string>();
 
   for (const event of events) {
-    // Exclude thinking — ephemeral reasoning, never replayed to model.
     if (event.kind === "status" && event.metadata?.type === "thinking") {
       continue;
     }
@@ -1460,7 +2450,6 @@ export function buildStructuredMessagesFromEvents(
       continue;
     }
 
-    // Assistant text (persisted after a turn completes).
     if (event.kind === "system" && event.metadata?.role === "assistant") {
       const text = event.message.trim();
       if (!text) continue;
@@ -1468,7 +2457,6 @@ export function buildStructuredMessagesFromEvents(
       continue;
     }
 
-    // Tool call start — emit an assistant tool-call part.
     if (event.kind === "status" && event.metadata?.type === "tool_start") {
       const tool =
         typeof event.metadata?.tool === "string" && event.metadata.tool
@@ -1476,7 +2464,6 @@ export function buildStructuredMessagesFromEvents(
           : null;
       if (!tool) continue;
 
-      // Generate a stable ID from the event id so tool_done can reference it.
       const toolCallId = `tc-${event.id}`;
       toolCallIdByEventOrder.set(event.id, toolCallId);
 
@@ -1492,8 +2479,6 @@ export function buildStructuredMessagesFromEvents(
       continue;
     }
 
-    // Tool result — emit a user tool-result part paired with the last
-    // unmatched tool_start for the same tool name.
     if (event.kind === "status" && event.metadata?.type === "tool_done") {
       const tool =
         typeof event.metadata?.tool === "string" && event.metadata.tool
@@ -1501,7 +2486,6 @@ export function buildStructuredMessagesFromEvents(
           : null;
       if (!tool) continue;
 
-      // Find the most recent tool_start event id for this tool.
       const matchedCallId = findMatchingToolCallId(
         toolCallIdByEventOrder,
         events,
@@ -1532,8 +2516,6 @@ export function buildStructuredMessagesFromEvents(
           content: resultText,
         });
       } else {
-        // Orphaned tool result (no matching call in the recent window) — fall
-        // back to plain text so the model still sees the output.
         appendOrMerge(pending, "user", {
           type: "text",
           text: `[Tool result for ${tool}]: ${resultText}`,
@@ -1546,10 +2528,6 @@ export function buildStructuredMessagesFromEvents(
   return pending;
 }
 
-/**
- * Append a content part to the last message if it has the same role, or
- * start a new message otherwise.
- */
 function appendOrMerge(
   pending: Array<{
     role: "user" | "assistant";
@@ -1566,18 +2544,12 @@ function appendOrMerge(
   }
 }
 
-/**
- * Find the toolCallId generated for the most recent tool_start event that
- * matches the given tool name and precedes the current tool_done event.
- * Returns null if no match exists in the recent window.
- */
 function findMatchingToolCallId(
   toolCallIdByEventOrder: Map<string, string>,
   events: readonly import("./code-agent-runs.js").CodeAgentTranscriptEvent[],
   doneEvent: import("./code-agent-runs.js").CodeAgentTranscriptEvent,
   toolName: string,
 ): string | null {
-  // Walk backwards from doneEvent's position to find the nearest unmatched start.
   const doneIndex = events.indexOf(doneEvent);
   for (let i = doneIndex - 1; i >= 0; i--) {
     const e = events[i];
@@ -1588,7 +2560,6 @@ function findMatchingToolCallId(
     ) {
       const id = toolCallIdByEventOrder.get(e.id);
       if (id) {
-        // Consume it so a second done for the same tool gets the next start.
         toolCallIdByEventOrder.delete(e.id);
         return id;
       }
@@ -1605,10 +2576,6 @@ function safeJsonStringify(value: unknown): string {
   }
 }
 
-/**
- * Maximum character length for inlined AGENTS.md content in the system prompt.
- * Content beyond this cap is truncated with a note so the model knows more exists.
- */
 const AGENTS_MD_INLINE_CAP = 16_000;
 
 /**
@@ -1632,10 +2599,12 @@ export async function buildCodeAgentSystemPrompt(
   );
   const bundle = readAgentsBundleFromFs(cwd, null, {
     instructions: appConfig.instructions,
+    additionalSkillDirs: (process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT ?? "")
+      .split(path.delimiter)
+      .map((value) => value.trim())
+      .filter(Boolean),
   });
 
-  // If the bundle has no AGENTS.md, try CLAUDE.md as a fallback — many repos
-  // use that name for agent instructions (e.g. Claude Code projects).
   let agentsMdContent = bundle.developmentAgentsMd ?? bundle.agentsMd;
   if (
     !agentsMdContent.trim() &&
@@ -1702,6 +2671,7 @@ You bring a senior engineer's judgment to the work, but you let it arrive throug
 - When you search for text or files, reach first for \`rg\` or \`rg --files\`; they are much faster than \`grep\` or \`find\`. If \`rg\` is unavailable, use the next best tool without fuss.
 - Parallelize independent read-only work (file reads, searches) so you gather context quickly. Keep mutating steps ordered.
 - Read relevant files before editing them. Do not edit a file you have not actually read.
+- Treat ${cwd} as the only project checkout for this run. Keep shell commands, file operations, git pushes, and pull requests rooted there; do not use absolute paths or .. to reach another checkout.
 
 # Engineering judgment
 
@@ -1732,8 +2702,12 @@ Current run mode: ${mode} mode (${permissionMode}).
 
 - Stay with the work until the task is handled end to end within this turn whenever feasible. Don't stop at analysis or a proposal — implement the fix, and work through blockers yourself before handing them back. The exception is Plan mode, where you propose only.
 - Done means verified, not generated. Match the check to the change: use the narrowest relevant test, typecheck, formatter, or direct invocation for a localized edit; use \`pnpm run prep\` for shared or cross-cutting changes. Do not restart a dev server or run broad checks as a generic post-edit ritual. Fix failures before you call it done, and keep any repository-required guards or doctor checks that apply.
-- In an Agent-Native app or workspace, also run \`pnpm agent-native:doctor\` (or \`pnpm doctor\`) after source changes. Treat every finding as a fix-required security issue; do not disable a guard without a reviewer-readable reason.
+- In an Agent-Native app or workspace, also run \`pnpm agent-native:doctor\` after source changes. Treat every finding as a fix-required security issue; do not disable a guard without a reviewer-readable reason.
 - Do not claim a change works, tests pass, or a build succeeds unless you actually ran it and saw the result. If you could not verify something, say exactly what is unverified and why.
+
+# Schedules and cooperating threads
+
+In Auto mode, use \`manage-schedules\` for durable local desktop schedules. A global schedule starts a fresh thread on each interval; a thread schedule queues a message into an existing thread. Use \`intervalMinutes: 360\` for every 6 hours. Use \`manage-agent-threads\` to list threads, create a peer thread, or message another thread. Messages include source-agent metadata so the recipient can link back to the sender.
 
 # Tools beyond the basics
 
@@ -1781,7 +2755,6 @@ function createLocalCodeAgentActions(
         if (permissionError) return permissionError;
       }
       if (permission.kind === "approval-required") {
-        // Skip the approval gate when the user has allowlisted this command.
         if (isCodeAgentCommandAllowed(command)) return null;
         const approval = requestCodeAgentApproval(runId, {
           tool: "bash",
@@ -1823,6 +2796,7 @@ function createLocalCodeAgentActions(
       read: actions.read,
     };
   }
+  Object.assign(actions, createCodeAgentAgentTools(runId, cwd));
   return actions;
 }
 
@@ -1847,6 +2821,11 @@ export function classifyCodeAgentCommandPermission(
   const normalized = command.trim().toLowerCase();
   if (!normalized) return { kind: "read" };
 
+  const { canonical, unanalyzable } = canonicalizeShellCommand(command);
+  const canonicalized = canonical.trim().toLowerCase();
+  const matches = (pattern: RegExp): boolean =>
+    pattern.test(normalized) || pattern.test(canonicalized);
+
   const blockedPatterns: Array<[RegExp, string]> = [
     [
       /\bgit\s+(checkout|switch|reset|rebase|stash|clean|worktree)\b/,
@@ -1859,7 +2838,7 @@ export function classifyCodeAgentCommandPermission(
     [/\bdrizzle-kit\s+push\b/, "drizzle-kit push is not allowed"],
   ];
   for (const [pattern, reason] of blockedPatterns) {
-    if (pattern.test(normalized)) return { kind: "forbidden", reason };
+    if (matches(pattern)) return { kind: "forbidden", reason };
   }
 
   const approvalPatterns: Array<[RegExp, string]> = [
@@ -1875,9 +2854,21 @@ export function classifyCodeAgentCommandPermission(
     [/\bdelete\s+from\b(?![\s\S]*\bwhere\b)/, "unscoped delete command"],
   ];
   for (const [pattern, reason] of approvalPatterns) {
-    if (pattern.test(normalized)) {
+    if (matches(pattern)) {
       return { kind: "approval-required", reason };
     }
+  }
+
+  // A command whose real text this pass cannot recover is not a command we can
+  // clear. `$(printf git) $(printf checkout) main` runs the forbidden operation
+  // while containing neither token, so a rule that did not match proves nothing.
+  // Ask rather than fall through to `write` on a guess.
+  if (unanalyzable) {
+    return {
+      kind: "approval-required",
+      reason:
+        "command builds its text at runtime (command substitution or $'…' escaping), so policy matching cannot see what will run",
+    };
   }
 
   if (isReadOnlyShellCommand(command)) {
@@ -2008,8 +2999,6 @@ export function writeCodeAgentUsageSnapshot(
     // into a failed recap when the optional sidecar cannot be written.
   }
 }
-
-// --------------- Token usage accumulator ---------------
 
 interface StoredTokenUsage {
   inputTokens: number;

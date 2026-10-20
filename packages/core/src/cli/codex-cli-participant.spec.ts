@@ -89,7 +89,7 @@ describe("Codex CLI participant", () => {
     const child = new FakeCodexChild();
     const spawnProcess = vi.fn<CodexCliParticipantSpawn>(() => child);
     const packagedCommand =
-      "/Applications/Agent Native.app/Contents/Resources/codex";
+      "/Applications/Agent-Native.app/Contents/Resources/codex";
     const preflight = vi.fn(
       async (_context: CodexCliParticipantPreflightContext) =>
         SUBSCRIPTION_STATUS,
@@ -249,7 +249,7 @@ describe("Codex CLI participant", () => {
     }));
     await expect(
       readCodexCliSubscriptionStatus({
-        command: "/Applications/Agent Native.app/Contents/Resources/codex",
+        command: "/Applications/Agent-Native.app/Contents/Resources/codex",
         env: {
           PATH: "/usr/bin",
           CODEX_HOME: "/tmp/codex-home",
@@ -259,7 +259,7 @@ describe("Codex CLI participant", () => {
       }),
     ).resolves.toEqual({ loggedIn: true, authMode: "ChatGPT" });
     expect(execute).toHaveBeenCalledWith(
-      "/Applications/Agent Native.app/Contents/Resources/codex",
+      "/Applications/Agent-Native.app/Contents/Resources/codex",
       ["login", "status"],
       expect.objectContaining({
         env: { PATH: "/usr/bin", CODEX_HOME: "/tmp/codex-home" },

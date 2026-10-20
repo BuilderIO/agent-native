@@ -1,0 +1,262 @@
+---
+name: ship-now
+description: >-
+  Fast-path the current branch through local `pnpm prep:urgent`, targeted recovery,
+  feedback resolution, whole-branch push, immediate admin merge, and
+  fresh-branch rotation. Use when the user explicitly wants to merge
+  immediately after local prep recovery, then monitor CI, beta publisher, docs,
+  and release workflows. Independent beta behavior checks require an explicit
+  request or an environment-specific risk, as defined in `ship-and-monitor`.
+  GitHub Actions auto-deploys
+  beta and the docs site through the prebuilt publisher; other production
+  promotion is manual.
+---
+
+# Ship Now
+
+Use this only after the user explicitly requests the fast admin-merge path.
+It is an intentional exception to `/ship`'s remote-CI wait and ten-minute
+merge soak: local `pnpm prep:urgent`, or targeted recovery of its failed lanes, is the
+pre-merge validation gate. The user has authorized `--admin` merging once
+feedback is handled. Remote CI, release, and beta deploy results are monitored
+after merge, not waited on before the admin merge.
+
+## Deployment split
+
+Merges to `main` trigger `.github/workflows/deploy-beta-sites-prebuilt.yml`,
+which builds in GitHub Actions and uploads prebuilt artifacts to the independent
+Netlify beta sites at `beta.*.agent-native.com`. Netlify Git-connected
+auto-builds are disabled, so do not wait for Netlify build queues or
+deploy-preview checks; verify the Actions run and its built-in per-site smoke
+checks. Independent beta behavior checks follow the gate below; routine source
+changes do not get an extra beta smoke just because they were published.
+Production promotion is manual for other production sites. The public docs
+site is the temporary exception: matching `main` changes trigger
+`.github/workflows/deploy-docs-production.yml`, which publishes
+`www.agent-native.com` directly and disables its Git-connected Netlify builds.
+`/ship-now` monitors the beta publisher, docs production, and any release tail
+after the fast merge; it does not imply that other production sites were
+promoted. If a critical fix needs another production site, explicitly run the
+manual promotion and monitor that result separately.
+
+Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
+`promote-netlify-deploy.yml` workflow to promote a critical fix and let it
+manage Netlify lock transitions. Do not manually remove or clear a Netlify lock
+as a deployment step; clearing one is not the production promotion.
+
+## Auth-path beta gate
+
+Use the host-dependent auth gate in `.agents/skills/ship-and-monitor/SKILL.md`.
+Run beta E2E only when changed auth behavior depends on beta host/cookie
+settings, provider callback registration, deployed auth configuration, or
+serverless session behavior; AuthPage copy or layout changes alone do not
+trigger it.
+
+## Existing PR authorization
+
+Before pushing to or merging an existing PR, resolve the active GitHub login
+with `gh api user --jq .login` and query the live PR including `author`,
+`headRepository`, `headRefName`, `headRefOid`, `baseRefName`, and `state`.
+Compare `author.login` with the active login. A push to another person's PR
+requires the current request to explicitly authorize a push to that exact PR;
+a PR link, branch match, or generic `/ship-now` request is not authorization.
+Merging another person's PR requires separate authorization to merge that exact
+PR. Repeat the live checks immediately before each push and merge, and push only
+to the verified head repository and branch with a normal fast-forward.
+
+Determine comment authorization from the live PR author before drafting or
+posting any PR communication. On the active user's own PR, concise replies in
+existing review threads and a concise top-level recap when feedback appears
+only in a review body are routine dispositions and need no extra authorization.
+This covers only comments needed to fix, decline, or otherwise disposition
+review feedback; do not add proactive or unrelated comments, tags, assignments,
+or mentions without an explicit request. On another person's PR, do not post any
+comment, including an inline reply or review-body recap, unless the current
+request explicitly authorizes commenting on that exact PR. Permission to review,
+monitor, fix, push, or merge does not authorize comments. Without that
+authorization, draft the response, leave the feedback unresolved, and do not
+merge.
+
+## Fast-path contract
+
+`/ship-now` publishes one complete, coherent nonignored current-branch
+snapshot. Do not publish every checkpoint or split known review/CI fixes into
+separate pushes: each new head reruns checks. Use `corepack pnpm ship:push -m`
+for a new PR. For an existing PR, use it only when `origin` matches the PR head
+repository and the local branch matches `headRefName`; otherwise follow
+`babysit-pr` to push to the verified head remote/ref. Use a subject naming the
+actual behavior changed (for example,
+`fix: deduplicate chat start checkpoints`); the helper refuses an omitted or
+generic subject. It excludes `learnings.md`, `bridge/**`, and `data/**`.
+
+Rebase or merge `origin/main` only if GitHub reports an actual `CONFLICTING`
+PR. Leave the fast path and use `/babysit-pr` to resolve it; for a shared
+branch, prefer a normal merge. Being behind or having pending checks is not a
+reason to update from main.
+
+The fast gate is local `pnpm prep:urgent`, or the narrowest successful recovery check
+for each failed prep lane. Once that gate and review resolution pass, admin
+merge immediately. Do not wait for a full prep rerun, remote CI, release or
+beta deploy checks, or the normal `/ship` soak; monitor those after the merge.
+
+A worktree is a valid publishing checkout. When `/ship-now` is authorized from
+a worktree, keep validation, commit, push, PR lookup, and admin merge in that
+worktree's current branch and cwd. Do not copy changes into the shared
+checkout, and update the existing PR rather than creating a second one. If the
+explicit `/ship-now` request starts in a shared checkout that cannot safely
+serve as the PR source, keep it unchanged and follow `new-branch` to create a
+managed task-owned worktree without asking. Base a new PR on fresh
+`origin/main`; base an existing PR update on its fetched live head so its
+history stays publishable. Carry only this task's changes. If they cannot be
+isolated safely, preserve all state and report the exact paths or commits.
+
+## Workflow
+
+1. Inspect the current branch before writing or moving it:
+
+   ```bash
+   git status --short
+   git log --oneline -5
+   git branch --show-current
+   gh pr list --head "$(git branch --show-current)" --state open --json number,title,url,author
+   ```
+
+   Stay on the current branch until its PR is merged. Do not reset, rebase,
+   force-push, clean, or silently discard local work. Record the current status
+   as the branch snapshot.
+
+2. Resolve review state before merging. Read every current human and bot
+   review summary and every top-level inline comment across all pages. Fix
+   real issues on the current branch and reply to each addressed or declined
+   comment under the authorization rule above. Recheck reply coverage after
+   every push; a new bot review is a new round. Do not merge with unaddressed
+   feedback.
+
+3. Run the local gate:
+
+   ```bash
+   pnpm prep:urgent
+   ```
+
+   `prep:urgent` uses `--kill-others-on-fail`; a lane killed because a sibling
+   failed is unknown, never green. Treat a non-zero, skipped, killed, or inconclusive prep result as a failure
+   to classify, not as a reason to repeat the entire suite automatically. Fix
+   the root cause and rerun the narrowest meaningful check for the failed lane:
+
+   - a package typecheck failure: that package's typecheck, for example
+     `pnpm --filter @agent-native/desktop-app typecheck`;
+   - a test failure: the specific Vitest file or test command;
+   - a guard failure: the named guard command;
+   - formatting: `pnpm exec oxfmt --check <changed-files>`.
+
+   Keep only lanes that conclusively reported success, and rerun any lane whose
+   result is unknown alongside the failure. Run a full `pnpm prep:urgent` again only
+   when the fix crosses several validation boundaries or the failure cannot be
+   isolated. For a file-scoped type failure, a green
+   package typecheck is the recovery gate; for a test failure, a green targeted
+   test is the recovery gate. Once the targeted recovery is green and no lane
+   is left unknown, continue to the branch-wide push - do not wait for a
+   redundant full prep rerun. Record that prep recovered through targeted
+   checks - do not claim the entire `pnpm prep:urgent` command itself exited 0 when it
+   did not, and do not report an unknown lane as one that passed.
+   Preserve exact unrelated check or environment failures rather than
+   calling them green.
+
+4. Publish the complete current-branch snapshot immediately after the local
+   gate passes. For an existing PR, honor the verified head remote/ref rule
+   above:
+
+   ```bash
+   corepack pnpm ship:push -m "fix: deduplicate chat start checkpoints"
+   ```
+
+   Replace the example subject with one that names this change. Verify the push
+   landed on the current branch and update the existing ready
+   PR. Do not create a second PR. Recheck the PR's mergeability and current
+   review comment reply coverage after the push.
+
+5. Admin-merge immediately when the explicit fast-path gates are true:
+
+   - local `pnpm prep:urgent` passed, or every failed and unknown prep lane was fixed
+     or rerun and its narrow recovery check passed as described above;
+   - all nonignored local changes are pushed, with only the routine exclusions
+     remaining;
+   - every review item has a fix, a reply permitted by the comment-authorization
+     rule, or a valid terminal disposition; feedback that cannot be replied to
+     under that rule remains unresolved and blocks merging;
+   - the PR is not conflicting; and
+   - the user has explicitly authorized this `/ship-now` invocation; when the
+     existing PR is authored by someone else, the current request separately
+     authorizes merging that exact PR.
+
+   Recheck the active login, PR author, head repository, branch, current head
+   OID, base, and state immediately before merging. Bind the merge to that
+   verified head and do not retry against a changed head without rechecking:
+
+   Before merging, record that exact OID as `ship_merge_head_oid` in the active
+   goal or task transcript and carry it unchanged through `origin/main`
+   verification.
+
+   ```bash
+   gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
+   ```
+
+   Do not wait for remote CI, release checks, or the normal `/ship` soak, and
+   do not pretend that a queued merge is complete. Read the merge result,
+   fetch `origin/main`, and verify the merge commit is present before rotating
+   branches.
+
+   6. Run `/new-branch` after the merge lands. In a task-owned worktree, rotate
+   to a fresh branch without asking when its freshness and clean-work gates
+   pass. Preserve the source branch if unpushed commits or dirty publishable
+   paths remain. In a shared checkout, keep the source branch and do not rotate
+   it or ask for branch permission. Never stash or touch another worktree.
+
+7. Monitor the merged PR and release tail after rotation. Check the merged PR's
+   merge commit, all workflows attached to that commit, beta deployment status,
+   and package publication when applicable. Keep configured, source-tested,
+   built-runtime, deployed, and observed-live claims separate. A merge is not
+   proof that beta is healthy, and beta is not proof that production was
+   manually promoted. Include production only when that manual promotion was
+   explicitly started. Re-read the merged PR for new review or bot feedback;
+   fix actionable post-merge feedback on the fresh branch and invoke `/ship`
+   for the follow-up.
+
+8. If a post-merge CI, beta deploy, package-publish, release, or explicitly
+   promoted production issue appears:
+
+   - reproduce or read the failing artifact;
+   - fix it on the fresh branch, never on the merged branch;
+   - run the smallest meaningful local check, then `pnpm prep` when the change
+     warrants it;
+   - invoke `/ship` for the follow-up so its normal review, merge, and
+     post-release gates apply.
+
+   If no post-merge issue appears, report the PR, merge commit, fresh branch,
+   release checks, and the monitoring window honestly.
+
+## Safety rules
+
+- Never expose environment values, tokens, cookies, or private payloads in
+  commits, PR text, logs, prompts, or status reports.
+- Publish with `ship:push` only when it targets the exact PR head repository and
+  branch; for fork or differently named PR heads, follow `babysit-pr`'s verified
+  head remote/ref procedure.
+- Never silently skip a review comment, CI failure, package release failure,
+  or production deploy failure. Fix it, reply when the comment gate permits it,
+  or keep it as a blocker.
+- Never treat a Netlify lock as the production promotion mechanism or remove it
+  manually to force a promotion.
+- Never create a fresh branch before verifying that `origin/main` contains the
+  merge commit.
+- Never claim the fast path is complete from a successful merge command alone;
+  verify the merge, branch rotation, and post-merge release state.
+
+## Related skills
+
+- `/ship` for the normal guarded ship flow and follow-up fixes.
+- `/ship-and-monitor` for the normal guarded ship flow plus this post-merge
+  monitoring behavior without the fast admin-merge exception.
+- `/babysit-pr` for review/comment/CI coverage before a merge when the user did
+  not explicitly choose this fast path.
+- `/new-branch` for the only permitted branch-rotation procedure.

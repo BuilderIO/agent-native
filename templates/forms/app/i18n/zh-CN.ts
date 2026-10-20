@@ -24,10 +24,6 @@ const messages = {
   },
   settings: {
     title: "设置",
-    description: "此应用的语言和工作区偏好设置。",
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
     workspaceTitle: "工作区",
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",
@@ -41,6 +37,8 @@ const messages = {
     suggestionSurvey: "创建客户反馈调查",
     suggestionSubmissions: "按天显示提交",
     suggestionExport: "将回复导出为 CSV",
+    topSignal: "主要信号",
+    draftFollowUp: "起草后续问题",
   },
   sidebar: {
     collapseSidebar: "折叠侧边栏",
@@ -93,6 +91,9 @@ const messages = {
     conditionContains: "包含",
     conditionValue: "答案",
     conditionValuePlaceholder: "输入答案...",
+    allowMultiple: "允许多个文件",
+    accept: "接受的文件类型",
+    acceptPlaceholder: "image/*、.pdf",
     fieldTypes: {
       text: "短文本",
       email: "电子邮件",
@@ -105,6 +106,7 @@ const messages = {
       date: "日期",
       rating: "等级",
       scale: "规模",
+      file: "文件上传",
     },
   },
   builder: {
@@ -167,6 +169,7 @@ const messages = {
       dateLabel: "日期",
       ratingLabel: "评分",
       scaleLabel: "量表",
+      fileLabel: "文件上传",
       option1: "选项 1",
       option2: "选项 2",
       option3: "选项 3",
@@ -189,6 +192,12 @@ const messages = {
       successMessage: "成功消息",
       defaultSuccessMessage: "谢谢！你的回复已记录。",
       redirectUrl: "重定向 URL（可选）",
+      completionMode: "提交后",
+      completionMessage: "显示消息直到刷新",
+      completionRedirect: "重定向到 URL",
+      completionMessageThenRefresh: "显示消息后刷新",
+      completionRefresh: "使用新表单刷新",
+      completionRefreshSeconds: "在此时间后刷新（秒）",
       anonymousResponses: "匿名回复",
       anonymousResponsesDescription: "不保留 IP 地址、回复者身份或来源元数据。",
       emailNewResponses: "有新回复时通过电子邮件通知我",
@@ -294,13 +303,8 @@ const messages = {
     sharePublicly: "公开分享",
     sharePubliclyDescription: "要公开分享内容，请连接云数据库。",
     providerDescriptions: {
-      turso: "边缘 SQLite",
       neon: "无服务器 Postgres",
       supabase: "开源 Firebase 替代方案",
-      d1: "边缘 SQLite",
-    },
-    providerNames: {
-      d1: "Cloudflare D1",
     },
     setupSteps: "设置步骤",
     authToken: "认证令牌",
@@ -320,6 +324,9 @@ const messages = {
     responseSubmitted: "回复已提交",
     noFields: "此表单还没有字段。",
     failedSubmit: "提交表单失败",
+    uncheckablePattern:
+      "此表单中“{label}”的规则无法校验。请联系表单所有者修复。",
+    patternTooLong: "字段“{label}”的值过长，无法使用此表单规则校验。",
   },
   responseInsights: {
     unavailable: "洞察不可用",
@@ -365,6 +372,13 @@ const messages = {
     page: "Page",
     source: "来源",
     sortBy: "Sort by {{label}}",
+    communityReview: "审核",
+    communityPublish: "发布到网站",
+    communityPublishing: "正在发布...",
+    communityPublished: "已发布",
+    communityView: "查看网站",
+    communityNeedsCheck: "重试前请检查 Builder",
+    communityPromotionFailed: "无法发布此提交。",
   },
 };
 

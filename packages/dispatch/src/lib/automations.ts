@@ -5,10 +5,13 @@ export interface DispatchAutomationItem {
   name: string;
   path: string;
   owner: string;
+  appId?: string;
+  orgId?: string;
   scope?: "personal" | "organization";
   canUpdate?: boolean;
-  triggerType?: "schedule" | "event" | string;
+  triggerType?: "schedule" | "event" | "webhook" | (string & {});
   event?: string;
+  webhookPath?: string;
   schedule?: string;
   scheduleDescription?: string;
   condition?: string;
@@ -22,6 +25,28 @@ export interface DispatchAutomationItem {
   lastError?: string;
   nextRun?: string;
   createdBy?: string;
+  body?: string;
+  model?: string;
+  mcpTools?: string[];
+  runAs?: "creator" | "shared";
+  executionHostId?: string;
+  executionEngine?: string;
+  executionCwd?: string;
+  deliveryPlatform?: string;
+  deliveryDestination?: string;
+  deliveryThreadRef?: string;
+}
+
+export function automationRunScope(
+  automation: Pick<DispatchAutomationItem, "owner" | "orgId" | "scope">,
+): "personal" | "organization" {
+  if (automation.owner === "__shared__" && !automation.orgId) {
+    return "personal";
+  }
+  return automation.scope === "organization" ||
+    automation.owner.startsWith("__organization__:")
+    ? "organization"
+    : "personal";
 }
 
 export interface SetDispatchAutomationEnabledInput {

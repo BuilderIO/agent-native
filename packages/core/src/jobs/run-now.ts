@@ -4,7 +4,10 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import { resolveAutomationAccess } from "../automations/access.js";
-import type { AutomationScope } from "../automations/service.js";
+import {
+  canQueueAutomationRunNow,
+  type AutomationScope,
+} from "../automations/service.js";
 import { isLocalDatabase } from "../db/client.js";
 import {
   organizationResourceOwner,
@@ -12,6 +15,7 @@ import {
 } from "../resources/store.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { parseJobResource } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   listUnclaimedAutomationRuns,
   startAutomationRun,
@@ -21,8 +25,11 @@ export interface RunAutomationNowInput {
   userEmail: string;
   orgId?: string | null;
   resourceId?: string;
+  appId?: string | null;
   scope?: AutomationScope;
+  requestHeaders?: Headers;
   name?: string;
+  path?: string;
 }
 
 export interface QueuedAutomationRun {
@@ -31,11 +38,15 @@ export interface QueuedAutomationRun {
   automationRunId: string;
 }
 
-async function dispatchAutomationRun(historyId: string): Promise<void> {
+async function dispatchAutomationRun(
+  historyId: string,
+  requestHeaders?: Headers,
+): Promise<void> {
   const dispatchPath = resolveAgentChatProcessRunDispatchPath();
   await fireInternalDispatch({
     path: dispatchPath,
     taskId: historyId,
+    ...(requestHeaders ? { event: { headers: requestHeaders } } : {}),
     body: {
       [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
         runId: historyId,
@@ -50,9 +61,14 @@ async function dispatchAutomationRun(historyId: string): Promise<void> {
   });
 }
 
+function automationName(path: string): string {
+  return path.replace(/^jobs\//, "").replace(/\.md$/, "");
+}
+
 function ownerForScope(input: RunAutomationNowInput): string {
-  if (input.scope === "personal") return input.userEmail.trim().toLowerCase();
-  if (input.scope !== "organization") {
+  const scope = input.scope ?? "personal";
+  if (scope === "personal") return input.userEmail.trim().toLowerCase();
+  if (scope !== "organization") {
     throw Object.assign(
       new Error("Automation resource id or name and scope is required."),
       { statusCode: 400 },
@@ -67,26 +83,84 @@ function ownerForScope(input: RunAutomationNowInput): string {
   return organizationResourceOwner(input.orgId);
 }
 
-async function resolveRunAutomation(input: RunAutomationNowInput) {
+function resolveAutomationTarget(input: RunAutomationNowInput): {
+  path: string;
+  name: string;
+} {
   if (input.resourceId?.trim()) {
-    return resolveAutomationAccess(
-      { userEmail: input.userEmail },
-      input.resourceId.trim(),
+    throw Object.assign(
+      new Error("Specify either a resourceId or an automation name/path."),
+      { statusCode: 400 },
     );
   }
-
-  const name = input.name?.trim() ?? "";
+  const path = input.path?.trim();
+  const name = input.name?.trim();
+  if (path && name) {
+    throw Object.assign(
+      new Error("Specify either an automation name or a path, not both."),
+      { statusCode: 400 },
+    );
+  }
+  if (path) {
+    const segments = path.split("/");
+    const valid =
+      segments[0] === "jobs" &&
+      segments.length > 1 &&
+      path.endsWith(".md") &&
+      !path.includes("\\") &&
+      segments.every(
+        (segment) => segment && segment !== "." && segment !== "..",
+      );
+    if (!valid) {
+      throw Object.assign(new Error("A valid automation path is required."), {
+        statusCode: 400,
+      });
+    }
+    return { path, name: automationName(path) };
+  }
   if (!name || name.includes("/") || name.endsWith(".md")) {
     throw Object.assign(new Error("A valid automation name is required."), {
       statusCode: 400,
     });
   }
-  const resource = await resourceGetByPath(
-    ownerForScope(input),
-    `jobs/${name}.md`,
-  );
+  return { path: `jobs/${name}.md`, name };
+}
+
+async function resolveRunAutomation(input: RunAutomationNowInput) {
+  if (input.resourceId?.trim()) {
+    if (input.name || input.path) {
+      throw Object.assign(
+        new Error("Specify either a resourceId or an automation name/path."),
+        { statusCode: 400 },
+      );
+    }
+    const access = await resolveAutomationAccess(
+      { userEmail: input.userEmail },
+      input.resourceId.trim(),
+    );
+    if (!access) return null;
+    return {
+      resource: access.resource,
+      name: access.name,
+      scope: access.owningOrganizationId ? "organization" : "personal",
+      orgId: access.owningOrganizationId,
+    };
+  }
+
+  const { path } = resolveAutomationTarget(input);
+  const resource = await resourceGetByPath(ownerForScope(input), path);
   if (!resource) return null;
-  return resolveAutomationAccess({ userEmail: input.userEmail }, resource.id);
+  const ownership = automationRunOwnership(
+    resource.owner,
+    input.userEmail,
+    input.orgId,
+  );
+  return {
+    resource,
+    name: automationName(resource.path),
+    scope: ownership.scope,
+    orgId: ownership.orgId,
+  };
 }
 
 export async function queueAutomationRunNow(
@@ -98,7 +172,13 @@ export async function queueAutomationRunNow(
       statusCode: 404,
     });
   }
-  if (!access.capabilities.canOperate) {
+  if (
+    !(await canQueueAutomationRunNow(
+      input,
+      access.resource,
+      access.scope as AutomationScope,
+    ))
+  ) {
     throw Object.assign(
       new Error("Collaborate access is required to run this automation."),
       { statusCode: 403 },
@@ -115,9 +195,10 @@ export async function queueAutomationRunNow(
     );
   }
 
-  // A manual-run request is a guaranteed app request even on hosts without a
-  // durable timer. Use it to recover older rows before adding the new one.
-  await redispatchUnclaimedAutomationRuns().catch((error) => {
+  await redispatchUnclaimedAutomationRuns({
+    appId: input.appId,
+    requestHeaders: input.requestHeaders,
+  }).catch((error) => {
     console.warn(
       "[automations] Could not sweep queued runs before run-now:",
       error,
@@ -125,15 +206,21 @@ export async function queueAutomationRunNow(
   });
 
   const historyId = await startAutomationRun({
-    owner: resource.owner,
+    ...automationRunOwnership(
+      resource.owner,
+      input.userEmail,
+      access.orgId ?? input.orgId,
+    ),
     automation: name,
     path: resource.path,
-    scope: access.owningOrganizationId ? "organization" : "personal",
-    orgId: access.owningOrganizationId,
+    appId: input.appId,
+    // The person who asked for the run, already authorized above; a stored
+    // `createdBy` may have left the organization.
+    notificationEmail: input.userEmail,
     dispatchPending: true,
   });
   try {
-    await dispatchAutomationRun(historyId);
+    await dispatchAutomationRun(historyId, input.requestHeaders);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Background dispatch failed";
@@ -147,17 +234,15 @@ export async function queueAutomationRunNow(
   return { queued: true, runId: historyId, automationRunId: historyId };
 }
 
-/**
- * Recover manual rows whose first serverless handoff never reached a worker.
- * This is intentionally a redelivery, not a second execution: the worker's
- * claim CAS decides which request owns the run.
- */
-export async function redispatchUnclaimedAutomationRuns(): Promise<number> {
-  const runs = await listUnclaimedAutomationRuns();
+export async function redispatchUnclaimedAutomationRuns(options?: {
+  appId?: string | null;
+  requestHeaders?: Headers;
+}): Promise<number> {
+  const runs = await listUnclaimedAutomationRuns({ appId: options?.appId });
   let attempted = 0;
   for (const run of runs) {
     try {
-      await dispatchAutomationRun(run.id);
+      await dispatchAutomationRun(run.id, options?.requestHeaders);
       attempted += 1;
     } catch (error) {
       console.error(

@@ -1,34 +1,6 @@
-/**
- * apply-a11y-fix.interleave.spec.ts
- *
- * Regression test for a FALSE compare-and-swap in apply-a11y-fix.ts: the
- * action used to compute its patch from an EARLY read (resolveEditableDesignFile's
- * `liveContent()`), but then persist by re-reading the LIVE state again at
- * write time and using THAT re-read's hash as `expectedVersionHash`. Because
- * the re-read at persist time always observes whatever is live "right now",
- * that check trivially passed against itself — it never verified that the
- * ORIGINAL base the patch was computed from was still current. A sibling
- * write landing between the original read and the persist call was silently
- * clobbered instead of rejected.
- *
- * Fix: resolveEditableDesignFile now captures versionHash at the SAME read
- * the transform uses as its base, and persistDesignFileEdit passes THAT
- * hash through as expectedVersionHash — matching the apply-visual-edit.ts
- * reference pattern (resolveEditableDesignFile / persistDesignFileEdit split
- * that carries one hash end-to-end instead of re-deriving one at write time).
- *
- * Harness: same stateful per-docId Y.Doc collab mock + fake Drizzle app-DB
- * layer as insert-design-native-asset.interleave.spec.ts, driving the REAL
- * apply-a11y-fix module (not mocked at the writeInlineSourceFile boundary).
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-// ---------------------------------------------------------------------------
-// Fake @agent-native/core/collab backed by a real per-docId Y.Doc registry,
-// with a real deterministic prefix/suffix-trim diff for applyText — same
-// approach as insert-design-native-asset.interleave.spec.ts.
-// ---------------------------------------------------------------------------
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
@@ -66,6 +38,7 @@ function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
+  CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
   hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),
@@ -77,6 +50,42 @@ vi.mock("@agent-native/core/collab", () => ({
   seedFromText: async (docId: string, text: string) => {
     if (collabDocs.docs.has(docId)) return;
     getOrCreateDoc(docId).getText("content").insert(0, text);
+  },
+  applyTextToYDoc: (
+    doc: InstanceType<typeof Y.Doc>,
+    _fieldName: string,
+    text: string,
+  ) => applyTextDiff(doc, text),
+  withPreparedYDocMutation: async (
+    docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: InstanceType<typeof Y.Doc>;
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const base = collabDocs.docs.get(docId) as
+      | InstanceType<typeof Y.Doc>
+      | undefined;
+    const doc = new Y.Doc();
+    if (base) Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    let persisted = false;
+    try {
+      const result = await run({
+        doc,
+        baseVersion: base ? 0 : null,
+        persist: async (_tx, _text) => {
+          collabDocs.docs.set(docId, doc);
+          persisted = true;
+        },
+      });
+      if (!persisted) doc.destroy();
+      return result;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
   },
   agentEnterDocument: vi.fn(),
   agentLeaveDocument: vi.fn(),
@@ -92,9 +101,6 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
-// ---------------------------------------------------------------------------
-// Minimal fake Drizzle app-DB layer backing a single design_files row.
-// ---------------------------------------------------------------------------
 interface FileRow {
   id: string;
   designId: string;
@@ -180,6 +186,8 @@ vi.mock("../server/db/index.js", () => {
         },
       }),
     }),
+    execute: () => Promise.resolve({ rows: [] }),
+    transaction: async (fn: (tx: typeof db) => Promise<void>) => fn(db),
   };
   return { getDb: () => db, schema };
 });
@@ -214,8 +222,6 @@ beforeEach(() => {
 
 describe("apply-a11y-fix CAS safety (false-CAS fix)", () => {
   it("rejects the write when a sibling edit lands on the SAME collab doc between the fix's base read and its persist, instead of silently clobbering it", async () => {
-    // Seed collab state from the current SQL content so the action's
-    // resolveEditableDesignFile reads via the collab path.
     await seedFromText(FILE_ID, baseDoc());
 
     // Simulate the base read the action performs internally
@@ -228,13 +234,6 @@ describe("apply-a11y-fix CAS safety (false-CAS fix)", () => {
     // insert-design-native-asset.interleave.spec.ts's race shape).
     const preFixLive = await readLiveSourceFile(currentFileRef());
 
-    // Land the sibling change on the collab doc + SQL mirror BEFORE the fix
-    // actually runs, simulating "a write landed between an earlier read and
-    // this persist" for a slow caller. This directly exercises the persist
-    // guard: run() reads the (now-updated) live base internally, computes its
-    // patch against IT, and its own expectedVersionHash therefore matches —
-    // proving the normal (non-racy) path still succeeds and picks up the
-    // latest base rather than a stale one.
     const siblingEdited = preFixLive.content.replace(
       "color: #999999;",
       "color: #123456;",
@@ -257,21 +256,14 @@ describe("apply-a11y-fix CAS safety (false-CAS fix)", () => {
 
     expect(result.applied).toBe(true);
     const finalLive = await readLiveSourceFile(currentFileRef());
-    // Both changes present: the sibling's color edit AND the tap-target fix.
     expect(finalLive.content).toContain("color: #123456;");
     expect(finalLive.content).toContain("min-h-[44px]");
   });
 
   it("propagates writeInlineSourceFile's staleness rejection instead of silently succeeding when the persist-time re-read observes a DIFFERENT base than the one actually used for the patch", async () => {
-    // This directly proves the CAS is real (not a check-against-self no-op):
-    // construct the exact false-CAS shape the bug had — a persist call whose
-    // expectedVersionHash is stale relative to what's live — and confirm
-    // writeInlineSourceFile (the shared guard both apply-a11y-fix and
-    // apply-visual-edit route through) rejects it.
     await seedFromText(FILE_ID, baseDoc());
     const staleBase = await readLiveSourceFile(currentFileRef());
 
-    // A concurrent writer advances the live doc past staleBase.
     const advanced = staleBase.content.replace("bg-blue-500", "bg-emerald-500");
     await applyText(FILE_ID, advanced, "content", "agent");
     seedFile(advanced);
@@ -282,7 +274,6 @@ describe("apply-a11y-fix CAS safety (false-CAS fix)", () => {
       writeInlineSourceFile({
         designId: DESIGN_ID,
         file: currentFileRef(),
-        // A patch computed from the NOW-STALE `staleBase.content`.
         content: staleBase.content.replace(
           'class="h-4 px-2 bg-blue-500"',
           'class="h-4 px-2 bg-blue-500 min-h-[44px] min-w-[44px]"',
@@ -291,7 +282,6 @@ describe("apply-a11y-fix CAS safety (false-CAS fix)", () => {
       }),
     ).rejects.toThrow(/changed since it was read/);
 
-    // The concurrent writer's change must survive untouched.
     const finalLive = await readLiveSourceFile(currentFileRef());
     expect(finalLive.content).toContain("bg-emerald-500");
     expect(finalLive.content).not.toContain("bg-blue-500");

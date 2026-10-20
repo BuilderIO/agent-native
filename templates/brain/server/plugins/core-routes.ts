@@ -1,11 +1,7 @@
 import { createCoreRoutesPlugin } from "@agent-native/core/server";
 
-// Map a deep-link `view` to the real Brain SPA path so
-// `/_agent-native/open?app=brain&view=…` lands on the right surface before the
-// polled `navigate` command applies record focus. Captures have no detail
-// route — they live in Search — so `view: "capture"` resolves to `/search`.
 const VIEW_PATHS: Record<string, string> = {
-  ask: "/",
+  ask: "/home",
   search: "/search",
   capture: "/search",
   knowledge: "/knowledge",
@@ -18,6 +14,7 @@ const VIEW_PATHS: Record<string, string> = {
 };
 
 export default createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
   envKeys: [],
   resolveOpenPath: ({ view, params }) => {
     if (view && VIEW_PATHS[view]) return VIEW_PATHS[view];

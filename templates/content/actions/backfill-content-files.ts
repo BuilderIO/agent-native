@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
@@ -9,7 +9,7 @@ import { provisionContentSpaces } from "./_content-spaces.js";
 
 export default defineAction({
   description:
-    "Assign legacy pages to Content spaces and reconcile their canonical Files database memberships.",
+    "Assign legacy pages to Content spaces and reconcile their canonical Files collection memberships.",
   schema: z.object({}),
   run: async () => {
     const userEmail = getRequestUserEmail();

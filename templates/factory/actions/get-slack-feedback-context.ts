@@ -2,24 +2,36 @@ import { defineAction } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import type { SlackMessage } from "../server/connectors/slack.js";
 import { getDb } from "../server/db/index.js";
-import { triageConfig, triageItems } from "../server/db/schema.js";
+import { triageItems } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryItemFilter,
+  readTriageConfigRow,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createSlackReader } from "../server/triage/slack-client.js";
-
-const MAX_THREAD_PAGES = 5;
+import {
+  collectSlackUserIds,
+  readStoredUserLabels,
+  resolveSlackUserLabels,
+} from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
   description:
     "Read the bounded full Slack thread for one Factory feedback item. Use this before deciding whether a report is a clear bug; unreadable or truncated context is not a green light.",
-  schema: z.object({ itemId: z.string().min(1) }),
+  schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
+    itemId: z.string().min(1),
+  }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ itemId }, context) => {
+  run: async ({ factoryId, itemId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -27,7 +39,12 @@ export default defineAction({
       await getDb()
         .select()
         .from(triageItems)
-        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .where(
+          and(
+            eq(triageItems.id, itemId),
+            orgFactoryItemFilter(orgId, factoryId),
+          ),
+        )
         .limit(1)
     )[0];
     if (!item) throw new Error("Factory item not found.");
@@ -35,41 +52,45 @@ export default defineAction({
       throw new Error("Factory item is not a readable Slack feedback item.");
     }
 
-    const config = (
-      await getDb()
-        .select({ slackWorkspace: triageConfig.slackWorkspace })
-        .from(triageConfig)
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-        .limit(1)
-    )[0];
+    const config = await readTriageConfigRow(getDb(), orgId, factoryId);
     const workspace =
       config?.slackWorkspace === "secondary" ? "secondary" : "primary";
     const slack = createSlackReader({ ownerEmail: userEmail, orgId });
-    const messages: SlackMessage[] = [];
-    let cursor: string | undefined;
-    let hasMore = false;
-    for (let page = 0; page < MAX_THREAD_PAGES; page += 1) {
-      const result = await slack.getThread(
-        workspace,
-        item.channelId,
-        item.threadTs,
-        100,
-        cursor,
-      );
-      messages.push(...result.messages);
-      if (result.has_more && !result.next_cursor) {
-        throw new Error(
-          "Slack thread pagination is incomplete because the provider omitted its next cursor.",
-        );
-      }
-      if (!result.has_more) {
-        hasMore = false;
-        break;
-      }
-      hasMore = page === MAX_THREAD_PAGES - 1;
-      if (hasMore) break;
-      cursor = result.next_cursor;
-    }
+    const { messages, hasMore } = await slack.getCompleteThread(
+      workspace,
+      item.channelId,
+      item.threadTs,
+    );
+    const liveLabels = await resolveSlackUserLabels(
+      collectSlackUserIds(messages),
+      (userId) => slack.getUserInfo(workspace, userId),
+    );
+    const userLabels = {
+      ...readStoredUserLabels(item.metadataJson),
+      ...Object.fromEntries(liveLabels),
+    };
+
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "get-slack-feedback-context",
+        kind: "read",
+        itemId,
+        source: "slack",
+        sourceUrl: item.sourceUrl,
+        summary: `Read the Slack thread (${messages.length} message${messages.length === 1 ? "" : "s"}).`,
+        details: {
+          channelId: item.channelId,
+          threadTs: item.threadTs,
+          coverage: hasMore ? "partial" : "complete",
+          messageCount: messages.length,
+          itemTitle: item.title,
+          itemSummary: item.summary,
+        },
+      },
+      factoryId,
+    );
 
     return {
       ok: true,
@@ -78,13 +99,23 @@ export default defineAction({
       channelId: item.channelId,
       threadTs: item.threadTs,
       coverage: hasMore ? "partial" : "complete",
-      messages: messages.map((message) => ({
-        user: message.user ?? message.username ?? message.bot_id ?? null,
-        text: message.text,
-        ts: message.ts,
-        threadTs: message.thread_ts ?? item.threadTs,
-        replyCount: message.reply_count ?? 0,
-      })),
+      builderSlackUserId: config?.builderSlackUserId ?? null,
+      userLabels,
+      messages: messages.map((message) => {
+        const userId = message.user ?? null;
+        const resolved =
+          (userId ? userLabels[userId] : undefined) ?? message.username ?? null;
+        return {
+          user: userId ?? message.username ?? message.bot_id ?? null,
+          username: resolved,
+          botId: message.bot_id ?? null,
+          text: message.text,
+          ts: message.ts,
+          threadTs: message.thread_ts ?? item.threadTs,
+          replyCount: message.reply_count ?? 0,
+          reactions: message.reactions ?? [],
+        };
+      }),
     };
   },
 });

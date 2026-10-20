@@ -9,7 +9,6 @@ import { PinSchema } from "./schemas.js";
 
 export class RestClient implements PinStorage {
   constructor(private endpoint: string) {
-    // Normalize: remove trailing slash
     this.endpoint = endpoint.replace(/\/+$/, "");
   }
 

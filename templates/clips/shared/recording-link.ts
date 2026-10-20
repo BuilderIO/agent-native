@@ -12,26 +12,47 @@
  */
 import { withShareAttribution } from "./share-attribution";
 
-/** Public share path for a recording, relative to the app base path. */
+export const CLIPS_ACCESS_REQUEST_TOKEN_PREFIX = "clips-access-request";
+export const CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS = 10 * 60;
+
+export const CLIPS_ACCESS_APPROVAL_TOKEN_PREFIX = "clips-access-approval";
+export const CLIPS_ACCESS_APPROVAL_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const CLIPS_ACCESS_APPROVAL_SESSION_KEY_PREFIX =
+  "clips-access-approval-token:";
+
 export function recordingSharePath(recordingId: string): string {
   return `/share/${encodeURIComponent(recordingId)}`;
 }
 
+export function recordingAccessApprovalPath(
+  recordingId: string,
+  approvalToken: string,
+): string {
+  const params = new URLSearchParams({
+    recordingId,
+    token: approvalToken,
+  });
+  return `/access-request/approve?${params.toString()}`;
+}
+
+export function recordingAccessApprovalContinuationPath(
+  recordingId: string,
+): string {
+  const params = new URLSearchParams({ recordingId });
+  return `/access-request/approve?${params.toString()}`;
+}
+
+export function recordingAccessApprovalSessionKey(recordingId: string): string {
+  return `${CLIPS_ACCESS_APPROVAL_SESSION_KEY_PREFIX}${encodeURIComponent(recordingId)}`;
+}
+
 export interface RecordingShareUrlParams {
   recordingId: string;
-  /** Absolute origin, e.g. `https://clips.example.com` or a desktop serverUrl. */
   origin: string;
-  /** App base path when the app is mounted under a subpath. */
   basePath?: string;
-  /** Non-PII owner id for viral attribution. Omitted when unknown. */
   ownerId?: string | null;
 }
 
-/**
- * Absolute, ready-to-paste share URL for a recording, carrying the same
- * attribution params the Share dialog mints so auto-copied links measure the
- * signup funnel identically.
- */
 export function buildRecordingShareUrl(
   params: RecordingShareUrlParams,
 ): string {

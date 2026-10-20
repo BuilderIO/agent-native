@@ -1,48 +1,35 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import {
   redirect,
   useLoaderData,
   useParams,
+  type ClientLoaderFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
 
 import DocContent from "../components/DocContent";
 import DocDraftBanner from "../components/DocDraftBanner";
 import {
+  hasLocalizedDoc,
   loadDocRespectingDraftVisibility,
+  preloadDocBlocksForDoc,
   type DocEntry,
 } from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
-  isDocsLocale,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
+import { DOCS_SLUG_REDIRECTS } from "../components/docs-slug-redirects";
 import DocsLayout from "../components/DocsLayout";
+import DocTranslationBanner from "../components/DocTranslationBanner";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
-/** Legacy slug -> current slug. Keep in sync with docs.$slug.tsx. */
-const SLUG_REDIRECTS: Record<string, string> = {
-  "core-philosophy": "key-concepts",
-  "database-adapters": "deployment",
-  resources: "agent-resources",
-  secrets: "security",
-  workspace: "agent-resources",
-  "visual-plans": "template-plan",
-  // Toolkit -ui pages merged into their parent kit doc.
-  "toolkit-app-adapters": "toolkit-ui",
-  "toolkit-shell-hooks": "toolkit-ui",
-  "toolkit-collaboration-ui": "toolkit-collaboration",
-  "toolkit-sharing-ui": "toolkit-sharing",
-  // Migration workbench folded into the code-agents-ui /migrate section.
-  "migration-workbench": "code-agents-ui",
-  // server.mdx split into the Server section (server-overview, -database,
-  // -middleware, -plugins, -routes).
-  server: "server-overview",
-};
-
 function requireLocale(value: unknown): DocsLocale {
-  if (isDocsLocale(value)) return value;
+  const locale = docsLocaleFromSegment(value);
+  if (locale) return locale;
   throw new Response("Not Found", { status: 404 });
 }
 
@@ -52,16 +39,20 @@ export async function loader({ params, request, url }: LoaderFunctionArgs) {
   const requestUrl = url ?? new URL(request.url);
 
   if (locale === DEFAULT_DOCS_LOCALE) {
-    throw redirect(docsPathForSlug(slug, DEFAULT_DOCS_LOCALE), 301);
+    throw withSsrHtmlContentType(
+      redirect(docsPathForSlug(slug, DEFAULT_DOCS_LOCALE), 301),
+    );
   }
 
-  const target = SLUG_REDIRECTS[slug];
+  const target = DOCS_SLUG_REDIRECTS[slug];
   if (target) {
-    throw redirect(docsPathForSlug(target, locale), 301);
+    throw withSsrHtmlContentType(
+      redirect(docsPathForSlug(target, locale), 301),
+    );
   }
 
   if (requestUrl.pathname.startsWith("/docs/")) {
-    throw redirect(docsPathForSlug(slug, locale), 301);
+    throw withSsrHtmlContentType(redirect(docsPathForSlug(slug, locale), 301));
   }
 
   const doc = await loadDocRespectingDraftVisibility(slug, locale);
@@ -69,6 +60,11 @@ export async function loader({ params, request, url }: LoaderFunctionArgs) {
     throw new Response("Not Found", { status: 404 });
   }
   return doc;
+}
+
+export async function clientLoader({ serverLoader }: ClientLoaderFunctionArgs) {
+  const doc = (await serverLoader()) as DocEntry;
+  return preloadDocBlocksForDoc(doc);
 }
 
 export const meta = ({
@@ -114,7 +110,12 @@ export default function LocalizedDocPage() {
       markdownUrl={docsMarkdownPathForDoc(doc.slug, locale) ?? undefined}
     >
       {doc.draft && <DocDraftBanner />}
-      <DocContent markdown={doc.body} />
+      <DocContent markdown={doc.body} locale={locale} />
+      {hasLocalizedDoc(locale, doc.slug) && (
+        <DocTranslationBanner
+          originalHref={docsPathForSlug(doc.slug, DEFAULT_DOCS_LOCALE)}
+        />
+      )}
     </DocsLayout>
   );
 }

@@ -32,23 +32,23 @@ describe("appendSignatureToBody", () => {
     expect(appendSignatureToBody("Hi Alice", "   ")).toBe("Hi Alice");
   });
 
-  it("strips image markdown from signatures before appending", () => {
+  it("preserves image markdown in signatures before appending", () => {
     const signature = "Steve\n![Logo](https://example.com/logo.png)";
-    expect(normalizeSignature(signature)).toBe("Steve");
+    expect(normalizeSignature(signature)).toBe(signature);
     expect(appendSignatureToBody("Hi Alice", signature)).toBe(
-      "Hi Alice\n\nSteve",
+      "Hi Alice\n\nSteve\n![Logo](https://example.com/logo.png)",
     );
   });
 
-  it("strips images whose alt text contains brackets", () => {
+  it("preserves images whose alt text contains brackets", () => {
     const signature = "Steve\n![Image [1]](https://example.com/logo.png)";
-    expect(normalizeSignature(signature)).toBe("Steve");
+    expect(normalizeSignature(signature)).toBe(signature);
   });
 
-  it("strips linked-image logos without leaving an empty link", () => {
+  it("preserves linked-image logos", () => {
     const signature =
       "Steve\n[![Logo](https://example.com/logo.png)](https://example.com)";
-    expect(normalizeSignature(signature)).toBe("Steve");
+    expect(normalizeSignature(signature)).toBe(signature);
   });
 });
 

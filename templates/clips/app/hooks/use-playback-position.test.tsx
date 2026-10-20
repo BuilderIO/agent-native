@@ -16,9 +16,11 @@ vi.mock("@/lib/playback-position", () => ({
 }));
 
 function Harness({
+  enabled = true,
   explicitStartMs,
   onRestore,
 }: {
+  enabled?: boolean;
   explicitStartMs?: number;
   onRestore: (positionMs: number) => void;
 }) {
@@ -27,6 +29,7 @@ function Harness({
     recordingId: "recording-1",
     videoEl,
     durationMs: 10_000,
+    enabled,
     explicitStartMs,
     onRestore,
   });
@@ -124,5 +127,30 @@ describe("usePlaybackPosition", () => {
 
     expect(mockGetPlaybackPosition).not.toHaveBeenCalled();
     expect(restores).toEqual([]);
+  });
+
+  it("does not call playback-position actions when persistence is disabled", async () => {
+    act(() => {
+      root.render(
+        <Harness
+          enabled={false}
+          onRestore={(positionMs) => restores.push(positionMs)}
+        />,
+      );
+    });
+
+    const video = getVideo();
+    video.currentTime = 4.5;
+    act(() => {
+      video.dispatchEvent(new Event("play"));
+      video.dispatchEvent(new Event("pause"));
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockGetPlaybackPosition).not.toHaveBeenCalled();
+    expect(mockSavePlaybackPosition).not.toHaveBeenCalled();
   });
 });

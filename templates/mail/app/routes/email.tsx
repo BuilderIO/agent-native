@@ -11,15 +11,13 @@ import { useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThreadMessages } from "@/hooks/use-emails";
-import messages from "@/i18n/en-US";
+import mailMessages from "@/i18n/en-US";
 import { sanitizeHtml } from "@/lib/sanitize-html";
 import { formatEmailDate, formatEmailDateFull, cn } from "@/lib/utils";
 
 export function meta() {
-  return [{ title: messages.mail.routeTitles.emailThread }];
+  return [{ title: mailMessages.mail.routeTitles.emailThread }];
 }
-
-// ─── Message Card ────────────────────────────────────────────────────────────
 
 function MessageCard({ message }: { message: EmailMessage }) {
   const fromName = message.from.name || message.from.email;
@@ -30,7 +28,10 @@ function MessageCard({ message }: { message: EmailMessage }) {
   );
 
   return (
-    <div className="border-b border-border/40 last:border-b-0 py-4 px-4">
+    <div
+      data-an-mask
+      className="border-b border-border/40 last:border-b-0 py-4 px-4"
+    >
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="flex items-center gap-2 min-w-0">
           <span
@@ -58,19 +59,21 @@ function MessageCard({ message }: { message: EmailMessage }) {
 
       {safeHtml ? (
         <div
+          data-an-block
           className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 overflow-x-auto [&_img]:max-w-full [&_a]:text-primary"
           dangerouslySetInnerHTML={{ __html: safeHtml }}
         />
       ) : (
-        <pre className="whitespace-pre-wrap text-[13px] text-foreground/80 font-sans leading-relaxed">
+        <pre
+          data-an-block
+          className="whitespace-pre-wrap text-[13px] text-foreground/80 font-sans leading-relaxed"
+        >
           {message.body}
         </pre>
       )}
     </div>
   );
 }
-
-// ─── Error State ─────────────────────────────────────────────────────────────
 
 function ErrorState({ message }: { message: string }) {
   const t = useT();
@@ -85,8 +88,6 @@ function ErrorState({ message }: { message: string }) {
     </div>
   );
 }
-
-// ─── Loading Skeleton ─────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
   return (
@@ -109,8 +110,6 @@ function LoadingSkeleton() {
   );
 }
 
-// ─── Route ────────────────────────────────────────────────────────────────────
-
 export default function EmailEmbedRoute() {
   const t = useT();
   const [params] = useSearchParams();
@@ -121,13 +120,10 @@ export default function EmailEmbedRoute() {
   const { data: messages, isLoading } = useThreadMessages(
     threadId ?? undefined,
   );
-
+  const subject = messages?.[0]?.subject;
   if (!threadId) {
     return <ErrorState message={t("mail.routeTitles.unableToLoadThread")} />;
   }
-
-  const subject =
-    messages && messages.length > 0 ? messages[0].subject : undefined;
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
@@ -135,7 +131,9 @@ export default function EmailEmbedRoute() {
       <header className="flex shrink-0 items-center gap-2 border-b border-border/50 bg-card/80 px-3 py-2">
         <div className="flex-1 min-w-0">
           {subject ? (
-            <h1 className="text-[13px] font-semibold truncate">{subject}</h1>
+            <h1 data-an-mask className="text-[13px] font-semibold truncate">
+              {subject}
+            </h1>
           ) : isLoading ? (
             <Skeleton className="h-4 w-48" />
           ) : (

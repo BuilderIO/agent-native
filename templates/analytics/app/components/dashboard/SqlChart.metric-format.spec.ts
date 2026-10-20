@@ -1,12 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 import {
   detectMetricValueColumn,
+  formatSqlChartTooltipLabel,
   formatMetricValue,
-  hasChartSizeChanged,
   safeDashboardLinkHref,
   sessionReplayHref,
-  shouldDisableChartAnimation,
   shouldSplitCurrentDayTimeSeries,
   sortTooltipPayloadItems,
   splitCurrentDayTimeSeriesRows,
@@ -14,64 +15,8 @@ import {
   toSqlChartDateKey,
 } from "./SqlChart";
 
-describe("chart resize animation policy", () => {
-  it("keeps the initial measurement stable and detects later size changes", () => {
-    expect(hasChartSizeChanged(null, { width: 640, height: 250 })).toBe(false);
-    expect(
-      hasChartSizeChanged(
-        { width: 640, height: 250 },
-        { width: 640, height: 250 },
-      ),
-    ).toBe(false);
-    expect(
-      hasChartSizeChanged(
-        { width: 640, height: 250 },
-        { width: 520, height: 250 },
-      ),
-    ).toBe(true);
-  });
-
-  // Disabling the animation while it is still running freezes the line's
-  // stroke-dasharray partway, so the series never becomes visible. Lazy-loaded
-  // panels always reflow just after mounting, which used to trip exactly this.
-  it("ignores a resize that lands before the entry animation has settled", () => {
-    expect(
-      shouldDisableChartAnimation(
-        false,
-        { width: 640, height: 250 },
-        { width: 520, height: 250 },
-      ),
-    ).toBe(false);
-  });
-
-  it("disables the animation for a resize after the entry animation settles", () => {
-    expect(
-      shouldDisableChartAnimation(
-        true,
-        { width: 640, height: 250 },
-        { width: 520, height: 250 },
-      ),
-    ).toBe(true);
-  });
-
-  it("keeps animating when a settled resize reports the same size", () => {
-    expect(
-      shouldDisableChartAnimation(
-        true,
-        { width: 640, height: 250 },
-        { width: 640, height: 250 },
-      ),
-    ).toBe(false);
-  });
-});
-
-// Postgres/Neon returns numeric & bigint columns as STRINGS (SQLite returns JS
-// numbers). The metric renderer used to only format `typeof raw === "number"`,
-// so a Postgres rate like "0.00000000000000000000" was dumped verbatim instead
-// of being shown as "0.00%". formatMetricValue coerces numeric strings first.
 describe("formatMetricValue", () => {
   it("formats a Postgres numeric-string rate as a percent (the reported bug)", () => {
-    // 21-decimal string exactly like the live "Viral Signup Share" panel showed
     expect(formatMetricValue("0.000000000000000000000", "percent")).toBe(
       "0.00%",
     );
@@ -87,7 +32,7 @@ describe("formatMetricValue", () => {
     expect(formatMetricValue("2", "number")).toBe("2");
   });
 
-  it("still formats plain JS numbers (SQLite path) unchanged", () => {
+  it("still formats plain JS numbers unchanged", () => {
     expect(formatMetricValue(0, "percent")).toBe("0.00%");
     expect(formatMetricValue(42, "number")).toBe("42");
   });
@@ -103,7 +48,7 @@ describe("formatMetricValue", () => {
 
   it("leaves genuinely non-numeric strings untouched", () => {
     expect(formatMetricValue("n/a", "number")).toBe("n/a");
-    expect(formatMetricValue("", "number")).toBe(""); // preserved original behavior
+    expect(formatMetricValue("", "number")).toBe("");
     expect(formatMetricValue(null, "number")).toBe("-");
     expect(formatMetricValue(undefined, "number")).toBe("-");
   });
@@ -175,12 +120,66 @@ describe("safeDashboardLinkHref", () => {
     expect(safeDashboardLinkHref("/dashboards/example")).toBe(
       "/dashboards/example",
     );
+    expect(
+      safeDashboardLinkHref(
+        "https://example.com/_agent-native/tools/ext/render",
+      ),
+    ).toBe("https://example.com/_agent-native/tools/ext/render");
+    expect(
+      safeDashboardLinkHref(
+        "https://agent-native.local/_agent-native/tools/ext/render",
+      ),
+    ).toBe("https://agent-native.local/_agent-native/tools/ext/render");
+  });
+
+  it("blocks extension API documents from same-origin Markdown links", () => {
+    vi.stubGlobal("window", {
+      location: new URL("https://app.example/analytics"),
+    });
+    try {
+      expect(
+        safeDashboardLinkHref(
+          "https://agent-native.local/_agent-native/tools/ext/render",
+        ),
+      ).toBe("https://agent-native.local/_agent-native/tools/ext/render");
+      expect(
+        safeDashboardLinkHref("/_agent-native/extensions/ext/render"),
+      ).toBeNull();
+      expect(
+        safeDashboardLinkHref("/_agent-native/tools/ext/r%65nder"),
+      ).toBeNull();
+      expect(
+        safeDashboardLinkHref(
+          "https://app.example/_agent-native/tools/ext/render",
+        ),
+      ).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("blocks same-origin authentication and action endpoints", () => {
+    vi.stubGlobal("window", {
+      location: new URL("https://app.example/analytics"),
+    });
+    try {
+      for (const path of [
+        "/_agent-native/auth/logout",
+        "/_agent-native/actions/update-profile",
+      ]) {
+        expect(safeDashboardLinkHref(path)).toBeNull();
+        expect(safeDashboardLinkHref(`https://app.example${path}`)).toBeNull();
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("blocks unsafe or incomplete link targets", () => {
     expect(safeDashboardLinkHref("javascript:alert(1)")).toBeNull();
     expect(safeDashboardLinkHref("data:text/html,hi")).toBeNull();
     expect(safeDashboardLinkHref("//evil.example/path")).toBeNull();
+    expect(safeDashboardLinkHref("/\\evil.example/path")).toBeNull();
     expect(safeDashboardLinkHref("example.com/path")).toBeNull();
     expect(safeDashboardLinkHref("")).toBeNull();
   });
@@ -283,5 +282,21 @@ describe("partial-day time-series helpers", () => {
     expect(result.series).toEqual([
       { key: "signups", solidKey: "signups", partialKey: null },
     ]);
+  });
+});
+
+describe("chart tooltip date labels", () => {
+  const panel = { source: "first-party" } as SqlPanel;
+
+  it("includes the weekday for daily chart keys", () => {
+    expect(formatSqlChartTooltipLabel("2026-06-22", panel, "date")).toBe(
+      "Monday, Jun 22",
+    );
+  });
+
+  it("leaves non-daily chart keys in the compact date format", () => {
+    expect(formatSqlChartTooltipLabel("2026-06-22", panel, "week")).toBe(
+      "Jun 22",
+    );
   });
 });

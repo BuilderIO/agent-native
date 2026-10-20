@@ -1,21 +1,24 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../server/lib/event-guest-notifications.js";
+import { isGoogleEventAbsentError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   cliBoolean,
-  normalizeGoogleEventId,
+  googleEventResultId,
+  normalizeWritableGoogleEventId,
   requireActionUserEmail,
+  resolveGoogleEventAccountEmail,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
 
 export default defineAction({
   description:
-    "Delete or remove a Google Calendar event. For recurring events, choose just this instance, all events in the series, or this and following events.",
+    "Delete or remove ONE Google Calendar event. For recurring events, choose just this instance, all events in the series, or this and following events. For more than one event — any 'remove all …' / 'clear …' request — use delete-events instead; never call this in a loop.",
   schema: z.object({
     id: z
       .string()
@@ -48,6 +51,8 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
+  needsApproval: ({ sendUpdates, notificationMessage, removeOnly }) =>
+    !removeOnly && (sendUpdates === "all" || !!notificationMessage?.trim()),
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {
@@ -56,11 +61,11 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
-      args.accountEmail,
+      resolveGoogleEventAccountEmail(args.id, args.accountEmail),
       ownerEmail,
     );
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const guestNotificationMessage = normalizeGuestNotificationMessage(
       args.notificationMessage,
     );
@@ -71,25 +76,39 @@ export default defineAction({
         ? "none"
         : (args.sendUpdates ?? (shouldNotifyGuests ? "all" : "none")),
     };
-    const eventForNotification = shouldNotifyGuests
-      ? await googleCalendar.getEvent(googleEventId, {
-          ownerEmail,
-          accountEmail,
-        })
-      : undefined;
+    let eventForNotification;
+    try {
+      eventForNotification = shouldNotifyGuests
+        ? await googleCalendar.getEvent(googleEventId, {
+            ownerEmail,
+            accountEmail,
+          })
+        : undefined;
 
-    if (args.removeOnly) {
-      await googleCalendar.removeEventFromCalendar(
-        googleEventId,
-        { ownerEmail, accountEmail },
-        options,
-      );
-    } else {
-      await googleCalendar.deleteEvent(
-        googleEventId,
-        { ownerEmail, accountEmail },
-        options,
-      );
+      if (args.removeOnly) {
+        await googleCalendar.removeEventFromCalendar(
+          googleEventId,
+          { ownerEmail, accountEmail },
+          options,
+        );
+      } else {
+        await googleCalendar.deleteEvent(
+          googleEventId,
+          { ownerEmail, accountEmail },
+          options,
+        );
+      }
+    } catch (error) {
+      if (!isGoogleEventAbsentError(error)) throw error;
+
+      return {
+        success: true,
+        alreadyAbsent: true,
+        id: googleEventResultId(args.id, googleEventId, accountEmail),
+        accountEmail,
+        scope: args.scope,
+        removedOnly: args.removeOnly ?? false,
+      };
     }
 
     const guestNotification =
@@ -105,7 +124,8 @@ export default defineAction({
 
     return {
       success: true,
-      id: `google-${googleEventId}`,
+      alreadyAbsent: false,
+      id: googleEventResultId(args.id, googleEventId, accountEmail),
       accountEmail,
       scope: args.scope,
       removedOnly: args.removeOnly ?? false,

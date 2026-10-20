@@ -1,12 +1,7 @@
-/**
- * Built-in video provider (Daily.co) — zero-OAuth video provider driven by a
- * server-to-server API key. Creates a Daily.co room per booking.
- */
 import type { VideoProvider } from "./types.js";
 
 export interface DailyVideoProviderConfig {
   apiKey: string;
-  /** Prefix for Daily room names; defaults to "room-" */
   roomPrefix?: string;
 }
 
@@ -15,13 +10,12 @@ export function createDailyVideoProvider(
 ): VideoProvider {
   const prefix = config.roomPrefix ?? "room-";
   async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers = new Headers(init?.headers);
+    headers.set("authorization", `Bearer ${config.apiKey}`);
+    headers.set("content-type", "application/json");
     const res = await fetch(`https://api.daily.co/v1${path}`, {
       ...init,
-      headers: {
-        ...(init?.headers ?? {}),
-        authorization: `Bearer ${config.apiKey}`,
-        "content-type": "application/json",
-      },
+      headers,
     });
     if (!res.ok) {
       throw new Error(`Daily.co ${res.status}: ${await res.text()}`);

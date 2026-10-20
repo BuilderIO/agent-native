@@ -1,18 +1,5 @@
-/**
- * Specs for the tool-call journal hard-block (tool-layer enforcement):
- *
- *   1. A write tool whose exact call already COMPLETED in the per-turn journal
- *      (derived from the durable run-event ledger of a prior interrupted chunk)
- *      is NOT re-executed on resume - run() is never called and the journaled
- *      result is returned, with a coherent tool_start/tool_done transcript.
- *   2. A FRESH call (empty journal - no prior completion) executes normally.
- *   3. A different-input call (no journal match) executes normally.
- *
- * The run-store ledger reader is mocked so no DB is touched.
- */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-// Mock run-store: getCurrentTurnEventsForThread drives the journal.
 const currentTurnEventsMock = vi.hoisted(() =>
   vi.fn<() => Promise<unknown[]>>(async () => []),
 );
@@ -35,8 +22,6 @@ vi.mock("./run-store.js", () => ({
   setRunTerminalReason: vi.fn(),
 }));
 
-// Keep OM out of the way. It's gated on ownerEmail anyway, but mock it so the
-// post-turn compaction never touches a DB.
 vi.mock("./observational-memory/index.js", () => ({
   maybeCompactThread: vi.fn(async () => ({})),
   buildObservationalContext: vi.fn(async () => ({
@@ -50,11 +35,34 @@ vi.mock("./observational-memory/index.js", () => ({
   serializeObservationalMemoryBlock: () => "",
 }));
 
-const { runAgentLoop } = await import("./production-agent.js");
+vi.mock("../server/agents-bundle.js", () => ({
+  loadAgentsBundle: vi.fn(async () => ({})),
+  getRuntimeSkillsForUser: vi.fn(async () => [
+    {
+      meta: { name: "slide-editing" },
+      content: "Check the layout only after all edits.",
+    },
+  ]),
+  skillDocsSlug: (name: string) =>
+    `skill-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+}));
+
+const {
+  runAgentLoop,
+  MAX_IDENTICAL_TOOL_CALLS,
+  AGENT_INTERNAL_CONTINUE_PROMPT,
+} = await import("./production-agent.js");
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
-
-// Helpers.
+import {
+  buildAssistantMessage,
+  threadDataToEngineMessages,
+  upsertAssistantMessage,
+} from "./thread-data-builder.js";
+import { classifyToolCallJournal } from "./tool-call-journal.js";
+import { buildTurnResumeContext } from "./turn-resume-context.js";
+import type { AgentChatEvent } from "./types.js";
 
 function makeWriteAction(): ActionEntry {
   return {
@@ -67,7 +75,6 @@ function makeWriteAction(): ActionEntry {
   };
 }
 
-/** Engine that emits one tool call (with the given input) then ends. */
 function singleToolEngine(
   toolName: string,
   input: Record<string, unknown>,
@@ -129,15 +136,35 @@ function finalTextEngine(text: string): AgentEngine {
   };
 }
 
-/** A prior-chunk ledger where `send-email {to: x}` started AND completed. */
 function completedLedger(
   tool: string,
   input: Record<string, string>,
   result: string,
+  artifacts?: unknown[],
 ): unknown[] {
   return [
     { type: "tool_start", tool, input },
-    { type: "tool_done", tool, result },
+    { type: "tool_done", tool, result, ...(artifacts ? { artifacts } : {}) },
+  ];
+}
+
+/** A write that recorded its committed effect for these exact arguments. */
+function committedLedger(
+  tool: string,
+  input: Record<string, string>,
+  result: string,
+  artifacts?: unknown[],
+): unknown[] {
+  return [
+    { type: "tool_start", tool, input },
+    {
+      type: "tool_done",
+      tool,
+      result,
+      completedSideEffect: true,
+      argumentsHash: actionArgumentsHash(input),
+      ...(artifacts ? { artifacts } : {}),
+    },
   ];
 }
 
@@ -147,12 +174,237 @@ beforeEach(() => {
 });
 
 describe("tool-call journal hard-block", () => {
+  it.each([false, true])(
+    "checks fresh state after an unknown write with an explicit result=%s",
+    async (explicitResult) => {
+      const ledger: AgentChatEvent[] = [
+        { type: "tool_start", id: "old-check", tool: "check-email", input: {} },
+        {
+          type: "tool_done",
+          id: "old-check",
+          tool: "check-email",
+          result: "No receipt found",
+        },
+        {
+          type: "tool_start",
+          id: "uncertain-send",
+          tool: "send-email",
+          input: { body: "Refund confirmed" },
+        },
+        ...(explicitResult
+          ? [
+              {
+                type: "tool_done" as const,
+                id: "uncertain-send",
+                tool: "send-email",
+                result: "Connection reset after sending",
+                isError: true,
+                outcomeUnknown: true as const,
+              },
+            ]
+          : []),
+      ];
+      const resumed = buildTurnResumeContext({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Confirm the refund by email." }],
+          },
+        ],
+        events: ledger,
+        journal: classifyToolCallJournal(ledger),
+      });
+      const checkEmail = {
+        ...makeWriteAction(),
+        readOnly: true,
+        run: vi.fn(async () => "Receipt found"),
+      };
+      const sendEmail = makeWriteAction();
+      let step = 0;
+      const engine: AgentEngine = {
+        ...singleToolEngine("check-email", {}),
+        async *stream(): AsyncIterable<EngineEvent> {
+          step++;
+          if (step <= 2) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call",
+                  id: `retry-${step}`,
+                  name: step === 1 ? "check-email" : "send-email",
+                  input: step === 1 ? {} : { body: "Refund confirmed" },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+          } else {
+            yield { type: "stop", reason: "end_turn" };
+          }
+        },
+      };
+      const events: AgentChatEvent[] = [];
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          ...resumed.messages,
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: { "check-email": checkEmail, "send-email": sendEmail },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+      expect(checkEmail.run).toHaveBeenCalledOnce();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "check-email",
+          result: "Receipt found",
+        }),
+      );
+      expect(sendEmail.run).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    },
+  );
+
+  it.each([true, false])(
+    "preserves an interrupted history outcome for readOnly=%s",
+    async (readOnly) => {
+      const action = { ...makeWriteAction(), readOnly };
+      const prior = buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: "prior-call",
+              tool: "test-action",
+              input: { id: "1" },
+            },
+          },
+        ],
+        "interrupted-run",
+      );
+      const replay = threadDataToEngineMessages(
+        upsertAssistantMessage({}, prior!),
+        { includeToolCalls: true },
+      );
+      const events: any[] = [];
+      await runAgentLoop({
+        engine: singleToolEngine("test-action", { id: "1" }),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Run the action." }],
+          },
+          ...replay,
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: { "test-action": action },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+      expect(action.run).toHaveBeenCalledTimes(readOnly ? 1 : 0);
+      if (!readOnly)
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            errorCode: "write_tool_outcome_unknown",
+          }),
+        );
+    },
+  );
+
+  it("carries loaded skill pages into internal continuation prompts", async () => {
+    const skillPage =
+      "# Skill: slide-editing\nCheck the layout only after all edits.";
+    currentTurnEventsMock.mockResolvedValue(
+      completedLedger(
+        "docs-search",
+        { slug: "skill-slide-editing" },
+        skillPage,
+      ),
+    );
+    let continuedSystemPrompt = "";
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options): AsyncIterable<EngineEvent> {
+        continuedSystemPrompt = options.systemPrompt;
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Continued." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "base system prompt",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Continue the work." }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+      threadId: "thread-loaded-skill-continuation",
+    });
+
+    expect(continuedSystemPrompt).toContain(skillPage);
+    expect(continuedSystemPrompt).toContain(
+      "Reuse them instead of calling docs-search again",
+    );
+  });
+
   it("includes prior continuation tool results in final-response guards", async () => {
     currentTurnEventsMock.mockResolvedValue(
       completedLedger(
         "bigquery",
         { sql: "select count(*)" },
         '{"rows":[{"count":3}]}',
+        [
+          {
+            kind: "analysis",
+            id: "analysis-prior",
+            url: "/analyses/analysis-prior",
+          },
+        ],
       ),
     );
     const guard = vi.fn(() => null);
@@ -185,16 +437,27 @@ describe("tool-call journal hard-block", () => {
     expect(guard.mock.calls[0]?.[0].toolResults).toEqual([
       {
         name: "bigquery",
+        input: { sql: "select count(*)" },
         content: '{"rows":[{"count":3}]}',
         isError: false,
+        artifacts: [
+          {
+            kind: "analysis",
+            id: "analysis-prior",
+            url: "/analyses/analysis-prior",
+          },
+        ],
       },
     ]);
   });
 
   it("does NOT re-execute a journaled-complete write call on resume", async () => {
     const PRIOR_RESULT = "email-sent-id-42";
+    const artifacts = [
+      { kind: "image", id: "asset-journal", url: "/asset/asset-journal" },
+    ];
     currentTurnEventsMock.mockResolvedValue(
-      completedLedger("send-email", { to: "a@b.com" }, PRIOR_RESULT),
+      committedLedger("send-email", { to: "a@b.com" }, PRIOR_RESULT, artifacts),
     );
 
     const action = makeWriteAction();
@@ -212,11 +475,8 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-resume",
     });
 
-    // The side effect must NOT have re-fired.
     expect(action.run).not.toHaveBeenCalled();
 
-    // Transcript stays coherent: both tool_start and tool_done were emitted,
-    // and the journaled result is surfaced.
     expect(events).toContainEqual(
       expect.objectContaining({ type: "tool_start", tool: "send-email" }),
     );
@@ -224,10 +484,57 @@ describe("tool-call journal hard-block", () => {
     expect(toolDone?.result).toContain(PRIOR_RESULT);
     expect(toolDone?.result).toContain("Already completed");
     expect(toolDone?.completedSideEffect).toBe(true);
+    expect(toolDone?.artifacts).toEqual(artifacts);
+  });
+
+  it("does not count a completed journal replay toward the repeated-call stop", async () => {
+    const priorWrite = committedLedger(
+      "create-workspace-resource",
+      { resourceId: "same" },
+      "resource created",
+    );
+    currentTurnEventsMock.mockResolvedValue(
+      Array.from(
+        { length: MAX_IDENTICAL_TOOL_CALLS - 1 },
+        () => priorWrite,
+      ).flat(),
+    );
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("create-workspace-resource", {
+        resourceId: "same",
+      }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "continue" }] },
+      ],
+      actions: { "create-workspace-resource": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-replayed-write-at-threshold",
+    });
+
+    expect(action.run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        result: expect.stringContaining(
+          "Already completed in an earlier interrupted attempt",
+        ),
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(expect.objectContaining({ type: "done" }));
   });
 
   it("executes a fresh call normally when the journal is empty", async () => {
-    currentTurnEventsMock.mockResolvedValue([]); // no prior chunk
+    currentTurnEventsMock.mockResolvedValue([]);
 
     const action = makeWriteAction();
 
@@ -243,13 +550,12 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-fresh",
     });
 
-    // Fresh call: the action runs exactly once.
     expect(action.run).toHaveBeenCalledOnce();
   });
 
   it("executes normally when a journaled call has a DIFFERENT input", async () => {
     currentTurnEventsMock.mockResolvedValue(
-      completedLedger("send-email", { to: "someone-else@b.com" }, "old"),
+      committedLedger("send-email", { to: "someone-else@b.com" }, "old"),
     );
 
     const action = makeWriteAction();
@@ -266,7 +572,6 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-diff-input",
     });
 
-    // No journal match (different recipient), so it executes.
     expect(action.run).toHaveBeenCalledOnce();
   });
 
@@ -305,7 +610,7 @@ describe("tool-call journal hard-block", () => {
     expect(action.run).toHaveBeenCalledOnce();
   });
 
-  it("serves a read-only tool's journaled result from the prior chunk instead of re-executing it", async () => {
+  it("re-executes a read-only tool instead of replaying its journaled result", async () => {
     const fullResult = "x".repeat(50_000);
     currentTurnEventsMock.mockResolvedValue(
       completedLedger("get-data", { id: "1" }, fullResult),
@@ -326,18 +631,22 @@ describe("tool-call journal hard-block", () => {
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "read" }] }],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "read" }] },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
       actions: { "get-data": readAction },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
       threadId: "thread-read",
     });
 
-    expect(readAction.run).not.toHaveBeenCalled();
-    // The FULL journaled body is served, not the 400-char prompt summary that
-    // used to leave the model no choice but to re-run the read.
+    expect(readAction.run).toHaveBeenCalledOnce();
     const done = events.find((event) => event.type === "tool_done");
-    expect(done.result).toContain(fullResult);
+    expect(done.result).toBe("fresh-read");
   });
 
   it("still re-executes a read-only tool that opted out with dedupe: false", async () => {
@@ -373,7 +682,7 @@ describe("tool-call journal hard-block", () => {
   it("does not replay a journaled read that a later write in the same turn invalidated", async () => {
     currentTurnEventsMock.mockResolvedValue([
       ...completedLedger("get-data", { id: "1" }, "stale-read"),
-      ...completedLedger("save-thing", { id: "9" }, "saved"),
+      ...committedLedger("save-thing", { id: "9" }, "saved"),
     ]);
 
     const readAction: ActionEntry = {
@@ -398,5 +707,322 @@ describe("tool-call journal hard-block", () => {
     });
 
     expect(readAction.run).toHaveBeenCalledOnce();
+  });
+
+  it("counts identical tool calls from earlier chunks of the same turn", async () => {
+    currentTurnEventsMock.mockResolvedValue(
+      Array.from({ length: MAX_IDENTICAL_TOOL_CALLS - 1 }, () => ({
+        type: "tool_start",
+        tool: "flaky-write",
+        input: { id: "row-1" },
+      })),
+    );
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("flaky-write", { id: "row-1" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "flaky-write": action },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-repeat-across-chunks",
+    });
+
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+  });
+
+  it("uses the persisted normalized input for repeat counts", async () => {
+    currentTurnEventsMock.mockResolvedValue(
+      Array.from({ length: MAX_IDENTICAL_TOOL_CALLS - 1 }, () => ({
+        type: "tool_start",
+        tool: "write-config",
+        input: { config: { a: 1 } },
+      })),
+    );
+    const action: ActionEntry = {
+      tool: {
+        description: "A config write action",
+        parameters: {
+          type: "object",
+          properties: { config: { type: "object" } },
+        },
+      },
+      readOnly: false,
+      run: vi.fn(async () => "fresh-execution-result"),
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("write-config", { config: '{"a":1}' }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "write-config": action },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-repeat-normalized-input",
+    });
+
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+  });
+
+  it("counts identical tool errors from earlier chunks of the same turn", async () => {
+    currentTurnEventsMock.mockResolvedValue([
+      { type: "tool_start", tool: "flaky-write", input: { id: "row-1" } },
+      {
+        type: "tool_done",
+        tool: "flaky-write",
+        input: { id: "row-1" },
+        result: "Error running flaky-write: DB exploded",
+        isError: true,
+      },
+      { type: "tool_start", tool: "flaky-write", input: { id: "row-1" } },
+      {
+        type: "tool_done",
+        tool: "flaky-write",
+        result: "Error running flaky-write: DB exploded",
+        isError: true,
+      },
+    ]);
+    const action: ActionEntry = {
+      tool: {
+        description: "A write action",
+        parameters: { type: "object", properties: {} },
+      },
+      readOnly: false,
+      run: vi.fn(async () => {
+        throw new Error("DB exploded");
+      }),
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("flaky-write", { id: "row-1" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "flaky-write": action },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-repeat-error-across-chunks",
+    });
+
+    expect(action.run).toHaveBeenCalledOnce();
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+  });
+
+  it("stops a continuation whose per-turn ledger cannot be read", async () => {
+    currentTurnEventsMock.mockRejectedValue(new Error("neon: connection lost"));
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("send-email", { to: "a@b.com" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: { "send-email": action },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-unreadable",
+    });
+
+    expect(action.run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "tool_call_journal_unreadable",
+        recoverable: false,
+        details: expect.stringContaining("neon: connection lost"),
+      }),
+    );
+  });
+
+  it("survives a single ledger read blip on a continuation", async () => {
+    currentTurnEventsMock
+      .mockRejectedValueOnce(new Error("neon: connection lost"))
+      .mockResolvedValue([]);
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("send-email", { to: "a@b.com" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: { "send-email": action },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-ledger-blip",
+    });
+
+    expect(action.run).toHaveBeenCalledOnce();
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "tool_call_journal_unreadable" }),
+    );
+  });
+
+  it("runs a FRESH turn normally when the ledger read fails", async () => {
+    currentTurnEventsMock.mockRejectedValue(new Error("neon: connection lost"));
+    const action = makeWriteAction();
+
+    await runAgentLoop({
+      engine: singleToolEngine("send-email", { to: "a@b.com" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "send" }] }],
+      actions: { "send-email": action },
+      send: () => {},
+      signal: new AbortController().signal,
+      threadId: "thread-unreadable-fresh",
+    });
+
+    expect(action.run).toHaveBeenCalledOnce();
+  });
+
+  it("re-fetches read-only results instead of replaying them across chunks", async () => {
+    const RAW_RESULT = "the actual document content";
+    const resurfacedResult =
+      "Skipped duplicate read-only call to get-doc: identical input already ran in this turn. " +
+      `Its earlier result is no longer in view, so here it is again:\n\n${RAW_RESULT}`;
+    const readAction = vi.fn(async () => RAW_RESULT);
+    const action: ActionEntry = {
+      tool: {
+        description: "A read action",
+        parameters: { type: "object", properties: {} },
+      },
+      readOnly: true,
+      run: readAction,
+    };
+
+    let ledger: unknown[] = completedLedger(
+      "get-doc",
+      { id: "doc-1" },
+      RAW_RESULT,
+    );
+
+    for (let chunk = 1; chunk <= 8; chunk++) {
+      currentTurnEventsMock.mockResolvedValue(ledger);
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine: singleToolEngine("get-doc", { id: "doc-1" }),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: `continue ${chunk}` }],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: { "get-doc": action },
+        send: (e) => events.push(e),
+        signal: new AbortController().signal,
+        threadId: "thread-resurface",
+      });
+
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "repeated_tool_call" }),
+      );
+      const toolDone = events.find((e: any) => e.type === "tool_done");
+      expect(toolDone?.result).toBe(RAW_RESULT);
+
+      ledger = [
+        ...ledger,
+        ...completedLedger("get-doc", { id: "doc-1" }, resurfacedResult),
+      ];
+    }
+
+    expect(readAction).toHaveBeenCalledTimes(8);
+  });
+
+  it("seeds repeat counts by call identity, not FIFO-per-tool-name, when concurrent same-tool calls resolve out of order", async () => {
+    const resurfacedResult =
+      "Skipped duplicate read-only call to get-data: identical input already ran in this turn. " +
+      "Its earlier result is no longer in view, so here it is again:\n\nold-id-2-result";
+    currentTurnEventsMock.mockResolvedValue([
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "2" } },
+      {
+        type: "tool_done",
+        tool: "get-data",
+        input: { id: "2" },
+        result: resurfacedResult,
+      },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+      { type: "tool_start", tool: "get-data", input: { id: "1" } },
+    ]);
+
+    const readAction: ActionEntry = {
+      tool: {
+        description: "A read action",
+        parameters: { type: "object", properties: {} },
+      },
+      readOnly: true,
+      run: vi.fn(async () => "fresh-read"),
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("get-data", { id: "1" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "get-data": readAction },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-concurrent-out-of-order",
+    });
+
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
   });
 });

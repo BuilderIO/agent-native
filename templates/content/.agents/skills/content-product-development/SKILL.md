@@ -1,7 +1,7 @@
 ---
 name: content-product-development
 description: >-
-  Product contracts and proof boundaries for Agent Native Content. Use when
+  Product contracts and proof boundaries for Agent-Native Content. Use when
   planning, implementing, reviewing, testing, or documenting Content behavior
   or shared framework behavior that changes Content.
 scope: dev
@@ -9,7 +9,7 @@ metadata:
   internal: true
 ---
 
-# Develop Agent Native Content
+# Develop Agent-Native Content
 
 ## Rule
 
@@ -96,6 +96,13 @@ Use stable IDs from `templates/content/docs/product/`. Valid lanes are
 `product_decision_candidate`. Set `record_change` to `included` when the PR
 changes a Feature or Capability record, or `decision_pending` when the product
 record must wait for an explicit product decision.
+
+A change with no product behavior needs no declaration, such as unit tests,
+`vitest.config.ts`, CI workflows, or formatting. A test that a Capability lists
+under `evidence` still counts, as do E2E, parity, and conformance suites,
+because they are the product's proof. If the advisory check warns on a change
+with no product impact, leave the declaration out and say so in the PR rather
+than writing one to silence it.
 
 The lane meanings are the same as the classification table above. A contract
 repair does not require roadmap churn when the accepted record remains true.

@@ -1,5 +1,7 @@
 export const RECORDING_START_TIMEOUT_MS = 90_000;
 
+export const RECOVERY_INVOKE_TIMEOUT_MS = 5_000;
+
 export class RecordingStartTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(
@@ -20,12 +22,15 @@ export function guardRecordingStart<T>(
   operation: Promise<T>,
   options: {
     signal?: AbortSignal;
-    timeoutMs?: number;
+    timeoutMs?: number | null;
     onCancel?: () => void;
     onLateResolve?: (value: T) => void;
   } = {},
 ): Promise<T> {
-  const timeoutMs = options.timeoutMs ?? RECORDING_START_TIMEOUT_MS;
+  const timeoutMs =
+    options.timeoutMs === undefined
+      ? RECORDING_START_TIMEOUT_MS
+      : options.timeoutMs;
 
   return new Promise<T>((resolve, reject) => {
     let settled = false;
@@ -58,12 +63,6 @@ export function guardRecordingStart<T>(
       finish(() => reject(new RecordingStartCancelledError()));
     };
 
-    if (options.signal?.aborted) {
-      onAbort();
-      return;
-    }
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-
     operation.then(
       (value) => {
         if (settled) {
@@ -76,9 +75,28 @@ export function guardRecordingStart<T>(
         finish(() => reject(error));
       },
     );
-    timer = setTimeout(() => {
-      notifyCancellation();
-      finish(() => reject(new RecordingStartTimeoutError(timeoutMs)));
-    }, timeoutMs);
+    if (options.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (timeoutMs !== null) {
+      timer = setTimeout(() => {
+        finish(() => {
+          notifyCancellation();
+          reject(new RecordingStartTimeoutError(timeoutMs));
+        });
+      }, timeoutMs);
+    }
   });
+}
+
+export function boundedCleanup(
+  operation: Promise<unknown>,
+  timeoutMs = RECOVERY_INVOKE_TIMEOUT_MS,
+): Promise<void> {
+  return guardRecordingStart(operation, { timeoutMs }).then(
+    () => undefined,
+    () => undefined,
+  );
 }

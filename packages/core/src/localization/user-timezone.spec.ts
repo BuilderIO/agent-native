@@ -39,8 +39,6 @@ describe("resolveUserSchedulingTimezone", () => {
   });
 
   it("ignores an unusable request zone rather than persisting it", async () => {
-    // Headers are client-supplied. Storing this would leave frontmatter that
-    // cron evaluation silently reinterprets in the host zone.
     getRequestTimezoneMock.mockReturnValue("Not/AZone");
 
     await expect(resolveUserSchedulingTimezone("a@b.test")).resolves.toBe(
@@ -49,8 +47,6 @@ describe("resolveUserSchedulingTimezone", () => {
   });
 
   it("surfaces a settings read failure instead of guessing a zone", async () => {
-    // Silently falling back would pin the schedule to the host zone for the
-    // rest of its life, at the wrong wall-clock time.
     getUserSettingMock.mockRejectedValue(new Error("settings unavailable"));
     getRequestTimezoneMock.mockReturnValue("Europe/Paris");
 

@@ -117,12 +117,21 @@ export function coerceLocalContentComponentProps(
         continue;
       }
       const numberValue =
-        typeof value === "number" ? value : Number(String(value));
+        typeof value === "number"
+          ? value
+          : Number(
+              typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+            );
       props[name] = Number.isFinite(numberValue) ? numberValue : value;
     } else if (input.type === "boolean") {
       props[name] = coerceBoolean(value);
     } else {
-      props[name] = String(value);
+      props[name] =
+        typeof value === "string"
+          ? value
+          : typeof value === "number" || typeof value === "boolean"
+            ? String(value)
+            : (JSON.stringify(value) ?? "");
     }
   }
   return props;

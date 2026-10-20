@@ -9,11 +9,13 @@ app-building surfaces: shadcn-style UI primitives, app-shell helpers, shared
 hooks, sharing and collaboration display UI, portable rich editors, Context
 X-Ray presentation, and visual design controls.
 
-Existing `@agent-native/core` imports remain supported during the migration
-window through compatibility re-exports. Those re-exports are temporary
-migration support. Toolkit stays Core-free: controlled Toolkit views receive
-data and callbacks from Core runtime adapters instead of importing runtime
-state, actions, or server contracts.
+`@agent-native/toolkit/ui/*` and the other presentational surfaces stay
+Core-free. Runtime-backed React surfaces live under
+`@agent-native/toolkit/app/*`; those entrypoints use Core's public runtime APIs
+and declare Core as an optional peer dependency. Apps that use an app surface
+install both packages. Core stays a headless runtime and client library; moved
+UI imports are updated by `agent-native upgrade --codemods` rather than kept as
+Core re-export shims.
 
 The Toolkit docs catalog is one discovery shelf for reusable app-building
 capabilities, even when an implementation remains Core-owned. Scheduling,
@@ -21,10 +23,33 @@ Creative Context, and Pinpoint are Toolkit capability modules installed on
 demand. They remain separate npm packages with independent lifecycle manifests
 and docs. Dispatch is a separate product rather than a Toolkit module.
 
+## AgentKit
+
+AgentKit is split at a deliberate seam. AgentKit owns its provider-neutral
+protocol, headless client, and transports. Toolkit owns the React runtime and
+presentation surfaces, including composers, prompt menus, chat surfaces,
+streaming text, activity traces, approvals, tool and widget renderers, threads,
+attachments, and application-state adapters. Core remains the runtime contract
+provider. The provider-neutral event contract lives in
+[`@agent-native/agentkit/protocol`](../agentkit/README.md).
+
+AgentKit is an independent implementation optimized for Agent-Native workflows.
+The protocol README records the shared product goals and clean implementation
+boundary; it is not a runtime dependency or compatibility layer for another
+chat product.
+
 ## Imports
+
+Runtime-backed surfaces are exported from `@agent-native/toolkit/app/*` and
+may call Core runtime APIs. Apps that import them should declare both Core and
+Toolkit directly. Presentation primitives remain under
+`@agent-native/toolkit/ui/*`.
 
 ```tsx
 import { ToolkitProvider } from "@agent-native/toolkit/provider";
+import { AgentAskPopover } from "@agent-native/toolkit/app/chat";
+import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import {
   ChatHistoryList,
   ChatHistoryRail,
@@ -39,6 +64,7 @@ import {
   StatsCard,
   buildDashboardPanelGroups,
 } from "@agent-native/toolkit/dashboard";
+import { DataGrid } from "@agent-native/toolkit/data-grid";
 import {
   CanvasCommentPins,
   DrawOverlay,
@@ -55,6 +81,7 @@ import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { useToast } from "@agent-native/toolkit/hooks/use-toast";
 import {
   SidebarFooterActions,
+  usePersistentSidebarCollapsed,
   useSetHeaderActions,
 } from "@agent-native/toolkit/app-shell";
 ```
@@ -85,6 +112,14 @@ Use `SidebarFooterActions` for the shared left-sidebar utility row. Provide the
 app-owned controls through its slots; the rendered order is feedback, search,
 then collapse, with the same order stacked in collapsed sidebars.
 
+Use `usePersistentSidebarCollapsed` for a collapsible desktop navigation
+sidebar that should remember a person's choice after refresh. Each app supplies
+its own stable storage key and first-use default. The hook restores valid
+browser state immediately after hydration, keeps explicit changes responsive
+when storage is unavailable, and exposes `persistenceStatus` so unavailable or
+malformed storage is distinguishable from a saved preference. Keep temporary
+mobile drawer state separate.
+
 Inside template apps, prefer local adapters such as `@/components/ui/button` so
 apps can replace their primitives without changing every callsite.
 
@@ -109,6 +144,69 @@ than sharing dashboard rows between apps. Resolve panel data with a
 `PanelSourceResolver`; the built-in `program` resolver runs an app-owned data
 program and is the zero-wiring default. Provider-specific resolvers stay in the
 app that owns their credentials and query policy.
+
+## Data grid kit
+
+`@agent-native/toolkit/data-grid` provides the spreadsheet-like interaction
+layer without owning a data model. Supply rows, typed columns, editor slots,
+selection state, and commit callbacks from the app. Keyboard navigation,
+selection, column resizing, and the scroll surface are shared; `renderHeader`,
+`renderBody`, `renderRow`, and `renderFooter` let an app preserve product-
+specific headers, grouping, and row actions while adopting the same grid
+mechanics.
+
+```tsx
+<DataGrid
+  rows={rows}
+  columns={columns}
+  getRowId={(row) => row.id}
+  onCellCommit={({ row, column, value }) =>
+    updateCell(row.id, column.id, value)
+  }
+/>
+```
+
+The kit never fetches data, calls actions, resolves credentials, or persists
+edits. Eject it with `agent-native eject toolkit/data-grid --app <app>` when a
+product needs a deeper local visual or interaction change.
+
+## Sandboxed extension links
+
+When `linkNonce` is omitted, `buildAgentNativeExtensionHtml` keeps the
+source-checked window-message host bridge used by older callers. Its links keep
+their native behavior. `normalizeAgentNativeExtensionSandbox(sandbox)` keeps
+the legacy `allow-popups` behavior for `target="_blank"`; it still removes
+`allow-same-origin` and `allow-popups-to-escape-sandbox`.
+
+To route external links through a private host channel, pass the nonce returned
+by `useExternalExtensionLinks`. Nonce mode uses only its private MessagePort
+for host traffic and keeps popups disabled:
+
+```tsx
+import {
+  buildAgentNativeExtensionHtml,
+  useExternalExtensionLinks,
+} from "@agent-native/toolkit/app/extensions";
+import { useRef } from "react";
+
+const iframeRef = useRef<HTMLIFrameElement>(null);
+const linkNonce = useExternalExtensionLinks(iframeRef, extension.id);
+const srcDoc = linkNonce
+  ? buildAgentNativeExtensionHtml({
+      extensionId: extension.id,
+      content: extension.content,
+      linkNonce,
+    })
+  : undefined;
+
+return (
+  <iframe
+    ref={iframeRef}
+    srcDoc={srcDoc}
+    sandbox="allow-scripts allow-forms allow-downloads"
+  />
+);
+```
 
 ## Customize Or Take Ownership
 

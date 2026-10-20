@@ -69,7 +69,6 @@ describe("legacy value type mapping", () => {
 
   it("only widens an enum base to multi-enum when multi is set", () => {
     expect(legacyValueTypeFor("select", true)).toBe("multi-enum");
-    // record-reference's base isn't "enum", so multi leaves it alone.
     expect(legacyValueTypeFor("record-reference", true)).toBe("reference");
   });
 });
@@ -100,7 +99,6 @@ describe("CRM composite parsers", () => {
       e164: "+442079460958",
       country: "GB",
     });
-    // +1 spans several countries — parsed, region deliberately undetermined.
     expect(parsePhone("+1 (415) 555-0134")).toEqual({
       status: "parsed",
       e164: "+14155550134",

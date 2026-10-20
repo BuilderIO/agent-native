@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
   IconPhoto,
   IconPhotoEdit,
@@ -21,8 +22,14 @@ import {
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { exportGif, blobToDataUrl } from "@/lib/ffmpeg-export";
-import { formatMs } from "@/lib/timestamp-mapping";
+import { seekVideoToTime } from "@/lib/thumbnail-capture";
+import {
+  resolveThumbnailPickerState,
+  type ThumbnailPickerTab,
+} from "@/lib/thumbnail-picker-state";
+import { formatMs, type ThumbnailSpec } from "@/lib/timestamp-mapping";
 
 export interface ThumbnailPickerProps {
   open: boolean;
@@ -33,9 +40,8 @@ export interface ThumbnailPickerProps {
   durationMs: number;
   currentThumbnailUrl?: string | null;
   currentAnimatedUrl?: string | null;
+  currentThumbnail?: ThumbnailSpec | null;
 }
-
-type Tab = "upload" | "frame" | "gif";
 
 export function ThumbnailPicker({
   open,
@@ -45,9 +51,14 @@ export function ThumbnailPicker({
   videoFormat = "webm",
   durationMs,
   currentThumbnailUrl,
+  currentAnimatedUrl,
+  currentThumbnail,
 }: ThumbnailPickerProps) {
   const t = useT();
-  const [tab, setTab] = useState<Tab>("frame");
+  const storageQuery = useVideoStorageStatus(open);
+  const storageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
+  const [tab, setTab] = useState<ThumbnailPickerTab>("frame");
   const [frameTime, setFrameTime] = useState(0);
   const [gifStart, setGifStart] = useState(0);
   const [gifDuration, setGifDuration] = useState(3000);
@@ -55,16 +66,29 @@ export function ThumbnailPicker({
   const [frameDataUrl, setFrameDataUrl] = useState<string | null>(null);
   const [gifProgress, setGifProgress] = useState<number | null>(null);
   const [gifDataUrl, setGifDataUrl] = useState<string | null>(null);
+  const [fileStoragePromptOpen, setFileStoragePromptOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const framePreviewRef = useRef<HTMLVideoElement | null>(null);
   const gifVideoRef = useRef<HTMLVideoElement | null>(null);
   const gifPreviewRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (storageConfigured) setFileStoragePromptOpen(false);
+  }, [storageConfigured]);
+  const promptForStorage = () => {
+    if (storageQuery.data?.configured === false && !storageQuery.isError) {
+      setFileStoragePromptOpen(true);
+    } else {
+      toast.error(t("recordingPage.tryAgainMoment"));
+      void storageQuery.refetch();
+    }
+  };
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const initializedThumbnailKeyRef = useRef<string | null>(null);
 
   const mutation = useActionMutation("set-thumbnail");
 
-  // Clean up object URLs when dialog closes.
   useEffect(() => {
     if (!open) {
       setUploadDataUrl(null);
@@ -75,21 +99,41 @@ export function ThumbnailPicker({
     }
   }, [open]);
 
+  const currentThumbnailKey = currentThumbnail
+    ? `${currentThumbnail.kind}:${currentThumbnail.value}`
+    : currentAnimatedUrl
+      ? `animated:${currentAnimatedUrl}`
+      : "none";
+
+  useEffect(() => {
+    if (!open) {
+      initializedThumbnailKeyRef.current = null;
+      return;
+    }
+    const stateKey = `${durationMs}:${currentThumbnailKey}`;
+    if (initializedThumbnailKeyRef.current === stateKey) return;
+    initializedThumbnailKeyRef.current = stateKey;
+    const next = resolveThumbnailPickerState(currentThumbnail, {
+      durationMs,
+      hasAnimatedThumbnail: Boolean(currentAnimatedUrl),
+    });
+    setTab(next.tab);
+    setFrameTime(next.frameTime);
+    setGifStart(next.gifStart);
+    setGifDuration(next.gifDuration);
+  }, [
+    currentAnimatedUrl,
+    currentThumbnail,
+    currentThumbnailKey,
+    durationMs,
+    open,
+  ]);
+
   const handleFrameCapture = async () => {
     const video = videoRef.current;
     if (!video || !videoUrl) return;
     try {
-      // Seek to the chosen frame and draw to a canvas.
-      await new Promise<void>((resolve, reject) => {
-        const onSeek = () => {
-          video.removeEventListener("seeked", onSeek);
-          resolve();
-        };
-        video.addEventListener("seeked", onSeek);
-        video.currentTime = frameTime / 1000;
-        // Safety timeout
-        setTimeout(() => reject(new Error("seek timeout")), 5000);
-      }).catch(() => {});
+      await seekVideoToTime(video, frameTime);
 
       const canvas = document.createElement("canvas");
       canvas.width = video.videoWidth || 1280;
@@ -117,6 +161,17 @@ export function ThumbnailPicker({
     }
   };
 
+  useEffect(() => {
+    if (!open) return;
+    if (tab === "frame") {
+      seekPreview(videoRef.current, frameTime);
+      seekPreview(framePreviewRef.current, frameTime);
+    } else if (tab === "gif") {
+      seekPreview(gifVideoRef.current, gifStart);
+      seekPreview(gifPreviewRef.current, gifStart);
+    }
+  }, [frameTime, gifStart, open, tab]);
+
   const handleGifGenerate = async () => {
     if (!videoUrl) return;
     try {
@@ -138,6 +193,10 @@ export function ThumbnailPicker({
   };
 
   const handleApply = async () => {
+    if (!storageConfigured) {
+      promptForStorage();
+      return;
+    }
     try {
       if (tab === "upload" && uploadDataUrl) {
         await mutation.mutateAsync({
@@ -146,8 +205,6 @@ export function ThumbnailPicker({
           dataUrl: uploadDataUrl,
         });
       } else if (tab === "frame" && frameDataUrl) {
-        // First upload the captured frame as the static thumbnail, then also
-        // record the frame time reference in editsJson.
         await mutation.mutateAsync({
           recordingId,
           kind: "upload",
@@ -174,6 +231,16 @@ export function ThumbnailPicker({
       onOpenChange(false);
     } catch (err: any) {
       console.error(err);
+      if (
+        typeof err?.message === "string" &&
+        err.message.includes("No object storage is connected")
+      ) {
+        await storageQuery.refetch();
+        toast.error(t("thumbnailPicker.failedUpdate"), {
+          description: t("storageSetup.whyDescription"),
+        });
+        return;
+      }
       toast.error(err?.message ?? t("thumbnailPicker.failedUpdate"));
     }
   };
@@ -188,7 +255,10 @@ export function ThumbnailPicker({
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as ThumbnailPickerTab)}
+        >
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="upload">
               <IconUpload className="w-4 h-4 mr-1" />
@@ -209,6 +279,7 @@ export function ThumbnailPicker({
               ref={uploadInputRef}
               type="file"
               accept="image/*"
+              disabled={!storageConfigured}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
@@ -222,7 +293,13 @@ export function ThumbnailPicker({
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => uploadInputRef.current?.click()}
+              onClick={() => {
+                if (!storageConfigured) {
+                  promptForStorage();
+                  return;
+                }
+                uploadInputRef.current?.click();
+              }}
             >
               <IconUpload className="mr-1 h-4 w-4" />
               {t("shareDialog.chooseFile")}
@@ -440,6 +517,17 @@ export function ThumbnailPicker({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <FileStorageSetupPopover
+        open={fileStoragePromptOpen}
+        onOpenChange={setFileStoragePromptOpen}
+        onConnected={() => void storageQuery.refetch()}
+        {...(!storageQuery.isSuccess || storageQuery.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void storageQuery.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
     </Dialog>
   );
 }

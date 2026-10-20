@@ -13,7 +13,6 @@ import type {
   CrmFieldDefinition,
   CrmObjectDefinition,
   CrmObjectKind,
-  CrmObjectRef,
   CrmProvenance,
   CrmRecord,
   CrmRecordRef,
@@ -35,7 +34,7 @@ const MAX_RETRY_DELAY_MS = 1_500;
 const MAX_SINGLE_RETRY_DELAY_MS = 1_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 
-type HubSpotObjectType = (typeof CORE_OBJECT_TYPES)[number] | string;
+type HubSpotObjectType = (typeof CORE_OBJECT_TYPES)[number] | (string & {});
 
 export interface HubSpotTransportRequest {
   path: string;
@@ -254,7 +253,6 @@ function decodedCursor(cursor: string | undefined): {
         : {}),
     };
   } catch {
-    // HubSpot's `after` values are already opaque; accept them for one-object callers.
     return { index: 0, after: cursor };
   }
 }

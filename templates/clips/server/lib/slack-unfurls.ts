@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
 
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import {
   clipsShareDescription,
   displayRecordingTitle,
+  resolveClipsSocialImageUrl,
 } from "../../shared/share-meta.js";
 import { getDb, schema } from "../db/index.js";
 
@@ -38,6 +39,8 @@ type SlackUnfurlRecording = {
   trashedAt: string | null;
   expiresAt: string | null;
   videoUrl: string | null;
+  sourceAppName: string | null;
+  updatedAt: string | null;
 };
 
 export type SlackVideoBlock = {
@@ -191,15 +194,6 @@ function appPath(path: string, basePath: string): string {
   return base ? `/${base}${path}` : path;
 }
 
-function absoluteUrl(value: string | null | undefined, origin: string): string {
-  if (!value) return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
-  try {
-    return new URL(value, origin).toString();
-  } catch {
-    return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
-  }
-}
-
 function isExpired(value: string | null): boolean {
   if (!value) return false;
   const expires = new Date(value).getTime();
@@ -255,10 +249,12 @@ export function buildSlackVideoBlock(options: {
   const description = duration
     ? `${duration} · ${shareDescription}`
     : shareDescription;
-  const thumbnailUrl = absoluteUrl(
-    recording.thumbnailUrl || recording.animatedThumbnailUrl,
-    origin,
-  );
+  const thumbnailUrl =
+    resolveClipsSocialImageUrl({
+      recording,
+      origin,
+      basePath,
+    }) ?? AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
 
   return {
     type: "video",
@@ -278,6 +274,7 @@ export async function loadSlackVideoBlockForUrl(
   const share = extractShareLink(url);
   if (!share) return null;
 
+  // guard:allow-unscoped — Slack unfurls are anonymous public-share reads; private and password-protected recordings are filtered before metadata is loaded.
   const [recording] = await getDb()
     .select({
       id: schema.recordings.id,
@@ -293,9 +290,17 @@ export async function loadSlackVideoBlockForUrl(
       trashedAt: schema.recordings.trashedAt,
       expiresAt: schema.recordings.expiresAt,
       videoUrl: schema.recordings.videoUrl,
+      sourceAppName: schema.recordings.sourceAppName,
+      updatedAt: schema.recordings.updatedAt,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, share.id))
+    .where(
+      and(
+        eq(schema.recordings.id, share.id),
+        eq(schema.recordings.visibility, "public"),
+        isNull(schema.recordings.password),
+      ),
+    )
     .limit(1);
 
   return recording

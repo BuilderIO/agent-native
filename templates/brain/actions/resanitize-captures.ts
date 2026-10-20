@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { z } from "zod";
@@ -25,7 +25,9 @@ function reviewPreview(value: string) {
   return redactSensitiveText(value).replace(/\s+/g, " ").trim().slice(0, 320);
 }
 
-function canEditSource(role: "viewer" | "editor" | "admin" | "owner") {
+function canEditSource(
+  role: "viewer" | "commenter" | "editor" | "admin" | "owner",
+) {
   return role === "editor" || role === "admin" || role === "owner";
 }
 
@@ -177,6 +179,7 @@ export default defineAction({
           title: row.source.title,
           provider: row.source.provider as BrainSourceProvider,
           ownerEmail: row.source.ownerEmail,
+          orgId: row.source.orgId,
         },
         sourceConfig: parseJson<Record<string, unknown>>(
           row.source.configJson,
@@ -230,6 +233,7 @@ export default defineAction({
             status: row.capture.status,
           },
           decision: sanitized.decision,
+          classifierFailureReason: sanitized.classifierFailureReason,
           retentionHours: settings.quarantineRetentionHours ?? 72,
         });
         results.push({

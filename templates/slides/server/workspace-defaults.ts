@@ -1,9 +1,11 @@
+import { fail } from "@agent-native/core/action";
 import { canManageOrg, orgMembers, type OrgRole } from "@agent-native/core/org";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { getOrgSetting, mutateOrgSetting } from "@agent-native/core/settings";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "./db/index.js";
@@ -24,11 +26,6 @@ function readId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/**
- * Workspace defaults live on the org, so a caller with no org (personal
- * context, CLI, cron) genuinely has none — that is absent, not unreadable, and
- * every read below distinguishes the two by letting store failures propagate.
- */
 export async function getWorkspaceDefaults(): Promise<WorkspaceDefaults> {
   const orgId = getRequestOrgId();
   if (!orgId) return EMPTY_DEFAULTS;
@@ -146,11 +143,6 @@ export async function assertWorkspaceVisible(
   }
 }
 
-/**
- * Design-system precedence: an explicit pick wins, then the caller's own
- * default, then the workspace default. A user who never set one still gets
- * on-brand output; one who did keeps their choice.
- */
 export async function resolveDefaultDesignSystemId(
   ownerEmail: string,
 ): Promise<string | null> {
@@ -160,7 +152,10 @@ export async function resolveDefaultDesignSystemId(
     .from(schema.designSystems)
     .where(
       and(
-        eq(schema.designSystems.ownerEmail, ownerEmail),
+        eq(
+          sql`lower(${schema.designSystems.ownerEmail})`,
+          ownerEmail.trim().toLowerCase(),
+        ),
         eq(schema.designSystems.isDefault, true),
         orgId
           ? eq(schema.designSystems.orgId, orgId)
@@ -170,4 +165,32 @@ export async function resolveDefaultDesignSystemId(
     .limit(1);
   if (personal[0]?.id) return personal[0].id;
   return (await getWorkspaceDefaults()).designSystemId;
+}
+
+export async function resolveDesignSystemIdByTitle(
+  title: string,
+): Promise<string> {
+  const trimmed = title.trim();
+  const rows = await getDb()
+    .select({ id: schema.designSystems.id })
+    .from(schema.designSystems)
+    .where(
+      and(
+        accessFilter(schema.designSystems, schema.designSystemShares),
+        eq(sql`lower(${schema.designSystems.title})`, trimmed.toLowerCase()),
+      ),
+    );
+  if (rows.length === 0) {
+    fail(
+      `No accessible design system titled "${trimmed}". Call list-design-systems and pass an exact title or designSystemId.`,
+      { errorCode: "design_system_not_found", statusCode: 404 },
+    );
+  }
+  if (rows.length > 1) {
+    fail(
+      `Design system title "${trimmed}" is ambiguous (ids: ${rows.map((r) => r.id).join(", ")}). Pass designSystemId.`,
+      { errorCode: "design_system_ambiguous", statusCode: 409 },
+    );
+  }
+  return rows[0].id;
 }

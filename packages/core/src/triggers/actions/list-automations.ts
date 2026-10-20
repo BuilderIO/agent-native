@@ -1,13 +1,21 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { listAccessibleAutomationDefinitions } from "../../automations/service.js";
+import {
+  listAccessibleAutomationDefinitions,
+  type AutomationScope,
+} from "../../automations/service.js";
+import {
+  hasStalePause,
+  isPausedByFramework,
+} from "../../jobs/automation-outcome.js";
 import {
   describeCron,
   effectiveTimezone,
   isValidCron,
   nextOccurrence,
 } from "../../jobs/cron.js";
+import { listLatestAutomationRuns } from "../../jobs/run-history.js";
 
 function nextRun(
   meta: Awaited<
@@ -30,9 +38,7 @@ function nextRun(
       return meta.nextRun;
     }
   }
-  return scheduled
-    ? nextOccurrence(meta.schedule!, undefined, meta.timezone).toISOString()
-    : null;
+  return nextOccurrence(meta.schedule!, undefined, meta.timezone).toISOString();
 }
 
 export interface AutomationActionItem {
@@ -40,10 +46,11 @@ export interface AutomationActionItem {
   resourceId: string;
   name: string;
   path: string;
-  scope: "personal" | "organization";
+  scope: AutomationScope;
   classification: "automation" | "recurring-job";
-  triggerType: "event" | "schedule" | "manual";
+  triggerType: "event" | "schedule" | "manual" | "webhook";
   event: string | null;
+  webhookPath: string | null;
   schedule: string | null;
   timezone: string | null;
   scheduleDescription: string | null;
@@ -54,9 +61,16 @@ export interface AutomationActionItem {
   lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
+  lastErrorCode: string | null;
+  pausedReason: string | null;
+  pausedAt: string | null;
   nextRun: string | null;
   createdBy: string | null;
   model: string | null;
+  reasoningEffort: string | null;
+  executionHostId: string | null;
+  executionEngine: string | null;
+  executionCwd: string | null;
   mcpTools: string[];
   originScopeId: string | null;
   deliveryPlatform: string | null;
@@ -103,27 +117,48 @@ export default defineAction({
       userEmail,
       orgId: ctx?.orgId,
     });
-    return definitions
-      .filter((definition) => !scope || definition.scope === scope)
-      .map(
-        ({
-          resource,
-          name,
-          classification,
-          meta,
-          body,
-          scope,
-          canUpdate,
-          effectiveRole,
-          capabilities,
-          sharing,
-          creator,
-        }) => ({
+    const visible = definitions.filter(
+      (definition) => !scope || definition.scope === scope,
+    );
+    const latestRuns = await listLatestAutomationRuns({
+      owners: visible.map(({ resource }) => resource.owner),
+      appId: ctx?.appId,
+    });
+    const runsByResource = new Map(
+      latestRuns.map((run) => [`${run.owner}\0${run.path}`, run]),
+    );
+
+    return visible.map(
+      ({
+        resource,
+        name,
+        classification,
+        meta,
+        body,
+        scope: automationScope,
+        canUpdate,
+        effectiveRole,
+        capabilities,
+        sharing,
+        creator,
+        webhookPath,
+      }) => {
+        const run = runsByResource.get(`${resource.owner}\0${resource.path}`);
+        const metadataRunAt = meta.lastRun ? Date.parse(meta.lastRun) : NaN;
+        const paused = isPausedByFramework(meta);
+        const latestRun =
+          !paused &&
+          run &&
+          (!Number.isFinite(metadataRunAt) || run.startedAt > metadataRunAt)
+            ? run
+            : null;
+
+        return {
           id: resource.id,
           resourceId: resource.id,
           name,
           path: resource.path,
-          scope,
+          scope: automationScope,
           classification:
             classification.kind === "automation"
               ? "automation"
@@ -133,6 +168,7 @@ export default defineAction({
               ? classification.triggerType
               : "schedule",
           event: meta.triggerType === "event" ? (meta.event ?? null) : null,
+          webhookPath: canUpdate ? (webhookPath ?? null) : null,
           schedule:
             meta.triggerType === "schedule" ? meta.schedule || null : null,
           timezone:
@@ -144,16 +180,33 @@ export default defineAction({
               ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
               : null,
           condition:
-            meta.triggerType === "manual" ? null : (meta.condition ?? null),
+            meta.triggerType === "event" ? (meta.condition ?? null) : null,
           body,
           enabled: meta.enabled,
-          lastRun: meta.lastRun ?? null,
+          lastRun: latestRun
+            ? new Date(latestRun.startedAt).toISOString()
+            : (meta.lastRun ?? null),
           lastCheck: meta.lastCheck ?? null,
-          lastStatus: meta.lastStatus ?? null,
-          lastError: meta.lastError ?? null,
+          lastStatus: paused
+            ? "paused"
+            : latestRun
+              ? latestRun.status
+              : hasStalePause(meta) && meta.lastStatus === "paused"
+                ? null
+                : (meta.lastStatus ?? null),
+          lastError: latestRun ? latestRun.error : (meta.lastError ?? null),
+          lastErrorCode: latestRun
+            ? latestRun.errorCode
+            : (meta.lastErrorCode ?? null),
+          pausedReason: paused ? (meta.pausedReason ?? null) : null,
+          pausedAt: paused ? (meta.pausedAt ?? null) : null,
           nextRun: nextRun(meta),
           createdBy: meta.createdBy ?? null,
           model: meta.model ?? null,
+          reasoningEffort: meta.reasoningEffort ?? null,
+          executionHostId: meta.executionHostId ?? null,
+          executionEngine: meta.executionEngine ?? null,
+          executionCwd: meta.executionCwd ?? null,
           mcpTools: meta.mcpTools ?? [],
           originScopeId: meta.originScopeId ?? null,
           deliveryPlatform: meta.deliveryPlatform ?? null,
@@ -165,7 +218,8 @@ export default defineAction({
           capabilities,
           sharing,
           creator,
-        }),
-      );
+        };
+      },
+    );
   },
 });

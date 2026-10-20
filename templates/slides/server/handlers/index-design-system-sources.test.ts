@@ -1,0 +1,99 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockGetSession = vi.hoisted(() => vi.fn());
+const mockGetMcpOAuthBearerSession = vi.hoisted(() => vi.fn());
+const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
+const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockCdnSafeOriginStatus = vi.hoisted(
+  () => (status: number) => (status === 502 || status === 504 ? 503 : status),
+);
+const mockIndexBuilderDesignSystem = vi.hoisted(() => vi.fn());
+const mockUpsertBuilderProxyDesignSystem = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/server", () => ({
+  cdnSafeOriginStatus: mockCdnSafeOriginStatus,
+  getSession: (...args: unknown[]) => mockGetSession(...args),
+  isCredentialMembershipUnavailable: () => false,
+  getMcpOAuthBearerSession: (...args: unknown[]) =>
+    mockGetMcpOAuthBearerSession(...args),
+  runWithRequestContext: async (_ctx: unknown, fn: () => unknown) => fn(),
+  indexBuilderDesignSystem: (...args: unknown[]) =>
+    mockIndexBuilderDesignSystem(...args),
+  FeatureNotConfiguredError: class FeatureNotConfiguredError extends Error {},
+}));
+
+vi.mock("@agent-native/core/org", () => ({
+  getOrgContext: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: (...args: unknown[]) =>
+    mockIsFeatureFlagEnabled(...args),
+}));
+
+vi.mock("../lib/builder-design-system-proxy.js", () => ({
+  upsertBuilderProxyDesignSystem: (...args: unknown[]) =>
+    mockUpsertBuilderProxyDesignSystem(...args),
+}));
+
+vi.mock("h3", () => ({
+  defineEventHandler: (handler: unknown) => handler,
+  readBody: vi.fn(async () => ({ uploadTokens: ["tok-1"] })),
+  setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
+}));
+
+import { indexDesignSystemSources } from "./index-design-system-sources";
+
+describe("indexDesignSystemSources session-lookup regression", () => {
+  beforeEach(() => {
+    mockGetSession.mockReset();
+    mockGetMcpOAuthBearerSession.mockReset();
+    mockGetMcpOAuthBearerSession.mockResolvedValue(null);
+    mockIsFeatureFlagEnabled.mockReset();
+    mockIsFeatureFlagEnabled.mockResolvedValue(true);
+    mockSetResponseStatus.mockReset();
+    mockIndexBuilderDesignSystem.mockReset();
+    mockUpsertBuilderProxyDesignSystem.mockReset();
+  });
+
+  it("reports a 503 service error, not 401 Unauthorized, when the session lookup fails", async () => {
+    mockGetSession.mockRejectedValue(new Error("db unavailable"));
+
+    const result = (await indexDesignSystemSources({} as any)) as {
+      error?: string;
+    };
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 503);
+    expect(mockSetResponseStatus).not.toHaveBeenCalledWith(
+      expect.anything(),
+      401,
+    );
+    expect(result?.error).not.toMatch(/unauthorized/i);
+    expect(mockIndexBuilderDesignSystem).not.toHaveBeenCalled();
+  });
+
+  it("still reports 401 Unauthorized for a genuine anonymous visitor", async () => {
+    mockGetSession.mockResolvedValue(null);
+
+    const result = (await indexDesignSystemSources({} as any)) as {
+      error?: string;
+    };
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 401);
+    expect(result?.error).toBe("Unauthorized");
+  });
+
+  it("keeps Builder upstream failures readable through Cloudflare", async () => {
+    mockGetSession.mockResolvedValue({ email: "steve@example.com" });
+    mockIndexBuilderDesignSystem.mockRejectedValue(
+      new Error("Builder indexing failed"),
+    );
+
+    const result = (await indexDesignSystemSources({} as any)) as {
+      error?: string;
+    };
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 503);
+    expect(result?.error).toBe("Builder indexing failed");
+  });
+});

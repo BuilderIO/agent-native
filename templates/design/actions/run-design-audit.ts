@@ -1,58 +1,21 @@
-/**
- * run-design-audit — read-only a11y audit over a design's rendered HTML/DOM.
- *
- * Flags low-opacity text color classes as a contrast hint (real contrast
- * ratios require a DOM/CSS cascade resolver that isn't available server-side,
- * so this is not a computed ratio check), plus tap-target sizes, missing
- * alt/labels, focus visibility, and reduced-motion concerns, all by static
- * analysis of the stored HTML. Does NOT perform writes. Results are returned
- * as `A11yFinding[]` and may be persisted by the caller via
- * `create-design-review-snapshot`.
- *
- * See DESIGN-STUDIO-PLAN.md §6.5 + §7 (Review surface).
- */
-
-import { defineAction } from "@agent-native/core";
-import { getText, hasCollabState } from "@agent-native/core/collab";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
+import { readLiveSourceFile } from "../server/source-workspace.js";
 import type {
   A11yFinding,
   A11yFindingCategory,
   A11ySeverity,
 } from "../shared/design-review.js";
+import {
+  describeDesignHtmlIntegrityIssue,
+  inspectDesignHtmlDocumentIntegrity,
+} from "../shared/html-integrity.js";
 
-// ---------------------------------------------------------------------------
-// HTML helpers (static analysis — no DOM runtime available server-side)
-// ---------------------------------------------------------------------------
-
-/** Extract all attribute values matching a simple regex over raw HTML. */
-function extractAttrs(
-  html: string,
-  tagPattern: RegExp,
-  attrName: string,
-): string[] {
-  const attrRegex = new RegExp(
-    `${attrName}\\s*=\\s*(?:"([^"]*?)"|'([^']*?)')`,
-    "gi",
-  );
-  const results: string[] = [];
-  let match: RegExpExecArray | null;
-  const tagMatches = [...html.matchAll(tagPattern)];
-  for (const tm of tagMatches) {
-    attrRegex.lastIndex = 0;
-    while ((match = attrRegex.exec(tm[0])) !== null) {
-      results.push(match[1] ?? match[2] ?? "");
-    }
-  }
-  return results;
-}
-
-/** Pull a node id from a raw tag string (data-agent-native-node-id attr). */
 function extractNodeId(tagHtml: string): string | undefined {
   const m = tagHtml.match(
     /data-agent-native-node-id\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i,
@@ -60,7 +23,6 @@ function extractNodeId(tagHtml: string): string | undefined {
   return m ? (m[1] ?? m[2] ?? undefined) : undefined;
 }
 
-/** Pull a CSS selector hint from a raw tag string (id or class). */
 function extractSelector(tagHtml: string, tagName: string): string | undefined {
   const idMatch = tagHtml.match(/\bid\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
   if (idMatch) return `#${idMatch[1] ?? idMatch[2]}`;
@@ -71,31 +33,18 @@ function extractSelector(tagHtml: string, tagName: string): string | undefined {
       .split(/\s+/)
       .filter(Boolean);
     if (classNames.length > 0) {
-      // Include every class, not just the first: Tailwind screens commonly
-      // have several sibling elements sharing one common utility class (e.g.
-      // two buttons both carrying "h-4" but differing in every other class).
-      // A first-class-only selector is ambiguous and apply-a11y-fix's
-      // deterministic edit engine (which treats every dot segment after the
-      // tag as a required class, see shared/code-layer.ts) would match the
-      // wrong element among several sharing only that one class.
       return `${tagName.toLowerCase()}.${classNames.join(".")}`;
     }
   }
   return undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Individual audit checks
-// ---------------------------------------------------------------------------
-
-/** Check <img> tags without a meaningful alt attribute. */
 function checkMissingAlt(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
   const imgPattern = /<img\b[^>]*>/gi;
   let idx = 0;
   for (const m of html.matchAll(imgPattern)) {
     const tag = m[0];
-    // Missing alt entirely, or empty alt on a non-decorative image (heuristic)
     const altMatch = tag.match(/\balt\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
     if (!altMatch) {
       findings.push({
@@ -116,14 +65,10 @@ function checkMissingAlt(html: string): A11yFinding[] {
   return findings;
 }
 
-/** Escape regex metacharacters so untrusted HTML attribute values (e.g. an
- * author-supplied `id`) can be safely interpolated into a `RegExp` source
- * string instead of crashing the audit or matching unintended text. */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Check form inputs without an associated <label> or aria-label/aria-labelledby. */
 function checkMissingLabels(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
   const inputPattern = /<(?:input|select|textarea)\b[^>]*(?:\/>|>)/gi;
@@ -134,7 +79,6 @@ function checkMissingLabels(html: string): A11yFinding[] {
     const inputEnd = inputStart + tag.length;
     const typeMatch = tag.match(/\btype\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
     const type = (typeMatch?.[1] ?? typeMatch?.[2] ?? "text").toLowerCase();
-    // Hidden and submit/button/image inputs don't need visible labels
     if (["hidden", "submit", "button", "image", "reset"].includes(type))
       continue;
 
@@ -184,17 +128,7 @@ function isWrappedByLabel(
   return labelCloseAfterInput !== -1;
 }
 
-/**
- * Whether an interactive element already declares a minimum size that meets the
- * 44px tap-target floor. This recognises exactly what the inline auto-fix adds
- * (`min-h-[44px] min-w-[44px]`) plus equivalents — arbitrary `min-h`/`min-w`
- * values in px/rem/em ≥ 44px, the Tailwind spacing scale (`min-h-11` = 44px on a
- * 4px step), and full-bleed minimums (`min-h-full` / `min-h-screen`). Without
- * this, a fixed element keeps its original tiny `h-4` class and the audit would
- * re-flag it forever, so the audit↔fix loop would never converge.
- */
 function hasAdequateMinTapSize(tag: string): boolean {
-  // Arbitrary values: min-h-[44px], min-w-[2.75rem], etc.
   const arbitraryPattern = /\bmin-(?:h|w)-\[([\d.]+)(px|rem|em)\]/gi;
   let m: RegExpExecArray | null;
   while ((m = arbitraryPattern.exec(tag)) !== null) {
@@ -203,24 +137,15 @@ function hasAdequateMinTapSize(tag: string): boolean {
     const px = m[2]?.toLowerCase() === "px" ? value : value * 16;
     if (px >= 44) return true;
   }
-  // Tailwind spacing scale: min-h-11 / min-w-11 = 2.75rem = 44px (4px per step).
   const scalePattern = /\bmin-(?:h|w)-(\d+)\b/gi;
   while ((m = scalePattern.exec(tag)) !== null) {
     if (Number.parseInt(m[1] ?? "", 10) * 4 >= 44) return true;
   }
-  // Full-bleed minimums always clear the tap floor.
   return /\bmin-(?:h|w)-(?:full|screen)\b/.test(tag);
 }
 
-/**
- * Check interactive elements that are likely too small for touch targets
- * (< ~44px heuristic via Tailwind class). Exported for unit tests that assert
- * the audit↔fix loop converges (a fixed element must stop being flagged).
- */
 export function checkTapTargets(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
-  // Heuristic: buttons/links with explicit tiny size classes (h-4, h-5, w-4, w-5, size-4, size-5)
-  // and no explicit larger override or sr-only are flagged.
   const interactivePattern =
     /<(button|a|input|select|textarea)\b[^>]*(?:\/>|>)/gi;
   const tinyPattern = /\b(?:h|w|size)-[345]\b/;
@@ -259,10 +184,28 @@ export function checkTapTargets(html: string): A11yFinding[] {
   return findings;
 }
 
-/** Check for animations/transitions without a prefers-reduced-motion guard. */
+export function checkRenderBlockingOverlays(html: string): A11yFinding[] {
+  const result = inspectDesignHtmlDocumentIntegrity(html);
+  const issues = [...(result.detail ?? []), ...(result.advisory ?? [])].filter(
+    (issue) =>
+      issue.issue === "runtime-overlay-unhidden" ||
+      issue.issue === "runtime-cloak-missing" ||
+      issue.issue === "runtime-alpine-missing",
+  );
+
+  return issues.map((issue, index) => ({
+    id: `render-blocking-overlay:${issue.issue}-${index}`,
+    severity: "error" as A11ySeverity,
+    category: "render-blocking-overlay" as A11yFindingCategory,
+    message:
+      "An Alpine-controlled element can cover the screen before Alpine starts.",
+    detail: describeDesignHtmlIntegrityIssue(issue),
+    fixAvailable: false,
+  }));
+}
+
 function checkReducedMotion(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
-  // Look for <style> blocks that animate but don't include @media (prefers-reduced-motion)
   const stylePattern = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
   let styleIdx = 0;
   for (const m of html.matchAll(stylePattern)) {
@@ -285,7 +228,6 @@ function checkReducedMotion(html: string): A11yFinding[] {
     }
     styleIdx++;
   }
-  // Also check inline style attrs with animation/transition
   const inlineAnimPattern =
     /style\s*=\s*(?:"[^"]*(?:animation|transition)[^"]*"|'[^']*(?:animation|transition)[^']*')/gi;
   const allTags = [...html.matchAll(/<[a-z][^>]*>/gi)];
@@ -308,7 +250,6 @@ function checkReducedMotion(html: string): A11yFinding[] {
   return findings;
 }
 
-/** Check for focus-visibility — elements with outline:none/outline:0 and no :focus-visible alternative. */
 function checkFocusVisibility(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
   const stylePattern = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
@@ -334,13 +275,11 @@ function checkFocusVisibility(html: string): A11yFinding[] {
     }
     idx++;
   }
-  // Tailwind outline-none/ring-0 on interactive elements (heuristic)
   const outlineNonePattern =
     /<(?:button|a|input|select|textarea)\b[^>]*\boutline-none\b[^>]*>/gi;
   let inlineIdx = 0;
   for (const m of html.matchAll(outlineNonePattern)) {
     const tag = m[0];
-    // Check it's also not carrying a focus-visible ring class
     if (!/\bfocus-visible:/i.test(tag)) {
       findings.push({
         id: `focus-visibility:inline-${inlineIdx}`,
@@ -361,12 +300,8 @@ function checkFocusVisibility(html: string): A11yFinding[] {
   return findings;
 }
 
-/** Check for inline style color declarations that are opaque but very low-contrast (rough heuristic). */
 function checkContrastHint(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
-  // Static analysis cannot compute real contrast ratios without a DOM/CSS
-  // cascade resolver. We flag the presence of explicit low-opacity text colors
-  // as a human-review hint — the UI will show these as "info" prompts.
   const tagPattern = /<([a-z][a-z0-9:-]*)\b[^>]*>/gi;
   const textColorPattern = /\btext-(?:white|black|gray-\d+)\b/i;
   const lowOpacityPattern = /\b(?:opacity-[0-3]\d|text-opacity-[0-3]\d)\b/i;
@@ -421,11 +356,6 @@ export interface RootTokenMap {
   tokens: Record<string, string>;
 }
 
-/**
- * Extract the FIRST `:root { ... }` block's custom properties from a screen's
- * HTML. Returns an empty map (not an error) when no `:root` block is present —
- * callers treat that as "nothing to compare" rather than a finding.
- */
 export function extractRootTokens(html: string): Record<string, string> {
   const tokens: Record<string, string> = {};
   const rootMatch = html.match(/:root\s*\{([^}]*)\}/i);
@@ -441,12 +371,6 @@ export function extractRootTokens(html: string): Record<string, string> {
   return tokens;
 }
 
-/**
- * Compare every non-reference screen's `:root` token map against the
- * reference screen's (normally `index.html`) and return one finding per
- * diverging property per screen. Screens with no `:root` block are skipped.
- * Pure and dependency-free so it can be unit tested without a DB.
- */
 export function checkTokenDrift(
   screens: Array<{ filename: string; html: string }>,
   referenceFilename = "index.html",
@@ -463,7 +387,6 @@ export function checkTokenDrift(
   for (const screen of screens) {
     if (screen.filename === reference.filename) continue;
     const screenTokens = extractRootTokens(screen.html);
-    // No :root block on this screen — nothing to reconcile, not a finding.
     if (Object.keys(screenTokens).length === 0) continue;
 
     for (const [property, referenceValue] of Object.entries(referenceTokens)) {
@@ -489,28 +412,188 @@ export function checkTokenDrift(
   return findings;
 }
 
-// ---------------------------------------------------------------------------
-// Live-content helper (matches the pattern in other actions)
-// ---------------------------------------------------------------------------
+export interface DesignSystemExpectation {
+  title: string;
+  fonts: string[];
+  colors: string[];
+  cssVars: string[];
+  unreadable?: boolean;
+}
+
+function normalizeHex(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = value.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!match) return null;
+  const hex = match[1].toLowerCase();
+  return hex.length === 3
+    ? `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
+    : `#${hex}`;
+}
+
+function expandShortHexes(html: string): string {
+  return html.replace(
+    /#([0-9a-f])([0-9a-f])([0-9a-f])\b/gi,
+    (_m, r: string, g: string, b: string) =>
+      `#${r}${r}${g}${g}${b}${b}`.toLowerCase(),
+  );
+}
+
+export function designSystemExpectation(
+  title: string,
+  data: string | null | undefined,
+): DesignSystemExpectation | null {
+  const unreadable: DesignSystemExpectation = {
+    title,
+    fonts: [],
+    colors: [],
+    cssVars: [],
+    unreadable: true,
+  };
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    parsed = data ? (JSON.parse(data) as Record<string, unknown>) : null;
+  } catch {
+    return unreadable;
+  }
+  if (!parsed) return null;
+
+  const typography = (parsed.typography ?? {}) as Record<string, unknown>;
+  const fonts = [typography.headingFont, typography.bodyFont]
+    .filter((font): font is string => typeof font === "string" && !!font.trim())
+    .map((font) => font.trim());
+
+  const colorRoles = (parsed.colors ?? {}) as Record<string, unknown>;
+  const colors = Object.values(colorRoles)
+    .map(normalizeHex)
+    .filter((hex): hex is string => hex !== null);
+
+  const cssVars = Array.isArray(parsed.tokens)
+    ? parsed.tokens
+        .map((token) =>
+          token && typeof token === "object"
+            ? (token as { cssVar?: unknown }).cssVar
+            : null,
+        )
+        .filter(
+          (cssVar): cssVar is string =>
+            typeof cssVar === "string" && cssVar.startsWith("--"),
+        )
+    : [];
+
+  if (fonts.length === 0 && colors.length === 0 && cssVars.length === 0) {
+    return null;
+  }
+  return {
+    title,
+    fonts: Array.from(new Set(fonts)),
+    colors: Array.from(new Set(colors)),
+    cssVars: Array.from(new Set(cssVars)),
+  };
+}
+
+export function checkDesignSystemAdherence(
+  html: string,
+  expectation: DesignSystemExpectation | null,
+  filename: string,
+): A11yFinding[] {
+  if (!expectation) return [];
+  if (expectation.unreadable) {
+    return [
+      {
+        id: `design-system-drift:${filename}:unreadable`,
+        severity: "warning",
+        category: "design-system-drift",
+        message: `"${expectation.title}" could not be read, so adherence was not checked.`,
+        detail:
+          "The linked design system's stored token data is not valid JSON. " +
+          "Adherence is unknown, not satisfied — re-import or re-index the " +
+          "system before treating this screen as on-brand.",
+        selector: ":root",
+        fixAvailable: false,
+      },
+    ];
+  }
+  const findings: A11yFinding[] = [];
+  const haystack = expandShortHexes(html.toLowerCase());
+
+  if (expectation.fonts.length > 0) {
+    const used = expectation.fonts.filter((font) =>
+      haystack.includes(font.toLowerCase()),
+    );
+    if (used.length === 0) {
+      findings.push({
+        id: `design-system-drift:${filename}:fonts`,
+        severity: "warning",
+        category: "design-system-drift",
+        message: `${filename} uses none of "${expectation.title}"'s fonts.`,
+        detail:
+          `The linked design system specifies ${expectation.fonts.join(", ")}, ` +
+          `but ${filename} references none of them. Load and apply the system's ` +
+          "typography, or tell the user you are deviating and why.",
+        selector: ":root",
+        fixAvailable: false,
+      });
+    }
+  }
+
+  if (expectation.colors.length > 0) {
+    const used = expectation.colors.filter((hex) => haystack.includes(hex));
+    if (used.length === 0) {
+      findings.push({
+        id: `design-system-drift:${filename}:colors`,
+        severity: "warning",
+        category: "design-system-drift",
+        message: `${filename} uses none of "${expectation.title}"'s colors.`,
+        detail:
+          `The linked design system defines ${expectation.colors.slice(0, 6).join(", ")}` +
+          `${expectation.colors.length > 6 ? ", …" : ""}, but ${filename} uses none of ` +
+          "them. Put the system's values in the `:root` token block instead of an " +
+          "invented palette.",
+        selector: ":root",
+        fixAvailable: false,
+      });
+    }
+  }
+
+  if (expectation.cssVars.length > 0) {
+    const used = expectation.cssVars.filter((cssVar) =>
+      haystack.includes(cssVar.toLowerCase()),
+    );
+    if (used.length === 0) {
+      findings.push({
+        id: `design-system-drift:${filename}:css-vars`,
+        severity: "info",
+        category: "design-system-drift",
+        message: `${filename} uses none of "${expectation.title}"'s token names.`,
+        detail:
+          `The system names ${expectation.cssVars.length} custom properties (e.g. ` +
+          `${expectation.cssVars.slice(0, 4).join(", ")}). Reusing those exact names ` +
+          "keeps the prototype swappable with the real codebase.",
+        selector: ":root",
+        fixAvailable: false,
+      });
+    }
+  }
+
+  return findings;
+}
 
 async function liveContent(
   fileId: string,
   storedContent: string,
 ): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // SQL content is the deterministic fallback.
-  }
-  return storedContent;
+  return (
+    await readLiveSourceFile({
+      id: fileId,
+      designId: "",
+      filename: "index.html",
+      fileType: "html",
+      content: storedContent,
+      createdAt: null,
+      updatedAt: null,
+    })
+  ).content;
 }
-
-// ---------------------------------------------------------------------------
-// Action definition
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
@@ -519,6 +602,11 @@ export default defineAction({
     "form labels, focus-visibility gaps, reduced-motion coverage, and — for " +
     "multi-screen designs — token drift (the audited screen's :root custom " +
     "properties diverging from index.html's). " +
+    "When the design is linked to a design system, also reports " +
+    "design-system drift: the screen using none of the linked system's fonts, " +
+    "colors, or token names. Treat that finding as a generation bug to fix, " +
+    "not a style opinion — reload the system with `get-design-system` and " +
+    "apply its values rather than explaining the deviation. " +
     "Returns A11yFinding[] that can be shown in the Review panel or persisted " +
     "via create-design-review-snapshot. No writes are performed.",
   schema: z.object({
@@ -543,7 +631,9 @@ export default defineAction({
     const db = getDb();
 
     const conditions = [
-      accessFilter(schema.designs, schema.designShares),
+      accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+        includePublic: true,
+      }),
       eq(schema.designFiles.designId, designId),
       ...(fileId
         ? [eq(schema.designFiles.id, fileId)]
@@ -576,9 +666,6 @@ export default defineAction({
 
     const html = await liveContent(file.id, file.content ?? "");
 
-    // Load every other HTML screen in the design (id + filename only) so the
-    // token-drift check can compare :root blocks across the whole design, not
-    // just the audited screen. Cheap: same table, no content fetched twice.
     const otherHtmlFiles = await db
       .select({
         id: schema.designFiles.id,
@@ -601,10 +688,6 @@ export default defineAction({
       })),
     );
 
-    // Token drift is inherently cross-screen. When the audited screen IS the
-    // reference (index.html), surface drift for every other screen; otherwise
-    // scope findings to just the audited screen so a per-screen audit call
-    // doesn't report unrelated screens' drift.
     const isReferenceScreen = file.filename === "index.html";
     const tokenDriftFindings = checkTokenDrift(screens).filter(
       (finding) =>
@@ -612,7 +695,32 @@ export default defineAction({
         finding.id.includes(`token-drift:${file.filename}:`),
     );
 
-    // Run all audit checks over the static HTML.
+    // Adherence to the LINKED system, which token drift cannot see.
+    const [linkedSystem] = await db
+      .select({
+        title: schema.designSystems.title,
+        data: schema.designSystems.data,
+      })
+      .from(schema.designs)
+      .innerJoin(
+        schema.designSystems,
+        eq(schema.designs.designSystemId, schema.designSystems.id),
+      )
+      .where(
+        and(
+          eq(schema.designs.id, designId),
+          accessFilter(schema.designSystems, schema.designSystemShares),
+        ),
+      )
+      .limit(1);
+    const designSystemFindings = linkedSystem
+      ? checkDesignSystemAdherence(
+          html,
+          designSystemExpectation(linkedSystem.title, linkedSystem.data),
+          file.filename,
+        )
+      : [];
+
     const findings: A11yFinding[] = [
       ...checkMissingAlt(html),
       ...checkMissingLabels(html),
@@ -620,10 +728,11 @@ export default defineAction({
       ...checkReducedMotion(html),
       ...checkFocusVisibility(html),
       ...checkContrastHint(html),
+      ...checkRenderBlockingOverlays(html),
       ...tokenDriftFindings,
+      ...designSystemFindings,
     ];
 
-    // Summarise by severity for the agent context.
     const summary = {
       errors: findings.filter((f) => f.severity === "error").length,
       warnings: findings.filter((f) => f.severity === "warning").length,

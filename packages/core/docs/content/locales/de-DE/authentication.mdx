@@ -5,7 +5,7 @@ description: "Bessere Auth-Integration mit E-Mail/Passwort, sozialen Anbietern, 
 
 # Authentifizierung
 
-Agent-native Apps verwenden [Better Auth](https://better-auth.com) für die Authentifizierung mit einem Account-First-Design. Benutzer erstellen beim ersten Besuch ein Konto und erhalten vom ersten Tag an eine echte Identität.
+Agent-Native Apps verwenden [Better Auth](https://better-auth.com) für die Authentifizierung mit einem Account-First-Design. Benutzer erstellen beim ersten Besuch ein Konto und erhalten vom ersten Tag an eine echte Identität.
 
 ## Übersicht {#overview}
 
@@ -163,8 +163,29 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 
 Wenn dieses Flag gesetzt ist, ist für die E-Mail-/Passwort-Anmeldung keine E-Mail erforderlich
 Bestätigung und die Anmeldebestätigungs-E-Mail wird nicht gesendet. Verwenden Sie es nur zur Qualitätssicherung
-oder Vorschauumgebungen und benennen Sie Testkonten mit einer `+qa`-Adresse
-(`name+qa@example.com`), damit sie leicht zu identifizieren sind.
+oder Vorschauumgebungen und benennen Sie Testkonten mit einer `+autoz`-Adresse
+(`name+autoz@example.com`), damit sie leicht zu identifizieren sind.
+
+## Richtlinie zur E-Mail-Überprüfung {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION` ist eine lokale und QA-Bequemlichkeit — eine
+gehostete Bereitstellung ignoriert sie. Um die Richtlinie für jede Umgebung
+festzulegen, einschließlich der Produktion, deklarieren Sie sie in der
+Konfiguration:
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+Der Bereitstellungsalias lautet `AUTH_REQUIRE_EMAIL_VERIFICATION=0`. Ein
+deklarierter Wert übertrifft sowohl `AUTH_SKIP_EMAIL_VERIFICATION` als auch die
+Standardeinstellung der jeweiligen Umgebung.
+
+`false` akzeptiert eine nicht überprüfte Adresse als Anmeldeinformation — jeder
+kann jede E-Mail-Adresse beanspruchen — verwenden Sie es also nur dort, wo die
+Anmeldung bereits anderweitig eingeschränkt ist. `true` deaktiviert auf einer
+Bereitstellung ohne E-Mail-Anbieter stattdessen die Passwortanmeldung, da die
+Überprüfung nie zugestellt werden könnte.
 
 ## Soziale Anbieter {#social-providers}
 
@@ -294,7 +315,11 @@ Nicht authentifizierte MCP-Anfragen geben eine `WWW-Authenticate`-Herausforderun
 
 </Diagram>
 
-Zugriffstoken werden bei Festlegung mit `A2A_SECRET` signiert, andernfalls mit `BETTER_AUTH_SECRET`. Sie tragen die signierte Benutzer-/Organisationsidentität und die Bereiche `mcp:read`, `mcp:write` und/oder `mcp:apps` und sind an die genaue MCP-Ressource URL zielgruppengebunden. Aktualisierungstoken werden nur als Hashes gespeichert und rotieren bei jeder Aktualisierung. Toolaufrufe und MCP Apps-Ressourcenlesevorgänge werden im selben Anforderungskontext wie der angemeldete Benutzer ausgeführt. Der eingebettete MCP-App-Iframe empfängt niemals rohe OAuth-Token.
+Zugriffstoken werden bei Festlegung mit `A2A_SECRET` signiert, andernfalls mit `BETTER_AUTH_SECRET`. Sie tragen die signierte Benutzer-/Organisationsidentität und die Bereiche `mcp:read`, `mcp:write` und/oder `mcp:apps` und sind an die genaue MCP-Ressource URL zielgruppengebunden. Aktualisierungstoken werden nur als Hashes gespeichert und nicht rotiert: Eine Aktualisierung gibt dasselbe Token zurück; die Aktualisierungsfreigabe hat kein festes Ablaufdatum, kann aber weiterhin widerrufen werden. Jede Anfrage und jede Aktualisierung prüft erneut, ob der Benutzer noch zur Organisation des Tokens gehört, sodass ein entferntes Mitglied den MCP-Zugriff bei seiner nächsten Anfrage verliert. Toolaufrufe und MCP Apps-Ressourcenlesevorgänge werden im selben Anforderungskontext wie der angemeldete Benutzer ausgeführt. Der eingebettete MCP-App-Iframe empfängt niemals rohe OAuth-Token.
+
+Neue MCP-Autorisierungscodes und Aktualisierungstoken speichern ihren Eigentümer bei der Ausstellung. Der Tokenaustausch lehnt ungebundene bestehende Grants oder eine abweichende Eigentümerbindung mit `invalid_grant` ab, ohne einen bisherigen Eigentümer abzuleiten. Eine absichtliche Änderung der E-Mail-Adresse aktualisiert die Ausstellungsidentität. Dabei wird die alte Adresse stillgelegt: Zugriffs- und Connect-Token, die vor der Änderung für sie signiert wurden, werden abgelehnt, und für sie werden keine neuen ausgestellt, bis ein Konto diese Adresse erneut registriert. OAuth-Clients erhalten bei ihrer nächsten Aktualisierung Token für die neue Adresse. Beim Offboarding werden Grants widerrufen oder gelöscht, ohne die Ausstellungsbindung zu übertragen.
+
+Die Aktualisierung zur OAuth-Eigentümerbindung erfordert für jede bestehende OAuth-Verbindung eine [einmalige erneute Verbindung](/docs/external-agents#reconnect). Alte OAuth-Zugriffstoken werden nach der Einführung abgelehnt. Ungebundene bisherige Aktualisierungstoken liefern `invalid_grant`, und für noch ausstehende alte Autorisierungscodes muss der Zustimmungsablauf neu gestartet werden. Neu ausgestellte Zugriffstoken nutzen die konfigurierte Gültigkeitsdauer und die laufenden Mitgliedschaftsprüfungen. Bisherige `mcp-connect`-Zugangsdaten im A2A-Format und appübergreifende A2A-Token bleiben durch diese Umstellung unverändert. Verbindungen mit alten Connect-Token im OAuth-Format müssen ebenfalls erneut hergestellt werden.
 
 `npx @agent-native/core@latest connect <url> --client claude-code` schreibt den nur für URL gültigen MCP-Eintrag für diesen Standardablauf. Für Clients, die kein Remote-MCP OAuth ausführen können, verwenden Sie die Seite „Verbinden“ oder den `npx @agent-native/core@latest connect --token <token>`-Fallback, um einen expliziten Bearer-Token-Eintrag zu schreiben.
 
@@ -413,7 +438,7 @@ function SignInCta() {
 
 Normale App-Seiten verwenden für alle Besucher dieselbe unpersönliche, öffentlich cachebare SSR-Shell. `AppProviders` prüft die Sitzung im Client und leitet anonyme Besucher auf privaten Pfaden wie `/dashboard` zu `/sign-in?return=%2Fdashboard` weiter, bevor private App-UI gerendert wird. Nach der Anmeldung kehren sie zu `/dashboard` zurück. Verwenden Sie `isPublicPath` für öffentliche/SEO-Routen oder `sessionBypass` für Oberflächen mit einem anderen begrenzten Authentifizierungsmechanismus, etwa einem MCP-Embed-Token.
 
-Wie lange diese Shell zwischengespeichert wird, ist eine bereitstellungsweite Einstellung – siehe [SSR-Caching](/docs/deployment#ssr-caching) für `AGENT_NATIVE_SSR_CACHE`. Das Verkürzen oder Deaktivieren des Caches ändert nur die Dauer; SSR rendert weiterhin den anonymen Zweig mit entfernten Cookies.
+Wie lange diese Shell zwischengespeichert wird, ist eine bereitstellungsweite Einstellung – siehe [SSR-Caching](/docs/ssr-caching) für `AGENT_NATIVE_SSR_CACHE`. Das Verkürzen oder Deaktivieren des Caches ändert nur die Dauer; SSR rendert weiterhin den anonymen Zweig mit entfernten Cookies.
 
 ### Hinter den Kulissen: Google OAuth
 
@@ -438,6 +463,7 @@ Die Standardroute `/_agent-native/google/auth-url` führt dies automatisch aus �
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                    | Signaturschlüssel für Better Auth (automatisch generiert, wenn nicht festgelegt)                                                                                                                                             |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | In QA-/Vorschauumgebungen auf `1` setzen, damit E-Mail-/Passwort-Anmeldungen ohne Überprüfung durchgeführt werden können. Lokale Entwicklung/Test überspringt standardmäßig                                                  |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | Auf `0` oder `1` setzen, um die Überprüfungsrichtlinie für die Passwortanmeldung in jeder Umgebung festzulegen, einschließlich der Produktion; übertrifft `AUTH_SKIP_EMAIL_VERIFICATION`                                     |
 | `AUTH_DISABLED`                         | Auf `true` oder `1` einstellen, um Anmeldung/Registrierung zu überspringen; Alle Anfragen werden von einem gemeinsamen Benutzer ausgeführt (nur lokale Entwicklung/Vorschau – nicht für die Produktion mit echten Benutzern) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Auf `1` einstellen, um die automatische Anmeldung von Localhost in einer neuen Entwicklungsdatenbank zu deaktivieren                                                                                                         |
 | `AUTH_MODE`                             | `local` löst nur die CLI/Agent-Identität auf (unter der der Entwicklerbenutzer `pnpm action` ausgeführt wird); niemals eine Browser-Anmeldeumgehung                                                                          |
@@ -454,3 +480,12 @@ Die Standardroute `/_agent-native/google/auth-url` führt dies automatisch aus �
 | `ACCESS_TOKEN`                          | Statischer Bearer-Fallback für MCP/connect-Clients; keine Browser-Authentifizierung                                                                                                                                          |
 | `ACCESS_TOKENS`                         | Durch Kommas getrennte statische Bearer-Fallbacks für MCP/connect-Clients; keine Browser-Authentifizierung                                                                                                                   |
 | `A2A_SECRET`                            | Gemeinsames Geheimnis für die JWT-signierte A2A-Cross-App-Identitätsüberprüfung und, falls vorhanden, MCP OAuth-Zugriffstoken-Signierung                                                                                     |
+
+Das standardmäßig deaktivierte Dispatch-Flag `desktop.workspace-sso` steuert nur die Verfügbarkeit; Authentifizierung, Signatur-, Nonce-, Origin-, Callback-, Sitzungs- und Widerrufsprüfungen bleiben immer verpflichtend. Ist das Flag aus oder nicht lesbar, verändert Desktop weder App-Anmeldung noch Abmeldung oder Einstellungen.
+Die Canary-Kennung im User-Agent ist nur ein Verfügbarkeitshinweis und keine Remote-Attestierung; Authentifizierung und Autorisierung vertrauen ihr nicht.
+Kanonische gehostete Apps erkennen Anfragen der paketierten Desktop SSO Canary ohne eine Identity-Hub-Umgebungsvariable pro App. Normale Browser verwenden die übliche Anmeldung pro App. Selbst gehostete Apps benötigen `AGENT_NATIVE_IDENTITY_HUB_URL` nur für den verbleibenden expliziten Desktop- oder serverseitigen Föderationspfad. Stabile Desktop-Builds initialisieren den Broker erst nach einer separat genehmigten späteren Veröffentlichung.
+Die Canary-Version fängt anonyme App-Anmeldungen nicht ab. Benutzer müssen die Workspace-Anmeldung in den Desktop-Einstellungen für die aktive registrierte App ausdrücklich auswählen; die normale App-Anmeldung bleibt der Standardpfad.
+
+## Verwaltete Bereitstellung und Einladungen
+
+Für eine verwaltete Bereitstellung setzen Sie `AUTH_SIGNUP=invited`, `ORG_CREATION=closed` und `AUTO_CREATE_DEFAULT_ORG=0`. Der [Leitfaden für verwaltete Bereitstellungen](/docs/administered-deployments) beschreibt Bootstrap-Admins, Einladungen und erlaubte E-Mail-Domains. Mitgliedschaftseinladungen und Domain-Beitritt sind getrennte Regeln.

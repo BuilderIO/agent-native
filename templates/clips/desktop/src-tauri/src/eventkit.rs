@@ -1,22 +1,3 @@
-//! macOS EventKit bridge — read iCloud / system calendar events.
-//!
-//! Two commands:
-//!
-//!   - `eventkit_request_access()` — prompts the user for calendar access
-//!     and returns the granted bool.
-//!   - `eventkit_list_events(within_hours)` — returns `Vec<EventKitEvent>`
-//!     for events between [now, now + within_hours].
-//!
-//! On non-macOS this module exposes the same command surface but every
-//! invocation returns an "unsupported" error so the JS side gets a clear
-//! message rather than a missing-command panic.
-//!
-//! NOTE: We deliberately call EventKit via raw objc2 messaging rather than
-//! the `objc2-event-kit` crate. The crate's high-level bindings vary across
-//! 0.3.x patch versions (some types/methods are feature-gated, some changed
-//! signatures between minor releases) and we only need a tiny slice of the
-//! framework — easier and more durable to hand-roll the few selectors than
-//! to chase the binding surface.
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
@@ -25,7 +6,6 @@ use tauri::AppHandle;
 pub struct EventKitEvent {
     pub id: String,
     pub title: String,
-    /// RFC3339 timestamps.
     pub start: String,
     pub end: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -73,23 +53,43 @@ mod macos {
     use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject, Bool};
     use objc2::{class, msg_send};
-    use objc2_foundation::{NSArray, NSString};
+    use objc2_foundation::{NSArray, NSBundle, NSString};
     use tauri::AppHandle;
 
     use super::EventKitEvent;
 
-    /// EKEntityType::Event == 0
     const EK_ENTITY_TYPE_EVENT: usize = 0;
+    const CALENDAR_USAGE_DESCRIPTION_KEYS: [&str; 2] = [
+        "NSCalendarsUsageDescription",
+        "NSCalendarsFullAccessUsageDescription",
+    ];
 
-    /// Returns Some(NSObject*) for the given class name, or None if the
-    /// runtime doesn't know about it (e.g. the EventKit framework is not
-    /// linked, or we're running on a platform variant that doesn't ship it).
+    fn has_calendar_usage_descriptions() -> bool {
+        let bundle = NSBundle::mainBundle();
+        let Some(info) = bundle.infoDictionary() else {
+            return false;
+        };
+        CALENDAR_USAGE_DESCRIPTION_KEYS.iter().all(|key| {
+            let key = NSString::from_str(key);
+            info.objectForKey(&*key)
+                .and_then(|value| value.downcast::<NSString>().ok())
+                .is_some_and(|value| !value.is_empty())
+        })
+    }
+
+    fn ensure_calendar_usage_descriptions() -> Result<(), String> {
+        if has_calendar_usage_descriptions() {
+            Ok(())
+        } else {
+            Err("Clips cannot access macOS calendars because the app bundle is missing calendar usage descriptions.".into())
+        }
+    }
+
     fn class_named(name: &str) -> Option<&'static AnyClass> {
         let bytes = std::ffi::CString::new(name).ok()?;
         AnyClass::get(&bytes)
     }
 
-    /// Allocate + init a new EKEventStore. Returns a Retained handle.
     unsafe fn new_event_store() -> Option<Retained<AnyObject>> {
         let cls = class_named("EKEventStore")?;
         let allocated: *mut AnyObject = msg_send![cls, alloc];
@@ -104,18 +104,14 @@ mod macos {
     }
 
     pub async fn request_access_impl(_app: AppHandle) -> Result<bool, String> {
+        ensure_calendar_usage_descriptions()?;
         let store =
             unsafe { new_event_store() }.ok_or_else(|| "EventKit not available".to_string())?;
         let (tx, rx) = mpsc::sync_channel::<bool>(1);
-        // The completion block is fire-and-forget from EventKit's side. Use
-        // RcBlock so the closure stays alive past the requesting frame.
         let block = RcBlock::new(move |granted: Bool, _err: *mut AnyObject| {
             let _ = tx.send(granted.as_bool());
         });
         unsafe {
-            // macOS 14 introduced -requestFullAccessToEventsWithCompletion:
-            // (the older selector is still functional but may be deprecated
-            // — selector lookup decides at runtime).
             let new_sel = objc2::sel!(requestFullAccessToEventsWithCompletion:);
             let responds: Bool = msg_send![&*store, respondsToSelector: new_sel];
             if responds.as_bool() {
@@ -141,6 +137,7 @@ mod macos {
         _app: AppHandle,
         within_hours: u32,
     ) -> Result<Vec<EventKitEvent>, String> {
+        ensure_calendar_usage_descriptions()?;
         unsafe {
             let store = new_event_store().ok_or_else(|| "EventKit not available".to_string())?;
 
@@ -158,12 +155,10 @@ mod macos {
                 return Err("NSDate.dateWithTimeIntervalSinceNow returned null".into());
             }
 
-            // calendars (Option<NSArray>) — passing nil means "all calendars".
             let calendars_arr: *mut AnyObject = msg_send![
                 &*store,
                 calendarsForEntityType: EK_ENTITY_TYPE_EVENT
             ];
-            // Build the predicate and fetch events.
             let predicate: *mut AnyObject = msg_send![
                 &*store,
                 predicateForEventsWithStartDate: now,
@@ -182,7 +177,6 @@ mod macos {
             }
             let count: usize = msg_send![events, count];
             let mut out: Vec<EventKitEvent> = Vec::with_capacity(count);
-            // ISO formatter (singleton-style).
             let formatter_cls = class_named("NSISO8601DateFormatter")
                 .ok_or_else(|| "NSISO8601DateFormatter missing".to_string())?;
             let formatter: *mut AnyObject = msg_send![formatter_cls, new];
@@ -199,14 +193,12 @@ mod macos {
                 let end_date: *mut AnyObject = msg_send![ev, endDate];
                 let start_s = ns_date_to_rfc3339(formatter, start_date);
                 let end_s = ns_date_to_rfc3339(formatter, end_date);
-                // Organizer (EKParticipant).
                 let organizer: *mut AnyObject = msg_send![ev, organizer];
                 let organizer_name = if organizer.is_null() {
                     None
                 } else {
                     ns_string_to_owned(msg_send![organizer, name])
                 };
-                // Attendees (NSArray<EKParticipant *>).
                 let attendees_arr: *mut AnyObject = msg_send![ev, attendees];
                 let attendees = if attendees_arr.is_null() {
                     Vec::new()
@@ -242,7 +234,6 @@ mod macos {
         if ptr.is_null() {
             return None;
         }
-        // Cast to NSString and read its UTF-8 chars.
         let utf8_ptr: *const i8 = msg_send![ptr, UTF8String];
         if utf8_ptr.is_null() {
             return None;
@@ -259,8 +250,6 @@ mod macos {
         ns_string_to_owned(s).unwrap_or_default()
     }
 
-    // Suppress unused-import warnings for items that may only be referenced
-    // in some build configurations.
     #[allow(dead_code)]
     fn _suppress(_: &NSString, _: &NSArray<NSString>, _: *mut c_void) {}
 }

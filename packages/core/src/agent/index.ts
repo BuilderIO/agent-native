@@ -3,6 +3,10 @@ export {
   type ActionEntry,
   type ScriptEntry,
   type ProductionAgentOptions,
+  type AgentActionSurface,
+  type DefaultAgentActionSurface,
+  type AgentActionSurfaceResolution,
+  type AgentActionSurfaceDetails,
   type AgentLoopFinalResponseGuard,
   type AgentLoopFinalResponseGuardContext,
   type AgentLoopFinalResponseGuardResult,
@@ -18,6 +22,7 @@ export {
   type AgentChatAttachment,
   type AgentChatReference,
   type MentionProvider,
+  type MentionItemMedia,
   type MentionProviderItem,
 } from "./types.js";
 export {

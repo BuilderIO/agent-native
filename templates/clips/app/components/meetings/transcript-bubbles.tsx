@@ -6,17 +6,31 @@ import {
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
+import {
+  attendeeInitials,
+  type AttendeeStackParticipant,
+} from "./attendee-stack";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -29,28 +43,181 @@ export interface TranscriptSegment {
 interface TranscriptBubblesProps {
   segments: TranscriptSegment[];
   isLive: boolean;
-  /**
-   * Imperative ref hook: parent can scroll a particular segment into view.
-   * Receives a function (segmentIndex) => void.
-   */
+  participants?: AttendeeStackParticipant[];
+  ownerEmail?: string | null;
   registerScrollTo?: (fn: (segmentIndex: number) => void) => void;
-}
-
-function formatTimestamp(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  title?: ReactNode;
+  headerActions?: ReactNode;
 }
 
 interface BubbleGroup {
-  source: "mic" | "system";
+  speaker: SpeakerIdentity;
   segments: { seg: TranscriptSegment; index: number }[];
 }
 
-// Splits `text` into plain/matched runs for a case-insensitive substring
-// highlight. Returns the original text as a single run when there's no query
-// or no match, so callers can render uniformly either way.
+export interface SpeakerIdentity {
+  key: string;
+  label: string | null;
+  initialsSource: AttendeeStackParticipant | string;
+  email?: string | null;
+  isOwner: boolean;
+  accentClass: string;
+  unattributed?: boolean;
+}
+
+export function transcriptDistinguishesSpeakers(
+  segments: TranscriptSegment[],
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
+): boolean {
+  if (countPossibleSpeakers(participants, ownerEmail) < 2) return true;
+  const signals = new Set<string>();
+  for (const segment of segments) {
+    const signal = speakerSignal(segment);
+    if (signal) signals.add(signal);
+    if (signals.size > 1) return true;
+  }
+  return false;
+}
+
+function speakerSignal(segment: TranscriptSegment): string | null {
+  const speaker = segment.speaker?.trim();
+  const side = placeholderSide(speaker);
+  if (speaker && !side) return `speaker:${normalizeSpeaker(speaker)}`;
+  if (segment.source) return `source:${segment.source}`;
+  return side ? `source:${side}` : null;
+}
+
+function countPossibleSpeakers(
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
+): number {
+  const ownerInRoster = ownerEmail
+    ? Boolean(findParticipant(ownerEmail, participants))
+    : false;
+  return participants.length + (ownerInRoster ? 0 : 1);
+}
+
+const UNATTRIBUTED_SPEAKER: SpeakerIdentity = {
+  key: "unattributed",
+  label: null,
+  initialsSource: "",
+  isOwner: false,
+  accentClass: "",
+  unattributed: true,
+};
+
+const SPEAKER_ACCENTS = [
+  "bg-accent text-accent-foreground",
+  "bg-secondary text-secondary-foreground",
+  "bg-muted text-foreground",
+] as const;
+
+const OWNER_ACCENT = "bg-highlight/10 text-primary";
+
+function normalizeSpeaker(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+const GENERIC_MIC_SPEAKER = /^(me|self|you)$/i;
+const GENERIC_SYSTEM_SPEAKER = /^them$/i;
+
+function placeholderSide(
+  label: string | null | undefined,
+): "mic" | "system" | null {
+  const speaker = label?.trim();
+  if (!speaker) return null;
+  if (GENERIC_MIC_SPEAKER.test(speaker)) return "mic";
+  if (GENERIC_SYSTEM_SPEAKER.test(speaker)) return "system";
+  return null;
+}
+
+function segmentSide(segment: TranscriptSegment): "mic" | "system" {
+  return segment.source ?? placeholderSide(segment.speaker) ?? "system";
+}
+
+export function findParticipant(
+  speaker: string | null | undefined,
+  participants: AttendeeStackParticipant[],
+): AttendeeStackParticipant | undefined {
+  const normalizedSpeaker = speaker ? normalizeSpeaker(speaker) : "";
+  if (!normalizedSpeaker) return undefined;
+  return participants.find((participant) => {
+    const name = participant.name ? normalizeSpeaker(participant.name) : "";
+    const email = normalizeSpeaker(participant.email);
+    return normalizedSpeaker === name || normalizedSpeaker === email;
+  });
+}
+
+export function resolveParticipantForSpeaker(
+  source: "mic" | "system",
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
+): AttendeeStackParticipant | undefined {
+  const ownerParticipant =
+    ownerEmail === undefined
+      ? participants.find((participant) => participant.isOrganizer)
+      : ownerEmail
+        ? findParticipant(ownerEmail, participants)
+        : undefined;
+
+  if (source === "mic") return ownerParticipant;
+  if (!ownerParticipant) return undefined;
+
+  const otherParticipants = participants.filter(
+    (participant) =>
+      normalizeSpeaker(participant.email) !==
+      normalizeSpeaker(ownerParticipant.email),
+  );
+  return otherParticipants.length === 1 ? otherParticipants[0] : undefined;
+}
+
+function accentForSpeaker(key: string, isOwner: boolean): string {
+  if (isOwner) return OWNER_ACCENT;
+
+  let hash = 0;
+  for (const character of key) {
+    hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  }
+  return SPEAKER_ACCENTS[Math.abs(hash) % SPEAKER_ACCENTS.length];
+}
+
+export function resolveSpeaker(
+  segment: TranscriptSegment,
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
+): SpeakerIdentity {
+  const source = segmentSide(segment);
+  const rawSpeaker = segment.speaker?.trim();
+  const participant =
+    findParticipant(segment.speaker, participants) ||
+    resolveParticipantForSpeaker(source, participants, ownerEmail);
+  const participantName = participant?.name?.trim();
+  const resolvedLabel = participantName || rawSpeaker;
+  const isGenericPlaceholderLabel =
+    !!resolvedLabel &&
+    (source === "mic"
+      ? GENERIC_MIC_SPEAKER.test(resolvedLabel)
+      : GENERIC_SYSTEM_SPEAKER.test(resolvedLabel));
+  const label = isGenericPlaceholderLabel
+    ? null
+    : participantName || rawSpeaker || null;
+  const key =
+    source === "mic"
+      ? source
+      : participant?.email ||
+        (rawSpeaker ? `speaker:${normalizeSpeaker(rawSpeaker)}` : source);
+
+  return {
+    key,
+    label,
+    initialsSource: participant ?? label ?? (source === "mic" ? "Me" : "Them"),
+    email: participant?.email ?? (source === "mic" ? ownerEmail : null),
+    isOwner: source === "mic",
+    accentClass: accentForSpeaker(key, source === "mic"),
+  };
+}
+
 function highlightRuns(
   text: string,
   query: string,
@@ -73,16 +240,26 @@ function highlightRuns(
   return runs.length ? runs : [{ text, match: false }];
 }
 
-function groupConsecutive(segments: TranscriptSegment[]): BubbleGroup[] {
+function groupConsecutive(
+  segments: TranscriptSegment[],
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
+): BubbleGroup[] {
+  const attributable = transcriptDistinguishesSpeakers(
+    segments,
+    participants,
+    ownerEmail,
+  );
   const groups: BubbleGroup[] = [];
   segments.forEach((seg, index) => {
-    // Default unknown source to "system" (Them) — Granola convention.
-    const source: "mic" | "system" = seg.source === "mic" ? "mic" : "system";
+    const speaker = attributable
+      ? resolveSpeaker(seg, participants, ownerEmail)
+      : UNATTRIBUTED_SPEAKER;
     const last = groups[groups.length - 1];
-    if (last && last.source === source) {
+    if (last && last.speaker.key === speaker.key) {
       last.segments.push({ seg, index });
     } else {
-      groups.push({ source, segments: [{ seg, index }] });
+      groups.push({ speaker, segments: [{ seg, index }] });
     }
   });
   return groups;
@@ -91,7 +268,11 @@ function groupConsecutive(segments: TranscriptSegment[]): BubbleGroup[] {
 export function TranscriptBubbles({
   segments,
   isLive,
+  participants = [],
+  ownerEmail,
   registerScrollTo,
+  title,
+  headerActions,
 }: TranscriptBubblesProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -104,8 +285,13 @@ export function TranscriptBubbles({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [matchCursor, setMatchCursor] = useState(0);
+  const [keyboardSegmentIndex, setKeyboardSegmentIndex] = useState(0);
+  const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
 
-  const groups = useMemo(() => groupConsecutive(segments), [segments]);
+  const groups = useMemo(
+    () => groupConsecutive(segments, participants, ownerEmail),
+    [segments, participants, ownerEmail],
+  );
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const matchIndexes = useMemo(() => {
@@ -117,7 +303,6 @@ export function TranscriptBubbles({
     return out;
   }, [segments, normalizedQuery]);
 
-  // Keep the cursor in range as matches change (typing narrows the set).
   useEffect(() => {
     setMatchCursor(0);
   }, [normalizedQuery]);
@@ -126,9 +311,6 @@ export function TranscriptBubbles({
     null,
   );
 
-  // Only scroll when the resolved target actually changes — during a live
-  // meeting the segments array (and thus matchIndexes) gets a new identity on
-  // every poll, and re-scrolling each time would fight the user's scrolling.
   const lastSearchScrollRef = useRef<string | null>(null);
   useEffect(() => {
     if (!normalizedQuery || !matchIndexes.length) {
@@ -161,6 +343,22 @@ export function TranscriptBubbles({
     );
   };
 
+  const focusSegment = (index: number) => {
+    const nextIndex = Math.max(0, Math.min(index, segments.length - 1));
+    setKeyboardSegmentIndex(nextIndex);
+    segmentRefs.current[nextIndex]?.focus();
+  };
+
+  const handleSegmentKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    index: number,
+  ) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      focusSegment(index + (event.key === "ArrowDown" ? 1 : -1));
+    }
+  };
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -179,17 +377,14 @@ export function TranscriptBubbles({
     }
   }, [isLive, segments.length]);
 
-  // Shared imperative scroll-and-flash, used by both the parent's bullet-jump
-  // wiring (registerScrollTo) and in-panel search navigation below.
   const scrollToAndFlash = useRef((segmentIndex: number) => {
     const node = segmentRefs.current[segmentIndex];
     if (!node) return;
     node.scrollIntoView({ behavior: "smooth", block: "center" });
-    // Yellow-flash highlight for ~1.5s.
-    node.classList.add("ring-2", "ring-yellow-400/70", "bg-yellow-400/10");
+    setHighlightedIndex(segmentIndex);
     if (flashTimeoutRef.current) window.clearTimeout(flashTimeoutRef.current);
     flashTimeoutRef.current = window.setTimeout(() => {
-      node.classList.remove("ring-2", "ring-yellow-400/70", "bg-yellow-400/10");
+      setHighlightedIndex(null);
     }, 1500);
   }).current;
 
@@ -202,181 +397,247 @@ export function TranscriptBubbles({
     registerScrollTo(scrollToAndFlash);
   }, [registerScrollTo, scrollToAndFlash]);
 
-  if (segments.length === 0) {
-    if (isLive) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full text-center text-sm text-muted-foreground gap-2">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-          </span>
-          {t("transcriptBubbles.listening")}
-        </div>
-      );
-    }
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center text-sm text-muted-foreground gap-2 px-6">
-        <IconNotes className="h-6 w-6 text-muted-foreground/50" />
-        <span>{t("transcriptBubbles.noTranscript")}</span>
-        <span className="text-xs">
-          {t("transcriptBubbles.liveTranscriptDescription")}
-        </span>
-      </div>
-    );
-  }
+  useEffect(() => {
+    return () => {
+      if (flashTimeoutRef.current) window.clearTimeout(flashTimeoutRef.current);
+    };
+  }, []);
 
   const activeMatchIndex = matchIndexes.length
     ? matchIndexes[matchCursor % matchIndexes.length]
     : null;
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <div className="flex shrink-0 items-center justify-end gap-1.5 border-b border-border px-2 py-1.5">
-        {searchOpen ? (
-          <>
-            <Input
-              ref={searchInputRef}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  closeSearch();
-                } else if (e.key === "Enter") {
-                  e.preventDefault();
-                  goToMatch(e.shiftKey ? -1 : 1);
-                }
-              }}
-              onBlur={() => {
-                if (!searchQuery.trim()) closeSearch();
-              }}
-              placeholder={t("transcriptBubbles.searchPlaceholder")}
-              className="h-7 flex-1 text-xs"
-            />
-            {normalizedQuery && (
-              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                {matchIndexes.length > 0
-                  ? t("transcriptBubbles.searchMatchCount", {
-                      current: (matchCursor % matchIndexes.length) + 1,
-                      total: matchIndexes.length,
-                    })
-                  : t("transcriptBubbles.searchNoMatches")}
-              </span>
-            )}
+    <div className="flex h-full flex-col">
+      {/* Primary header — title/actions never get displaced by search, so the
+          panel's identity stays put and this row's height always matches
+          sibling panels. The search UI is a second row that only exists
+          while search is actually open, not permanent chrome. */}
+      <div
+        className={cn(
+          "flex h-11 shrink-0 items-center gap-1.5 px-4",
+          !searchOpen && "border-b border-border",
+        )}
+      >
+        <div className="flex flex-1 items-center gap-1.5 text-xs font-medium">
+          {title}
+        </div>
+        {headerActions}
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button
               size="icon"
               variant="ghost"
-              className="h-7 w-7 shrink-0 cursor-pointer"
-              disabled={!matchIndexes.length}
-              aria-label={t("transcriptBubbles.searchPrevMatch")}
-              onClick={() => goToMatch(-1)}
+              aria-pressed={searchOpen}
+              className={cn(
+                "h-7 w-7 shrink-0 cursor-pointer",
+                searchOpen && "bg-accent",
+              )}
+              aria-label={
+                searchOpen
+                  ? t("transcriptBubbles.searchClose")
+                  : t("transcriptBubbles.searchTranscript")
+              }
+              // Without this, clicking here while the input is focused blurs
+              // it first (onBlur may already auto-close on an empty query),
+              // then this handler runs against state that just changed out
+              // from under it — sometimes reopening what onBlur just closed.
+              // Keeping focus on the input means blur never fires from this
+              // click at all, so there's nothing left to race.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
             >
-              <IconChevronUp className="h-3.5 w-3.5" />
+              <IconSearch className="h-3.5 w-3.5" />
             </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 shrink-0 cursor-pointer"
-              disabled={!matchIndexes.length}
-              aria-label={t("transcriptBubbles.searchNextMatch")}
-              onClick={() => goToMatch(1)}
-            >
-              <IconChevronDown className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 shrink-0 cursor-pointer"
-              aria-label={t("transcriptBubbles.searchClose")}
-              onClick={closeSearch}
-            >
-              <IconX className="h-3.5 w-3.5" />
-            </Button>
-          </>
-        ) : (
+          </TooltipTrigger>
+          <TooltipContent>
+            {searchOpen
+              ? t("transcriptBubbles.searchClose")
+              : t("transcriptBubbles.searchTranscript")}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+
+      {searchOpen && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-4 py-1.5">
+          <Input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                closeSearch();
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                goToMatch(e.shiftKey ? -1 : 1);
+              }
+            }}
+            onBlur={() => {
+              if (!searchQuery.trim()) closeSearch();
+            }}
+            placeholder={t("transcriptBubbles.searchPlaceholder")}
+            className="h-7 flex-1 text-xs"
+          />
+          {normalizedQuery && (
+            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+              {matchIndexes.length > 0
+                ? t("transcriptBubbles.searchMatchCount", {
+                    current: (matchCursor % matchIndexes.length) + 1,
+                    total: matchIndexes.length,
+                  })
+                : t("transcriptBubbles.searchNoMatches")}
+            </span>
+          )}
           <Button
             size="icon"
             variant="ghost"
             className="h-7 w-7 shrink-0 cursor-pointer"
-            aria-label={t("transcriptBubbles.searchTranscript")}
-            onClick={() => setSearchOpen(true)}
+            disabled={!matchIndexes.length}
+            aria-label={t("transcriptBubbles.searchPrevMatch")}
+            onClick={() => goToMatch(-1)}
           >
-            <IconSearch className="h-3.5 w-3.5" />
+            <IconChevronUp className="h-3.5 w-3.5" />
           </Button>
-        )}
-      </div>
-      <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
-        <div className="mx-auto max-w-3xl space-y-6">
-          {groups.map((group, gi) => {
-            const isMe = group.source === "mic";
-            return (
-              <section key={gi} className="space-y-1.5">
-                <div className="flex items-center gap-2 px-1 text-[11px] font-medium tracking-wide text-muted-foreground">
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "h-1.5 w-1.5 rounded-full",
-                      isMe ? "bg-primary" : "bg-muted-foreground/50",
-                    )}
-                  />
-                  {isMe
-                    ? t("transcriptBubbles.me")
-                    : t("transcriptBubbles.them")}
-                </div>
-                <div className="space-y-0.5">
-                  {group.segments.map(({ seg, index }) => {
-                    return (
-                      <Tooltip key={index}>
-                        <TooltipTrigger asChild>
-                          <div
-                            ref={(el) => {
-                              segmentRefs.current[index] = el;
-                            }}
-                            className="group/segment -mx-1 rounded-md px-1 py-1 text-left text-sm leading-relaxed text-foreground transition-colors"
-                          >
-                            {seg.speaker && !isMe && (
-                              <span className="me-2 text-[11px] font-medium text-muted-foreground">
-                                {seg.speaker}
-                              </span>
-                            )}
-                            <span className="whitespace-pre-wrap">
-                              {normalizedQuery
-                                ? highlightRuns(seg.text, normalizedQuery).map(
-                                    (run, ri) =>
-                                      run.match ? (
-                                        <mark
-                                          key={ri}
-                                          className={cn(
-                                            "rounded-sm bg-yellow-400/70 text-foreground",
-                                            index === activeMatchIndex &&
-                                              "bg-yellow-400 ring-1 ring-yellow-600",
-                                          )}
-                                        >
-                                          {run.text}
-                                        </mark>
-                                      ) : (
-                                        <span key={ri}>{run.text}</span>
-                                      ),
-                                  )
-                                : seg.text}
-                            </span>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          <span className="font-mono tabular-nums text-[11px]">
-                            {formatTimestamp(seg.startMs)}
-                          </span>
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
-          <div ref={liveEndRef} />
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 cursor-pointer"
+            disabled={!matchIndexes.length}
+            aria-label={t("transcriptBubbles.searchNextMatch")}
+            onClick={() => goToMatch(1)}
+          >
+            <IconChevronDown className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 cursor-pointer"
+            aria-label={t("transcriptBubbles.searchClose")}
+            onClick={closeSearch}
+          >
+            <IconX className="h-3.5 w-3.5" />
+          </Button>
         </div>
-      </div>
-    </TooltipProvider>
+      )}
+      {segments.length === 0 ? (
+        isLive ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive" />
+            </span>
+            {t("transcriptBubbles.listening")}
+          </div>
+        ) : (
+          <Empty className="min-h-full rounded-none px-6">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconNotes />
+              </EmptyMedia>
+              <EmptyTitle className="text-sm">
+                {t("transcriptBubbles.noTranscript")}
+              </EmptyTitle>
+              <EmptyDescription className="text-xs">
+                {t("transcriptBubbles.liveTranscriptDescription")}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )
+      ) : (
+        <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
+          <div className="mx-auto max-w-3xl space-y-4">
+            {groups.map((group, gi) => {
+              return (
+                <section
+                  key={`${group.speaker.key}:${gi}`}
+                  className="space-y-0.5"
+                >
+                  {!group.speaker.unattributed && (
+                    <div className="flex h-6 items-center gap-2">
+                      <ClipsAvatar
+                        email={group.speaker.email}
+                        alt={
+                          group.speaker.label ||
+                          (group.speaker.isOwner
+                            ? t("transcriptBubbles.me")
+                            : t("transcriptBubbles.them"))
+                        }
+                        fallback={attendeeInitials(
+                          group.speaker.initialsSource,
+                        )}
+                        className={cn(
+                          "size-6 shrink-0",
+                          group.speaker.accentClass,
+                        )}
+                        fallbackClassName={cn(
+                          "text-[9px] font-semibold",
+                          group.speaker.accentClass,
+                        )}
+                      />
+                      <div className="flex min-h-6 items-center">
+                        <span
+                          className={cn(
+                            "text-xs font-semibold leading-6",
+                            group.speaker.isOwner
+                              ? "text-primary"
+                              : "text-foreground",
+                          )}
+                        >
+                          {group.speaker.label ||
+                            (group.speaker.isOwner
+                              ? t("transcriptBubbles.me")
+                              : t("transcriptBubbles.them"))}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    {group.segments.map(({ seg, index }) => {
+                      return (
+                        <TranscriptSegmentRow
+                          key={index}
+                          startMs={seg.startMs}
+                          highlighted={index === highlightedIndex}
+                          tabIndex={index === keyboardSegmentIndex ? 0 : -1}
+                          onKeyDown={(event) =>
+                            handleSegmentKeyDown(event, index)
+                          }
+                          segmentRef={(el) => {
+                            segmentRefs.current[index] = el;
+                          }}
+                          className="hover:bg-accent/30"
+                        >
+                          {normalizedQuery
+                            ? highlightRuns(seg.text, normalizedQuery).map(
+                                (run, ri) =>
+                                  run.match ? (
+                                    <mark
+                                      key={ri}
+                                      className={cn(
+                                        "rounded-sm bg-yellow-400/70 text-foreground",
+                                        index === activeMatchIndex &&
+                                          "bg-yellow-400 ring-1 ring-yellow-600",
+                                      )}
+                                    >
+                                      {run.text}
+                                    </mark>
+                                  ) : (
+                                    <span key={ri}>{run.text}</span>
+                                  ),
+                              )
+                            : seg.text}
+                        </TranscriptSegmentRow>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+            <div ref={liveEndRef} />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

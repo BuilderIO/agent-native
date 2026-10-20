@@ -65,24 +65,28 @@ export function ToolkitProvider({
       children,
       intent,
       emphasis,
+      inset,
       size,
       pending,
       leadingIcon,
       trailingIcon,
       onPress,
+      onClick,
       elementRef,
       ...props
     }: ActionButtonProps) {
       const variant =
-        emphasis === "ghost"
-          ? "ghost"
-          : emphasis === "outline"
-            ? "outline"
-            : intent === "danger"
-              ? "destructive"
-              : intent === "primary"
-                ? "default"
-                : "secondary";
+        inset && emphasis === "ghost"
+          ? "ghost-inset"
+          : emphasis === "ghost"
+            ? "ghost"
+            : emphasis === "outline"
+              ? "outline"
+              : intent === "danger"
+                ? "destructive"
+                : intent === "primary"
+                  ? "default"
+                  : "secondary";
       const legacySize =
         size === "compact" ? "sm" : size === "large" ? "lg" : "default";
       return (
@@ -94,7 +98,14 @@ export function ToolkitProvider({
             size={legacySize}
             disabled={props.disabled || pending}
             aria-busy={pending || undefined}
-            onClick={(event) => onPress?.(event)}
+            onClick={(event) => {
+              onPress?.(event);
+              onClick?.(
+                event as Parameters<
+                  NonNullable<ActionButtonProps["onClick"]>
+                >[0],
+              );
+            }}
           >
             {leadingIcon}
             {children}

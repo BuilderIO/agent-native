@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { actionCallIsRetrySafe } from "../../action-call-classification.js";
 import {
   buildProviderApiAuditSummary,
   sanitizeProviderApiAuditPath,
@@ -16,6 +17,70 @@ import {
 } from "./provider-api.js";
 
 describe("provider API action factories", () => {
+  it.each([
+    { status: 200, saved: false, code: "provider_api_rejected" },
+    { status: 429, saved: false, code: "http_429" },
+    { status: 503, saved: false, code: "http_503" },
+    { status: 200, saved: true, code: "provider_api_rejected" },
+  ])(
+    "rejects a failed provider outcome: %j",
+    async ({ status, saved, code }) => {
+      const response = {
+        ok: false,
+        status,
+        statusText: "invalid_auth",
+        json: { ok: false, error: "invalid_auth" },
+      };
+      const action = createProviderApiRequestAction({
+        executeRequest: vi.fn(async () => (saved ? response : { response })),
+      });
+      await expect(
+        action.run({
+          provider: "slack",
+          path: "/chat.postMessage",
+          method: "POST",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: code,
+        statusCode: status >= 400 ? status : 400,
+        message: expect.stringContaining("invalid_auth"),
+      });
+    },
+  );
+
+  it.each([false, true])(
+    "preserves a successful provider result (saved: %s)",
+    async (saved) => {
+      const response = {
+        ok: true,
+        status: 200,
+        json: { ok: true, ts: "123.456" },
+      };
+      const result = saved ? response : { response };
+      const action = createProviderApiRequestAction({
+        executeRequest: vi.fn(async () => result),
+      });
+      await expect(
+        action.run({
+          provider: "slack",
+          path: "/chat.postMessage",
+          method: "POST",
+        }),
+      ).resolves.toBe(result);
+    },
+  );
+
+  it("rejects a failed docs fetch instead of allowing a no-op to hide it", async () => {
+    const action = createProviderApiDocsAction({
+      fetchDocs: vi.fn(async () => ({
+        response: { ok: false, status: 503, text: "Unavailable" },
+      })),
+    });
+    await expect(
+      action.run({ provider: "slack", url: "https://docs.example.test" }),
+    ).rejects.toMatchObject({ errorCode: "http_503" });
+  });
+
   it("defaults request providers to open strings and preserves passed provider schemas", () => {
     const defaultSchema = createProviderApiRequestSchema();
     expect(
@@ -183,6 +248,36 @@ describe("provider API action factories", () => {
     await expect(
       scoped.run({ provider: "github", path: "/repos", stageAs: "repos" }),
     ).rejects.toThrow("No authenticated context");
+  });
+});
+
+describe("provider API request retry safety", () => {
+  const action = createProviderApiRequestAction({ executeRequest: vi.fn() });
+  const retrySafe = (args: Record<string, unknown>) =>
+    actionCallIsRetrySafe(action, {
+      provider: "github",
+      path: "/repos",
+      ...args,
+    });
+
+  it("allows provider reads and re-staging under the same name", () => {
+    expect(retrySafe({})).toBe(true);
+    expect(retrySafe({ method: "head" })).toBe(true);
+    expect(retrySafe({ stageAs: "repos" })).toBe(true);
+  });
+
+  it("forwards allowPersistentApproval so a per-request gate is not overridden", () => {
+    const gated = createProviderApiRequestAction(
+      { executeRequest: vi.fn() },
+      { allowPersistentApproval: false },
+    );
+    expect(gated.allowPersistentApproval).toBe(false);
+    expect(action.allowPersistentApproval).toBeUndefined();
+  });
+
+  it("refuses writes and workspace file saves, which a replay could overwrite", () => {
+    expect(retrySafe({ method: "POST" })).toBe(false);
+    expect(retrySafe({ saveToFile: "github/repos.json" })).toBe(false);
   });
 });
 

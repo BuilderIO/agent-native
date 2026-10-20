@@ -39,14 +39,14 @@ export interface CodeAgentGoalDefinition {
 export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
   {
     id: "task",
-    label: "New task",
+    label: "New chat",
     slashCommand: "/task",
     description:
-      "Start a general task from a prompt, then keep progress, outcomes, and follow-ups attached to the same run.",
+      "Start a coding chat, then keep progress, outcomes, and follow-ups attached to the same conversation.",
     cliCommand: "task",
     runNoun: "agent task",
     surfaceLabel: "Task workspace",
-    primaryActionLabel: "New Task",
+    primaryActionLabel: "New chat",
     surfaceKind: "native",
   },
   {

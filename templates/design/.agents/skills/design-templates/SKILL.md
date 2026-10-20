@@ -38,6 +38,28 @@ description: >-
    dimensions, linked design system, and locked-layer boundaries before
    reporting completion.
 
+## The Template On Follow-Up Requests
+
+A copied screen is edited in place. After the first refinement saves, the
+design's own files are the *result*, not the template — so a later turn that
+reads only `get-design-snapshot` has no idea what the template specified, and
+fonts and artboard dimensions drift a little further on each request.
+
+The two facts that drift are cheap, so they arrive on their own. `view-screen`
+reports `design.createdFromTemplate` on every turn for a template-created
+design, carrying `lockedDimensions` per screen and `lockedFonts`. Both are
+captured from the template at copy time, so they describe the template even
+after the design has been edited many times. Honour them in every
+`edit-design` pass: never resize the artboard, change a `canvasFrames` width or
+height, switch the primary viewport, or substitute a typeface to fit new
+content.
+
+Call `get-design-template --designId="<id>"` when you need more than those two
+facts — the template's original markup, or its locked layers — for example
+before a structural edit or when the user asks how far the design has moved
+from its template. The full template files are large, which is why they are a
+deliberate second call rather than part of every turn.
+
 ## Locked Layers
 
 `data-agent-native-locked="true"` is authoritative. Keep each locked element

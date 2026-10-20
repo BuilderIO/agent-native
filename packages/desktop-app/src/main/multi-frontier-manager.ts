@@ -45,7 +45,6 @@ type ManagedLifecycleCommand = "start" | "go" | "resume" | "re-review";
 
 export interface MultiFrontierManagerOptions {
   resolveWorkspaceCwd(workspaceId: string): Promise<string | null>;
-  /** Main-owned subscription admission. An unavailable provider never falls back to an API key. */
   isSubscriptionConnected(providerId: "codex" | "claude"): Promise<boolean>;
   readRepositoryEvidence?(cwd: string): Promise<string>;
   createParticipants?(input: {
@@ -84,10 +83,6 @@ interface ManagedCollaboration {
   lifecycleCommand?: ManagedLifecycleCommand;
 }
 
-/**
- * The concrete main-process backend. It is intentionally the only place that
- * creates the coordinator and its orchestrator bridge for a live run.
- */
 export class MultiFrontierManager {
   readonly #options: Required<
     Pick<
@@ -108,18 +103,20 @@ export class MultiFrontierManager {
   constructor(options: MultiFrontierManagerOptions) {
     this.#options = {
       ...options,
-      readRepositoryEvidence:
-        options.readRepositoryEvidence ??
-        (async () => "Repository evidence was not supplied for this run."),
-      createId: options.createId ?? randomUUID,
-      now: options.now ?? (() => new Date().toISOString()),
-      snapshotWorkspace:
-        options.snapshotWorkspace ??
-        (async ({ workspaceId }) => ({
-          contentRef: `workspace:${workspaceId}`,
-          contentHash: "0".repeat(64),
-          testOutput: "Workspace checkpoint captured without a test command.",
-        })),
+      readRepositoryEvidence: options.readRepositoryEvidence
+        ? (cwd) => options.readRepositoryEvidence!(cwd)
+        : async () => "Repository evidence was not supplied for this run.",
+      createId: options.createId
+        ? () => options.createId!()
+        : () => randomUUID(),
+      now: options.now ? () => options.now!() : () => new Date().toISOString(),
+      snapshotWorkspace: options.snapshotWorkspace
+        ? (input) => options.snapshotWorkspace!(input)
+        : async ({ workspaceId }) => ({
+            contentRef: `workspace:${workspaceId}`,
+            contentHash: "0".repeat(64),
+            testOutput: "Workspace checkpoint captured without a test command.",
+          }),
     };
   }
 
@@ -380,8 +377,6 @@ export class MultiFrontierManager {
     } catch (error) {
       return this.#pauseForProviderFailure(session, request.requestId, error);
     }
-    // Recovery reconnects read-only sessions only. A re-entered planning
-    // request is explicit new input; no prior turn is replayed.
     await this.#emitSnapshot(session);
     if (needsPlanningPrompt) {
       return this.#start(session, {
@@ -641,7 +636,7 @@ export class MultiFrontierManager {
         participants[1].participantId,
       ],
       coordinator: bridge.coordinator,
-      captureTurnResult: bridge.captureTurnResult,
+      captureTurnResult: (result) => bridge.captureTurnResult(result),
       appendArtifact: async (artifact) =>
         this.#appendArtifact(session, artifact),
       onSnapshot: async () => this.#emitSnapshot(session),

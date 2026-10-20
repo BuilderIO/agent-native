@@ -3,6 +3,8 @@ import * as jose from "jose";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import type { ActionRouteAuthAdapter } from "../server/action-routes.js";
+import { consumeOneTimeJti } from "../server/identity-sso-store.js";
+import { isFeatureFlagAdminEmail } from "./permissions.js";
 
 const FLAG_ACTION_SCOPES = {
   "list-feature-flags": "flags:read",
@@ -26,11 +28,6 @@ export function declaresFeatureFlagDelegation(token: string): boolean {
   }
 }
 
-/**
- * Narrow opt-in adapter for fleet flag control. It owns Bearer credentials only
- * for these two actions; malformed owned bearers reject rather than falling
- * back to a browser cookie.
- */
 export function createFeatureFlagA2AActionRouteAuth(
   actionName: keyof typeof FLAG_ACTION_SCOPES,
 ): ActionRouteAuthAdapter {
@@ -44,9 +41,19 @@ export function createFeatureFlagA2AActionRouteAuth(
       if (!claims || !claims.scope.includes(FLAG_ACTION_SCOPES[actionName])) {
         throw new Error("Invalid feature flag delegation");
       }
+      const orgId = claims.orgId?.trim() || null;
+      if (!orgId && !isFeatureFlagAdminEmail(claims.email)) {
+        throw new Error("Invalid feature flag delegation");
+      }
+      if (
+        actionName === "set-feature-flag" &&
+        (await consumeOneTimeJti(claims.jti))
+      ) {
+        throw new Error("Invalid feature flag delegation");
+      }
       return {
         owner: claims.email,
-        orgId: claims.orgId,
+        orgId,
         anonymous: false,
         delegationJti: claims.jti,
         delegationIssuer: claims.issuer,

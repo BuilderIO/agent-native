@@ -1,109 +1,39 @@
 # Analytics — Agent Guide
 
-Analytics is an agent-native BI workspace for sources, queries, dashboards,
-charts, and warehouse integrations. Dashboards are canonical; legacy analyses
-remain readable for compatibility.
-
-Use connected sources and MCP tools; reason over fetched data here, not via
-another AI tool.
-
-Prompt cap: 6,000; put detail in `.agents/skills/*`.
-
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-discover existing primitives and patterns. Read `customizing-agent-native`
-before adapting shared UI: configure → compose → eject → propose.
-
-## How To Answer A Data Question
-
-1. **Search existing work first.** Call `search-analytics-query-catalog`, adapt
-   the closest saved SQL to the requested filters/window, run it once, and stop.
-2. **One bounded call.** List/filter/count/cohort questions are one SQL statement
-   or one server-side `run-code` script; never page or fan out per item.
-3. **Escalate on a miss.** If the catalog has no usable result, make one discovery
-   pass (`list-data-dictionary`, `search-bigquery-schema`, `data-source-status`),
-   then query; don't cross-check or add unasked breakdowns.
-4. **Answer in chat.** Return a short table or inline chart, not a dashboard
-   pointer. Native widgets show summarized data (≤50 rows); above that, state the
-   total and top rows.
-5. **Deliver exports in chat.** See `analysis-workspace`; don't return only a path.
-6. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
-   cannot answer; don't chunk queryable questions. See `adhoc-analysis`.
-
-## Core Rules
-
-- A sibling app asking over A2A sends a question or shaped input, never SQL.
-  Raw-query actions (`sql`, `code`, `script`, `expression`) are not
-  sibling-invocable because this app owns schema, source selection, and tools.
-  Prefer natural-language delegation; shaped reads are stable contracts, not
-  delegation workarounds.
-- For open-ended delegated requests, choose a safe default and label partial.
-- Data integrity first. Never invent numbers, dimensions, filters, or source
-  semantics; only present values you actually retrieved, and state uncertainty.
-- Every analytical answer carries audit context: source(s), time window,
-  filters, row count/sample size, join method, caveats.
-- Use actions for sources, queries, charts, dashboards, and sharing. Don't bypass
-  access checks with raw SQL for ownable resources.
-- Provider actions are bounded shortcuts, not limits. For broad or
-  absence-sensitive Gong work, stage raw API data and use
-  `query-staged-dataset` or a Data Program; use `provider-corpus-job` for raw
-  transcript bodies. See `provider-api`, `data-programs`, and `gong`.
-- Custom APIs use the `provider-api-register` action for public HTTPS provider
-  metadata and `test-custom-api-connection` for bounded GET previews. Store
-  credential values in Settings, pass only key names to provider actions, and
-  hand successful endpoint tests to `save-data-program` for refreshable panels.
-- Hosted Analytics cannot reach localhost or private network APIs. Use a
-  deployed HTTPS endpoint or an explicitly supported secure tunnel; never
-  weaken the provider runtime's SSRF boundary.
-- Create dashboards, panels, or saved artifacts only when explicitly asked;
-  suggest and wait otherwise. Scope them to the question, avoid decorative
-  metrics, and never modify existing dashboards without a directive.
-- For named account/deal deep dives, call `account-deep-dive` first.
-- When the user challenges coverage or asks why records are missing, rerun from
-  the source cohort and include the updated answer directly — never claim a
-  revision you didn't produce.
-- The `demo` source (Node Exporter) is demo data against a public endpoint.
-  Never cite it as real analytics evidence unless the user asks about the demo
-  dashboard.
-- Store large payloads in file/blob storage, never SQL or app state. Persist
-  only URLs, ids, or handles.
-- Never hardcode API keys, tokens, webhook URLs, secrets, private Builder data,
-  or customer data. Use secrets/OAuth and obvious placeholders in examples.
-- External MCP callers default to `ask_app` for interpretation, source choice,
-  analysis, or multi-step work. Direct reads require exact, complete input;
-  writes stay `ask_app`-only.
-- Dashboard email reports and analytics alert rules are SQL-backed,
-  self-describing action surfaces — don't hand-wire routes around them. Reports
-  cap at five recipients. See `dashboard-ops`.
-
-## Application State
-
-- `navigation` exposes the current dashboard, analysis, source, chart, and
-  selection. `navigate` moves the user between supported Analytics surfaces,
-  `"sessions"`, `"monitoring"`, and `"agents"`. Use `view-screen` when the
-  active context is unclear.
-- Clicking a panel stages it as a chat context chip and writes `selected-object`
-  with `type="dashboard-panel"`. Read `dashboard-management` for the
-  `/dashboards` overview and folder actions.
+Analytics owns sources, queries, charts, and dashboards; dashboards are canonical and legacy analyses remain readable.
 
 ## Skills
 
-Read the relevant skill before deeper work:
+The skills summary lists every skill; find more with `rg --hidden --follow` in `.agents/skills/<name>/SKILL.md` and read one with `pnpm action docs-search --slug "skill-<name>"` before deeper work.
 
-- `data-querying` for source inspection, SQL generation, result handling, and
-  `/chart` embeds; `bigquery`, `hubspot`, `gong`, `prometheus` for provider
-  specifics.
-- `cross-source-analysis` for questions spanning sources (identity stitching,
-  de-duplication).
-- `dashboard-management` for dashboard/panel storage, layout, extensions,
-  mutation and sharing.
-- `adhoc-analysis` and `analysis-workspace` for one-off answers and large
-  multi-source work.
-- `provider-api` and `data-programs` for the escape hatch and durable,
-  refreshable data sources.
-- `creative-context` for governed contexts and immutable dashboard revisions.
-- `admin-surfaces` (`/agents` fleet flags, usage audit, connected DBs),
-  `dashboard-ops`, `monitoring`, and `session-replay` for those surfaces.
-- `agent-native-toolkit` and `customizing-agent-native` before building shared
-  workspace UI.
-- `storing-data`, `real-time-sync`, `security`, `actions`, and
-  `frontend-design` for framework work.
+Use local docs only (no web research): `pnpm action docs-search --query "<topic>"` and `pnpm action docs-search --slug "<slug>"`. Source examples: `pnpm action source-search --query "<pattern>"` or `pnpm action source-search --path <path>`.
+
+## Data questions
+
+- Edit a panel on the open dashboard with `get-sql-dashboard` (`panelIds`), then `mutate-dashboard`; no skill read is needed (read `dashboard-management` to create a dashboard or move, reorder, or lay out panels). A dashboard edit is done only when `mutate-dashboard` returns `verified: true`. `noRenderAffected: true` means no chart changed. On `verified: false`, an error, or "the change isn't visible", follow `nextStep` and call `inspect-dashboard-panel` before saying anything; "Applied N ops", a raw `bigquery` result, or no warning banner is not proof.
+- Start from the closest query example (a preloaded reference, else one `find-data` search); to build or clone a dashboard from another, call `search-dashboard-references`, then inspect matches with `get-sql-dashboard` or `get-explorer-dashboard` by `kind`. A match is context, not live data.
+- Use one bounded SQL or server-side `run-code` call for lists, filters, counts, or cohorts. Run `search-bigquery-schema` before SQL against any table no retrieved reference names (or check provider status); do not fan out per item or add unasked breakdowns.
+- For an exact owner-defined dbt metric (`find-data` lists these as dbt entries), call `query-dbt-semantic-metric` before `bigquery` or dashboard SQL. dbt defines meaning and grain; Sigma and Amplitude are cross-checks. Do not infer an owner-defined metric from a model name or dashboard. On `connection_selection_required`, pass a listed `connectionId`. On other states, run `get-dbt-connection`, name the missing step from its `readiness`, and use a warehouse path only when it answers the same definition. Keep "unknown" and "not connected" as different states.
+- Ask a clarifying question only when a wrong guess would change the numbers; otherwise state the assumption.
+- For why-questions, make no causal claim without the corroborating evidence the causal-claim rule in `incident-investigation/SKILL.md` requires.
+- If a source's status is unknown (`configured` or `connected` is null), name the source and its setup link. Never call an unknown status disconnected.
+- Answer shape: when a saved or certified dashboard answers, open with one line naming and linking it (`[Title](/dashboards/<id>)`) and how to read it there, then answer. Add a short "How it's computed" note (source, window, filters, sample size, caveats) only when it changes how to read the number. Show SQL, tables, or schema only when asked, when the user writes SQL or asks about tables or columns, or when no dashboard matches. Label figures “Unverified” if no live query ran; never cite the public `demo` source as real evidence unless asked.
+- Create or change saved artifacts only when asked. For a named account, use `run-gong-native-insight` for Gong and `account-deep-dive` for HubSpot context; for health, read `account-health`. When challenged on coverage, rerun from the source cohort and provide the updated answer.
+
+## Core rules
+
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
+- Sibling apps delegate metrics and product questions over A2A in natural language, never SQL. Analytics owns schema, source selection, and stable shaped reads.
+- Use actions for data and sharing; respect ownable access checks. Provider actions are shortcuts; stage broad Gong scans with `query-staged-dataset` or a Data Program.
+- Reports/alerts use SQL actions and cap at five recipients. Store large payloads in file/blob storage, not SQL or app state.
+- Never invent data or source semantics. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
+- For MCP, use allowlisted cataloged actions; use `ask_app` for interpretation, source selection, multi-step, or unsupported actions.
+- Replay-key MCP write: `update-analytics-public-key` appends origins; the first origin restricts replay.
+
+## Sessions and state
+
+- `list-session-recordings` filters scoped replays. Use `paginated: true` for sorted pages with a real total and app counts. With the Sessions triage Lab, `didEvents` / `didNotEvents` filter tracked events and `slow` filters speed. Get names/counts from `list-session-event-names` and event health from `list-event-catalog`; Analytics' index covers sessions only since its coverage start. Never query BigQuery for these views.
+- `navigation` tracks dashboard, analysis, source, chart, and selection. `navigate` opens supported Analytics views, including `sessions`, `event-catalog`, `performance`, `monitoring`, and `agents`. Use `view-screen` when context is unclear.
+- Clicking a panel stages a chat context chip and sets `selected-object` with `type="dashboard-panel"`; read `dashboard-management` for dashboard overview/folder actions.
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; for supported customization, read `customizing-agent-native`.

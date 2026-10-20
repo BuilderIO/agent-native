@@ -91,9 +91,6 @@ export const generationPresetSettingsSchema = z
         });
       }
     }
-    // Budget with the minimum images each entry consumes at run time: a
-    // required entry with no pinned images still needs at least one fill
-    // image, so reserve it here or the saved preset can never generate.
     const minimumImages = (entry: { required: boolean; assetIds: string[] }) =>
       Math.max(entry.assetIds.length, entry.required ? 1 : 0);
     const total = references.reduce(

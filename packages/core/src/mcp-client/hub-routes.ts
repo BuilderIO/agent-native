@@ -14,24 +14,14 @@
  * stay with the user who added them. Only `o:<orgId>:mcp-servers-remote`
  * entries are returned.
  *
- * SECURITY — TRUST BOUNDARY:
- * The hub bearer (`AGENT_NATIVE_MCP_HUB_TOKEN`) is a SHARED secret. Anyone
- * who possesses it can list every org's MCP servers on the hub, regardless
- * of their org membership. This is acceptable for the standard convention
- * — one hub per workspace, a single-tenant deployment where every consumer
- * already operates inside the same trust circle. It is NOT acceptable on a
- * multi-tenant hub where different orgs must be isolated from each other.
- *
- * To prevent an accidental cross-tenant leak we refuse to serve hub
- * responses when the database contains MCP rows for multiple distinct orgs
- * AND the operator hasn't explicitly opted in to multi-org mode via
- * `AGENT_NATIVE_MCP_HUB_MULTI_ORG=1`. The check runs in production only;
- * local dev can serve a heterogeneous database without ceremony.
+ * Each response is bound to one organization. Browser callers use their
+ * active org; service callers use the hub process's AGENT_ORG_ID.
  */
 
 import {
   defineEventHandler,
   getMethod,
+  getQuery,
   getRequestHeader,
   setResponseHeader,
   setResponseStatus,
@@ -39,23 +29,14 @@ import {
 } from "h3";
 
 import { getH3App } from "../server/framework-request-handler.js";
-import { getAllSettings } from "../settings/store.js";
+import { getAmbientOrgId } from "../server/request-context.js";
+import { getOrgSetting } from "../settings/org-settings.js";
+import { resolveMcpPrincipalForEvent } from "./principal.js";
 import type { StoredRemoteMcpServer } from "./remote-store.js";
 
-/** Env var that enables hub-serve. Acts as the shared bearer secret. */
 const TOKEN_ENV = "AGENT_NATIVE_MCP_HUB_TOKEN";
 
-/**
- * Opt-in env var that disables the multi-org safety check. Operators should
- * only enable this on a hub deployment that consciously aggregates MCP
- * config across orgs and accepts that the bearer is workspace-wide.
- */
-const MULTI_ORG_ENV = "AGENT_NATIVE_MCP_HUB_MULTI_ORG";
-
-let _warnedMultiOrg = false;
-
 export interface HubServerRecord {
-  /** `<orgId>-<name>` — unique within the hub response. */
   id: string;
   orgId: string;
   name: string;
@@ -69,12 +50,10 @@ export interface HubServersResponse {
   generatedAt: number;
 }
 
-/** Is this process configured to serve as a hub for other apps? */
 export function isHubServeEnabled(): boolean {
   return !!process.env[TOKEN_ENV]?.trim();
 }
 
-/** Is this process configured to consume from a remote hub? */
 export function isHubConsumeEnabled(): boolean {
   return (
     !!process.env.AGENT_NATIVE_MCP_HUB_URL?.trim() &&
@@ -82,49 +61,24 @@ export function isHubConsumeEnabled(): boolean {
   );
 }
 
-export async function listHubServers(): Promise<HubServerRecord[]> {
-  const all = await getAllSettings().catch(() => ({}));
+export async function listHubServers(
+  orgId: string,
+): Promise<HubServerRecord[]> {
+  const setting = await getOrgSetting(orgId, "mcp-servers-remote");
   const out: HubServerRecord[] = [];
-  const seenOrgs = new Set<string>();
-  for (const [fullKey, value] of Object.entries(all)) {
-    const m = /^o:([^:]+):mcp-servers-remote$/.exec(fullKey);
-    if (!m) continue;
-    const orgId = m[1];
-    seenOrgs.add(orgId);
-    const list = (value as { servers?: StoredRemoteMcpServer[] }).servers;
-    if (!Array.isArray(list)) continue;
-    for (const stored of list) {
-      if (!stored || typeof stored.url !== "string" || !stored.name) continue;
-      out.push({
-        id: `${orgId}-${stored.name}`,
-        orgId,
-        name: stored.name,
-        url: stored.url,
-        headers: stored.headers,
-        description: stored.description,
-      });
-    }
-  }
-
-  // SECURITY: refuse to serve when multiple orgs share this hub in
-  // production, unless the operator has explicitly opted in to multi-org
-  // mode. The bearer is workspace-wide, so any consumer in possession of
-  // it would otherwise see EVERY org's MCP config — a cross-tenant leak.
-  if (
-    process.env.NODE_ENV === "production" &&
-    seenOrgs.size > 1 &&
-    process.env[MULTI_ORG_ENV] !== "1"
-  ) {
-    if (!_warnedMultiOrg) {
-      _warnedMultiOrg = true;
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[mcp-client/hub] Refusing to serve hub responses: ${seenOrgs.size} distinct orgs detected ` +
-          `but ${MULTI_ORG_ENV} is not set. Set ${MULTI_ORG_ENV}=1 to opt in to cross-org sharing ` +
-          `(or disable hub-serve entirely if this is unintentional).`,
-      );
-    }
-    return [];
+  const list = (setting as { servers?: StoredRemoteMcpServer[] } | null)
+    ?.servers;
+  if (!Array.isArray(list)) return out;
+  for (const stored of list) {
+    if (!stored || typeof stored.url !== "string" || !stored.name) continue;
+    out.push({
+      id: `${orgId}-${stored.name}`,
+      orgId,
+      name: stored.name,
+      url: stored.url,
+      headers: stored.headers,
+      description: stored.description,
+    });
   }
 
   return out;
@@ -136,7 +90,6 @@ function checkBearer(event: H3Event): string | null {
   const header = getRequestHeader(event, "authorization") ?? "";
   const match = /^Bearer\s+(.+)$/.exec(header);
   if (!match) return "Bearer token required";
-  // Constant-time compare to avoid timing leaks on the shared secret.
   const provided = match[1].trim();
   if (provided.length !== expected.length) return "Invalid token";
   let diff = 0;
@@ -167,9 +120,18 @@ export function mountMcpHubRoutes(nitroApp: any): void {
           setResponseStatus(event, 401);
           return { error: authError };
         }
+        const principal = await resolveMcpPrincipalForEvent(event);
+        const queryOrgId = getQuery(event).orgId;
+        const requestedOrgId =
+          typeof queryOrgId === "string" ? queryOrgId.trim() : "";
+        const orgId = principal ? principal.orgId : getAmbientOrgId()?.trim();
+        if (!orgId || (requestedOrgId && requestedOrgId !== orgId)) {
+          setResponseStatus(event, principal ? 403 : 401);
+          return { error: "Organization scope is not available" };
+        }
         setResponseHeader(event, "Content-Type", "application/json");
         setResponseHeader(event, "Cache-Control", "no-store");
-        const servers = await listHubServers();
+        const servers = await listHubServers(orgId);
         const payload: HubServersResponse = {
           servers,
           generatedAt: Date.now(),
@@ -184,7 +146,6 @@ export function mountMcpHubRoutes(nitroApp: any): void {
   }
 }
 
-/** Status used by the UI to show a "hub mode" card. */
 export function getHubStatus(): {
   serving: boolean;
   consuming: boolean;

@@ -10,10 +10,6 @@ import {
   type BreakpointOverrideIndicatorProps,
 } from "./BreakpointOverrideIndicator";
 
-// Minimal catalog covering only the keys this component reads — see the
-// same convention/rationale note in InteractionStatePanel.test.tsx. Full
-// catalog coverage across all 11 locales is verified by
-// `guard:i18n-catalogs`, not here.
 const CATALOG_MESSAGES = {
   editPanel: {
     breakpointOverride: {
@@ -31,14 +27,9 @@ function renderWithProviders<P extends object>(
   props: P,
 ): string {
   return renderToStaticMarkup(
-    createElement(AgentNativeI18nProvider, {
-      catalog: { messages: CATALOG_MESSAGES },
-      children: createElement(
-        TooltipProvider,
-        null,
-        createElement(Component, props),
-      ),
-    }),
+    <AgentNativeI18nProvider catalog={{ messages: CATALOG_MESSAGES }}>
+      <TooltipProvider>{createElement(Component, props)}</TooltipProvider>
+    </AgentNativeI18nProvider>,
   );
 }
 

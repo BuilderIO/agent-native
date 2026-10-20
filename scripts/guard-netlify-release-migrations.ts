@@ -1,0 +1,466 @@
+import { existsSync, globSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+const BETA_PREBUILT_WORKFLOW = ".github/workflows/deploy-netlify-prebuilt.yml";
+const BETA_SCHEMA_OWNER_RUNTIME_FILES = [
+  "packages/core/src/db/migration-policy.ts",
+  "packages/core/src/vite/client.ts",
+  "packages/core/src/deploy/build.ts",
+] as const;
+const BETA_SCHEMA_OWNER_MARKER = "AGENT_NATIVE_BETA_SCHEMA_OWNER";
+const BETA_SCHEMA_OWNER_CONFIG_CONSUMER = "migration.betaSchemaOwner";
+const MIGRATION_POLICY_FILE = "packages/core/src/db/migration-policy.ts";
+const MANAGED_DRIZZLE_SKILL_FILE = ".agents/skills/storing-data/SKILL.md";
+const STARTER_RELEASE_SCRIPT_FILES = [
+  "packages/core/src/templates/default/scripts/migrate-production.ts",
+  "templates/chat/scripts/migrate-production.ts",
+] as const;
+const RELEASE_COMMAND = /\bmigrate:production\b/;
+const RELEASE_FLAG =
+  /^\s*AGENT_NATIVE_RELEASE_MIGRATIONS\s*=\s*["']1["']\s*(?:#.*)?$/m;
+const BETA_RELEASE_FLAG = /\bAGENT_NATIVE_RUN_RELEASE_MIGRATIONS\b/;
+const BETA_SCHEMA_OWNER_EXPORT =
+  "export AGENT_NATIVE_BETA_SCHEMA_OWNER=production";
+const CLIPS_PREBUILT_MIGRATION_SKIP =
+  /agentNativePrebuiltBuild:-\}.*!= \\\"true\\\".*migrate:production/;
+const RELEASE_MIGRATION_SCRIPT_GLOBS = [
+  "packages/**/scripts/migrate-production.ts",
+  "templates/**/scripts/migrate-production.ts",
+] as const;
+
+const STARTER_RELEASE_SCRIPT = `
+import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
+import { loadEnv } from "@agent-native/core/scripts";
+import {
+  runAppReleaseMigrations,
+  runFrameworkReleaseMigrations,
+} from "@agent-native/core/server";
+
+loadEnv();
+
+async function main(): Promise<void> {
+  await withMigrationRuntime(async () => {
+    await runFrameworkReleaseMigrations(null);
+    await runAppReleaseMigrations();
+  });
+}
+
+try {
+  await main();
+} finally {
+  await closeDbExec();
+}
+`;
+
+/**
+ * Production builds that run a release migration must bake the ownership
+ * decision into their server bundle. Without it, the shared migration runner
+ * quite correctly assumes previews own their schema and probes the database
+ * from every production serverless request.
+ */
+export function validateNetlifyReleaseMigrationConfig(
+  source: string,
+  file = "netlify.toml",
+): string[] {
+  const build = readTomlSection(source, "build");
+  if (!build || !RELEASE_COMMAND.test(build)) return [];
+
+  const productionEnvironment = readTomlSection(
+    source,
+    "context.production.environment",
+  );
+  if (productionEnvironment === null) {
+    return [
+      `${file}: production runs migrate:production but has no [context.production.environment] section`,
+    ];
+  }
+  if (!RELEASE_FLAG.test(productionEnvironment)) {
+    return [
+      `${file}: production runs migrate:production but does not set AGENT_NATIVE_RELEASE_MIGRATIONS = "1" in [context.production.environment]`,
+    ];
+  }
+  return [];
+}
+
+export function validatePublishedNetlifyReleaseMigrationConfig(
+  source: string,
+  file = "netlify.toml",
+  sourceTemplate = "",
+): string[] {
+  const build = readTomlSection(source, "build");
+  if (!build || !RELEASE_COMMAND.test(build)) {
+    return [
+      `${file}: published production/beta site must run migrate:production in its [build] command`,
+    ];
+  }
+
+  const issues = validateNetlifyReleaseMigrationConfig(source, file);
+  if (
+    sourceTemplate !== "clips" ||
+    !CLIPS_PREBUILT_MIGRATION_SKIP.test(build)
+  ) {
+    if (!BETA_RELEASE_FLAG.test(build)) {
+      issues.push(
+        `${file}: beta branch-deploy builds run migrate:production only when AGENT_NATIVE_RUN_RELEASE_MIGRATIONS = "1" is supplied by the prebuilt beta lane`,
+      );
+    }
+  }
+  return issues;
+}
+
+export function validateBetaPrebuiltReleaseEnvironment(
+  source: string,
+  file = BETA_PREBUILT_WORKFLOW,
+): string[] {
+  const betaStart = source.indexOf('if [[ "$TARGET" == "beta" ]]');
+  const betaEnd =
+    [
+      'if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]',
+      'if [[ "$SOURCE_TEMPLATE" == "clips" ]]',
+    ]
+      .map((marker) => source.indexOf(marker, betaStart))
+      .filter((index) => index > betaStart)
+      .sort((left, right) => left - right)[0] ?? -1;
+  const betaBuild =
+    betaStart >= 0 && betaEnd > betaStart
+      ? source.slice(betaStart, betaEnd)
+      : "";
+  const nonClipsBlockMatch = betaBuild.match(
+    /if \[\[ "\$SOURCE_TEMPLATE" != "clips" \]\]; then([\s\S]*?)\n\s*fi/,
+  );
+  const nonClipsBlock = nonClipsBlockMatch?.[1] ?? "";
+  const clipsOwnerBlockMatch = betaBuild.match(
+    /if \[\[ "\$SOURCE_TEMPLATE" != "clips" \]\]; then[\s\S]*?\n\s*else([\s\S]*?)\n\s*fi/,
+  );
+  const clipsOwnerBlock = clipsOwnerBlockMatch?.[1] ?? "";
+  const releaseExports = [
+    "export AGENT_NATIVE_RELEASE_MIGRATIONS=1",
+    "export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1",
+  ];
+  const betaRuntimeExports = [
+    "export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1",
+    "export AGENT_NATIVE_HOSTED_HARNESS=true",
+  ];
+  const issues: string[] = [];
+  for (const entry of betaRuntimeExports) {
+    if (!betaBuild.includes(entry)) {
+      issues.push(
+        `${file}: beta build must export ${entry.replace(/^export /, "")} inside its beta-only build block`,
+      );
+    }
+  }
+  if (/\bexport\s+AGENT_NATIVE_ENABLE_KEEP_WARM\b/.test(betaBuild)) {
+    issues.push(
+      `${file}: beta build must leave AGENT_NATIVE_ENABLE_KEEP_WARM unset so keep-warm stays opt-in`,
+    );
+  }
+  if (!nonClipsBlockMatch) {
+    issues.push(
+      `${file}: beta build must scope release migration exports to a non-Clips template block`,
+    );
+  }
+  if (
+    !clipsOwnerBlockMatch ||
+    !clipsOwnerBlock.includes(BETA_SCHEMA_OWNER_EXPORT)
+  ) {
+    issues.push(
+      `${file}: Clips beta build must export AGENT_NATIVE_BETA_SCHEMA_OWNER=production only in the Clips branch of its beta-only build block`,
+    );
+  }
+  for (const entry of releaseExports) {
+    if (!nonClipsBlock.includes(entry)) {
+      issues.push(
+        `${file}: beta build must export ${entry.replace(/^export /, "")} inside the non-Clips template block`,
+      );
+    }
+  }
+  const betaOutsideNonClipsBlock = nonClipsBlockMatch
+    ? betaBuild.replace(nonClipsBlockMatch[0], "")
+    : betaBuild;
+  for (const entry of releaseExports) {
+    if (betaOutsideNonClipsBlock.includes(entry)) {
+      issues.push(
+        `${file}: ${entry.replace(/^export /, "")} must not be exported for Clips beta builds`,
+      );
+    }
+  }
+  const betaOutsideClipsOwnerBlock = clipsOwnerBlockMatch
+    ? betaBuild.replace(clipsOwnerBlockMatch[0], "")
+    : betaBuild;
+  if (betaOutsideClipsOwnerBlock.includes(BETA_SCHEMA_OWNER_EXPORT)) {
+    issues.push(
+      `${file}: AGENT_NATIVE_BETA_SCHEMA_OWNER=production must not be exported outside the Clips branch of the beta-only build block`,
+    );
+  }
+  return issues;
+}
+
+export function validateBetaSchemaOwnerRuntimeContract(
+  repoRoot = REPO_ROOT,
+): string[] {
+  const issues: string[] = [];
+  for (const relativeFile of BETA_SCHEMA_OWNER_RUNTIME_FILES) {
+    const file = path.join(repoRoot, relativeFile);
+    if (!existsSync(file)) {
+      issues.push(
+        `${relativeFile}: production-owned beta schema marker has no runtime/build integration file`,
+      );
+      continue;
+    }
+    const source = readFileSync(file, "utf8");
+    const consumesConfigBackedMarker =
+      relativeFile === MIGRATION_POLICY_FILE &&
+      source.includes("getAppConfig") &&
+      source.includes(BETA_SCHEMA_OWNER_CONFIG_CONSUMER);
+    if (
+      !source.includes(BETA_SCHEMA_OWNER_MARKER) &&
+      !consumesConfigBackedMarker
+    ) {
+      issues.push(
+        relativeFile === MIGRATION_POLICY_FILE
+          ? `${relativeFile}: must consume or embed ${BETA_SCHEMA_OWNER_MARKER} instead of treating it as a config-only marker`
+          : `${relativeFile}: must embed ${BETA_SCHEMA_OWNER_MARKER} in the release build configuration`,
+      );
+    }
+  }
+  return issues;
+}
+
+function executableSource(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\s+/g, "");
+}
+
+export function validateStarterReleaseScript(
+  source: string,
+  file: string,
+): string[] {
+  if (executableSource(source) === executableSource(STARTER_RELEASE_SCRIPT)) {
+    return [];
+  }
+  return [
+    `${file}: must contain only the starter release migration entrypoint (framework tables, then the app's server/plugins/db.ts)`,
+  ];
+}
+
+export function validateReleaseMigrationLoadsEnv(
+  source: string,
+  file: string,
+): string[] {
+  if (
+    source.includes('import { loadEnv } from "@agent-native/core/scripts";') &&
+    /\bloadEnv\(\);/.test(executableSource(source))
+  ) {
+    return [];
+  }
+  return [`${file}: must load app and workspace environment before migrating`];
+}
+
+/**
+ * Release-owned apps skip request-time migrations, so a plugin that migrates
+ * its own tables at boot never migrates in production unless the release
+ * script runs the same migration list.
+ */
+export function validateReleaseMigrationCoversPlugins(
+  pluginSources: string[],
+  releaseSource: string,
+  file: string,
+): string[] {
+  const mountsCreativeContext = pluginSources.some((source) =>
+    executableSource(source).includes("setupCreativeContext("),
+  );
+  if (
+    !mountsCreativeContext ||
+    executableSource(releaseSource).includes("awaitcreativeContextDbPlugin(")
+  ) {
+    return [];
+  }
+  return [
+    `${file}: server plugins mount setupCreativeContext, so the release script must await creativeContextDbPlugin(null)`,
+  ];
+}
+
+export function validateManagedDrizzleMigrationOwnership(
+  repoRoot = REPO_ROOT,
+): string[] {
+  const issues: string[] = [];
+  const skillFile = path.join(repoRoot, MANAGED_DRIZZLE_SKILL_FILE);
+  if (!existsSync(skillFile)) {
+    issues.push(
+      `${MANAGED_DRIZZLE_SKILL_FILE}: managed Drizzle migration guidance is missing`,
+    );
+  } else {
+    const source = readFileSync(skillFile, "utf8");
+    if (
+      !source.includes("drizzle/schema.ts") ||
+      !source.includes("db:generate") ||
+      !source.includes("runAppReleaseMigrations") ||
+      !source.includes("do not create a parallel `runMigrations([...])` list")
+    ) {
+      issues.push(
+        `${MANAGED_DRIZZLE_SKILL_FILE}: must keep managed app migrations in generated Drizzle files and explain what the release script applies`,
+      );
+    }
+  }
+
+  for (const relativeFile of STARTER_RELEASE_SCRIPT_FILES) {
+    const file = path.join(repoRoot, relativeFile);
+    if (!existsSync(file)) {
+      issues.push(
+        `${relativeFile}: starter release migration script is missing`,
+      );
+      continue;
+    }
+    issues.push(
+      ...validateStarterReleaseScript(readFileSync(file, "utf8"), relativeFile),
+    );
+  }
+
+  return issues;
+}
+
+function readTomlSection(source: string, header: string): string | null {
+  const lines = source.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `[${header}]`);
+  if (start === -1) return null;
+  const nextSection = lines.findIndex(
+    (line, index) => index > start && /^\s*\[[^\]]+\]\s*$/.test(line),
+  );
+  return lines
+    .slice(start + 1, nextSection === -1 ? undefined : nextSection)
+    .join("\n");
+}
+
+export function findNetlifyReleaseMigrationIssues(
+  repoRoot = REPO_ROOT,
+): string[] {
+  const issues: string[] = [];
+  for (const { file, sourceTemplate } of collectPublishedNetlifyConfigs(
+    repoRoot,
+  )) {
+    const relativeFile = path.relative(repoRoot, file);
+    if (!existsSync(file)) {
+      issues.push(
+        `${relativeFile}: published Netlify site has no netlify.toml`,
+      );
+      continue;
+    }
+    issues.push(
+      ...validatePublishedNetlifyReleaseMigrationConfig(
+        readFileSync(file, "utf8"),
+        relativeFile,
+        sourceTemplate,
+      ),
+    );
+  }
+  for (const relativeFile of globSync(RELEASE_MIGRATION_SCRIPT_GLOBS, {
+    cwd: repoRoot,
+    exclude: (file) => /^corpus(?:\.tmp-|$)/.test(path.basename(file)),
+  })) {
+    const releaseSource = readFileSync(
+      path.join(repoRoot, relativeFile),
+      "utf8",
+    );
+    issues.push(
+      ...validateReleaseMigrationLoadsEnv(releaseSource, relativeFile),
+    );
+    const pluginSources = globSync("server/plugins/*.ts", {
+      cwd: path.join(repoRoot, path.dirname(path.dirname(relativeFile))),
+    }).map((pluginFile) =>
+      readFileSync(
+        path.join(
+          repoRoot,
+          path.dirname(path.dirname(relativeFile)),
+          pluginFile,
+        ),
+        "utf8",
+      ),
+    );
+    issues.push(
+      ...validateReleaseMigrationCoversPlugins(
+        pluginSources,
+        releaseSource,
+        relativeFile,
+      ),
+    );
+  }
+
+  const workflow = path.join(repoRoot, BETA_PREBUILT_WORKFLOW);
+  if (!existsSync(workflow)) {
+    issues.push(`${BETA_PREBUILT_WORKFLOW}: beta prebuilt workflow is missing`);
+  } else {
+    issues.push(
+      ...validateBetaPrebuiltReleaseEnvironment(readFileSync(workflow, "utf8")),
+    );
+  }
+  issues.push(...validateBetaSchemaOwnerRuntimeContract(repoRoot));
+  issues.push(...validateManagedDrizzleMigrationOwnership(repoRoot));
+  return issues;
+}
+
+type PublishedNetlifyConfig = {
+  file: string;
+  sourceTemplate: string;
+};
+
+function collectPublishedNetlifyConfigs(
+  repoRoot: string,
+): PublishedNetlifyConfig[] {
+  const files = new Map<string, string>();
+  const add = (siteName: string): void => {
+    if (siteName === "workspace") return;
+    const sourceTemplate =
+      siteName === "fw"
+        ? "@agent-native/docs"
+        : siteName === "starter"
+          ? "chat"
+          : siteName;
+    const file =
+      siteName === "fw"
+        ? path.join(repoRoot, "packages/docs/netlify.toml")
+        : path.join(repoRoot, "templates", sourceTemplate, "netlify.toml");
+    files.set(file, sourceTemplate);
+  };
+
+  const betaSites = JSON.parse(
+    readFileSync(
+      path.join(repoRoot, "scripts/netlify-beta-sites.json"),
+      "utf8",
+    ),
+  ) as Array<{ id: string }>;
+  for (const site of betaSites) add(site.id);
+
+  const productionSites = JSON.parse(
+    readFileSync(
+      path.join(repoRoot, "scripts/netlify-production-sites.json"),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
+  for (const siteName of Object.keys(productionSites)) add(siteName);
+
+  return [...files.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([file, sourceTemplate]) => ({ file, sourceTemplate }));
+}
+
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  const issues = findNetlifyReleaseMigrationIssues();
+  if (issues.length > 0) {
+    console.error("guard-netlify-release-migrations failed:");
+    for (const issue of issues) console.error(`  - ${issue}`);
+    process.exit(1);
+  }
+  console.log(
+    "guard-netlify-release-migrations: clean (published production and beta schemas have explicit owners).",
+  );
+}

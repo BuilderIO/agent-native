@@ -2,14 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMocks = vi.hoisted(() => ({
   execute: vi.fn(),
-  isPostgres: vi.fn(() => false),
 }));
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: dbMocks.execute }),
-  intType: () => "INTEGER",
-  isPostgres: dbMocks.isPostgres,
-}));
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  const exec = {
+    execute: async (input: string | { sql: string }) =>
+      storeLedgerResult(typeof input === "string" ? input : input.sql) ??
+      dbMocks.execute(input),
+  };
+  return { getDbExec: () => exec };
+});
 
 const ddlMocks = vi.hoisted(() => ({
   ensureTableExists: vi.fn(),
@@ -32,10 +36,10 @@ describe("MCP action approval store", () => {
     vi.resetModules();
     dbMocks.execute.mockReset();
     dbMocks.execute.mockResolvedValue({ rows: [], rowsAffected: 1 });
-    dbMocks.isPostgres.mockReset();
-    dbMocks.isPostgres.mockReturnValue(false);
     ddlMocks.ensureTableExists.mockReset();
-    ddlMocks.ensureTableExists.mockResolvedValue(undefined);
+    ddlMocks.ensureTableExists.mockImplementation(
+      (_table: string, sql: string) => dbMocks.execute(sql),
+    );
   });
 
   it("inserts a pending exact grant and keeps cleanup best-effort", async () => {

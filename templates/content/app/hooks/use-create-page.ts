@@ -1,7 +1,9 @@
+import { useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
-import { useNavigate } from "react-router";
+import { useCallback, useMemo, useRef } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -10,10 +12,22 @@ import {
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
 } from "@/components/sidebar/select-content-space";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
-import { useCreateDocument } from "@/hooks/use-documents";
+import {
+  rollbackOptimisticCreatedDocument,
+  seedCreatedDocumentNavigation,
+  useCreateDocument,
+} from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { documentQueryFilter } from "@/lib/document-query";
-import { markDocumentCreationPending } from "@/lib/optimistic-document";
+import {
+  clearDocumentCreationConfirmed,
+  markDocumentCreationConfirmed,
+  markDocumentCreationPending,
+  clearDocumentCreateIntent,
+  withDocumentCreateInFlight,
+  writeDocumentCreateIntent,
+  writeDocumentCreateIntentBestEffort,
+} from "@/lib/optimistic-document";
 
 const LIST_DOCUMENTS_QUERY_KEY = [
   "action",
@@ -34,7 +48,19 @@ export function useCreatePage(opts?: {
   awaitPersist?: boolean;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const locationRef = useRef(location);
+  locationRef.current = location;
+  const t = useT();
   const queryClient = useQueryClient();
+  const { session } = useSession();
+  const createIntentScope = useMemo(
+    () =>
+      session?.email
+        ? { accountId: session.email, orgId: session.orgId ?? null }
+        : null,
+    [session?.email, session?.orgId],
+  );
   const createDocument = useCreateDocument();
   const contentSpacesQuery = useContentSpaces();
   const [storedSpaceId] = useLocalStorage<string | null>(
@@ -50,7 +76,7 @@ export function useCreatePage(opts?: {
   const shouldAwaitPersist = opts?.awaitPersist ?? true;
 
   return useCallback(
-    async (parentId?: string) => {
+    async (parentId?: string, requestedId?: string) => {
       let spaceId: string | undefined;
       try {
         spaceId = contentSpaceIdForCreate({
@@ -63,9 +89,9 @@ export function useCreatePage(opts?: {
         );
         throw error;
       }
-      const id = nanoid();
+      const id = requestedId ?? nanoid();
       const now = new Date().toISOString();
-      const tempDoc = markDocumentCreationPending({
+      const tempDoc = markDocumentCreationPending(queryClient, {
         id,
         parentId: parentId ?? null,
         title: "",
@@ -75,50 +101,160 @@ export function useCreatePage(opts?: {
         isFavorite: false,
         hideFromSearch: false,
         visibility: "private",
+        accessRole: "owner",
+        canEdit: true,
+        canManage: true,
         createdAt: now,
         updatedAt: now,
       });
+      const previousDocuments = queryClient.getQueryData(
+        LIST_DOCUMENTS_QUERY_KEY,
+      );
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
           old?.documents ?? (Array.isArray(old) ? old : []);
-        return { documents: [...docs, tempDoc] };
+        if (Array.isArray(old)) return [...docs, tempDoc];
+        return {
+          ...(old && typeof old === "object" ? old : {}),
+          documents: [...docs, tempDoc],
+        };
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
 
       if (shouldNavigate) {
-        navigate(`/page/${id}`, { flushSync: true });
+        seedCreatedDocumentNavigation(
+          queryClient,
+          tempDoc,
+          selectedSpace?.filesDatabaseId ?? null,
+        );
+        void navigate(`/page/${id}`, { flushSync: true });
         onAfterNavigate?.();
       }
 
-      const persist = async () => {
-        const created = await createDocument.mutateAsync({
-          id,
-          title: "",
-          parentId: parentId ?? undefined,
-          spaceId,
-        });
-        queryClient.setQueryData(
-          ["action", "get-document", { id: created.id }],
-          created,
-        );
-        // Replace optimistic doc with real server doc + clear any 404 error
-        // state from the in-flight fetch that ran before create completed.
-        queryClient.invalidateQueries(documentQueryFilter(id));
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+      const createIntent = {
+        id,
+        parentId: parentId ?? null,
+        spaceId: spaceId ?? null,
+        ...(selectedSpace?.filesDatabaseId
+          ? { filesDatabaseId: selectedSpace.filesDatabaseId }
+          : {}),
+        createdAt: now,
       };
+      const persist = async () =>
+        withDocumentCreateInFlight(
+          id,
+          async () => {
+            if (createIntentScope && shouldNavigate) {
+              writeDocumentCreateIntentBestEffort(createIntentScope, {
+                ...createIntent,
+                status: "pending",
+              });
+            }
+            try {
+              const created = await createDocument.mutateAsync({
+                id,
+                title: "",
+                parentId: parentId ?? undefined,
+                spaceId,
+              });
+              const confirmed = markDocumentCreationConfirmed(
+                queryClient,
+                created,
+              );
+              if (createIntentScope && shouldNavigate) {
+                try {
+                  clearDocumentCreateIntent(createIntentScope, created.id);
+                } catch (error) {
+                  console.error(
+                    "Could not clear the pending Content create intent.",
+                    error,
+                  );
+                }
+              }
+              queryClient.setQueryData(
+                ["action", "get-document", { id: created.id }],
+                confirmed,
+              );
+              if (
+                !shouldNavigate ||
+                locationRef.current.pathname !== `/page/${created.id}`
+              ) {
+                clearDocumentCreationConfirmed(queryClient, {
+                  id: created.id,
+                });
+              }
+              void queryClient.invalidateQueries(documentQueryFilter(id));
+              void queryClient.invalidateQueries({
+                queryKey: ["action", "list-documents"],
+              });
+            } catch (error) {
+              if (createIntentScope && shouldNavigate) {
+                try {
+                  writeDocumentCreateIntent(createIntentScope, {
+                    ...createIntent,
+                    status: "failed",
+                  });
+                } catch (statusError) {
+                  console.error(
+                    "Could not save the failed Content create state.",
+                    statusError,
+                  );
+                }
+              }
+              throw error;
+            }
+          },
+          createIntentScope,
+        );
 
-      const onPersistError = (err: unknown) => {
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        queryClient.removeQueries(documentQueryFilter(id));
-        if (shouldNavigate) navigate("/");
-        toast.error("Failed to create page", {
+      let createErrorToastId: string | number | undefined;
+      let retrying = false;
+
+      const reportPersistError = (err: unknown) => {
+        if (!shouldNavigate) {
+          rollbackOptimisticCreatedDocument(
+            queryClient,
+            id,
+            previousDocuments !== undefined,
+          );
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          });
+          queryClient.removeQueries(documentQueryFilter(id));
+          toast.error(t("sidebar.failedCreatePage"), {
+            description:
+              err instanceof Error && err.message
+                ? err.message
+                : t("empty.genericError"),
+          });
+          return;
+        }
+
+        const retryPersist = async () => {
+          if (retrying) return;
+          retrying = true;
+          try {
+            await persist();
+            if (createErrorToastId !== undefined) {
+              toast.dismiss(createErrorToastId);
+            }
+          } catch (retryError) {
+            reportPersistError(retryError);
+          } finally {
+            retrying = false;
+          }
+        };
+
+        createErrorToastId = toast.error(t("sidebar.failedCreatePage"), {
+          id: createErrorToastId,
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
+          duration: Number.POSITIVE_INFINITY,
+          action: {
+            label: t("database.retry"),
+            onClick: () => retryPersist(),
+          },
         });
       };
 
@@ -126,23 +262,25 @@ export function useCreatePage(opts?: {
         try {
           await persist();
         } catch (err) {
-          onPersistError(err);
+          reportPersistError(err);
           throw err;
         }
       } else {
-        void persist().catch(onPersistError);
+        void persist().catch(reportPersistError);
       }
 
       return id;
     },
     [
       createDocument,
+      createIntentScope,
       navigate,
       onAfterNavigate,
       queryClient,
       selectedSpace,
       shouldAwaitPersist,
       shouldNavigate,
+      t,
     ],
   );
 }

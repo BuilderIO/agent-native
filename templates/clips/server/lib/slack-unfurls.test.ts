@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -39,6 +40,7 @@ function recording(overrides: Record<string, unknown> = {}) {
     trashedAt: null,
     expiresAt: null,
     videoUrl: "https://media.example.com/rec-1.mp4",
+    sourceAppName: null,
     ...overrides,
   } as any;
 }
@@ -121,8 +123,51 @@ describe("Clips Slack unfurls", () => {
         emoji: true,
       },
       video_url: "https://clips.example.com/embed/rec-1?autoplay=1",
-      thumbnail_url: "https://clips.example.com/api/media/thumb",
+      thumbnail_url: "https://clips.example.com/api/thumbnail/rec-1",
       provider_name: "Clips",
+    });
+  });
+
+  it("uses the branded image while a thumbnail is unavailable", () => {
+    expect(
+      buildSlackVideoBlock({
+        recording: recording({
+          thumbnailUrl: null,
+          animatedThumbnailUrl: null,
+        }),
+        origin: "https://clips.example.com",
+        basePath: "/clips",
+      }),
+    ).toMatchObject({
+      thumbnail_url: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+    });
+  });
+
+  it("versions Slack thumbnail URLs when the recording changes", () => {
+    expect(
+      buildSlackVideoBlock({
+        recording: recording({ updatedAt: "2026-09-28T17:46:22.267Z" }),
+        origin: "https://clips.example.com",
+      }),
+    ).toMatchObject({
+      thumbnail_url:
+        "https://clips.example.com/api/thumbnail/rec-1?v=2026-09-28T17%3A46%3A22.267Z",
+    });
+  });
+
+  it("keeps a valid fallback for legacy Loom embeds without thumbnails", () => {
+    expect(
+      buildSlackVideoBlock({
+        recording: recording({
+          thumbnailUrl: null,
+          animatedThumbnailUrl: null,
+          sourceAppName: "Loom",
+          videoUrl: "https://www.loom.com/embed/loom123456",
+        }),
+        origin: "https://clips.example.com",
+      }),
+    ).toMatchObject({
+      thumbnail_url: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
     });
   });
 
@@ -147,6 +192,18 @@ describe("Clips Slack unfurls", () => {
       }),
     ).toBeNull();
   });
+
+  it.each(["private", "org"])(
+    "does not build playable unfurls for %s clips",
+    (visibility) => {
+      expect(
+        buildSlackVideoBlock({
+          recording: recording({ visibility }),
+          origin: "https://clips.example.com",
+        }),
+      ).toBeNull();
+    },
+  );
 
   it("builds chat.unfurl payloads for link_shared events", async () => {
     const block = buildSlackVideoBlock({

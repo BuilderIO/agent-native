@@ -19,6 +19,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+import { formatExplorerPropertyLabel } from "../property-label";
 import { KNOWN_PROPERTIES, ENRICHED_PROPERTY_MAP } from "../types";
 import { useDynamicProperties } from "../use-dynamic-schema";
 
@@ -26,7 +27,6 @@ interface PropertyComboboxProps {
   value: string;
   onChange: (value: string) => void;
   triggerLabel?: string;
-  /** If true, the popover opens automatically on mount */
   autoOpen?: boolean;
 }
 
@@ -54,7 +54,6 @@ export function PropertyCombobox({
     [dynamicProps, knownSet],
   );
 
-  // Allow selecting a custom typed value not in the list
   const allKnown = useMemo(() => {
     const set = new Set(knownSet);
     for (const p of dynamicProps) set.add(p.name);
@@ -65,6 +64,11 @@ export function PropertyCombobox({
     onChange(v);
     setOpen(false);
   };
+
+  const displayLabel = useMemo(() => {
+    if (!value) return null;
+    return formatExplorerPropertyLabel(value);
+  }, [value]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -77,12 +81,12 @@ export function PropertyCombobox({
           size="sm"
         >
           <span className="truncate">
-            {value || triggerLabel || t("explorer.selectProperty")}
+            {displayLabel || triggerLabel || t("explorer.selectProperty")}
           </span>
           <IconSelector className="ml-1 h-3 w-3 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[280px] p-0" align="start">
+      <PopoverContent className="w-[320px] p-0" align="start">
         <Command shouldFilter={true}>
           <CommandInput
             placeholder={t("explorer.searchOrTypeProperty")}
@@ -90,7 +94,6 @@ export function PropertyCombobox({
             onValueChange={setSearch}
             onKeyDown={(e) => {
               if (e.key === "Enter" && search.trim()) {
-                // If the search term isn't in the list, allow using it as custom
                 const trimmed = search.trim();
                 if (!allKnown.has(trimmed)) {
                   handleSelect(trimmed);
@@ -137,7 +140,7 @@ export function PropertyCombobox({
                           value === prop ? "opacity-100" : "opacity-0",
                         )}
                       />
-                      {enriched?.label ?? prop}
+                      {enriched?.label ?? formatExplorerPropertyLabel(prop)}
                       {enriched && (
                         <span className="ml-auto text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">
                           {t("explorer.joined")}
@@ -166,7 +169,9 @@ export function PropertyCombobox({
                         value === p.name ? "opacity-100" : "opacity-0",
                       )}
                     />
-                    <span className="truncate">{p.name}</span>
+                    <span className="truncate">
+                      {formatExplorerPropertyLabel(p.name)}
+                    </span>
                     <span className="ml-auto text-[10px] text-muted-foreground">
                       {p.count.toLocaleString()}
                     </span>

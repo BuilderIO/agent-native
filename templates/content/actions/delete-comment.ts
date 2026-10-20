@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 
 export default defineAction({
   description:
@@ -34,7 +35,7 @@ export default defineAction({
 
     const userEmail = getRequestUserEmail();
     if (comment.authorEmail === userEmail) {
-      await assertAccess("document", comment.documentId, "viewer");
+      await assertAccess("document", comment.documentId, "commenter");
     } else {
       await assertAccess("document", comment.documentId, "editor");
     }
@@ -48,7 +49,18 @@ export default defineAction({
         ),
       );
 
+    await db
+      .delete(schema.documentCommentReactions)
+      .where(
+        and(
+          eq(schema.documentCommentReactions.commentId, args.id),
+          eq(schema.documentCommentReactions.documentId, comment.documentId),
+        ),
+      );
+
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return { ok: true };
+    return { ok: true, documentId: comment.documentId };
   },
+  changeResource: (input, result) =>
+    documentChangeResource(input.documentId ?? result.documentId),
 });

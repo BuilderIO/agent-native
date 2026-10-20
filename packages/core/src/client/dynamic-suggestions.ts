@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { readClientAppState } from "./application-state.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { useChangeVersions } from "./use-change-version.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 import { usePollLoop } from "./use-poll-loop.js";
@@ -18,15 +19,10 @@ export interface AgentDynamicSuggestionContext {
 }
 
 export interface AgentDynamicSuggestionsConfig {
-  /** Enable/disable dynamic suggestions. Defaults to true. */
   enabled?: boolean;
-  /** Maximum number of suggestion chips after merging dynamic + static. */
   max?: number;
-  /** Keep the caller-provided static suggestions after dynamic ones. Default true. */
   includeStatic?: boolean;
-  /** Optional app-specific deterministic suggestion builder. */
   getSuggestions?: (context: AgentDynamicSuggestionContext) => string[];
-  /** Safety-net refresh cadence in ms, for updates that don't bump app-state version. Default 30_000. */
   pollMs?: number;
 }
 
@@ -100,8 +96,6 @@ function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
 }
 
 async function readAppState(key: string): Promise<unknown> {
-  // Reads issued in the same tick coalesce into one batched request, so the
-  // four keys below cost one round trip rather than four.
   return readClientAppState(key).catch(() => null);
 }
 
@@ -109,13 +103,7 @@ async function readScopedAppState(
   key: string,
   browserTabId?: string,
 ): Promise<unknown> {
-  if (browserTabId) {
-    const scoped = await readAppState(
-      appStateKeyForBrowserTab(key, browserTabId),
-    );
-    if (scoped !== null && scoped !== undefined) return scoped;
-  }
-  return readAppState(key);
+  return readAppState(appStateKeyForBrowserTab(key, browserTabId));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -343,7 +331,11 @@ export function useAgentDynamicSuggestionsResult(
     [options.dynamicSuggestions],
   );
   const browserTabId = useMemo(
-    () => normalizeBrowserTabId(options.browserTabId),
+    () =>
+      normalizeBrowserTabId(options.browserTabId) ??
+      (options.browserTabId === undefined && typeof window !== "undefined"
+        ? normalizeBrowserTabId(getBrowserTabId())
+        : undefined),
     [options.browserTabId],
   );
   const optionScope = options.scope ?? null;
@@ -354,12 +346,20 @@ export function useAgentDynamicSuggestionsResult(
             type: optionScope.type,
             id: optionScope.id,
             ...(optionScope.label ? { label: optionScope.label } : {}),
+            ...(optionScope.contextVersion
+              ? { contextVersion: optionScope.contextVersion }
+              : {}),
           }
         : null,
-    [optionScope?.type, optionScope?.id, optionScope?.label],
+    [
+      optionScope?.contextVersion,
+      optionScope?.id,
+      optionScope?.label,
+      optionScope?.type,
+    ],
   );
   const scopeKey = scope
-    ? `${scope.type}:${scope.id}:${scope.label ?? ""}`
+    ? `${scope.type}:${scope.id}:${scope.label ?? ""}:${scope.contextVersion ?? ""}`
     : "none";
   const appStateVersion = useChangeVersions(["app-state"]);
   const enabled = options.enabled !== false && config.enabled;
@@ -414,9 +414,6 @@ export function useAgentDynamicSuggestionsResult(
     void load(true);
   }, [appStateVersion, enabled, load, scopeKey, config]);
 
-  // Slow safety net for app-state updates that don't bump `appStateVersion`
-  // (the effect above already handles the event-driven case). `pollMs <= 0`
-  // disables it.
   usePollLoop(() => load(false), {
     intervalMs: config.pollMs,
     leading: false,

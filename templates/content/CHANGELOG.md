@@ -3,8 +3,1022 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-06-23
+## 2026-10-19
+
+### Improved
+
+- Database views can filter one property more than once, number filters add ≥ and ≤, and filter chips name their operator, like "Status: is not done".
+
+### Fixed
+
+- Edits made from a block's menu or a table's row and column menus, such as deleting a table, adding a row or turning off the header row, are now saved instead of coming back after a reload
+- Starting a comment puts the cursor in the comment box, ready to type.
+- Table row and column options now appear for the row or column under the pointer, Escape selects the cell before leaving the editor, wide tables keep their add-column control on screen on phones, and a tap near a table's edge on a touch screen edits the cell there instead of adding a row or column
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-18
+
+### Improved
+
+- Collection pages with more than one Blocks field show each field as a tab you can rename or delete
+- Block text and background colors use Content's own palette, and colored backgrounds are now readable in dark mode
+
+### Fixed
+
+- Blocks fields preserve literal whitespace and support hosted agent reads and edits
+- Renaming a Blocks field from a collection's column menu saves the new name again
+- Word counts can save open Blocks fields before counting on hosted deployments
+
+## 2026-10-17
+
+### Improved
+
+- Connected AI assistants can read a page with the edits still open in your editor
+
+## 2026-10-16
+
+### Fixed
+
+- Opening a page in a new tab while another tab is still saving no longer sends a second save or files a copy to History.
+- Typing steadily in one tab no longer makes another open tab show "This page changed elsewhere" after its edits saved.
+- Reopening a page after someone else renamed it no longer adds a copy of your edits to Version History
+
+## 2026-10-12
+
+### Improved
+
+- Pages open faster in a fresh browser
+
+## 2026-10-11
+
+### Improved
+
+- Comment mentions of people and agents now stay as avatar and logo chips after sending, hovering a mention or author shows who it is, including an AI author's model, effort, and run, and someone newly mentioned in an edit gets an email
+- AI comments use the dedicated agent icon for the author fallback and send control.
+
+### Fixed
+
+- Share and copy buttons stay the same height in the editor
+
+## 2026-10-10
+
+### Improved
+
+- ChatGPT and Codex widgets use the app's standard document layout, with a normal-size Share button.
+- The ChatGPT and Codex widget no longer pins a formatting toolbar to the top of the page; formatting appears on a text selection and from the slash menu, as in the app.
+
+### Fixed
+
+- Accepting a suggested edit in a comment thread no longer shows a false save error or briefly loses the thread's highlight, and the Comment tooltip and Cancel button display correctly.
+- Content keeps acknowledged edits when a stale collaborator snapshot arrives
+- The Share and Copy link actions are clearly separated in the document toolbar.
+
+## 2026-10-09
 
 ### Added
 
-- See what's new right inside Agent-Native Content — a changelog now lives in the command menu (Cmd+K).
+- AI suggestions from a comment now appear in that comment thread, where accepting or rejecting them leaves the thread open, and replying to the AI there revises the suggestion
+- ChatGPT and Codex widgets show the document's top bar with a working Share button and the full formatting toolbar for bold, italic, headings, lists, links, and undo.
+
+### Improved
+
+- Pages open faster and recover more reliably from loading failures.
+- Format Content documents directly in ChatGPT widgets
+- Pages without a collection open faster.
+
+### Fixed
+
+- Content widget documents remain editable after reopening a chat.
+- Document icons save when edited from a ChatGPT widget.
+
+## 2026-10-08
+
+### Added
+
+- Agents can update page and database descriptions and read their full saved guidance.
+
+### Improved
+
+- The Content editor fits ChatGPT's panel sizes and supports direct edits to documents and database rows in the widget.
+- Edits an agent makes now show up in an open page about two seconds sooner when you aren't typing.
+
+### Fixed
+
+- Collection rows remain readable through MCP even when descriptions and saved views are long
+- New blank documents open ready to edit without an unrelated collection prompt.
+- The sidebar hides empty Pinned sections and aligns the workspace selector and search with the navigation sections.
+- Unsaved edits stay attached to the latest title when another tab renames a page
+
+## 2026-10-07
+
+### Improved
+
+- Documents opened in a chat side pane now fill the whole pane, with no sidebar, menu, or toolbar above the page.
+
+### Fixed
+
+- A page moved to Trash now shows as trashed for everyone who has it open, without a reload.
+- Keep the latest peer title with an unsaved page recovery draft.
+- ChatGPT widgets identify a stalled Content editor instead of keeping its body skeleton onscreen.
+- ChatGPT widgets open document content without a cookie session
+- Content documents now open in ChatGPT widgets with their full body
+- Text two people type at the same spot now reaches the saved page for both of them, so readers and agents see it
+- ChatGPT widget previews show saved document bodies without a Content session.
+- Documents opened in ChatGPT show their saved content right away.
+- ChatGPT widgets show saved document bodies in read-only mode without a Content session.
+- Fixed Content pages that opened to an error in ChatGPT widgets
+
+## 2026-10-06
+
+### Added
+
+- Import Markdown files as pages from the page menu or by dropping them on a page, with a preview of anything that won't come across and one-click undo
+- External agents can now move a page and its sub-pages to recoverable Trash, list Trash, and restore it through Content's MCP tools.
+
+### Improved
+
+- Opening Content from Home shows your last page sooner
+- Pages you open from Home appear without waiting on the unsaved-draft check
+- ChatGPT can open Content document and database editors in the existing workspace, and document links use the right label.
+
+### Fixed
+
+- Connecting Notion no longer leaves its used authorization code in the address bar.
+- Documents and databases opened from ChatGPT load in the Content editor without a separate sign-in.
+- ChatGPT Content widgets load database views correctly.
+- Reopening a ChatGPT Content widget restores the editor for its saved document or collection.
+- Content preserves collaborator renames when a save is delayed
+- Filtered collection views work after you reopen the ChatGPT app.
+- Generated documents from ChatGPT open in the full Content editor.
+- Keep adopted collaborator titles when recovering an unsaved page
+- Keep collaborator title recovery aligned across rapid renames and local journal failures
+- Page recovery keeps local title edits when a collaborator renames the page.
+- Preserve the editor's authored base until external edits reach the editor, and hold database saves when collaboration delivery is pending
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Added
+
+- The Share dialog's Agents tab can add Content to Cursor or VS Code in one click, so an agent there can read the page you share
+
+### Improved
+
+- A page opened from a link or a refresh starts loading sooner
+- On phones, a collection's sort and filter chips stay on one line you can swipe, so the table no longer jumps when they load
+- Commenting on text you suggested now replies on that suggestion instead of leaving a comment that loses its place.
+- Collection pages keep selected rows visible through failed refreshes, and review space stays in place while comments refresh.
+
+### Fixed
+
+- Content keeps its text column readable as panels open; sharing and keyboard focus remain available when toolbar controls fold or panels move.
+- A paragraph suggested just before a heading, list, quote, or code block now shows as a suggestion.
+- Accepting a suggestion whose surrounding text changed now says so and keeps it pending, and separately saved suggestions on the same line now all land.
+- Agent links copied from a document are shorter, so Claude can fetch them without hitting its URL length limit.
+- Editing a page an agent wrote in two tabs no longer drops one tab's words or files them in Version History.
+- Long comments now scroll inside their card instead of jumping the page or running off the screen
+- Refreshing a page after a save failed no longer asks which of two identical versions to keep.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+- Suggested edits now save as you type, so they no longer disappear when you stay in Suggesting mode.
+- Suggested edits that rewrite a phrase show as one replacement instead of scattered letters
+- Suggesting mode now stays on until you switch it off, a reload reopens the page in the mode you left it in, and a change from another tab or an agent while you suggest no longer turns your suggestions into direct page edits.
+- Typing in two tabs on one page no longer shows "This page changed elsewhere" when the tabs' edits merge cleanly.
+- Typing in two tabs on one page, or switching between them, no longer loses or doubles words.
+- Collection view context now survives quick page changes when the saved summary fits.
+- Exact saved-view links keep the collection retry available when rows fail to load
+- Expanding a Files folder now shares one navigation read across open branches, and legacy owner shares retain their row controls.
+- Files navigation retries temporary failures consistently
+- Shared page owners keep edit and manage controls in Files, and newly opened folders populate faster.
+- Tagging an AI in a comment works again instead of failing right away with "AI request failed".
+- The home loading shell keeps the layout of your last opened page.
+- Typing `>` and a space, or inserting a toggle or callout, no longer freezes and crashes the page on a Mac.
+
+## 2026-10-03
+
+### Fixed
+
+- A malformed Lab preference no longer blocks unrelated editor commands.
+
+## 2026-10-02
+
+### Added
+
+- You and agents can now suggest edits to the text inside tables, callouts, toggles, and columns, including new paragraphs in callouts, toggles, and columns, while their rows, icons, and titles stay as they are.
+- You can now request access to a page you don't have access to, with an optional note. The owner gets a notification and an email, and can allow you with the role they choose or decline, from the request link or the page's Share dialog. Once they allow it, the page opens for you without a reload.
+
+### Improved
+
+- The sidebar, comments and agent panel share the window: the sidebar folds to a rail, then a drawer, before the page or an open comments list runs out of room, comments stay beside the text instead of covering it or the agent panel, and the header keeps the page title readable
+- A page link you can't open now says whether the page exists. "You don't have access to this page" means it does and hasn't been shared with you; "This page doesn't exist" means there's nothing there. If you could open a page that's in the trash, its link says so, with Restore when you're allowed to restore it.
+- Collections fit phones, tablets, and open side panels: view tabs use the full width, narrow column headers stay readable, and a long press selects rows on touch screens
+- After a refresh, the Files sidebar shows the open page's folders in one load instead of one level at a time
+- Builder.io setup instructions now use consistent action language across editor workflows.
+- Large collections open faster
+- Pages with open comments and collections with sorted or filtered views no longer jump while they load
+
+### Fixed
+
+- Comment and suggestion headers keep the author's name and time readable in narrow columns
+- While you suggest edits, images and other blocks that suggestions don't support yet are read-only, and an agent that tries to suggest a change to one gets a clear message instead of "Internal server error".
+- A page link you can't open now says so, with the account you're signed in as, instead of opening another page. People who can open a private share link no longer see "This document is private" first.
+- Comment edits and deletions now refresh collaborators with the document open.
+- Pages stay inside the window at every width: long inline code and links wrap, and wide tables scroll inside their own frame instead of crushing their columns
+- Suggest edits works on pages written by agents, including pages with Markdown tables, instead of refusing to start or rejecting each edit; suggestions inside a table cell are still not supported
+- While you suggest edits, tables and other blocks that suggestions don't support yet are read-only, and an agent that tries to suggest a change inside one gets a clear message instead of "Internal server error".
+
+## 2026-10-01
+
+### Improved
+
+- Home opens the page you were last on sooner
+- Pages and the sidebar load in place instead of jumping around
+
+### Fixed
+
+- Fixed Content's ChatGPT connector guidance so it refers only to available actions.
+- Accepting or rejecting suggested edits keeps desktop comments in place without opening an extra panel.
+- Suggested edits stay visible across paragraphs, and Suggesting opens without false formatting warnings.
+- Suggestion retries keep desktop comments open and failed decisions restore each draft change only once.
+- Suggested edits replace whole words on pages with bold, italic, code, or links, so a changed date reads as one word instead of scattered letters
+- Accepted suggestions stay visible once after another person edits the page, and reviewing your amended suggestion no longer shows a false conflict.
+- The editor no longer shifts focus to another document when you switch away from suggested edits.
+
+## 2026-09-30
+
+### Added
+
+- Connect ChatGPT to draft documents and organize workspace records in Content.
+
+### Improved
+
+- Search stays fast in large workspaces and finds parts of code names and links, plus Japanese, Chinese, and Korean text.
+
+### Fixed
+
+- Pending suggested edits keep their highlights when nearby edits are accepted
+- Recent page icons update immediately when changed or removed
+- Suggestion review controls remain reachable beside long author names.
+- Chat stays ready for your next draft while a message is being sent.
+- Page edits and comments save reliably
+
+### Changed
+
+- Search matches page text from the start of each word. Titles and descriptions still match anywhere.
+
+## 2026-09-29
+
+### Added
+
+- Connected agents can give up to 250 collection rows different values, such as a new rank for each row, in one atomic call.
+
+### Improved
+
+- Content search ranks similar titles faster.
+- Content block prompts stay editable while AI setup completes.
+- Related pages can be loaded past the first 25 results
+
+### Fixed
+
+- Suggested edits work on pages created through MCP that have blank lines between paragraphs or a dollar sign
+- Chat prompts clear immediately while the assistant thinks.
+- Duplicated rows and restored document versions keep collaborators' uploaded icons.
+- Text typed just before leaving a page and coming back is no longer lost or reported as a failed save
+- Inline prompts no longer show temporary status rows.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
+## 2026-09-28
+
+### Added
+
+- Link rows across collections with relation properties
+
+## 2026-09-26
+
+### Improved
+
+- Command search now shows matching titles instantly from documents already loaded in the sidebar, filling in richer results as the server responds.
+
+### Fixed
+
+- An empty Recent list now loads without an error after first run.
+
+## 2026-09-25
+
+### Added
+
+- Ask the agent to turn comment, reply, and mention emails on or off.
+- Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
+### Improved
+
+- Suggested edits now highlight only the changed words and punctuation. Related edits appear together, with controls to review each edit or the whole proposal.
+
+## 2026-09-24
+
+### Fixed
+
+- Suggest edits on pages inside collections, with the same review flow as other pages.
+
+## 2026-09-23
+
+### Added
+
+- Every page in the sidebar now has a "…" menu to rename, duplicate, move, copy its link, open it in a new tab, or move it to Trash, and it shows who last edited the page. Duplicate copies sub-pages too, and Move can take a page and its sub-pages to another workspace after warning you that its sharing will change.
+
+### Improved
+
+- The sidebar is easier to scan: the page you're on is highlighted wherever it appears, nested pages show guide lines and Trash stays in reach below the page list.
+
+### Fixed
+
+- Edits to different parts of a page from multiple tabs save together without asking you to choose a version.
+- Tables inserted in the visual editor now let you resize columns.
+- Markdown tables with aligned columns now open as editable tables in pages, keeping column alignment and all cell content.
+- The Trash view no longer highlights a document that is not in Trash.
+
+## 2026-09-22
+
+### Fixed
+
+- Comments, replies, and suggested-edit decisions now appear immediately without leaving duplicate text in the composer while they save.
+
+## 2026-09-21
+
+### Added
+
+- Choose Tabler icons, any emoji, or uploaded images for pages, collections, properties, views, callouts, and workspaces.
+
+### Improved
+
+- Search now ranks exact and partial title matches above incidental matches in document bodies.
+
+## 2026-09-18
+
+### Improved
+
+- Mention a connected AI model in a comment, choose how it should respond, and keep the work in that thread.
+
+## 2026-09-16
+
+### Fixed
+
+- Content now combines non-overlapping edits from another tab or agent automatically, while recovery choices stay attached to the exact draft and saved page version you reviewed.
+
+## 2026-09-15
+
+### Fixed
+
+- Google sign-in and Notion connections now open reliably in embedded browsers
+
+## 2026-09-14
+
+### Added
+
+- Ask AI conversations now stay with the comment that started them, with inline progress, replies, recovery, and an explicit option to open the full conversation.
+
+### Improved
+
+- Trash now uses table-native metadata filters to find nested Pages, preview their content, and empty reviewed scopes with progress that survives navigation.
+- Search is now available from the Content sidebar, with clearer date filters and keyboard-friendly calendar navigation.
+
+### Fixed
+
+- Pages created in agent conversations now appear in navigation and open when they are ready.
+- Cmd+K now opens the command menu while writing in a page.
+- The block drag-handle menu now always opens beside the block instead of sometimes jumping to the corner of the window.
+- Pasting a checklist from Notion or GitHub now keeps its checkboxes instead of turning into plain bullets.
+- Asking the agent about Notion no longer reports "not connected" when the Notion MCP server is connected — it now names the account connection and the MCP connection separately.
+
+## 2026-09-13
+
+### Fixed
+
+- Tables now export as real tables. Downloading a page as PDF or HTML keeps rows, columns, header rows, header columns, and cell line breaks instead of flattening the table into plain text. Callouts, toggles, and column layouts survive the same export path, and printed tables repeat their header row across page breaks.
+- Suggestion previews and highlights stay aligned when editing text near lists.
+
+## 2026-09-12
+
+### Improved
+
+- Search with quoted phrases, exclusions, OR, and intitle: operators, search all workspaces, pick a modified date from the calendar, and see snippets anchored at the matching sentence deep inside long pages.
+
+### Fixed
+
+- Setting up Notion from a document now opens the Integrations settings, where Notion can actually be connected.
+
+### Changed
+
+- Databases are now called **collections** across Content — same pages, views, and sharing, friendlier name.
+
+## 2026-09-10
+
+### Fixed
+
+- Opening a page link your account cannot read now lands on a page you can open and says why, instead of stopping on a "Document unavailable" screen — so a brand-new account no longer arrives on a dead end after signing up.
+
+## 2026-09-09
+
+### Added
+
+- Connected agents can set up ordinary databases, configure fields and table views, and recover them from Trash with verified results.
+
+### Improved
+
+- Search pages and databases with scoped filters, result previews, and keyboard navigation across result pages.
+
+### Fixed
+
+- Sidebar Search opens the command picker, icon controls have accessible names, and the sidebar can be resized with the keyboard.
+- First title edits no longer hit a stale-version conflict, open databases recover after agent Trash and restore actions, and database settings preserve keyboard focus when closing or returning to Add property. Source-managed database fields stay read-only in tables, page property editors, and agent actions, while local fields remain editable. Property editors stay inside mobile Info so edits can be saved without closing the panel.
+- Remote collaborator cursors in the document editor now stay compact above the text instead of expanding into full-width color bars.
+
+## 2026-09-03
+
+### Fixed
+
+- Database records can be added even when older rows use legacy positions.
+
+## 2026-08-28
+
+### Fixed
+
+- Builder Publish connections made in Settings can now discover, attach, and refresh read-only database sources without separate legacy keys or Builder write access.
+- Delegated Content requests now stay on Content's own actions for every authorized caller, including managed Slack channels.
+
+## 2026-08-26
+
+### Fixed
+
+- Shared pages now show retryable load failures instead of leaving their content indefinitely loading.
+
+## 2026-08-24
+
+### Fixed
+
+- Database columns keep their chosen order across reloads, visibility changes, and newly added fields
+
+## 2026-08-22
+
+### Fixed
+
+- Code and code-tabs blocks inserted from the slash menu no longer get stuck on "Loading…"
+- The sidebar page tree no longer flashes empty for a moment after creating a new page
+
+## 2026-08-18
+
+### Added
+
+- Database exports can be configured and downloaded as CSV
+
+## 2026-08-14
+
+### Fixed
+
+- Images fill the page width by default and remain visible when more images are added
+- Images inserted from the slash command stay saved after upload
+- SVG files can be selected reliably from the image picker
+
+## 2026-08-13
+
+### Fixed
+
+- Blocks field conflicts now keep the newer saved version visible instead of leaving a rejected edit on screen
+
+## 2026-08-12
+
+### Improved
+
+- Toggle blocks now follow Notion-style Enter and Shift-Tab behavior while preserving summaries and nested paragraphs.
+- Shared Content documents now keep viewers read-only and let commenters add comments without editing the document.
+
+### Fixed
+
+- Image uploads now confirm the image can be displayed before reporting success
+
+## 2026-08-11
+
+### Improved
+
+- Content opens your last page on return and gives new users a private welcome page.
+
+### Fixed
+
+- Chrome no longer offers to install Content as a desktop app.
+- Content mutations delegated from verified Slack DMs now use the member's exact Personal scope and return verified row receipts.
+
+## 2026-08-10
+
+### Added
+
+- Agents can safely insert, update, upsert, delete, and reorder one stable block in a database Blocks field.
+
+### Improved
+
+- Database Blocks fields now keep logical block identity through editing, reordering, deletion recovery, and reloads
+- Database row actions now validate exact schemas and safe retries before changing data.
+
+## 2026-08-07
+
+### Fixed
+
+- Collapsed sidebar utility buttons stay anchored at the bottom.
+
+## 2026-08-06
+
+### Fixed
+
+- Database exports now include their pages instead of downloading an empty collection.
+
+## 2026-08-05
+
+### Improved
+
+- Add column now opens Sources for connections and returns with new fields grouped by source.
+
+## 2026-08-03
+
+### Improved
+
+- Choose Text or a heading from one compact formatting control.
+
+## 2026-08-02
+
+### Fixed
+
+- Pages opened from a database now keep that database’s fields and loading state, even when the page also belongs to a Builder-connected database.
+
+## 2026-08-01
+
+### Added
+
+- Content can reorganize every row in an existing database as one verified, reversible operation.
+- Get an email when someone comments on, replies in, or mentions you on your document, with a new toggle in Settings
+
+### Improved
+
+- Large Builder databases now show rows immediately and finish syncing much faster.
+
+## 2026-07-31
+
+### Improved
+
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+
+## 2026-07-30
+
+### Improved
+
+- Builder source columns now appear immediately when connected entries already contain the selected field, including empty values.
+- Large Builder-backed tables show useful rows sooner and finish loading in the background.
+
+### Fixed
+
+- Breadcrumb menus now show only relevant page peers instead of internal system pages, with reliable keyboard selection between pages.
+- Database rows can now be removed without deleting their pages, and bulk actions only appear when you have permission.
+- Deleting a page no longer leaves the Content sidebar unresponsive.
+- Long-running delegated requests now continue reliably.
+- The slash-command hint now stays on only the active empty line in the document editor.
+
+## 2026-07-29
+
+### Improved
+
+- Large databases keep useful rows visible while table sorting and Builder review details load.
+- Sidebar footers now keep Feedback, Search, and Collapse together without a separate language shortcut.
+
+### Fixed
+
+- Missing databases no longer trigger repeated personal-view errors in the editor or sidebar.
+
+## 2026-07-28
+
+### Improved
+
+- Builder content reads now negotiate the newest MCP protocol while remaining compatible with legacy servers.
+- Public content pages load faster before the optional Ask sidebar appears
+
+### Fixed
+
+- Builder-backed Files & media fields now accept direct file URLs in bulk updates.
+
+## 2026-07-27
+
+### Improved
+
+- Content sidebar page lists now load with quiet skeletons and less visual chrome.
+
+## 2026-07-26
+
+### Added
+
+- Sidebar references can now be personally reordered, with Custom, Name, Last edited, and Created options for workspace Files.
+
+### Improved
+
+- Builder reviews stay responsive on large collections and preserve refresh progress when source settings change
+
+### Fixed
+
+- Builder publishing now shows safe validation details instead of a generic server error.
+- Collaborative documents no longer flash duplicated recent blocks when reopened
+- Corrected Builder updates are now reviewed separately from failed earlier attempts, slow hosted writes get a full provider response window, and uncertain outcomes still require reconciliation before retry.
+- Documents now remain read-only until their live collaborative content finishes initial sync.
+- Slash command menus now stay reachable when editing near the bottom of the screen.
+- The slash menu now shows one clear Callout choice instead of duplicate actions
+- View-only collaborators can pin or unpin shared pages while the unavailable add-child control stays aligned and visibly disabled.
+
+## 2026-07-25
+
+### Improved
+
+- App branding now uses the product name without the Agent-Native prefix.
+- Settings navigation now keeps Manage agent as a dedicated linked destination at the bottom.
+
+### Fixed
+
+- Database page preview action menus open reliably with pointer and keyboard.
+
+## 2026-07-24
+
+### Improved
+
+- Secondary controls and dashboard surfaces now use quieter borderless styling.
+- Sidebar utility controls now follow a consistent footer order.
+
+### Fixed
+
+- Builder can now publish approved updates to entries that are already live.
+- Builder collection loading no longer restarts from the beginning when overlapping refreshes finish out of order.
+- Builder connections now complete securely from Netlify deploy previews.
+- Builder draft creation now scopes execution to the selected article, avoiding hosted timeouts on large synced collections.
+- Builder review now distinguishes preparing a safe dry run from sending the confirmed update to Builder.
+- Builder source imports now recover from a transient pagination failure without discarding already loaded rows.
+- Builder source refresh now preserves the provider-bound field when local properties share the same label, so follow-up edits remain reviewable.
+- Builder update reviews now open reliably on large collections by loading full article details only for pending changes.
+- Builder write policy controls now reflect successful changes immediately.
+- Comment drafts now stay open when saving fails, and long-lived document sessions no longer flood the browser with sync requests.
+- Database pages now keep the correct properties when opened from a database or moved to the full-page editor.
+- Date properties now save reliably when selected with the native date picker.
+- Editor slash search now keeps multi-word block names such as Heading 2 open instead of inserting them as literal text.
+- Exact editor slash commands now execute on Enter even if the command menu fails to appear.
+- New collaborative pages now save their first text and media edits before you navigate away.
+- New local Builder rows no longer remain locked behind a nonexistent body sync.
+- Opening or closing a collaborative document no longer lets unfocused editor normalization overwrite saved rich content.
+- Selected text now opens the link editor with Command-K or Control-K instead of opening global search.
+- Code Block and other slash-menu choices now finish without hanging the collaborative editor, even when closing the menu unmounts the selected choice.
+- Rich document edits, including uploaded and embedded media, now stay intact while collaborative drafts save.
+- Video link insertion now keeps its source panel open while the editor reconciles.
+
+## 2026-07-23
+
+### Improved
+
+- Agent settings are clearly labeled Manage agent in the sidebar.
+
+### Fixed
+
+- Database toolbar Sort and Filter controls now open reliably with pointer and keyboard activation.
+- New pages wait until they are ready before offering database conversion.
+- New pages open immediately while slow network work continues
+- Shared pages now keep durable content visible, and comment threads stay stable and connected while you navigate.
+
+## 2026-07-22
+
+### Improved
+
+- Manage agent navigation now uses the connected-nodes icon.
+- Page actions are grouped into the three-dots menu for a cleaner editor toolbar
+
+## 2026-07-21
+
+### Fixed
+
+- Editing a database page no longer refreshes unrelated Content workspace data or interrupts typing in the originating tab.
+
+## 2026-07-20
+
+### Improved
+
+- Workspaces can be added from a blank workspace or a connected local folder from any creation menu.
+
+### Fixed
+
+- Trash actions now preserve independent archived pages, enforce access, and restore database rows in order
+- Workspace toggles now stay independently open or closed, and nested pages remain grouped beneath their parents.
+
+## 2026-07-19
+
+### Improved
+
+- Favorites is now a full, filterable database with per-user membership, and compact breadcrumbs make workspace and sibling navigation easier.
+- Files databases now start unfiltered, sidebar rows exactly follow the active filter and sort, and Favorites can be collapsed.
+- Workspace file databases now use the workspace name, open as tables, appear at the start of page breadcrumbs, nest and align child pages beneath their parents, rename sidebar rows immediately, truncate long workspace names, and provide working page actions.
+
+### Fixed
+
+- Pages now move to a reversible Trash, the organization picker is restored, and sidebar disclosure icons behave consistently.
+- Sidebar page trees now open only when expanded, remember their state across devices, and keep renamed titles intact when icons change.
+- Workspace navigation now stays stable on hover, uses folder icons, and links each Files database back to Workspaces.
+- Workspace rows now use folder icons, and deleting a user-created workspace removes it cleanly instead of failing.
+- Workspaces can be created without leaving the Workspaces database, and renamed workspaces update everywhere immediately.
+
+## 2026-07-18
+
+### Added
+
+- Create named workspaces, each with its own private Files database
+
+### Improved
+
+- Favorites align with workspace and file rows in the sidebar
+- Made Content workspaces independently expandable, restored organization switching, and added local folders as workspace sources.
+- Page details now live in a shared Info and Comments rail, databases stay focused on their data, and Favorites update immediately.
+- Workspace navigation now aligns Favorites with workspace pages, supports named workspaces, and gives every Files database filterable Kind, Parent, and Source fields.
+
+### Fixed
+
+- Local folder selection avoids unsafe embedded pickers, remembers picker attempts that never returned so they cannot cause a crash loop, and continues to support Agent-Native Desktop and native folder access in Chrome, Edge, and other Chromium browsers.
+- Workspace database views now control sidebar workspace navigation, and local folders attach to the correct Files database.
+
+## 2026-07-17
+
+### Added
+
+- Resources can be added to Creative Context from their action menus.
+- You can add exact, approved artifact versions to governed Creative Contexts for safe reuse.
+
+### Improved
+
+- Library now flags published documents with newer versions and lets you submit the update in place.
+- Workspaces now stay independently expanded as compact sidebar headers above their pages, with instant new pages, clear active titles, contextual page actions, and the Page or Database choice in the editor body.
+
+### Fixed
+
+- Creating a database now completes reliably in hosted workspaces
+- Slack-created database entries now record Slack as their submission source when the intake form supports it.
+- The agent chat sidebar stays closed until you open it or start a chat handoff.
+- Workspace files now stay in a loading state until automatic setup finishes, with a retry when setup fails
+- Workspace switching now opens the selected Files database, preserves the choice across reloads, provisions organization Files for every member, and creates new pages in the selected workspace.
+
+## 2026-07-16
+
+### Added
+
+- The Agent workspace now includes a Library for reusing verified creative context and choosing when it applies to content.
+- Organize every workspace through a customizable Files database and sync local folders into the same database-backed experience.
+
+### Fixed
+
+- Content callout blocks now convert into safe Builder text callouts instead of blocking the publication review.
+- Heading 5 and Heading 6 are available from the editor slash menu.
+- Slack corrections now preserve newer Content values unless you explicitly change or clear them.
+
+## 2026-07-15
+
+### Improved
+
+- Page and database descriptions now start compactly and wrap naturally as they grow.
+
+### Fixed
+
+- Selected Builder reviews now load only the chosen rows, avoiding production timeouts on large collections.
+
+## 2026-07-14
+
+### Added
+
+- Create inline or block LaTeX equations from the slash menu or by typing `$…$`, with live validation and preview; existing GitHub-style equation syntax remains compatible, and equations render on public pages and in exports.
+- Pages and databases can describe themselves, with guidance for properties and select options.
+
+### Fixed
+
+- Builder account connection now remains available when branch creation is not configured, with clearer guidance when a preview still needs relay setup.
+- Builder-backed articles now preserve fifth- and sixth-level headings in the editor.
+- Builder sources now review and publish rich article updates with guarded writes and preserved media.
+- Builder writes now prevent duplicate retries when another push is running or reconciliation is required.
+- File and media links now validate before saving and include the pending valid link on save.
+- Slack follow-ups now retain created Content identity and person-field intent across corrections.
+
+## 2026-07-13
+
+### Added
+
+- New Agent page: see and manage your agent's context, files, connections, jobs, and external access in one place
+- You can now cancel a prepared Builder update safely before it is sent.
+
+### Improved
+
+- Builder connection setup is now available directly from Connections settings.
+
+### Fixed
+
+- Builder reviews now hide already-applied writes, detect native media converter updates, and show the linked entry target.
+- Document links now support opening in a new tab.
+- Required Builder publishing fields can now be added directly from the connected source settings.
+
+## 2026-07-12
+
+### Fixed
+
+- The left sidebar stays fixed horizontally while scrolling on desktop and mobile.
+
+## 2026-07-11
+
+### Improved
+
+- Comments now update from live collaboration events without continuous background requests
+- Editor toggle feedback now feels more responsive.
+- Public document chats now start faster while keeping full document details available when needed
+
+### Fixed
+
+- Document loading failures now show a clear retry action instead of an empty workspace.
+- Moving documents at the same time no longer scrambles their order
+- Reopening a comment now uses consistent permissions everywhere
+- Sidebar resizing now tracks your cursor instantly instead of lagging behind
+
+## 2026-07-10
+
+### Added
+
+- Database form views now collect ordered, required answers and create verified response pages.
+- Notion databases can now add read-only details to Content tables through a safe, refreshable source connection.
+
+### Improved
+
+- Builder CMS sources can now be enabled for guarded staged or published updates by page administrators.
+- Database tables now use a quieter, more compact layout with clearer filters and contextual shared-view controls.
+- Open documents no longer make constant background requests while waiting for sync operations.
+- Slack request intake can preserve its source thread, validate required database form fields, and return the exact submitted Content page.
+
+### Fixed
+
+- Builder-backed preview edits are preserved when article bodies finish syncing.
+- Builder-backed properties now load current source values as soon as you add them.
+- Builder database snapshots now refresh only when requested, continue past 500 rows, and ignore unchanged select values when counting pending changes.
+- Failed row creation and source attach now show an error instead of silently doing nothing
+- Items added at the same time no longer end up with identical sort positions
+- Local folders now wait for an explicit pull before Content reads them
+
+## 2026-07-09
+
+### Fixed
+
+- Builder source refreshes now keep mapped fields such as topics and tags, preserve existing rows when a read unexpectedly returns empty, and load large databases more reliably.
+- Notion conflict choices and version restores preserve document paragraphs and protect live edits.
+- Notion conflict warnings no longer flash during normal synced editing
+- Property menus and delete confirmations now open visibly and respond reliably in database tables.
+
+## 2026-07-08
+
+### Improved
+
+- Database filters now support Notion-style reset, save-for-everyone, and additive option selections.
+- Date filters can now target a between range.
+- Settings are cleaner and searchable, with a consistent navigation that jumps straight to any setting.
+
+### Fixed
+
+- Builder source sync now completes reliably on hosted databases with hundreds of entries.
+- Fixed Builder database sync so large sources continue past the first batch without leaving the table stuck mid-refresh.
+
+## 2026-07-07
+
+### Fixed
+
+- Builder-backed database fields now edit like normal Content fields while still creating reviewable Builder diffs.
+- Builder source tag fields now import as multi-select properties with their available choices.
+- Permanently deleting trashed databases now finishes reliably instead of timing out.
+
+## 2026-07-06
+
+### Improved
+
+- Local files now remember sidebar collapse state and include folder management controls.
+
+### Fixed
+
+- Builder sync progress no longer shows a Continue button while loading is already continuing automatically.
+- Document headers and page bodies now share one consistent background shade.
+- Export options stay visible outside the page actions menu instead of being clipped.
+- Fixed collaborative documents reapplying content before saved edits finish loading.
+- Notion comment sync now preserves threads — replies stay attached to their conversation in both directions
+- Notion sync is far more reliable: auto-sync no longer overwrites concurrent edits on either side, and imported and exported pages preserve formatting exactly
+- Opening pages now highlights the sidebar item and shows the editor loading state immediately.
+- Presence markers in the editor are now compact instead of covering content with color blocks.
+- Sidebar collapse now keeps the same background shade as the expanded sidebar.
+
+### Removed
+
+- The content header no longer shows the global notifications bell.
+
+## 2026-07-03
+
+### Added
+
+- Agent document edits now appear as a live collaborator — presence avatar, editing indicator, and a brief highlight on the changed text
+
+### Improved
+
+- Document search and list views load faster on large workspaces
+- Content error screens now include a feedback button with debug context and a prefilled GitHub issue fallback.
+
+## 2026-07-02
+
+### Fixed
+
+- Builder source refreshes recover from stalled background row loading.
+- Builder-sourced database rows now open with sync protection immediately and keep source-field columns stable during background refreshes.
+- Database rows and pages open faster from recently loaded data.
+- Preview panels close reliably, narrow sidebar row actions stay reachable, and adding properties now shows progress.
+
+## 2026-07-01
+
+### Added
+
+- Builder source rows can be staged in bulk with a reviewable diff before writeback.
+
+### Improved
+
+- Builder database sources keep loading rows in the background with clearer progress and page-opening feedback.
+- Builder source components now show clearer preservation and review states during readable body sync; previously hydrated Builder bodies may need refresh before guarded push.
+- Builder source refreshes now show progress and keep large docs/blog databases usable while large row sets load incrementally.
+
+### Fixed
+
+- Builder source attachment now starts with a usable first batch of rows while larger docs/blog collections continue loading.
+- Builder source attachment now stays connected after large collections finish attaching.
+- Database pages now delete to Trash without leaving the app on a failed page route.
+
+## 2026-06-30
+
+### Improved
+
+- Builder source components now render as preserved preview blocks inside hydrated article bodies.
+- Cmd+K search now opens from the editor and finds real documents, databases, and local-file results.
+
+### Fixed
+
+- Builder article media now render as images and embeds when readable body content syncs from Builder.
+- /database once again creates an inline database in the current page instead of opening a child database page, and the sidebar restores Page/Database create menus plus inline database Trash controls.
+- Editor floating toolbars now use theme-aware colors in light and dark mode.
+- Sidebar favorites now keep long titles tidy and stay in sync with saved page titles.
+
+## 2026-06-29
+
+### Added
+
+- Builder CMS sources now sync article bodies into Content and push approved body edits through the Builder review flow.
+- Reusable MDX references now preview linked local documents inline.
+
+### Improved
+
+- Database sources can now be added as more rows or matched details, with an in-app role repair path and field picker.
+
+### Fixed
+
+- Builder review checks now preserve publish and unpublish choices before sending updates.
+- Database gallery layouts now adapt cleanly when the agent sidebar narrows the app.
+- Fixed loading the final rows in larger databases without breaking the table.
+- Read-only pages no longer try to autosave or open editor-only realtime connections.
+
+## 2026-06-28
+
+### Improved
+
+- Left sidebar collapse motion and footer controls now feel smoother and use less divider chrome.
+
+## 2026-06-27
+
+### Fixed
+
+- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
+
+## 2026-06-25
+
+### Improved
+
+- The editor toolbar now has a one-click page link copy button next to Share.
+- The editor toolbar now shows page breadcrumbs and the latest edit time like Notion.
+
+### Fixed
+
+- Comment cards now track their highlighted text while scrolling and no longer stay open after you click away.
+- Comments now scroll with the document and stay below the page toolbar.
+- Creating a database from the slash menu no longer leaves stale command text or a purple selected strip when returning to the page.
+- Sidebar hover controls no longer leave a lingering fade when moving between pages.
+- Sidebar page actions are now easier to see when hovering inactive pages.
+- Text selections in the editor no longer show white gaps when the formatting toolbar appears.
+- The /page command now leaves a Notion-style page reference and clears stale cursor labels when you return.
+
+## 2026-06-24
+
+### Added
+
+- A new Settings page gives quick access to language, workspace, and agent preferences.
+- Added a language picker and localized app chrome for supported languages.
+
+For the full list of updates, see the [changelog folder](./changelog/).

@@ -1,64 +1,20 @@
-/**
- * Pure data/logic for the responsive Interact mode's device chrome bar
- * (ResponsiveInteractBar). Modeled on builder-internal's
- * ResponsiveEditingMode/responsive-device-presets, adapted to this app's
- * shadcn chrome. Kept separate from DEVICE_FRAME_VIEWPORTS in
- * components/design/types.ts — that record is a fixed 3-category decorative
- * frame (desktop/tablet/mobile chrome border) used elsewhere in the editor,
- * not a device-simulation preset list with named devices and exact W×H.
- */
+import {
+  DEFAULT_INTERACT_DEVICE_PRESET,
+  INTERACT_CUSTOM_DEVICE_NAME,
+  INTERACT_DEVICE_PRESETS,
+  type InteractDevicePreset,
+} from "@shared/interact-device-presets";
 
-export type InteractDeviceCategory = "phone" | "tablet" | "desktop" | "custom";
-
-export interface InteractDevicePreset {
-  name: string;
-  width: number;
-  height: number;
-  category: InteractDeviceCategory;
-}
-
-/** Preset name used whenever the user types a width/height directly. */
-export const INTERACT_CUSTOM_DEVICE_NAME = "Custom";
-
-/** Must track ResponsiveInteractBar's `h-12`; the zoom-to-fit math subtracts
- * it from the viewport to size the device box. */
-export const RESPONSIVE_INTERACT_BAR_HEIGHT = 48;
-
-export const INTERACT_DEVICE_PRESETS: InteractDevicePreset[] = [
-  { name: "iPhone SE", category: "phone", width: 320, height: 568 }, // i18n-ignore: stable device preset name.
-  { name: "iPhone 17", category: "phone", width: 402, height: 874 }, // i18n-ignore: stable device preset name.
-  { name: "iPhone 17 Pro Max", category: "phone", width: 440, height: 956 }, // i18n-ignore: stable device preset name.
-  { name: "Android Compact", category: "phone", width: 412, height: 917 }, // i18n-ignore: stable device preset name.
-  {
-    name: 'iPad Pro 11" Portrait',
-    category: "tablet",
-    width: 834,
-    height: 1194,
-  },
-  {
-    name: 'iPad Pro 11" Landscape',
-    category: "tablet",
-    width: 1194,
-    height: 834,
-  },
-  { name: 'MacBook Air 13"', category: "desktop", width: 1440, height: 900 },
-  {
-    name: INTERACT_CUSTOM_DEVICE_NAME,
-    category: "custom",
-    width: 402,
-    height: 874,
-  },
-];
-
-export const DEFAULT_INTERACT_DEVICE_PRESET = INTERACT_DEVICE_PRESETS.find(
-  (preset) => preset.category === "desktop",
-)!;
-
-export function findInteractDevicePreset(
-  name: string,
-): InteractDevicePreset | undefined {
-  return INTERACT_DEVICE_PRESETS.find((preset) => preset.name === name);
-}
+export {
+  DEFAULT_INTERACT_DEVICE_PRESET,
+  findInteractDevicePreset,
+  findSelectableInteractDevicePreset,
+  INTERACT_CUSTOM_DEVICE_NAME,
+  INTERACT_DEVICE_PRESETS,
+  SELECTABLE_INTERACT_DEVICE_PRESETS,
+  type InteractDeviceCategory,
+  type InteractDevicePreset,
+} from "@shared/interact-device-presets";
 
 export function resolveInteractDeviceForScreen(screen?: {
   width?: number | null;
@@ -96,13 +52,6 @@ export function formatInteractZoom(zoom: number): string {
   return Number.isFinite(zoom) ? zoom.toFixed(1) : "100.0";
 }
 
-/**
- * Auto-fit zoom for the responsive device box, ported from
- * builder-internal's ResponsiveEditingMode effect (~lines 155-174): only
- * zooms DOWN so the device fits the available chrome area, never zooms in
- * past 100% just because there's extra room. Steps to the nearest 5 and
- * clamps to [minZoom, 100] so the result always lands on a clean number.
- */
 export function computeInteractZoomToFit(params: {
   availableWidth: number;
   availableHeight: number;

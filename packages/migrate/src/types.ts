@@ -101,10 +101,10 @@ export interface ProjectIR {
 export interface MigrationRun {
   id: string;
   sourceRoot: string;
-  inputKind: MigrationInputKind | string;
+  inputKind: MigrationInputKind | (string & {});
   inputDescription: string;
   outputRoot: string;
-  target: "agent-native" | "agent-native-builder" | string;
+  target: "agent-native" | "agent-native-builder" | (string & {});
   phase: MigrationPhase;
   approved: boolean;
   createdAt: string;
@@ -156,7 +156,7 @@ export interface SourceAdapter {
   id: string;
   label: string;
   kind?: "deterministic" | "agent";
-  inputKinds?: Array<MigrationInputKind | string>;
+  inputKinds?: Array<MigrationInputKind | (string & {})>;
   detect(sourceRoot: string): Promise<boolean>;
   introspect(sourceRoot: string): Promise<ProjectIR>;
 }

@@ -1,15 +1,3 @@
-/**
- * Browser-safe accessors for optional Node builtins.
- *
- * `node:async_hooks` and `node:events` are server-only, but the modules that
- * use them (db telemetry, settings/resource emitters) can land in the browser
- * dev graph before tree-shaking runs. A static `import { X } from "node:..."`
- * resolves to Vite's externalized stub and throws the instant the value is
- * touched at module load. We read the builtin through `process.getBuiltinModule`
- * instead — the same guard `server/request-context.ts` uses — so there is no
- * static `node:` import to evaluate in the browser, and callers fall back to a
- * no-op on non-Node runtimes (browser, or Node without getBuiltinModule).
- */
 import type { AsyncLocalStorage } from "node:async_hooks";
 import type { EventEmitter } from "node:events";
 
@@ -42,11 +30,6 @@ export function getAsyncLocalStorageCtor(): AsyncLocalStorageCtor | undefined {
 
 type EventEmitterCtor = new () => EventEmitter;
 
-/**
- * Returns a real Node EventEmitter on Node, or a no-op emitter elsewhere. The
- * emitters that use this drive server-side SSE fan-out; nothing subscribes in
- * the browser, so the no-op fallback is inert rather than wrong.
- */
 export function createEventEmitter(): EventEmitter {
   const Ctor = nodeBuiltin<{ EventEmitter: EventEmitterCtor }>(
     "node:events",

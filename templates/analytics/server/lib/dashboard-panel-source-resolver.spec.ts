@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./dashboard-panel-query", () => ({
-  DASHBOARD_PANEL_SOURCES: ["demo", "program"],
+  DASHBOARD_PANEL_SOURCES: ["bigquery", "demo", "program"],
   runDashboardPanelQuery: mocks.runDashboardPanelQuery,
 }));
 
@@ -37,7 +37,24 @@ describe("Analytics dashboard panel source resolver registry", () => {
     });
     expect(
       analyticsPanelSourceResolvers.map((resolver) => resolver.source),
-    ).toEqual(["demo", "program"]);
+    ).toEqual(["bigquery", "demo", "program"]);
+  });
+
+  it("passes an explicit refresh request to the BigQuery query runner", async () => {
+    const context = { userEmail: "alice@example.com", orgId: "org-1" };
+    mocks.runDashboardPanelQuery.mockResolvedValue({ rows: [], schema: [] });
+
+    await resolveAnalyticsPanelSource(
+      { source: "bigquery", query: "SELECT 1", forceRefresh: true },
+      context,
+    );
+
+    expect(mocks.runDashboardPanelQuery).toHaveBeenCalledWith({
+      source: "bigquery",
+      query: "SELECT 1",
+      ctx: context,
+      forceRefresh: true,
+    });
   });
 
   it("passes a panel timeout through to the Analytics query runner", async () => {
@@ -57,6 +74,24 @@ describe("Analytics dashboard panel source resolver registry", () => {
       query: "up",
       ctx: context,
       timeoutMs: 147,
+    });
+  });
+
+  it("passes request cancellation through to the Analytics query runner", async () => {
+    const context = { userEmail: "alice@example.com", orgId: "org-1" };
+    const signal = new AbortController().signal;
+    mocks.runDashboardPanelQuery.mockResolvedValue({ rows: [], schema: [] });
+
+    await resolveAnalyticsPanelSource(
+      { source: "bigquery", query: "SELECT 1", signal },
+      context,
+    );
+
+    expect(mocks.runDashboardPanelQuery).toHaveBeenCalledWith({
+      source: "bigquery",
+      query: "SELECT 1",
+      ctx: context,
+      signal,
     });
   });
 

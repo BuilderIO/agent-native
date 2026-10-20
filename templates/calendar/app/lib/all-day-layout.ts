@@ -1,6 +1,14 @@
 import type { CalendarEvent } from "@shared/api";
-import { addDays, format, parseISO, startOfDay } from "date-fns";
 
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
+import {
+  DATE_ONLY_PATTERN,
+  addCalendarDays,
+  dateToCalendarDateKey,
+  eventOverlapsCalendarDay,
+  getBrowserTimezone,
+  isAllDayCalendarEvent,
+} from "@/lib/calendar-timezone";
 import { getFullDayOutOfOfficeDateRange } from "@/lib/out-of-office";
 import { isWorkingLocationEvent } from "@/lib/working-location";
 
@@ -21,6 +29,25 @@ export interface AllDayLayout {
 
 export type AllDayPlacementGroup = AllDayPlacement[];
 
+export function isCompactCalendarEvent(event: CalendarEvent): boolean {
+  if (isAllDayCalendarEvent(event)) return true;
+  if (
+    DATE_ONLY_PATTERN.test(event.start) ||
+    !event.end ||
+    DATE_ONLY_PATTERN.test(event.end)
+  ) {
+    return false;
+  }
+
+  const start = Date.parse(event.start);
+  const end = Date.parse(event.end);
+  return (
+    Number.isFinite(start) &&
+    Number.isFinite(end) &&
+    end - start > 24 * 60 * 60 * 1000
+  );
+}
+
 export function partitionAllDayEvents(events: CalendarEvent[]) {
   const workingLocations: CalendarEvent[] = [];
   const regularEvents: CalendarEvent[] = [];
@@ -33,26 +60,27 @@ export function partitionAllDayEvents(events: CalendarEvent[]) {
   return { workingLocations, regularEvents };
 }
 
-/** Determine which visible day columns an all-day event overlaps. */
 export function getAllDaySpan(
   event: CalendarEvent,
   days: Date[],
+  timezone: string = getBrowserTimezone(),
 ): Omit<AllDaySpan, "event"> | null {
-  const eventStart = parseISO(event.start);
-  const eventEnd = event.end ? parseISO(event.end) : addDays(eventStart, 1);
   const outOfOfficeRange = getFullDayOutOfOfficeDateRange(event);
+  const eventStartDate = event.start.slice(0, 10);
+  const eventEndDate =
+    event.end?.slice(0, 10) ?? addCalendarDays(eventStartDate, 1);
 
   let startCol = -1;
   let endCol = -1;
 
   for (let index = 0; index < days.length; index++) {
-    const dayStart = startOfDay(days[index]);
-    const dayEnd = addDays(dayStart, 1);
-    const dayDate = format(days[index], "yyyy-MM-dd");
+    const dayDate = dateToCalendarDateKey(days[index]);
     const overlaps = outOfOfficeRange
       ? dayDate >= outOfOfficeRange.startDate &&
         dayDate < outOfOfficeRange.endDateExclusive
-      : eventStart < dayEnd && eventEnd > dayStart;
+      : event.allDay
+        ? eventStartDate <= dayDate && eventEndDate > dayDate
+        : eventOverlapsCalendarDay(event, days[index], timezone);
     if (overlaps) {
       if (startCol === -1) startCol = index;
       endCol = index;
@@ -65,16 +93,19 @@ export function getAllDaySpan(
 function compareSpans(a: AllDaySpan, b: AllDaySpan): number {
   if (a.startCol !== b.startCol) return a.startCol - b.startCol;
   if (a.endCol !== b.endCol) return b.endCol - a.endCol;
-  return a.event.id.localeCompare(b.event.id);
+  return getCalendarEventRenderKey(a.event).localeCompare(
+    getCalendarEventRenderKey(b.event),
+  );
 }
 
 export function layoutAllDayEvents(
   events: CalendarEvent[],
   days: Date[],
+  timezone: string = getBrowserTimezone(),
 ): AllDayLayout {
   const spans = events
     .map((event) => {
-      const span = getAllDaySpan(event, days);
+      const span = getAllDaySpan(event, days, timezone);
       return span ? { event, ...span } : null;
     })
     .filter((span): span is AllDaySpan => span !== null)
@@ -102,7 +133,6 @@ export function layoutAllDayEvents(
   return { placements, rowCount: rows.length };
 }
 
-/** Group visually adjacent placements while preserving each event's click target. */
 export function groupAdjacentAllDayPlacements(
   placements: AllDayPlacement[],
   getGroupKey: (placement: AllDayPlacement) => string,

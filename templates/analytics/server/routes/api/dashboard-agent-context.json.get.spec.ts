@@ -12,7 +12,7 @@ const mockVerifyScopedAgentAccessToken = vi.hoisted(() =>
 );
 const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
-const mockLoadDashboardSeed = vi.hoisted(() => vi.fn());
+const mockBuildBuiltinDashboard = vi.hoisted(() => vi.fn());
 const mockBuildDashboardAgentContext = vi.hoisted(() =>
   vi.fn((dashboard: any, _options: unknown) => ({
     resourceType: "analytics-dashboard",
@@ -64,8 +64,11 @@ vi.mock("../../lib/agent-readable-resource-context.js", () => ({
   ) => mockBuildDashboardSeedAgentContext(id, seed, options),
 }));
 
-vi.mock("../../lib/dashboard-seeds.js", () => ({
-  loadDashboardSeed: (...args: unknown[]) => mockLoadDashboardSeed(...args),
+vi.mock("../../lib/builtin-dashboards.js", () => ({
+  buildBuiltinDashboard: (id: string) => {
+    const config = mockBuildBuiltinDashboard(id);
+    return config ? { id, title: id, config } : null;
+  },
 }));
 
 import { LEGACY_NEW_VS_RECURRING_USERS_SQL } from "../../lib/canonical-first-party-dashboard-repair";
@@ -91,7 +94,7 @@ describe("dashboard agent context route", () => {
     vi.clearAllMocks();
     resultQueue.current = [];
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
-    mockLoadDashboardSeed.mockReturnValue({ name: "Seed dashboard" });
+    mockBuildBuiltinDashboard.mockReturnValue({ name: "Seed dashboard" });
   });
 
   it("serves public dashboard rows without an agent token", async () => {
@@ -119,6 +122,44 @@ describe("dashboard agent context route", () => {
     });
   });
 
+  it("normalizes persisted SQL dashboard context before serving it", async () => {
+    const row = dashboardRow("public");
+    row.config = JSON.stringify({
+      name: "Revenue",
+      panels: [
+        {
+          id: "table",
+          title: "Old title",
+          sql: "SELECT 0 AS value",
+          source: "first-party",
+          chartType: "metric",
+          width: 1,
+          config: {
+            title: "Revenue by day",
+            sql: "SELECT day, revenue FROM revenue",
+            source: "bigquery",
+            chartType: "table",
+            columns: [{ key: "day" }],
+          },
+        },
+      ],
+    });
+    resultQueue.current = [[row]];
+
+    await (handler as any)({ query: { id: "dashboard-1" } });
+
+    const dashboard = mockBuildDashboardAgentContext.mock.calls[
+      mockBuildDashboardAgentContext.mock.calls.length - 1
+    ]?.[0] as { config: { panels: Array<Record<string, unknown>> } };
+    expect(dashboard.config.panels[0]).toMatchObject({
+      title: "Revenue by day",
+      sql: "SELECT day, revenue FROM revenue",
+      source: "bigquery",
+      chartType: "table",
+      config: { columns: [{ key: "day" }] },
+    });
+  });
+
   it("requires scoped agent access before serving seeded dashboard context", async () => {
     resultQueue.current = [[]];
 
@@ -126,7 +167,9 @@ describe("dashboard agent context route", () => {
       query: { id: "node-exporter-full" },
     });
 
-    expect(mockLoadDashboardSeed).toHaveBeenCalledWith("node-exporter-full");
+    expect(mockBuildBuiltinDashboard).toHaveBeenCalledWith(
+      "node-exporter-full",
+    );
     expect(mockBuildDashboardSeedAgentContext).not.toHaveBeenCalled();
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 403);
     expect(result).toEqual({
@@ -158,12 +201,39 @@ describe("dashboard agent context route", () => {
     });
   });
 
+  it.each(["public", "private"] as const)(
+    "does not serve a hidden %s install-bound row when the builtin cannot open",
+    async (visibility) => {
+      mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+      mockBuildBuiltinDashboard.mockReturnValue(null);
+      resultQueue.current = [
+        [
+          {
+            ...dashboardRow(visibility),
+            id: "risk-meeting",
+            hiddenBy: "analytics:builtin-dashboards",
+          },
+        ],
+      ];
+      const result = await (handler as any)({
+        query: { id: "risk-meeting", agent_access: "valid-token" },
+      });
+      expect(result).toEqual({ error: "Dashboard not found" });
+      expect(mockSetResponseStatus).toHaveBeenCalledWith(
+        expect.anything(),
+        404,
+      );
+      expect(mockBuildDashboardAgentContext).not.toHaveBeenCalled();
+      expect(mockBuildDashboardSeedAgentContext).not.toHaveBeenCalled();
+    },
+  );
+
   it("repairs persisted first-party dashboard SQL before serving agent context", async () => {
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     const row = dashboardRow("public");
     row.id = FIRST_PARTY_DASHBOARD_ID;
     row.config = JSON.stringify({
-      name: "Agent Native Templates (First-party)",
+      name: "Agent-Native Templates (First-party)",
       panels: [
         {
           id: "new-vs-recurring-users",

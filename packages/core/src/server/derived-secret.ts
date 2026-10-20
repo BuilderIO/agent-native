@@ -1,11 +1,18 @@
 import crypto from "node:crypto";
 
+import { getAppConfig } from "../app-config/index.js";
+
 const DERIVED_SECRET_PREFIX = "agent-native:derived-secret:v1";
 
-function isWorkspaceRuntime(): boolean {
+/**
+ * Whether this app runs inside a workspace, where auth and internal secrets
+ * derive from the shared `A2A_SECRET`. Exported so the deploy settings check
+ * decides "workspace" exactly the way the derivation does.
+ */
+export function isWorkspaceRuntime(): boolean {
+  const workspace = getAppConfig().workspace;
   return (
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
+    workspace.isWorkspace === true || typeof workspace.appsJson === "string"
   );
 }
 

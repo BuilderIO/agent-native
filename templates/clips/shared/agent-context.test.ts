@@ -4,13 +4,23 @@ import {
   agentAccessTokenResourceId,
   buildAgentApiUrls,
   buildAgentDiscoveryPayload,
+  buildAgentHttpToolManifest,
   buildRecommendedFrames,
+  CLIPS_WEBMCP_TOOL_DEFINITIONS,
   formatAgentTimestamp,
   safeJsonForHtml,
   toAgentTranscriptSegments,
 } from "./agent-context";
 
 describe("agent clip context helpers", () => {
+  it("tells agents not to retry unsupported frame sources", () => {
+    const frameTool = CLIPS_WEBMCP_TOOL_DEFINITIONS.find(
+      (tool) => tool.name === "clips-get-frame",
+    );
+
+    expect(frameTool?.description).toContain("must not be retried");
+  });
+
   it("tells an agent to wait when a shared clip is still uploading", () => {
     const payload = buildAgentDiscoveryPayload({
       recordingId: "rec-1",
@@ -28,12 +38,144 @@ describe("agent clip context helpers", () => {
     expect(payload.instructions).toMatch(/still uploading/i);
     expect(payload.instructions).toMatch(/wait 15 seconds/i);
     expect(payload.instructions).not.toMatch(/JPEG frame URLs/i);
+    expect(payload.webmcp.tools.map((tool) => tool.name)).toEqual([
+      "clips-get-context",
+      "clips-get-transcript",
+      "clips-get-frame",
+      "clips-get-frames",
+    ]);
+    expect(payload.http.tools.map((tool) => tool.name)).toEqual([
+      "clips-get-context",
+      "clips-get-transcript",
+    ]);
+  });
+
+  it("does not offer frame inspection for a failed recording", () => {
+    const payload = buildAgentDiscoveryPayload({
+      recordingId: "rec-1",
+      title: "Clip",
+      status: "failed",
+      agentContextUrl:
+        "https://clips.example.com/api/agent-context.json?id=rec-1",
+    });
+
+    expect(payload.agentReadiness).toMatchObject({
+      state: "failed",
+      instruction: expect.stringContaining("frames are unavailable"),
+    });
+    expect(payload.instructions).toContain("Do not request frame URLs again");
+    expect(
+      payload.http.tools.some((tool) =>
+        tool.name.startsWith("clips-get-frame"),
+      ),
+    ).toBe(false);
   });
 
   it("scopes private agent access tokens separately from media tokens", () => {
     expect(agentAccessTokenResourceId("rec-1")).toBe(
       "clip-agent-context:rec-1",
     );
+  });
+
+  it("keeps browser-independent HTTP access first-class", () => {
+    const payload = buildAgentDiscoveryPayload({
+      recordingId: "rec-1",
+      title: "Clip",
+      status: "ready",
+      agentContextUrl:
+        "https://clips.example.com/api/agent-context.json?id=rec-1",
+    });
+
+    expect(payload.instructions).toContain("Use apis.transcript");
+    expect(payload.instructions).toContain("keep the clip id");
+    expect(payload.instructions).toContain("For any non-2xx response");
+    expect(payload.instructions).toContain(
+      "fetch each recommendedFrames[].url",
+    );
+    expect(payload.instructions).toContain("choose Share with agents");
+    expect(payload.webmcp.instructions).toContain(
+      "For browser-independent access from any HTTP client",
+    );
+    expect(payload.webmcp.instructions).toContain("For any non-2xx response");
+    expect(payload.webmcp.instructions).toContain(
+      "Read the complete transcript from apis.transcript",
+    );
+    expect(payload.webmcp.instructions).toContain("bounded read-only access");
+    expect(payload.webmcp.instructions).toContain(
+      "its sourceUrl points to the HTTP transcript",
+    );
+    expect(payload.http.tools).toMatchObject([
+      {
+        name: "clips-get-context",
+        method: "GET",
+        endpoint: "https://clips.example.com/api/agent-context.json?id=rec-1",
+        responseType: "application/json",
+      },
+      {
+        name: "clips-get-transcript",
+        method: "GET",
+        endpoint:
+          "https://clips.example.com/api/agent-transcript.json?id=rec-1",
+        responseType: "application/json",
+      },
+      {
+        name: "clips-get-frame",
+        method: "GET",
+        endpoint:
+          "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={atMs}",
+        responseType: "image/jpeg",
+      },
+      {
+        name: "clips-get-frames",
+        method: "GET",
+        endpoint:
+          "https://clips.example.com/api/agent-frames.jpg?id=rec-1&startMs={startMs}&endMs={endMs}&fps={fps}",
+        responseType: "image/jpeg",
+      },
+    ]);
+  });
+
+  it("describes the same clip tools as browser-independent fetch endpoints", () => {
+    const manifest = buildAgentHttpToolManifest({
+      contextUrl: "https://clips.example.com/api/agent-context.json?id=rec-1",
+      transcriptUrl:
+        "https://clips.example.com/api/agent-transcript.json?id=rec-1",
+      frameUrlTemplate:
+        "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={timestampMs}",
+    });
+
+    expect(manifest).toMatchObject({
+      schema_version: "v1",
+      browserRequired: false,
+    });
+    expect(manifest.tools).toHaveLength(3);
+    expect(manifest.tools[1].parameters).toEqual(manifest.tools[1].inputSchema);
+    expect(manifest.tools[2].endpoint).toContain("atMs={atMs}");
+  });
+
+  it("lists the frame sheet only when the clip has one", () => {
+    const manifest = buildAgentHttpToolManifest({
+      contextUrl: "https://clips.example.com/api/agent-context.json?id=rec-1",
+      transcriptUrl:
+        "https://clips.example.com/api/agent-transcript.json?id=rec-1",
+      frameUrlTemplate:
+        "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={timestampMs}",
+      frameSheetUrlTemplate:
+        "https://clips.example.com/api/agent-frames.jpg?id=rec-1&startMs={startMs}&endMs={endMs}&fps={fps}",
+    });
+
+    expect(manifest.tools.map((tool) => tool.name)).toEqual([
+      "clips-get-context",
+      "clips-get-transcript",
+      "clips-get-frame",
+      "clips-get-frames",
+    ]);
+    expect(manifest.tools[3].parameters).toMatchObject({
+      required: ["startMs"],
+      properties: {
+        fps: { maximum: 60 },
+      },
+    });
   });
 
   it("builds shareable agent API URLs with base path and token", () => {
@@ -49,11 +191,17 @@ describe("agent clip context helpers", () => {
     expect(urls.transcriptUrl).toBe(
       "https://clips.example.com/app/api/agent-transcript.json?id=rec+1&agent_access=tok",
     );
+    expect(urls.appActivityUrl).toBe(
+      "https://clips.example.com/app/api/agent-app-activity.json?id=rec+1&agent_access=tok",
+    );
     expect(urls.frameUrlTemplate).toBe(
       "https://clips.example.com/app/api/agent-frame.jpg?id=rec+1&agent_access=tok&atMs={timestampMs}",
     );
     expect(urls.frameUrl(1234)).toBe(
       "https://clips.example.com/app/api/agent-frame.jpg?id=rec+1&agent_access=tok&atMs=1234",
+    );
+    expect(urls.frameSheetUrlTemplate).toBe(
+      "https://clips.example.com/app/api/agent-frames.jpg?id=rec+1&agent_access=tok&startMs={startMs}&endMs={endMs}&fps={fps}",
     );
   });
 

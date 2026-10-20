@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import {
   getAppProductionUrl,
+  getRequestOrgId,
   getRequestUserEmail,
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
@@ -29,7 +30,11 @@ export default defineAction({
   run: async ({ originalName }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Authentication required");
-    const ticket = await createAttachmentUploadTicket(ownerEmail, originalName);
+    const ticket = await createAttachmentUploadTicket(
+      ownerEmail,
+      originalName,
+      getRequestOrgId(),
+    );
     const appUrl = withConfiguredAppBasePath(getAppProductionUrl());
     const uploadUrl = `${appUrl}/api/media/attachment-upload/${encodeURIComponent(ticket.uploadId)}`;
     return {

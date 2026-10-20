@@ -16,28 +16,63 @@ export const CALENDAR_COLORS = [
 
 export type CalendarColorMode = "multi" | "single";
 
-/** Account-scoped key: a Google account email, or `"ics:<externalCalendarId>"`. */
+export const MIN_CALENDAR_DAYS = 1;
+export const MAX_CALENDAR_DAYS = 31;
+export const DEFAULT_CALENDAR_DAYS = 7;
+export const MIN_ALL_DAY_MAX_HEIGHT = 48;
+export const MAX_ALL_DAY_MAX_HEIGHT = 320;
+export const DEFAULT_ALL_DAY_MAX_HEIGHT = 88;
+
 export type CalendarColorSourceKey = string;
 
 export interface CalendarViewPreferences {
   hideWeekends: boolean;
+  numberOfDays: number;
+  allDayMaxHeight: number;
+  showDeclinedEvents: boolean;
+  showWeekNumbers: boolean;
   /** @deprecated kept for back-compat migration; use accountColorModes */
   colorMode: CalendarColorMode;
   /** @deprecated kept for back-compat migration; use accountColors */
   singleColor: string;
-  /** Per-account color mode ("multi" = color by meeting type, "single" = fixed color) */
   accountColorModes: Record<CalendarColorSourceKey, CalendarColorMode>;
-  /** Per-account fixed color, used when that account's mode is "single" */
   accountColors: Record<CalendarColorSourceKey, string>;
+  googleCalendarVisibility: Record<string, boolean>;
+  googleCalendarColors: Record<string, string>;
 }
 
 export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
   hideWeekends: false,
+  numberOfDays: DEFAULT_CALENDAR_DAYS,
+  allDayMaxHeight: DEFAULT_ALL_DAY_MAX_HEIGHT,
+  showDeclinedEvents: true,
+  showWeekNumbers: false,
   colorMode: "multi",
   singleColor: CALENDAR_COLORS[0],
   accountColorModes: {},
   accountColors: {},
+  googleCalendarVisibility: {},
+  googleCalendarColors: {},
 };
+
+export function normalizeNumberOfDays(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value)
+    ? Math.min(MAX_CALENDAR_DAYS, Math.max(MIN_CALENDAR_DAYS, value))
+    : DEFAULT_CALENDAR_DAYS;
+}
+
+export function normalizeAllDayMaxHeight(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value)
+    ? Math.min(MAX_ALL_DAY_MAX_HEIGHT, Math.max(MIN_ALL_DAY_MAX_HEIGHT, value))
+    : DEFAULT_ALL_DAY_MAX_HEIGHT;
+}
+
+export function isEventVisibleForDeclinedPreference(
+  responseStatus: string | undefined,
+  showDeclinedEvents: boolean,
+): boolean {
+  return showDeclinedEvents || responseStatus !== "declined";
+}
 
 export function isValidCalendarColorMode(
   value: unknown,
@@ -71,11 +106,15 @@ function normalizeColorRecord(
   return out;
 }
 
-/**
- * Returns a stable default color for an account that hasn't picked one yet,
- * cycling through the shared palette by the account's position in `keys` so
- * distinct accounts default to distinct swatches.
- */
+function normalizeBooleanRecord(input: unknown): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  if (!input || typeof input !== "object") return out;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value === "boolean") out[key] = value;
+  }
+  return out;
+}
+
 export function defaultColorForAccount(
   accountKey: CalendarColorSourceKey,
   allKeysInOrder: CalendarColorSourceKey[],
@@ -91,11 +130,21 @@ export function normalizeCalendarViewPreferences(
     ...DEFAULT_CALENDAR_VIEW_PREFERENCES,
     accountColorModes: {},
     accountColors: {},
+    googleCalendarVisibility: {},
+    googleCalendarColors: {},
   };
   if (!input || typeof input !== "object") return next;
 
   if (typeof input.hideWeekends === "boolean") {
     next.hideWeekends = input.hideWeekends;
+  }
+  next.numberOfDays = normalizeNumberOfDays(input.numberOfDays);
+  next.allDayMaxHeight = normalizeAllDayMaxHeight(input.allDayMaxHeight);
+  if (typeof input.showDeclinedEvents === "boolean") {
+    next.showDeclinedEvents = input.showDeclinedEvents;
+  }
+  if (typeof input.showWeekNumbers === "boolean") {
+    next.showWeekNumbers = input.showWeekNumbers;
   }
   if (isValidCalendarColorMode(input.colorMode)) {
     next.colorMode = input.colorMode;
@@ -105,6 +154,10 @@ export function normalizeCalendarViewPreferences(
   }
   next.accountColorModes = normalizeColorModeRecord(input.accountColorModes);
   next.accountColors = normalizeColorRecord(input.accountColors);
+  next.googleCalendarVisibility = normalizeBooleanRecord(
+    input.googleCalendarVisibility,
+  );
+  next.googleCalendarColors = normalizeColorRecord(input.googleCalendarColors);
   return next;
 }
 
@@ -114,11 +167,30 @@ export function calendarViewPreferencesEqual(
 ): boolean {
   return (
     a.hideWeekends === b.hideWeekends &&
+    a.numberOfDays === b.numberOfDays &&
+    a.allDayMaxHeight === b.allDayMaxHeight &&
+    a.showDeclinedEvents === b.showDeclinedEvents &&
+    a.showWeekNumbers === b.showWeekNumbers &&
     a.colorMode === b.colorMode &&
     a.singleColor === b.singleColor &&
     recordsEqual(a.accountColorModes, b.accountColorModes) &&
-    recordsEqual(a.accountColors, b.accountColors)
+    recordsEqual(a.accountColors, b.accountColors) &&
+    booleanRecordsEqual(
+      a.googleCalendarVisibility,
+      b.googleCalendarVisibility,
+    ) &&
+    recordsEqual(a.googleCalendarColors, b.googleCalendarColors)
   );
+}
+
+function booleanRecordsEqual(
+  a: Record<string, boolean>,
+  b: Record<string, boolean>,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => a[key] === b[key]);
 }
 
 function recordsEqual(

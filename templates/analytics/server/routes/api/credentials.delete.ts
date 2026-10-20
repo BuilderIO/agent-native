@@ -3,7 +3,7 @@ import { defineEventHandler, setResponseStatus } from "h3";
 
 import { credentialKeys } from "../../lib/credential-keys";
 import {
-  deleteCredential,
+  deleteResolvedCredential,
   getCredentialContextFromEvent,
 } from "../../lib/credentials";
 
@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
   }
 
   for (const key of filtered) {
-    await deleteCredential(key, ctx);
+    await deleteResolvedCredential(key, ctx);
   }
 
   return { deleted: filtered };

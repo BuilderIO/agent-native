@@ -1,5 +1,5 @@
-import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { defineAction } from "@agent-native/core/action";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -34,10 +34,23 @@ export default defineAction({
     status: z.string().optional(),
     issue: z.enum(["all", "failed", "stale", "retryable"]).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
+    settingsSection: z
+      .enum([
+        "general",
+        "identity",
+        "behavior",
+        "publishing",
+        "safety",
+        "privacy",
+      ])
+      .optional()
+      .describe(
+        "With view settings, the Brain › General tab to open: general, identity, behavior, publishing, safety, or privacy.",
+      ),
   }),
   http: false,
   run: async (args) => {
-    await writeAppState("navigate", { ...args, ts: Date.now() });
+    await writeAppStateForCurrentTab("navigate", { ...args, ts: Date.now() });
     return { navigate: args };
   },
 });

@@ -14,6 +14,7 @@ interface TagInputProps {
   placeholder?: string;
   onChange: (next: string[]) => void;
   className?: string;
+  "aria-label"?: string;
 }
 
 export function TagInput({
@@ -22,6 +23,7 @@ export function TagInput({
   placeholder = "Add tag…",
   onChange,
   className,
+  "aria-label": ariaLabel,
 }: TagInputProps) {
   const [draft, setDraft] = useState("");
   const [showDrop, setShowDrop] = useState(false);
@@ -99,6 +101,7 @@ export function TagInput({
               onFocus={() => setShowDrop(true)}
               onBlur={() => setTimeout(() => setShowDrop(false), 100)}
               onKeyDown={handleKeyDown}
+              aria-label={ariaLabel}
               placeholder={value.length === 0 ? placeholder : ""}
               className="flex-1 min-w-[8rem] bg-transparent text-sm outline-none"
             />

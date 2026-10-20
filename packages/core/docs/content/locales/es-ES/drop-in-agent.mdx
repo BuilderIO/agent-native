@@ -9,7 +9,7 @@ description: "Monte los recursos del agente y el chat del agente en cualquier ap
 
 No es necesario crear un agente nativo desde cero. El chat del agente, la pestaña de recursos del agente, el terminal CLI, la entrada de voz y toda la infraestructura relacionada se envían como un puñado de componentes React que se pueden colocar en cualquier aplicación.
 
-> **Requisito previo:** el servidor debe ejecutar `agent-chat-plugin` (se monta automáticamente en cada plantilla). Si estás empezando desde cero, consulta [Server](/docs/server).
+> **Requisito previo:** el servidor debe ejecutar `agent-chat-plugin` (se monta automáticamente en cada plantilla). Si estás empezando desde cero, consulta [Server](/docs/server-overview).
 >
 > ¿Necesita el mapa público API en lugar de un tutorial? Ver [Component API](/docs/components).
 
@@ -178,7 +178,7 @@ Accesorios completos: `AgentPanelProps` en `@agent-native/core/client`.
 
 ## Mensajes programáticos: `sendToAgentChat()` {#send}
 
-Un botón que entrega el trabajo al agente (en lugar de ejecutar una llamada `llm()` en línea, el antipatrón del [ladder](/docs/what-is-agent-native#the-ladder)):
+Un botón que entrega trabajo al agente en lugar de crear una ruta de IA independiente con una llamada `llm()` en línea. Consulta [Por qué crear aplicaciones de esta forma](/docs/what-is-agent-native#why-build-apps-this-way) para entender por qué importa esta distinción:
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -205,7 +205,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`background`** — con `newTab`, ejecute sin enfocar el nuevo hilo. La ejecución oculta se rastrea en `RunsTray`.
 - **`openSidebar`**: configurado en `false` para envíos en segundo plano/silenciosos. Predeterminado abre la barra lateral para que el usuario vea la respuesta.
 - **Para trabajo de IA visible iniciado por el usuario**, usa `openSidebar: true`. Usa `false` solo para trabajo de fondo o iniciado por el sistema que sea explícitamente silencioso, y mantén los seguimientos en el mismo hilo de AgentSidebar.
-- **`type`**: `"content"` (predeterminado) mantiene el trabajo en el agente integrado, que usa herramientas de la aplicación. `"code"` lo envía a un frame separado con capacidad de código para cambios en el repositorio; la escritura solo está disponible si el host concede intencionalmente herramientas de repository/workspace. Consulte [Frames](/docs/frames).
+- **`type`**: `"content"` (predeterminado) mantiene el trabajo en el agente integrado, que usa herramientas de la aplicación. `"code"` lo envía a un host separado con capacidad de código para cambios en el repositorio; la escritura solo está disponible si el host concede intencionalmente herramientas de repository/workspace. Consulte [Agent-Native Código UI](/docs/code-agents-ui).
 
 `sendToAgentChat` devuelve un `tabId` estable que puedes utilizar para realizar un seguimiento de la ejecución del chat.
 
@@ -228,7 +228,7 @@ Mantén los mensajes de seguimiento y revisión en el hilo existente de la barra
 
 Cuando la misma ruta está integrada como una aplicación MCP, enviada
 Las llamadas `sendToAgentChat()` se reenvían al chat del anfitrión cuando sea compatible; ver
-[Client](/docs/client#sendtoagentchat) para el comportamiento del puente de la aplicación MCP.
+[Chat del Agent](/docs/client-agent-chat#sendtoagentchat) para el comportamiento del puente de la aplicación MCP.
 
 Si desea un estado de carga, utilice el gancho `useSendToAgentChat()`; devuelve tanto `send` como `isGenerating`:
 
@@ -268,7 +268,7 @@ Usa `useActionQuery` o `useActionMutation` directamente para operaciones locales
 
 ## actions con seguridad tipográfica desde UI: `useActionMutation()` {#use-action-mutation}
 
-Cuando UI necesita ejecutar la misma operación que ejecutaría una herramienta de agente (rango 3 de [ladder](/docs/what-is-agent-native#rung-three)), use `useActionMutation`:
+Cuando la UI necesita ejecutar la misma operación que ejecutaría una herramienta de agente, usa [`useActionMutation`](/docs/client-data#use-action-mutation):
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -279,11 +279,11 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-Los argumentos de tipo seguro provienen del esquema zod en su `defineAction()`. Consulte [Actions](/docs/actions) para conocer el sistema de acción completo.
+Los argumentos de tipo seguro provienen del esquema zod en su `defineAction()`. Consulte [Actions](/docs/actions-overview) para conocer el sistema de acción completo.
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI; that creates a separate AI path instead of using the shared agent loop.
 
 </Callout>
 
@@ -337,7 +337,7 @@ El usuario ve un botón de chat en el encabezado, puede abrirlo y hablar con el 
 
 ## ¿Qué sigue?
 
-- [**Actions**](/docs/actions) — `defineAction()` y `useActionMutation()`
+- [**Actions**](/docs/actions-overview) — `defineAction()` y `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — selección, navegación, visualización de pantalla
 - [**Recursos del Agente**](/docs/agent-resources): qué contiene la pestaña Recursos del Agente (skills, memoria, servidores MCP, trabajos programados)
 - [**Voice Input**](/docs/voice-input) — el micrófono en el compositor de chat

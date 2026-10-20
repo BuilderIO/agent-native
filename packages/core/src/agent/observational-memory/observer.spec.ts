@@ -11,7 +11,6 @@ vi.mock("./store.js", () => storeMod);
 
 const { runObserver } = await import("./observer.js");
 
-/** Build N user messages each carrying ~`charsPer` chars (≈ charsPer/4 tokens). */
 function buildMessages(n: number, charsPer: number): EngineMessage[] {
   return Array.from({ length: n }, (_, i) => ({
     role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
@@ -38,7 +37,6 @@ beforeEach(() => {
 
 describe("runObserver", () => {
   it("no-ops when the unobserved window is under the token threshold", async () => {
-    // 4 short messages → well under 30k tokens.
     const messages = buildMessages(4, 40);
     const runInternal = vi.fn(async () => "should not be called");
 
@@ -55,8 +53,6 @@ describe("runObserver", () => {
   });
 
   it("compacts and persists an observation once the window exceeds the threshold", async () => {
-    // 8 medium messages clear a tiny threshold without building a huge fixture
-    // that stresses full-suite prep memory.
     const messages = buildMessages(8, 300);
     const runInternal = vi.fn(
       async () => "2026-06-17 observed: task in progress; decided to ship",
@@ -78,7 +74,6 @@ describe("runObserver", () => {
     expect(insertArg.tier).toBe("observation");
     expect(insertArg.text).toContain("2026-06-17");
     expect(insertArg.ownerEmail).toBe("alice@example.com");
-    // Covers the whole unobserved window (none observed yet).
     expect(insertArg.sourceStartIndex).toBe(0);
     expect(insertArg.sourceEndIndex).toBe(messages.length - 1);
     expect(insertArg.tokenEstimate).toBeGreaterThan(0);
@@ -102,5 +97,26 @@ describe("runObserver", () => {
     expect(insertArg.sourceStartIndex).toBe(4);
     expect(insertArg.sourceEndIndex).toBe(9);
     expect(insertArg.sourceMessageCount).toBe(6);
+  });
+
+  it("names a cursor that cannot apply to this window instead of reading it as up to date", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    storeMod.getObservedThroughIndex.mockResolvedValue(57);
+    const runInternal = vi.fn(async () => "observation log");
+
+    const result = await runObserver({
+      threadId: "t-basis-mismatch",
+      ownerEmail: "alice@example.com",
+      messages: buildMessages(9, 1000),
+      runInternal,
+      config: { observationTokenThreshold: 100 },
+    });
+
+    expect(result.observed).toBe(false);
+    expect(runInternal).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("past the end of this 9-message window"),
+    );
+    warn.mockRestore();
   });
 });

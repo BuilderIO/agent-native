@@ -1,5 +1,6 @@
 import type { H3Event } from "h3";
 
+import { markEmbeddedRuntimeAuthorized } from "../db/embedded-runtime.js";
 import {
   createIntegrationsPlugin,
   type IntegrationsPluginOptions,
@@ -33,14 +34,13 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentNativeEmbeddedHostSession {
   email?: string | null;
+  emailVerified?: boolean | null;
   userId?: string | null;
   token?: string | null;
   name?: string | null;
   orgId?: string | null;
   orgRole?: string | null;
-  /** Alias accepted from host products that use organizationId naming. */
   organizationId?: string | null;
-  /** Alias accepted from host products that use role naming. */
   role?: string | null;
   [key: string]: unknown;
 }
@@ -56,47 +56,21 @@ export interface AgentNativeEmbeddedAuthOptions extends Omit<
   AuthOptions,
   "getSession"
 > {
-  /**
-   * Resolve the already-authenticated host user. Return null for anonymous
-   * requests. No Agent-Native login is shown when this is supplied.
-   */
   getSession: AgentNativeEmbeddedGetSession;
 }
 
 export interface AgentNativeEmbeddedPluginOptions {
-  /**
-   * Database used by Agent-Native managed tables. Defaults to the existing
-   * DATABASE_URL environment variable. For embedded SaaS installs, prefer a
-   * dedicated Agent-Native database/schema unless you explicitly want
-   * framework-owned tables in the host product database.
-   */
   databaseUrl?: string;
-  /** Auth token for remote libsql/Turso databases. */
-  databaseAuthToken?: string;
-  /** Optional app name for per-app DATABASE_URL resolution and cookie scoping. */
   appName?: string;
-  /**
-   * Host auth adapter. Pass a function for the common case, or an object when
-   * you need public path/auth-route options too.
-   */
   auth?: AgentNativeEmbeddedGetSession | AgentNativeEmbeddedAuthOptions;
-  /** Backend actions exposed to the agent and mounted under /_agent-native/actions. */
   actions?: AgentChatPluginOptions["actions"];
-  /** Agent chat options. `actions` defaults to the top-level `actions`. */
   agentChat?: AgentChatPluginOptions | false;
-  /** Core framework routes: poll, app-state, extensions, secrets, browser sessions. */
   coreRoutes?: CoreRoutesPluginOptions | false;
-  /** Mount resource CRUD routes. Defaults to true. */
   resources?: boolean;
-  /** Mount org-management routes. Defaults to false for host-auth embeds. */
   org?: boolean;
-  /** Mount onboarding routes. Defaults to false for host-auth embeds. */
   onboarding?: boolean | OnboardingPluginOptions;
-  /** Mount messaging integrations. Defaults to false. */
   integrations?: IntegrationsPluginOptions | false;
-  /** Mount Sentry request/error hooks. Defaults to true. */
   sentry?: boolean;
-  /** Mount terminal routes. Defaults to false for embedded SaaS installs. */
   terminal?: TerminalPluginOptions | false;
 }
 
@@ -126,6 +100,9 @@ export function normalizeAgentNativeEmbeddedSession(
 
   return {
     email,
+    ...(typeof session.emailVerified === "boolean"
+      ? { emailVerified: session.emailVerified }
+      : {}),
     userId,
     token: readString(session.token),
     name: readString(session.name),
@@ -139,19 +116,18 @@ export function normalizeAgentNativeEmbeddedSession(
 }
 
 export function configureAgentNativeEmbeddedEnvironment(
-  options: Pick<
-    AgentNativeEmbeddedPluginOptions,
-    "appName" | "databaseAuthToken" | "databaseUrl"
-  >,
+  options: Pick<AgentNativeEmbeddedPluginOptions, "appName" | "databaseUrl">,
 ): void {
   if (options.appName) {
     process.env.APP_NAME = options.appName; // guard:allow-env-mutation — embedded plugin boot-time configuration, not request-scoped state
   }
   if (options.databaseUrl) {
     process.env.DATABASE_URL = options.databaseUrl; // guard:allow-env-mutation — embedded plugin boot-time configuration, not request-scoped state
-  }
-  if (options.databaseAuthToken) {
-    process.env.DATABASE_AUTH_TOKEN = options.databaseAuthToken; // guard:allow-env-mutation — embedded plugin boot-time configuration, not request-scoped state
+    // A packaged/desktop host can legitimately run this with NODE_ENV=production
+    // and a pglite: URL — exempt it from assertHostedRuntimeDatabase()'s guard,
+    // which otherwise can't tell that apart from a deploy silently falling back
+    // to PGlite because nobody configured DATABASE_URL.
+    markEmbeddedRuntimeAuthorized();
   }
 }
 
@@ -185,11 +161,16 @@ export async function mountAgentNativeEmbedded(
 ): Promise<void> {
   configureAgentNativeEmbeddedEnvironment(options);
   markEmbeddedPluginStems(nitroApp);
-  await awaitBootstrap(nitroApp);
 
-  await createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
+  void createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
     nitroApp,
   );
+
+  if (options.coreRoutes !== false) {
+    await createCoreRoutesPlugin(options.coreRoutes ?? undefined)(nitroApp);
+  }
+
+  await awaitBootstrap(nitroApp);
 
   if (options.sentry !== false) {
     await createSentryPlugin()(nitroApp);
@@ -197,10 +178,6 @@ export async function mountAgentNativeEmbedded(
 
   if (options.org === true) {
     await createOrgPlugin()(nitroApp);
-  }
-
-  if (options.coreRoutes !== false) {
-    await createCoreRoutesPlugin(options.coreRoutes ?? undefined)(nitroApp);
   }
 
   if (options.resources !== false) {

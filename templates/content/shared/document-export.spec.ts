@@ -1,13 +1,162 @@
 import { describe, expect, it } from "vitest";
 
+import { legacyBlocksFieldIdentity } from "./blocks-field-identity";
+import { renderDatabaseCsv } from "./database-csv-export";
 import {
   buildDocumentExport,
+  collectionItemsMarkdown,
   exportFilename,
   markdownWithTitle,
 } from "./document-export";
 import { KATEX_STYLESHEET_URL } from "./math-rendering";
+import type { DocumentPropertyValue } from "./properties";
 
 describe("document export", () => {
+  it("renders RFC 4180 CSV with formula-safe cells", () => {
+    expect(
+      renderDatabaseCsv(
+        [
+          {
+            id: "notes",
+            name: "Notes, quoted",
+            property: { definition: { type: "text", options: {} } },
+          },
+          {
+            id: "amount",
+            name: "Amount",
+            property: { definition: { type: "text", options: {} } },
+          },
+        ],
+        [
+          {
+            title: '=HYPERLINK("https://example.com")',
+            values: new Map([
+              ["notes", 'hello, "world"\nnext'],
+              ["amount", null],
+            ]),
+          },
+        ],
+      ),
+    ).toBe(
+      'Title,"Notes, quoted",Amount\r\n"\'=HYPERLINK(""https://example.com"")","hello, ""world""\nnext",\r\n',
+    );
+  });
+
+  it("uses option labels, array order, and checkbox text in CSV cells", () => {
+    expect(
+      renderDatabaseCsv(
+        [
+          {
+            id: "status",
+            name: "Status",
+            property: {
+              definition: {
+                type: "status",
+                options: {
+                  options: [{ id: "ready", name: "Ready", color: "green" }],
+                },
+              },
+            },
+          },
+          {
+            id: "tags",
+            name: "Tags",
+            property: {
+              definition: {
+                type: "multi_select",
+                options: {
+                  options: [
+                    { id: "two", name: "Two", color: "blue" },
+                    { id: "one", name: "One", color: "gray" },
+                  ],
+                },
+              },
+            },
+          },
+          {
+            id: "done",
+            name: "Done",
+            property: { definition: { type: "checkbox", options: {} } },
+          },
+        ],
+        [
+          {
+            title: "Row",
+            values: new Map<string, DocumentPropertyValue>([
+              ["status", "ready"],
+              ["tags", ["two", "one"]],
+              ["done", true],
+            ]),
+          },
+        ],
+      ),
+    ).toBe('Title,Status,Tags,Done\r\nRow,Ready,"Two, One",TRUE\r\n');
+  });
+
+  it("neutralizes formulas after spreadsheet-trimmed line whitespace", () => {
+    expect(
+      renderDatabaseCsv(
+        [],
+        [
+          { title: "\r=1+1", values: new Map() },
+          { title: "\n@SUM(1,1)", values: new Map() },
+        ],
+      ),
+    ).toBe('Title\r\n"\'\r=1+1"\r\n"\'\n@SUM(1,1)"\r\n');
+  });
+
+  it("carries ordered Blocks fields in a non-rendering identity manifest", () => {
+    const markdown = "Alpha\nBeta";
+    const blocksFields = [
+      {
+        databaseId: "database-1",
+        propertyId: "content",
+        name: "Content",
+        position: 0,
+        markdown,
+        identity: legacyBlocksFieldIdentity({
+          documentId: "doc_123",
+          propertyId: "content",
+          markdown,
+        }),
+      },
+      {
+        databaseId: "database-1",
+        propertyId: "notes",
+        name: "Notes",
+        position: 1,
+        markdown: "Private notes",
+        identity: legacyBlocksFieldIdentity({
+          documentId: "doc_123",
+          propertyId: "notes",
+          markdown: "Private notes",
+        }),
+      },
+    ];
+    const exported = buildDocumentExport({
+      id: "doc_123",
+      title: "Identity export",
+      content: markdown,
+      format: "markdown",
+      blocksFields,
+    });
+
+    expect(exported.blocksFields).toEqual(blocksFields);
+    expect(exported.content).toContain("<!-- agent-native-blocks:");
+    expect(exported.content).toContain('"propertyId":"notes"');
+
+    const html = buildDocumentExport({
+      id: "doc_123",
+      title: "Identity export",
+      content: markdown,
+      format: "html",
+      blocksFields,
+    });
+    expect(html.content).toContain(
+      '<script type="application/json" id="agent-native-blocks">',
+    );
+    expect(html.content).not.toContain("agent-native-blocks:</article>");
+  });
   it("creates stable filenames from page titles", () => {
     expect(exportFilename("Q2 Launch / PRD", "markdown")).toBe(
       "q2-launch-prd.md",
@@ -22,6 +171,22 @@ describe("document export", () => {
     expect(markdownWithTitle("Roadmap", "# Roadmap\n\nFirst paragraph")).toBe(
       "# Roadmap\n\nFirst paragraph\n",
     );
+  });
+
+  it("composes collection items as readable document sections", () => {
+    expect(
+      collectionItemsMarkdown([
+        { title: "Announcement", content: "Launch copy" },
+        { title: "FAQ", content: "# FAQ\n\nAnswers" },
+        { title: "Empty record", content: "" },
+      ]),
+    ).toBe(
+      "## Announcement\n\nLaunch copy\n\n## FAQ\n\nAnswers\n\n## Empty record\n",
+    );
+  });
+
+  it("makes an empty authorized collection explicit", () => {
+    expect(collectionItemsMarkdown([])).toBe("_No accessible items._\n");
   });
 
   it("escapes user-authored HTML in portable HTML exports", () => {

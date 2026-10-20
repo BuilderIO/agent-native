@@ -2,35 +2,42 @@ import { getHeader } from "h3";
 
 import {
   appendA2AArtifactLinks,
+  extractA2APersistedMutationReceipts,
   type A2AArtifactResponseOptions,
+  type A2APersistedMutationReceipt,
   type A2AToolResultSummary,
 } from "../../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../../a2a/response-text.js";
+import type {
+  A2AActionExecutionResult,
+  A2AApprovalExecution,
+  AgentSkill,
+} from "../../a2a/types.js";
+import { isActionExposedToExternalAgents } from "../../action.js";
 import { resolveMainChatMaxOutputTokens } from "../../agent/engine/output-tokens.js";
 import type { EngineTool } from "../../agent/engine/types.js";
 import {
+  executeAgentToolCall,
   filterInitialEngineTools,
   resolveAgentRequestReasoningEffort,
   type ActionEntry,
   type AgentLoopOutcome,
+  type AgentToolCallExecutionResult,
 } from "../../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
 import type { AgentChatEvent } from "../../agent/types.js";
+import { getAppConfig } from "../../app-config/index.js";
 import { isFrameworkGroupedAction } from "../../framework-tools.js";
 import {
   isAuthenticatedReadAction,
   isAutoReadExcludedActionName,
 } from "../../mcp/build-server.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
+import { ensureRequestRunContext } from "../request-context.js";
 import type { AgentChatPluginOptions } from "./plugin-options.js";
-
-// ---------------------------------------------------------------------------
-// Action-visibility filters (read-only / agent-exposed / public-agent-safe)
-// and the A2A (agent-to-agent) final-response assembly + delegated-run
-// helpers that share those filters.
-// ---------------------------------------------------------------------------
 
 export function filterReadOnlyActions(
   actions: Record<string, ActionEntry>,
@@ -40,16 +47,26 @@ export function filterReadOnlyActions(
   );
 }
 
-/** Drop actions that opted out of agent exposure via `agentTool: false`. They
- *  remain callable from the frontend / HTTP (mounted separately from this
- *  agent tool surface — see `httpActions`) but never appear in any agent tool
- *  list (in-app assistant, MCP, A2A, job/trigger runners) or actions prompt.
- *  Default-allow: only an explicit `false` is excluded. */
 export function filterAgentTools(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
   return Object.fromEntries(
-    Object.entries(actions).filter(([, entry]) => entry.agentTool !== false),
+    Object.entries(actions).filter(
+      ([, entry]) => entry.agentTool !== false && entry.uiOnly !== true,
+    ),
+  );
+}
+
+export function filterMcpOnlyActions(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).filter(
+      ([, entry]) =>
+        entry.agentTool === false &&
+        entry.mcpTool === true &&
+        entry.uiOnly !== true,
+    ),
   );
 }
 
@@ -69,28 +86,8 @@ export function filterPublicAgentActions(
   );
 }
 
-/**
- * Input fields that unambiguously carry a program the receiver executes.
- *
- * Deliberately excludes `query`: across the templates that field is nearly
- * always natural-language search text (Brain's `search-everything`,
- * `search-knowledge`), and blocking it would break exactly the ask-don't-instruct
- * calls this rule exists to encourage.
- */
 const RAW_QUERY_INPUT_FIELDS = new Set(["sql", "code", "script", "expression"]);
 
-/**
- * True when an action takes a free-form query or program as input — raw SQL, a
- * code body, an arbitrary expression.
- *
- * Such an action must not be sibling-invocable over A2A. The app that owns the
- * data owns its schema, data dictionary, skills, and reference queries; a
- * calling app has none of that, so letting it pass SQL means every caller
- * reimplements the owner's schema knowledge badly and silently rots when the
- * owner's shape changes. Callers ask the owning app a question; the owner
- * forms the query. Set `publicAgent.allowRawQueryInput` to opt a specific
- * action out of this rule.
- */
 export function hasRawQueryInput(entry: ActionEntry): boolean {
   const parameters = entry.tool?.parameters as
     | { properties?: Record<string, { type?: unknown }> }
@@ -107,24 +104,11 @@ export function hasRawQueryInput(entry: ActionEntry): boolean {
   });
 }
 
-/**
- * The two policy fields A2A shares with the MCP mount. Structural rather than
- * `Pick<AgentChatPluginOptions, …>` so callers pass the *resolved* MCP options:
- * reading the raw plugin options here would leave A2A on the deprecated
- * top-level keys, so `mcp: { connectorCatalog }` would narrow the MCP surface
- * while A2A kept serving the old one.
- */
 export interface A2AExternalAgentSurface {
   connectorCatalog?: string[];
   externalAgents?: ExternalAgentPolicy;
 }
 
-/**
- * Direct A2A action calls share the authenticated external-agent policy with
- * MCP, but remain stricter: only explicitly exposed, authenticated read-only
- * actions can skip the receiver's model loop, and never one that takes a raw
- * query the caller wrote.
- */
 export function filterDirectA2AActions(
   actions: Record<string, ActionEntry>,
   options: A2AExternalAgentSurface,
@@ -137,6 +121,7 @@ export function filterDirectA2AActions(
     Object.entries(actions).filter(([name, entry]) => {
       const exposure = entry.publicAgent;
       const selected =
+        entry.mcpTool === true ||
         catalog.has(name) ||
         (autoReads &&
           isAuthenticatedReadAction(entry) &&
@@ -147,13 +132,34 @@ export function filterDirectA2AActions(
         selected &&
         rawQueryAllowed &&
         !denied.has(name) &&
-        entry.agentTool !== false &&
+        isActionExposedToExternalAgents(entry) &&
         entry.readOnly === true &&
         exposure?.expose === true &&
         exposure.readOnly === true &&
         exposure.requiresAuth === true &&
         (entry.needsApproval === undefined || entry.needsApproval === false) &&
         exposure.isConsequential !== true
+      );
+    }),
+  );
+}
+
+export function filterDelegatedA2ACapabilityActions(
+  actions: Record<string, ActionEntry>,
+  options: A2AExternalAgentSurface,
+): Record<string, ActionEntry> {
+  const denied = new Set(options.externalAgents?.denyActions ?? []);
+
+  return Object.fromEntries(
+    Object.entries(actions).filter(([name, entry]) => {
+      const exposure = entry.publicAgent;
+      return (
+        !denied.has(name) &&
+        isActionExposedToExternalAgents(entry) &&
+        entry.readOnly !== true &&
+        exposure?.expose === true &&
+        exposure.readOnly === false &&
+        exposure.requiresAuth === true
       );
     }),
   );
@@ -186,56 +192,52 @@ export function buildPublicAgentA2ASkills(
   );
 }
 
-/**
- * Skills for a caller with a verified A2A identity: exactly what
- * `filterDirectA2AActions` will execute. Kept separate from
- * `buildPublicAgentA2ASkills` because the public card may only name actions
- * with `requiresAuth !== true` while direct invocation requires
- * `requiresAuth === true` — advertising the public set alone tells siblings
- * an app has nothing callable when it does.
- */
 export function buildAuthenticatedAgentA2ASkills(
   actions: Record<string, ActionEntry>,
   options: A2AExternalAgentSurface,
-): Array<{
-  id: string;
-  name: string;
-  description: string;
-  publicAgent: ActionEntry["publicAgent"];
-  inputSchema?: Record<string, unknown>;
-}> {
-  return Object.entries(filterDirectA2AActions(actions, options)).map(
-    ([name, entry]) => ({
+): AgentSkill[] {
+  const directActions = filterDirectA2AActions(actions, options);
+  const delegatedActions = filterDelegatedA2ACapabilityActions(
+    actions,
+    options,
+  );
+
+  return Object.entries(actions).flatMap(([name, entry]) => {
+    const directEntry = directActions[name];
+    const delegatedEntry = delegatedActions[name];
+    if (!directEntry && !delegatedEntry) return [];
+
+    if (directEntry) {
+      return {
+        id: name,
+        name,
+        description: entry.tool.description,
+        publicAgent: entry.publicAgent,
+        readOnly: true,
+        ...(entry.tool.parameters
+          ? {
+              inputSchema: entry.tool.parameters as unknown as Record<
+                string,
+                unknown
+              >,
+            }
+          : {}),
+      };
+    }
+
+    return {
       id: name,
       name,
       description: entry.tool.description,
       publicAgent: entry.publicAgent,
-      // Every action in this set is read-only by construction. Omitting the
-      // flag made discovery label all of them "(mutating)", which pushes a
-      // caller away from invoking them and back into open-ended delegation.
-      readOnly: true,
-      // Naming an action without its parameters is what makes a caller invoke
-      // it with `{}` and fail on a required field.
-      ...(entry.tool.parameters
-        ? {
-            inputSchema: entry.tool.parameters as unknown as Record<
-              string,
-              unknown
-            >,
-          }
-        : {}),
-    }),
-  );
+      readOnly: false,
+    };
+  });
 }
 
-export function resolveArtifactBaseUrl(
-  event: any | undefined,
-): string | undefined {
+export function resolveArtifactBaseUrl(event: any): string | undefined {
   const fromEnv =
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL;
+    getAppConfig().app.url ?? process.env.URL ?? process.env.DEPLOY_URL;
   if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
 
   try {
@@ -254,7 +256,11 @@ export function assembleA2AFinalResponse(
     event?: any;
     outcome?: AgentLoopOutcome;
   } = {},
-): { responseText: string; finalText: string } {
+): {
+  responseText: string;
+  finalText: string;
+  mutationReceipts: A2APersistedMutationReceipt[];
+} {
   const terminalError = options.outcome
     ? terminalErrorFromOutcome(options.outcome)
     : getA2ATerminalErrorEvent(events);
@@ -265,19 +271,62 @@ export function assembleA2AFinalResponse(
     baseUrl: options.baseUrl ?? resolveArtifactBaseUrl(options.event),
     includeReferencedArtifacts: true,
     includePersistedArtifactMarker: true,
+    persistedArtifactSecret: options.persistedArtifactSecret,
+    delegatedTaskId: options.delegatedTaskId,
   });
+  const mutationReceipts = extractA2APersistedMutationReceipts(
+    [...toolResults],
+    options.persistedArtifactSecret
+      ? {
+          persistedArtifactSecrets: [options.persistedArtifactSecret],
+          expectedDelegatedTaskId: options.delegatedTaskId,
+        }
+      : {},
+  );
   if (terminalError) {
     const partialResult = finalText.trim()
       ? `\n\nPartial verified results before the failure:\n${finalText.trim()}`
       : "";
-    throw new Error(formatA2ATerminalError(terminalError) + partialResult);
+    throw new A2ATerminalResponseError(
+      formatA2ATerminalError(terminalError) + partialResult,
+      terminalError.errorCode,
+    );
   }
   if (!finalText.trim()) {
     throw new Error(
       "Agent completed without a response or verified artifact.\ncode: empty_agent_response",
     );
   }
-  return { responseText, finalText };
+  return { responseText, finalText, mutationReceipts };
+}
+
+class A2ATerminalResponseError extends Error {
+  readonly agentNativeErrorCode?: string;
+
+  constructor(message: string, errorCode?: string) {
+    super(message);
+    this.name = "A2ATerminalResponseError";
+    if (errorCode) this.agentNativeErrorCode = errorCode;
+  }
+}
+
+/**
+ * A call with no verified user cannot succeed on retry: the secrets between the
+ * two apps have to be fixed by an admin. The wording follows the receiver's own
+ * verification result; caller-supplied metadata, such as a claimed email, is
+ * never read, echoed, or treated as identity.
+ */
+export function unverifiedA2AUserError(event?: unknown): Error {
+  const verifiedAsOrganization =
+    (event as { context?: { __a2aIdentityAssurance?: unknown } } | undefined)
+      ?.context?.__a2aIdentityAssurance === "organization";
+  return new A2ATerminalResponseError(
+    (verifiedAsOrganization
+      ? "This call was verified as an organization, not as a user. If the caller meant to act for a user, the A2A secrets are misaligned between the apps."
+      : "This call arrived without a verified user.") +
+      " This needs an admin fix: do not retry, and continue without this app.\ncode: permanent_precondition",
+    "permanent_precondition",
+  );
 }
 
 function terminalErrorFromOutcome(
@@ -358,33 +407,10 @@ function formatA2ATerminalError(
 
 type A2AAgentLoopRunner = typeof runAgentLoopDirectWithSoftTimeout;
 
-/**
- * Delegated turns should do specialist work with the receiver's own tools,
- * but must return a bounded caller-ready result. Interactive defaults allow
- * extremely deep work (400 iterations / 20M cumulative input tokens), which
- * made healthy Slides -> Analytics calls take 4-13 minutes and consume up to
- * millions of input tokens as tool results accumulated. These defaults leave
- * ample room for multi-source analysis while failing before a delegated turn
- * can silently become an unbounded research session.
- */
 export const DEFAULT_DELEGATED_MAX_ITERATIONS = 80;
-export const DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS = 750_000;
+export const DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS = 5_000_000;
 export const DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS = 20_000;
 
-/**
- * A sentence naming the wall clock this delegated step actually gets, or "" when
- * there is no enforced budget (local dev returns 0 from the resolver).
- *
- * "I ran out of time before finishing this step" was 39% of all failed inbound
- * A2A tasks in one measured week, clustered at 35-46s against a 40s foreground
- * serverless wall. The callee was never told that wall exists: it is handed a
- * nominal 80 iterations and 750k tokens and plans accordingly, while production
- * iterations measure ~34s each — so a foreground chunk affords roughly one.
- *
- * The clock is already enforced correctly; a second, cruder cap on iterations
- * would only waste budget. What was missing is that the agent could not see it.
- * An agent that knows it has forty seconds scopes to forty seconds.
- */
 function delegatedTimeBudgetNote(
   runSoftTimeoutMs: number | undefined,
   backgroundFunction: boolean,
@@ -486,6 +512,19 @@ async function runDelegatedAgentLoop(
           : delegatedHardToolResultCap,
     },
     finalResponseGuard: pluginOptions.finalResponseGuard,
+    // Actions this run calls record the model and effort from the run
+    // context, which a rate-limit fallback or an effort step-down changes.
+    onModelSettings: (
+      model: string,
+      reasoningEffort: ReasoningEffort | undefined,
+    ) => {
+      runOptions.onModelSettings?.(model, reasoningEffort);
+      const runContext = ensureRequestRunContext();
+      if (runContext) {
+        runContext.model = model;
+        runContext.reasoningEffort = reasoningEffort;
+      }
+    },
   };
   const execute = (loopOptions = resolvedRunOptions) =>
     runner(loopOptions, pluginOptions.runSoftTimeoutMs, timeoutOptions);
@@ -514,22 +553,28 @@ async function runDelegatedAgentLoop(
       });
     }
   } catch (error) {
-    // Match interactive chat: setup failures fall through, but a failure from
-    // inside an instrumented agent loop is the real run failure and rethrows.
     if (instrumented) throw error;
   }
   return execute();
 }
 
-/**
- * Run an A2A-delegated agent turn with the same final-response guard used by
- * the app's interactive chat surface.
- *
- * Keeping this in one helper prevents delegated calls from silently bypassing
- * template guarantees such as Analytics' requirement to query real data
- * before presenting metrics or exhaustive provider conclusions.
- */
-export function runA2AAgentLoop(
+// The A2A task failure carries `agentNativeErrorCode`; an engine failure thrown
+// out of the loop only has `errorCode`. Without this the caller gets the prose
+// ("No LLM provider is connected") but not the typed cause, so it cannot tell a
+// peer that will never answer from one worth retrying.
+function withAgentNativeErrorCode(error: unknown): unknown {
+  if (!(error instanceof Error)) return error;
+  const typed = error as {
+    errorCode?: unknown;
+    agentNativeErrorCode?: unknown;
+  };
+  if (typed.agentNativeErrorCode) return error;
+  const code =
+    typeof typed.errorCode === "string" ? typed.errorCode.trim() : "";
+  return code ? Object.assign(error, { agentNativeErrorCode: code }) : error;
+}
+
+export async function runA2AAgentLoop(
   runOptions: Parameters<A2AAgentLoopRunner>[0],
   pluginOptions: Pick<
     AgentChatPluginOptions,
@@ -538,19 +583,85 @@ export function runA2AAgentLoop(
   timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
   options: DelegatedAgentLoopOptions = {},
 ) {
-  return runDelegatedAgentLoop(
-    runOptions,
-    pluginOptions,
-    timeoutOptions,
-    options,
-  );
+  try {
+    return await runDelegatedAgentLoop(
+      runOptions,
+      pluginOptions,
+      timeoutOptions,
+      options,
+    );
+  } catch (error) {
+    throw withAgentNativeErrorCode(error);
+  }
+}
+
+/** A direct A2A call's result, with the effect a failed call can still report. */
+export function a2aActionResult(
+  result: Exclude<
+    AgentToolCallExecutionResult,
+    { status: "approval_required" }
+  >,
+): A2AActionExecutionResult {
+  return {
+    status: result.status,
+    output: result.output,
+    ...(result.completedSideEffect === undefined
+      ? {}
+      : { completedSideEffect: result.completedSideEffect }),
+  };
 }
 
 /**
- * Run the MCP-local ask_app turn with the same app-level response guard as
- * A2A. Keeping this seam shared prevents hosted MCP callers from bypassing
- * template guarantees when the request cannot use the self-A2A route.
+ * Runs the tool call an A2A task paused on, once its owner approved it, under
+ * the approval's execution lease: its thread, its turn, and its signal.
  */
+export async function executeApprovedA2AToolCall(
+  approval: A2AApprovalExecution,
+  options: {
+    actions: Record<string, ActionEntry>;
+    appId?: string;
+    signal?: AbortSignal;
+    threadId?: string;
+    turnId?: string;
+  },
+): Promise<A2AActionExecutionResult> {
+  const result = await executeAgentToolCall({
+    actions: options.actions,
+    name: approval.tool,
+    input: approval.input,
+    signal: options.signal,
+    threadId: options.threadId,
+    turnId: options.turnId,
+    callId: approval.callId,
+    ownerEmail: approval.ownerEmail,
+    orgId: approval.orgId ?? null,
+    appId: options.appId,
+    approvedToolCalls: [approval.approvalKey],
+    // The replay runs under the lease's thread and turn, never the task's
+    // own: as the replay's thread and turn, the task id would load the task's
+    // journal and ledger, where an earlier identical call could stand in for
+    // this approved one. So the task id reaches the approved call's own audit
+    // rows only. Its caller app is not stored with the approval, so
+    // `networkPeer` stays empty.
+    auditOverride: {
+      networkProtocol: "a2a",
+      networkId: approval.taskId,
+      runId: approval.taskId,
+      threadId: approval.taskId,
+      turnId: approval.taskId,
+      approval: "a2a-review",
+    },
+  });
+  if (result.status === "approval_required") {
+    return {
+      status: "failed",
+      output:
+        "The approved action was unexpectedly gated again and did not run.",
+    };
+  }
+  return a2aActionResult(result);
+}
+
 export function runMCPAgentLoop(
   runOptions: Parameters<A2AAgentLoopRunner>[0],
   pluginOptions: Pick<
@@ -568,39 +679,86 @@ export function runMCPAgentLoop(
   );
 }
 
-/**
- * Keep delegated A2A turns on the same compact initial tool surface as
- * interactive chat. `tool-search` remains in the initial set, while the
- * complete registry is supplied separately so the run loop can load a matched
- * schema after a tool-search result.
- */
 export function createA2AEngineToolSurface(
   availableTools: EngineTool[],
   initialToolNames?: string[],
+  options: {
+    receiverOwnsObjective?: boolean;
+    localCapabilityNames?: string[];
+  } = {},
 ): { tools: EngineTool[]; availableTools: EngineTool[] } {
+  const selectedInitialNames = options.receiverOwnsObjective
+    ? [
+        ...new Set([
+          ...(initialToolNames ?? []),
+          ...(options.localCapabilityNames ?? []),
+        ]),
+      ]
+    : initialToolNames;
+  const initialTools = filterInitialEngineTools(
+    availableTools,
+    selectedInitialNames,
+  );
   return {
-    tools: filterInitialEngineTools(availableTools, initialToolNames),
+    tools: options.receiverOwnsObjective
+      ? initialTools.filter(
+          (tool) =>
+            tool.name !== "describe-workspace-apps" &&
+            tool.name !== "call-agent",
+        )
+      : initialTools,
     availableTools,
   };
 }
 
-/**
- * The first-request tool catalog: an explicit `initialToolNames` verbatim, or
- * the app's OWN actions by default.
- *
- * "Its own actions" excludes the framework kits. They arrive in this same
- * registry through `autoDiscoverActions` -> `mergeCoreSharingActions`, so the
- * plain `Object.keys` default promoted ~45 sharing/review/history/flag schemas
- * into every app's first request whether or not the app had those surfaces. They
- * remain in `availableTools` and are still found by `tool-search`; an app that
- * wants one on turn one names it in `initialToolNames`.
- */
+export function isSelectedA2AReceiver(
+  selectedReceiverApp: string | undefined,
+  appId: string | undefined,
+): boolean {
+  const normalize = (value: string | undefined) =>
+    value
+      ?.trim()
+      .toLowerCase()
+      .replace(/^agent-native-/, "") ?? "";
+  const selected = normalize(selectedReceiverApp);
+  return selected.length > 0 && selected === normalize(appId);
+}
+
+export function shouldSelectedA2AReceiverOwnObjective(options: {
+  authenticatedCallerEmail: string;
+  enabled: boolean;
+  selectedReceiverApp: string | undefined;
+  appId: string | undefined;
+}): boolean {
+  return (
+    options.authenticatedCallerEmail.trim().length > 0 &&
+    options.enabled &&
+    isSelectedA2AReceiver(options.selectedReceiverApp, options.appId)
+  );
+}
+
+export function buildSelectedA2AReceiverContext(appId: string): string {
+  return `
+<selected-a2a-receiver>
+selectedApp: ${appId}
+The caller already selected this app to own the current objective. Start with this app's declared local capabilities and use tool-search for another local action when needed. A resource name that resembles a different app is not a routing decision. Delegate again only for a genuinely separate subtask; do not substitute another app for loading this app's own actions.
+</selected-a2a-receiver>`;
+}
+
 export function resolveInitialToolNames(
   templateActions: Record<string, ActionEntry>,
   configured?: string[],
 ): string[] {
-  if (configured) return configured;
-  return Object.entries(templateActions)
-    .filter(([name, entry]) => !isFrameworkGroupedAction(name, entry))
+  const entries = Object.entries(templateActions);
+  const eager = entries
+    .filter(([, entry]) => entry.deferLoading === false)
+    .map(([name]) => name);
+  if (configured) return [...new Set([...configured, ...eager])];
+  if (eager.length > 0) return eager;
+  return entries
+    .filter(
+      ([name, entry]) =>
+        !isFrameworkGroupedAction(name, entry) && entry.deferLoading !== true,
+    )
     .map(([name]) => name);
 }

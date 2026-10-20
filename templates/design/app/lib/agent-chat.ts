@@ -6,6 +6,14 @@ import {
   type SendToAgentChatAndConfirmResult,
 } from "@agent-native/core/client/agent-chat";
 
+import { sendToHostChat } from "@/lib/builder-host-chat";
+
+import {
+  getVerifiedBuilderHostOrigin,
+  isBuilderHostEmbed,
+} from "./builder-host-origin";
+import { isEmbedChromeRequested } from "./embed-chrome";
+
 export const DESIGN_CHAT_STORAGE_KEY = "design";
 
 export function sendToDesignAgentChat(opts: AgentChatMessage): string {
@@ -15,14 +23,6 @@ export function sendToDesignAgentChat(opts: AgentChatMessage): string {
   });
 }
 
-/**
- * Ack-confirmed variant of `sendToDesignAgentChat`. Resolves once the
- * message either became a visible chat turn (`delivered: true`) or was
- * definitively rejected/timed out (`delivered: false`) — use this wherever
- * the caller owns state (draw overlay strokes, queued comment pins) that
- * must not be discarded on a silent drop. See the `design-canvas/
- * annotation-submit.ts` docblock for the contract this backs.
- */
 export function sendToDesignAgentChatAndConfirm(
   opts: AgentChatMessage,
   options?: { timeoutMs?: number },
@@ -39,25 +39,31 @@ export function sendToDesignAgentChatAndConfirm(
 export interface DesignSourceHandoffResult {
   target: "host" | "local";
   delivered: boolean;
+  awaitingHostTurn?: boolean;
   reason?: string;
   tabId?: string;
 }
 
 const DEFAULT_HOST_HANDOFF_TIMEOUT_MS = 15_000;
 
-/**
- * Pending localhost source edits belong in the coding host when Design is
- * running as an MCP App. Ordinary Design pages have no host bridge, so they
- * keep the existing local Design-agent path.
- *
- * A rejected host request never falls through to the local agent: the host may
- * have accepted the turn even when its acknowledgement was lost, and a second
- * source-writing turn would be unsafe.
- */
 export async function sendDesignSourceHandoffAndConfirm(
   opts: AgentChatMessage,
   options?: { timeoutMs?: number },
 ): Promise<DesignSourceHandoffResult> {
+  if (isEmbedChromeRequested() && isBuilderHostEmbed()) {
+    const posted = sendToHostChat({
+      message: opts.message,
+      context: opts.context,
+      submit: true,
+      targetOrigin: getVerifiedBuilderHostOrigin() ?? undefined,
+    });
+    return {
+      target: "host",
+      delivered: posted,
+      ...(posted ? { awaitingHostTurn: true } : { reason: "host-post-failed" }),
+    };
+  }
+
   const hostDelivery = sendMcpAppHostMessage({
     message: opts.message,
     context: opts.context,

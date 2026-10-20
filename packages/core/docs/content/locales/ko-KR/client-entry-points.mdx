@@ -1,0 +1,27 @@
+---
+title: "엔트리 포인트"
+description: "app/entry.client.tsx와 app/entry.server.tsx: 얇은 하이드레이션 및 SSR 부트스트랩 래퍼, 그리고 스트리밍 동작을 커스터마이징해야 할 때."
+---
+
+# 엔트리 포인트
+
+`app/entry.client.tsx`는 서버에서 렌더링된 HTML을 브라우저에서 하이드레이션하고, `app/entry.server.tsx`는 서버에서 그 HTML을 렌더링합니다. 둘 다 React Router가 생성하는 얇은 래퍼입니다. 이를 수정해야 할 일은 거의 없습니다.
+
+```ts filename="app/entry.server.tsx"
+import {
+  createDocumentRequestHandler,
+  streamTimeout,
+} from "@agent-native/core/server/entry-server";
+import { ServerRouter } from "react-router";
+
+export default createDocumentRequestHandler(ServerRouter);
+export { streamTimeout };
+```
+
+이 파일들은 고급 SSR 커스터마이징 — 예를 들어 스트리밍 동작을 바꾸는 것 — 에만 손대세요. 일반적인 페이지, 레이아웃, 데이터는 여기서 바꿀 필요가 없습니다. 페이지를 추가하는 것은 대신 [Routing](/docs/client-routing)을 참조하세요.
+
+## 다음 단계
+
+- [**개요**](/docs/client-overview) — 이 파일들이 `app/` 안에서 자리하는 위치
+- [**Routing**](/docs/client-routing) — `app/`을 확장하는 일반적인 방법인 페이지 추가하기
+- [**고급**](/docs/client-advanced) — 그 외의 저수준 클라이언트 기본 요소와 예외적인 방법들

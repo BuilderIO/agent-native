@@ -1,10 +1,7 @@
 import { randomUUID } from "crypto";
 
-import {
-  createAuthPlugin,
-  getAppBasePath,
-  type AuthOptions,
-} from "@agent-native/core/server";
+import { getAppBasePath, type AuthOptions } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 import { getCookie, getRequestURL, setCookie, type H3Event } from "h3";
 
 export function shouldCreateDocsSessionForPath(
@@ -26,10 +23,34 @@ function shouldCreateDocsSession(event: H3Event): boolean {
   return shouldCreateDocsSessionForPath(pathname);
 }
 
+function getDocsRequestPathname(event: H3Event): string {
+  const mountedPathname = (event as any).context?._mountedPathname;
+  return typeof mountedPathname === "string" && mountedPathname
+    ? mountedPathname
+    : getRequestURL(event).pathname;
+}
+
+export function isDocsWebMcpPath(
+  pathname: string,
+  basePath = getAppBasePath(),
+): boolean {
+  const pathWithoutBase =
+    basePath && (pathname === basePath || pathname.startsWith(`${basePath}/`))
+      ? pathname.slice(basePath.length) || "/"
+      : pathname;
+  return (
+    pathWithoutBase === "/_agent-native/webmcp/manifest" ||
+    pathWithoutBase.startsWith("/_agent-native/webmcp/actions/") ||
+    pathWithoutBase === "/mcp/tool" ||
+    pathWithoutBase.startsWith("/mcp/tool/")
+  );
+}
+
 export const docsAuthOptions: AuthOptions = {
   workspaceAppAudience: "public",
   getSession: async (event) => {
     const cookieName = "an_docs_session";
+    if (isDocsWebMcpPath(getDocsRequestPathname(event))) return null;
     let sessionId = getCookie(event, cookieName);
 
     if (!sessionId) {
@@ -52,4 +73,4 @@ export const docsAuthOptions: AuthOptions = {
   },
 };
 
-export default createAuthPlugin(docsAuthOptions);
+export default createToolkitAuthPlugin(docsAuthOptions);

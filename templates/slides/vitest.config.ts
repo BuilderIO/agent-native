@@ -9,6 +9,7 @@ export default mergeConfig(
   defineConfig({
     plugins: [react()],
     resolve: {
+      dedupe: ["react-router"],
       alias: {
         "@": path.resolve(__dirname, "./app"),
         "@shared": path.resolve(__dirname, "./shared"),
@@ -16,7 +17,12 @@ export default mergeConfig(
     },
     test: {
       include: ["**/*.{test,spec}.?(c|m)[jt]s?(x)"],
-      exclude: ["**/node_modules/**", "**/.git/**", "**/dist/**"],
+      exclude: [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/dist/**",
+        "**/.react-router/**",
+      ],
     },
   }),
 );

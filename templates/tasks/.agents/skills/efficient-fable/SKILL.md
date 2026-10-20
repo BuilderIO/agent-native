@@ -1,6 +1,7 @@
 ---
 name: efficient-fable
 description: Use when running Claude Fable on codebase-heavy or token-heavy work and the user wants Fable to orchestrate research, coding, and testing while cheaper subagents do bounded heavy lifting.
+scope: dev
 ---
 
 # Efficient Fable

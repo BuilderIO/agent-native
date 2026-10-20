@@ -4,7 +4,10 @@ import type {
 } from "@shared/design-preview-protocol";
 import {
   IPC,
+  type DesktopContentFilesAssociateSourceRequest,
   type DesktopContentFilesClearFolderRequest,
+  type DesktopContentFilesChange,
+  type DesktopContentFilesChangesRequest,
   type DesktopContentFileDeleteRequest,
   type DesktopContentFileRevealRequest,
   type DesktopContentFileWriteRequest,
@@ -20,7 +23,57 @@ import {
 } from "@shared/ipc-channels";
 import { contextBridge, ipcRenderer } from "electron";
 
+type AgentChatCommandOptions = { focus?: boolean };
+
+function sendChatCommand(
+  command: "toggle" | "open" | "close",
+  options?: AgentChatCommandOptions,
+) {
+  if (options) {
+    ipcRenderer.sendToHost("agent-native:chat-command", command, options);
+  } else {
+    ipcRenderer.sendToHost("agent-native:chat-command", command);
+  }
+}
+
 const agentNativeDesktop = {
+  analytics: {
+    clientPlatform: "electron" as const,
+  },
+  oauth: {
+    cancelPopup: (attemptId: string): void => {
+      ipcRenderer.send(IPC.OAUTH_POPUP_CANCEL, attemptId);
+    },
+    onSystemBrowserReturned: (
+      callback: (attemptId: string | null) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        attemptId: string | null,
+      ) => callback(attemptId);
+      ipcRenderer.on(IPC.OAUTH_SYSTEM_BROWSER_RETURNED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.OAUTH_SYSTEM_BROWSER_RETURNED, handler);
+    },
+    onPopupClosed: (
+      callback: (attemptId: string | null) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        attemptId: string | null,
+      ) => callback(attemptId);
+      ipcRenderer.on(IPC.OAUTH_POPUP_CLOSED, handler);
+      return () => ipcRenderer.removeListener(IPC.OAUTH_POPUP_CLOSED, handler);
+    },
+  },
+  chat: {
+    toggle: (options?: AgentChatCommandOptions) =>
+      sendChatCommand("toggle", options),
+    open: (options?: AgentChatCommandOptions) =>
+      sendChatCommand("open", options),
+    close: (options?: AgentChatCommandOptions) =>
+      sendChatCommand("close", options),
+  },
   clipboard: {
     writeText: (text: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, text),
@@ -70,6 +123,10 @@ const agentNativeDesktop = {
       ipcRenderer.invoke(IPC.CONTENT_FILES_GET_FOLDER, request),
     chooseFolder: (): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_CHOOSE_FOLDER),
+    associateSource: (
+      request: DesktopContentFilesAssociateSourceRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_ASSOCIATE_SOURCE, request),
     writeFiles: (
       request: DesktopContentFilesWriteRequest,
     ): Promise<DesktopContentFilesResult> =>
@@ -94,6 +151,25 @@ const agentNativeDesktop = {
       request?: DesktopContentFilesClearFolderRequest,
     ): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_CLEAR_FOLDER, request),
+    subscribeChanges: (
+      request?: DesktopContentFilesChangesRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_SUBSCRIBE_CHANGES, request),
+    unsubscribeChanges: (
+      request?: DesktopContentFilesChangesRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_UNSUBSCRIBE_CHANGES, request),
+    onChange: (
+      callback: (change: DesktopContentFilesChange) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        change: DesktopContentFilesChange,
+      ) => callback(change);
+      ipcRenderer.on(IPC.CONTENT_FILES_CHANGED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.CONTENT_FILES_CHANGED, handler);
+    },
   },
 };
 

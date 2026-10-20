@@ -5,7 +5,7 @@ Codex / Claude Code / Markdown plan into a reviewable document — diagrams,
 wireframes, prototype options, annotated code walkthroughs, file trees, comments,
 share links, and HTML export.
 
-**Live app: [plan.agent-native.com](https://plan.agent-native.com)**
+**Live app: [plan.agent-native.com](https://plan.agent-native.com?utm_source=github&utm_medium=referral&utm_content=plan-readme)**
 
 ## Install (recommended)
 
@@ -36,10 +36,10 @@ Forking the template is the secondary path, for self-hosting or customizing the
 Plan app itself:
 
 ```bash
-npx @agent-native/core@latest create my-plan --standalone --template plan
+npx --yes @agent-native/core@latest create my-plan --standalone --template plan
 cd my-plan
 pnpm install
 pnpm dev
 ```
 
-Full docs: [agent-native.com/docs/template-plan](https://agent-native.com/docs/template-plan).
+Full docs: [agent-native.com/docs/template-plan](https://agent-native.com/docs/template-plan?utm_source=github&utm_medium=referral&utm_content=plan-readme).

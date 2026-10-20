@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   listIntegrationInstallations,
   resolveIntegrationTokenBundle,
@@ -12,8 +12,10 @@ import {
   isEmailConfigured,
   resolveSecret,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { getDestinationById } from "../server/lib/dispatch-store.js";
 
 function getAdapter(
@@ -78,6 +80,7 @@ async function assertOutboundConfigured(
 export default defineAction({
   description:
     "Send a proactive message to a saved Slack, Telegram, or email destination.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     platform: z.enum(["slack", "telegram", "email"]).optional(),
     destinationId: z.string().optional().describe("Saved destination id"),
@@ -98,14 +101,10 @@ export default defineAction({
     }),
     summary: (args) => `Sent proactive ${args.platform || "saved"} message`,
   },
-  run: async ({
-    platform,
-    destinationId,
-    destination,
-    threadRef,
-    tenantId,
-    text,
-  }) => {
+  run: async (
+    { platform, destinationId, destination, threadRef, tenantId, text },
+    ctx,
+  ) => {
     const saved = destinationId
       ? await getDestinationById(destinationId)
       : null;
@@ -139,6 +138,16 @@ export default defineAction({
       label: saved?.name || undefined,
       tenantId,
     });
+    track(
+      "message_sent",
+      {
+        app_name: "dispatch",
+        template_name: "dispatch",
+        channel: resolvedPlatform,
+        has_thread_ref: Boolean(resolvedThreadRef),
+      },
+      ctx,
+    );
 
     return {
       ok: true,

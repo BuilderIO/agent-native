@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockInvalidatePublicFormCache = vi.hoisted(() => vi.fn());
+const mockWithFormLock = vi.hoisted(() =>
+  vi.fn(async (_id: string, fn: () => Promise<unknown>) => fn()),
+);
 const state = vi.hoisted(() => ({
   existing: {
     id: "form-1",
@@ -32,9 +35,16 @@ const state = vi.hoisted(() => ({
     deletedAt: null,
   },
   updated: null as Record<string, unknown> | null,
+  returnStaleAfterWrite: false,
+  writeConflict: false,
 }));
 
 vi.mock("@agent-native/core", () => ({
+  defineAction: (options: unknown) => options,
+}));
+
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (options: unknown) => options,
 }));
 
@@ -45,6 +55,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", async () => ({
   ...(await vi.importActual<typeof import("drizzle-orm")>("drizzle-orm")),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  and: vi.fn((...conditions: unknown[]) => ({ conditions })),
 }));
 
 vi.mock("../server/lib/public-form-ssr.js", () => ({
@@ -56,18 +67,42 @@ vi.mock("../server/db/index.js", () => ({
     select: () => ({
       from: () => ({
         where: () => ({
-          limit: async () => [state.updated ?? state.existing],
+          limit: async () => [
+            state.returnStaleAfterWrite
+              ? state.existing
+              : (state.updated ?? state.existing),
+          ],
         }),
       }),
     }),
     update: () => ({
       set: (updates: Record<string, unknown>) => {
         state.updated = { ...state.existing, ...updates };
-        return { where: async () => {} };
+        return {
+          where: () => ({
+            returning: async () => {
+              if (state.writeConflict) {
+                state.updated = null;
+                return [];
+              }
+              return [{ id: "form-1" }];
+            },
+          }),
+        };
       },
     }),
   }),
-  schema: { forms: { id: "forms.id" } },
+  schema: {
+    forms: {
+      id: "forms.id",
+      fields: "forms.fields",
+      updatedAt: "forms.updatedAt",
+    },
+  },
+}));
+
+vi.mock("./patch-form-fields.js", () => ({
+  withFormLock: mockWithFormLock,
 }));
 
 const { default: updateForm } = await import("./update-form.js");
@@ -75,8 +110,12 @@ const { default: updateForm } = await import("./update-form.js");
 describe("update-form settings", () => {
   beforeEach(() => {
     state.updated = null;
+    state.returnStaleAfterWrite = false;
+    state.writeConflict = false;
+    state.existing.status = "draft";
     mockAssertAccess.mockClear();
     mockInvalidatePublicFormCache.mockClear();
+    mockWithFormLock.mockClear();
   });
 
   it("merges partial settings without dropping integrations", async () => {
@@ -99,5 +138,63 @@ describe("update-form settings", () => {
       emailOnNewResponses: true,
     });
     expect(mockAssertAccess).toHaveBeenCalledWith("form", "form-1", "editor");
+    expect(mockWithFormLock).toHaveBeenCalledWith(
+      "form-1",
+      expect.any(Function),
+    );
+  });
+
+  it("returns written fields without trusting a stale post-write read", async () => {
+    state.returnStaleAfterWrite = true;
+    const fields = [
+      {
+        id: "message",
+        type: "textarea",
+        label: "Message",
+        placeholder: "Tell us what you think",
+        required: false,
+      },
+    ];
+
+    const result = await updateForm.run({
+      id: "form-1",
+      fields,
+    });
+
+    expect(result.fields).toEqual(fields);
+    expect(mockInvalidatePublicFormCache).toHaveBeenCalledWith(
+      state.existing,
+      expect.objectContaining({ fields: expect.any(String) }),
+    );
+    const [, written] = mockInvalidatePublicFormCache.mock.calls.at(-1)!;
+    expect(JSON.parse((written as { fields: string }).fields)).toEqual(fields);
+  });
+
+  it("validates field replacements on an already-published form", async () => {
+    state.existing.status = "published";
+
+    await expect(updateForm.run({ id: "form-1", fields: [] })).rejects.toThrow(
+      "Cannot publish",
+    );
+    expect(state.updated).toBeNull();
+  });
+
+  it("rejects a stale write when another instance changes the form first", async () => {
+    state.writeConflict = true;
+
+    await expect(
+      updateForm.run({
+        id: "form-1",
+        fields: [
+          {
+            id: "message",
+            type: "textarea",
+            label: "Updated message",
+            required: false,
+          },
+        ],
+      }),
+    ).rejects.toThrow("changed while this update was in progress");
+    expect(state.updated).toBeNull();
   });
 });

@@ -164,8 +164,24 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 
 设置此标志后，电子邮件/密码注册不需要电子邮件
 验证和注册验证电子邮件未发送。仅将其用于质量检查
-或预览环境，并使用 `+qa` 地址命名测试帐户
-(`name+qa@example.com`)，因此很容易识别。
+或预览环境，并使用 `+autoz` 地址命名测试帐户
+(`name+autoz@example.com`)，因此很容易识别。
+
+## 电子邮件验证策略 {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION` 只是本地和 QA 的便利设置，托管部署会忽略它。要为
+任何环境（包括生产环境）声明该策略，请在配置中声明：
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+部署别名为 `AUTH_REQUIRE_EMAIL_VERIFICATION=0`。声明的值优先于
+`AUTH_SKIP_EMAIL_VERIFICATION` 和各环境的默认值。
+
+`false` 会将未经验证的地址作为登录凭据接受——任何人都可以声称拥有任何电子邮件
+地址——因此仅在注册已通过其他方式受限时使用。在没有电子邮件提供商的部署上设置
+`true` 则会禁用密码注册，因为验证邮件永远无法送达。
 
 ## 社交提供商 {#social-providers}
 
@@ -295,7 +311,11 @@ https://mail.agent-native.com/mcp
 
 </Diagram>
 
-设置时访问令牌使用 `A2A_SECRET` 进行签名，否则使用 `BETTER_AUTH_SECRET` 进行签名。它们携带签名的用户/组织身份和 `mcp:read`、`mcp:write` 和/或 `mcp:apps` 范围，并且受众绑定到确切的 MCP 资源 URL。刷新令牌仅存储为哈希值并在每次刷新时轮换。工具调用和 MCP Apps 资源读取在与登录用户相同的请求上下文中运行；嵌入式 MCP 应用程序 iframe 永远不会接收原始 OAuth 令牌。
+设置时访问令牌使用 `A2A_SECRET` 进行签名，否则使用 `BETTER_AUTH_SECRET` 进行签名。它们携带签名的用户/组织身份和 `mcp:read`、`mcp:write` 和/或 `mcp:apps` 范围，并且受众绑定到确切的 MCP 资源 URL。刷新令牌仅存储为哈希值，且不会轮换：刷新时返回同一个令牌，刷新授权没有固定的有效期，但仍可撤销。每次请求和每次刷新都会重新检查用户是否仍属于令牌所属的组织，因此被移除的成员会在下一次请求时失去 MCP 访问权限。工具调用和 MCP Apps 资源读取在与登录用户相同的请求上下文中运行；嵌入式 MCP 应用程序 iframe 永远不会接收原始 OAuth 令牌。
+
+新的 MCP 授权码和刷新令牌会记录签发时的所有者。令牌交换会以 `invalid_grant` 拒绝未绑定所有者的旧授权或所有者绑定不匹配的授权，不会推断旧授权的所有者。有意更改电子邮件地址时，签发身份也会更新。旧地址也会随之停用：变更前为其签发的访问令牌和 Connect 令牌会被拒绝，并且除非有账户重新注册该地址，否则不会再为其签发新令牌。OAuth 客户端会在下一次刷新时获得新地址的令牌。成员离职处理会撤销或删除授权，不会将签发绑定转移给他人。
+
+OAuth 所有者绑定更新要求每个现有的 OAuth 连接[重新连接一次](/docs/external-agents#reconnect)。更新上线后，旧 OAuth 访问令牌会被拒绝。未绑定所有者的旧刷新令牌会返回 `invalid_grant`，尚未使用的旧授权码必须重新开始同意流程。新签发的访问令牌使用配置的有效期，并在每次请求时检查成员资格。此次切换不会更改旧 A2A 格式的 `mcp-connect` 凭据或跨应用 A2A 令牌。使用旧 OAuth 格式 Connect 令牌的连接也必须重新连接。
 
 `npx @agent-native/core@latest connect <url> --client claude-code` 为此标准流程写入仅 URL 的 MCP 条目。对于无法执行远程 MCP OAuth 的客户端，请使用“连接”页面或 `npx @agent-native/core@latest connect --token <token>` 回退来写入显式不记名令牌条目。
 
@@ -414,7 +434,7 @@ function SignInCta() {
 
 普通应用页面为所有访问者使用同一个非个性化、可公开缓存的 SSR 外壳。`AppProviders` 在客户端检查会话；访问 `/dashboard` 等私有路径时，它会在挂载私有应用界面之前将匿名访问者重定向到 `/sign-in?return=%2Fdashboard`。登录后，访问者会返回 `/dashboard`。公共或 SEO 路由请使用 `isPublicPath`；通过 MCP 嵌入令牌等其他受限机制认证的界面请使用 `sessionBypass`。
 
-该外壳的缓存时长是一个部署范围的设置——关于 `AGENT_NATIVE_SSR_CACHE`，参见 [SSR Caching](/docs/deployment#ssr-caching)。缩短或禁用缓存只会改变时长；SSR 仍会在剥离 cookie 后渲染匿名分支。
+该外壳的缓存时长是一个部署范围的设置——关于 `AGENT_NATIVE_SSR_CACHE`，参见 [SSR Caching](/docs/ssr-caching)。缩短或禁用缓存只会改变时长；SSR 仍会在剥离 cookie 后渲染匿名分支。
 
 ### 幕后花絮：谷歌OAuth
 
@@ -439,6 +459,7 @@ const state = encodeOAuthState({
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `BETTER_AUTH_SECRET`                    | 更好的身份验证签名密钥（如果未设置，则自动生成）                                                             |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | 在 QA/预览环境中设置为 `1`，让电子邮件/密码注册无需验证即可继续进行；默认情况下跳过本地开发/测试             |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | 设置为 `0` 或 `1` 可为任何环境（包括生产环境）声明密码注册的验证策略；优先于 `AUTH_SKIP_EMAIL_VERIFICATION`  |
 | `AUTH_DISABLED`                         | 设置为`true`或`1`跳过登录/注册；所有请求都作为一个共享用户运行（仅限本地开发/预览 - 不适用于真实用户的生产） |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 设置为 `1` 以在新的开发数据库上禁用本地主机自动登录                                                          |
 | `AUTH_MODE`                             | `local` 仅解析 CLI/代理身份（开发用户 `pnpm action` 作为其运行）；绝不绕过浏览器登录                         |
@@ -455,3 +476,13 @@ const state = encodeOAuthState({
 | `ACCESS_TOKEN`                          | MCP/连接客户端的静态承载回退；不是浏览器身份验证                                                             |
 | `ACCESS_TOKENS`                         | MCP/connect 客户端的逗号分隔静态承载回退；不是浏览器身份验证                                                 |
 | `A2A_SECRET`                            | JWT 签名的 A2A 跨应用身份验证的共享密钥，以及 MCP OAuth 访问令牌签名（如果存在）                             |
+
+Dispatch 的 `desktop.workspace-sso` 标志默认关闭且只控制可用性；身份验证、签名、nonce、来源、回调、会话和撤销检查始终强制执行。标志关闭或无法读取时，Desktop 不会更改逐应用登录、退出或设置。
+User-Agent 中的 Canary 标记仅是可用性提示，不是远程证明；身份验证和授权均不信任该标记。
+每个 Desktop 版本都可以在设备偏好 `desktopSsoEnabled` 为 true（默认值）时初始化代理；显式持久化的 `false` 仍表示用户选择退出。Dispatch 的 `desktop.workspace-sso` 标志也必须启用。Canary 用户代理标记不再控制代理初始化，只用于标识更新渠道。
+Canary 不会拦截匿名用户进入应用登录页的导航。用户必须在 Desktop 设置中为当前活动的已注册应用明确选择工作区登录；普通应用登录仍是默认路径。
+普通浏览器继续使用逐应用登录。自托管应用仅在使用剩余的显式 Desktop 或服务端联邦路径时需要 `AGENT_NATIVE_IDENTITY_HUB_URL`。
+
+## 管理式部署与邀请
+
+管理式部署请设置 `AUTH_SIGNUP=invited`、`ORG_CREATION=closed` 和 `AUTO_CREATE_DEFAULT_ORG=0`。[管理式部署指南](/docs/administered-deployments)介绍引导管理员、邀请和允许的邮箱域名。成员邀请与按域名加入是两条不同规则。

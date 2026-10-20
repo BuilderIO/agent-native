@@ -5,6 +5,7 @@ import {
   dispatchPathTargetsNetlifyBackgroundFunction,
   resolveDurableBackgroundDispatchPath,
 } from "../agent/durable-background.js";
+import { getAppConfig } from "../app-config/index.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import {
   INTEGRATION_DURABLE_DISPATCH_ENV,
@@ -93,15 +94,7 @@ export function isIntegrationDurableDispatchEnabledForTask(
   task: IntegrationDispatchTaskScope,
 ): boolean {
   if (!isIntegrationDurableDispatchConfigured()) return false;
-  const scopes = configuredIntegrationDurableDispatchScopes();
-  if (
-    scopes &&
-    !taskScopeCandidates(task).some((candidate) =>
-      scopes.some((scope) => `${scope.platform}:${scope.value}` === candidate),
-    )
-  ) {
-    return false;
-  }
+  if (isIntegrationDurableDispatchExplicitlyDisabledForTask(task)) return false;
   const path = resolveDurableBackgroundDispatchPath(
     INTEGRATION_PROCESS_TASK_PATH,
   );
@@ -109,6 +102,34 @@ export function isIntegrationDurableDispatchEnabledForTask(
     dispatchPathTargetsNetlifyBackgroundFunction(path) &&
     hasConfiguredA2ASecret()
   );
+}
+
+export function isIntegrationDurableDispatchExplicitlyDisabledForTask(
+  task: IntegrationDispatchTaskScope,
+): boolean {
+  if (getAppConfig().integrations.durableDispatch === false) return true;
+  const scopes = configuredIntegrationDurableDispatchScopes();
+  return Boolean(
+    scopes &&
+    !taskScopeCandidates(task).some((candidate) =>
+      scopes.some((scope) => `${scope.platform}:${scope.value}` === candidate),
+    ),
+  );
+}
+
+export function integrationDurableDispatchRuntimeUnavailableReasons(): string[] {
+  const reasons: string[] = [];
+  if (!isIntegrationDurableDispatchConfigured())
+    reasons.push("flag-unavailable");
+  if (
+    !dispatchPathTargetsNetlifyBackgroundFunction(
+      resolveDurableBackgroundDispatchPath(INTEGRATION_PROCESS_TASK_PATH),
+    )
+  ) {
+    reasons.push("background-route-unavailable");
+  }
+  if (!hasConfiguredA2ASecret()) reasons.push("a2a-secret-unavailable");
+  return reasons;
 }
 
 async function recordDispatch(

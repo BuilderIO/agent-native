@@ -1,10 +1,16 @@
+import { resolveLayerNameAttribute } from "@shared/layer-name";
+
 import type {
   PortableStyleSnapshot,
   PortableStyleSnapshotNode,
 } from "@/components/design/types";
 
 export function styleHost(element: Element): HTMLElement | SVGElement | null {
-  return element instanceof HTMLElement || element instanceof SVGElement
+  const view = element.ownerDocument.defaultView;
+  const HTMLElementConstructor = view?.HTMLElement ?? HTMLElement;
+  const SVGElementConstructor = view?.SVGElement ?? SVGElement;
+  return element instanceof HTMLElementConstructor ||
+    element instanceof SVGElementConstructor
     ? element
     : null;
 }
@@ -33,6 +39,37 @@ export function isEditorInternalCssVar(property: string): boolean {
   );
 }
 
+const DROP_OWNED_STYLE_PROPERTIES = new Set(["position"]);
+// The moved root's flex sizing belongs to its new parent; the move fits it.
+const DROP_OWNED_ROOT_STYLE_PROPERTIES = new Set([
+  "flex",
+  "flexBasis",
+  "flexGrow",
+  "flexShrink",
+]);
+
+function cssPropertyName(property: string): string {
+  if (property.includes("-")) return property;
+  const kebab = property.replace(
+    /[A-Z]/g,
+    (letter) => `-${letter.toLowerCase()}`,
+  );
+  return kebab.startsWith("webkit-") ? `-${kebab}` : kebab;
+}
+
+const longhandsByProperty = new Map<string, string[]>();
+
+function longhandsOf(document: Document, property: string): string[] {
+  let longhands = longhandsByProperty.get(property);
+  if (!longhands) {
+    const probe = document.createElement("div").style;
+    probe.setProperty(property, "initial");
+    longhands = probe.length > 0 ? Array.from(probe) : [property];
+    longhandsByProperty.set(property, longhands);
+  }
+  return longhands;
+}
+
 export function applyPortableStyles(
   element: Element | null,
   styles: Record<string, string>,
@@ -40,11 +77,31 @@ export function applyPortableStyles(
   if (!element) return;
   const host = styleHost(element);
   if (!host) return;
+  const authored = (host.cloneNode(false) as HTMLElement | SVGElement).style;
+  const authoredWithoutVar = (longhand: string) => {
+    const value = authored.getPropertyValue(longhand);
+    return Boolean(value) && !value.includes("var(");
+  };
   Object.entries(styles).forEach(([property, value]) => {
     if (!value) return;
+    if (DROP_OWNED_STYLE_PROPERTIES.has(property)) return;
     if (property.startsWith("--")) {
       if (isEditorInternalCssVar(property)) return;
       host.style.setProperty(property, value);
+      return;
+    }
+    // The layer's own declarations travel with it (unless they read a var() the
+    // destination may lack). A partly authored font still carries the inherited
+    // family and size, which only its shorthand captured.
+    const longhands = longhandsOf(
+      host.ownerDocument,
+      cssPropertyName(property),
+    );
+    if (
+      property === "font"
+        ? longhands.every(authoredWithoutVar)
+        : longhands.some(authoredWithoutVar)
+    ) {
       return;
     }
     if (property.includes("-")) {
@@ -53,26 +110,19 @@ export function applyPortableStyles(
     }
     (host.style as any)[property] = value;
   });
-}
-
-export function sameStylesheetHead(
-  sourceHtml: string,
-  destHtml: string,
-): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const parser = new DOMParser();
-    const sourceHead = parser.parseFromString(sourceHtml, "text/html").head
-      ?.innerHTML;
-    const destHead = parser.parseFromString(destHtml, "text/html").head
-      ?.innerHTML;
-    return (
-      typeof sourceHead === "string" &&
-      typeof destHead === "string" &&
-      sourceHead === destHead
+  for (const longhand of Array.from(authored)) {
+    const value = authored.getPropertyValue(longhand);
+    if (
+      !authoredWithoutVar(longhand) ||
+      host.style.getPropertyValue(longhand) === value
+    ) {
+      continue;
+    }
+    host.style.setProperty(
+      longhand,
+      value,
+      authored.getPropertyPriority(longhand),
     );
-  } catch {
-    return false;
   }
 }
 
@@ -80,14 +130,12 @@ export function applyPortableStyleSnapshotToHtml(
   content: string,
   nodeAttrId: string,
   snapshot?: PortableStyleSnapshot,
-  sourceContent?: string,
 ): string {
   if (typeof window === "undefined" || !snapshot?.nodes?.length) {
     return content;
   }
-  if (sourceContent && sameStylesheetHead(sourceContent, content)) {
-    return content;
-  }
+  // Equal heads do not guarantee equal body/ancestor cascades.
+  // ponytail: inline snapshots may mask later responsive stylesheet rules.
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     const root = doc.querySelector(
@@ -99,14 +147,36 @@ export function applyPortableStyleSnapshotToHtml(
       const target = elementAtPortableStylePath(root, node);
       if (!target) return;
       const filteredEntries = Object.entries(node.styles).filter(
-        ([property, value]) => value && !isEditorInternalCssVar(property),
+        ([property, value]) =>
+          value &&
+          !isEditorInternalCssVar(property) &&
+          !DROP_OWNED_STYLE_PROPERTIES.has(property) &&
+          !(
+            node.path.length === 0 &&
+            DROP_OWNED_ROOT_STYLE_PROPERTIES.has(property)
+          ),
       );
       if (filteredEntries.length === 0) return;
       applyPortableStyles(target, Object.fromEntries(filteredEntries));
       appliedAny = true;
     });
     if (appliedAny) {
+      const layerName =
+        resolveLayerNameAttribute((attribute) => root.getAttribute(attribute))
+          ?.value ?? "";
+      const nodeId = root.getAttribute("data-agent-native-node-id") || "";
+      const legacyGeneratedGroup =
+        /^an-[a-z0-9]+$/i.test(nodeId) &&
+        /^group(?: \d+)?$/i.test(layerName.trim()) &&
+        root.getAttribute("data-agent-native-preserve-styles") === "true" &&
+        root.getAttribute("data-agent-native-clone-root") !== "true";
       root.setAttribute("data-agent-native-preserve-styles", "true");
+      if (
+        root.getAttribute("data-agent-native-group-wrapper") !== "true" &&
+        !legacyGeneratedGroup
+      ) {
+        root.setAttribute("data-agent-native-clone-root", "true");
+      }
     }
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {

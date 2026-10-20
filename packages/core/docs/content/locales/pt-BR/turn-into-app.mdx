@@ -1,0 +1,118 @@
+---
+title: "Transformar em app"
+description: "A skill /turn-into-app transforma uma conversa, skill, planilha ou projeto do Claude ou ChatGPT em um app Agent-Native executável que abre em uma superfície já preenchida e moldada ao domínio."
+---
+
+# Transformar em app
+
+`/turn-into-app` é uma skill que transforma um fluxo de trabalho que você já validou em um app Agent-Native. A fonte pode ser uma conversa, uma skill, uma planilha ou um projeto do Claude ou ChatGPT. O app abre no seu mundo, preenchido com dados de exemplo no formato da fonte, com o agente do app trabalhando por trás de controles nos objetos sobre os quais ele age. Um formulário sob uma barra de etapas é o resultado que a skill foi feita para evitar.
+
+## Instalação {#install}
+
+```bash
+npx @agent-native/skills@latest add --skill turn-into-app
+```
+
+A mesma skill acompanha a CLI principal:
+
+```bash
+npx @agent-native/core@latest skills add turn-into-app
+```
+
+Dentro de um projeto que já tem a CLI do Agent-Native, `agent-native skills add turn-into-app` faz a mesma coisa. Veja o [Guia de Skills](/docs/skills-guide) para saber como as skills são instaladas e carregadas.
+
+## Como invocar {#invoke}
+
+| Comando                            | Fonte                                                                   |
+| ---------------------------------- | ----------------------------------------------------------------------- |
+| `/turn-into-app`                   | O contexto visível do projeto; se não houver, a conversa atual          |
+| `/turn-into-app /some-skill`       | A skill indicada, empacotada imediatamente, mesmo no início da conversa |
+| `/turn-into-app ./forecast.xlsx`   | Uma planilha, transformada em uma bancada de trabalho                   |
+| `/turn-into-app ./project-export/` | Uma exportação de projeto do Claude ou ChatGPT                          |
+
+Sem argumento, a skill cria o último trabalho repetível bem-sucedido e dá um nome a ele. Um exemplo concreto, como uma conta ou um negócio, é evidência do trabalho, não o seu esquema. Se nenhum trabalho puder ser identificado, ela diz o que está faltando em vez de fazer a pergunta genérica "que app você quer?".
+
+## Onde ela roda {#hosts}
+
+| Host                                                        | O que acontece                                                                                               |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Claude Code, Codex, Cursor, outros agentes de código locais | Cria, executa e revisa o app no seu checkout.                                                                |
+| Claude ou ChatGPT na web                                    | Escreve um briefing delimitado e o entrega ao Builder pelo conector do Dispatch. Ela mesma não executa nada. |
+
+Um host é considerado local quando tem um diretório de trabalho real, um terminal e um workspace. Ter um conector do Builder ou do Dispatch não faz de um host um host de navegador.
+
+Em um host de navegador, a skill exige o conector MCP do Agent-Native Dispatch (`https://dispatch.agent-native.com/mcp`, OAuth) e chama a ação `start-workspace-app-creation` dele. O host não consegue executar nem inspecionar o app, então o relatório permanece pendente ou não verificado até que o branch devolvido pelo Dispatch seja compilado. A skill relata o que o Dispatch realmente devolveu e nunca inventa a URL de um branch. Para um Projeto do ChatGPT, ou qualquer host que exponha apenas MCP, coloque as instruções da skill nas instruções do Projeto ou nos arquivos de conhecimento.
+
+## Fontes {#sources}
+
+- **Conversas.** O último trabalho concreto e repetível é o produto.
+- **Skills.** Os passos da skill, os pontos de decisão humana e as regras somente leitura viram o app. Se a skill mantém arquivos de plano, esses arquivos continuam sendo a fonte da verdade por meio do Local File Mode e o app fica somente local.
+- **Planilhas.** Todas as planilhas do arquivo são inventariadas primeiro. A estrutura decide quais células são entradas e saídas; a cor é apenas uma dica fraca. A pasta de trabalho nunca é copiada para um prompt, SQL ou estado da aplicação. Um link do Google Sheets só é uma fonte quando é legível por uma conexão autenticada com o Sheets ou o Drive; caso contrário, a skill pede uma exportação.
+- **Projetos do Claude e do ChatGPT.** As instruções visíveis, os arquivos de conhecimento e as execuções anteriores fornecidas são a fonte. O conector não lê conversas ocultas do projeto, URLs privadas nem credenciais, e não há importador por link compartilhado. Anexe uma exportação quando o contexto não estiver visível.
+
+## O que você recebe {#what-you-get}
+
+- **Um formato escolhido a partir da fonte.** A skill escolhe um entre 13 arquétipos, como fila de triagem, quadro de pipeline, bancada ao vivo, grade de agenda, diff de revisão ou monitor. O arquétipo é o objeto que o usuário observa, não o procedimento que ele segue; assim, os passos da fonte viram estados nos objetos (Rascunho, Verificado, Aprovado) em vez de um stepper ou assistente.
+- **Uma direção visual nomeada.** Uma de seis direções (`ledger`, `control-room`, `paper-desk`, `studio-canvas`, `tidepool`, `signal-board`) com tokens claros e escuros, escolhida a partir do arquétipo e do domínio da fonte. Uma marca existente ou a sua direção explícita tem prioridade.
+- **Uma primeira tela preenchida.** `/` leva a uma rota de domínio nomeada com dados de exemplo sintéticos, rotulados como exemplo, no formato da fonte. Um estado vazio, um hero, o primeiro passo do procedimento ou um formulário é um defeito, a menos que a própria fonte tenha o formato de formulário.
+- **Momentos do agente nos objetos.** Cada controle rotulado como IA entrega um prompt delimitado à barra lateral do agente. O objeto mostra imediatamente um estado de trabalho, e o resultado volta a ele com Aceitar, Editar e Tentar novamente. As perguntas seguintes ficam na mesma conversa.
+- **Um app Agent-Native de verdade.** O trabalho determinístico são arquivos `defineAction` que tanto a UI quanto o agente chamam. O app usa a configuração padrão Use Builder.io ou Custom keys, grava a visualização e a seleção atuais no estado da aplicação e tem um `AGENTS.md` que ensina o agente do app sobre o novo app.
+
+A skill salva o briefing da fonte como `docs/brief.md` e acrescenta o design da superfície a `DESIGN.md`.
+
+## Como uma execução funciona {#how-it-works}
+
+1. **Briefing.** Lê toda a fonte e escreve um briefing curto: o trabalho, no máximo três momentos do agente, invariantes, riscos nos dados, fonte da verdade e premissas.
+2. **Design.** Decide o arquétipo, a direção, o shell, a primeira viewport e os dados de exemplo, e os momentos do agente, e publica o briefing uma vez como checkpoint. Continua sem esperar.
+3. **Scaffold.** Cria o app de verdade com o template chat e nunca sobrescreve um app existente.
+
+   ```bash
+   npx --yes @agent-native/core@latest create <slug> --standalone --template chat
+   ```
+
+   Dentro de um workspace Agent-Native existente, ela executa `pnpm exec agent-native add-app <slug> --template chat` a partir da raiz do workspace.
+
+4. **Construção.** Ações, a superfície do domínio, dados de exemplo, momentos do agente e instruções do agente são construídos juntos.
+5. **Revisão.** Executa o app e revisa capturas de tela. Veja abaixo.
+6. **Verificação.** Executa `pnpm typecheck`, `pnpm agent-native:doctor` e `pnpm build`, e então escreve o relatório final.
+
+A skill almeja cerca de 45 minutos. Se 35 minutos já tiverem passado quando a revisão começar, ela faz uma passada e lista os critérios em aberto.
+
+## O ciclo de revisão por capturas de tela {#review-loop}
+
+Antes da entrega, a skill inicia o servidor de desenvolvimento e captura `/` em tamanhos de desktop e celular nos modos claro e escuro, além do principal controle do agente após um clique. Ela pontua as capturas com uma rubrica de 12 linhas que cobre impacto da primeira viewport, adequação ao domínio, hierarquia, disciplina de chrome, dados de exemplo, tipografia, cor, acabamento, agente e UI juntos, layout em 390px, modo escuro e acessibilidade.
+
+Alguns achados reprovam a revisão independentemente da nota média: um shell de stepper ou assistente, `/` que não abre na rota de domínio, uma primeira viewport vazia ou só com formulário, tokens padrão do scaffold, texto cortado, markdown bruto, rolagem lateral em 390px ou um erro no console. Ela corrige todos os achados de uma só vez, restaura o que o clique alterou e captura de novo. O padrão são duas passadas, com uma terceira apenas se a segunda ainda não atingir a meta e houver tempo. A meta é uma média de 4,0 ou mais, sem nenhum critério abaixo de 3 e sem reprovação automática.
+
+As capturas são salvas em `.tmp/ui-review/out/` do app, e o relatório final lista seus caminhos e notas. Um resultado que chega à UI só pode ser testado com um provedor de IA conectado; sem um, o relatório diz que o resultado não foi testado.
+
+## Execução e deploy {#run-deploy}
+
+Para a revisão local, a skill define `AUTH_DISABLED=1` no `.env` ignorado do app, porque um navegador de captura novo não está autenticado. Isso é apenas para desenvolvimento em loopback. É removido antes do `pnpm build` final e nunca deve ser commitado nem implantado. Sem isso, abrir o app mostra um cartão "Continue as local dev".
+
+Para executar o app você mesmo:
+
+```bash
+pnpm dev
+```
+
+Para usar seu próprio provedor de modelo localmente, coloque uma chave como `ANTHROPIC_API_KEY` no mesmo `.env`. Caso contrário, a barra lateral do agente mostra a configuração compartilhada Use Builder.io ou Custom keys.
+
+A skill só faz o deploy quando você pede ou quando o provedor já está configurado. Um build local saudável ainda imprime um bloco "production configuration errors" com código de saída 0. Essa é a lista de verificação de deploy: um `BETTER_AUTH_SECRET` estável e um `DATABASE_URL` persistente, além de `A2A_SECRET` para um app dentro de um workspace. A skill relata isso como a etapa pendente e não cria valores de placeholder. Veja [Implantar um app](/docs/deploy-an-app) e [Implantar um workspace](/docs/workspace-deployment).
+
+O relatório final rotula as evidências separadamente: em execução local, verificado localmente, pronto para build, implantado e verificado em produção são estados diferentes, e o relatório nunca deixa um substituir o outro.
+
+## Limites conhecidos {#limits}
+
+- **Editar o `.env` com o servidor de desenvolvimento em execução.** Um reload no lugar após uma mudança no `.env` entra em loop no bloqueio do banco de dados local e serve erros 500. Pare o servidor, edite o `.env` e inicie-o novamente.
+- **Planilhas ambíguas.** Se os fluxos candidatos ou o mapeamento de entradas e saídas continuarem substancialmente ambíguos após uma revisão limitada, a skill faz uma única pergunta compacta com a interpretação recomendada. Em uma execução headless, ela imprime a pergunta, registra a premissa no briefing e continua construindo.
+- **Planilhas em um host de navegador.** Não é possível anexar uma pasta de trabalho; o host passa uma renderização CSV delimitada como texto, ou uma URL intencionalmente pública, e a entrega informa o que ficou de fora. Um link para uma planilha privada não é uma fonte; o skill pede uma conexão autenticada do Sheets ou Drive, ou uma exportação, e nunca usa uma URL de exportação pública para contornar controles de acesso.
+- **Cores de células.** Uma prévia em texto não consegue comprovar cores, então, em um host local, a skill lê tanto as fórmulas quanto os valores em cache e trata a cor como uma dica fraca.
+- **Apps em Local File Mode.** Um app cuja fonte da verdade são os arquivos do host é somente local e não é implantado.
+- **Entregas em host de navegador.** O resultado fica não verificado até que o Dispatch devolva um branch compilado. A skill não consegue executar nem capturar telas do app ali.
+
+## Próximos passos {#whats-next}
+
+- [Guia de Skills](/docs/skills-guide) para saber como as skills são instaladas e carregadas
+- [Dispatch](/docs/dispatch) para o conector usado no Claude e no ChatGPT na web
+- [Implantar um app](/docs/deploy-an-app) para levar o app gerado à produção

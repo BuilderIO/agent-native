@@ -4,11 +4,6 @@ const MAX_STRING_LENGTH = 20_000;
 const MAX_COLLECTION_ITEMS = 50;
 const MAX_DEPTH = 4;
 
-// Substrings checked against a normalized (letters/digits only, lowercased)
-// key name. Matching on substrings — instead of an exact-name allow-list —
-// catches compound and snake_case/camelCase variants like access_token,
-// clientSecret, secretAccessKey, and credentials without listing every
-// spelling individually.
 const SENSITIVE_KEY_TERMS = [
   "authorization",
   "cookie",
@@ -24,7 +19,7 @@ const SENSITIVE_KEY_TERMS = [
 ];
 const ASSIGNMENT_PATTERN =
   /([A-Za-z][A-Za-z0-9_-]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;}]+)/g;
-const BEARER_TOKEN = /(Bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi;
+const BEARER_TOKEN = /(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi;
 const JWT = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
 
 function normalizeKey(key: string): string {
@@ -78,7 +73,14 @@ export function redactLogValue(
   if (value instanceof Uint8Array) {
     return `[${value.constructor.name} ${value.byteLength} bytes]`;
   }
-  if (typeof value !== "object") return String(value);
+  if (typeof value === "string") return value;
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  )
+    return `${value}`;
+  if (typeof value === "symbol") return value.description ?? "Symbol";
   if (seen.has(value)) return "[CIRCULAR]";
   seen.add(value);
 

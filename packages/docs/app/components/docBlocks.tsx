@@ -1,32 +1,4 @@
-/**
- * Visual block support for the docs site.
- *
- * The docs reuse the exact same first-party block library that powers Visual
- * Plans and Visual Recaps (`@agent-native/core/blocks`): hand-drawn rough.js
- * diagrams, expandable API-endpoint and OpenAPI specs, schema/data-model tables,
- * annotated code walkthroughs, file trees, callouts, tabs, and columns. They
- * share the global sketchy/clean preference (localStorage `plan-wireframe-style`)
- * and the docs light/dark theme, so a diagram in the docs looks identical to one
- * in the Plan app.
- *
- * Authoring: blocks are embedded in the markdown docs as standard MDX
- * components, e.g.
- *
- *     <Diagram title="Request lifecycle">
- *
- *     ```html
- *     <div class="diagram-row">…</div>
- *     ```
- *
- *     </Diagram>
- *
- * Legacy `an-*` JSON fences are still parseable for migration compatibility,
- * and mermaid stays as ordinary `mermaid` fences. The renderer
- * ({@link DocContent}) splits the markdown into prose runs and block runs,
- * rendering prose through the existing markdown pipeline and blocks through the
- * shared `BlockView`.
- */
-
+import { useT } from "@agent-native/core/client/i18n";
 import {
   BlockRegistry,
   BlockRegistryProvider,
@@ -35,8 +7,7 @@ import {
   useBlockRegistry,
   type BlockRenderContext,
   type NestedBlock,
-} from "@agent-native/core/blocks";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/blocks";
 import { useMemo, type ReactNode } from "react";
 
 import {
@@ -48,9 +19,19 @@ import { badgeBlock } from "./blocks/badge";
 import { bannerBlock } from "./blocks/banner";
 import { cardsBlock } from "./blocks/cards";
 import { comparisonBlock } from "./blocks/comparison";
+import { gettingStartedPathsBlock } from "./blocks/getting-started-paths";
+import { imageBlock } from "./blocks/image";
 import { noticeBlock } from "./blocks/notice";
+import { sequenceBlock } from "./blocks/sequence";
+import { signatureBlock } from "./blocks/signature";
 import { stepsBlock } from "./blocks/steps";
-import { renderMarkdownToHtml } from "./MarkdownRenderer";
+import { videoBlock } from "./blocks/video";
+import {
+  DEFAULT_DOCS_LOCALE,
+  localizeDocsHref,
+  type DocsLocale,
+} from "./docs-locale";
+import MarkdownRenderer from "./MarkdownRenderer";
 
 export {
   DOC_BLOCK_LANGUAGES,
@@ -61,25 +42,20 @@ export {
   type DocSegment,
 } from "../../lib/doc-block-segments";
 
-/* -------------------------------------------------------------------------- */
-/* Registry                                                                    */
-/* -------------------------------------------------------------------------- */
-
-/**
- * The docs block registry. Registers the whole shared standard library once —
- * the same specs (schema + MDX + React `Read`/`Edit`) the Plan and Content apps
- * register. Docs render read-only, so only the `Read` renderers are exercised.
- */
 let cachedRegistry: BlockRegistry | null = null;
 
 function getDocBlockRegistry(): BlockRegistry {
   if (cachedRegistry) return cachedRegistry;
   const registry = new BlockRegistry();
   registerLibraryBlocks(registry);
-  // Docs-specific blocks (not in the shared library)
   registry.register(stepsBlock);
   registry.register(cardsBlock);
   registry.register(comparisonBlock);
+  registry.register(sequenceBlock);
+  registry.register(gettingStartedPathsBlock);
+  registry.register(signatureBlock);
+  registry.register(imageBlock);
+  registry.register(videoBlock);
   registry.register(noticeBlock);
   registry.register(bannerBlock);
   registry.register(accordionBlock);
@@ -88,26 +64,7 @@ function getDocBlockRegistry(): BlockRegistry {
   return registry;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Render context                                                              */
-/* -------------------------------------------------------------------------- */
-
-function MarkdownInline({ markdown }: { markdown: string }): ReactNode {
-  return (
-    <div
-      className="docs-content"
-      dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(markdown) }}
-    />
-  );
-}
-
-/**
- * The read-only render context shared by every docs block. Wires markdown-bearing
- * blocks (callout bodies, annotated-code notes) to the docs markdown renderer and
- * container blocks (tabs, columns) to a recursive dispatch so nested blocks render
- * through the same registry.
- */
-function useDocBlockContext(): BlockRenderContext {
+function useDocBlockContext(locale: DocsLocale): BlockRenderContext {
   const registry = getDocBlockRegistry();
   return useMemo<BlockRenderContext>(
     () => ({
@@ -115,16 +72,20 @@ function useDocBlockContext(): BlockRenderContext {
       textDirection: "ltr",
       visualFrame: "hide",
       showCodeAnnotationOverlays: false,
-      renderMarkdown: (markdown) => <MarkdownInline markdown={markdown} />,
+      localizeHref: (href) => localizeDocsHref(href, locale),
+      renderMarkdown: (markdown) => (
+        <MarkdownRenderer markdown={markdown} locale={locale} />
+      ),
       renderBlock: ({ block, compactVisuals }) => (
         <DocNestedBlock
           block={block}
           registry={registry}
           compactVisuals={compactVisuals}
+          locale={locale}
         />
       ),
     }),
-    [registry],
+    [registry, locale],
   );
 }
 
@@ -132,12 +93,14 @@ function DocNestedBlock({
   block,
   registry,
   compactVisuals,
+  locale,
 }: {
   block: NestedBlock;
   registry: BlockRegistry;
   compactVisuals?: boolean;
+  locale: DocsLocale;
 }): ReactNode {
-  const ctx = useDocBlockContext();
+  const ctx = useDocBlockContext(locale);
   const spec = registry.get(block.type);
   if (!spec) return null;
   void compactVisuals;
@@ -151,14 +114,15 @@ function DocNestedBlock({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Components                                                                   */
-/* -------------------------------------------------------------------------- */
-
-/** Provides the docs block registry + read-only render context to descendants. */
-export function DocBlocksProvider({ children }: { children: ReactNode }) {
+export function DocBlocksProvider({
+  children,
+  locale = DEFAULT_DOCS_LOCALE,
+}: {
+  children: ReactNode;
+  locale?: DocsLocale;
+}) {
   const registry = getDocBlockRegistry();
-  const ctx = useDocBlockContext();
+  const ctx = useDocBlockContext(locale);
   return (
     <BlockRegistryProvider registry={registry} ctx={ctx}>
       {children}
@@ -166,7 +130,6 @@ export function DocBlocksProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** A small inline error surface so a malformed block never blanks the page. */
 function DocBlockError({ alias, message }: { alias: string; message: string }) {
   const t = useT();
   return (
@@ -188,7 +151,6 @@ function hashDocBlockSource(source: string): string {
   return (hash >>> 0).toString(36);
 }
 
-/** Render one embedded block from a parsed {@link DocSegment}. */
 export function DocBlock({
   segment,
   index,
@@ -196,8 +158,6 @@ export function DocBlock({
   segment:
     | Extract<DocSegment, { kind: "block" }>
     | Extract<DocSegment, { kind: "invalid-block" }>;
-  /** Stable position of this block within its doc. Used to derive a fallback id
-   * so SSR and client hydration agree (no module-level mutable counter). */
   index?: number;
 }) {
   const { registry, ctx } = useBlockRegistry();

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
@@ -9,7 +10,9 @@ import {
   MAX_AI_CONTENT_BYTES,
   boundAiContent,
   emitAiFeedbackSurveyEvent,
+  resolveAiError,
   toAiErrorDetail,
+  toPostHogMessages,
 } from "./posthog-ai.js";
 
 function captureEvents(): TrackingEvent[] {
@@ -23,11 +26,6 @@ function captureEvents(): TrackingEvent[] {
   return events;
 }
 
-/**
- * Load the tracking + emission modules fresh, mirroring production startup:
- * the built-in PostHog provider is registered whenever `POSTHOG_API_KEY` is
- * set, and its `flush()` is what drains the shared send queue.
- */
 async function freshModules() {
   vi.resetModules();
   const registry = await import("../tracking/registry.js");
@@ -57,7 +55,7 @@ describe("emitAiFeedbackSurveyEvent", () => {
   const base = {
     runId: "run-1",
     threadId: "thread-1",
-    userId: "alice@example.test",
+    userId: "alice@example.com",
     feedbackType: "thumbs_down" as const,
     value: "thumbs_down",
     submissionId: "sub-1",
@@ -103,8 +101,6 @@ describe("emitAiFeedbackSurveyEvent", () => {
     ).toBe(true);
     await mod.flushTracking();
 
-    // The generic registry saw nothing — free-text feedback stays with PostHog
-    // instead of fanning out to Mixpanel/Amplitude/webhooks.
     expect(mod.events).toHaveLength(0);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -112,10 +108,10 @@ describe("emitAiFeedbackSurveyEvent", () => {
     expect(url).toBe("https://us.i.posthog.com/capture/");
     const body = JSON.parse(init.body);
     expect(body.event).toBe("survey sent");
-    expect(body.distinct_id).toBe("alice@example.test");
+    expect(body.distinct_id).toBe("alice@example.com");
     expect(body.properties).toMatchObject({
       $survey_id: "survey-abc",
-      $survey_response: "the answer cited the wrong doc",
+      $survey_response_1: "the answer cited the wrong doc",
       $survey_submission_id: "sub-1",
       $survey_completed: true,
       $ai_trace_id: "run-1",
@@ -124,24 +120,71 @@ describe("emitAiFeedbackSurveyEvent", () => {
     });
   });
 
-  it("uses the per-question response key when a question id is configured", async () => {
+  it("suppresses direct PostHog survey events for +autoz identities", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
-    vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID", "q1");
     vi.stubEnv("POSTHOG_API_KEY", "phc_test");
     const mod = await freshModules();
 
+    expect(
+      mod.emitAiFeedbackSurveyEvent({
+        ...base,
+        userId: "signup+autoz-run-1@example.com",
+      }),
+    ).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("suppresses direct PostHog survey events for synthetic traffic", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
+    vi.stubEnv("POSTHOG_API_KEY", "phc_test");
+    const mod = await freshModules();
+
+    await runWithRequestContext({ isSyntheticTraffic: true }, () =>
+      expect(
+        mod.emitAiFeedbackSurveyEvent({
+          ...base,
+          userId: "alice@example.com",
+        }),
+      ).toBe(false),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("answers the rating question with PostHog's choice index, not a label", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
+    vi.stubEnv("POSTHOG_API_KEY", "phc_test");
+    const mod = await freshModules();
+
+    mod.emitAiFeedbackSurveyEvent({ ...base, feedbackType: "thumbs_up" });
+    mod.emitAiFeedbackSurveyEvent({ ...base, feedbackType: "thumbs_down" });
     mod.emitAiFeedbackSurveyEvent({
       ...base,
       feedbackType: "text",
-      value: "slow",
+      value: "cited the wrong doc",
     });
     await mod.flushTracking();
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.properties["$survey_response_q1"]).toBe("slow");
-    expect(body.properties).not.toHaveProperty("$survey_response");
+    const [up, down, followUp] = fetchMock.mock.calls.map(
+      (call) => JSON.parse(call[1].body).properties,
+    );
+    expect(up.$survey_response).toBe(1);
+    expect(down.$survey_response).toBe(2);
+    expect(followUp.$survey_response_1).toBe("cited the wrong doc");
+    expect(followUp).not.toHaveProperty("$survey_response");
+    expect(up.$survey_completed).toBe(true);
+    expect(down.$survey_completed).toBe(false);
+    expect(followUp.$survey_completed).toBe(true);
+    expect(followUp.$survey_submission_id).toBe(down.$survey_submission_id);
   });
 });
 
@@ -151,14 +194,42 @@ describe("boundAiContent", () => {
     expect(boundAiContent(value)).toEqual({ value, truncated: false });
   });
 
-  it("replaces oversized payloads with a marker instead of a partial one", () => {
+  it("keeps the last user message and says how much it dropped", () => {
+    const messages = Array.from({ length: 200 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `message ${index} ${"x".repeat(2000)}`,
+    }));
+    messages.push({ role: "user", content: "so what changed?" });
+    messages.push({ role: "assistant", content: `answer ${"y".repeat(2000)}` });
+
+    const result = boundAiContent(messages);
+    const kept = result.value as Array<{ role: string; content: string }>;
+
+    expect(result.truncated).toBe(true);
+    expect(kept).toHaveLength(2);
+    expect(kept[0].content).toMatch(
+      /^\[\d+ message\(s\) omitted: \d+ bytes exceeded the \d+-byte/,
+    );
+    expect(kept[1]).toEqual({ role: "user", content: "so what changed?" });
+  });
+
+  it("marks a single oversized message rather than shipping half of it", () => {
     const huge = [{ role: "user", content: "x".repeat(MAX_AI_CONTENT_BYTES) }];
     const result = boundAiContent(huge);
+    const kept = result.value as Array<{ content: string }>;
+
+    expect(result.truncated).toBe(true);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].content).toContain("omitted");
+    expect(JSON.stringify(result.value)).not.toContain("xxxx");
+  });
+
+  it("still placeholders an oversized value with no message to keep", () => {
+    const result = boundAiContent("y".repeat(MAX_AI_CONTENT_BYTES + 10));
 
     expect(result.truncated).toBe(true);
     expect(String(result.value)).toContain("truncated");
-    // Never a silently shortened version of the real content.
-    expect(String(result.value)).not.toContain("xxxx");
+    expect(String(result.value)).not.toContain("yyyy");
   });
 
   it("marks unserializable values rather than dropping them silently", () => {
@@ -178,24 +249,197 @@ describe("toAiErrorDetail", () => {
     expect(toAiErrorDetail(undefined, {})).toBeUndefined();
   });
 
-  it("carries terminal classification alongside the message", () => {
+  it("carries terminal classification in place of the message", () => {
     expect(
-      toAiErrorDetail("model refused", {
+      toAiErrorDetail("model refused Jane Doe's request", {
         state: "failed",
         code: "provider_error",
         retryable: true,
       }),
     ).toEqual({
-      message: "model refused",
+      message: "Agent run failed (provider_error)",
+      cause: "unknown",
       terminal_state: "failed",
       terminal_code: "provider_error",
       retryable: true,
     });
   });
 
+  it("reports a failed run that carried no error detail", () => {
+    expect(resolveAiError(true, undefined)).toEqual({
+      message: "Agent run failed (unknown)",
+      cause: "unknown",
+      terminal_code: "unknown",
+    });
+    expect(resolveAiError(false, undefined)).toBeUndefined();
+  });
+
   it("redacts secrets in the error message", () => {
     const detail = toAiErrorDetail("failed with authorization: Bearer abc123");
 
     expect(detail?.message).not.toContain("abc123");
+  });
+});
+
+describe("toPostHogMessages", () => {
+  it.each([
+    ["flagged", { isError: true, content: "Jane Doe's notes are locked" }],
+    [
+      "legacy unflagged",
+      { content: "Error running read-notes: Jane Doe's notes are locked" },
+    ],
+    ["successful", { isError: false, content: "Error rates for Jane Doe" }],
+  ])("omits only failed tool results (%s)", (kind, part) => {
+    const normalized = toPostHogMessages([
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_abc",
+            toolName: "read-notes",
+            ...part,
+          },
+        ],
+      },
+    ]);
+
+    expect(JSON.stringify(normalized).includes("Jane Doe")).toBe(
+      kind === "successful",
+    );
+  });
+
+  it("lifts engine tool results out of the user turn into `tool` messages", () => {
+    const normalized = toPostHogMessages([
+      { role: "user", content: [{ type: "text", text: "make the report" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Writing it." },
+          {
+            type: "tool-call",
+            id: "call_abc",
+            name: "write-report",
+            input: { slug: "gold" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_abc",
+            toolName: "write-report",
+            toolInput: '{"slug":"gold"}',
+            content: '{"error":"invalid_blocks"}',
+          },
+        ],
+      },
+    ]);
+
+    expect(normalized).toEqual([
+      { role: "user", content: "make the report" },
+      {
+        role: "assistant",
+        content: "Writing it.",
+        tool_calls: [
+          {
+            id: "call_abc",
+            type: "function",
+            function: { name: "write-report", arguments: { slug: "gold" } },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_abc",
+        name: "write-report",
+        content: '{"error":"invalid_blocks"}',
+      },
+    ]);
+  });
+
+  it("keeps the model's call id on both halves of a tool call", () => {
+    const [, call, result] = toPostHogMessages([
+      { role: "user", content: [{ type: "text", text: "go" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "call_xyz", name: "run", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_xyz",
+            toolName: "run",
+            toolInput: "{}",
+            content: "ok",
+          },
+        ],
+      },
+    ]) as Array<Record<string, any>>;
+
+    expect(call.tool_calls[0].id).toBe(result.tool_call_id);
+    expect(call.content).toBe("");
+  });
+
+  it("replaces attachment bodies with a marker naming what was there", () => {
+    const [message] = toPostHogMessages([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this?" },
+          { type: "image", data: "A".repeat(4000), mediaType: "image/png" },
+        ],
+      },
+    ]) as Array<{ content: Array<{ type: string; text: string }> }>;
+
+    expect(message.content[1].text).toContain("image/png");
+    expect(JSON.stringify(message)).not.toContain("AAAA");
+  });
+
+  it("passes through shapes it does not recognize instead of dropping them", () => {
+    const already = [{ role: "user", content: "plain string content" }];
+    expect(toPostHogMessages(already)).toEqual(already);
+    expect(toPostHogMessages("not a list")).toBe("not a list");
+
+    const unknownPart = [
+      { role: "assistant", content: [{ type: "future-part", payload: 1 }] },
+    ];
+    expect(toPostHogMessages(unknownPart)).toEqual([
+      { role: "assistant", content: [{ type: "future-part", payload: 1 }] },
+    ]);
+  });
+
+  it("lets the truncation rescue keep the question, not the last tool result", () => {
+    const filler = Array.from({ length: 100 }, () => ({
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "call_1",
+          toolName: "run-query",
+          toolInput: "{}",
+          content: `rows ${"x".repeat(2000)}`,
+        },
+      ],
+    }));
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "why is it slow?" }] },
+      ...filler,
+    ];
+
+    const result = boundAiContent(toPostHogMessages(messages));
+    const kept = result.value as Array<{ role: string; content: string }>;
+
+    expect(result.truncated).toBe(true);
+    expect(kept[kept.length - 1]).toEqual({
+      role: "user",
+      content: "why is it slow?",
+    });
   });
 });

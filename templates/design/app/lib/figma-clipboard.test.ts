@@ -46,7 +46,7 @@ describe("extractFigmeta", () => {
     });
   });
 
-  it("extracts exact single and multi-selection node ids from current Figma clipboard metadata", () => {
+  it("extracts single and multi-selection node ids from clipboard metadata", () => {
     const html = `<span data-metadata="<!--(figmeta)${base64Json({
       fileKey: "abcDEF12345",
       pasteID: 7,
@@ -157,7 +157,7 @@ describe("resolveFigmaPasteImportCall", () => {
     });
   });
 
-  it("strips Figma's large private binary buffer for exact-id imports while preserving figmeta and visible fallback HTML", () => {
+  it("strips the large private clipboard buffer for exact-id imports while preserving metadata and visible fallback HTML", () => {
     const metadata = `(figmeta)${base64Json({
       fileKey: "abcDEF12345",
       selectedNodeData: "40:45|4|0",
@@ -211,6 +211,34 @@ describe("stripFigmaBinaryClipboardBuffer", () => {
     ].join("");
     expect(stripFigmaBinaryClipboardBuffer(html)).toBe(
       "<!--(figmeta)metadata(/figmeta)--><div>Visible</div>",
+    );
+  });
+});
+
+describe("resolveFigmaPasteImportCall buffer transport", () => {
+  const figmeta = base64Json({ fileKey: "bufKey12345" });
+
+  function pasteWithBuffer(base64Chars: number): string {
+    const buffer = "A".repeat(base64Chars);
+    return `<span data-metadata="(figmeta)${figmeta}(/figmeta)"></span><span data-buffer="<!--(figma)${buffer}(/figma)-->"></span>`;
+  }
+
+  it("carries a buffer that fits on the wire", () => {
+    const call = resolveFigmaPasteImportCall(pasteWithBuffer(1024));
+    expect(call.action).toBe("import-figma-clipboard");
+    if (call.action !== "import-figma-clipboard") return;
+    expect(call.payload.clipboardBuffer).toBe("A".repeat(1024));
+    expect(call.payload.clipboardBufferOmittedBytes).toBeUndefined();
+  });
+
+  it("reports an oversized buffer instead of dropping it silently", () => {
+    const base64Chars = 5 * 1024 * 1024;
+    const call = resolveFigmaPasteImportCall(pasteWithBuffer(base64Chars));
+    expect(call.action).toBe("import-figma-clipboard");
+    if (call.action !== "import-figma-clipboard") return;
+    expect(call.payload.clipboardBuffer).toBeUndefined();
+    expect(call.payload.clipboardBufferOmittedBytes).toBe(
+      Math.floor((base64Chars * 3) / 4),
     );
   });
 });

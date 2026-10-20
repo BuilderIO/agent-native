@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-/**
- * Keep inline help glyphs visually subordinate to the text they explain.
- *
- * `IconHelpCircle` is often placed beside a small label, where a default
- * 16px icon makes the help affordance louder than the content. Inline help
- * glyphs should use `size-3` (12px) or smaller. Larger glyphs are still valid
- * for heading documentation controls and menu action icons, but those uses
- * must carry an explicit, reviewed pragma on the line immediately above them.
- */
 
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -21,7 +12,7 @@ const REPO_ROOT = path.resolve(
 const SOURCE_ROOTS = ["packages", "templates"];
 const SOURCE_EXTENSIONS = /\.(tsx|ts|jsx|js)$/;
 const EXCLUDED_PATH =
-  /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage|corpus)(\/|$)/;
+  /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage|corpus|\.tmp[^/]*)(\/|$)/;
 const HELP_ELEMENT_RE = /<Icon(?:HelpCircle|CircleHelp|Help)\b[\s\S]*?\/>/g;
 const LOCAL_HELP_GLYPH_RE = /\.local-dev-help-glyph\s*\{[\s\S]*?\}/g;
 const LARGE_GLYPH_RE =

@@ -34,6 +34,30 @@ describe("first-party dashboard time scope", () => {
     ).toBeNull();
   });
 
+  it("accepts custom bounds from a preset date filter", () => {
+    expect(
+      validateFirstPartyDashboardTimeScope(
+        panel({
+          sql: "SELECT COUNT(*) FROM analytics_events WHERE event_date BETWEEN '{{timeRangeStart}}' AND '{{timeRangeEnd}}'",
+        }),
+        {
+          filters: [
+            {
+              id: "timeRange",
+              type: "select",
+              default: "90d",
+              options: [
+                { value: "90d", label: "Last 90 days" },
+                { value: "all", label: "All time" },
+              ],
+            },
+          ],
+        },
+        0,
+      ),
+    ).toBeNull();
+  });
+
   it("rejects a time placeholder without its matching filter", () => {
     expect(
       validateFirstPartyDashboardTimeScope(

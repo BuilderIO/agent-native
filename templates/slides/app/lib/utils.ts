@@ -11,6 +11,13 @@ export function shortcutModifierLabel(): string {
   return isMacPlatform() ? "\u2318" : "Ctrl";
 }
 
+export function normalizeLinkHref(value: string): string | null {
+  const href = value.trim();
+  if (!href) return null;
+  if (/^(?:(?:https?|mailto|tel|sms):|[/#?.])/i.test(href)) return href;
+  return `https://${href}`;
+}
+
 export function shortcutLabel(shortcut: string): string {
   const isMac = isMacPlatform();
   return shortcut
@@ -27,5 +34,5 @@ export function shortcutLabel(shortcut: string): string {
       if (lower === "space") return "Space";
       return token.length === 1 ? token.toUpperCase() : token;
     })
-    .join("+");
+    .join(isMac ? "" : " ");
 }

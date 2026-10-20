@@ -1,22 +1,53 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconActivity,
   IconAlertTriangle,
+  IconArrowUpRight,
   IconApps,
   IconChartBar,
-  IconClockHour4,
   IconCoin,
   IconMessages,
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "../../components/ui/chart";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
 import { Skeleton } from "../../components/ui/skeleton";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "../../components/ui/tabs";
+import { UsageAlertsPanel } from "../../components/usage-alerts-panel";
 import { cn } from "../../lib/utils";
 
 export function meta() {
@@ -44,6 +75,19 @@ interface UserUsageMetric extends UsageMetricBucket {
   role: string | null;
 }
 
+interface AppAdoptionActionMetric {
+  key: string;
+  label: string;
+  calls: number;
+  activeUsers: number;
+  lastActiveAt: number | null;
+}
+
+interface UsageUserOption {
+  email: string;
+  role: string | null;
+}
+
 interface AppAccessMetric {
   id: string;
   name: string;
@@ -53,11 +97,17 @@ interface AppAccessMetric {
   isDispatch: boolean;
   accessLabel: string;
   accessUsers: number;
+  ownerEmail: string | null;
+  isOwnedByViewer: boolean;
+  canViewUsage: boolean;
   usersWithUsage: number;
+  dailyActiveUsers: number;
+  weeklyActiveUsers: number;
   usageCalls: number;
   chatCalls: number;
   costCents: number;
   lastActiveAt: number | null;
+  actionMetrics: AppAdoptionActionMetric[];
 }
 
 interface DailyUsageMetric {
@@ -66,6 +116,8 @@ interface DailyUsageMetric {
   calls: number;
   chatCalls: number;
   activeUsers: number;
+  dailyActiveUsers: number;
+  weeklyActiveUsers: number | null;
 }
 
 interface RecentUsageMetric {
@@ -78,19 +130,34 @@ interface RecentUsageMetric {
   inputTokens: number;
   outputTokens: number;
   costCents: number;
+  prompt: string | null;
+  promptSource: "thread" | "thread-preview" | "not-captured" | "unavailable";
+  threadId: string | null;
+  runId: string | null;
+  taskId: string | null;
+  sourcePlatform: string | null;
+  sourceId: string | null;
 }
 
 interface UsageBillingMode {
-  unit: "usd" | "builder-credits";
+  unit: "usd" | "builder-credits" | "mixed" | "unknown";
   label: string;
   shortLabel: string;
-  source: "estimated-provider-cost" | "builder-agent-credits";
+  source:
+    | "estimated-provider-cost"
+    | "builder-agent-credits"
+    | "mixed-provider-usage"
+    | "unknown";
   hardCostMarginMultiplier?: number;
   creditsPerUsd?: number;
 }
 
 interface DispatchUsageMetrics {
   billing?: UsageBillingMode;
+  viewScope?: "me" | "workspace" | "app";
+  selectedUserEmail?: string | null;
+  selectedAppId?: string | null;
+  availableUsers?: UsageUserOption[];
   sinceDays: number;
   access: {
     viewerEmail: string;
@@ -117,11 +184,19 @@ interface DispatchUsageMetrics {
   byLabel: UsageMetricBucket[];
   byModel: UsageMetricBucket[];
   daily: DailyUsageMetric[];
+  dailyAvailable: boolean;
   appAccess: AppAccessMetric[];
   recent: RecentUsageMetric[];
 }
 
 const RANGES = [7, 30, 90] as const;
+
+type MetricsView = "overview" | "adoption" | "details";
+
+function selectedMetricsView(value: string | null): MetricsView {
+  if (value === "adoption" || value === "details") return value;
+  return "overview";
+}
 
 const USD_BILLING: UsageBillingMode = {
   unit: "usd",
@@ -134,6 +209,7 @@ function displayAmountFromCostCents(
   cents: number,
   billing: UsageBillingMode,
 ): number {
+  if (billing.unit === "unknown" || billing.unit === "mixed") return 0;
   if (billing.unit !== "builder-credits") return cents;
   const margin = billing.hardCostMarginMultiplier ?? 1.25;
   const creditsPerUsd = billing.creditsPerUsd ?? 20;
@@ -151,6 +227,7 @@ function formatCredits(credits: number): string {
 }
 
 function formatSpend(cents: number, billing: UsageBillingMode): string {
+  if (billing.unit === "unknown" || billing.unit === "mixed") return "—";
   if (billing.unit === "builder-credits") {
     return formatCredits(displayAmountFromCostCents(cents, billing));
   }
@@ -164,7 +241,8 @@ function formatSpend(cents: number, billing: UsageBillingMode): string {
   });
 }
 
-function formatNumber(value: number): string {
+function formatNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat(undefined, {
     notation: value >= 10_000 ? "compact" : "standard",
     maximumFractionDigits: value >= 10_000 ? 1 : 0,
@@ -185,6 +263,149 @@ function timeAgo(timestamp: number | null): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+function formatTrendDate(value: string): string {
+  const date = new Date(`${value}T12:00:00`);
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function completeUsageTrendRows(rows: DailyUsageMetric[]): DailyUsageMetric[] {
+  if (rows.length < 2) return rows;
+  const byDate = new Map(rows.map((row) => [row.date, row]));
+  const start = new Date(`${rows[0].date}T12:00:00`);
+  const end = new Date(`${rows[rows.length - 1].date}T12:00:00`);
+  const completed: DailyUsageMetric[] = [];
+  for (
+    const cursor = start;
+    cursor <= end;
+    cursor.setDate(cursor.getDate() + 1)
+  ) {
+    const date = cursor.toISOString().slice(0, 10);
+    completed.push(
+      byDate.get(date) ?? {
+        date,
+        costCents: 0,
+        calls: 0,
+        chatCalls: 0,
+        activeUsers: 0,
+        dailyActiveUsers: 0,
+        weeklyActiveUsers: 0,
+      },
+    );
+  }
+  return completed;
+}
+
+function UserActivityTrend({ rows }: { rows: DailyUsageMetric[] }) {
+  const chartData = rows.map((row) => ({
+    ...row,
+    dau: row.dailyActiveUsers,
+    wau: row.weeklyActiveUsers,
+  }));
+
+  return (
+    <Panel
+      title="Active users trend"
+      icon={<IconUsersGroup size={16} />}
+      action={
+        <div className="hidden items-center gap-3 text-[11px] text-muted-foreground sm:flex">
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-primary" />
+            DAU
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-muted-foreground" />
+            WAU
+          </span>
+        </div>
+      }
+    >
+      {chartData.length === 0 ? (
+        <div className="flex min-h-56 items-center justify-center rounded-md border border-dashed px-4 text-sm text-muted-foreground">
+          No active users in this window yet.
+        </div>
+      ) : (
+        <ChartContainer
+          config={{
+            dau: {
+              label: "DAU",
+              color: "hsl(var(--dispatch-brand-blue))",
+            },
+            wau: {
+              label: "WAU",
+              color: "hsl(var(--muted-foreground))",
+            },
+          }}
+          className="h-[240px] w-full aspect-auto"
+        >
+          <LineChart
+            data={chartData}
+            margin={{ top: 8, right: 8, left: 12, bottom: 0 }}
+          >
+            <CartesianGrid
+              vertical={false}
+              stroke="hsl(var(--border))"
+              strokeDasharray="3 3"
+            />
+            <XAxis
+              dataKey="date"
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={11}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={8}
+              minTickGap={28}
+              tickFormatter={formatTrendDate}
+            />
+            <YAxis
+              allowDecimals={false}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={11}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={8}
+              width={34}
+              tickFormatter={(value) => formatNumber(Number(value))}
+            />
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  labelFormatter={(value) => formatTrendDate(String(value))}
+                  formatter={(value, name) => [
+                    `${formatNumber(Number(value))} users`,
+                    name === "dau" ? "DAU" : "WAU",
+                  ]}
+                />
+              }
+            />
+            <Line
+              dataKey="dau"
+              type="monotone"
+              stroke="var(--color-dau)"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4, strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+            <Line
+              dataKey="wau"
+              type="monotone"
+              stroke="var(--color-wau)"
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 3, strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ChartContainer>
+      )}
+    </Panel>
+  );
 }
 
 function displayApp(value: string | null | undefined): string {
@@ -307,6 +528,280 @@ function LoadingMetrics() {
   );
 }
 
+function ScopeSelector({
+  value,
+  onChange,
+}: {
+  value: "me" | "workspace";
+  onChange: (value: "me" | "workspace") => void;
+}) {
+  return (
+    <div className="flex rounded-md bg-card p-0.5" aria-label="Usage scope">
+      {(
+        [
+          ["me", "My usage"],
+          ["workspace", "Workspace"],
+        ] as const
+      ).map(([scope, label]) => (
+        <Button
+          key={scope}
+          type="button"
+          variant={value === scope ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 px-3 text-xs"
+          aria-pressed={value === scope}
+          onClick={() => onChange(scope)}
+        >
+          {label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function UserSelector({
+  value,
+  users,
+  onChange,
+}: {
+  value: string | null;
+  users: UsageUserOption[];
+  onChange: (value: string | null) => void;
+}) {
+  return (
+    <Select
+      value={value ?? "all"}
+      onValueChange={(nextValue) =>
+        onChange(nextValue === "all" ? null : nextValue)
+      }
+    >
+      <SelectTrigger
+        size="sm"
+        className="w-[210px] text-xs"
+        aria-label="Filter usage by user"
+      >
+        <SelectValue placeholder="All users" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem value="all">All users</SelectItem>
+          {users.map((user) => (
+            <SelectItem key={user.email} value={user.email}>
+              {user.email}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function UsageTrend({
+  rows,
+  billing,
+}: {
+  rows: DailyUsageMetric[];
+  billing: UsageBillingMode;
+}) {
+  const t = useT();
+  const spendLabel =
+    billing.unit === "unknown"
+      ? t("agentChat.settings.usage.unclassifiedUsage")
+      : billing.shortLabel;
+  const chartData = completeUsageTrendRows(rows).map((row) => ({
+    ...row,
+    spend: displayAmountFromCostCents(row.costCents, billing),
+  }));
+
+  return (
+    <Panel
+      title={
+        billing.unit === "builder-credits"
+          ? "Credit usage trend"
+          : "Usage trend"
+      }
+      icon={<IconChartBar size={16} />}
+      action={
+        <div className="hidden items-center gap-3 text-[11px] text-muted-foreground sm:flex">
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-[hsl(var(--dispatch-brand-blue))]" />
+            {spendLabel}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-muted-foreground" />
+            Calls
+          </span>
+        </div>
+      }
+    >
+      {chartData.length === 0 ? (
+        <div className="flex min-h-56 items-center justify-center rounded-md border border-dashed px-4 text-sm text-muted-foreground">
+          No usage in this window yet.
+        </div>
+      ) : (
+        <ChartContainer
+          config={{
+            spend: {
+              label: spendLabel,
+              color: "hsl(var(--dispatch-brand-blue))",
+            },
+            calls: {
+              label: "Calls",
+              color: "hsl(var(--muted-foreground))",
+            },
+          }}
+          className="h-[280px] w-full aspect-auto"
+        >
+          <AreaChart
+            data={chartData}
+            margin={{ top: 8, right: 8, left: 12, bottom: 0 }}
+          >
+            <defs>
+              <linearGradient id="usage-trend-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="0%"
+                  stopColor="var(--color-spend)"
+                  stopOpacity={0.24}
+                />
+                <stop
+                  offset="100%"
+                  stopColor="var(--color-spend)"
+                  stopOpacity={0}
+                />
+              </linearGradient>
+            </defs>
+            <CartesianGrid
+              vertical={false}
+              stroke="hsl(var(--border))"
+              strokeDasharray="3 3"
+            />
+            <XAxis
+              dataKey="date"
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={11}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={8}
+              minTickGap={28}
+              tickFormatter={formatTrendDate}
+            />
+            <YAxis
+              yAxisId="spend"
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={11}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={8}
+              width={50}
+              tickFormatter={(value) =>
+                billing.unit === "builder-credits"
+                  ? formatCredits(Number(value))
+                  : formatSpend(Number(value), billing)
+              }
+            />
+            <YAxis yAxisId="calls" orientation="right" hide />
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  labelFormatter={(value) => formatTrendDate(String(value))}
+                  formatter={(value, name) => [
+                    name === "spend"
+                      ? billing.unit === "builder-credits"
+                        ? formatCredits(Number(value))
+                        : formatSpend(Number(value), billing)
+                      : `${formatNumber(Number(value))} calls`,
+                    name === "spend" ? spendLabel : "Calls",
+                  ]}
+                />
+              }
+            />
+            <Area
+              yAxisId="spend"
+              dataKey="spend"
+              type="monotone"
+              stroke="var(--color-spend)"
+              strokeWidth={2}
+              fill="url(#usage-trend-fill)"
+              fillOpacity={1}
+              dot={false}
+              activeDot={{ r: 4, strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+            <Area
+              yAxisId="calls"
+              dataKey="calls"
+              type="monotone"
+              stroke="var(--color-calls)"
+              strokeWidth={1.5}
+              fill="none"
+              dot={false}
+              activeDot={{ r: 3, strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ChartContainer>
+      )}
+    </Panel>
+  );
+}
+
+function ReviewUsageButton({
+  metrics,
+  billing,
+}: {
+  metrics: DispatchUsageMetrics;
+  billing: UsageBillingMode;
+}) {
+  function reviewUsage() {
+    const topApps = metrics.byApp
+      .slice(0, 5)
+      .map(
+        (row) =>
+          `${displayApp(row.key)}: ${formatSpend(row.costCents, billing)} / ${row.calls} calls`,
+      )
+      .join("; ");
+    const topLabels = metrics.byLabel
+      .slice(0, 5)
+      .map(
+        (row) =>
+          `${row.label}: ${formatSpend(row.costCents, billing)} / ${row.calls} calls`,
+      )
+      .join("; ");
+    const recentPrompts = metrics.recent
+      .slice(0, 8)
+      .map((row) => {
+        const prompt = row.prompt
+          ? row.prompt.slice(0, 180)
+          : "prompt not captured";
+        return `${timeAgo(row.createdAt)} | ${displayApp(row.app)} | ${row.label} | ${prompt}`;
+      })
+      .join("\n");
+
+    sendToAgentChat({
+      message:
+        "Review this LLM usage and explain where the spend is going. Identify repeated, background, or unexpectedly expensive work, cite the strongest evidence, and suggest concrete fixes. Call out missing attribution instead of guessing.",
+      context: [
+        `Dispatch usage scope: ${metrics.viewScope === "workspace" ? "workspace" : "my account"}.`,
+        `Lookback: ${metrics.sinceDays} days. Viewer: ${metrics.access.viewerEmail}.`,
+        `Total: ${formatSpend(metrics.totals.costCents, billing)}, ${metrics.totals.calls} calls, ${metrics.totals.chatCalls} chat calls, ${formatTokens(metrics.totals.inputTokens + metrics.totals.outputTokens)} input/output tokens.`,
+        `Top apps: ${topApps || "none"}.`,
+        `Top work types: ${topLabels || "none"}.`,
+        `Recent prompt evidence (bounded to the latest 8 rows):\n${recentPrompts || "none"}`,
+      ].join("\n"),
+      submit: true,
+      openSidebar: true,
+      chatTarget: "local",
+    });
+  }
+
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={reviewUsage}>
+      Ask agent
+    </Button>
+  );
+}
+
 function AppSpendRows({
   rows,
   billing,
@@ -362,37 +857,213 @@ function AppSpendRows({
   );
 }
 
-function DailyActivity({ rows }: { rows: DailyUsageMetric[] }) {
-  const max = Math.max(
-    1,
-    rows.reduce((value, row) => Math.max(value, row.calls), 0),
-  );
-  if (rows.length === 0) {
+function AppAdoptionPanel({
+  rows,
+  selectedAppId,
+  scope,
+  backScope,
+}: {
+  rows: AppAccessMetric[];
+  selectedAppId: string | null;
+  scope: "me" | "workspace" | "app";
+  backScope: "me" | "workspace";
+}) {
+  const t = useT();
+  const visibleRows = rows
+    .filter((row) => !row.isDispatch)
+    .sort(
+      (a, b) =>
+        b.usageCalls - a.usageCalls ||
+        b.usersWithUsage - a.usersWithUsage ||
+        (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0) ||
+        a.name.localeCompare(b.name),
+    );
+  const [showAll, setShowAll] = useState(false);
+  const selectedRow = selectedAppId
+    ? visibleRows.find((row) => row.id === selectedAppId)
+    : null;
+  const isDetail = !!selectedRow;
+  const actionMetrics = selectedRow?.actionMetrics ?? [];
+  const rowsToRender = showAll ? visibleRows : visibleRows.slice(0, 9);
+  const detailStats = [
+    [t("dispatch.pages.dailyActiveUsers"), selectedRow?.dailyActiveUsers],
+    [t("dispatch.pages.weeklyActiveUsers"), selectedRow?.weeklyActiveUsers],
+    [t("dispatch.pages.trackedActions"), selectedRow?.usageCalls],
+  ] satisfies Array<[string, number | null | undefined]>;
+  const title = isDetail
+    ? t("dispatch.pages.appAdoptionFor", { name: selectedRow.name })
+    : scope === "workspace"
+      ? t("dispatch.pages.appAdoption")
+      : t("dispatch.pages.yourAppActivity");
+  const backHref =
+    backScope === "workspace"
+      ? "/admin/metrics?scope=workspace&view=adoption"
+      : "/admin/metrics?view=adoption";
+
+  if (visibleRows.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
-        No activity in this window.
-      </div>
+      <Panel title={title} icon={<IconApps size={16} />}>
+        <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
+          {t("dispatch.pages.noWorkspaceApps")}
+        </div>
+      </Panel>
     );
   }
+
   return (
-    <div className="flex h-44 items-end gap-1">
-      {rows.map((row) => (
-        <div
-          key={row.date}
-          className="group flex min-w-0 flex-1 flex-col items-center gap-2"
-        >
-          <div className="relative flex h-36 w-full items-end rounded-sm bg-muted/60">
-            <div
-              className="w-full rounded-sm bg-foreground transition group-hover:bg-primary"
-              style={{ height: `${Math.max(4, (row.calls / max) * 100)}%` }}
-            />
+    <Panel
+      title={title}
+      icon={<IconChartBar size={16} />}
+      action={
+        isDetail ? (
+          <Link
+            to={backHref}
+            className="text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            {t("allApps")}
+          </Link>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            {t("dispatch.pages.appAdoptionDefinition")}
+          </span>
+        )
+      }
+    >
+      {isDetail ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-foreground">
+                {selectedRow.name}
+              </div>
+              <div className="font-mono text-xs text-muted-foreground">
+                {selectedRow.path}
+              </div>
+            </div>
+            <Badge variant="secondary">
+              {selectedRow.ownerEmail
+                ? selectedRow.isOwnedByViewer
+                  ? t("dispatch.pages.appMetadataOwner")
+                  : selectedRow.ownerEmail
+                : t("dispatch.pages.ownerUnavailable")}
+            </Badge>
           </div>
-          <div className="hidden text-[10px] text-muted-foreground sm:block">
-            {row.date.slice(5)}
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            {detailStats.map(([label, value]) => (
+              <div
+                key={String(label)}
+                className="rounded-md border bg-background p-3"
+              >
+                <div className="text-xs text-muted-foreground">{label}</div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                  {formatNumber(value)}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="border-t pt-4">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">
+              {t("dispatch.pages.trackedActionBreakdown")}
+            </div>
+            {actionMetrics.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                {t("dispatch.pages.noTrackedActions")}
+              </div>
+            ) : (
+              <div className="divide-y rounded-md border">
+                {actionMetrics.slice(0, 10).map((action) => (
+                  <div
+                    key={action.key}
+                    className="flex items-center justify-between gap-3 px-3 py-2.5 text-xs"
+                  >
+                    <span className="min-w-0 truncate font-medium text-foreground">
+                      {action.label}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {formatNumber(action.calls)}{" "}
+                      {t("dispatch.pages.trackedActions")} ·{" "}
+                      {formatNumber(action.activeUsers)}{" "}
+                      {t("dispatch.pages.activeUsers")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-      ))}
-    </div>
+      ) : (
+        <>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {rowsToRender.map((row) => (
+              <div key={row.id} className="rounded-md border bg-background p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-foreground">
+                      {row.name}
+                    </div>
+                    <div className="font-mono text-[11px] text-muted-foreground">
+                      {row.path}
+                    </div>
+                  </div>
+                  {row.isOwnedByViewer ? (
+                    <Badge variant="secondary">
+                      {t("dispatch.pages.appMetadataOwner")}
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      {t("dispatch.pages.dailyActiveUsers")}
+                    </div>
+                    <div className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                      {formatNumber(row.dailyActiveUsers)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      {t("dispatch.pages.weeklyActiveUsers")}
+                    </div>
+                    <div className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                      {formatNumber(row.weeklyActiveUsers)}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 text-xs text-muted-foreground">
+                  {formatNumber(row.usageCalls)}{" "}
+                  {t("dispatch.pages.trackedActions")}
+                </div>
+                {row.canViewUsage ? (
+                  <Link
+                    to={`/admin/metrics?app=${encodeURIComponent(row.id)}${scope === "workspace" ? "&scope=workspace" : ""}&view=adoption`}
+                    className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline"
+                  >
+                    {t("dispatch.pages.viewAppMetrics")}
+                    <IconArrowUpRight size={13} />
+                  </Link>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          {visibleRows.length > 9 ? (
+            <div className="mt-4 flex justify-center">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAll((current) => !current)}
+              >
+                {showAll
+                  ? t("jobs.scheduleUnavailableFixLabelOpen")
+                  : t("jobs.scheduleUnavailableFixLabel")}
+              </Button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </Panel>
   );
 }
 
@@ -578,74 +1249,58 @@ function CompactBreakdown({
   );
 }
 
-function RecentTable({
-  rows,
-  billing,
-}: {
-  rows: RecentUsageMetric[];
-  billing: UsageBillingMode;
-}) {
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
-        No recent LLM calls.
-      </div>
-    );
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] text-left text-xs">
-        <thead>
-          <tr className="border-b text-muted-foreground">
-            <th className="px-2 py-2 font-medium">When</th>
-            <th className="px-2 py-2 font-medium">User</th>
-            <th className="px-2 py-2 font-medium">App</th>
-            <th className="px-2 py-2 font-medium">Label</th>
-            <th className="px-2 py-2 font-medium">Model</th>
-            <th className="px-2 py-2 text-right font-medium">
-              {billing.shortLabel}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 10).map((row) => (
-            <tr key={row.id} className="border-b last:border-0">
-              <td className="px-2 py-3 text-muted-foreground">
-                {timeAgo(row.createdAt)}
-              </td>
-              <td className="max-w-56 px-2 py-3">
-                <div className="truncate text-foreground">{row.ownerEmail}</div>
-              </td>
-              <td className="px-2 py-3 text-muted-foreground">
-                {displayApp(row.app)}
-              </td>
-              <td className="px-2 py-3">
-                <Badge variant="outline">{row.label}</Badge>
-              </td>
-              <td className="max-w-48 px-2 py-3">
-                <div className="truncate text-muted-foreground">
-                  {row.model}
-                </div>
-              </td>
-              <td className="px-2 py-3 text-right tabular-nums">
-                {formatSpend(row.costCents, billing)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 export default function MetricsRoute() {
   const t = useT();
   const [sinceDays, setSinceDays] = useState(30);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = selectedMetricsView(searchParams.get("view"));
+  const appId = searchParams.get("app") || null;
+  const backScope: "me" | "workspace" =
+    searchParams.get("scope") === "workspace" ? "workspace" : "me";
+  const scope: "me" | "workspace" | "app" = appId
+    ? "app"
+    : searchParams.get("scope") === "workspace"
+      ? "workspace"
+      : "me";
+  const userEmail =
+    scope === "workspace" ? searchParams.get("user") || null : null;
+
+  function setScope(nextScope: "me" | "workspace") {
+    const next = new URLSearchParams(searchParams);
+    next.delete("app");
+    if (nextScope === "me") next.delete("scope");
+    else next.set("scope", nextScope);
+    if (nextScope === "me") next.delete("user");
+    setSearchParams(next, { replace: true });
+  }
+
+  function setUserEmail(nextUserEmail: string | null) {
+    const next = new URLSearchParams(searchParams);
+    if (nextUserEmail) next.set("user", nextUserEmail);
+    else next.delete("user");
+    setSearchParams(next, { replace: true });
+  }
+
+  function setView(nextView: MetricsView) {
+    const next = new URLSearchParams(searchParams);
+    if (nextView === "overview") next.delete("view");
+    else next.set("view", nextView);
+    setSearchParams(next, { replace: true });
+  }
+
   const { data, isLoading, error } = useActionQuery(
     "list-dispatch-usage-metrics",
-    { sinceDays },
+    {
+      sinceDays,
+      scope,
+      userEmail: userEmail ?? undefined,
+      appId: appId ?? undefined,
+    },
   );
   const metrics = data as DispatchUsageMetrics | undefined;
+  const selectedAppName = metrics?.selectedAppId
+    ? metrics.appAccess.find((row) => row.id === metrics.selectedAppId)?.name
+    : null;
   const billing = metrics?.billing ?? USD_BILLING;
   const totalTokens = useMemo(() => {
     if (!metrics) return 0;
@@ -668,12 +1323,53 @@ export default function MetricsRoute() {
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-muted-foreground">
-            {metrics?.access.scope === "organization"
-              ? `${metrics.access.totalUsers} workspace users`
-              : `${metrics?.access.totalUsers ?? 0} signed-in users`}
+          <div>
+            <div className="text-sm font-medium text-foreground">
+              {scope === "app"
+                ? t("dispatch.pages.appAdoption")
+                : metrics?.selectedUserEmail
+                  ? `${metrics.selectedUserEmail}'s usage`
+                  : scope === "workspace"
+                    ? "Workspace usage"
+                    : "Your usage"}
+            </div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {scope === "app"
+                ? selectedAppName || t("dispatch.pages.workspaceAppFallback")
+                : metrics?.selectedUserEmail
+                  ? "Filtered to this workspace member"
+                  : scope === "workspace"
+                    ? `${metrics?.access.totalUsers ?? 0} users with access`
+                    : metrics?.access.viewerEmail || "Signed-in account"}
+            </div>
           </div>
-          <RangeSelector value={sinceDays} onChange={setSinceDays} />
+          <div className="flex flex-wrap items-center gap-2">
+            {appId ? (
+              <Link
+                to={
+                  backScope === "workspace"
+                    ? "/admin/metrics?scope=workspace&view=adoption"
+                    : "/admin/metrics?view=adoption"
+                }
+                className="inline-flex h-7 items-center rounded-md border px-3 text-xs font-medium text-foreground hover:bg-muted"
+              >
+                {t("allApps")}
+              </Link>
+            ) : (
+              <ScopeSelector
+                value={scope === "workspace" ? "workspace" : "me"}
+                onChange={setScope}
+              />
+            )}
+            {scope === "workspace" && metrics ? (
+              <UserSelector
+                value={metrics.selectedUserEmail ?? userEmail}
+                users={metrics.availableUsers ?? []}
+                onChange={setUserEmail}
+              />
+            ) : null}
+            <RangeSelector value={sinceDays} onChange={setSinceDays} />
+          </div>
         </div>
 
         {error ? (
@@ -691,85 +1387,155 @@ export default function MetricsRoute() {
         {isLoading && !metrics ? <LoadingMetrics /> : null}
 
         {metrics ? (
-          <>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-              <MetricCard
-                label={billing.label}
-                value={formatSpend(metrics.totals.costCents, billing)}
-                detail={`${formatTokens(totalTokens)} total tokens`}
-                icon={<IconCoin size={17} />}
-              />
-              <MetricCard
-                label={t("dispatch.pages.llmCalls")}
-                value={formatNumber(metrics.totals.calls)}
-                detail={`${formatNumber(metrics.totals.chatCalls)} chat turns`}
-                icon={<IconActivity size={17} />}
-              />
-              <MetricCard
-                label={t("dispatch.pages.activeUsers")}
-                value={formatNumber(metrics.totals.activeUsers)}
-                detail={`${formatNumber(metrics.access.totalUsers)} users with access`}
-                icon={<IconUsersGroup size={17} />}
-              />
-              <MetricCard
-                label={t("dispatch.pages.workspaceAppsStat")}
-                value={formatNumber(metrics.totals.workspaceApps)}
-                detail={`${formatNumber(metrics.byApp.length)} with usage`}
-                icon={<IconApps size={17} />}
-              />
-              <MetricCard
-                label={t("dispatch.pages.chatThreads")}
-                value={formatNumber(metrics.totals.chatThreads)}
-                detail={`${formatNumber(metrics.totals.chatMessages)} messages`}
-                icon={<IconMessages size={17} />}
-              />
-            </div>
+          <Tabs
+            value={view}
+            onValueChange={(value) => {
+              if (
+                value === "overview" ||
+                value === "adoption" ||
+                value === "details"
+              ) {
+                setView(value);
+              }
+            }}
+            className="flex min-w-0 flex-col gap-5"
+          >
+            <TabsList className="w-fit">
+              <TabsTrigger value="overview">
+                <IconActivity size={15} className="mr-1.5" />
+                {t("dispatch.nav.overview")}
+              </TabsTrigger>
+              <TabsTrigger value="adoption">
+                <IconApps size={15} className="mr-1.5" />
+                {t("dispatch.pages.appAdoption")}
+              </TabsTrigger>
+              <TabsTrigger value="details">
+                <IconChartBar size={15} className="mr-1.5" />
+                {t("details")}
+              </TabsTrigger>
+            </TabsList>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+            <TabsContent value="overview" className="mt-0 min-w-0 space-y-4">
+              {metrics.dailyAvailable === false ? (
+                <Alert variant="destructive">
+                  <IconAlertTriangle className="h-4 w-4" />
+                  <AlertTitle>
+                    {t("dispatch.pages.metricsUnavailable")}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {t("dispatch.pages.unableToLoadUsage")}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+              <UsageTrend rows={metrics.daily} billing={billing} />
+              <UserActivityTrend rows={metrics.daily} />
+
+              <div className="flex items-center justify-between gap-3 border-y py-3">
+                <span className="text-sm text-muted-foreground">
+                  Review this usage with the agent
+                </span>
+                <ReviewUsageButton metrics={metrics} billing={billing} />
+              </div>
+
+              {scope !== "app" ? (
+                <UsageAlertsPanel
+                  scope={scope === "workspace" ? "workspace" : "user"}
+                  appOptions={metrics.byApp
+                    .filter((row) => row.key && row.key !== "unattributed")
+                    .map((row) => ({
+                      id: row.key,
+                      label: displayApp(row.key),
+                    }))}
+                />
+              ) : null}
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <MetricCard
+                  label={
+                    billing.unit === "unknown"
+                      ? t("agentChat.settings.usage.unclassifiedUsage")
+                      : billing.label
+                  }
+                  value={formatSpend(metrics.totals.costCents, billing)}
+                  detail={`${formatTokens(totalTokens)} total tokens`}
+                  icon={<IconCoin size={17} />}
+                />
+                <MetricCard
+                  label={t("dispatch.pages.llmCalls")}
+                  value={formatNumber(metrics.totals.calls)}
+                  detail={`${formatNumber(metrics.totals.chatCalls)} chat turns`}
+                  icon={<IconActivity size={17} />}
+                />
+                <MetricCard
+                  label={t("dispatch.pages.activeUsers")}
+                  value={formatNumber(metrics.totals.activeUsers)}
+                  detail={`${formatNumber(metrics.access.totalUsers)} users with access`}
+                  icon={<IconUsersGroup size={17} />}
+                />
+                <MetricCard
+                  label={t("dispatch.pages.workspaceAppsStat")}
+                  value={formatNumber(metrics.totals.workspaceApps)}
+                  detail={`${formatNumber(metrics.byApp.length)} with usage`}
+                  icon={<IconApps size={17} />}
+                />
+                <MetricCard
+                  label={t("dispatch.pages.chatThreads")}
+                  value={formatNumber(metrics.totals.chatThreads)}
+                  detail={`${formatNumber(metrics.totals.chatMessages)} messages`}
+                  icon={<IconMessages size={17} />}
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="adoption" className="mt-0 min-w-0">
+              <AppAdoptionPanel
+                rows={metrics.appAccess}
+                selectedAppId={metrics.selectedAppId ?? appId}
+                scope={scope}
+                backScope={backScope}
+              />
+            </TabsContent>
+
+            <TabsContent value="details" className="mt-0 min-w-0 space-y-4">
               <Panel
                 title={
                   billing.unit === "builder-credits"
-                    ? "Credit Spend By App"
-                    : "Spend By App"
+                    ? "Credit spend by app"
+                    : "Spend by app"
                 }
-                icon={<IconChartBar size={16} />}
+                icon={<IconApps size={16} />}
               >
                 <AppSpendRows rows={metrics.byApp} billing={billing} />
               </Panel>
-              <Panel title="Daily Activity" icon={<IconClockHour4 size={16} />}>
-                <DailyActivity rows={metrics.daily} />
+
+              <Panel title="Access By App" icon={<IconApps size={16} />}>
+                <AppAccessTable rows={metrics.appAccess} billing={billing} />
               </Panel>
-            </div>
 
-            <Panel title="Access By App" icon={<IconApps size={16} />}>
-              <AppAccessTable rows={metrics.appAccess} billing={billing} />
-            </Panel>
+              {scope !== "app" ? (
+                <Panel title="Users" icon={<IconUsersGroup size={16} />}>
+                  <UserTable rows={metrics.byUser} billing={billing} />
+                </Panel>
+              ) : null}
 
-            <Panel title="Users" icon={<IconUsersGroup size={16} />}>
-              <UserTable rows={metrics.byUser} billing={billing} />
-            </Panel>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Panel title="Models" icon={<IconChartBar size={16} />}>
-                <CompactBreakdown
-                  rows={metrics.byModel}
-                  empty="No model usage in this window."
-                  billing={billing}
-                />
-              </Panel>
-              <Panel title="Work Types" icon={<IconActivity size={16} />}>
-                <CompactBreakdown
-                  rows={metrics.byLabel}
-                  empty="No labeled usage in this window."
-                  billing={billing}
-                />
-              </Panel>
-            </div>
-
-            <Panel title="Recent LLM Calls" icon={<IconActivity size={16} />}>
-              <RecentTable rows={metrics.recent} billing={billing} />
-            </Panel>
-          </>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Panel title="Models" icon={<IconChartBar size={16} />}>
+                  <CompactBreakdown
+                    rows={metrics.byModel}
+                    empty="No model usage in this window."
+                    billing={billing}
+                  />
+                </Panel>
+                <Panel title="Work Types" icon={<IconActivity size={16} />}>
+                  <CompactBreakdown
+                    rows={metrics.byLabel}
+                    empty="No labeled usage in this window."
+                    billing={billing}
+                  />
+                </Panel>
+              </div>
+            </TabsContent>
+          </Tabs>
         ) : null}
       </div>
     </DispatchShell>

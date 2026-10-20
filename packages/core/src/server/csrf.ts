@@ -51,6 +51,7 @@ import {
 } from "h3";
 
 import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
+import { isAutomationWebhookToken } from "../triggers/webhook.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 /**
@@ -82,22 +83,11 @@ const CSRF_PROTECTED_PREFIXES = [
 ];
 
 const CSRF_ALLOWLIST_PREFIXES = [
-  // Integration webhooks — verified by HMAC against a per-integration secret.
   "/integrations/",
-  // Agent Teams durable sub-agent processor self-fire — verified by the same
-  // HMAC internal-token scheme as the integration/A2A processors.
   "/agent-teams/",
-  // Durable sandbox-execution processor self-fire (run-code background
-  // queue) — verified by the same HMAC internal-token scheme.
   "/sandbox/_process-execution",
-  // A2A JSON-RPC endpoints — verified by signed JWT (when A2A_SECRET set) or
-  // explicitly opt-in unauthenticated (handled at the A2A layer).
   "/a2a",
-  // Better Auth's own login/sign-in/social-callback routes. Better Auth
-  // ships its own CSRF protection (Origin/Sec-Fetch checks on its handlers)
-  // and cookies are needed for the OAuth callback round-trip.
   "/auth/",
-  // Stripe / Paddle / billing webhooks dropped in by templates.
   "/billing/webhook",
   // Public share endpoints — read-only and never cookie-driven, but kept
   // here so a templated POST (e.g. comment-on-public-recording) doesn't 403.
@@ -108,36 +98,11 @@ const CSRF_ALLOWLIST_PREFIXES = [
   // state token. Each callback handler is responsible for its own CSRF
   // check (signed state tokens).
   "/oauth/",
-  // Builder's CLI-auth callback — uses the BUILDER_STATE_PARAM signed token
-  // to authenticate the round-trip; framework CSRF check would block it.
   "/builder/callback",
 ];
 
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-/**
- * Decide whether a request is "first-party enough" to trust as not-CSRF.
- * Any of the following make a request non-CSRF:
- *
- *   - `Sec-Fetch-Site: same-origin` (or `none` for top-level navigations
- *     to our own pages — but state-changing methods don't ship `none`).
- *   - `X-Agent-Native-CSRF` header (any value, even "1"). This is a custom
- *     header so the browser forces a preflight cross-origin, which our
- *     CORS layer rejects for disallowed origins.
- *   - `Content-Type: application/json` (case-insensitive). JSON content
- *     type is a non-simple request that triggers preflight.
- *
- * We accept ANY of these — the goal is "did the request come through a
- * channel the browser would have preflighted", not a strict-mode token.
- *
- * NOTE: `Sec-Fetch-Site: same-site` is deliberately NOT trusted. Under a
- * shared cookie domain (COOKIE_DOMAIN / crossSubDomainCookies), the browser
- * labels a request from a SIBLING subdomain (evil.example.com → app.example.com)
- * as `same-site` even though it is cross-origin and would ride the shared
- * session cookie — a CSRF vector. Legitimate first-party clients all also send
- * `X-Agent-Native-CSRF` or `application/json`, so they still pass via those
- * paths and iframe/embed flows are unaffected.
- */
 function looksFirstParty(event: any): boolean {
   const sfs = getRequestHeader(event, "sec-fetch-site");
   if (sfs === "same-origin" || sfs === "none") {
@@ -157,29 +122,19 @@ function looksFirstParty(event: any): boolean {
   return false;
 }
 
-/**
- * Returns true when the request carries any cookie. We use "has any cookie"
- * as a coarse heuristic for "the browser is going to attach the session
- * cookie" — anonymous tools (curl, server-to-server) typically don't send
- * cookies, so they bypass this check entirely.
- */
 function requestHasCookies(event: any): boolean {
   const cookie = getRequestHeader(event, "cookie");
   return typeof cookie === "string" && cookie.trim().length > 0;
 }
 
-/**
- * The path is the full request URL pathname (e.g.
- * `/_agent-native/actions/foo` or `/app/_agent-native/actions/foo`).
- * `frameworkPrefix` is the root framework route prefix without a trailing
- * slash, e.g. `/_agent-native`.
- */
 function isOnAllowlist(pathname: string, frameworkPrefix: string): boolean {
   if (!pathname.startsWith(frameworkPrefix)) return false;
   const sub = pathname.slice(frameworkPrefix.length);
   for (const protectedPrefix of CSRF_PROTECTED_PREFIXES) {
     if (sub.startsWith(protectedPrefix)) return false;
   }
+  const webhookToken = sub.match(/^\/automations\/webhook\/([^/]+)$/)?.[1];
+  if (webhookToken && isAutomationWebhookToken(webhookToken)) return true;
   for (const allowed of CSRF_ALLOWLIST_PREFIXES) {
     if (sub.startsWith(allowed)) return true;
   }
@@ -217,17 +172,6 @@ function matchingFrameworkPrefix(
   return undefined;
 }
 
-/**
- * Create the framework CSRF middleware.
- *
- * Mount this BEFORE any state-changing route handler. The middleware
- *   - lets every non-state-changing method through (GET/HEAD/OPTIONS).
- *   - lets requests without cookies through (anonymous/server tools).
- *   - lets allowlisted paths through (webhooks, A2A, OAuth callbacks).
- *   - lets first-party-shaped requests through (custom header, JSON
- *     Content-Type, or `Sec-Fetch-Site: same-origin`).
- *   - rejects everything else with 403.
- */
 export function createCsrfMiddleware(
   frameworkPrefix: string = "/_agent-native",
 ) {
@@ -240,7 +184,6 @@ export function createCsrfMiddleware(
     if (!matchingPrefix) return undefined;
     if (isOnAllowlist(pathname, matchingPrefix)) return undefined;
 
-    // No cookie = no risk of confused-deputy CSRF on the session cookie.
     if (!requestHasCookies(event)) return undefined;
 
     if (looksFirstParty(event)) return undefined;

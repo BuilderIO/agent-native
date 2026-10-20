@@ -2,7 +2,7 @@ import type {
   BlockReadProps,
   BlockRenderContext,
   BlockSpec,
-} from "@agent-native/core/blocks";
+} from "@agent-native/core/blocks/server";
 import { inlineDatabaseBlockConfig } from "@shared/inline-database-block";
 import type { InlineDatabaseData } from "@shared/inline-database-block";
 import { IconDatabase } from "@tabler/icons-react";
@@ -62,7 +62,7 @@ function InlineDatabaseUnavailable() {
       data-plan-interactive
       className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground"
     >
-      Database unavailable
+      Collection unavailable
     </div>
   );
 }

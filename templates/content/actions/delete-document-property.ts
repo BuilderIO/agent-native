@@ -1,33 +1,41 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { withoutDatabaseColumnPresentation } from "../shared/database-table-columns.js";
 import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import {
+  deleteBlocksFieldIdentity,
+  lockPrimaryBlocksFieldsForDocuments,
+} from "./_blocks-field-identity.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   listPropertiesForDocument,
+  parseDatabaseViewConfig,
   resolvePropertyDatabaseForDocument,
+  serializeDatabaseViewConfig,
 } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Delete a Notion-style property definition and its stored document values.",
+    "Delete a Notion-style property definition and its stored document values. Deleting a `blocks` property removes that tab and its text from every row.",
   schema: z.object({
     documentId: z.string().describe("Document ID used to scope access"),
     databaseId: z
       .string()
       .optional()
       .describe(
-        "Database ID that owns the property; omit only for context-free entry points",
+        "Collection ID that owns the property; omit only for context-free entry points",
       ),
     propertyId: z.string().describe("Property definition ID to delete"),
   }),
@@ -65,14 +73,15 @@ export default defineAction({
         tx as unknown as ReturnType<typeof getDb>,
         database.id,
       );
-      const memberships = await tx
-        .select({ id: schema.contentDatabaseItems.id })
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.databaseId, database.id));
-      await lockDatabaseMemberships(
-        tx,
-        memberships.map((membership) => membership.id),
-      );
+      const [lockedDatabase] = await tx
+        .select({
+          naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
+          viewConfigJson: schema.contentDatabases.viewConfigJson,
+        })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, database.id));
+      if (!lockedDatabase)
+        throw new Error(`Database "${database.id}" not found`);
       const [lockedDefinition] = await tx
         .select()
         .from(schema.documentPropertyDefinitions)
@@ -100,6 +109,25 @@ export default defineAction({
         isPrimaryBlocksField(
           parsePropertyOptions(lockedDefinition.optionsJson),
         );
+      const items = await tx
+        .select({
+          id: schema.contentDatabaseItems.id,
+          documentId: schema.contentDatabaseItems.documentId,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, database.id));
+      const primaryFieldsByDocument = isPrimaryBlocks
+        ? await lockPrimaryBlocksFieldsForDocuments(
+            tx as unknown as ReturnType<typeof getDb>,
+            items.map((item) => item.documentId),
+          )
+        : new Map();
+      if (!isPrimaryBlocks) {
+        await lockDatabaseMemberships(
+          tx,
+          items.map((item) => item.id),
+        );
+      }
 
       await tx
         .delete(schema.documentPropertyValues)
@@ -116,7 +144,35 @@ export default defineAction({
         .delete(schema.documentPropertyDefinitions)
         .where(eq(schema.documentPropertyDefinitions.id, propertyId));
 
+      const viewConfig = parseDatabaseViewConfig(lockedDatabase.viewConfigJson);
+      await tx
+        .update(schema.contentDatabases)
+        .set({
+          viewConfigJson: serializeDatabaseViewConfig({
+            ...viewConfig,
+            views: viewConfig.views.map((view) =>
+              withoutDatabaseColumnPresentation(view, propertyId),
+            ),
+          }),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.contentDatabases.id, database.id));
+
+      if (lockedDatabase.naturalKeyPropertyId === propertyId) {
+        await tx
+          .update(schema.contentDatabases)
+          .set({
+            naturalKeyPropertyId: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.contentDatabases.id, database.id));
+      }
+
       if (isBlocks) {
+        await deleteBlocksFieldIdentity({
+          db: tx as unknown as ReturnType<typeof getDb>,
+          propertyId,
+        });
         await tx
           .delete(schema.documentBlockFieldContents)
           .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));
@@ -130,20 +186,26 @@ export default defineAction({
             })
             .where(eq(schema.contentDatabases.id, database.id));
 
-          const items = await tx
-            .select({ documentId: schema.contentDatabaseItems.documentId })
-            .from(schema.contentDatabaseItems)
-            .where(eq(schema.contentDatabaseItems.databaseId, database.id));
-          if (items.length > 0) {
+          const documentsWithoutSurvivingPrimary = items
+            .filter(
+              (item) =>
+                !(primaryFieldsByDocument.get(item.documentId) ?? []).some(
+                  (field: { propertyId: string }) =>
+                    field.propertyId !== propertyId,
+                ),
+            )
+            .map((item) => item.documentId);
+          if (documentsWithoutSurvivingPrimary.length > 0) {
             const now = new Date().toISOString();
             await tx
               .update(schema.documents)
-              .set({ content: "", updatedAt: now })
+              .set({
+                content: "",
+                bodyRevision: bodyRevisionForContent(""),
+                updatedAt: now,
+              })
               .where(
-                inArray(
-                  schema.documents.id,
-                  items.map((item) => item.documentId),
-                ),
+                inArray(schema.documents.id, documentsWithoutSurvivingPrimary),
               );
           }
         }

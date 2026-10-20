@@ -1,20 +1,4 @@
-/**
- * Record a personal-vocabulary correction.
- *
- * Wispr-style auto-learn: after a dictation paste the desktop renderer
- * watches the focused field for ~10s. If the user edits a word during that
- * window, the diffed `{term, replacement}` pair is sent here. Future
- * dictations bias the recognizer's `contextualStrings` toward the
- * `replacement` so the user's preferred spelling wins next time.
- *
- * Idempotent: if the same term already exists for this owner, bumps
- * `usesCount` and refreshes the replacement / confidence.
- *
- * Usage:
- *   pnpm action add-vocabulary-term --term="kubectl" --replacement="kubectl"
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq } from "drizzle-orm";
 import { createError } from "h3";
@@ -45,7 +29,7 @@ export default defineAction({
       .describe("How confident this correction is (0..1)"),
   }),
   run: async (args) => {
-    const ownerEmail = await getRequestUserEmail();
+    const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
       throw createError({
         statusCode: 401,
@@ -56,13 +40,10 @@ export default defineAction({
     const db = getDb();
     const term = args.term.trim();
     const replacement = args.replacement.trim();
-    // term === replacement is allowed: a standalone term (manual add) still
-    // biases the recognizer's contextualStrings toward that spelling.
     if (!term || !replacement) {
       return { id: null, skipped: true };
     }
     const now = new Date().toISOString();
-    // Look up an existing entry for this owner+term — bump usesCount.
     const [existing] = await db
       .select()
       .from(schema.vocabulary)

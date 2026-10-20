@@ -35,8 +35,6 @@ export default defineAction({
     const entry = await requireCrmListEntry(db, args.entryId, "editor");
 
     await db.transaction(async (tx) => {
-      // Entry-scoped value rows only: `entry_id` is the record-vs-entry
-      // discriminator, so the record's own attribute history is untouched.
       await tx
         .delete(schema.crmRecordFields)
         .where(

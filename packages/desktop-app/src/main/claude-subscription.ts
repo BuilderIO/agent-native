@@ -214,7 +214,7 @@ function claudeLiveUsageUnsupportedTelemetry(
   };
 }
 
-function isClaudeSubscriptionAuthMethod(
+export function isClaudeSubscriptionAuthMethod(
   authMethod: string | undefined,
 ): boolean {
   return authMethod?.toLowerCase().replaceAll(/[^a-z]/g, "") === "claudeai";

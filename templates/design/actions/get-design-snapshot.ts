@@ -1,14 +1,19 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
+import {
+  parseDesignTemplateData,
+  readDesignTemplateSource,
+} from "../server/lib/design-template-data.js";
 import { lockedLayerSnapshots } from "../shared/locked-layers.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import getDesignSystem from "./get-design-system.js";
+import "../server/db/index.js";
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -25,7 +30,8 @@ export default defineAction({
     "definitions, the user's applied tweak selections, and the resolved CSS " +
     "custom-property values so the agent sees the *tuned* design, not the " +
     "original generated tokens. Pass fileId or filename when continuing from " +
-    "one selected screen so large multi-file designs stay bounded. Read-only.",
+    "one selected screen so large multi-file designs stay bounded. Includes " +
+    "linked `designSystem.agentContext` when readable. Read-only.",
   schema: z.object({
     designId: z.string().describe("Design project ID to snapshot"),
     fileId: z
@@ -42,6 +48,7 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {
@@ -54,6 +61,11 @@ export default defineAction({
       height: 680,
     }),
   },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async ({ designId, fileId, filename }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
@@ -64,8 +76,15 @@ export default defineAction({
       throw err;
     }
     const design = access.resource as typeof schema.designs.$inferSelect;
+    const designSystem = await loadAgentDesignSystemContext(
+      design.designSystemId ?? null,
+      getDesignSystem,
+    );
 
     const snapshot = await buildDesignSnapshot(designId, design.data);
+    const templateSource = readDesignTemplateSource(
+      parseDesignTemplateData(design.data),
+    );
     const requestedFileId = fileId?.trim();
     const requestedFilename = filename?.trim();
     const files = requestedFileId
@@ -96,7 +115,19 @@ export default defineAction({
       description: design.description ?? null,
       projectType: design.projectType,
       designSystemId: design.designSystemId ?? null,
+      designSystem,
       updatedAt: design.updatedAt,
+      ...(templateSource
+        ? {
+            createdFromTemplate: {
+              templateId: templateSource.templateId,
+              title: templateSource.title,
+              note:
+                "These files are edited copies of the template, not the template itself. " +
+                `Call \`get-design-template --designId="${designId}"\` for the original canvas dimensions, typography, and locked layers, and preserve them in this edit.`,
+            },
+          }
+        : {}),
       files: files.map((f) => ({
         id: f.id,
         filename: f.filename,

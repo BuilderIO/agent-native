@@ -10,8 +10,12 @@ export interface NavigationState {
   factoryId?: string;
   factoryTab?: string;
   factoryAutomationId?: string;
+  factoryCreatingAutomation?: boolean;
+  factoryAuditRunId?: string;
   factoryNodeId?: string;
   factoryEdgeId?: string;
+  factoryItemId?: string;
+  creatingFactory?: boolean;
 }
 
 export function useNavigationState() {
@@ -24,24 +28,39 @@ export function useNavigationState() {
         view: viewForPath(pathname),
         path: appPath(pathname),
         ...(threadId ? { threadId } : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("factoryId")
+        ...(pathname === "/factory" && searchParams.get("factoryId")
           ? { factoryId: searchParams.get("factoryId") ?? undefined }
           : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("tab")
-          ? { factoryTab: searchParams.get("tab") ?? undefined }
-          : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("automationId")
+        ...(pathname === "/factory" && searchParams.get("factoryId")
+          ? { factoryTab: searchParams.get("tab") ?? "inbox" }
+          : pathname === "/factory" && searchParams.get("tab")
+            ? { factoryTab: searchParams.get("tab") ?? undefined }
+            : {}),
+        ...(pathname === "/factory" && searchParams.get("automationId")
           ? {
               factoryAutomationId:
                 searchParams.get("automationId") ?? undefined,
             }
           : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("node")
+        ...(pathname === "/factory" &&
+        searchParams.get("createAutomation") === "1"
+          ? { factoryCreatingAutomation: true }
+          : {}),
+        ...(pathname === "/factory" && searchParams.get("auditRunId")
+          ? {
+              factoryAuditRunId: searchParams.get("auditRunId") ?? undefined,
+            }
+          : {}),
+        ...(pathname === "/factory" && searchParams.get("node")
           ? { factoryNodeId: searchParams.get("node") ?? undefined }
           : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("edge")
+        ...(pathname === "/factory" && searchParams.get("edge")
           ? { factoryEdgeId: searchParams.get("edge") ?? undefined }
           : {}),
+        ...(pathname === "/factory" && searchParams.get("itemId")
+          ? { factoryItemId: searchParams.get("itemId") ?? undefined }
+          : {}),
+        ...(pathname === "/new-factory" ? { creatingFactory: true } : {}),
       };
     },
     getCommandPath: (command) =>
@@ -66,8 +85,13 @@ function viewForPath(pathname: string): string {
   if (pathname.startsWith("/database")) return "database";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
-  if (pathname.startsWith("/factory")) return "factory";
-  if (pathname.startsWith("/agent")) return "agent";
+  if (pathname.startsWith("/agents")) return "agents";
+  if (pathname === "/new-factory") return "factory";
+  if (pathname === "/factory") return "factory";
+  if (pathname.startsWith("/settings/agent") || pathname.startsWith("/agent")) {
+    return "agent";
+  }
+  if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/team")) return "settings";
   return "chat";
 }
@@ -75,9 +99,10 @@ function viewForPath(pathname: string): string {
 function pathForView(view?: string): string {
   switch (view) {
     case "chat":
-    case "home":
     case "ask":
-      return "/";
+      return "/chat";
+    case "home":
+      return "/home";
     case "database":
       return "/database";
     case "extensions":
@@ -86,23 +111,25 @@ function pathForView(view?: string): string {
       return "/observability";
     case "factory":
       return "/factory";
+    case "agents":
+      return "/agents";
     case "agent":
-      return "/agent";
+      return "/settings/agent";
     case "settings":
       return "/settings";
     case "team":
       return "/settings/organization";
     default:
-      return "/";
+      return "/home";
   }
 }
 
 function pathForCommand(command: any): string {
   const path = pathForView(command?.view);
-  if (path !== "/") return path;
+  if (path !== "/home") return path;
   const threadId =
     typeof command?.threadId === "string" ? command.threadId.trim() : "";
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : path;
 }
 
 function routerPath(path: string): string {
@@ -116,5 +143,5 @@ function routerPath(path: string): string {
 }
 
 function isChatPath(pathname: string): boolean {
-  return pathname === "/" || pathname.startsWith("/chat/");
+  return pathname === "/chat" || pathname.startsWith("/chat/");
 }

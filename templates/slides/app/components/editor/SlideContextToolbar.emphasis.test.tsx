@@ -26,6 +26,7 @@ function textSnapshot(
     slideWidth: 1280,
     slideHeight: 720,
     color: "#ffffff",
+    fontFamily: "'Poppins', sans-serif",
     backgroundColor: "transparent",
     fontSize: 40,
     fontWeight: "700",
@@ -66,9 +67,6 @@ describe("contextual toolbar size steppers", () => {
   afterEach(cleanup);
 
   it("steps from the block size when the selection has mixed sizes", () => {
-    // The scrub input reports a step on a mixed selection as a relative delta,
-    // because its displayed value is only a placeholder. Writing that delta
-    // straight through would set the whole selection to a couple of pixels.
     const onChange = renderToolbar(
       textSnapshot({ fontSize: 40, mixedTextStyles: ["fontSize"] }),
     );
@@ -166,5 +164,53 @@ describe("contextual toolbar emphasis toggles", () => {
 
     expect(screen.queryByRole("button", { name: "Italic" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Underline" })).toBeNull();
+  });
+
+  it("marks the portalled align menu as an inline-edit surface", () => {
+    renderToolbar(textSnapshot());
+
+    for (const name of ["Align"]) {
+      const trigger = screen.getByRole("button", { name });
+      fireEvent.pointerDown(trigger, { button: 0 });
+      fireEvent.pointerUp(trigger, { button: 0 });
+
+      const menu = screen.getByRole("menu");
+      expect(menu.closest("[data-slide-inline-edit-surface]")).toBeTruthy();
+
+      fireEvent.keyDown(menu, { key: "Escape" });
+    }
+  });
+});
+
+describe("contextual toolbar font family", () => {
+  afterEach(cleanup);
+
+  it("applies the selected font family to the text selection", () => {
+    const onChange = renderToolbar(textSnapshot());
+    const trigger = screen.getByRole("combobox", { name: "Font family" });
+
+    fireEvent.click(trigger);
+    expect(
+      screen.getByRole("listbox").closest("[data-slide-inline-edit-surface]"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: "Inter" }));
+
+    expect(onChange).toHaveBeenCalledWith({
+      fontFamily: "'Inter', sans-serif",
+    });
+  });
+
+  it("sorts an unknown current font with the built-in families", () => {
+    renderToolbar(textSnapshot({ fontFamily: "'Brand Sans', sans-serif" }));
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Font family" }));
+
+    const labels = screen
+      .getAllByRole("option")
+      .map((option) => option.textContent?.trim());
+    expect(labels.indexOf("Default")).toBeLessThan(
+      labels.indexOf("Brand Sans"),
+    );
+    expect(labels.indexOf("Brand Sans")).toBeLessThan(labels.indexOf("Inter"));
   });
 });

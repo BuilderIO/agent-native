@@ -6,25 +6,51 @@ import {
   type AppConfig,
 } from "@agent-native/shared-app-config";
 
-const DESKTOP_DEFAULT_EXCLUDED_APP_IDS = new Set(["starter"]);
+const DESKTOP_DEFAULT_EXCLUDED_APP_IDS = new Set(["starter", "chat"]);
+const DESKTOP_HIDDEN_APP_IDS: ReadonlySet<string> = new Set(["dispatch"]);
 const DEFAULT_DESKTOP_TEMPLATE_GATEWAY_URL = "http://127.0.0.1:8080";
 const DESKTOP_APP_ICON_OVERRIDES: Partial<Record<string, string>> = {
   clips: "VideoPlus",
 };
-const DESKTOP_DEFAULT_APP_ORDER = [
-  "clips",
-  "plan",
-  "design",
-  "content",
-  "slides",
-  "analytics",
+
+export interface DesktopAppLaunchBehavior {
+  /** Mount the app's webview hidden at launch instead of on first open. */
+  preloadAtLaunch?: boolean;
+  /** GET read action the 4-minute origin warm-up also calls, result discarded. */
+  warmReadAction?: { name: string; params?: Record<string, string> };
+}
+
+const DESKTOP_APP_LAUNCH_BEHAVIOR: Partial<
+  Record<string, DesktopAppLaunchBehavior>
+> = {
+  mail: {
+    preloadAtLaunch: true,
+    warmReadAction: { name: "list-inbox-threads" },
+  },
+};
+
+export function getDesktopAppLaunchBehavior(
+  appId: string,
+): DesktopAppLaunchBehavior {
+  return DESKTOP_APP_LAUNCH_BEHAVIOR[appId] ?? {};
+}
+
+export const DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS = [
   "mail",
-  "forms",
-  "brain",
-  "assets",
   "calendar",
-  "dispatch",
-  "chat",
+  "design",
+  "clips",
+  "content",
+  "analytics",
+] as const;
+const DESKTOP_DEFAULT_APP_ORDER = [
+  ...DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS,
+  ...SHARED_DEFAULT_APPS.map((app) => app.id).filter(
+    (id) =>
+      !DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS.includes(
+        id as (typeof DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS)[number],
+      ),
+  ),
 ];
 const DESKTOP_DEFAULT_APP_ORDER_INDEX = new Map(
   DESKTOP_DEFAULT_APP_ORDER.map((id, index) => [id, index]),
@@ -53,6 +79,16 @@ export const DESKTOP_DEFAULT_APPS = sortDesktopApps(
     (app) => !DESKTOP_DEFAULT_EXCLUDED_APP_IDS.has(app.id),
   ).map(applyDesktopAppOverrides),
 );
+
+export function isDesktopAppVisible(app: Pick<AppConfig, "id">): boolean {
+  return !DESKTOP_HIDDEN_APP_IDS.has(app.id);
+}
+
+export function getDesktopVisibleApps<T extends Pick<AppConfig, "id">>(
+  apps: readonly T[],
+): T[] {
+  return apps.filter(isDesktopAppVisible);
+}
 
 export const TEMPLATE_APPS = SHARED_TEMPLATE_APPS.map(applyDesktopAppOverrides);
 
@@ -108,7 +144,6 @@ export function getDesktopTemplateGatewayAppUrl(appId: string): string | null {
   );
 }
 
-// Re-export everything from the shared app config package
 export {
   type AppDefinition,
   type AppConfig,
@@ -122,7 +157,6 @@ export {
   toAppDefinition,
   generateAppId,
   templateToAppConfig,
-  type FrameSettings,
   TEMPLATES,
   visibleTemplates,
   getTemplate,

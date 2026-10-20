@@ -17,27 +17,19 @@ import {
   type AgentNativeHostContextGetter,
   type AgentNativeHostSession,
 } from "./host-bridge.js";
+import type { AgentNativeWebMcpClient } from "./webmcp.js";
 
 export interface AgentNativeFrameProps extends Omit<
   IframeHTMLAttributes<HTMLIFrameElement>,
   "src"
 > {
-  /** URL of the Agent-Native sidecar/frame app. */
   agentUrl: string;
-  /**
-   * Exact trusted sidecar origin. Defaults to `new URL(agentUrl).origin`.
-   * Pass "*" only for local prototypes.
-   */
   agentOrigin?: string;
-  /** Stable browser-session identity for multi-tab sidecars. */
   session?: string | Partial<AgentNativeHostSession>;
-  /** Return page, selection, resource, user/org, and host-specific context. */
   getContext?: AgentNativeHostContextGetter;
-  /** Commands the iframe sidecar can ask the host app to run. */
   commands?: AgentNativeHostCommandHandlers;
-  /** Live browser-session actions the iframe sidecar can discover and call. */
   actions?: AgentNativeClientActions;
-  /** Optional auth payload sent to the trusted iframe sidecar. */
+  webmcp?: AgentNativeWebMcpClient;
   auth?: AgentNativeHostAuth;
   onBridgeEvent?: (event: AgentNativeHostBridgeEvent) => void;
   onBridgeReady?: (bridge: AgentNativeHostBridge) => void;
@@ -77,10 +69,11 @@ export const AgentNativeFrame = forwardRef<
     getContext,
     commands,
     actions,
+    webmcp,
     auth,
     onBridgeEvent,
     onBridgeReady,
-    title = "Agent Native assistant",
+    title = "Agent-Native assistant",
     sandbox = "allow-scripts allow-same-origin allow-forms allow-popups allow-downloads",
     allow = "clipboard-read; clipboard-write; microphone; fullscreen",
     referrerPolicy = "strict-origin-when-cross-origin",
@@ -104,6 +97,7 @@ export const AgentNativeFrame = forwardRef<
       getContext,
       commands,
       actions,
+      webmcp,
       auth,
       onEvent: onBridgeEvent,
       targetWindow: iframeRef.current?.contentWindow ?? null,
@@ -123,6 +117,7 @@ export const AgentNativeFrame = forwardRef<
     onBridgeReady,
     resolvedOrigin,
     session,
+    webmcp,
   ]);
 
   return (

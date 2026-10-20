@@ -631,6 +631,48 @@ describe("CodexSubscriptionAdapter", () => {
     expect(status.telemetry.meters[0]).not.toHaveProperty("label");
   });
 
+  it("keeps retrying respawns across two consecutive failures while stale", async () => {
+    vi.useFakeTimers();
+    try {
+      let initializeCalls = 0;
+      const client = createClient([]);
+      client.request.mockImplementation(async (method: string) => {
+        if (method === "initialize") {
+          initializeCalls += 1;
+          if (initializeCalls === 1) return {};
+          throw new Error("app-server failed to respawn");
+        }
+        if (method === "account/read") {
+          return { account: { type: "chatgpt", planType: "plus" } };
+        }
+        return { rateLimits: { primary: { usedPercent: 5 } } };
+      });
+      const adapter = new CodexSubscriptionAdapter({
+        runCommand: signedInCommand,
+        createAppServerClient: () => client,
+        restartDelayMs: () => 100,
+      });
+
+      await adapter.start();
+      expect(adapter.getStatus().telemetry.state).toBe("live");
+
+      client.emitExit();
+      expect(adapter.getStatus().telemetry.state).toBe("stale");
+
+      await vi.advanceTimersByTimeAsync(100);
+      expect(initializeCalls).toBe(2);
+      expect(adapter.getStatus().telemetry.state).toBe("stale");
+
+      await vi.advanceTimersByTimeAsync(100);
+      expect(initializeCalls).toBe(3);
+      expect(adapter.getStatus().telemetry.state).toBe("stale");
+
+      adapter.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("marks telemetry stale and schedules a bounded reconnect after process exit", async () => {
     vi.useFakeTimers();
     try {

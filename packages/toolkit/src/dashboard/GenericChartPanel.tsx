@@ -68,9 +68,7 @@ export interface GenericChartPanelProps<TData, TConfig> {
   loading?: boolean;
   error?: ReactNode;
   isEmpty?: (data: TData) => boolean;
-  /** App-specific rendering takes priority over the portable Recharts renderer. */
   render?: (context: GenericChartRenderContext<TData, TConfig>) => ReactNode;
-  /** Opt into Toolkit's source-agnostic Recharts renderer for row data. */
   chart?: GenericChartConfig;
   renderLoading?: (config: TConfig) => ReactNode;
   renderError?: (error: ReactNode, config: TConfig) => ReactNode;
@@ -79,10 +77,6 @@ export interface GenericChartPanelProps<TData, TConfig> {
   className?: string;
 }
 
-/**
- * A render-only chart state boundary. Data acquisition, query serialization,
- * demos, pivots, and app-specific chart renderers stay with the consuming app.
- */
 export function GenericChartPanel<TData, TConfig>({
   data,
   config,
@@ -141,7 +135,6 @@ export function GenericChartPanel<TData, TConfig>({
   return null;
 }
 
-/** Derives chart axes from provider-neutral row data when keys are not configured. */
 export function resolveGenericChartKeys(
   rows: GenericChartDatum[],
   config: Pick<GenericChartConfig, "xKey" | "yKey" | "yKeys">,
@@ -174,7 +167,11 @@ export function formatGenericChartValue(value: unknown): string {
   ) {
     return Number(value).toLocaleString();
   }
-  return String(value ?? "-");
+  return typeof value === "object" && value !== null
+    ? JSON.stringify(value)
+    : typeof value === "string" || typeof value === "number"
+      ? String(value)
+      : "-";
 }
 
 function isNumericLike(value: unknown): boolean {
@@ -424,7 +421,13 @@ function formatTooltipValue(
   formatter: (value: number) => string,
 ): string {
   const numeric = Number(value);
-  return Number.isFinite(numeric) ? formatter(numeric) : String(value ?? "-");
+  return Number.isFinite(numeric)
+    ? formatter(numeric)
+    : typeof value === "object" && value !== null
+      ? JSON.stringify(value)
+      : typeof value === "string" || typeof value === "number"
+        ? String(value)
+        : "-";
 }
 
 export function ChartPanelPlaceholder({ className }: { className?: string }) {

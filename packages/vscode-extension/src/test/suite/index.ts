@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 
 export async function run(): Promise<void> {
   const extension = vscode.extensions.getExtension("Builder.agent-native");
-  assert.ok(extension, "Agent Native extension should be discoverable");
+  assert.ok(extension, "Agent-Native extension should be discoverable");
   await extension.activate();
 
   const target =
@@ -14,7 +14,7 @@ export async function run(): Promise<void> {
     title: string;
   }>("agentNative.openUrl", target);
   assert.equal(openResult?.url, target);
-  assert.equal(openResult?.title, "Agent Native: mail.agent-native.com");
+  assert.equal(openResult?.title, "Agent-Native: mail.agent-native.com");
 
   const lastOpened = await vscode.commands.executeCommand<string>(
     "agentNative._getLastOpenedUrl",

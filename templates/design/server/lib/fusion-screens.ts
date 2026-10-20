@@ -1,27 +1,9 @@
-/**
- * fusion-screens — shared upsert logic for URL-backed screens on fusion
- * (full-app) designs.
- *
- * Fusion screens are iframes of the app's container dev-server preview URL,
- * the same rendering model as localhost screens (see `add-localhost-screens`)
- * but keyed off `fusionApp.previewUrl` instead of a localhost connection.
- * `screenMetadata[fileId]` is the single source the canvas reads to resolve
- * source/previewUrl/dimensions (see `resolveScreenMetadata` in
- * `MultiScreenCanvas.tsx`) — no parallel `fusionScreens` map is needed the way
- * `localhostScreens` exists for localhost (that map is only consulted by the
- * loopback-public-access heuristic in `server/db/index.ts`, which does not
- * apply to fusion designs).
- *
- * Both `sync-fusion-app` and `add-fusion-screens` call `upsertFusionScreens`
- * so the design_files + designs.data writes never diverge.
- */
-
 import {
   hasCollabState,
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -30,9 +12,11 @@ import {
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
 import { getDb, schema } from "../db/index.js";
+import { withDesignSourceMutationTransaction } from "../source-workspace.js";
 import { mutateDesignData } from "./design-data-mutation.js";
 
-/** Default iframe viewport, mirroring add-localhost-screens' defaults. */
+const PATH_BASE_PLACEHOLDER = "http://fusion-screen-base.invalid";
+
 export const DEFAULT_FUSION_SCREEN_WIDTH = 1280;
 export const DEFAULT_FUSION_SCREEN_HEIGHT = 900;
 
@@ -66,8 +50,27 @@ function titleFromPath(path: string): string {
   return last.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** A screen is named after its route ("home.html" shows as "Home"). */
+function screenFilename(path: string): string {
+  return `${slugForPath(path)}.html`;
+}
+
+/** Earlier screens were saved as "fusion-home.html"; they are renamed on sync. */
+function legacyScreenFilename(path: string): string {
+  return `fusion-${slugForPath(path)}.html`;
+}
+
+/**
+ * An app screen file holds only the screen's URL. A design can also have its
+ * own authored file with the same name (a user's "home.html"); sync must
+ * never adopt and overwrite that, so it gets a unique name instead.
+ */
+function isAppScreenFile(file: { content: string | null }): boolean {
+  return /^(?:https?:\/\/\S+|\/\S*)$/.test((file.content ?? "").trim());
+}
+
 function uniqueFilename(path: string, used: Set<string>): string {
-  const base = `fusion-${slugForPath(path)}.html`;
+  const base = screenFilename(path);
   const [stem, extension = "html"] = base.split(/\.(?=[^.]+$)/);
   let filename = `${stem}.${extension}`;
   let suffix = 2;
@@ -79,11 +82,6 @@ function uniqueFilename(path: string, used: Set<string>): string {
   return filename;
 }
 
-/**
- * Create or refresh URL-backed screens pointing at `<previewUrl><path>` for a
- * fusion-backed design. Read-modify-write on `designs.data`: preserves every
- * other key (canvasFrames for non-fusion screens, tweaks, etc.).
- */
 export async function upsertFusionScreens(args: {
   designId: string;
   previewUrl: string;
@@ -129,35 +127,86 @@ export async function upsertFusionScreens(args: {
 
   const results: FusionScreenResult[] = [];
 
+  const originRelativeBase = previewUrl.startsWith("/");
+  const baseWithSlash = previewUrl.endsWith("/")
+    ? previewUrl
+    : `${previewUrl}/`;
+  const resolutionBase = originRelativeBase
+    ? new URL(baseWithSlash, PATH_BASE_PLACEHOLDER).toString()
+    : baseWithSlash;
+
   for (let index = 0; index < paths.length; index += 1) {
     const path = paths[index]!;
-    const url = new URL(path, previewUrl).toString();
-    const preferredFilename = `fusion-${slugForPath(path)}.html`;
-    const existing = existingByFilename.get(preferredFilename);
-    const filename = existing?.filename ?? uniqueFilename(path, usedFilenames);
-    const fileId = existing?.id ?? nanoid();
+    const screenUrl = new URL(path.replace(/^\/+/, ""), resolutionBase);
+    const url = originRelativeBase
+      ? `${screenUrl.pathname}${screenUrl.search}`
+      : screenUrl.toString();
+    const preferredFilename = screenFilename(path);
+    // By name first; then by URL, which finds a screen that had to take a
+    // suffixed name (home-2.html) because a user's file held the name.
+    let existing =
+      [preferredFilename, legacyScreenFilename(path)]
+        .map((name) => existingByFilename.get(name))
+        .find((file) => file !== undefined && isAppScreenFile(file)) ??
+      existingFiles.find(
+        (file) => isAppScreenFile(file) && (file.content ?? "").trim() === url,
+      );
+    const renameLegacy =
+      existing !== undefined &&
+      existing.filename !== preferredFilename &&
+      !usedFilenames.has(preferredFilename);
+    if (renameLegacy) usedFilenames.add(preferredFilename);
+    const filename = renameLegacy
+      ? preferredFilename
+      : (existing?.filename ?? uniqueFilename(path, usedFilenames));
+    let fileId = existing?.id ?? nanoid();
     const title = titleFromPath(path);
 
     if (existing) {
-      await db
-        .update(schema.designFiles)
-        .set({ content: url, fileType: "html", updatedAt: now })
-        .where(eq(schema.designFiles.id, existing.id));
-      if (await hasCollabState(existing.id)) {
-        await applyText(existing.id, url, "content", "agent");
-      } else {
-        await seedFromText(existing.id, url);
-      }
-    } else {
-      await db.insert(schema.designFiles).values({
-        id: fileId,
+      const updated = await withDesignSourceMutationTransaction(
         designId,
-        filename,
-        fileType: "html",
-        content: url,
-        createdAt: now,
-        updatedAt: now,
-      });
+        async (tx) => {
+          const [current] = await tx
+            .select({ id: schema.designFiles.id })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.id, existing!.id),
+                eq(schema.designFiles.designId, designId),
+              ),
+            )
+            .limit(1);
+          if (!current) return false;
+          await tx
+            .update(schema.designFiles)
+            .set({ filename, content: url, fileType: "html", updatedAt: now })
+            .where(eq(schema.designFiles.id, existing!.id));
+          return true;
+        },
+      );
+      if (updated) {
+        if (await hasCollabState(existing.id)) {
+          await applyText(existing.id, url, "content", "agent");
+        } else {
+          await seedFromText(existing.id, url);
+        }
+      } else {
+        existing = undefined;
+        fileId = nanoid();
+      }
+    }
+    if (!existing) {
+      await withDesignSourceMutationTransaction(designId, (tx) =>
+        tx.insert(schema.designFiles).values({
+          id: fileId,
+          designId,
+          filename,
+          fileType: "html",
+          content: url,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
       await seedFromText(fileId, url);
     }
 
@@ -210,8 +259,6 @@ export async function upsertFusionScreens(args: {
         ? { ...current.screenMetadata }
         : {};
       for (const screen of results) {
-        // Preserve user-adjusted title/dimensions on refresh; only URL-backed
-        // source fields track the current container preview.
         const candidate = metadata[screen.fileId];
         const previous: Record<string, unknown> = isRecord(candidate)
           ? candidate

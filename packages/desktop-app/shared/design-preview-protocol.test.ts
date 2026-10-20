@@ -32,8 +32,8 @@ const UPDATE = {
   visible: true,
 } as const;
 
-describe("native Design preview protocol", () => {
-  it("shares a deterministic persistent partition within one connection", () => {
+void describe("native Design preview protocol", () => {
+  void it("shares a deterministic persistent partition within one connection", () => {
     const scope = {
       appId: "design",
       workspaceId: "workspace-1",
@@ -44,7 +44,7 @@ describe("native Design preview protocol", () => {
     assert.equal(deriveDesktopDesignPreviewPartition(scope), partition);
   });
 
-  it("isolates sessions across workspaces and explicit connections", () => {
+  void it("isolates sessions across workspaces and explicit connections", () => {
     const base = deriveDesktopDesignPreviewPartition({
       appId: "design",
       workspaceId: "workspace-1",
@@ -68,7 +68,7 @@ describe("native Design preview protocol", () => {
     );
   });
 
-  it("rejects spoofed apps and malformed partition identifiers", () => {
+  void it("rejects spoofed apps and malformed partition identifiers", () => {
     for (const scope of [
       { appId: "mail", workspaceId: "workspace-1", connectionId: "c" },
       { appId: "design", workspaceId: "", connectionId: "c" },
@@ -79,7 +79,7 @@ describe("native Design preview protocol", () => {
     }
   });
 
-  it("accepts HTTPS and loopback HTTP but rejects unsafe URL forms", () => {
+  void it("accepts HTTPS and loopback HTTP but rejects unsafe URL forms", () => {
     for (const url of [
       "https://app.example.test/login",
       "http://localhost:5173/login",
@@ -103,7 +103,7 @@ describe("native Design preview protocol", () => {
     }
   });
 
-  it("allows same-origin navigation and blocks links from replacing Design with another origin", () => {
+  void it("allows same-origin navigation and blocks links from replacing Design with another origin", () => {
     assert.deepEqual(
       getDesktopDesignPreviewNavigationDecision(
         "https://app.example.test/account",
@@ -131,7 +131,7 @@ describe("native Design preview protocol", () => {
     }
   });
 
-  it("accepts only strictly newer non-negative safe generations", () => {
+  void it("accepts only strictly newer non-negative safe generations", () => {
     assert.equal(acceptDesktopDesignPreviewGeneration(undefined, 0), true);
     assert.equal(acceptDesktopDesignPreviewGeneration(0, 1), true);
     assert.equal(acceptDesktopDesignPreviewGeneration(2, 2), false);
@@ -146,7 +146,7 @@ describe("native Design preview protocol", () => {
     );
   });
 
-  it("tears down an owner preview only for cross-document main-frame navigation", () => {
+  void it("tears down an owner preview only for cross-document main-frame navigation", () => {
     assert.equal(
       shouldTearDownDesktopDesignPreviewForOwnerNavigation(false, true),
       true,
@@ -165,7 +165,7 @@ describe("native Design preview protocol", () => {
     );
   });
 
-  it("suppresses CSS motion without changing persisted source", () => {
+  void it("suppresses CSS motion without changing persisted source", () => {
     const css = getDesktopDesignPreviewMotionCss();
     assert.match(css, /animation:\s*none\s*!important/);
     assert.match(css, /transition:\s*none\s*!important/);
@@ -174,7 +174,7 @@ describe("native Design preview protocol", () => {
     assert.match(css, /\*::after/);
   });
 
-  it("parses a bounded update and destroy request", () => {
+  void it("parses a bounded update and destroy request", () => {
     assert.deepEqual(parseDesktopDesignPreviewRequest(UPDATE), UPDATE);
     assert.deepEqual(
       parseDesktopDesignPreviewRequest({
@@ -216,7 +216,7 @@ describe("native Design preview protocol", () => {
     );
   });
 
-  it("rejects malformed, oversized, and unsupported update fields", () => {
+  void it("rejects malformed, oversized, and unsupported update fields", () => {
     const invalidRequests = [
       null,
       { ...UPDATE, appId: "mail" },
@@ -266,7 +266,7 @@ describe("native Design preview protocol", () => {
     }
   });
 
-  it("bounds shell-reported owner geometry", () => {
+  void it("bounds shell-reported owner geometry", () => {
     assert.deepEqual(
       parseDesktopDesignPreviewHostBounds({
         x: -1920,

@@ -4,28 +4,37 @@ import {
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 
+import type {
+  CreativeContextElementProvenance,
+  CreativeContextReuseLabel,
+} from "../types.js";
+
 export interface GenerationArtifactIdentity {
   appId: string;
   artifactType: string;
   artifactId: string;
 }
 
+export type GenerationArtifactAccessOperation = "read" | "record";
+
 export interface GenerationArtifactAccessTarget {
   resourceType: string;
   resourceId: string;
+  recordMinRole?: "viewer" | "editor";
 }
 
 const proofBrand = Symbol("creative-context-generation-artifact-access");
 
 export interface GenerationArtifactAccessProof {
   readonly identityKey: string;
-  readonly minRole: "viewer" | "editor";
+  readonly operation: GenerationArtifactAccessOperation;
+  readonly verifiedRole: "viewer" | "editor";
   readonly [proofBrand]: true;
 }
 
 interface CapabilityClaims {
   version: 1;
-  operation: "read" | "record";
+  operation: GenerationArtifactAccessOperation;
   identityKey: string;
   minRole: "viewer" | "editor";
   resourceType: string;
@@ -36,12 +45,40 @@ interface CapabilityClaims {
 }
 
 const CAPABILITY_LIFETIME_MS = 60_000;
+const SNAPSHOT_CAPABILITY_LIFETIME_MS = 5 * 60_000;
+
+export type GenerationCreativeContextSnapshot = GenerationArtifactIdentity & {
+  contextMode: "off" | "auto" | "pinned";
+  contextPackId: string | null;
+  reuseLabels: CreativeContextReuseLabel[];
+  elementProvenance?: CreativeContextElementProvenance[];
+  onlyIfMissing: true;
+};
+
+interface SnapshotCapabilityClaims {
+  version: 1;
+  operation: "record-validated-snapshot";
+  identityKey: string;
+  snapshotDigest: string;
+  userEmail: string;
+  orgId: string | null;
+  expiresAt: number;
+}
+
+export function generationArtifactAccessRole(
+  target: GenerationArtifactAccessTarget,
+  operation: GenerationArtifactAccessOperation,
+): "viewer" | "editor" {
+  if (operation === "read") return "viewer";
+  return target.recordMinRole ?? "editor";
+}
 
 export async function assertGenerationArtifactAccess(
   identity: GenerationArtifactIdentity,
   target: GenerationArtifactAccessTarget,
-  minRole: "viewer" | "editor",
+  operation: GenerationArtifactAccessOperation,
 ): Promise<GenerationArtifactAccessProof> {
+  const minRole = generationArtifactAccessRole(target, operation);
   await assertAccess(
     target.resourceType,
     target.resourceId,
@@ -51,18 +88,18 @@ export async function assertGenerationArtifactAccess(
       skipResourceBody: true,
     },
   );
-  return createProof(identity, minRole);
+  return createProof(identity, operation, minRole);
 }
 
 export function assertGenerationArtifactAccessProof(
   identity: GenerationArtifactIdentity,
   proof: GenerationArtifactAccessProof,
-  minRole: "viewer" | "editor",
+  operation: GenerationArtifactAccessOperation,
 ): void {
   if (
     proof?.[proofBrand] !== true ||
     proof.identityKey !== generationIdentityKey(identity) ||
-    (minRole === "editor" && proof.minRole !== "editor")
+    (operation === "record" && proof.operation !== "record")
   ) {
     throw new Error(
       "Generation artifact access must be verified by the host application",
@@ -73,10 +110,10 @@ export function assertGenerationArtifactAccessProof(
 export async function createGenerationArtifactAccessCapability(
   identity: GenerationArtifactIdentity,
   target: GenerationArtifactAccessTarget,
-  operation: "read" | "record",
+  operation: GenerationArtifactAccessOperation,
 ): Promise<string> {
-  const minRole = operation === "record" ? "editor" : "viewer";
-  await assertGenerationArtifactAccess(identity, target, minRole);
+  const minRole = generationArtifactAccessRole(target, operation);
+  await assertGenerationArtifactAccess(identity, target, operation);
   const actor = requireCapabilityActor();
   const claims: CapabilityClaims = {
     version: 1,
@@ -99,7 +136,7 @@ export async function createGenerationArtifactAccessCapability(
 export async function verifyGenerationArtifactAccessCapability(
   token: string,
   identity: GenerationArtifactIdentity,
-  operation: "read" | "record",
+  operation: GenerationArtifactAccessOperation,
 ): Promise<GenerationArtifactAccessProof> {
   const [encoded, signature, extra] = token.split(".");
   if (!encoded || !signature || extra) {
@@ -117,12 +154,18 @@ export async function verifyGenerationArtifactAccessCapability(
     throw new Error("Invalid generation artifact access capability");
   }
   const actor = requireCapabilityActor();
-  const expectedRole = operation === "record" ? "editor" : "viewer";
+  // The recorded role is read back from the claims rather than re-derived,
+  // because only the mint side saw the target that decided it. That is safe
+  // because these claims are HMAC-signed by this deployment and the real
+  // `assertAccess` ran before signing. The checks below are what keep a token
+  // from being replayed for another artifact, operation, caller, org, or
+  // moment.
   if (
     claims.version !== 1 ||
     claims.operation !== operation ||
     claims.identityKey !== generationIdentityKey(identity) ||
-    claims.minRole !== expectedRole ||
+    (claims.minRole !== "viewer" && claims.minRole !== "editor") ||
+    (operation === "read" && claims.minRole !== "viewer") ||
     claims.userEmail !== actor.userEmail ||
     claims.orgId !== actor.orgId ||
     !Number.isSafeInteger(claims.expiresAt) ||
@@ -131,16 +174,77 @@ export async function verifyGenerationArtifactAccessCapability(
   ) {
     throw new Error("Invalid generation artifact access capability");
   }
-  return createProof(identity, expectedRole);
+  return createProof(identity, operation, claims.minRole);
+}
+
+export async function createGenerationCreativeContextSnapshotCapability(
+  snapshot: GenerationCreativeContextSnapshot,
+): Promise<string> {
+  if (snapshot.onlyIfMissing !== true) {
+    throw new Error("Creative Context snapshot receipts require onlyIfMissing");
+  }
+  const actor = requireCapabilityActor();
+  const claims: SnapshotCapabilityClaims = {
+    version: 1,
+    operation: "record-validated-snapshot",
+    identityKey: generationIdentityKey(snapshot),
+    snapshotDigest: await generationSnapshotDigest(snapshot),
+    userEmail: actor.userEmail,
+    orgId: actor.orgId,
+    expiresAt: Date.now() + SNAPSHOT_CAPABILITY_LIFETIME_MS,
+  };
+  const encoded = Buffer.from(JSON.stringify(claims), "utf8").toString(
+    "base64url",
+  );
+  return `${encoded}.${await signCapability(encoded)}`;
+}
+
+export async function verifyGenerationCreativeContextSnapshotCapability(
+  token: string,
+  snapshot: GenerationCreativeContextSnapshot,
+): Promise<void> {
+  const [encoded, signature, extra] = token.split(".");
+  if (!encoded || !signature || extra) {
+    throw new Error("Invalid Creative Context snapshot capability");
+  }
+  const valid = await verifyCapabilitySignature(encoded, signature);
+  if (!valid) {
+    throw new Error("Invalid Creative Context snapshot capability");
+  }
+
+  let claims: SnapshotCapabilityClaims;
+  try {
+    claims = JSON.parse(
+      Buffer.from(encoded, "base64url").toString("utf8"),
+    ) as SnapshotCapabilityClaims;
+  } catch {
+    throw new Error("Invalid Creative Context snapshot capability");
+  }
+  const actor = requireCapabilityActor();
+  if (
+    claims.version !== 1 ||
+    claims.operation !== "record-validated-snapshot" ||
+    claims.identityKey !== generationIdentityKey(snapshot) ||
+    claims.snapshotDigest !== (await generationSnapshotDigest(snapshot)) ||
+    claims.userEmail !== actor.userEmail ||
+    claims.orgId !== actor.orgId ||
+    !Number.isSafeInteger(claims.expiresAt) ||
+    claims.expiresAt < Date.now() ||
+    claims.expiresAt > Date.now() + SNAPSHOT_CAPABILITY_LIFETIME_MS
+  ) {
+    throw new Error("Invalid Creative Context snapshot capability");
+  }
 }
 
 function createProof(
   identity: GenerationArtifactIdentity,
-  minRole: "viewer" | "editor",
+  operation: GenerationArtifactAccessOperation,
+  verifiedRole: "viewer" | "editor",
 ): GenerationArtifactAccessProof {
   return Object.freeze({
     identityKey: generationIdentityKey(identity),
-    minRole,
+    operation,
+    verifiedRole,
     [proofBrand]: true as const,
   });
 }
@@ -151,6 +255,40 @@ function generationIdentityKey(identity: GenerationArtifactIdentity): string {
     identity.artifactType,
     identity.artifactId,
   ]);
+}
+
+async function generationSnapshotDigest(
+  snapshot: GenerationCreativeContextSnapshot,
+): Promise<string> {
+  const canonicalSnapshot = JSON.stringify({
+    appId: snapshot.appId,
+    artifactType: snapshot.artifactType,
+    artifactId: snapshot.artifactId,
+    contextMode: snapshot.contextMode,
+    contextPackId: snapshot.contextPackId,
+    reuseLabels: snapshot.reuseLabels.map((label) => ({
+      itemId: label.itemId,
+      itemVersionId: label.itemVersionId,
+      kind: label.kind,
+      label: label.label,
+      dataRole: label.dataRole,
+      elementId: label.elementId,
+      influence: label.influence,
+    })),
+    elementProvenance: snapshot.elementProvenance?.map((entry) => ({
+      elementId: entry.elementId,
+      influence: entry.influence,
+      itemId: entry.itemId,
+      itemVersionId: entry.itemVersionId,
+      label: entry.label,
+    })),
+    onlyIfMissing: snapshot.onlyIfMissing,
+  });
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(canonicalSnapshot),
+  );
+  return Buffer.from(digest).toString("base64url");
 }
 
 function requireCapabilityActor(): {

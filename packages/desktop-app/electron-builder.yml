@@ -1,5 +1,5 @@
 appId: com.agentnative.desktop
-productName: Agent Native
+productName: Agent-Native
 
 directories:
   buildResources: build
@@ -8,34 +8,47 @@ directories:
 files:
   - out/**
   - "!node_modules/**"
+  - node_modules/node-pty/**
+  - node_modules/electron-log/**
+  - node_modules/@agent-native/core/package.json
+  - node_modules/@agent-native/core/dist/**
+  - node_modules/ws/**
   - "!src/**"
   - "!shared/**"
   - "!electron.vite.config.*"
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
   - "!{tsconfig.json,tsconfig.*.json}"
 
+asarUnpack:
+  - node_modules/node-pty/prebuilds/**
+
 extraResources:
-  - from: native/bin/agent-native-computer-helper
-    to: native/agent-native-computer-helper
   - from: ../agent-chrome-extension/dist
     to: chrome-extension
-  - from: build/Assets.car
-    to: Assets.car
+  - from: desktop-update-config.yml
+    to: app-update.yml
 
 protocols:
-  - name: Agent Native
+  - name: Agent-Native
     schemes:
       - agentnative
 
 mac:
+  files:
+    - "!node_modules/node-pty/build/**"
+  extraResources:
+    - from: native/bin/agent-native-computer-helper
+      to: native/agent-native-computer-helper
+    - from: build/Assets.car
+      to: Assets.car
   category: public.app-category.developer-tools
   identity: "Builder.io, Inc (W3PMF2T3MW)"
   icon: build/icon.icns
   extendInfo:
     CFBundleIconName: agent-native
-    NSMicrophoneUsageDescription: Agent Native uses your microphone for dictation and realtime voice conversations.
-    NSCameraUsageDescription: Agent Native uses your camera for video capture in apps like Clips.
-    NSScreenCaptureUsageDescription: Agent Native records your screen when you start a recording in apps like Clips.
+    NSMicrophoneUsageDescription: Agent-Native uses your microphone for dictation and realtime voice conversations.
+    NSCameraUsageDescription: Agent-Native uses your camera for video capture in apps like Clips.
+    NSScreenCaptureUsageDescription: Agent-Native records your screen when you start a recording in apps like Clips.
   entitlements: entitlements.mac.plist
   entitlementsInherit: entitlements.mac.plist
   notarize: true
@@ -53,6 +66,8 @@ dmg:
   artifactName: ${productName}-${arch}.${ext}
 
 win:
+  files:
+    - "!node_modules/node-pty/build/**"
   icon: build/icon.png
   target:
     - target: nsis

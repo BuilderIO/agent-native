@@ -1,9 +1,20 @@
-import baseConfig from "@agent-native/core/vitest-config";
-import { mergeConfig } from "vitest/config";
+import path from "node:path";
 
-import viteConfig from "./vite.config";
+import { defineConfig } from "vitest/config";
 
-// Kept separate from vite.config.ts so the production config never imports
-// vitest: `agent-native build` loads vite.config.ts in installs where vitest
-// is absent.
-export default mergeConfig(viteConfig, baseConfig);
+export default defineConfig({
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./app"),
+      "@shared": path.resolve(__dirname, "./shared"),
+    },
+  },
+  test: {
+    exclude: [
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/dist/**",
+      "**/.react-router/**",
+    ],
+  },
+});

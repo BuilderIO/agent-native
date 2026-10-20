@@ -88,16 +88,13 @@ interface ToolbarProps {
   autoSubmit: boolean;
   compactPopup: boolean;
   webhookUrl?: string;
-  // Mode state
   mode: ToolbarMode;
   drawTool: DrawToolType;
   drawColor: string;
   drawLineWidth: number;
   drawStrokeCount: number;
-  // Queue state
   queue: QueuedAnnotation[];
   selectedPinIds: Set<string>;
-  // Callbacks
   onToggleExpand: () => void;
   onModeChange: (mode: ToolbarMode) => void;
   onSend: () => void;
@@ -111,23 +108,19 @@ interface ToolbarProps {
   onBlockInteractionsChange: (value: boolean) => void;
   onAutoSubmitChange: (value: boolean) => void;
   onCompactPopupChange: (value: boolean) => void;
-  // Draw callbacks
   onDrawToolChange: (tool: DrawToolType) => void;
   onDrawColorChange: (color: string) => void;
   onDrawLineWidthChange: (width: number) => void;
   onDrawUndo: () => void;
   onDrawClear: () => void;
-  // Queue callbacks
   onQueueAdd: () => void;
   onQueueSend: () => void;
   onQueueClear: () => void;
-  // Select-for-send
   onSendSelected: () => void;
   onTogglePinSelect: (pin: Pin) => void;
 }
 
 export const Toolbar: Component<ToolbarProps> = (props) => {
-  // Position stored as right/bottom offsets for edge anchoring
   const [pos, setPos] = createSignal<{ right: number; bottom: number }>(
     props.position
       ? {
@@ -240,7 +233,6 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
     props.onToggleExpand();
   }
 
-  // Queue summary counts
   const queueSummary = () => {
     const q = props.queue;
     let draws = 0;
@@ -270,7 +262,6 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
       on:click={handleClick}
     >
       {!props.expanded ? (
-        /* Collapsed pill */
         <div
           style={{
             display: "flex",
@@ -288,7 +279,6 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
           />
         </div>
       ) : (
-        /* Expanded toolbar */
         <div
           on:click={(e: Event) => e.stopPropagation()}
           style={{ display: "contents" }}

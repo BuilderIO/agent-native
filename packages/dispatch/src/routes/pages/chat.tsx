@@ -1,22 +1,38 @@
 import {
-  AgentChatSurface,
+  insertAgentComposerReference,
   markAgentChatHomeHandoff,
+  readChatFirstMode,
+  requestAgentTaskOpen,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  type ComponentProps,
-} from "react";
+  AgentChatHome,
+  type AgentChatHomeProps,
+} from "@agent-native/toolkit/app/chat/AgentChatHome";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { ActionQueryError } from "../../components/action-query-error";
+import { DispatchChatHomeApps } from "../../components/chat-home-apps";
+import { useDispatchExtensions } from "../../components/layout/Layout";
+import { Skeleton } from "../../components/ui/skeleton";
 import { submitOverviewPrompt } from "../../lib/overview-chat";
 
-function chatThreadPath(threadId: string | null): string {
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat";
+interface WorkspaceAgentResource {
+  id: string;
+  name: string;
+  description: string | null;
+  path: string;
+  content: string;
+  scope: "all" | "selected";
+  updatedAt: number;
+}
+
+function chatThreadPath(threadId: string | null, agentPath?: string): string {
+  const path = threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat";
+  return agentPath ? `${path}?agent=${encodeURIComponent(agentPath)}` : path;
 }
 
 function stripBasePath(pathname: string): string {
@@ -29,9 +45,6 @@ function stripBasePath(pathname: string): string {
   return pathname;
 }
 
-// The chat surface renders for both `/chat` and the `/chat/:threadId` deep
-// link. The thread id is read from the pathname (not `useParams`) because the
-// param is owned by the nested deep-link route, not this leaf component.
 function threadIdFromPath(pathname: string): string | null {
   const match = stripBasePath(pathname).match(/^\/chat\/([^/]+)/);
   if (!match) return null;
@@ -43,8 +56,6 @@ function threadIdFromPath(pathname: string): string | null {
   }
 }
 
-// Mirror the basename handling Dispatch's nav links use: pass a router-local
-// path when the live URL is already under the mount, otherwise prefix it.
 function dispatchNavTarget(path: string): string {
   if (typeof window === "undefined") return path;
   const basePath = appBasePath();
@@ -61,25 +72,20 @@ interface DispatchThreadUrlSync {
   navigate: (path: string, options?: { replace?: boolean }) => void;
 }
 
-type DispatchAgentChatSurfaceProps = ComponentProps<typeof AgentChatSurface> & {
-  threadUrlSync?: DispatchThreadUrlSync;
-};
-
-function DispatchAgentChatSurface(props: DispatchAgentChatSurfaceProps) {
-  return <AgentChatSurface {...props} />;
-}
-
 interface DispatchChatLocationState {
   dispatchPrompt?: {
     id?: string | number;
     message?: string;
     selectedModel?: string | null;
     selectedEngine?: string | null;
-    selectedEffort?: ComponentProps<typeof AgentChatSurface>["selectedEffort"];
+    selectedEffort?: AgentChatHomeProps["selectedEffort"];
   };
   dispatchThread?: {
     id?: string | number;
     threadId?: string;
+    parentThreadId?: string;
+    description?: string;
+    name?: string;
   };
 }
 
@@ -92,7 +98,46 @@ export default function ChatRoute() {
   const location = useLocation();
   const navigate = useNavigate();
   const routeThreadId = threadIdFromPath(location.pathname);
+  const agentPath = new URLSearchParams(location.search).get("agent");
+  const agentsQuery = useActionQuery<WorkspaceAgentResource[]>(
+    "list-workspace-resources",
+    { kind: "agent" },
+    { enabled: Boolean(agentPath), staleTime: 30_000 },
+  );
+  const agent = useMemo(
+    () =>
+      agentPath
+        ? (agentsQuery.data ?? []).find((resource) => {
+            const profileId = resource.path
+              .replace(/^agents\//, "")
+              .replace(/\.md$/, "");
+            return (
+              resource.path === agentPath ||
+              resource.id === agentPath ||
+              profileId === agentPath
+            );
+          })
+        : undefined,
+    [agentPath, agentsQuery.data],
+  );
+  const agentScope = useMemo(
+    () =>
+      agent
+        ? {
+            type: "agent",
+            id: agent.id,
+            label: agent.name,
+            contextKey: `dispatch-agent:${agent.id}`,
+          }
+        : null,
+    [agent],
+  );
   const handledStateIds = useRef(new Set<string>());
+  const extensions = useDispatchExtensions();
+  const suppressInlineOpenApp =
+    extensions?.chatFirst === true ||
+    readChatFirstMode() ||
+    new URLSearchParams(location.search).get("chatFirst") === "1";
 
   const navigateThreadUrl = useCallback(
     (path: string, options?: { replace?: boolean }) =>
@@ -102,14 +147,22 @@ export default function ChatRoute() {
   const threadUrlSync = useMemo<DispatchThreadUrlSync>(
     () => ({
       routeThreadId: routeThreadId ?? null,
-      getPath: chatThreadPath,
+      getPath: (threadId) => chatThreadPath(threadId, agentPath ?? undefined),
       navigate: navigateThreadUrl,
     }),
-    [routeThreadId, navigateThreadUrl],
+    [agentPath, routeThreadId, navigateThreadUrl],
   );
   const state = location.state as DispatchChatLocationState | null;
   const prompt = state?.dispatchPrompt;
   const thread = state?.dispatchThread;
+  const [pendingOverviewPrompt, setPendingOverviewPrompt] = useState<
+    DispatchChatLocationState["dispatchPrompt"] | null
+  >(null);
+  const activePrompt = prompt?.message ? prompt : pendingOverviewPrompt;
+
+  useEffect(() => {
+    if (routeThreadId) setPendingOverviewPrompt(null);
+  }, [routeThreadId]);
 
   useEffect(() => {
     const message = prompt?.message?.trim();
@@ -124,20 +177,32 @@ export default function ChatRoute() {
 
     const timer = window.setTimeout(() => {
       if (threadId) {
-        window.dispatchEvent(
-          new CustomEvent("agent-chat:open-thread", {
-            detail: { threadId },
-          }),
-        );
+        const parentThreadId = thread?.parentThreadId?.trim();
+        if (parentThreadId && parentThreadId !== threadId) {
+          requestAgentTaskOpen({
+            threadId,
+            parentThreadId,
+            description: thread?.description,
+            name: thread?.name,
+          });
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId },
+            }),
+          );
+        }
       }
       if (message) {
+        setPendingOverviewPrompt(prompt ?? null);
         submitOverviewPrompt(message, prompt?.selectedModel, {
           openSidebar: false,
+          reuseEmptyTab: true,
           selectedEngine: prompt?.selectedEngine,
           selectedEffort: prompt?.selectedEffort,
         });
       }
-      navigate(`${location.pathname}${location.search}${location.hash}`, {
+      void navigate(`${location.pathname}${location.search}${location.hash}`, {
         replace: true,
         state: null,
       });
@@ -156,6 +221,9 @@ export default function ChatRoute() {
     prompt?.selectedEffort,
     thread?.id,
     thread?.threadId,
+    thread?.parentThreadId,
+    thread?.description,
+    thread?.name,
   ]);
 
   useEffect(() => {
@@ -169,48 +237,113 @@ export default function ChatRoute() {
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
   }, []);
 
+  useEffect(() => {
+    if (!agent) return;
+    const timer = window.setTimeout(() => {
+      insertAgentComposerReference(
+        {
+          label: agent.name,
+          icon: "agent",
+          source: "agent:custom",
+          refType: "custom-agent",
+          refId: agent.id,
+          refPath: agent.path,
+          slotKey: "dispatch-agent",
+          slotLabel: "Agent",
+        },
+        { openSidebar: false },
+      );
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [agent?.id, agent?.name, agent?.path]);
+
+  if (agentPath && agentsQuery.isLoading) {
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-4 bg-background px-4 py-6 sm:px-6">
+        <Skeleton className="mx-auto h-6 w-48" />
+        <Skeleton className="mx-auto h-12 w-full max-w-2xl" />
+      </div>
+    );
+  }
+
+  if (agentPath && agentsQuery.isError) {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center bg-background px-4">
+        <ActionQueryError
+          error={agentsQuery.error}
+          onRetry={() => void agentsQuery.refetch()}
+        />
+      </div>
+    );
+  }
+
+  if (agentPath && !agent) {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center bg-background px-4 text-sm text-muted-foreground">
+        This agent is no longer available.
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <DispatchAgentChatSurface
-        mode="page"
+      <AgentChatHome
+        key={agent ? `agent-${agent.id}` : "dispatch"}
+        className="flex-1 min-h-0"
+        contentClassName="max-w-none"
+        surfaceClassName="dispatch-chat-panel"
         chatViewTransition
-        className="dispatch-chat-panel"
         defaultMode="chat"
-        storageKey="dispatch"
+        storageKey={agent ? `dispatch-agent-${agent.id}` : "dispatch"}
+        scope={agentScope}
         threadUrlSync={threadUrlSync}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}
-        suggestions={[]}
+        suppressInlineOpenApp={suppressInlineOpenApp}
+        suggestions={
+          agent || routeThreadId || activePrompt?.message
+            ? []
+            : [
+                t("dispatch.pages.suggestionWorkspaceHealth"),
+                t("dispatch.pages.suggestionOnboardingApp"),
+                t("dispatch.pages.suggestionAnalyticsAgents"),
+              ]
+        }
         emptyStateText={t("dispatch.pages.chatAcrossAppsDescription", {
           defaultValue:
             "Route work, inspect status, or create something new from one place.",
         })}
-        emptyStateDisplay="hidden"
-        {...(!prompt?.message
-          ? {
-              centerComposerWhenEmpty: true,
-              composerLayoutVariant: "hero" as const,
-            }
-          : {})}
-        composerPlaceholder={t("dispatch.pages.chatPromptPlaceholder", {
-          defaultValue: "Ask Dispatch...",
-        })}
-        composerSlot={
-          !prompt?.message ? (
+        centerComposerWhenEmpty={!activePrompt?.message && !routeThreadId}
+        composerLayoutVariant={
+          activePrompt?.message || routeThreadId ? "default" : "hero"
+        }
+        composerPlaceholder={
+          agent
+            ? `Ask ${agent.name}...`
+            : t("dispatch.pages.chatPromptPlaceholder", {
+                defaultValue: "Tell Dispatch what you’d like to make happen…",
+              })
+        }
+        homeIntroSlot={
+          agent ? (
+            <div className="dispatch-chat-intro">
+              <h1>{agent.name}</h1>
+              {agent.description ? <p>{agent.description}</p> : null}
+            </div>
+          ) : !activePrompt?.message && !routeThreadId ? (
             <div className="dispatch-chat-intro">
               <h1>
-                {t("dispatch.pages.chatAcrossApps", {
-                  defaultValue: "Chat across your apps",
+                {t("dispatch.pages.chatHomeTitle", {
+                  defaultValue: "What should we do today?",
                 })}
               </h1>
-              <p>
-                {t("dispatch.pages.chatAcrossAppsDescription", {
-                  defaultValue:
-                    "Route work, inspect status, or create something new from one place.",
-                })}
-              </p>
             </div>
+          ) : null
+        }
+        afterComposerSlot={
+          !agent && !prompt?.message && !threadUrlSync.routeThreadId ? (
+            <DispatchChatHomeApps />
           ) : null
         }
       />

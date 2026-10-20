@@ -27,7 +27,7 @@ MCP 是用於將 AI 工具連線到外部功能的標準協議。當您部署 Ag
 - **相同的 actions** — 為代理聊天和 A2A 提供支援的完全相同的操作註冊表
 - **`ask-agent` 工具** — 一種元工具，可委托給完整代理迴圈來執行複雜工作
 - **MCP 應用程式** — actions 可以透過官方 `io.modelcontextprotocol/ui` 擴充功能來宣傳互動式 UI 資源
-- **標準遠端 MCP OAuth** — OAuth 2.1 發現、動態用戶端註冊、授權程式碼 + PKCE、重新整理權杖輪換
+- **標準遠端 MCP OAuth** — OAuth 2.1 發現、動態用戶端註冊、授權程式碼 + PKCE、重新整理權杖
 - **承載驗證回退** - 對於無法執行 OAuth 的用戶端使用 `ACCESS_TOKEN`、`ACCESS_TOKENS` 或 connect-minted JWT
 
 <Diagram id="doc-block-1mjrzq" title={"您的應用程式作為 MCP 伺服器"} summary={"外部主機透過 Streamable HTTP 連線。每個動作都是一個工具； Ask-agent 委托給完整的代理迴圈。"}>
@@ -343,7 +343,11 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 | `mcp:write` | 突變 actions 和 `ask-agent`       |
 | `mcp:apps`  | MCP 應用資源（`ui://` HTML 資源） |
 
-重新整理權杖僅儲存為雜湊值，並在每次重新整理時輪換。預設情況下，`npx @agent-native/core@latest connect` 為 Claude 程式碼用戶端寫入僅 URL 的 OAuth 條目；保留連線頁面、`npx @agent-native/core@latest connect --token <token>` 和靜態承載設定以用於本機 stdio 代理、舊用戶端和緊急/偵錯流程。
+重新整理權杖僅儲存為雜湊值，且不會輪換：重新整理時會傳回同一個權杖，且重新整理授權沒有固定有效期限。每次請求和每次重新整理都會重新檢查使用者是否仍屬於權杖所屬的組織，因此被移除的成員會在下一次請求時失去 MCP 存取權。預設情況下，`npx @agent-native/core@latest connect` 為 Claude 程式碼用戶端寫入僅 URL 的 OAuth 條目；保留連線頁面、`npx @agent-native/core@latest connect --token <token>` 和靜態承載設定以用於本機 stdio 代理、舊用戶端和緊急/偵錯流程。
+
+新的授權碼和重新整理權杖保留簽發時的擁有者繫結。未繫結擁有者的舊授權和擁有者不符的授權會傳回 `invalid_grant`。續期已撤銷或已刪除的授權時，即使更新沒有影響任何資料列，也會傳回 `invalid_grant`。續期寫入失敗時，會傳回可重試的 HTTP 503 和 `Retry-After: 5`。這兩種失敗都不會簽發存取權杖。
+
+OAuth 擁有者繫結更新要求每個現有的 OAuth 連線[重新連線一次](/docs/external-agents#reconnect)。更新上線後，舊 OAuth 存取權杖會遭拒。未繫結擁有者的舊重新整理權杖會傳回 `invalid_grant`，尚未使用的舊授權碼必須重新開始同意流程。新簽發的存取權杖使用設定的有效期限，並在每次請求時檢查成員資格。此次切換不會變更舊 A2A 格式的 `mcp-connect` 認證或跨應用程式 A2A 權杖。使用舊 OAuth 格式 Connect 權杖的連線也必須重新連線。
 
 ## 自訂 MCP 設定 {#custom-setup}
 
@@ -411,3 +415,15 @@ Claude Code calls: run-query(sql: "SELECT count(*) FROM signups WHERE created_at
 Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by source, with trends")
 → The analytics agent runs multiple queries, reasons about the data, and returns a formatted report
 ```
+
+## 以 fetch 優先探索
+
+Agent-Native 也會在 `GET /.well-known/mcp.json` 提供 HTTP 相容目錄。代理不需要
+執行瀏覽器，也可以使用 `fetch` 或 `curl` 取得。目錄描述動作端點、JSON schema、
+是否唯讀以及是否需要驗證。工具可以透過 `POST /mcp/tool/:name` 呼叫，而驗證、
+授權、檢查和租戶範圍仍由伺服器處理。
+
+這是 Agent-Native 的相容慣例，不是 WebMCP 或 MCP Streamable HTTP 的一部分。
+`/mcp` 仍是標準 MCP 端點，支援的瀏覽器仍可使用 `document.modelContext` 的頁面
+本機工具。Clips 會發布 `agentContextUrl` 以及完整 transcript 和 JPEG 畫格 URL，
+因此代理可以直接透過 HTTP 取得內容。

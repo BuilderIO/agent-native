@@ -1,33 +1,50 @@
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
-  BuilderSetupCard,
   sendToAgentChat,
   setAgentChatContextItem,
   useAgentEngineConfigured,
   type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client/agent-chat";
-import { track } from "@agent-native/core/client/analytics";
+import {
+  track,
+  trackAnonymousEvent,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useActionQuery,
+  useAvatarUrl,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useAcceptInvitation,
   useJoinByDomain,
   useOrg,
+  useOrgRole,
+  useSetOrgDomain,
 } from "@agent-native/core/client/org";
-import { ShareButton } from "@agent-native/core/client/sharing";
-import {
-  buildSignInReturnHref,
-  ErrorReportActions,
-  type ErrorReportDebugItem,
-} from "@agent-native/core/client/ui";
+import { fetchOrgMemberPage } from "@agent-native/core/client/sharing";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
+import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import {
+  InlineMarkdown,
+  type InlineMarkdownProtectedSpan,
+} from "@agent-native/toolkit/app/review";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
+import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
@@ -94,7 +111,6 @@ import {
   IconMessageCircle,
   IconMoon,
   IconPlus,
-  IconShare3,
   IconLink,
   IconWorld,
   IconSun,
@@ -181,6 +197,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -211,6 +228,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   planBundleQueryKey,
+  planBundleQueryParams,
   localPlanBundleQueryKey,
   localPlanBundleQueryParams,
   ALL_PLANS_QUERY_ARGS,
@@ -225,6 +243,7 @@ import {
   usePublishVisualPlan,
   useReportVisualPlan,
   useRestorePlanVersion,
+  useSavePlanBlocks,
   useUpdatePlan,
   useUpdateLocalPlan,
   useUpdateLocalPlanComments,
@@ -240,6 +259,7 @@ import {
   type PlanAccessStatusResponse,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
+import { sendToPlanCreationAgentChat } from "@/lib/agent-chat";
 import {
   assessPlanPrompt,
   isProbablyImportedPlan,
@@ -265,6 +285,10 @@ import {
   type RuntimeAnnotationParticipant,
 } from "@/lib/plan-annotation-runtime";
 import {
+  saveBlocksMergingConflicts,
+  type PlanBlocksRevision,
+} from "@/lib/plan-block-save";
+import {
   appendMessageToEditor,
   canSubmitInlineCommentDraft,
   commentBodyText,
@@ -275,6 +299,7 @@ import {
   type CommentDraft,
 } from "@/lib/plan-comment-editor-helpers";
 import { planDocumentTitle } from "@/lib/plan-document-title";
+import { hasSameDomainCoworkerInPages } from "@/lib/plan-invite-suggestion";
 import {
   fetchLocalPlanBridgeComments,
   fetchLocalPlanBridgeBundle,
@@ -324,8 +349,27 @@ export {
 };
 export type { NativeMarkerPlacement } from "@/lib/plan-native-anchors";
 export type { PlanOrgAccessPrompt } from "@/lib/plan-access-prompt";
-export { canSubmitInlineCommentDraft, mentionQueryAtCaret };
+export {
+  AnnotationPopover,
+  canSubmitInlineCommentDraft,
+  CommentMentionEditor,
+  mentionQueryAtCaret,
+};
 export type { CommentDraft } from "@/lib/plan-comment-editor-helpers";
+
+export function buildPlanEmailVerificationCallbackURL(
+  location: Pick<Location, "pathname" | "search" | "hash">,
+): string {
+  return buildSignInReturnHref({
+    returnTo: appPath(planReturnPathFromLocation(location)),
+  });
+}
+
+function isPlanEmailVerificationPendingMessage(message: string): boolean {
+  return /\b(?:email|account)\b.*\b(?:not\s+verified|isn't\s+verified|is\s+not\s+verified|unverified)\b/i.test(
+    message,
+  );
+}
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -388,8 +432,10 @@ const ENABLE_PLAN_STATUS_FEATURE = false;
 const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
 const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
-const PLAN_DOCS_URL = "https://www.agent-native.com/docs/template-plan";
-const LOCAL_FILES_DOCS_URL = `${PLAN_DOCS_URL}#local-files`;
+const PLAN_DOCS_URL = docsUrl("template-plan");
+const LOCAL_FILES_DOCS_URL = docsUrl("template-plan-local-and-desktop", {
+  hash: "local-files",
+});
 const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
 const CURRENT_USER_FALLBACK_NAME = "You";
 const CURRENT_USER_FALLBACK_INITIALS = "You";
@@ -973,30 +1019,35 @@ function safeDecodeURIComponent(value: string): string {
 }
 
 function renderCommentMessage(message: string) {
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
+  const protectedSpans: InlineMarkdownProtectedSpan[] = [];
   const pattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(message)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(message.slice(lastIndex, match.index));
-    }
     const label = match[1] ?? "";
     const email = safeDecodeURIComponent(match[2] ?? "");
-    parts.push(
-      <span
-        key={`${email}-${match.index}`}
-        className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
-        title={email}
-      >
-        <IconAt className="size-3" />
-        <span className="truncate">{label || email}</span>
-      </span>,
-    );
-    lastIndex = pattern.lastIndex;
+    protectedSpans.push({
+      source: match[0],
+      label: label || email,
+      title: email,
+    });
   }
-  if (lastIndex < message.length) parts.push(message.slice(lastIndex));
-  return parts.length > 0 ? parts : message;
+  return (
+    <InlineMarkdown
+      content={message}
+      inline
+      protectedSpans={protectedSpans}
+      renderProtectedSpan={(span, children) => (
+        <span
+          key={span.source}
+          className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
+          title={span.title}
+        >
+          <IconAt className="size-3" />
+          <span className="truncate">{children}</span>
+        </span>
+      )}
+    />
+  );
 }
 
 function CommentAvatar({
@@ -1012,11 +1063,7 @@ function CommentAvatar({
     size === "pin" ? "size-7" : size === "md" ? "size-8" : "size-7";
   return (
     <Avatar
-      className={cn(
-        sizeClass,
-        "border-2 border-background shadow-sm ring-1 ring-border/60",
-        className,
-      )}
+      className={cn(sizeClass, "border border-background shadow-sm", className)}
       title={author.email ? `${author.name} (${author.email})` : author.name}
     >
       {author.avatarUrl && (
@@ -1786,12 +1833,8 @@ function cropFeedbackScreenshot(input: {
   return output.toDataURL("image/png");
 }
 
-type PlanAccessRole = "owner" | "viewer" | "editor" | "admin";
+type PlanAccessRole = "owner" | "viewer" | "commenter" | "editor" | "admin";
 
-/**
- * Status options available in the reviewer approval workflow.
- * "archived" is intentionally omitted — it lives in the kebab menu.
- */
 const APPROVAL_STATUSES: PlanStatus[] = [
   "draft",
   "review",
@@ -1810,18 +1853,9 @@ function statusBadgeClasses(status: PlanStatus): string {
   if (status === "in_progress") {
     return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
   }
-  // draft, review, archived — neutral
   return "";
 }
 
-/**
- * Compact status badge/chip for the plan detail toolbar.
- *
- * - Editors (owner/admin/editor): clicking the badge opens a DropdownMenu to
- *   transition the plan's status. The update is optimistic with rollback.
- * - Viewers / anonymous: the badge is inert (shows current status, no menu).
- * - Recaps: the parent must not render this component at all.
- */
 function PlanStatusControl({
   planId,
   status,
@@ -1838,7 +1872,6 @@ function PlanStatusControl({
   const handleSelect = useCallback(
     (newStatus: PlanStatus) => {
       if (newStatus === status) return;
-      // Optimistic: patch both the bundle cache and the list cache.
       const bundleKey = planBundleQueryKey(planId);
       const prevBundle = qc.getQueryData<PlanBundleWithHtml>(bundleKey);
       const prevActiveList = qc.getQueryData<PlanSummary[]>(
@@ -1859,7 +1892,6 @@ function PlanStatusControl({
         { planId, status: newStatus },
         {
           onError: () => {
-            // Roll back optimistic updates.
             if (prevBundle !== undefined)
               qc.setQueryData(bundleKey, prevBundle);
             if (prevActiveList !== undefined)
@@ -1965,6 +1997,15 @@ export function canEditPlanContentRole(role?: PlanAccessRole | null) {
   return role === "owner" || role === "admin" || role === "editor";
 }
 
+export function canCommentPlanRole(role?: PlanAccessRole | null) {
+  return (
+    role === "owner" ||
+    role === "commenter" ||
+    role === "admin" ||
+    role === "editor"
+  );
+}
+
 export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const t = useT();
   const params = useParams<{ id?: string }>();
@@ -2000,6 +2041,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(false);
   const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [planShareSucceededId, setPlanShareSucceededId] = useState<
+    string | null
+  >(null);
   const [localBridgeCommentPending, setLocalBridgeCommentPending] =
     useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
@@ -2019,13 +2063,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const [nativeMarkerVersion, setNativeMarkerVersion] = useState(0);
   const [commentVisibility, setCommentVisibility] =
     useState<CommentVisibility>("open");
-  // When a comment submit fails, stash the draft here so the popover can
-  // re-open with the user's text pre-filled (Issue 2a).
   const [failedCommentDraft, setFailedCommentDraft] =
     useState<CommentDraft | null>(null);
-  // Ref that signals the 3-second poll to pause while a comment mutation is
-  // in-flight. Prevents poll-driven cache replacement from evicting optimistic
-  // comments before the server write commits (Issue 4a).
   const { session, isLoading: sessionLoading } = useSession();
   const localPlanMode = Boolean(localPlanSlug);
   const routeSearchParams = useMemo(
@@ -2087,8 +2126,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       refetchInterval: false,
     },
   );
-  // Bridge bundles carry no comments; load comments.json from the colocated
-  // folder so they render and survive refresh in bridge mode too.
   const localPlanBridgeCommentsQuery = useQuery<LocalPlanBundle["comments"]>({
     queryKey: ["local-plan-bridge-comments", localPlanBridgeUrl],
     enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
@@ -2137,8 +2174,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     enabled: Boolean(session && !selectedId && !localPlanMode),
   });
   const plans = plansQuery.data ?? [];
-  // Identity for collaborative cursor labels. Only a signed-in user enables
-  // real-time multi-user prose editing; guests/anonymous keep single-user editing.
   const collabUser = useMemo<RichMarkdownCollabUser | null>(
     () =>
       session?.email
@@ -2150,10 +2185,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         : null,
     [session?.email, session?.name],
   );
-  // Redirect to sign-in, returning to wherever the guest currently is.
   const openSignIn = useCallback((returnOverride?: string) => {
     window.location.href = buildSignInReturnHref({
-      returnTo: returnOverride ?? planReturnPathFromLocation(window.location),
+      returnTo: appPath(
+        returnOverride ?? planReturnPathFromLocation(window.location),
+      ),
     });
   }, []);
   const requestCreatePlan = useCallback(() => {
@@ -2164,7 +2200,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }
     setCreateOpen(true);
   }, [openSignIn, session, sessionLoading]);
-  // Refetch once a session appears so account-scoped plans show up immediately.
   const wasSignedInRef = useRef(false);
   useEffect(() => {
     if (sessionLoading) return;
@@ -2231,6 +2266,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const planQuery = usePlan(localPlanMode ? undefined : selectedId);
   const bundle = localPlanMode ? localPlanData : planQuery.data;
+  useEffect(() => {
+    if (!bundle) return;
+    trackEvent("app.first_action", {
+      action: "plan_viewed",
+      surface: "plan_reader",
+      resource_type: "plan",
+      resource_id: bundle.plan.id,
+    });
+  }, [bundle?.plan.id]);
   const localPlanBundle =
     localPlanMode && bundle && "localOnly" in bundle
       ? (bundle as LocalPlanBundle)
@@ -2359,14 +2403,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       selectedId,
     ],
   );
-  // Reflect a structural block edit (drag-to-columns, reorder) into the
-  // `get-visual-plan` cache IMMEDIATELY so the editor's authoritative content
-  // tracks the new layout instead of lagging the debounced (600ms) save. This
-  // keeps every reader of the plan content consistent with what the editor shows
-  // the moment the drop lands. The reconcile's own non-collab stale-poll guard is
-  // what actually stops a lagging refetch from reverting the layout, so this does
-  // NOT bump `updatedAt` — leaving the server's timestamp intact so a genuinely
-  // newer agent/external edit still wins.
   const writeBlocksOptimistically = useCallback(
     (blocks: PlanBlock[]) => {
       if (!selectedPlanQueryKey) return;
@@ -2386,9 +2422,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     },
     [queryClient, selectedPlanQueryKey],
   );
-  // Recaps are read-only review surfaces: text can't be edited inline (the agent
-  // owns the content), but highlighting + commenting stay available because those
-  // affordances key off `bundle`/`session`, not `canEditPlanContent`.
   const isRecap = bundle?.plan.kind === "recap";
   const effectivePlanAccessRole = bundle?.access?.role ?? null;
   const canEditLocalPlanContent =
@@ -2403,6 +2436,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       canEditPlanContentRole(effectivePlanAccessRole));
   const canManagePlan =
     !localPlanMode && canEditPlanContentRole(effectivePlanAccessRole);
+  const canCommentPlan =
+    localPlanMode || canCommentPlanRole(effectivePlanAccessRole);
   const canDeleteCurrentPlan =
     !localPlanMode && effectivePlanAccessRole === "owner";
   const currentPlanDeleteTarget = useMemo<DeletePlanTarget | null>(() => {
@@ -2428,9 +2463,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     Boolean(bundle) &&
     effectivePlanVisibility === "public" &&
     !canManagePlan;
-  const canResolveCommentThreads = Boolean(
-    bundle && (localPlanMode || session || canEditPlanContent),
-  );
+  const canResolveCommentThreads = Boolean(bundle && canCommentPlan);
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
     return defaultInlineCommentDraftForPlanContext({
       planKind: bundle?.plan.kind,
@@ -2534,6 +2567,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const canDeletePlanComment = useCallback(
     (comment: { authorEmail?: string | null }) => {
+      if (!canCommentPlan) return false;
       if (canManagePlan) return true;
       const currentEmail = normalizeCommentEmail(collabUser?.email);
       const authorEmail = normalizeCommentEmail(comment.authorEmail);
@@ -2544,7 +2578,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         (!currentEmail || isLocalCurrentUserEmail(currentEmail))
       );
     },
-    [canManagePlan, collabUser?.email],
+    [canCommentPlan, canManagePlan, collabUser?.email],
   );
   const canDeleteCommentThread = useCallback(
     (thread: CommentThread) => canDeletePlanComment(thread.root),
@@ -2569,27 +2603,16 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   }, [runtimeCommentThreads]);
   const updatePlan = useUpdatePlan();
+  const savePlanBlocks = useSavePlanBlocks();
   const updateLocalPlan = useUpdateLocalPlan();
   const promoteLocalPlan = usePromoteLocalPlan();
-  // Stable ref so closures (e.g. message-event handler) always call the latest
-  // mutate without needing to be in a dependency array.
   const updatePlanMutateRef = useRef(updatePlan.mutate);
   updatePlanMutateRef.current = updatePlan.mutate;
-  // Separate mutation instance for comment-only writes (reply / resolve /
-  // reopen). Keeping it separate from the prose-autosave `updatePlan` instance
-  // means the autosave `isPending` state cannot bleed into comment button
-  // disabled states (Issue 3).
   const updateCommentMutation = useUpdatePlanComments();
-  // Local-files plans write comments to comments.json (no DB) via this action.
   const updateLocalCommentMutation = useUpdateLocalPlanComments();
   const deleteCommentMutation = useDeletePlanComment();
   const deletePlanMutation = useDeletePlan();
 
-  /**
-   * Archive or unarchive a plan from the overview. Optimistically updates the
-   * list-visual-plans cache so the card disappears/reappears immediately.
-   * Rolls back on error with a toast.
-   */
   const handleArchivePlan = useCallback(
     (planId: string, archive: boolean) => {
       const newStatus = archive ? "archived" : "draft";
@@ -2598,7 +2621,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       );
       const prevAll =
         queryClient.getQueryData<PlanSummary[]>(ALL_PLANS_QUERY_KEY);
-      // Optimistic update
       for (const listKey of [ACTIVE_PLANS_QUERY_KEY, ALL_PLANS_QUERY_KEY]) {
         queryClient.setQueryData(listKey, (old: PlanSummary[] | undefined) =>
           old?.map((p) => (p.id === planId ? { ...p, status: newStatus } : p)),
@@ -2608,7 +2630,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         { planId, status: newStatus },
         {
           onError: () => {
-            // Roll back
             if (prevActive !== undefined)
               queryClient.setQueryData(ACTIVE_PLANS_QUERY_KEY, prevActive);
             if (prevAll !== undefined)
@@ -2713,12 +2734,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     ],
   );
 
-  /**
-   * Persist question-form answers as an agent-targeted comment so
-   * share-link reviewers' answers are visible to get-plan-feedback even when
-   * no agent is attached on their machine.  Fire-and-forget: the existing
-   * sendToAgentChat fast-path runs first, and this is a best-effort backup.
-   */
   const persistQuestionFormAnswers = useCallback(
     (summary: string, planId: string | undefined) => {
       if (!planId) return;
@@ -2999,10 +3014,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (!selectedId) return undefined;
     const base = bundle?.plan.kind === "recap" ? "recaps" : "plans";
     const url = `${window.location.origin}${appPath(`/${base}/${selectedId}`)}`;
-    // Viral attribution: tag the shared/public plan link so signups arriving
-    // from it can be attributed even when `document.referrer` is empty. `via`
-    // is a non-PII owner id and is only set when the current viewer is the
-    // owner (the only person whose session userId is the plan owner's id).
     const ownerViaId =
       effectivePlanAccessRole === "owner" ? (session?.userId ?? null) : null;
     return withPlanShareAttribution(url, ownerViaId);
@@ -3016,9 +3027,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     session?.userId,
   ]);
 
-  // Viral attribution: read the `ref`/`via` the visitor arrived on (from a
-  // tagged share link) so funnel events carry the same attribution the
-  // framework first-touch cookie captured. Read once from the URL on mount.
   const shareAttribution = useMemo(
     () =>
       readPlanShareAttribution(
@@ -3027,8 +3035,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     [],
   );
 
-  // A logged-out visitor looking at a public plan/recap is the share funnel
-  // audience. Their CTAs (comment, sign in) route through `openSignIn`.
   const isLoggedOutPublicPlanView =
     !sessionLoading &&
     !session &&
@@ -3036,14 +3042,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     Boolean(selectedId) &&
     effectivePlanVisibility === "public";
 
-  // share_cta_click — fire alongside (never instead of) the real navigation.
-  // `track` is non-throwing, but guard anyway so analytics can never break a
-  // CTA. Only fires for the logged-out public-plan funnel audience.
   const fireShareCtaClick = useCallback(
     (cta: string) => {
       if (!isLoggedOutPublicPlanView) return;
       try {
-        void track("share_cta_click", {
+        void trackEvent("share_cta_click", {
           surface: PLAN_SHARE_SURFACE,
           plan_id: selectedId ?? "",
           cta,
@@ -3062,15 +3065,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     ],
   );
 
-  // share_view — fire once when a logged-out visitor views a public plan. The
-  // ref guard prevents double-fire across re-renders / StrictMode double-invoke.
   const shareViewFiredRef = useRef(false);
   useEffect(() => {
     if (!isLoggedOutPublicPlanView) return;
     if (shareViewFiredRef.current) return;
     shareViewFiredRef.current = true;
     try {
-      void track("share_view", {
+      void trackEvent("share_view", {
         surface: PLAN_SHARE_SURFACE,
         plan_id: selectedId ?? "",
         ref: shareAttribution.ref,
@@ -3756,6 +3757,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   };
 
   const runPlanExportAction = (action: () => Promise<void>) => {
+    trackEvent("plan_reader_action_started", {
+      app_name: "plan",
+      template_name: "plan",
+      surface: localPlanMode ? "local_reader" : "reader",
+    });
     preservePlanReaderScroll(() => {
       void action().catch((error) => {
         toast.error(
@@ -3782,14 +3788,20 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   };
 
   const startCommenting = useCallback(() => {
+    if (!canCommentPlan) return;
     setCanvasMarkupMode("none");
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
     setCommentVisibility("open");
     setAnnotateMode(true);
-  }, []);
+  }, [canCommentPlan]);
 
   const selectReviewMode = (mode: CanvasMarkupMode) => {
+    trackEvent("plan_review_mode_selected", {
+      app_name: "plan",
+      template_name: "plan",
+      mode,
+    });
     preservePlanReaderScroll(() => {
       if (mode !== "comment") {
         closeInlineComment();
@@ -3840,7 +3852,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const handleNativeReaderScroll = () => {
     documentStateRef.current = readNativeDocumentState();
     setNativeSelectionComment(null);
-    scheduleNativeMarkerUpdate();
+    if (commentMarkersVisible || pendingAnnotation || activeAnnotation) {
+      scheduleNativeMarkerUpdate();
+    }
   };
 
   const readNativeSelectionComment =
@@ -3929,6 +3943,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
 
   const openNativeSelectionComment = useCallback(
     (selectionComment: NativeSelectionComment) => {
+      if (!canCommentPlan) return;
       documentStateRef.current = readNativeDocumentState();
       setCanvasMarkupMode("none");
       setActiveAnnotation(null);
@@ -3940,11 +3955,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       setNativeSelectionComment(null);
       window.getSelection()?.removeAllRanges();
     },
-    [readNativeDocumentState],
+    [canCommentPlan, readNativeDocumentState],
   );
 
   const beginNativeSelectionComment = () => {
-    if (!nativeSelectionComment) return;
+    if (!canCommentPlan || !nativeSelectionComment) return;
     openNativeSelectionComment(nativeSelectionComment);
   };
 
@@ -3978,8 +3993,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("[data-plan-interactive]")) return;
-    // Clear any previous selection comment tooltip on pointer-down so it
-    // doesn't linger while a new selection gesture starts.
     setNativeSelectionComment(null);
     if (!annotateMode) return;
     nativeCommentPointerRef.current = {
@@ -3989,15 +4002,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   };
 
   const handleNativeReaderPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (!canCommentPlan) return;
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("[data-plan-interactive]")) return;
     const reader = nativeReaderRef.current;
     if (!reader) return;
-    // Text-selection "Comment" affordance: show the floating button whenever
-    // the user finishes a selection inside the reader, even outside annotate
-    // mode. Click-to-place annotations (the else branch) remain annotate-mode
-    // only because they don't have a visible target without the full review UI.
     const selectionComment = readNativeSelectionComment();
     if (selectionComment) {
       event.preventDefault();
@@ -4058,48 +4068,105 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  const patchStructuredContent = async (patch: PlanContentPatch) => {
-    if (!bundle) return;
-    // For background autosave (replace-blocks) ops, suppress the global
-    // onError toast so the autosave loop's backoff+pill handles error state
-    // instead of spamming toast.error on every retry.
-    const silentError = patch.op === "replace-blocks";
-    try {
-      if (localPlanMode) {
-        if (!localPlanSlug || localPlanBridgeUrl) return;
-        await updateLocalPlan.mutateAsync(
-          {
-            slug: localPlanSlug,
-            ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
-            contentPatches: [patch],
-            note:
-              patch.op === "update-rich-text"
-                ? `Edited local markdown block ${patch.blockId}.`
-                : "Patched local structured visual plan content.",
-          },
-          silentError ? { onError: () => {} } : undefined,
-        );
-        return;
+  // The newest block save this tab made, with the blocks it sent. Until the
+  // open document adopts the saved result, that save (not the older revision
+  // the document still reports) is what the next edit was made on top of, and
+  // the blocks sent, not the merged result, are what the document holds.
+  const lastBlockSaveRef = useRef<{
+    planId: string;
+    updatedAt: string;
+    sent: PlanBlock[];
+  } | null>(null);
+
+  // `base` is the saved revision the open document's edits were made on top
+  // of; without a document (no live editor) the plan as loaded stands in.
+  const saveBlocks = async (
+    plan: PlanBundleWithHtml["plan"],
+    blocks: PlanBlock[],
+    documentBase: PlanBlocksRevision | null | undefined,
+  ) => {
+    const planId = plan.id;
+    const toRevision = (saved: PlanBundleWithHtml): PlanBlocksRevision => {
+      if (!saved.plan?.content) {
+        throw new Error("The saved plan has no structured content.");
       }
-      await updatePlan.mutateAsync(
+      return {
+        updatedAt: saved.plan.updatedAt,
+        blocks: saved.plan.content.blocks,
+      };
+    };
+    const loaded =
+      documentBase ??
+      (plan.content
+        ? { updatedAt: plan.updatedAt, blocks: plan.content.blocks }
+        : null);
+    const own = lastBlockSaveRef.current;
+    const base =
+      own?.planId === planId && (!loaded || own.updatedAt >= loaded.updatedAt)
+        ? { updatedAt: own.updatedAt, blocks: own.sent }
+        : loaded;
+    const saved = await saveBlocksMergingConflicts({
+      base,
+      blocks,
+      save: async (nextBlocks, expectedUpdatedAt) =>
+        toRevision(
+          await savePlanBlocks.mutateAsync({
+            planId,
+            expectedUpdatedAt,
+            contentPatches: [{ op: "replace-blocks", blocks: nextBlocks }],
+            note: "Patched structured visual plan content.",
+          }),
+        ),
+      readLatest: async () =>
+        toRevision(
+          await callAction<PlanBundleWithHtml>(
+            "get-visual-plan",
+            planBundleQueryParams(planId),
+            { method: "GET" },
+          ),
+        ),
+    });
+    lastBlockSaveRef.current = {
+      planId,
+      updatedAt: saved.updatedAt,
+      sent: blocks,
+    };
+    return saved;
+  };
+
+  const patchStructuredContent = async (
+    patch: PlanContentPatch,
+    options?: { base?: PlanBlocksRevision | null },
+  ) => {
+    if (!bundle) return;
+    if (localPlanMode) {
+      if (!localPlanSlug || localPlanBridgeUrl) return;
+      await updateLocalPlan.mutateAsync(
         {
-          planId: bundle.plan.id,
-          ...(patch.op === "replace-blocks"
-            ? { expectedUpdatedAt: bundle.plan.updatedAt }
-            : {}),
+          slug: localPlanSlug,
+          ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
           contentPatches: [patch],
           note:
             patch.op === "update-rich-text"
-              ? `Edited markdown block ${patch.blockId}.`
-              : "Patched structured visual plan content.",
+              ? `Edited local markdown block ${patch.blockId}.`
+              : "Patched local structured visual plan content.",
         },
-        silentError ? { onError: () => {} } : undefined,
+        patch.op === "replace-blocks" ? { onError: () => {} } : undefined,
       );
-    } catch (error) {
-      // Re-throw so the autosave backoff loop in PlanContentRenderer can handle
-      // retries. The global onError toast was already suppressed above.
-      throw error;
+      return;
     }
+    if (patch.op === "replace-blocks") {
+      await saveBlocks(bundle.plan, patch.blocks, options?.base);
+      return;
+    }
+    await updatePlan.mutateAsync({
+      planId: bundle.plan.id,
+      contentPatches: [patch],
+      note:
+        patch.op === "update-rich-text"
+          ? `Edited markdown block ${patch.blockId}.`
+          : "Patched structured visual plan content.",
+    });
   };
 
   const updatePlanMetadata = async (patch: {
@@ -4436,8 +4503,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     toast.success(t("plansPage.reader.feedbackCopied"));
   };
 
-  // Route comment writes to the DB (hosted) or comments.json (local); both
-  // return the same bundle shape.
   const writeComments = async (
     comments: PlanCommentInput[],
     note: string,
@@ -4509,8 +4574,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     localBridgeCommentPending;
 
   const submitInlineComment = async (draft: CommentDraft) => {
+    if (!canCommentPlan) return;
     if (!bundle || !pendingAnnotation || !selectedPlanQueryKey) return;
-    // Capture the current position before clearing (used to restore on failure).
     const capturedPosition = inlineCommentPosition;
     const anchor: PlanAnnotationAnchor = {
       ...pendingAnnotation,
@@ -4562,9 +4627,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     };
     clearPendingDocumentRestore();
     pendingDocumentRestoreRef.current = documentStateRef.current;
-    // Await the cancel so an in-flight sync refresh can't resolve *after* our
-    // optimistic write and revert it (the "comment lagged / didn't stick"
-    // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
@@ -4591,9 +4653,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
               : current,
         );
         clearPendingDocumentRestore();
-        // Restore the draft so the reviewer doesn't lose their typed text.
-        // Re-open the composer at the same anchor with the original draft
-        // pre-filled (Issue 2a).
         setFailedCommentDraft(draft);
         setPendingAnnotation(anchor);
         setInlineCommentPosition(
@@ -4606,6 +4665,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     annotation: RuntimeAnnotation,
     message: string,
   ) => {
+    if (!canCommentPlan) return;
     if (!bundle) return;
     const anchor: PlanAnnotationAnchor = {
       ...annotation.anchor,
@@ -4643,13 +4703,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     threadRootId: string,
     message: string,
   ) => {
+    if (!canCommentPlan) {
+      throw new Error("Commenter access is required to reply to a comment.");
+    }
     if (!bundle || !selectedPlanQueryKey) return;
     const thread = commentThreads.find((item) => item.id === threadRootId);
     if (!thread) {
       throw new Error("Comment thread is no longer available.");
     }
-    // Optimistic reply: insert into cache immediately so the UI updates
-    // before the server round-trip completes (Issue 3).
     const replyId = newCommentId();
     const now = new Date().toISOString();
     const optimisticReply: PlanCommentItem = {
@@ -4673,9 +4734,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       createdAt: now,
       updatedAt: now,
     };
-    // Await the cancel so an in-flight sync refresh can't resolve *after* our
-    // optimistic write and revert it (the "comment lagged / didn't stick"
-    // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
@@ -4699,13 +4757,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         ],
         "Human replied to visual plan feedback.",
       );
-      // Replace optimistic entry with the authoritative server response.
       if (selectedPlanQueryKey) {
         queryClient.setQueryData(selectedPlanQueryKey, updated);
       }
       toast.success(t("plansPage.comments.replyAdded"));
     } catch {
-      // Roll back the optimistic reply on error.
       queryClient.setQueryData(
         selectedPlanQueryKey,
         (current: PlanBundleWithHtml | undefined) =>
@@ -4726,13 +4782,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const fallbackAnchorJson = fallbackAnchor
       ? JSON.stringify(fallbackAnchor)
       : undefined;
-    // Optimistic status flip: update the cache immediately so the marker and
-    // popover update without waiting for the server round-trip (Issue 3).
     const prevBundle =
       queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
-    // Await the cancel so an in-flight sync refresh can't resolve *after* our
-    // optimistic write and revert it (the "comment lagged / didn't stick"
-    // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
@@ -4773,7 +4824,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         );
       })
       .catch(() => {
-        // Roll back the optimistic status change.
         if (prevBundle !== undefined) {
           queryClient.setQueryData(selectedPlanQueryKey, prevBundle);
         }
@@ -4799,9 +4849,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const prevBundle =
       queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
     const commentId = request.commentId;
-    // Await the cancel so an in-flight sync refresh can't resolve *after* our
-    // optimistic write and revert it (the "comment lagged / didn't stick"
-    // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
@@ -4949,8 +4996,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         <Button
                           type="button"
                           variant="ghost"
-                          size="icon"
-                          className="pointer-events-auto size-8 rounded-lg border border-border/70 bg-background/82 shadow-2xl backdrop-blur-xl"
+                          size="icon-sm"
+                          className="pointer-events-auto rounded-lg border border-border/70 bg-background/82 shadow-2xl backdrop-blur-xl"
                           onClick={() => {
                             if (session) {
                               navigate("/plans");
@@ -4988,6 +5035,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     localShareUrl={planShareUrl}
                     hostedPlanId={bundle.plan.hostedPlanId}
                     hostedPlanUrl={bundle.plan.hostedPlanUrl}
+                    firstShare={planShareSucceededId === bundle.plan.id}
+                    onShareSuccess={() =>
+                      setPlanShareSucceededId(bundle.plan.id)
+                    }
                     onOpenChange={(open) => {
                       if (open) closeInlineComment();
                     }}
@@ -5015,8 +5066,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon"
-                        className="pointer-events-auto size-8"
+                        size="icon-sm"
+                        className="pointer-events-auto"
                         onClick={() =>
                           preservePlanReaderScroll(() => {
                             if (prototypeOnly) {
@@ -5122,8 +5173,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     <Button
                       type="button"
                       variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
+                      size="icon-sm"
+                      className="pointer-events-auto"
                       data-plan-actions-trigger
                       aria-label={t("plansPage.overview.planActions")}
                     >
@@ -5236,6 +5287,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           {canEditPlanContent ? (
                             <DropdownMenuItem
                               onClick={() => {
+                                trackEvent("plan_history_opened", {
+                                  app_name: "plan",
+                                  template_name: "plan",
+                                });
                                 preservePlanReaderScroll(() => {
                                   closeInlineComment();
                                   setHistoryOpen(true);
@@ -5494,8 +5549,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     <Button
                       type="button"
                       variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
+                      size="icon-sm"
+                      className="pointer-events-auto"
                       onClick={togglePlansAgent}
                       aria-label={t("plansPage.reader.toggleAgentSidebar")}
                     >
@@ -5587,7 +5642,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       }}
                     />
                   </div>
-                  {nativeSelectionComment && (
+                  {canCommentPlan && nativeSelectionComment && (
                     <div
                       className="absolute z-30"
                       style={{
@@ -5666,7 +5721,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   )}
                 />
               )}
-              {pendingAnnotation && inlineCommentPosition && (
+              {canCommentPlan && pendingAnnotation && inlineCommentPosition && (
                 <>
                   {pendingMarkerPlacement?.clip ? (
                     <div
@@ -5682,8 +5737,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     <GuestCommentCta
                       position={inlineCommentPosition}
                       onSignIn={() => {
-                        // share funnel: logged-out viewer of a public plan
-                        // clicking the "create account to comment" CTA.
                         fireShareCtaClick("comment_signin");
                         openSignIn(
                           window.location.pathname + window.location.search,
@@ -5694,6 +5747,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   ) : (
                     <InlineCommentPopover
                       key={failedCommentDraft ? "retry" : "new"}
+                      anchor={pendingAnnotation}
                       position={inlineCommentPosition}
                       initialDraft={
                         failedCommentDraft ?? defaultInlineCommentDraft
@@ -5701,6 +5755,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       onCancel={closeInlineComment}
                       onSubmit={submitInlineComment}
                       lockToAgent={localPlanMode}
+                      reopened={Boolean(failedCommentDraft)}
                     />
                   )}
                 </>
@@ -5711,6 +5766,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   position={activeAnnotation.position}
                   isPending={commentWritePending}
                   pendingAuthor={pendingCommentAuthor}
+                  canComment={canCommentPlan}
                   canEditRootComment={canEditPlanContent}
                   onSave={(message) =>
                     updateAnnotationComment(
@@ -5753,6 +5809,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   currentUser={currentCommentAuthor}
                   pendingAuthor={pendingCommentAuthor}
                   isPending={commentWritePending}
+                  canComment={canCommentPlan}
                   onReply={replyToCommentThread}
                   canResolve={canResolveCommentThreads}
                   canDeleteThread={canDeleteCommentThread}
@@ -5896,10 +5953,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
 }
 
-// Shared copy for the rich access-management share popover. The public note
-// makes clear that anyone-with-link can view, but commenting on a public
-// plan/recap still needs an agent-native account (comments are attributed +
-// scoped). `noun` is "plan" or "recap" so recaps read as recaps everywhere.
 const buildShareVisibilityCopy = (
   t: ReturnType<typeof useT>,
   noun: string,
@@ -5984,8 +6037,8 @@ function PlanReportControl({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="pointer-events-auto size-8"
+            size="icon-sm"
+            className="pointer-events-auto"
             onClick={() => setDialogOpen(true)}
             aria-label={t("plansPage.report.reportAria", { noun })}
           >
@@ -6078,14 +6131,6 @@ function PlanReportControl({
   );
 }
 
-/**
- * Share affordance for a plan. People with a session (logged in, or local dev
- * identity) get the full access-management popover immediately. People in
- * local/no-account mode get a "Create shareable link" step first: clicking it
- * publishes the plan to a hosted, shareable URL — creating a lazy account /
- * signing in along the way when the server reports `needsAuth` — and then
- * swaps in the same rich sharing menu.
- */
 function PlanShareControl({
   planId,
   planTitle,
@@ -6093,6 +6138,8 @@ function PlanShareControl({
   localShareUrl,
   hostedPlanId,
   hostedPlanUrl,
+  firstShare = false,
+  onShareSuccess,
   onOpenChange,
 }: {
   planId: string;
@@ -6101,6 +6148,8 @@ function PlanShareControl({
   localShareUrl?: string;
   hostedPlanId?: string | null;
   hostedPlanUrl?: string | null;
+  firstShare?: boolean;
+  onShareSuccess?: () => void;
   onOpenChange?: (open: boolean) => void;
 }) {
   const t = useT();
@@ -6141,9 +6190,6 @@ function PlanShareControl({
     effectivePublishedUrl && hostedPlanOnCurrentOrigin && effectiveHostedPlanId
       ? effectiveHostedPlanId
       : planId;
-  // Viral attribution: the owner is the one publishing/managing the share here,
-  // so `via` is their non-PII session userId. `localShareUrl` is already tagged
-  // upstream; tag the hosted/public URL too so both paths self-attribute.
   const managedShareUrl =
     effectivePublishedUrl && hostedPlanOnCurrentOrigin
       ? withPlanShareAttribution(effectivePublishedUrl, session?.userId ?? null)
@@ -6160,11 +6206,18 @@ function PlanShareControl({
   }, []);
 
   const copyPublishedUrl = useCallback(
-    (url: string) => {
-      void navigator.clipboard.writeText(url).then(
-        () => toast.success(t("plansPage.share.linkCopied")),
-        () => toast.error(t("plansPage.share.copyFailed")),
-      );
+    async (url: string) => {
+      try {
+        if (!(await writeClipboardText(url))) {
+          toast.error(t("plansPage.share.copyFailed"));
+          return false;
+        }
+        toast.success(t("plansPage.share.linkCopied"));
+        return true;
+      } catch {
+        toast.error(t("plansPage.share.copyFailed"));
+        return false;
+      }
     },
     [t],
   );
@@ -6188,9 +6241,8 @@ function PlanShareControl({
             url: result.hostedPlanUrl ?? result.url,
             hostedPlanId: result.hostedPlanId,
           });
+          onShareSuccess?.();
           setAuthPrompt(null);
-          // Tag the freshly-minted public link so signups from it are
-          // attributed. The publisher is the owner, so `via` is their userId.
           copyPublishedUrl(
             withPlanShareAttribution(
               result.hostedPlanUrl ?? result.url,
@@ -6202,12 +6254,11 @@ function PlanShareControl({
         },
       },
     );
-  }, [copyPublishedUrl, planId, publishPlan, session?.userId]);
+  }, [copyPublishedUrl, onShareSuccess, planId, publishPlan, session?.userId]);
 
-  // Logged-in / local-dev: manage shares for the plan in this app instance.
   if (canManageLocalShares) {
     if (!managedShareUrl) return null;
-    return (
+    const shareButton = (
       <ShareButton
         resourceType="plan"
         resourceId={managedShareResourceId}
@@ -6218,16 +6269,32 @@ function PlanShareControl({
         shareUrlPlacement="top"
         peopleAccessLabel={t("plansPage.share.peopleAccess", { noun })}
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
+        roleCopy={{
+          commenter: {
+            label: t("plansPage.share.commenterRoleLabel"),
+            description: t("plansPage.share.commenterRoleDescription"),
+          },
+        }}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
-        trigger="icon"
-        triggerClassName="pointer-events-auto size-8"
+        triggerClassName="pointer-events-auto h-8 px-2"
         onOpenChange={onOpenChange}
+        onShareSuccess={onShareSuccess}
       />
+    );
+    return session?.userId ? (
+      <PlanInviteSuggestion
+        key={session.userId}
+        userId={session.userId}
+        firstShare={firstShare}
+      >
+        {shareButton}
+      </PlanInviteSuggestion>
+    ) : (
+      shareButton
     );
   }
 
-  // No account yet: publish-to-share step, anchored to the Share button.
   return (
     <Popover
       open={publishOpen}
@@ -6237,22 +6304,13 @@ function PlanShareControl({
         if (!open) setAuthPrompt(null);
       }}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="pointer-events-auto size-8"
-              aria-label={t("plansPage.share.shareAria", { noun })}
-            >
-              <IconShare3 className="size-4" />
-            </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("plansPage.share.share", { noun })}</TooltipContent>
-      </Tooltip>
+      <PopoverTrigger asChild>
+        <ShareTrigger
+          label={t("plansPage.share.share", { noun })}
+          aria-label={t("plansPage.share.shareAria", { noun })}
+          className="pointer-events-auto"
+        />
+      </PopoverTrigger>
       <PopoverContent
         align="end"
         sideOffset={6}
@@ -6306,22 +6364,16 @@ function PlanShareControl({
           </div>
         ) : effectivePublishedUrl ? (
           <div className="space-y-3">
-            <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/35 px-2.5 py-2">
-              <IconLink className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate text-xs text-muted-foreground">
-                {effectivePublishedUrl}
-              </span>
-            </div>
+            <ShareCopyRow
+              value={effectivePublishedUrl}
+              label={t("plansPage.share.linkLabel", { noun: Noun })}
+              description={t("plansPage.share.hostedCopy", { noun })}
+              copyLabel={t("plansPage.loggedOut.copy")}
+              copiedLabel={t("plansPage.loggedOut.copied")}
+              onCopy={copyPublishedUrl}
+              className="rounded-md border border-border bg-muted/35 px-2.5 py-2"
+            />
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => copyPublishedUrl(effectivePublishedUrl)}
-              >
-                <IconCopy className="size-3.5" />
-                {t("plansPage.loggedOut.copy")}
-              </Button>
               <Button
                 type="button"
                 size="sm"
@@ -6335,10 +6387,7 @@ function PlanShareControl({
                     {t("plansPage.share.updating")}
                   </>
                 ) : (
-                  <>
-                    <IconRefresh className="size-3.5" />
-                    {t("plansPage.share.updateLink")}
-                  </>
+                  t("plansPage.share.updateLink")
                 )}
               </Button>
               <Button type="button" size="sm" asChild>
@@ -6347,7 +6396,6 @@ function PlanShareControl({
                   target="_blank"
                   rel="noreferrer"
                 >
-                  <IconExternalLink className="size-3.5" />
                   {t("plansPage.share.openHostedPlan")}
                 </a>
               </Button>
@@ -6366,14 +6414,220 @@ function PlanShareControl({
                 {t("plansPage.share.creatingLink")}
               </>
             ) : (
-              <>
-                <IconLink className="size-4" />
-                {t("plansPage.share.createShareableLink")}
-              </>
+              t("plansPage.share.createShareableLink")
             )}
           </Button>
         )}
       </PopoverContent>
+    </Popover>
+  );
+}
+
+function PlanInviteSuggestion({
+  userId,
+  firstShare,
+  children,
+}: {
+  userId: string;
+  firstShare: boolean;
+  children: ReactNode;
+}) {
+  const { org, isOwner, canInviteMembers, isLoading } = useOrgRole();
+  const email = org?.email ?? "";
+  const emailParts = email.trim().toLowerCase().split("@");
+  const domain = emailParts[emailParts.length - 1] ?? "";
+  const canOfferDomainJoin =
+    isOwner &&
+    !org?.allowedDomain &&
+    domain.length > 0 &&
+    !isFreeEmailProvider(domain);
+
+  if (isLoading) return <div className="inline-flex">{children}</div>;
+  if (!canInviteMembers) return <div className="inline-flex">{children}</div>;
+
+  if (canOfferDomainJoin) {
+    return (
+      <PlanDomainInviteSuggestion
+        userId={userId}
+        orgId={org?.orgId ?? ""}
+        email={email}
+        domain={domain}
+        firstShare={firstShare}
+      >
+        {children}
+      </PlanDomainInviteSuggestion>
+    );
+  }
+
+  return (
+    <PlanInviteSuggestionCard
+      userId={userId}
+      firstShare={firstShare}
+      domain={null}
+    >
+      {children}
+    </PlanInviteSuggestionCard>
+  );
+}
+
+function PlanDomainInviteSuggestion({
+  userId,
+  orgId,
+  email,
+  domain,
+  firstShare,
+  children,
+}: {
+  userId: string;
+  orgId: string;
+  email: string;
+  domain: string;
+  firstShare: boolean;
+  children: ReactNode;
+}) {
+  const membersQuery = useQuery({
+    queryKey: ["plan-domain-coworker", orgId, email.toLowerCase(), domain],
+    queryFn: ({ signal }) =>
+      hasSameDomainCoworkerInPages(email, (offset) =>
+        fetchOrgMemberPage({ search: domain, limit: 100, offset, signal }),
+      ),
+    enabled: Boolean(orgId),
+  });
+
+  return (
+    <PlanInviteSuggestionCard
+      userId={userId}
+      firstShare={firstShare}
+      domain={membersQuery.data ? domain : null}
+    >
+      {children}
+    </PlanInviteSuggestionCard>
+  );
+}
+
+function PlanInviteSuggestionCard({
+  userId,
+  firstShare,
+  domain,
+  children,
+}: {
+  userId: string;
+  firstShare: boolean;
+  domain: string | null;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const navigate = useNavigate();
+  const setOrgDomain = useSetOrgDomain();
+  const reason = firstShare
+    ? "first_share"
+    : domain
+      ? "same_domain_coworkers"
+      : null;
+  const storageKey = `plan.invite-suggestion.shown.v1.${userId}`;
+  const shownRef = useRef(false);
+  const actionCloseRef = useRef(false);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || shownRef.current || !reason) return;
+    try {
+      if (window.localStorage.getItem(storageKey)) {
+        shownRef.current = true;
+        return;
+      }
+      window.localStorage.setItem(storageKey, "1");
+    } catch (error) {
+      console.warn(
+        "Plan invite suggestion skipped because local storage is unavailable.",
+        error,
+      );
+      return;
+    }
+    shownRef.current = true;
+    setVisible(true);
+    trackAnonymousEvent("plan_invite_suggestion_shown", { trigger: reason });
+  }, [reason, storageKey]);
+
+  const trackAction = (event: string, action?: string) => {
+    if (!reason) return;
+    trackAnonymousEvent(event, {
+      trigger: reason,
+      ...(action ? { action } : {}),
+    });
+  };
+
+  const inviteTeammates = () => {
+    trackAction("plan_invite_suggestion_clicked", "invite_teammates");
+    trackAction("plan_invite_suggestion_accepted", "invite_teammates");
+    actionCloseRef.current = true;
+    setVisible(false);
+    navigate("/settings#team");
+  };
+
+  const enableDomainJoin = async () => {
+    if (!domain || setOrgDomain.isPending) return;
+    trackAction("plan_invite_suggestion_clicked", "enable_domain_join");
+    try {
+      await setOrgDomain.mutateAsync(domain);
+    } catch {
+      toast.error(t("plansPage.share.teammateSuggestion.enableFailed"));
+      return;
+    }
+    trackAction("plan_invite_suggestion_accepted", "enable_domain_join");
+    actionCloseRef.current = true;
+    setVisible(false);
+  };
+
+  return (
+    <Popover
+      open={visible}
+      onOpenChange={(open) => {
+        if (!open && visible) {
+          if (!actionCloseRef.current) {
+            trackAction("plan_invite_suggestion_dismissed");
+          }
+          actionCloseRef.current = false;
+        }
+        setVisible(open);
+      }}
+    >
+      <PopoverAnchor asChild>
+        <div className="inline-flex">{children}</div>
+      </PopoverAnchor>
+      {visible && (
+        <PopoverContent
+          align="end"
+          side="bottom"
+          sideOffset={8}
+          className="flex w-[min(360px,calc(100vw-1.5rem))] flex-wrap items-center gap-2"
+        >
+          <p className="px-1 text-xs text-muted-foreground">
+            {t("plansPage.share.teammateSuggestion.message")}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={inviteTeammates}
+          >
+            {t("plansPage.share.teammateSuggestion.invite")}
+          </Button>
+          {domain && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={enableDomainJoin}
+              disabled={setOrgDomain.isPending}
+            >
+              {t("plansPage.share.teammateSuggestion.enableDomain", {
+                domain,
+              })}
+            </Button>
+          )}
+        </PopoverContent>
+      )}
     </Popover>
   );
 }
@@ -6383,8 +6637,6 @@ function PlanSkeleton({ isRecap = false }: { isRecap?: boolean }) {
   const loadingLabel = isRecap
     ? t("plansPage.skeleton.loadingRecap")
     : t("plansPage.skeleton.loadingPlan");
-  // Recaps are document-only review surfaces that almost never use the top
-  // canvas, so skip the canvas placeholder for them while keeping it for plans.
   return (
     <div
       className="plan-content-surface h-full min-h-0 overflow-auto bg-plan-document text-plan-text"
@@ -6777,7 +7029,7 @@ function LocalPlanConnection({
   );
 }
 
-function PlanLoadError({
+export function PlanLoadError({
   error,
   planId,
   accessStatus,
@@ -6798,7 +7050,6 @@ function PlanLoadError({
   onRequestAccess: () => void;
   requestAccessPending?: boolean;
   accessRequestSent?: boolean;
-  /** The signed-in identity for THIS origin, or null when anonymous. */
   viewerEmail?: string | null;
 }) {
   const t = useT();
@@ -6810,6 +7061,12 @@ function PlanLoadError({
   const [emailAuthError, setEmailAuthError] = useState<string | null>(null);
   const [emailAuthNotice, setEmailAuthNotice] = useState<string | null>(null);
   const [emailAuthPending, setEmailAuthPending] = useState(false);
+  const [verificationResendPending, setVerificationResendPending] =
+    useState(false);
+  const [verificationResendMessage, setVerificationResendMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
   const [googlePending, setGooglePending] = useState(false);
 
   const message =
@@ -6840,7 +7097,7 @@ function PlanLoadError({
       ? t("plansPage.loadError.orgTitle", { orgName })
       : null;
 
-  const returnPath = () => planReturnPathFromLocation(window.location);
+  const returnPath = () => appPath(planReturnPathFromLocation(window.location));
 
   const readAuthError = async (res: Response, fallback: string) => {
     const data = (await res.json().catch(() => null)) as {
@@ -6850,10 +7107,50 @@ function PlanLoadError({
     return data?.error ?? data?.message ?? fallback;
   };
 
+  const resendVerificationEmail = async () => {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail || verificationResendPending) return;
+    setVerificationResendPending(true);
+    setVerificationResendMessage(null);
+    try {
+      const response = await fetch(
+        agentNativePath("/_agent-native/auth/ba/send-verification-email"),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: normalizedEmail,
+            callbackURL: buildPlanEmailVerificationCallbackURL(window.location),
+          }),
+        },
+      );
+      setVerificationResendMessage(
+        response.ok
+          ? {
+              kind: "success",
+              text: t("plansPage.loadError.verificationEmailResent"),
+            }
+          : {
+              kind: "error",
+              text: t("plansPage.loadError.verificationEmailFailed"),
+            },
+      );
+    } catch {
+      setVerificationResendMessage({
+        kind: "error",
+        text: t("plansPage.loadError.verificationEmailFailed"),
+      });
+    } finally {
+      setVerificationResendPending(false);
+    }
+  };
+
   const submitEmailAuth = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setEmailAuthError(null);
     setEmailAuthNotice(null);
+    setVerificationResendMessage(null);
     setEmailAuthPending(true);
     const body = {
       email,
@@ -6867,7 +7164,12 @@ function PlanLoadError({
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify({
+              ...body,
+              callbackURL: buildPlanEmailVerificationCallbackURL(
+                window.location,
+              ),
+            }),
           },
         );
         if (!registerRes.ok) {
@@ -6901,7 +7203,8 @@ function PlanLoadError({
         authError instanceof Error
           ? authError.message
           : t("plansPage.loadError.emailSignInFailed");
-      if (/not verified|verification/i.test(next)) {
+      if (isPlanEmailVerificationPendingMessage(next)) {
+        setEmailMode("sign-in");
         setEmailAuthNotice(t("plansPage.loadError.verifyEmail"));
       } else {
         setEmailAuthError(next);
@@ -7013,7 +7316,7 @@ function PlanLoadError({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-8 w-full justify-between px-1.5 text-muted-foreground hover:text-foreground"
+                        className="w-full justify-between px-1.5 text-muted-foreground hover:text-foreground"
                       >
                         <span className="inline-flex items-center gap-2">
                           <IconLogin2 className="size-4" />
@@ -7082,7 +7385,10 @@ function PlanLoadError({
                           type="email"
                           autoComplete="email"
                           value={email}
-                          onChange={(event) => setEmail(event.target.value)}
+                          onChange={(event) => {
+                            setEmail(event.target.value);
+                            setVerificationResendMessage(null);
+                          }}
                           required
                         />
                       </div>
@@ -7110,9 +7416,41 @@ function PlanLoadError({
                         </p>
                       ) : null}
                       {emailAuthNotice ? (
-                        <p className="text-sm text-muted-foreground">
-                          {emailAuthNotice}
-                        </p>
+                        <div className="space-y-2" aria-live="polite">
+                          <p className="text-sm text-muted-foreground">
+                            {emailAuthNotice}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              verificationResendPending || !email.trim()
+                            }
+                            onClick={() => void resendVerificationEmail()}
+                          >
+                            {verificationResendPending
+                              ? t("plansPage.loadError.resendingVerification")
+                              : t("plansPage.loadError.resendVerification")}
+                          </Button>
+                          {verificationResendMessage ? (
+                            <p
+                              className={cn(
+                                "text-sm",
+                                verificationResendMessage.kind === "error"
+                                  ? "text-destructive"
+                                  : "text-muted-foreground",
+                              )}
+                              role={
+                                verificationResendMessage.kind === "error"
+                                  ? "alert"
+                                  : "status"
+                              }
+                            >
+                              {verificationResendMessage.text}
+                            </p>
+                          ) : null}
+                        </div>
                       ) : null}
                       <div className="flex flex-wrap items-center gap-2">
                         <Button type="submit" disabled={emailAuthPending}>
@@ -7134,6 +7472,7 @@ function PlanLoadError({
                             );
                             setEmailAuthError(null);
                             setEmailAuthNotice(null);
+                            setVerificationResendMessage(null);
                           }}
                         >
                           {emailMode === "create"
@@ -7375,11 +7714,11 @@ function PlanSkillDemoVideo({ demo }: { demo: PlanSkillDemo }) {
         />
         <div
           aria-hidden
-          className={`pointer-events-none absolute inset-0 bg-muted transition-opacity duration-300 ${
+          className={`skeleton-shimmer pointer-events-none absolute inset-0 bg-muted transition-opacity duration-300 ${
             isLoaded ? "opacity-0" : "opacity-100"
           }`}
         >
-          <div className="flex size-full animate-pulse flex-col justify-between p-4">
+          <div className="flex size-full flex-col justify-between p-4">
             <div className="space-y-2">
               <div className="h-3 w-1/3 rounded-full bg-border" />
               <div className="h-2.5 w-2/3 rounded-full bg-border/80" />
@@ -7426,7 +7765,7 @@ function LoggedOutEmptyPlan() {
   }, []);
 
   return (
-    <div className="flex min-h-full items-center justify-center overflow-auto p-4 sm:p-8">
+    <div className="flex min-h-full -translate-y-[10vh] items-center justify-center overflow-auto p-4 sm:p-8">
       <div className="flex w-full max-w-4xl flex-col items-center gap-3 py-8 text-center">
         <h2 className="text-2xl font-semibold tracking-tight">
           {t("plansPage.loggedOut.title")}
@@ -7443,7 +7782,7 @@ function LoggedOutEmptyPlan() {
             variant="ghost"
             size="sm"
             onClick={copyInstallCommand}
-            className="h-8 min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            className="min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
             aria-label={
               installCommandCopied
                 ? t("plansPage.loggedOut.installCopied")
@@ -7482,6 +7821,23 @@ function LoggedOutEmptyPlan() {
 }
 
 type OverviewFilter = "all" | "plans" | "recaps" | "archived" | "deleted";
+
+function PlanOwnerAvatar({ email }: { email: string }) {
+  const avatarUrl = useAvatarUrl(email);
+  const name = emailToName(email);
+
+  return (
+    <Avatar className="size-5">
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
+      <AvatarFallback
+        className="text-[9px] font-semibold text-primary-foreground"
+        style={{ backgroundColor: emailToColor(email) }}
+      >
+        {commentAuthorInitials(name)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
 
 function PlansOverview({
   plans,
@@ -7622,7 +7978,14 @@ function PlansOverview({
           <div className="flex flex-wrap items-center gap-3">
             <Tabs
               value={filter}
-              onValueChange={(v) => setFilter(v as OverviewFilter)}
+              onValueChange={(v) => {
+                trackEvent("plan_filter_changed", {
+                  app_name: "plan",
+                  template_name: "plan",
+                  filter: v,
+                });
+                setFilter(v as OverviewFilter);
+              }}
             >
               <TabsList>
                 <TabsTrigger value="all">
@@ -7650,7 +8013,7 @@ function PlansOverview({
 
             {authorEmails.length > 1 && (
               <Select value={author} onValueChange={setAuthor}>
-                <SelectTrigger className="h-9 w-[170px] text-sm">
+                <SelectTrigger className="w-[170px] text-sm">
                   <SelectValue
                     placeholder={t("plansPage.overview.createdBy")}
                   />
@@ -7688,7 +8051,7 @@ function PlansOverview({
                 placeholder={t("plansPage.overview.searchPlaceholder")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-9 pl-8 text-sm"
+                className="pl-8 text-sm"
               />
             </div>
           </div>
@@ -7763,20 +8126,7 @@ function PlansOverview({
                             className="flex min-w-0 items-center gap-1.5"
                             title={plan.ownerEmail}
                           >
-                            <Avatar className="size-5">
-                              <AvatarFallback
-                                className="text-[9px] font-semibold text-white"
-                                style={{
-                                  backgroundColor: emailToColor(
-                                    plan.ownerEmail,
-                                  ),
-                                }}
-                              >
-                                {commentAuthorInitials(
-                                  emailToName(plan.ownerEmail),
-                                )}
-                              </AvatarFallback>
-                            </Avatar>
+                            <PlanOwnerAvatar email={plan.ownerEmail} />
                             <span className="truncate">
                               {emailToName(plan.ownerEmail)}
                             </span>
@@ -7971,9 +8321,6 @@ function PlanHistorySheet({
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
     null,
   );
-  // Version id pending a confirm before restore. Set from the per-row "Restore
-  // this version" action in the list so restore is reachable without first
-  // opening the detail preview.
   const [restoreCandidateId, setRestoreCandidateId] = useState<string | null>(
     null,
   );
@@ -7986,9 +8333,6 @@ function PlanHistorySheet({
   const versions = versionsQuery.data?.versions ?? [];
   const selectedVersion = versionQuery.data;
 
-  // Cache of fully-loaded version details by version id. Populated as the
-  // user browses individual versions; used to compute block-level diff
-  // summaries on the list view without any extra network calls.
   const versionDetailCache = useRef<Map<string, PlanVersionDetail>>(new Map());
 
   useEffect(() => {
@@ -8000,7 +8344,6 @@ function PlanHistorySheet({
     versionDetailCache.current = new Map();
   }, [planId]);
 
-  // Store the freshly loaded version detail in the cache whenever it arrives.
   useEffect(() => {
     if (versionQuery.data) {
       versionDetailCache.current.set(versionQuery.data.id, versionQuery.data);
@@ -8101,12 +8444,6 @@ function PlanHistorySheet({
                   <iframe
                     title={t("plansPage.history.previewTitle")}
                     srcDoc={selectedVersion.html}
-                    // Stored plan HTML is agent-authored and may carry
-                    // prompt-injected markup. Match the main document iframe
-                    // (search "allow-forms allow-scripts"): run scripts only in
-                    // an opaque origin — never allow-same-origin — so a malicious
-                    // snapshot cannot reach the app origin's cookies, DOM, or
-                    // actions.
                     sandbox="allow-forms allow-scripts"
                     className="h-[calc(100vh-142px)] w-full border-0 bg-background"
                   />
@@ -8151,18 +8488,12 @@ function PlanHistorySheet({
               ) : versions.length ? (
                 <div className="p-2">
                   {versions.map((version, index) => {
-                    // Compute a diff summary when both this version and its
-                    // predecessor have been loaded into the cache. Versions are
-                    // ordered newest-first, so index+1 is the older snapshot.
-                    // The oldest entry (no predecessor) shows "Initial version".
                     const cache = versionDetailCache.current;
                     const thisDetail = cache.get(version.id);
                     const olderVersion = versions[index + 1];
                     const olderDetail = olderVersion
                       ? cache.get(olderVersion.id)
                       : undefined;
-                    // Show a diff when: this version's detail is loaded AND
-                    // (it's the oldest OR the older neighbour's detail is loaded).
                     const isOldest = index === versions.length - 1;
                     const diffSummary =
                       thisDetail && (isOldest || olderDetail)
@@ -8394,8 +8725,6 @@ function CreatePlanDialog({
   const [promptText, setPromptText] = useState("");
   const [promptSeed, setPromptSeed] = useState("");
   const [promptSeedKey, setPromptSeedKey] = useState(0);
-  // Gate the composer when signed in but nothing can run the agent (guests get
-  // the sign-in path instead). Clears live when a key is added.
   const agentMissing = useAgentEngineConfigured(canCreate).missing;
   const composerLocked = !canCreate || agentMissing;
 
@@ -8424,7 +8753,7 @@ function CreatePlanDialog({
       toast.message(t("plansPage.create.describeFirst"));
       return;
     }
-    sendToAgentChat({
+    sendToPlanCreationAgentChat({
       type: "content",
       submit: true,
       message: buildCreatePlanAgentMessage({ prompt, source, planKind, t }),
@@ -8443,23 +8772,13 @@ function CreatePlanDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          {canCreate && agentMissing ? (
-            <BuilderSetupCard
-              fullWidth
-              onConnected={() =>
-                window.dispatchEvent(
-                  new Event("agent-engine:configured-changed"),
-                )
-              }
-            />
-          ) : null}
           <div className="rounded-xl border border-border bg-background p-2 shadow-sm">
             <PromptComposer
               autoFocus
+              requireAgentEngine
               disabled={composerLocked}
               attachmentsEnabled={false}
               showModelSelector={false}
-              modelStatusChecksEnabled={false}
               placeholder={t("plansPage.create.placeholder")}
               draftScope="plans:create-plan"
               initialText={promptSeed}
@@ -8475,7 +8794,7 @@ function CreatePlanDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8 rounded-full border-border/80 px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
+                className="rounded-full border-border/80 text-xs font-medium text-muted-foreground hover:text-foreground"
                 disabled={composerLocked}
                 onClick={() => {
                   const presetPrompt = t(
@@ -8618,9 +8937,26 @@ function CreatePlanDialog({
   );
 }
 
+/** Nothing on the page holds focus, so taking it moves nobody's caret. */
+function focusIsFree() {
+  const active = document.activeElement;
+  return !active || active === document.body;
+}
+
+function focusCommentEditorAtEnd(root: HTMLElement) {
+  root.focus();
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.collapse(false);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
 function CommentMentionEditor({
   initialMessage,
   resetKey,
+  focusKey,
   placeholder,
   className,
   autoFocus,
@@ -8629,9 +8965,12 @@ function CommentMentionEditor({
 }: {
   initialMessage?: string;
   resetKey?: string;
+  /** A new value puts the caret back in the editor and keeps its text. */
+  focusKey?: unknown;
   placeholder: string;
   className?: string;
-  autoFocus?: boolean;
+  /** "if-free" only takes focus nobody holds, for a box reopened after a failed save. */
+  autoFocus?: boolean | "if-free";
   onChange: (draft: Pick<CommentDraft, "message" | "mentions">) => void;
   onSubmitShortcut?: () => void;
 }) {
@@ -8663,18 +9002,35 @@ function CommentMentionEditor({
   useEffect(() => {
     const root = editorRef.current;
     if (!root) return;
+    const hadFocus = root.contains(document.activeElement);
     appendMessageToEditor(root, initialMessage ?? "");
     emitChange();
-    if (autoFocus) {
-      root.focus();
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(root);
-      range.collapse(false);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-    }
+    // Reloading the text keeps the caret in an editor that had it.
+    if (hadFocus) focusCommentEditorAtEnd(root);
+    if (!autoFocus || (autoFocus === "if-free" && !focusIsFree())) return;
+    // An Edit menu item mounts this editor while its menu still traps focus,
+    // so keep trying for a few frames until focus lands.
+    let attempts = 0;
+    let frame = 0;
+    const focusEditor = () => {
+      focusCommentEditorAtEnd(root);
+      if (document.activeElement !== root && ++attempts < 10)
+        frame = requestAnimationFrame(focusEditor);
+    };
+    focusEditor();
+    return () => cancelAnimationFrame(frame);
   }, [autoFocus, emitChange, initialMessage, resetKey]);
+
+  // Only a new key moves the caret; mounting is autoFocus's job.
+  const focusKeyRef = useRef(focusKey);
+  useEffect(() => {
+    if (focusKeyRef.current === focusKey) return;
+    focusKeyRef.current = focusKey;
+    const root = editorRef.current;
+    if (!root || focusKey === undefined) return;
+    if (root.contains(document.activeElement)) return;
+    focusCommentEditorAtEnd(root);
+  }, [focusKey]);
 
   const selectMember = (member: OrgMemberSuggestion) => {
     const root = editorRef.current;
@@ -8846,17 +9202,22 @@ function ResolutionTargetToggle({
 }
 
 function InlineCommentPopover({
+  anchor,
   position,
   initialDraft,
   onCancel,
   onSubmit,
   lockToAgent = false,
+  reopened = false,
 }: {
+  anchor: PlanAnnotationAnchor;
   position: InlineCommentPosition;
   initialDraft: CommentDraft;
   onCancel: () => void;
   onSubmit: (draft: CommentDraft) => Promise<void>;
   lockToAgent?: boolean;
+  /** Shown again after a failed save, when the person may have moved on. */
+  reopened?: boolean;
 }) {
   const t = useT();
   const initialMessageRef = useRef(initialDraft.message);
@@ -8923,9 +9284,9 @@ function InlineCommentPopover({
         <div className="flex items-center gap-1">
           <Button
             type="button"
-            size="icon"
+            size="icon-sm"
             variant="ghost"
-            className="size-8 shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+            className="shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
             onClick={onCancel}
             aria-label={t("plansPage.comments.cancelComment")}
           >
@@ -8937,7 +9298,10 @@ function InlineCommentPopover({
         <CommentMentionEditor
           initialMessage={initialMessageRef.current}
           placeholder={t("plansPage.comments.addPlaceholder")}
-          autoFocus
+          autoFocus={reopened ? "if-free" : true}
+          // Commenting somewhere else moves this popover instead of
+          // remounting it, so the draft keeps its text and gets the caret.
+          focusKey={anchor}
           onSubmitShortcut={submit}
           onChange={(value) =>
             setDraft((current) => {
@@ -8998,9 +9362,9 @@ function GuestCommentCta({
         </p>
         <Button
           type="button"
-          size="icon"
+          size="icon-sm"
           variant="ghost"
-          className="size-8 shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+          className="shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
           onClick={onCancel}
           aria-label={t("plansPage.common.cancel")}
         >
@@ -9037,9 +9401,9 @@ function CommentThreadMessage({
             </p>
           )}
         </div>
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-6">
+        <div className="mt-1 text-sm leading-6">
           {renderCommentMessage(comment.message)}
-        </p>
+        </div>
       </div>
       {action}
     </div>
@@ -9075,42 +9439,110 @@ function CommentDeleteButton({
   );
 }
 
+/** What a reply box shows: the editor reloads `loadedMessage` when `version` changes. */
+function loadReplyBox({
+  threadId,
+  message,
+  version,
+  takeFocus,
+}: {
+  threadId: string;
+  message: string;
+  version: number;
+  takeFocus: boolean;
+}) {
+  const draft: Pick<CommentDraft, "message" | "mentions"> = {
+    message,
+    mentions: extractCommentMentions(message),
+  };
+  return { threadId, loadedMessage: message, version, takeFocus, draft };
+}
+
 function ReplyComposer({
   author,
   isPending,
   placeholder,
+  autoFocus,
+  threadId = "",
   onSubmit,
 }: {
   author: CommentAuthorPresentation;
   isPending: boolean;
   placeholder?: string;
+  autoFocus?: boolean;
+  /** One box can reply to several threads in turn; each keeps its own draft. */
+  threadId?: string;
   onSubmit: (message: string) => Promise<void>;
 }) {
   const t = useT();
-  const [draft, setDraft] = useState<
-    Pick<CommentDraft, "message" | "mentions">
-  >({
-    message: "",
-    mentions: [],
-  });
-  const [submitError, setSubmitError] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [resetKey, setResetKey] = useState(0);
+  // Unsent replies by thread, including the one on screen.
+  const [drafts] = useState(() => new Map<string, string>());
+  // The thread on screen and its draft change together, so Send always
+  // pairs them.
+  const [box, setBox] = useState(() =>
+    loadReplyBox({ threadId, message: "", version: 0, takeFocus: true }),
+  );
+  const [sendingThreadIds, setSendingThreadIds] = useState<string[]>([]);
+  const [failedThreadIds, setFailedThreadIds] = useState<string[]>([]);
 
+  if (box.threadId !== threadId) {
+    // Opening another thread brings back that thread's own reply.
+    setBox(
+      loadReplyBox({
+        threadId,
+        message: drafts.get(threadId) ?? "",
+        version: box.version + 1,
+        takeFocus: true,
+      }),
+    );
+  }
+
+  const isSubmitting = sendingThreadIds.includes(box.threadId);
   const canSubmit =
-    commentBodyText(draft.message).length > 0 && !isSubmitting && !isPending;
+    commentBodyText(box.draft.message).length > 0 &&
+    !isSubmitting &&
+    !isPending;
   const submit = async () => {
     if (!canSubmit) return;
-    setSubmitError(false);
-    setIsSubmitting(true);
+    const sentThreadId = box.threadId;
+    const message = box.draft.message;
+    setFailedThreadIds((ids) => ids.filter((id) => id !== sentThreadId));
+    setSendingThreadIds((ids) => [...ids, sentThreadId]);
+    // Empty the box right away. The reply shows in the thread while it
+    // sends, and anything typed meanwhile is a new draft.
+    drafts.set(sentThreadId, "");
+    setBox((current) =>
+      loadReplyBox({
+        threadId: current.threadId,
+        message: "",
+        version: current.version + 1,
+        takeFocus: true,
+      }),
+    );
     try {
-      await onSubmit(draft.message.trim());
-      setDraft({ message: "", mentions: [] });
-      setResetKey((key) => key + 1);
+      await onSubmit(message.trim());
     } catch {
-      setSubmitError(true);
+      // Put the reply back in its thread's box, ahead of anything typed
+      // since, wherever that box is now.
+      const typedSince = drafts.get(sentThreadId)?.trim();
+      const restored = typedSince ? `${message} ${typedSince}` : message;
+      drafts.set(sentThreadId, restored);
+      setFailedThreadIds((ids) => [
+        ...ids.filter((id) => id !== sentThreadId),
+        sentThreadId,
+      ]);
+      setBox((current) =>
+        current.threadId === sentThreadId
+          ? loadReplyBox({
+              threadId: sentThreadId,
+              message: restored,
+              version: current.version + 1,
+              takeFocus: false,
+            })
+          : current,
+      );
     } finally {
-      setIsSubmitting(false);
+      setSendingThreadIds((ids) => ids.filter((id) => id !== sentThreadId));
     }
   };
 
@@ -9123,15 +9555,22 @@ function ReplyComposer({
             placeholder={
               placeholder ?? t("plansPage.comments.replyPlaceholder")
             }
-            resetKey={`reply-${resetKey}`}
+            initialMessage={box.loadedMessage}
+            resetKey={`reply-${box.version}`}
+            // Only opening the thread or pressing Send pulls focus here; a
+            // reply put back after a failed send takes only free focus.
+            autoFocus={!autoFocus ? false : box.takeFocus ? true : "if-free"}
             className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
-            onChange={setDraft}
+            onChange={(next) => {
+              setBox((current) => ({ ...current, draft: next }));
+              drafts.set(box.threadId, next.message);
+            }}
             onSubmitShortcut={() => void submit()}
           />
           <Button
             type="button"
-            size="icon"
-            className="mb-0.5 size-8 shrink-0 rounded-full"
+            size="icon-sm"
+            className="mb-0.5 shrink-0 rounded-full"
             onClick={() => void submit()}
             disabled={!canSubmit}
             aria-label={t("plansPage.comments.sendReply")}
@@ -9144,7 +9583,7 @@ function ReplyComposer({
           </Button>
         </div>
       </div>
-      {submitError && (
+      {failedThreadIds.includes(box.threadId) && (
         <p className="ml-11 text-xs text-destructive">
           {t("plansPage.comments.sendFailed")}
         </p>
@@ -9158,6 +9597,7 @@ function AnnotationPopover({
   position,
   isPending,
   pendingAuthor,
+  canComment,
   canEditRootComment,
   onSave,
   onReply,
@@ -9173,6 +9613,7 @@ function AnnotationPopover({
   position: InlineCommentPosition;
   isPending: boolean;
   pendingAuthor: CommentAuthorPresentation;
+  canComment: boolean;
   canEditRootComment: boolean;
   onSave: (message: string) => void;
   onReply: (threadRootId: string, message: string) => Promise<void>;
@@ -9186,6 +9627,7 @@ function AnnotationPopover({
 }) {
   const t = useT();
   const popoverRef = useRef<HTMLDivElement>(null);
+  const editChosenFromMenuRef = useRef(false);
   const [editing, setEditing] = useState(false);
   const [messageDraft, setMessageDraft] = useState<
     Pick<CommentDraft, "message" | "mentions">
@@ -9193,15 +9635,10 @@ function AnnotationPopover({
     message: annotation.message,
     mentions: extractCommentMentions(annotation.message),
   });
-  // Reset edit state when the user opens a different comment pin.
   useEffect(() => {
     setEditing(false);
   }, [annotation.id]);
   useEffect(() => {
-    // Don't clobber in-progress edits when poll-driven annotation refreshes
-    // arrive (Issue 4b). Only sync the display message while NOT editing.
-    // When editing ends (editing flips false), this effect re-runs and picks
-    // up any fresh server state that arrived during the edit session.
     if (editing) return;
     setMessageDraft({
       message: annotation.message,
@@ -9227,7 +9664,6 @@ function AnnotationPopover({
     onSave(messageDraft.message.trim());
   };
 
-  // Escape key closes the popover.
   useEffect(() => {
     if (!onClose) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -9240,9 +9676,6 @@ function AnnotationPopover({
       window.removeEventListener("keydown", handleKeyDown, { capture: true });
   }, [onClose]);
 
-  // Pointer-down outside the popover closes it. Clicks on comment marker
-  // buttons (data-comment-marker) are intentionally allowed through so switching
-  // to another pin still works without double-clicking.
   useEffect(() => {
     if (!onClose) return;
     const handlePointerDown = (event: MouseEvent) => {
@@ -9295,9 +9728,9 @@ function AnnotationPopover({
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  size="icon"
+                  size="icon-sm"
                   variant="ghost"
-                  className="size-8 shrink-0"
+                  className="shrink-0"
                   aria-label={t("plansPage.comments.options")}
                 >
                   <IconDotsVertical className="size-4" />
@@ -9307,6 +9740,12 @@ function AnnotationPopover({
                 align="end"
                 className="w-48 rounded-xl"
                 data-comment-popover-portal
+                onCloseAutoFocus={(event) => {
+                  // Edit puts focus in its editor; leave it there. Other
+                  // actions return to the button.
+                  if (editChosenFromMenuRef.current) event.preventDefault();
+                  editChosenFromMenuRef.current = false;
+                }}
               >
                 {canResolve && (
                   <DropdownMenuItem
@@ -9324,7 +9763,10 @@ function AnnotationPopover({
                 {canEditRootComment && (
                   <DropdownMenuItem
                     className="gap-2"
-                    onClick={() => setEditing(true)}
+                    onClick={() => {
+                      editChosenFromMenuRef.current = true;
+                      setEditing(true);
+                    }}
                   >
                     <IconPencil className="size-4" />
                     {t("plansPage.comments.editFirstComment")}
@@ -9350,9 +9792,9 @@ function AnnotationPopover({
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  size="icon"
+                  size="icon-sm"
                   variant={isResolved ? "secondary" : "ghost"}
-                  className="size-8 shrink-0 rounded-full"
+                  className="shrink-0 rounded-full"
                   onClick={() =>
                     onStatusChange(isResolved ? "open" : "resolved")
                   }
@@ -9375,9 +9817,9 @@ function AnnotationPopover({
           {onClose && (
             <Button
               type="button"
-              size="icon"
+              size="icon-sm"
               variant="ghost"
-              className="size-8 shrink-0"
+              className="shrink-0"
               onClick={onClose}
               aria-label={t("plansPage.comments.closeComment")}
             >
@@ -9449,13 +9891,18 @@ function AnnotationPopover({
           })}
         </div>
       </div>
-      <div className="shrink-0 border-t border-border/70 p-3">
-        <ReplyComposer
-          author={pendingAuthor}
-          isPending={isPending}
-          onSubmit={(reply) => onReply(annotation.id, reply)}
-        />
-      </div>
+      {canComment && (
+        <div className="shrink-0 border-t border-border/70 p-3">
+          <ReplyComposer
+            author={pendingAuthor}
+            isPending={isPending}
+            autoFocus
+            // Opening another thread reuses this popover and its reply box.
+            threadId={annotation.id}
+            onSubmit={(reply) => onReply(annotation.id, reply)}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -9468,6 +9915,7 @@ function AnnotationsPanel({
   pendingAuthor,
   isPending,
   onReply,
+  canComment,
   canResolve,
   canDeleteThread,
   canDeleteComment,
@@ -9483,6 +9931,7 @@ function AnnotationsPanel({
   pendingAuthor: CommentAuthorPresentation;
   isPending: boolean;
   onReply: (threadRootId: string, message: string) => Promise<void>;
+  canComment: boolean;
   canResolve: boolean;
   canDeleteThread: (thread: CommentThread) => boolean;
   canDeleteComment: (comment: PlanCommentItem) => boolean;
@@ -9504,7 +9953,6 @@ function AnnotationsPanel({
     }
   }, [filterTab, showResolvedComments]);
 
-  // Move focus into the panel when it opens.
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
@@ -9514,15 +9962,11 @@ function AnnotationsPanel({
     focusable?.focus();
   }, []);
 
-  // Escape closes the panel and attempts to return focus to the toolbar
-  // trigger that opened it (the "Plan actions" dots button).
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      // Only handle Escape if focus is inside this panel.
       if (!panelRef.current?.contains(document.activeElement)) return;
       onClose();
-      // Return focus to the toolbar dots-menu trigger if reachable.
       const trigger = document.querySelector<HTMLElement>(
         "[data-plan-actions-trigger]",
       );
@@ -9557,9 +10001,8 @@ function AnnotationsPanel({
         </div>
         <Button
           type="button"
-          size="icon"
+          size="icon-sm"
           variant="ghost"
-          className="size-8"
           onClick={onClose}
           aria-label={t("plansPage.comments.closeComments")}
         >
@@ -9643,9 +10086,9 @@ function AnnotationsPanel({
                             <TooltipTrigger asChild>
                               <Button
                                 type="button"
-                                size="icon"
+                                size="icon-sm"
                                 variant={isResolved ? "secondary" : "ghost"}
-                                className="size-8 rounded-full"
+                                className="rounded-full"
                                 onClick={() =>
                                   onStatusChange(
                                     thread,
@@ -9672,9 +10115,9 @@ function AnnotationsPanel({
                               <TooltipTrigger asChild>
                                 <Button
                                   type="button"
-                                  size="icon"
+                                  size="icon-sm"
                                   variant="ghost"
-                                  className="size-8 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  className="rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                                   onClick={() => onDeleteThread(thread)}
                                   aria-label={rootDeleteLabel}
                                 >
@@ -9691,9 +10134,9 @@ function AnnotationsPanel({
                           <TooltipTrigger asChild>
                             <Button
                               type="button"
-                              size="icon"
+                              size="icon-sm"
                               variant="ghost"
-                              className="size-8 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              className="shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                               onClick={() => onDeleteThread(thread)}
                               aria-label={rootDeleteLabel}
                             >
@@ -9733,11 +10176,13 @@ function AnnotationsPanel({
                       />
                     );
                   })}
-                  <ReplyComposer
-                    author={pendingAuthor}
-                    isPending={isPending}
-                    onSubmit={(reply) => onReply(thread.id, reply)}
-                  />
+                  {canComment && (
+                    <ReplyComposer
+                      author={pendingAuthor}
+                      isPending={isPending}
+                      onSubmit={(reply) => onReply(thread.id, reply)}
+                    />
+                  )}
                 </article>
               );
             })

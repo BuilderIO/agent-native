@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const assertAccessMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -9,11 +12,47 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+  resolveAccess: vi.fn(async () => ({ role: "owner" })),
+  accessFilter: vi.fn(() => ({ op: "accessFilter" })),
+}));
+const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
+const unrestrictedScope = vi.hoisted(() => ({
+  unrestricted: true,
+  approvableLibraryIds: new Set<string>(),
+  ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
+}));
+
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
+  draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
+  resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
+  unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
+  assertCanUseAssets: vi.fn(),
+  assertCanUseRuns: vi.fn(),
+  canReadDraftAsset: vi.fn(() => true),
+  canReadRun: vi.fn(() => true),
+  draftReadFilter: vi.fn(() => undefined),
+  runReadFilter: vi.fn(() => undefined),
+  sessionReadFilter: vi.fn(() => undefined),
+  canReadSession: vi.fn(() => true),
+  deleteDraftAssetIfUnchanged: deleteDraftMock,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
+  getRequestUserEmail: vi.fn(() => "designer@example.com"),
+  getRequestOrgId: vi.fn(() => "org-1"),
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
   inArray: vi.fn((column, values) => ({ op: "inArray", column, values })),
+  or: vi.fn((...conditions) => ({ op: "or", conditions })),
 }));
 
 vi.mock("nanoid", () => ({
@@ -33,9 +72,9 @@ vi.mock("../server/lib/json.js", () => ({
   }),
 }));
 
-// Echo the row back so we can inspect what each action persisted/returned.
 vi.mock("./_helpers.js", () => ({
   serializeGenerationPreset: vi.fn((row: unknown) => row),
+  serializeTemplate: vi.fn((row: unknown) => row),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -51,6 +90,10 @@ vi.mock("../server/db/index.js", () => ({
     },
     assetCollections: { id: "collections.id" },
     assetGenerationPresets: { id: "presets.id" },
+    assetLibraries: { id: "libraries.id" },
+    assetTemplates: { id: "templates.id", libraryId: "templates.libraryId" },
+    assetTemplateShares: {},
+    assetLibraryShares: {},
   },
 }));
 
@@ -61,6 +104,7 @@ import updatePresetAction from "./update-generation-preset.js";
 describe("generation preset includeLogo option", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
   });
 
@@ -89,18 +133,22 @@ describe("generation preset includeLogo option", () => {
 
   it("merges includeLogo into existing settings on update without clobbering", async () => {
     const setMock = vi.fn(() => ({ where: vi.fn(async () => undefined) }));
+    const template = {
+      id: "preset-1",
+      libraryId: "lib-1",
+      settings: JSON.stringify({ tier: "best" }),
+    };
     getDbMock.mockReturnValue({
-      select: vi.fn(() => ({
+      select: vi.fn((selection?: Record<string, unknown>) => ({
         from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn(async () => [
-              {
-                id: "preset-1",
-                libraryId: "lib-1",
-                settings: JSON.stringify({ tier: "best" }),
-              },
-            ]),
-          })),
+          where: vi.fn(() => {
+            const rows = selection?.id === "libraries.id" ? [] : [template];
+            return {
+              limit: vi.fn(async () => rows),
+              then: (resolve: (value: unknown[]) => unknown) =>
+                Promise.resolve(rows).then(resolve),
+            };
+          }),
         })),
       })),
       update: vi.fn(() => ({ set: setMock })),
@@ -388,6 +436,9 @@ describe("generation preset includeLogo option", () => {
         })),
       })
       .mockReturnValueOnce({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      })
+      .mockReturnValueOnce({
         from: vi.fn(() => ({
           where: vi.fn(async () => [
             {
@@ -441,6 +492,9 @@ describe("generation preset includeLogo option", () => {
             ]),
           })),
         })),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
       })
       .mockReturnValueOnce({
         from: vi.fn(() => ({

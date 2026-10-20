@@ -1,11 +1,3 @@
-/**
- * Typed pub/sub bus for framework events.
- *
- * Wraps Node's EventEmitter with payload validation against the registered
- * Standard Schema for each event. Handler errors are caught and logged so a
- * misbehaving subscriber can never crash the emitter.
- */
-
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
@@ -13,10 +5,18 @@ import { getEvent } from "./registry.js";
 import type { EventMeta } from "./types.js";
 
 type Handler = (payload: unknown, meta: EventMeta) => void | Promise<void>;
+type AnyEventHandler = (
+  event: string,
+  payload: unknown,
+  meta: EventMeta,
+) => void | Promise<void>;
 
 interface BusState {
   emitter: EventEmitter;
   subscriptions: Map<string, { event: string; handler: Handler }>;
+  // Optional: a bus created by an older copy of this module in the same
+  // process has no field, so readers must create it on demand.
+  anyEventSubscriptions?: Map<string, AnyEventHandler>;
 }
 
 const BUS_KEY = Symbol.for("@agent-native/core/event-bus.bus");
@@ -28,12 +28,16 @@ function getBus(): BusState {
   const g = globalThis as unknown as GlobalWithBus;
   if (!g[BUS_KEY]) {
     const emitter = new EventEmitter();
-    // Many integrations may subscribe to the same event; lift the warning
-    // ceiling rather than printing MaxListenersExceededWarning at runtime.
     emitter.setMaxListeners(0);
     g[BUS_KEY] = { emitter, subscriptions: new Map() };
   }
   return g[BUS_KEY]!;
+}
+
+function getAnyEventSubscriptions(): Map<string, AnyEventHandler> {
+  const bus = getBus();
+  bus.anyEventSubscriptions ??= new Map();
+  return bus.anyEventSubscriptions;
 }
 
 export function subscribe(event: string, handler: Handler): string {
@@ -50,7 +54,21 @@ export function subscribe(event: string, handler: Handler): string {
   return id;
 }
 
+/**
+ * Subscribe to every emitted event. For a subscriber whose interest is stored
+ * data it should not read until an event actually arrives.
+ */
+export function subscribeAll(handler: AnyEventHandler): string {
+  if (typeof handler !== "function") {
+    throw new Error("subscribeAll: handler must be a function");
+  }
+  const id = randomUUID();
+  getAnyEventSubscriptions().set(id, handler);
+  return id;
+}
+
 export function unsubscribe(id: string): boolean {
+  if (getAnyEventSubscriptions().delete(id)) return true;
   const bus = getBus();
   const sub = bus.subscriptions.get(id);
   if (!sub) return false;
@@ -64,6 +82,61 @@ export function emit(
   payload: unknown,
   meta?: Partial<EventMeta>,
 ): void {
+  const dispatch = prepareDispatch(event, payload, meta, false);
+  if (!dispatch) return;
+
+  for (const listener of dispatch.listeners) {
+    try {
+      const r = listener(dispatch.payload, dispatch.meta);
+      if (r && typeof (r as Promise<void>).catch === "function") {
+        (r as Promise<void>).catch((err) => {
+          console.error(
+            `[event-bus] Async handler for "${event}" rejected:`,
+            err,
+          );
+        });
+      }
+    } catch (err) {
+      console.error(`[event-bus] Handler for "${event}" threw:`, err);
+    }
+  }
+}
+
+/** Emit an event and wait until every subscriber has accepted it. */
+export async function emitAsync(
+  event: string,
+  payload: unknown,
+  meta?: Partial<EventMeta>,
+): Promise<void> {
+  const dispatch = prepareDispatch(event, payload, meta, true);
+  if (!dispatch) return;
+
+  const results = await Promise.allSettled(
+    dispatch.listeners.map((listener) =>
+      Promise.resolve().then(() => listener(dispatch.payload, dispatch.meta)),
+    ),
+  );
+  const failures = results.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      `One or more handlers for "${event}" failed to accept the event.`,
+    );
+  }
+}
+
+function prepareDispatch(
+  event: string,
+  payload: unknown,
+  meta: Partial<EventMeta> | undefined,
+  throwOnInvalid: boolean,
+): {
+  payload: unknown;
+  meta: EventMeta;
+  listeners: Handler[];
+} | null {
   if (typeof event !== "string" || !event) {
     throw new Error("emit: event name is required");
   }
@@ -79,11 +152,16 @@ export function emit(
           `async validation is not supported. Dispatching unvalidated payload.`,
       );
     } else if (result.issues) {
+      const error = new Error(
+        `Payload validation failed for event "${event}".`,
+        { cause: result.issues },
+      );
+      if (throwOnInvalid) throw error;
       console.warn(
         `[event-bus] Payload validation failed for "${event}":`,
         result.issues,
       );
-      return;
+      return null;
     } else {
       validated = (result as { value: unknown }).value;
     }
@@ -100,24 +178,15 @@ export function emit(
     owner: meta?.owner,
   };
 
-  // Snapshot listeners so a handler that subscribes/unsubscribes during
-  // dispatch doesn't perturb this emission.
-  const listeners = bus.emitter.listeners(event) as Handler[];
-  for (const listener of listeners) {
-    try {
-      const r = listener(validated, fullMeta);
-      if (r && typeof (r as Promise<void>).catch === "function") {
-        (r as Promise<void>).catch((err) => {
-          console.error(
-            `[event-bus] Async handler for "${event}" rejected:`,
-            err,
-          );
-        });
-      }
-    } catch (err) {
-      console.error(`[event-bus] Handler for "${event}" threw:`, err);
-    }
-  }
+  const listeners = [
+    ...(bus.emitter.listeners(event) as Handler[]),
+    ...[...getAnyEventSubscriptions().values()].map(
+      (handler): Handler =>
+        (eventPayload, eventMeta) =>
+          handler(event, eventPayload, eventMeta),
+    ),
+  ];
+  return { payload: validated, meta: fullMeta, listeners };
 }
 
 export function listSubscriptions(
@@ -132,9 +201,9 @@ export function listSubscriptions(
   return out;
 }
 
-/** Test helper — drops all subscriptions. */
 export function __resetEventBus(): void {
   const bus = getBus();
   bus.emitter.removeAllListeners();
   bus.subscriptions.clear();
+  getAnyEventSubscriptions().clear();
 }

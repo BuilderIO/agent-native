@@ -1,48 +1,11 @@
-/**
- * Request transcription for a recording.
- *
- * Native transcript first: the web recorder uses the browser Web Speech API
- * and the desktop app uses macOS Speech. Those transcripts are saved via
- * `save-browser-transcript` and are authoritative. This action preserves an
- * existing native transcript, then only falls back to cloud transcription when
- * no native transcript exists.
- *
- * Cloud fallback: Builder.io transcription (Gemini 3.1 Flash-Lite behind the
- * Builder proxy) when Builder is connected; if that model is unavailable in
- * the deployment region, retry the Builder gateway's default model.
- *
- * Clips intentionally does not route recording transcription to third-party
- * BYOK speech providers. Native macOS/Web Speech output is the primary source;
- * Builder only transcribes the original recording when native text is
- * unavailable.
- *
- * Native transcription: the browser's Web Speech API and desktop macOS Speech
- * run during recording and save an instant transcript via
- * `save-browser-transcript`. If this action finds a ready native transcript,
- * it preserves that result and only kicks off title generation.
- *
- * Fetches the recording media, extracts audio-only bytes, POSTs to the
- * provider with response_format=verbose_json and
- * timestamp_granularities[]=segment, and writes the result to
- * `recording_transcripts` with status='ready'.
- *
- * Usage:
- *   pnpm action request-transcript --recordingId=<id>
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
-import {
-  readAppState,
-  writeAppState,
-} from "@agent-native/core/application-state";
-import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { writeAppState } from "@agent-native/core/application-state";
+import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -52,27 +15,32 @@ import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import {
+  hasTranscriptContent,
+  saveTranscriptVersion,
+} from "../server/lib/transcript-versions.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { normalizeLoomShareUrl } from "../shared/loom.js";
+import { isAutoTitleReplaceable } from "../shared/title-source.js";
 import {
   isRetryableTranscriptFailure,
   transcriptFailureMessage,
   type TranscriptFailureCode,
 } from "../shared/transcript-failure.js";
+import { IMPORTED_TRANSCRIPT_SOURCE } from "../shared/transcript-import.js";
 import {
   buildCaptionSegmentsFromText,
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  type TranscriptSegment,
 } from "../shared/transcript-segments.js";
 import { PENDING_TRANSCRIPT_HEARTBEAT_MS } from "../shared/transcript-status.js";
-import cleanupTranscript from "./cleanup-transcript.js";
-import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
   AudioOnlyExtractionError,
   assertAudioHasAudibleSignal,
+  audioExtractionTimeoutMs,
   isNoExtractableAudioError,
   isTransientExtractionError,
-  prepareAudioOnlyTranscriptionMedia,
   type AudioOnlyTranscriptionMedia,
 } from "./lib/audio-only-transcription.js";
 import {
@@ -80,20 +48,29 @@ import {
   noteBuilderCreditsExhausted,
 } from "./lib/builder-credits-state.js";
 import {
+  ChunkTranscriptionError,
+  joinChunkTranscripts,
+  transcribeAudioChunks,
+} from "./lib/chunked-transcription.js";
+import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
+import { notImportedTranscript } from "./lib/imported-transcript.js";
+import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
-import { isLoomRecording } from "./lib/native-media.js";
 import {
-  isLikelyMismatchedTranscriptLanguage,
-  normalizeProviderTranscript,
-} from "./lib/provider-transcript.js";
-import { isAutoTitleReplaceable } from "./lib/title-source.js";
+  assertTranscribableRecordingMedia,
+  isLoomRecording,
+} from "./lib/native-media.js";
+import { isLikelyMismatchedTranscriptLanguage } from "./lib/provider-transcript.js";
+import { prepareRecordingTranscriptionAudio } from "./lib/recording-audio-source.js";
 import regenerateSummary from "./regenerate-summary.js";
 import regenerateTitle from "./regenerate-title.js";
 
 type RecordingMediaRow = {
+  mediaUpdatedAt?: string;
   videoUrl: string | null;
+  storageMode?: "own" | "hosted" | null;
   videoFormat?: "webm" | "mp4" | null;
   videoSizeBytes?: number | null;
   hasAudio?: boolean | null;
@@ -102,10 +79,23 @@ type RecordingMediaRow = {
   durationMs?: number | null;
 };
 
+type StartedFromTranscript = {
+  importId: string | null;
+  updatedAt: string | null;
+};
+
+function recordingTrackingSource(
+  ownerEmail: string,
+  context?: ActionRunContext,
+) {
+  return context
+    ? { ...context, userEmail: context.userEmail ?? ownerEmail }
+    : { userId: ownerEmail };
+}
+
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
   "Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
-const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
 const BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS = 45_000;
 const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS = 65_000;
@@ -123,6 +113,15 @@ function builderErrorText(error: unknown): string {
     return `${error.message} ${cause ? builderErrorText(cause) : ""}`.trim();
   }
   return String(error);
+}
+
+function isRecordingMediaChanged(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errorCode" in error &&
+    error.errorCode === "recording_media_changed"
+  );
 }
 
 export function isBuilderModelAvailabilityError(error: unknown): boolean {
@@ -153,9 +152,6 @@ export async function transcribeWithBuilderModelFallback(
     console.warn(
       `[clips] Builder transcription model ${BUILDER_GEMINI_TRANSCRIPTION_MODEL} is unavailable; retrying the gateway default model.`,
     );
-    // `model` is optional on the Builder transcription endpoint. Omitting it
-    // restores the gateway's region-aware default that Clips used before the
-    // explicit Gemini model was introduced.
     return transcribeWithBuilder(options);
   }
 }
@@ -186,6 +182,24 @@ export function builderTranscriptionTimeoutMs(
   );
 }
 
+// The stored size may describe the original upload or its compressed copy,
+// depending on whether compression finished, so budget for the larger of it
+// and a duration-based estimate.
+export function estimatedRecordingMediaBytes(
+  videoSizeBytes: number | null | undefined,
+  durationMs: number | null | undefined,
+): number {
+  const sizeBytes =
+    videoSizeBytes && Number.isFinite(videoSizeBytes) && videoSizeBytes > 0
+      ? videoSizeBytes
+      : 0;
+  const durationBytes =
+    durationMs && Number.isFinite(durationMs) && durationMs > 0
+      ? Math.ceil(durationMs / 60_000) * ESTIMATED_VIDEO_BYTES_PER_MINUTE
+      : 0;
+  return Math.max(sizeBytes, durationBytes);
+}
+
 export function recordingMediaFetchTimeoutMs(
   videoSizeBytes: number | null | undefined,
   durationMs: number | null | undefined,
@@ -200,12 +214,10 @@ export function recordingMediaFetchTimeoutMs(
     );
   }
 
-  const estimatedBytes =
-    videoSizeBytes && Number.isFinite(videoSizeBytes) && videoSizeBytes > 0
-      ? videoSizeBytes
-      : durationMs && Number.isFinite(durationMs) && durationMs > 0
-        ? Math.ceil(durationMs / 60_000) * ESTIMATED_VIDEO_BYTES_PER_MINUTE
-        : 0;
+  const estimatedBytes = estimatedRecordingMediaBytes(
+    videoSizeBytes,
+    durationMs,
+  );
   if (!estimatedBytes) return MEDIA_FETCH_MIN_TIMEOUT_MS;
 
   const fiftyMbUnits = Math.ceil(estimatedBytes / (50 * 1024 * 1024));
@@ -218,15 +230,9 @@ export function recordingMediaFetchTimeoutMs(
   );
 }
 
-// Bounded automatic retry for transient failures (ffmpeg timeout, transient
-// provider network/5xx errors) — NOT for permanent failures like "no audio
-// track" or a missing/rejected API key. Each retry is self-dispatched into a
-// fresh request so serverless runtimes cannot freeze a timer left behind by
-// the completed transcription request.
 const MAX_AUTO_TRANSCRIPT_RETRIES = 2;
 const AUTO_TRANSCRIPT_RETRY_BACKOFF_MS = [5_000, 20_000];
 
-/** The typed code an error already carries, if any. */
 function transcriptFailureCodeFor(err: unknown): TranscriptFailureCode | null {
   return err instanceof AudioOnlyExtractionError
     ? (err.code as TranscriptFailureCode)
@@ -250,24 +256,11 @@ function isTransientTranscriptionError(err: unknown): boolean {
     ) {
       return true;
     }
-    // Provider 5xx responses are transient; 4xx (bad key, bad request) are not.
     if (/\b5\d\d\b/.test(message) && message.includes("error")) return true;
   }
   return false;
 }
 
-/**
- * Schedule a bounded, backed-off automatic retry of `request-transcript` for
- * a transient failure in a fresh server request.
- *
- * `nextRetryCount` must already be persisted to `recording_transcripts` by the
- * caller BEFORE this is invoked (not inside the timer) so the retry budget
- * survives a process that never wakes back up to run the timer — a later
- * manual or automatic pass always sees the true attempt count. The dispatched
- * run is tagged `retryAttempt` (not `force` alone) so `run()` can tell an
- * automatic retry apart from a human/agent-initiated retry: automatic retries
- * consume the bounded budget, manual retries never do.
- */
 function scheduleAutoTranscriptRetry({
   recordingId,
   nextRetryCount,
@@ -348,78 +341,6 @@ function rootCause(err: Error): Error {
   return cause instanceof Error ? rootCause(cause) : err;
 }
 
-function recordingFallbackMimeType(
-  rec: Pick<RecordingMediaRow, "videoFormat">,
-): string {
-  return rec.videoFormat === "mp4" ? "video/mp4" : "video/webm";
-}
-
-function pickSourceMimeType(
-  actual: string | null | undefined,
-  fallback: string,
-): string {
-  const base = (actual ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-  if (!base || base === "application/octet-stream") return fallback;
-  return actual ?? fallback;
-}
-
-async function loadRecordingMediaBlob({
-  recordingId,
-  videoUrl,
-  fallbackMimeType,
-  timeoutMs,
-}: {
-  recordingId: string;
-  videoUrl: string;
-  fallbackMimeType: string;
-  timeoutMs: number;
-}): Promise<{ blob: Blob; sourceMimeType: string }> {
-  const isLocalBlob =
-    videoUrl.startsWith("/api/video/") ||
-    (videoUrl.startsWith("/api/uploads/") && videoUrl.endsWith("/blob"));
-  if (isLocalBlob) {
-    const stash = await readAppState(`recording-blob-${recordingId}`);
-    const b64 = typeof stash?.data === "string" ? stash.data : null;
-    if (!b64) throw new Error("recording-blob app-state missing");
-    const bytes = Buffer.from(b64, "base64");
-    const mime =
-      typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
-    return {
-      blob: new Blob([bytes], { type: mime }),
-      sourceMimeType: pickSourceMimeType(mime, fallbackMimeType),
-    };
-  }
-
-  let resolvedVideoUrl = videoUrl;
-  const isAppRelativeUrl =
-    resolvedVideoUrl.startsWith("/") && !resolvedVideoUrl.startsWith("//");
-  if (isAppRelativeUrl) {
-    const port = process.env.NITRO_PORT || process.env.PORT || "3000";
-    const origin =
-      process.env.PUBLIC_URL ??
-      process.env.NITRO_PUBLIC_URL ??
-      `http://localhost:${port}`;
-    resolvedVideoUrl = `${origin}${resolvedVideoUrl}`;
-  }
-  const vidRes = isAppRelativeUrl
-    ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(timeoutMs) })
-    : await ssrfSafeFetch(
-        resolvedVideoUrl,
-        { signal: AbortSignal.timeout(timeoutMs) },
-        { maxRedirects: 3 },
-      );
-  if (!vidRes.ok) {
-    throw new Error(
-      `Failed to fetch videoUrl: HTTP ${vidRes.status} ${vidRes.statusText}`,
-    );
-  }
-  const blob = await vidRes.blob();
-  return {
-    blob,
-    sourceMimeType: pickSourceMimeType(blob.type, fallbackMimeType),
-  };
-}
-
 function isRecentlyPendingTranscript(transcript: {
   status: string | null;
   updatedAt: string | null;
@@ -432,21 +353,6 @@ function isRecentlyPendingTranscript(transcript: {
   );
 }
 
-/**
- * Run `work` while keeping this recording's pending transcript row marked live.
- *
- * `resolveTranscriptPresentation` infers "the worker is gone" from a pending
- * row nothing has written for STALE_PENDING_TRANSCRIPT_MS, because the row
- * carries no other liveness signal. Media fetch, ffmpeg extraction and the
- * provider call legitimately add up past that window on a long recording, so
- * without this ping the UI publishes a terminal "stopped before it finished"
- * failure over a run that is still working — and the player's self-heal then
- * forces a second concurrent transcription of the same clip.
- *
- * The update is scoped to `status = 'pending'` so it can never touch a row a
- * concurrent run has already finished, and the interval is unref'd and cleared
- * so it cannot hold a serverless invocation open.
- */
 async function withPendingTranscriptHeartbeat<T>(
   db: ReturnType<typeof getDb>,
   recordingId: string,
@@ -498,22 +404,160 @@ function fullTextSegmentJson(
   return JSON.stringify(buildCaptionSegmentsFromText(text, durationMs));
 }
 
-/**
- * Pick the segments to store after cleanup rewrites the transcript text.
- *
- * Measured timings from the capture engine always win.
- * `buildCaptionSegmentsFromText` spaces cues in proportion to word count, so
- * re-synthesizing over real timestamps spreads a short transcript evenly across
- * the whole recording — which reads as minute-long gaps of dropped speech even
- * when nothing was dropped there.
- */
+type WordSegmenterConstructor = new (
+  locale?: string | string[],
+  options?: { granularity: "word" },
+) => {
+  segment: (input: string) => Iterable<{ segment: string }>;
+};
+
+function splitMeasuredText(text: string): {
+  units: string[];
+  separator: "" | " ";
+} {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return { units: [], separator: " " };
+  if (/\s/.test(text)) {
+    return {
+      units: normalized.split(" ").filter(Boolean),
+      separator: " ",
+    };
+  }
+
+  const Segmenter = (
+    Intl as typeof Intl & { Segmenter?: WordSegmenterConstructor }
+  ).Segmenter;
+  if (Segmenter) {
+    const segmented = Array.from(
+      new Segmenter(undefined, { granularity: "word" }).segment(normalized),
+      ({ segment }) => segment,
+    );
+    if (segmented.length > 1) {
+      return { units: segmented, separator: "" };
+    }
+  }
+
+  return { units: Array.from(normalized), separator: "" };
+}
+
+function normalizeAlignmentText(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function hasMeasuredAttribution(segments: TranscriptSegment[]): boolean {
+  return segments.some(
+    (segment) => segment.source !== undefined || segment.speaker !== undefined,
+  );
+}
+
+function rewriteAttributedSegmentText(
+  segments: TranscriptSegment[],
+  cleanedText: string,
+): TranscriptSegment[] | null {
+  const originalAlignment = normalizeAlignmentText(
+    segments.map((segment) => segment.text).join(" "),
+  );
+  const cleanedAlignment = normalizeAlignmentText(cleanedText);
+  if (!originalAlignment || originalAlignment !== cleanedAlignment) return null;
+
+  const cleanedChars = Array.from(cleanedText);
+  let charIndex = 0;
+  const rewritten: TranscriptSegment[] = [];
+
+  for (const segment of segments) {
+    const target = normalizeAlignmentText(segment.text);
+    if (!target) return null;
+    const startIndex = charIndex;
+    let normalized = "";
+
+    while (
+      charIndex < cleanedChars.length &&
+      normalized.length < target.length
+    ) {
+      normalized += normalizeAlignmentText(cleanedChars[charIndex]);
+      if (!target.startsWith(normalized)) return null;
+      charIndex += 1;
+    }
+    if (normalized !== target) return null;
+
+    while (
+      charIndex < cleanedChars.length &&
+      !normalizeAlignmentText(cleanedChars[charIndex])
+    ) {
+      charIndex += 1;
+    }
+
+    const text = cleanedChars.slice(startIndex, charIndex).join("").trim();
+    if (!text) return null;
+    rewritten.push({ ...segment, text });
+  }
+
+  if (normalizeAlignmentText(cleanedChars.slice(charIndex).join(""))) {
+    return null;
+  }
+  return rewritten;
+}
+
+function rewriteMeasuredSegmentText(
+  segments: TranscriptSegment[],
+  cleanedText: string,
+): TranscriptSegment[] | null {
+  const cleaned = splitMeasuredText(cleanedText);
+  if (segments.length === 0 || cleaned.units.length === 0) return [];
+
+  if (hasMeasuredAttribution(segments)) {
+    return rewriteAttributedSegmentText(segments, cleanedText);
+  }
+
+  const weights = segments.map((segment) =>
+    Math.max(1, splitMeasuredText(segment.text).units.length),
+  );
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  let unitIndex = 0;
+  let weightIndex = 0;
+
+  return segments.flatMap((segment, index) => {
+    const isLast = index === segments.length - 1;
+    const remainingSegments = segments.length - index - 1;
+    const targetEnd = isLast
+      ? cleaned.units.length
+      : Math.round(
+          (cleaned.units.length * (weightIndex + weights[index])) / totalWeight,
+        );
+    const minimumEnd =
+      cleaned.units.length >= segments.length ? unitIndex + 1 : unitIndex;
+    const maximumEnd = Math.max(
+      unitIndex,
+      cleaned.units.length - remainingSegments,
+    );
+    const end = isLast
+      ? cleaned.units.length
+      : Math.min(maximumEnd, Math.max(minimumEnd, targetEnd));
+    const text = cleaned.units.slice(unitIndex, end).join(cleaned.separator);
+    unitIndex = end;
+    weightIndex += weights[index];
+    return text ? [{ ...segment, text }] : [];
+  });
+}
+
 export function resolveCleanupSegmentsJson(
   priorSegmentsJson: string | null | undefined,
   cleanedText: string,
   durationMs: number | null | undefined,
-): string {
-  if (parseTranscriptSegments(priorSegmentsJson).length > 1) {
-    return priorSegmentsJson as string;
+): string | null {
+  const priorSegments = parseTranscriptSegments(priorSegmentsJson);
+  if (priorSegments.length > 0) {
+    const rewrittenSegments = rewriteMeasuredSegmentText(
+      priorSegments,
+      cleanedText,
+    );
+    if (rewrittenSegments === null) return null;
+    if (rewrittenSegments.length > 0) {
+      return JSON.stringify(rewrittenSegments);
+    }
   }
   return fullTextSegmentJson(cleanedText, durationMs);
 }
@@ -545,12 +589,17 @@ export async function importLoomTranscriptForRecording({
   ownerEmail,
   recording,
   now,
+  context,
+  replaceTranscript,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
   ownerEmail: string;
   recording: RecordingMediaRow;
   now: string;
+  context?: ActionRunContext;
+  /** See upsertTranscriptRow: set only by an explicit regenerate. */
+  replaceTranscript?: StartedFromTranscript;
 }) {
   const shareUrl = resolveLoomTranscriptShareUrl(recording);
   let reason = shareUrl
@@ -564,7 +613,7 @@ export async function importLoomTranscriptForRecording({
         durationMs: recording.durationMs,
       });
       if (transcript) {
-        await upsertTranscriptRow(db, {
+        const kept = await writeTranscriptOrKeepImport(db, {
           recordingId,
           ownerEmail,
           status: "ready",
@@ -573,9 +622,27 @@ export async function importLoomTranscriptForRecording({
           segmentsJson: JSON.stringify(transcript.segments),
           fullText: transcript.fullText,
           now,
+          mediaUpdatedAt: recording.mediaUpdatedAt,
+          replaceTranscript,
         });
+        if (kept) return kept;
         await writeAppState("refresh-signal", { ts: Date.now() });
+        await finalizeEndedMeetingsForRecording(db, recordingId);
         await queueBrainExport(recordingId);
+        track(
+          "recording_completed",
+          {
+            app_name: "clips",
+            template_name: "clips",
+            recording_attempt_id: recordingId,
+            output_id: recordingId,
+            output_type: "clip",
+            duration_s: Math.round((recording.durationMs ?? 0) / 1000),
+            has_transcript: true,
+            transcription_source: "loom",
+          },
+          recordingTrackingSource(ownerEmail, context),
+        );
         return {
           recordingId,
           status: "ready" as const,
@@ -584,6 +651,7 @@ export async function importLoomTranscriptForRecording({
         };
       }
     } catch (err) {
+      if (isRecordingMediaChanged(err)) throw err;
       console.warn(
         `[clips] Loom transcript import failed for ${recordingId}:`,
         (err as Error)?.message ?? String(err),
@@ -596,10 +664,11 @@ export async function importLoomTranscriptForRecording({
     db,
     recordingId,
     ownerEmail,
+    mediaUpdatedAt: recording.mediaUpdatedAt,
   });
   if (preserved) return preserved;
 
-  await upsertTranscriptRow(db, {
+  const kept = await writeTranscriptOrKeepImport(db, {
     recordingId,
     ownerEmail,
     status: "failed",
@@ -607,7 +676,9 @@ export async function importLoomTranscriptForRecording({
     segmentsJson: "[]",
     fullText: "",
     now,
+    mediaUpdatedAt: recording.mediaUpdatedAt,
   });
+  if (kept) return kept;
   await writeAppState("refresh-signal", { ts: Date.now() });
   return {
     recordingId,
@@ -624,6 +695,7 @@ async function failAudioOnlyPreparation({
   err,
   now,
   currentRetryCount,
+  mediaUpdatedAt,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
@@ -631,6 +703,7 @@ async function failAudioOnlyPreparation({
   err: unknown;
   now: string;
   currentRetryCount: number;
+  mediaUpdatedAt?: string;
 }): Promise<
   | {
       recordingId: string;
@@ -650,19 +723,17 @@ async function failAudioOnlyPreparation({
     db,
     recordingId,
     ownerEmail,
+    mediaUpdatedAt,
   });
   if (preserved) return preserved;
 
-  // The code decides retryability. `isTransientTranscriptionError` stays as the
-  // fallback for errors that carry no code yet — it reads regexes over prose,
-  // which is why a reworded message could once change whether a clip retried.
   const failureCode = transcriptFailureCodeFor(err);
   const transient = failureCode
     ? isRetryableTranscriptFailure(failureCode)
     : isTransientTranscriptionError(err);
   const nextRetryCount = currentRetryCount + 1;
 
-  await upsertTranscriptRow(db, {
+  const kept = await writeTranscriptOrKeepImport(db, {
     recordingId,
     ownerEmail,
     status: "failed",
@@ -671,8 +742,10 @@ async function failAudioOnlyPreparation({
     segmentsJson: "[]",
     fullText: "",
     now,
+    mediaUpdatedAt,
     ...(transient ? { retryCount: nextRetryCount } : {}),
   });
+  if (kept) return kept;
   await writeAppState("refresh-signal", { ts: Date.now() });
 
   if (transient) {
@@ -690,28 +763,6 @@ async function failAudioOnlyPreparation({
   throw new Error(reason);
 }
 
-async function transcriptCleanupEnabled(): Promise<boolean> {
-  const userEmail = getRequestUserEmail();
-  if (userEmail) {
-    const userSettings = await getUserSetting(
-      userEmail,
-      CLIPS_USER_PREFS_KEY,
-    ).catch(() => null);
-    if (userSettings && "transcriptCleanupEnabled" in userSettings) {
-      return userSettings.transcriptCleanupEnabled !== false;
-    }
-  }
-
-  const settings = await getSetting(CLIPS_USER_PREFS_KEY).catch(() => null);
-  return settings?.transcriptCleanupEnabled !== false;
-}
-
-/**
- * Read the language already detected/stored on this recording's transcript row.
- * Cleanup and renormalization must preserve a detected non-English language
- * rather than clobbering it back to "en". Falls back to "en" only when no row
- * (or no language) exists yet.
- */
 async function resolveStoredLanguage(
   db: ReturnType<typeof getDb>,
   recordingId: string,
@@ -722,129 +773,6 @@ async function resolveStoredLanguage(
     .where(eq(schema.recordingTranscripts.recordingId, recordingId))
     .limit(1);
   return row?.language?.trim() || "en";
-}
-
-async function cleanupNativeTranscript({
-  db,
-  recordingId,
-  ownerEmail,
-  fullText,
-  durationMs,
-  segmentsJson,
-}: {
-  db: ReturnType<typeof getDb>;
-  recordingId: string;
-  ownerEmail: string;
-  fullText: string;
-  durationMs: number | null | undefined;
-  segmentsJson?: string | null;
-}): Promise<{ cleaned: boolean; provider?: string }> {
-  const sourceText = fullText.trim();
-  if (!sourceText) return { cleaned: false };
-
-  if (!(await transcriptCleanupEnabled())) {
-    await writeTranscriptCleanupState(recordingId, {
-      status: "disabled",
-    });
-    return { cleaned: false };
-  }
-
-  await writeTranscriptCleanupState(recordingId, {
-    status: "running",
-    provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
-    startedAt: new Date().toISOString(),
-  });
-
-  try {
-    const agentsContext = await loadAgentsMdContext({
-      ownerEmail,
-      purpose: "cleanup",
-    });
-    const result = await cleanupTranscript.run({
-      transcript: sourceText,
-      task: "cleanup",
-      context: agentsContext,
-    });
-    const cleanedText = result.cleanedText?.trim();
-    if (!cleanedText || cleanedText === sourceText) {
-      await writeTranscriptCleanupState(recordingId, {
-        status: "unchanged",
-        provider: result.provider,
-      });
-      return { cleaned: false, provider: result.provider };
-    }
-    if (!isSafeTranscriptCleanupReplacement(sourceText, cleanedText)) {
-      await writeTranscriptCleanupState(recordingId, {
-        status: "failed",
-        provider: result.provider,
-        failureReason:
-          "Cleanup output was incomplete; the original transcript was kept.",
-        sourceChars: sourceText.length,
-        cleanedChars: cleanedText.length,
-      });
-      return { cleaned: false, provider: result.provider };
-    }
-
-    const now = new Date().toISOString();
-    const language = await resolveStoredLanguage(db, recordingId);
-    const updated = await db
-      .update(schema.recordingTranscripts)
-      .set({
-        ownerEmail,
-        status: "ready",
-        failureReason: null,
-        language,
-        segmentsJson: resolveCleanupSegmentsJson(
-          segmentsJson,
-          cleanedText,
-          durationMs,
-        ),
-        fullText: cleanedText,
-        retryCount: 0,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(schema.recordingTranscripts.recordingId, recordingId),
-          eq(schema.recordingTranscripts.status, "ready"),
-          eq(schema.recordingTranscripts.fullText, sourceText),
-        ),
-      )
-      .returning({ recordingId: schema.recordingTranscripts.recordingId });
-    if (!updated.length) {
-      await writeTranscriptCleanupState(recordingId, {
-        status: "failed",
-        provider: result.provider,
-        failureReason:
-          "Transcript changed during cleanup; the newer transcript was kept.",
-      });
-      return { cleaned: false, provider: result.provider };
-    }
-    await writeTranscriptCleanupState(recordingId, {
-      status: "ready",
-      provider: result.provider,
-    });
-
-    return { cleaned: true, provider: result.provider };
-  } catch (err) {
-    const details = serializeError(err);
-    console.warn(
-      `[clips] native transcript cleanup skipped for ${recordingId}: ${summarizeError(err)}`,
-    );
-    if (verboseTranscriptErrors()) {
-      console.warn(
-        "[clips] native transcript cleanup error details",
-        serializeError(err, { includeStack: true }),
-      );
-    }
-    await writeTranscriptCleanupState(recordingId, {
-      status: "failed",
-      provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
-      failureReason: (err as Error)?.message ?? String(err),
-      details,
-    });
-    return { cleaned: false };
-  }
 }
 
 async function generateRecordingMetadata({
@@ -886,6 +814,8 @@ async function completeReadyTranscript({
   ownerEmail,
   fullText,
   segmentsJson,
+  mediaUpdatedAt,
+  imported,
   preserved = false,
 }: {
   db: ReturnType<typeof getDb>;
@@ -893,6 +823,9 @@ async function completeReadyTranscript({
   ownerEmail: string;
   fullText: string;
   segmentsJson?: string | null;
+  mediaUpdatedAt?: string;
+  /** An imported file's cues are the transcript of record, never rewritten. */
+  imported: boolean;
   preserved?: boolean;
 }): Promise<{
   recordingId: string;
@@ -906,6 +839,7 @@ async function completeReadyTranscript({
 }> {
   const [recForTitle] = await db
     .select({
+      mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
       title: schema.recordings.title,
       titleSource: schema.recordings.titleSource,
       description: schema.recordings.description,
@@ -920,16 +854,20 @@ async function completeReadyTranscript({
     )
     .limit(1);
 
-  const normalizedSegments = normalizeTranscriptSegments({
-    segments: parseTranscriptSegments(segmentsJson),
-    fullText,
-    durationMs: recForTitle?.durationMs,
-  });
+  const normalizedSegments = imported
+    ? []
+    : normalizeTranscriptSegments({
+        segments: parseTranscriptSegments(segmentsJson),
+        fullText,
+        durationMs: recForTitle?.durationMs,
+      });
   if (normalizedSegments.length) {
     const normalizedSegmentsJson = JSON.stringify(normalizedSegments);
     if (normalizedSegmentsJson !== (segmentsJson ?? "[]")) {
       const language = await resolveStoredLanguage(db, recordingId);
-      await upsertTranscriptRow(db, {
+      // An import that landed since the caller read this transcript wins, and
+      // its text is the one the title and summary must come from.
+      const kept = await writeTranscriptOrKeepImport(db, {
         recordingId,
         ownerEmail,
         status: "ready",
@@ -938,25 +876,12 @@ async function completeReadyTranscript({
         segmentsJson: normalizedSegmentsJson,
         fullText,
         now: new Date().toISOString(),
+        mediaUpdatedAt: mediaUpdatedAt ?? recForTitle?.mediaUpdatedAt,
       });
+      if (kept) return kept;
       segmentsJson = normalizedSegmentsJson;
     }
   }
-
-  const cleanupPromise = cleanupNativeTranscript({
-    db,
-    recordingId,
-    ownerEmail,
-    fullText,
-    durationMs: recForTitle?.durationMs,
-    segmentsJson,
-  }).catch((err) => {
-    console.warn(
-      `[clips] native transcript cleanup failed for ${recordingId}:`,
-      (err as Error)?.message ?? String(err),
-    );
-    return { cleaned: false };
-  });
 
   const metadataPromise = recForTitle
     ? generateRecordingMetadata({
@@ -974,12 +899,7 @@ async function completeReadyTranscript({
       })
     : Promise.resolve({ titleQueued: false, summaryQueued: false });
 
-  // Both calls are independent. Await them together so the durable worker stays
-  // alive without serially stacking two model-call timeouts.
-  const [cleanupResult, metadataResult] = await Promise.all([
-    cleanupPromise,
-    metadataPromise,
-  ]);
+  const metadataResult = await metadataPromise;
 
   if (!recForTitle) {
     console.warn(
@@ -998,16 +918,14 @@ async function completeReadyTranscript({
     );
   }
 
-  // Wake the player polling so it picks up the queued cleanup state row
-  // (`transcript-cleanup-${recordingId}`) before its next 2s tick lands —
-  // otherwise the "Cleaning up…" badge can lag for one full poll interval.
   await writeAppState("refresh-signal", { ts: Date.now() });
+  await finalizeEndedMeetingsForRecording(db, recordingId);
   await queueBrainExport(recordingId);
 
   return {
     recordingId,
     status: "ready",
-    cleaned: cleanupResult.cleaned,
+    cleaned: false,
     provider: segmentsJson && segmentsJson !== "[]" ? "existing" : "native",
     cleanupQueued: false,
     titleQueued: metadataResult.titleQueued,
@@ -1020,11 +938,13 @@ async function preserveReadyTranscriptIfAvailable({
   db,
   recordingId,
   ownerEmail,
+  mediaUpdatedAt,
   allowLikelyLanguageMismatch = true,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
   ownerEmail: string;
+  mediaUpdatedAt?: string;
   allowLikelyLanguageMismatch?: boolean;
 }): Promise<{
   recordingId: string;
@@ -1042,6 +962,7 @@ async function preserveReadyTranscriptIfAvailable({
       fullText: schema.recordingTranscripts.fullText,
       segmentsJson: schema.recordingTranscripts.segmentsJson,
       language: schema.recordingTranscripts.language,
+      source: schema.recordingTranscripts.source,
     })
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, recordingId))
@@ -1050,6 +971,7 @@ async function preserveReadyTranscriptIfAvailable({
   if (current?.status === "ready" && current.fullText?.trim()) {
     if (
       !allowLikelyLanguageMismatch &&
+      current.source !== IMPORTED_TRANSCRIPT_SOURCE &&
       isLikelyMismatchedTranscriptLanguage(current.language, current.fullText)
     ) {
       console.warn(
@@ -1066,6 +988,8 @@ async function preserveReadyTranscriptIfAvailable({
       ownerEmail,
       fullText: current.fullText,
       segmentsJson: current.segmentsJson,
+      mediaUpdatedAt,
+      imported: current.source === IMPORTED_TRANSCRIPT_SOURCE,
       preserved: true,
     });
   }
@@ -1088,7 +1012,16 @@ const requestTranscriptAction = defineAction({
       .boolean()
       .optional()
       .describe(
-        "Generate a fresh transcript from the recording media even when a ready transcript already exists. The existing ready transcript is kept if regeneration fails.",
+        'Generate a fresh transcript from the recording media even when a ready transcript already exists. The existing ready transcript is kept if regeneration fails. Regenerating replaces an imported transcript, so ask the user first when get-recording-player-data shows transcript.source "imported".',
+      ),
+    replaceImportId: z
+      .string()
+      .min(1)
+      .max(128)
+      .nullable()
+      .optional()
+      .describe(
+        "With regenerate: transcript.importId from get-recording-player-data for the transcript the user agreed to replace (null when it was not imported). A newer import is then kept. Omit to use the transcript current when the request is accepted.",
       ),
     retryAttempt: z
       .number()
@@ -1100,15 +1033,17 @@ const requestTranscriptAction = defineAction({
       ),
   }),
   run: async (args, context?: ActionRunContext) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    const access = await assertAccess("recording", args.recordingId, "editor");
 
     const db = getDb();
 
     if (context?.caller === "tool" || context?.caller === "frontend") {
+      assertTranscribableRecordingMedia(access.resource);
       const [existingTranscript] = await db
         .select({
           status: schema.recordingTranscripts.status,
           updatedAt: schema.recordingTranscripts.updatedAt,
+          importId: schema.recordingTranscripts.importId,
         })
         .from(schema.recordingTranscripts)
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -1131,7 +1066,17 @@ const requestTranscriptAction = defineAction({
       await dispatchPostFinalizeJob({
         recordingId: args.recordingId,
         kind: "transcript",
-        ...(args.regenerate ? { regenerate: true } : {}),
+        // Pinned now, not when the worker starts, so an import that lands
+        // while the job waits is not replaced.
+        ...(args.regenerate
+          ? {
+              regenerate: true,
+              replaceImportId:
+                args.replaceImportId !== undefined
+                  ? args.replaceImportId
+                  : (existingTranscript?.importId ?? null),
+            }
+          : {}),
       });
       return {
         recordingId: args.recordingId,
@@ -1146,8 +1091,8 @@ const requestTranscriptAction = defineAction({
     const now = new Date().toISOString();
 
     let builderError: string | null = null;
+    let builderFailureCode: TranscriptFailureCode = "CLOUD_FAILED";
     let audioMediaPromise: Promise<AudioOnlyTranscriptionMedia> | null = null;
-    let audioSignalPromise: Promise<void> | null = null;
 
     const getAudioMedia = (
       rec: RecordingMediaRow,
@@ -1155,65 +1100,74 @@ const requestTranscriptAction = defineAction({
       const videoUrl = rec.videoUrl;
       if (!videoUrl) throw new Error("Recording has no videoUrl");
       if (rec.hasAudio === false) {
-        // NOT "no speech was detected" — this is a measurement of the stored
-        // file, and blaming the recording sent people hunting for a microphone
-        // problem when the screen-share simply never included audio.
         throw new AudioOnlyExtractionError(
           "NO_AUDIO_SAVED",
           transcriptFailureMessage("NO_AUDIO_SAVED"),
         );
       }
-      audioMediaPromise ??= (async () => {
-        const fallbackMimeType = recordingFallbackMimeType(rec);
-        const media = await loadRecordingMediaBlob({
-          recordingId: args.recordingId,
-          videoUrl,
-          fallbackMimeType,
-          timeoutMs: recordingMediaFetchTimeoutMs(
+      audioMediaPromise ??= prepareRecordingTranscriptionAudio({
+        recordingId: args.recordingId,
+        videoUrl,
+        storageMode: rec.storageMode,
+        timeouts: {
+          downloadMs: recordingMediaFetchTimeoutMs(
             rec.videoSizeBytes,
             rec.durationMs,
           ),
-        });
-        return prepareAudioOnlyTranscriptionMedia({
-          blob: media.blob,
-          recordingId: args.recordingId,
-          sourceMimeType: media.sourceMimeType,
-        });
-      })();
+          extractionMs: audioExtractionTimeoutMs(
+            estimatedRecordingMediaBytes(rec.videoSizeBytes, rec.durationMs),
+          ),
+        },
+      });
       return audioMediaPromise;
     };
-    const ensureAudioHasSignal = (
-      media: AudioOnlyTranscriptionMedia,
-    ): Promise<void> => {
-      audioSignalPromise ??= assertAudioHasAudibleSignal(media);
-      return audioSignalPromise;
-    };
 
-    const [existingNativeTranscript] = await db
+    const [recordingState] = await db
       .select({
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         status: schema.recordingTranscripts.status,
         fullText: schema.recordingTranscripts.fullText,
         segmentsJson: schema.recordingTranscripts.segmentsJson,
         updatedAt: schema.recordingTranscripts.updatedAt,
         language: schema.recordingTranscripts.language,
         retryCount: schema.recordingTranscripts.retryCount,
+        source: schema.recordingTranscripts.source,
+        importId: schema.recordingTranscripts.importId,
       })
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+      .from(schema.recordings)
+      .leftJoin(
+        schema.recordingTranscripts,
+        eq(schema.recordingTranscripts.recordingId, schema.recordings.id),
+      )
+      .where(eq(schema.recordings.id, args.recordingId))
       .limit(1);
+    if (!recordingState) {
+      fail(`Recording not found: ${args.recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
+    const mediaUpdatedAt = recordingState.mediaUpdatedAt;
+    const existingNativeTranscript = recordingState.status
+      ? recordingState
+      : undefined;
 
-    // Persisted retry budget entering this run. A manual/agent retry
-    // (force=true, no retryAttempt) is NEVER blocked by this count — it always
-    // runs. Only whether a FUTURE failure schedules another automatic retry
-    // depends on it (see scheduleAutoTranscriptRetry's own cap check), so a
-    // manual retry can still top the budget back up for one more bounded
-    // automatic pass if it fails transiently again.
     const currentRetryCount = existingNativeTranscript?.retryCount ?? 0;
     const regeneratingReadyTranscript = Boolean(
       args.regenerate &&
       existingNativeTranscript?.status === "ready" &&
       existingNativeTranscript.fullText?.trim(),
     );
+    const regeneratingFrom: StartedFromTranscript | undefined =
+      regeneratingReadyTranscript
+        ? {
+            importId:
+              args.replaceImportId !== undefined
+                ? args.replaceImportId
+                : (existingNativeTranscript?.importId ?? null),
+            updatedAt: existingNativeTranscript?.updatedAt ?? null,
+          }
+        : undefined;
     if (args.retryAttempt !== undefined) {
       console.log(
         `[clips] auto-retry transcription attempt ${args.retryAttempt} for ${args.recordingId}`,
@@ -1226,6 +1180,7 @@ const requestTranscriptAction = defineAction({
       existingNativeTranscript.fullText?.trim()
     ) {
       if (
+        existingNativeTranscript.source !== IMPORTED_TRANSCRIPT_SOURCE &&
         isLikelyMismatchedTranscriptLanguage(
           existingNativeTranscript.language,
           existingNativeTranscript.fullText,
@@ -1241,9 +1196,17 @@ const requestTranscriptAction = defineAction({
           ownerEmail,
           fullText: existingNativeTranscript.fullText,
           segmentsJson: existingNativeTranscript.segmentsJson,
+          mediaUpdatedAt,
+          imported:
+            existingNativeTranscript.source === IMPORTED_TRANSCRIPT_SOURCE,
         });
       }
     }
+
+    // Past here the transcript comes from the recording's audio. A ready
+    // transcript, such as an imported one on a YouTube clip, was kept above,
+    // so the follow-up job import-transcript queues still fills its summary.
+    assertTranscribableRecordingMedia(access.resource);
 
     if (
       !args.force &&
@@ -1261,26 +1224,25 @@ const requestTranscriptAction = defineAction({
       };
     }
 
-    // ── Builder transcription (cloud fallback) ────────────────────────
-    // Builder proxy is available when the current user has connected
-    // Builder via OAuth (per-user app_secrets) OR when BUILDER_PRIVATE_KEY
-    // is set at the deployment level. Use the per-user-aware resolver so
-    // a sidebar OAuth connection actually wires through to transcription.
-    if (await resolveHasBuilderPrivateKey()) {
+    if (await resolveHasBuilderGatewayCredential()) {
       if (!regeneratingReadyTranscript) {
-        await upsertTranscriptRow(db, {
+        const kept = await writeTranscriptOrKeepImport(db, {
           recordingId: args.recordingId,
           ownerEmail,
           status: "pending",
           failureReason: null,
           now,
+          mediaUpdatedAt,
         });
+        if (kept) return kept;
         await writeAppState("refresh-signal", { ts: Date.now() });
       }
 
       const [rec] = await db
         .select({
+          mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
           videoUrl: schema.recordings.videoUrl,
+          storageMode: schema.recordings.storageMode,
           videoFormat: schema.recordings.videoFormat,
           videoSizeBytes: schema.recordings.videoSizeBytes,
           hasAudio: schema.recordings.hasAudio,
@@ -1298,15 +1260,18 @@ const requestTranscriptAction = defineAction({
           db,
           recordingId: args.recordingId,
           ownerEmail,
+          mediaUpdatedAt,
         });
         if (preserved) return preserved;
-        await upsertTranscriptRow(db, {
+        const kept = await writeTranscriptOrKeepImport(db, {
           recordingId: args.recordingId,
           ownerEmail,
           status: "failed",
           failureReason: reason,
           now,
+          mediaUpdatedAt,
         });
+        if (kept) return kept;
         await writeAppState("refresh-signal", { ts: Date.now() });
         throw new Error(reason);
       }
@@ -1317,17 +1282,20 @@ const requestTranscriptAction = defineAction({
           ownerEmail,
           recording: rec,
           now,
+          context,
+          replaceTranscript: regeneratingFrom,
         });
       }
 
       let audioMedia: AudioOnlyTranscriptionMedia;
+      const extractionStartedAt = Date.now();
       try {
         audioMedia = await withPendingTranscriptHeartbeat(
           db,
           args.recordingId,
           async () => {
             const media = await getAudioMedia(rec);
-            await ensureAudioHasSignal(media);
+            assertAudioHasAudibleSignal(media);
             return media;
           },
         );
@@ -1339,34 +1307,43 @@ const requestTranscriptAction = defineAction({
           err,
           now,
           currentRetryCount,
+          mediaUpdatedAt,
         });
       }
 
+      console.log("[clips] transcription audio prepared", {
+        recordingId: args.recordingId,
+        chunks: audioMedia.chunks.length,
+        audioBytes: audioMedia.chunks.reduce(
+          (total, chunk) => total + chunk.audioBytes.byteLength,
+          0,
+        ),
+        elapsedMs: Date.now() - extractionStartedAt,
+      });
+
       try {
         const startedAt = Date.now();
-        const builderResult = await withPendingTranscriptHeartbeat(
+        const chunkResults = await withPendingTranscriptHeartbeat(
           db,
           args.recordingId,
           () =>
-            transcribeWithBuilderModelFallback({
-              audioBytes: audioMedia.audioBytes,
-              mimeType: audioMedia.mimeType,
-              diarize: false,
-              instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
-              timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
+            transcribeAudioChunks({
+              chunks: audioMedia.chunks,
+              isRetryable: isTransientTranscriptionError,
+              transcribe: (chunk) =>
+                transcribeWithBuilderModelFallback({
+                  audioBytes: chunk.audioBytes,
+                  mimeType: audioMedia.mimeType,
+                  diarize: true,
+                  instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
+                  timeoutMs: builderTranscriptionTimeoutMs(chunk.durationMs),
+                }),
             }),
         );
 
-        const segments = (builderResult.segments ?? [])
-          .map((s) => ({
-            startMs: s.startMs,
-            endMs: s.endMs,
-            text: s.text.trim(),
-          }))
-          .filter((segment) => segment.text);
-        const normalizedTranscript = normalizeProviderTranscript(
-          builderResult.text,
-          segments,
+        const normalizedTranscript = joinChunkTranscripts(
+          audioMedia.chunks,
+          chunkResults,
         );
         const fullText = normalizedTranscript.fullText;
 
@@ -1375,6 +1352,7 @@ const requestTranscriptAction = defineAction({
             db,
             recordingId: args.recordingId,
             ownerEmail,
+            mediaUpdatedAt,
             allowLikelyLanguageMismatch: false,
           });
           if (preserved) return preserved;
@@ -1390,22 +1368,40 @@ const requestTranscriptAction = defineAction({
         }
 
         if (fullText) {
-          await upsertTranscriptRow(db, {
+          const kept = await writeTranscriptOrKeepImport(db, {
             recordingId: args.recordingId,
             ownerEmail,
             status: "ready",
             failureReason: null,
-            language: builderResult.language ?? "en",
+            language: normalizedTranscript.language ?? "en",
             segmentsJson: JSON.stringify(normalizedTranscript.segments),
             fullText,
             now,
+            mediaUpdatedAt,
+            replaceTranscript: regeneratingFrom,
           });
+          if (kept) return kept;
           await writeAppState("refresh-signal", { ts: Date.now() });
+          await finalizeEndedMeetingsForRecording(db, args.recordingId);
           await queueBrainExport(args.recordingId);
           await clearBuilderCreditsExhausted();
+          if (!regeneratingReadyTranscript) {
+            track(
+              "recording_completed",
+              {
+                app_name: "clips",
+                template_name: "clips",
+                recording_attempt_id: args.recordingId,
+                output_id: args.recordingId,
+                output_type: "clip",
+                duration_s: Math.round((rec.durationMs ?? 0) / 1000),
+                has_transcript: true,
+                transcription_source: "builder",
+              },
+              recordingTrackingSource(ownerEmail, context),
+            );
+          }
 
-          // Re-read title fresh — `rec.title` was fetched before the 30+ s
-          // transcription and may be stale if the user renamed during that window.
           const [freshRec] = await db
             .select({
               title: schema.recordings.title,
@@ -1434,7 +1430,7 @@ const requestTranscriptAction = defineAction({
 
           const elapsedMs = Date.now() - startedAt;
           console.log(
-            `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${normalizedTranscript.segments.length} segments)`,
+            `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${audioMedia.chunks.length} parts, ${normalizedTranscript.segments.length} segments)`,
           );
           return {
             recordingId: args.recordingId,
@@ -1444,8 +1440,27 @@ const requestTranscriptAction = defineAction({
           };
         }
       } catch (err) {
+        if (isRecordingMediaChanged(err)) {
+          if (!regeneratingReadyTranscript) {
+            const kept = await writeTranscriptOrKeepImport(db, {
+              recordingId: args.recordingId,
+              ownerEmail,
+              status: "failed",
+              failureReason: transcriptFailureMessage("CLOUD_FAILED"),
+              failureCode: "CLOUD_FAILED",
+              now,
+              mediaUpdatedAt,
+              retryCount: currentRetryCount + 1,
+            });
+            if (kept) return kept;
+            await writeAppState("refresh-signal", { ts: Date.now() });
+          }
+          throw err;
+        }
         const reason = (err as Error).message;
         const details = serializeError(err);
+        const chunkErr = err instanceof ChunkTranscriptionError ? err : null;
+        if (chunkErr) builderFailureCode = "CHUNK_FAILED";
         if (isBuilderCreditsExhaustedMessage(reason)) {
           await noteBuilderCreditsExhausted({
             source: "transcription",
@@ -1472,6 +1487,12 @@ const requestTranscriptAction = defineAction({
           provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           failureReason: reason,
           details,
+          ...(chunkErr
+            ? {
+                chunkIndex: chunkErr.chunkIndex,
+                chunkCount: chunkErr.chunkCount,
+              }
+            : {}),
         });
       }
     }
@@ -1480,32 +1501,39 @@ const requestTranscriptAction = defineAction({
       db,
       recordingId: args.recordingId,
       ownerEmail,
+      mediaUpdatedAt,
     });
     if (preserved) return preserved;
 
     const reason = builderError
       ? "No native transcript was captured, and Builder transcription could not finish. Retry transcription or check Builder connection and recording audio."
       : "No transcript was captured by native speech recognition, and Builder transcription is not configured.";
-    // A cloud failure gets the SAME transient-retry treatment the audio-only
-    // path already has (see `failAudioOnlyPreparation`). This branch classified
-    // the error, logged it, and then fell through with no retry scheduled and
-    // no `retryCount` written — so the one path users report as "it works if I
-    // retry" was the one path that never retried itself. Production bears that
-    // out: `retry_count` averages 0.0 on these rows, while 12 of them say
-    // `fetch failed` and 11 say `timed out after 45` — textbook transient.
     const cloudTransient = builderError
       ? isTransientTranscriptionError(new Error(builderError))
       : false;
     const cloudNextRetryCount = currentRetryCount + 1;
-    await upsertTranscriptRow(db, {
+    const kept = await writeTranscriptOrKeepImport(db, {
       recordingId: args.recordingId,
       ownerEmail,
       status: "failed",
       failureReason: reason,
-      failureCode: builderError ? "CLOUD_FAILED" : "CLOUD_UNCONFIGURED",
+      failureCode: builderError ? builderFailureCode : "CLOUD_UNCONFIGURED",
       now,
+      mediaUpdatedAt,
       ...(cloudTransient ? { retryCount: cloudNextRetryCount } : {}),
     });
+    if (kept) return kept;
+    track(
+      "recording_transcription_failed",
+      {
+        failure_code: builderError ? builderFailureCode : "CLOUD_UNCONFIGURED",
+        stage: "transcription",
+        retryable: cloudTransient,
+        output_id: args.recordingId,
+        output_type: "clip",
+      },
+      recordingTrackingSource(ownerEmail, context),
+    );
     await writeAppState("refresh-signal", { ts: Date.now() });
     if (cloudTransient) {
       scheduleAutoTranscriptRetry({
@@ -1522,6 +1550,33 @@ const requestTranscriptAction = defineAction({
   },
 });
 
+/**
+ * Writes an automatic transcript or failure. When the write is refused
+ * because an imported transcript landed after the caller's last check,
+ * returns that transcript's result so the caller reports it instead.
+ */
+async function writeTranscriptOrKeepImport(
+  db: ReturnType<typeof getDb>,
+  row: Parameters<typeof upsertTranscriptRow>[1],
+) {
+  if (await upsertTranscriptRow(db, row)) return null;
+  const kept = await preserveReadyTranscriptIfAvailable({
+    db,
+    recordingId: row.recordingId,
+    ownerEmail: row.ownerEmail,
+    mediaUpdatedAt: row.mediaUpdatedAt,
+  });
+  // An import is always ready, so a refused write with nothing to keep means
+  // the row was deleted; carrying on would report work that wasn't saved.
+  if (!kept) {
+    fail(`Transcript row for ${row.recordingId} was removed while saving`, {
+      errorCode: "transcript_removed",
+      statusCode: 409,
+    });
+  }
+  return kept;
+}
+
 async function upsertTranscriptRow(
   db: ReturnType<typeof getDb>,
   row: {
@@ -1529,70 +1584,147 @@ async function upsertTranscriptRow(
     ownerEmail: string;
     status: "pending" | "ready" | "failed";
     failureReason: string | null;
-    /**
-     * Machine-readable cause. This is what decides retryability; the prose in
-     * `failureReason` is rendered from it and is for humans only.
-     */
     failureCode?: TranscriptFailureCode | null;
     language?: string;
     segmentsJson?: string;
     fullText?: string;
     now: string;
-    /**
-     * Automatic-retry attempt count to persist. Pass explicitly when a
-     * transient failure is about to schedule an auto-retry so the budget
-     * survives even if the scheduled retry never runs (e.g. a serverless
-     * sandbox freezing before the timer fires). A `"ready"` status always
-     * resets the count to 0 so a later failure gets a fresh retry budget.
-     * Omit to leave the stored count untouched (the common case).
-     */
+    mediaUpdatedAt?: string;
     retryCount?: number;
+    /**
+     * Set only by an explicit regenerate: the transcript it started from. It
+     * may replace that transcript even if imported, but not an import that
+     * lands while it runs.
+     */
+    replaceTranscript?: StartedFromTranscript;
   },
-): Promise<void> {
-  const [existing] = await db
-    .select({ recordingId: schema.recordingTranscripts.recordingId })
-    .from(schema.recordingTranscripts)
-    .where(eq(schema.recordingTranscripts.recordingId, row.recordingId))
-    .limit(1);
+): Promise<boolean> {
+  let expectedMediaUpdatedAt = row.mediaUpdatedAt;
+  if (!expectedMediaUpdatedAt) {
+    const [recording] = await db
+      .select({ mediaUpdatedAt: schema.recordings.mediaUpdatedAt })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, row.recordingId))
+      .limit(1);
+    if (!recording) {
+      fail(`Recording not found: ${row.recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
+    expectedMediaUpdatedAt = recording.mediaUpdatedAt;
+  }
 
   const retryCount = row.status === "ready" ? 0 : (row.retryCount ?? undefined);
-  // `row.now` is captured once at the top of a run that can last minutes, so it
-  // is a creation timestamp, never a "last written" one. Stamping it as
-  // `updatedAt` would walk the pending heartbeat backwards and re-arm the stale
-  // check over a run that just finished.
   const updatedAt = new Date().toISOString();
+  const t = schema.recordingTranscripts;
+  const set = {
+    ownerEmail: row.ownerEmail,
+    status: row.status,
+    failureReason: row.failureReason,
+    failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
+    ...(row.language ? { language: row.language } : {}),
+    ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
+    ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
+    ...(retryCount !== undefined ? { retryCount } : {}),
+    ...(row.replaceTranscript ? { source: null, importId: null } : {}),
+    updatedAt,
+  };
+  const replaceImportId = row.replaceTranscript?.importId;
+  const replaceable = replaceImportId
+    ? or(notImportedTranscript(), eq(t.importId, replaceImportId))
+    : notImportedTranscript();
 
-  if (existing) {
-    await db
-      .update(schema.recordingTranscripts)
-      .set({
-        ownerEmail: row.ownerEmail,
-        status: row.status,
-        failureReason: row.failureReason,
-        // Cleared on success so a recovered row does not keep a stale cause.
-        failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
-        ...(row.language ? { language: row.language } : {}),
-        ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
-        ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
-        ...(retryCount !== undefined ? { retryCount } : {}),
-        updatedAt,
-      })
-      .where(eq(schema.recordingTranscripts.recordingId, row.recordingId));
-  } else {
-    await db.insert(schema.recordingTranscripts).values({
-      recordingId: row.recordingId,
-      ownerEmail: row.ownerEmail,
-      language: row.language ?? "en",
-      segmentsJson: row.segmentsJson ?? "[]",
-      fullText: row.fullText ?? "",
-      status: row.status,
-      failureReason: row.failureReason,
-      failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
-      retryCount: retryCount ?? 0,
-      createdAt: row.now,
-      updatedAt,
-    });
-  }
+  return db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({ id: schema.recordings.id })
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, row.recordingId),
+          eq(schema.recordings.mediaUpdatedAt, expectedMediaUpdatedAt),
+        ),
+      )
+      .for("update");
+    if (!locked) {
+      fail(
+        "The Clip media changed while transcription was running. Retry transcription.",
+        {
+          errorCode: "recording_media_changed",
+          statusCode: 409,
+        },
+      );
+    }
+
+    const lockCurrent = () =>
+      tx
+        .select()
+        .from(t)
+        .where(eq(t.recordingId, row.recordingId))
+        .for("update")
+        .then((rows) => rows[0]);
+    let current = await lockCurrent();
+    if (!current) {
+      const inserted = await tx
+        .insert(t)
+        .values({
+          recordingId: row.recordingId,
+          ownerEmail: row.ownerEmail,
+          language: row.language ?? "en",
+          segmentsJson: row.segmentsJson ?? "[]",
+          fullText: row.fullText ?? "",
+          status: row.status,
+          failureReason: row.failureReason,
+          failureCode:
+            row.status === "failed" ? (row.failureCode ?? null) : null,
+          retryCount: retryCount ?? 0,
+          createdAt: row.now,
+          updatedAt,
+        })
+        .onConflictDoNothing({ target: t.recordingId })
+        .returning({ recordingId: t.recordingId });
+      if (inserted.length > 0) return true;
+      // An import or another pass created the row since the read; it takes
+      // the same guarded update as any existing row.
+      current = await lockCurrent();
+      if (!current) return false;
+    }
+    const updated = await tx
+      .update(t)
+      .set(set)
+      .where(
+        and(
+          eq(t.recordingId, row.recordingId),
+          replaceable,
+          row.replaceTranscript
+            ? row.replaceTranscript.updatedAt === null
+              ? isNull(t.updatedAt)
+              : eq(t.updatedAt, row.replaceTranscript.updatedAt)
+            : undefined,
+        ),
+      )
+      .returning({ recordingId: t.recordingId });
+    if (updated.length === 0) return false;
+    // An explicit regenerate replaces the whole transcript, like an import,
+    // so it always keeps the one it replaces: the same words can still carry
+    // an imported transcript's timings, speakers, language and source. Other
+    // writes keep one only when they take its words away, by replacing them
+    // or hiding them behind another status; rewriting only the cue shapes of
+    // the same words replaces nothing.
+    if (
+      hasTranscriptContent(current) &&
+      (row.replaceTranscript ||
+        set.status !== "ready" ||
+        (set.fullText !== undefined &&
+          set.fullText.trim() !== current.fullText.trim()))
+    ) {
+      await saveTranscriptVersion(tx, current, {
+        reason: row.replaceTranscript ? "regenerate" : "automatic",
+        replacedBy: null,
+      });
+    }
+    return true;
+  });
 }
 
 export default requestTranscriptAction;

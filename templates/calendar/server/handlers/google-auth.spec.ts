@@ -5,28 +5,36 @@ const mocks = vi.hoisted(() => ({
   decodeOAuthState: vi.fn(),
   disconnect: vi.fn(),
   encodeOAuthState: vi.fn(),
+  ensureGoogleAuthIdentity: vi.fn(),
   exchangeCode: vi.fn(),
   getAppUrl: vi.fn(),
   getAuthStatus: vi.fn(),
   getAuthUrl: vi.fn(),
   getSession: vi.fn(),
   isElectron: vi.fn(),
+  logOAuthStateDecodeFailure: vi.fn(),
   oauthCallbackResponse: vi.fn(),
   oauthDesktopExchangePage: vi.fn(),
   oauthErrorPage: vi.fn(),
+  prepareDesktopOAuthBrowserBinding: vi.fn(),
   readBody: vi.fn(),
+  matchesDesktopOAuthBrowserBinding: vi.fn(),
   resolveOAuthOwner: vi.fn(),
   resolveOAuthRedirectUri: vi.fn(),
+  registerDesktopExchange: vi.fn(),
   resolveSecret: vi.fn(),
   runWithRequestContext: vi.fn(),
   safeReturnPath: vi.fn(),
   setDesktopExchange: vi.fn(),
   setDesktopExchangeError: vi.fn(),
   setResponseStatus: vi.fn(),
+  wrapNetlifyPreviewGoogleOAuthState: vi.fn(),
 }));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  getHeader: (event: any, name: string) => event.headers?.[name.toLowerCase()],
+  getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) => event.query ?? {},
   setResponseStatus: mocks.setResponseStatus,
 }));
@@ -39,13 +47,17 @@ vi.mock("@agent-native/core/server", () => ({
   createOAuthSession: mocks.createOAuthSession,
   decodeOAuthState: mocks.decodeOAuthState,
   encodeOAuthState: mocks.encodeOAuthState,
+  ensureGoogleAuthIdentity: mocks.ensureGoogleAuthIdentity,
   getAppUrl: mocks.getAppUrl,
   getSession: mocks.getSession,
   isElectron: mocks.isElectron,
+  logOAuthStateDecodeFailure: mocks.logOAuthStateDecodeFailure,
   oauthCallbackResponse: mocks.oauthCallbackResponse,
   oauthDesktopExchangePage: mocks.oauthDesktopExchangePage,
   oauthErrorPage: mocks.oauthErrorPage,
+  prepareDesktopOAuthBrowserBinding: mocks.prepareDesktopOAuthBrowserBinding,
   readBody: mocks.readBody,
+  matchesDesktopOAuthBrowserBinding: mocks.matchesDesktopOAuthBrowserBinding,
   resolveGoogleSignInCredentials: () => {
     const clientId = process.env.GOOGLE_SIGN_IN_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_SIGN_IN_CLIENT_SECRET;
@@ -77,11 +89,13 @@ vi.mock("@agent-native/core/server", () => ({
   },
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
+  registerDesktopExchange: mocks.registerDesktopExchange,
   resolveSecret: mocks.resolveSecret,
   runWithRequestContext: mocks.runWithRequestContext,
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
+  wrapNetlifyPreviewGoogleOAuthState: mocks.wrapNetlifyPreviewGoogleOAuthState,
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
@@ -101,12 +115,17 @@ vi.mock("../lib/google-calendar.js", () => ({
 
 const {
   getGoogleAuthUrl,
+  getGoogleAddAccountUrl,
   handleGoogleAddAccountCallback,
   handleGoogleCallback,
 } = await import("./google-auth.js");
 
-function createEvent(query: Record<string, string> = {}) {
-  return { query };
+function createEvent(
+  query: Record<string, string> = {},
+  headers: Record<string, string> = {},
+  method = "GET",
+) {
+  return { query, headers, method };
 }
 
 describe("Calendar Google auth-url handler", () => {
@@ -132,6 +151,12 @@ describe("Calendar Google auth-url handler", () => {
       (_context: unknown, callback: () => unknown) => callback(),
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.wrapNetlifyPreviewGoogleOAuthState.mockImplementation(
+      (_event: unknown, state: string) => state,
+    );
+    mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
+    mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
+    mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(true);
     mocks.createOAuthSession.mockResolvedValue({
       sessionToken: "owner-session-token",
     });
@@ -168,6 +193,43 @@ describe("Calendar Google auth-url handler", () => {
     );
   });
 
+  it("carries native mobile intent into the signed OAuth state", async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    await getGoogleAuthUrl(createEvent({ mobile: "1" }) as any);
+
+    expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
+      expect.objectContaining({ mobile: true }),
+    );
+  });
+
+  it("requires a verifier-bound POST for desktop auth-url bootstraps", async () => {
+    const verifier = "v".repeat(32);
+    const headers = { "x-agent-native-desktop-verifier": verifier };
+
+    await expect(
+      getGoogleAuthUrl(
+        createEvent({ desktop: "1", flow_id: "flow-get" }, headers) as any,
+      ),
+    ).resolves.toEqual({ error: "Invalid desktop exchange challenge." });
+    expect(mocks.registerDesktopExchange).not.toHaveBeenCalled();
+
+    await expect(
+      getGoogleAuthUrl(
+        createEvent(
+          { desktop: "1", flow_id: "flow-post" },
+          headers,
+          "POST",
+        ) as any,
+      ),
+    ).resolves.toEqual({ url: expect.any(String) });
+    expect(mocks.registerDesktopExchange).toHaveBeenCalledWith(
+      "flow-post",
+      verifier,
+      "b".repeat(43),
+    );
+  });
+
   it("uses Calendar API credentials when a signed-in user connects Google Calendar", async () => {
     mocks.getSession.mockResolvedValue({
       email: "owner@example.com",
@@ -190,9 +252,35 @@ describe("Calendar Google auth-url handler", () => {
       "owner@example.com",
       "org-123",
     );
+    expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
+      expect.anything(),
+      "/_agent-native/google/callback",
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     expect(result).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",
     });
+  });
+
+  it("uses the root callback for add-account OAuth on mounted apps", async () => {
+    mocks.getSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-123",
+    });
+
+    await getGoogleAddAccountUrl(createEvent() as any);
+
+    expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
+      expect.anything(),
+      "/_agent-native/google/callback",
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
   });
 
   it("publishes a desktop exchange for Calendar connect without switching away from the owner", async () => {
@@ -201,6 +289,7 @@ describe("Calendar Google auth-url handler", () => {
       state: "encoded-state",
     });
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/callback",
       owner: "owner@example.com",
@@ -208,6 +297,8 @@ describe("Calendar Google auth-url handler", () => {
       desktop: true,
       addAccount: true,
       flowId: "flow-123",
+      desktopVerifierHash: "desktop-verifier-hash",
+      desktopBrowserBindingHash: "browser-binding-hash",
     });
     mocks.resolveOAuthOwner.mockResolvedValue({
       owner: "owner@example.com",
@@ -238,6 +329,7 @@ describe("Calendar Google auth-url handler", () => {
       "flow-123",
       "owner-session-token",
       "owner@example.com",
+      "desktop-verifier-hash",
     );
     expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
       event,
@@ -258,12 +350,15 @@ describe("Calendar Google auth-url handler", () => {
     });
     mocks.getSession.mockResolvedValue(null);
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
       owner: "owner@example.com",
       orgId: "org-123",
       desktop: true,
       flowId: "flow-456",
+      desktopVerifierHash: "desktop-verifier-hash",
+      desktopBrowserBindingHash: "browser-binding-hash",
     });
     mocks.exchangeCode.mockResolvedValue("secondary@example.com");
     mocks.oauthCallbackResponse.mockReturnValue("ok");
@@ -290,6 +385,7 @@ describe("Calendar Google auth-url handler", () => {
       "flow-456",
       "owner-session-token",
       "owner@example.com",
+      "desktop-verifier-hash",
     );
     expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
       event,
@@ -299,6 +395,112 @@ describe("Calendar Google auth-url handler", () => {
         desktop: true,
         addAccount: true,
         flowId: "flow-456",
+      }),
+    );
+  });
+
+  it("does not disclose which login owns a conflicting Google account", async () => {
+    const event = createEvent({ code: "google-code", state: "encoded-state" });
+    mocks.getSession.mockResolvedValue(null);
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
+      owner: "second-login@example.com",
+      orgId: "org-123",
+    });
+    const conflict = Object.assign(new Error("owned by another user"), {
+      name: "OAuthAccountOwnedByOtherUserError",
+      accountId: "shared-calendar@gmail.com",
+      existingOwner: "first-login@example.com",
+      attemptedOwner: "second-login@example.com",
+    });
+    mocks.exchangeCode.mockRejectedValue(conflict);
+
+    await handleGoogleAddAccountCallback(event as any);
+
+    expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
+    const [message] = mocks.oauthErrorPage.mock.calls[0];
+    expect(message).toContain("already connected to another login");
+    expect(message).not.toContain("first-login@example.com");
+    expect(message).not.toContain("second-login@example.com");
+  });
+
+  it("returns a mobile session when Calendar connect came from the native app", async () => {
+    const event = createEvent({
+      code: "google-code",
+      state: "encoded-state",
+    });
+    mocks.getSession.mockResolvedValue(null);
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/callback",
+      owner: "owner@example.com",
+      orgId: "org-123",
+      mobile: true,
+      addAccount: true,
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: "owner@example.com",
+      hasProductionSession: false,
+    });
+    mocks.exchangeCode.mockResolvedValue("steve@builder.io");
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+
+    await handleGoogleCallback(event as any);
+
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "owner@example.com",
+      expect.objectContaining({ mobile: true }),
+    );
+    expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
+      event,
+      "steve@builder.io",
+      expect.objectContaining({
+        mobile: true,
+        sessionToken: "owner-session-token",
+      }),
+    );
+  });
+
+  it("passes the canonical new-user result into Google signup tracking", async () => {
+    const event = createEvent({ code: "google-code", state: "encoded-state" });
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/callback",
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: undefined,
+      hasProductionSession: false,
+    });
+    mocks.ensureGoogleAuthIdentity.mockResolvedValue(true);
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ access_token: "token" }))
+        .mockResolvedValueOnce(
+          Response.json({
+            email: "new-user@example.com",
+            id: "google-user-1",
+            name: "New User",
+            picture: "https://lh3.googleusercontent.com/a/avatar.jpg",
+            verified_email: true,
+          }),
+        ),
+    );
+
+    await expect(handleGoogleCallback(event as any)).resolves.toBe("ok");
+
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "new-user@example.com",
+      expect.objectContaining({
+        trackSignup: expect.objectContaining({ isNewUser: true }),
       }),
     );
   });

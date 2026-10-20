@@ -1,10 +1,10 @@
-import { defineAction } from "@agent-native/core";
-import { getText, hasCollabState } from "@agent-native/core/collab";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readLiveSourceFile } from "../server/source-workspace.js";
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
@@ -48,15 +48,17 @@ async function liveContent(
   fileId: string,
   storedContent: string,
 ): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // The stored SQL content remains the deterministic fallback.
-  }
-  return storedContent;
+  return (
+    await readLiveSourceFile({
+      id: fileId,
+      designId: "",
+      filename: "index.html",
+      fileType: "html",
+      content: storedContent,
+      createdAt: null,
+      updatedAt: null,
+    })
+  ).content;
 }
 
 async function resolveDesignFileSource(
@@ -73,7 +75,9 @@ async function resolveDesignFileSource(
 
   const db = getDb();
   const conditions = [
-    accessFilter(schema.designs, schema.designShares),
+    accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+      includePublic: true,
+    }),
     source.fileId
       ? eq(schema.designFiles.id, source.fileId)
       : eq(schema.designFiles.designId, source.designId ?? ""),

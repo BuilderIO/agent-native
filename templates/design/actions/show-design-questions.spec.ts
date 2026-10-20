@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
+  writeAppStateForCurrentTab: vi.fn(),
   assertAccess: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
+  writeAppStateForCurrentTab: mocks.writeAppStateForCurrentTab,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -25,6 +27,16 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 import action from "./show-design-questions.js";
+
+describe("show-design-questions: external-caller exposure", () => {
+  it("is opted out of MCP/A2A — the answers only ever return through the in-app chat", () => {
+    expect(action.mcpTool).toBe(false);
+  });
+
+  it("does not tell a generic caller to wait for the user directly", () => {
+    expect(action.tool.description).toMatch(/in-app Design agent/);
+  });
+});
 
 describe("show-design-questions", () => {
   it("writes a question payload to the main design question state", async () => {
@@ -83,11 +95,11 @@ describe("show-design-questions", () => {
         ],
       },
     );
-    expect(mocks.writeAppState).toHaveBeenNthCalledWith(2, "navigate", {
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
       view: "editor",
       designId: "design_123",
       editorView: "overview",
-      path: "/design/design_123?view=overview",
+      path: "/design/design_123?editorView=overview",
     });
     expect(result).toMatchObject({
       designId: "design_123",

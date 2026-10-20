@@ -18,7 +18,9 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 import {
   assertGenerationArtifactAccessProof,
   createGenerationArtifactAccessCapability,
+  createGenerationCreativeContextSnapshotCapability,
   verifyGenerationArtifactAccessCapability,
+  verifyGenerationCreativeContextSnapshotCapability,
 } from "./generation-artifact-access.js";
 
 const originalKey = process.env.CREATIVE_CONTEXT_A2A_KEY;
@@ -26,6 +28,30 @@ const identity = {
   appId: "slides",
   artifactType: "deck",
   artifactId: "deck-1",
+};
+const snapshot = {
+  ...identity,
+  contextMode: "pinned" as const,
+  contextPackId: "pack-1",
+  reuseLabels: [
+    {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "brand-voice",
+      label: "Voice reference",
+      dataRole: "untrusted-reference" as const,
+    },
+  ],
+  elementProvenance: [
+    {
+      elementId: "slide-1",
+      influence: "reference-conditioned" as const,
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      label: "Voice reference",
+    },
+  ],
+  onlyIfMissing: true as const,
 };
 
 describe("generation artifact access capabilities", () => {
@@ -62,8 +88,53 @@ describe("generation artifact access capabilities", () => {
       "record",
     );
     expect(() =>
-      assertGenerationArtifactAccessProof(identity, proof, "editor"),
+      assertGenerationArtifactAccessProof(identity, proof, "record"),
     ).not.toThrow();
+  });
+
+  it("mints the host-declared role when recording is only draft work", async () => {
+    mocks.assertAccess.mockResolvedValue({ role: "viewer" });
+
+    const token = await createGenerationArtifactAccessCapability(
+      { appId: "assets", artifactType: "generation-run", artifactId: "run-1" },
+      {
+        resourceType: "asset-library",
+        resourceId: "lib-1",
+        recordMinRole: "viewer",
+      },
+      "record",
+    );
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "asset-library",
+      "lib-1",
+      "viewer",
+      undefined,
+      { skipResourceBody: true },
+    );
+
+    const proof = await verifyGenerationArtifactAccessCapability(
+      token,
+      { appId: "assets", artifactType: "generation-run", artifactId: "run-1" },
+      "record",
+    );
+    expect(proof.verifiedRole).toBe("viewer");
+  });
+
+  it("will not let a read capability stand in for a record", async () => {
+    const readToken = await createGenerationArtifactAccessCapability(
+      identity,
+      { resourceType: "deck", resourceId: "deck-1" },
+      "read",
+    );
+    const readProof = await verifyGenerationArtifactAccessCapability(
+      readToken,
+      identity,
+      "read",
+    );
+
+    expect(() =>
+      assertGenerationArtifactAccessProof(identity, readProof, "record"),
+    ).toThrow(/verified by the host application/i);
   });
 
   it("binds the capability to caller, artifact identity, and operation", async () => {
@@ -100,5 +171,24 @@ describe("generation artifact access capabilities", () => {
     await expect(
       verifyGenerationArtifactAccessCapability(forged, identity, "read"),
     ).rejects.toThrow(/invalid generation artifact access capability/i);
+  });
+
+  it("binds snapshot receipts to the exact provenance and caller", async () => {
+    const token =
+      await createGenerationCreativeContextSnapshotCapability(snapshot);
+
+    await expect(
+      verifyGenerationCreativeContextSnapshotCapability(token, snapshot),
+    ).resolves.toBeUndefined();
+    await expect(
+      verifyGenerationCreativeContextSnapshotCapability(token, {
+        ...snapshot,
+        contextPackId: "other-pack",
+      }),
+    ).rejects.toThrow(/invalid creative context snapshot capability/i);
+    mocks.getRequestUserEmail.mockReturnValue("mallory@example.test");
+    await expect(
+      verifyGenerationCreativeContextSnapshotCapability(token, snapshot),
+    ).rejects.toThrow(/invalid creative context snapshot capability/i);
   });
 });

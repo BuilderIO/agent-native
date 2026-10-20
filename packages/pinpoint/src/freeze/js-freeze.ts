@@ -24,12 +24,6 @@ let originals: {
   requestAnimationFrame: typeof requestAnimationFrame;
 } | null = null;
 
-/**
- * Freeze JS timers by monkey-patching setTimeout, setInterval, rAF.
- * Queued callbacks are replayed on unfreeze.
- *
- * **Opt-in only** — call this explicitly when config.freezeJSTimers is true.
- */
 export function freezeJSTimers(): () => void {
   if (frozen) return () => {};
 
@@ -44,24 +38,21 @@ export function freezeJSTimers(): () => void {
     requestAnimationFrame: window.requestAnimationFrame.bind(window),
   };
 
-  // Patch setTimeout
   (window as any).setTimeout = (
     callback: Function | string,
     delay?: number,
     ...args: any[]
   ) => {
     if (typeof callback !== "function") return 0;
-    // Skip our own callbacks (Symbol-based filter)
     if ((callback as any)[PINPOINT_SYMBOL]) {
       return originals!.setTimeout(callback, delay, ...args);
     }
     if (queue.length < MAX_QUEUE) {
       queue.push({ type: "timeout", callback, delay, args });
     }
-    return 0; // Return fake timer ID
+    return 0;
   };
 
-  // Patch setInterval
   (window as any).setInterval = (
     callback: Function | string,
     delay?: number,
@@ -77,7 +68,6 @@ export function freezeJSTimers(): () => void {
     return 0;
   };
 
-  // Patch requestAnimationFrame
   (window as any).requestAnimationFrame = (callback: FrameRequestCallback) => {
     if ((callback as any)[PINPOINT_SYMBOL]) {
       return originals!.requestAnimationFrame(callback);
@@ -92,14 +82,12 @@ export function freezeJSTimers(): () => void {
     if (!frozen || !originals) return;
     frozen = false;
 
-    // Restore originals
     window.setTimeout = originals.setTimeout as any;
     window.setInterval = originals.setInterval as any;
     window.clearTimeout = originals.clearTimeout;
     window.clearInterval = originals.clearInterval;
     window.requestAnimationFrame = originals.requestAnimationFrame;
 
-    // Staggered replay via requestIdleCallback
     const replayBatch = () => {
       const batch = queue.splice(0, 50);
       for (const item of batch) {
@@ -132,9 +120,6 @@ export function freezeJSTimers(): () => void {
   };
 }
 
-/**
- * Mark a callback as internal to Pinpoint, so it's not frozen.
- */
 export function markInternal<T extends Function>(fn: T): T {
   (fn as any)[PINPOINT_SYMBOL] = true;
   return fn;

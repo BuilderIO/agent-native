@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { readScreenMemoryStatus } from "@agent-native/core/mcp-client";
 import { z } from "zod";
 
@@ -8,6 +8,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  dedupe: false,
   run: async () => {
     const status = await readScreenMemoryStatus();
     return {

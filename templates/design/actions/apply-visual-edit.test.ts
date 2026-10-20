@@ -1,15 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
-  // `where()` must behave both as a directly-awaited result (the initial
-  // file lookup in apply-visual-edit.ts's resolveEditableDesignFile) AND as
-  // a chain that supports a trailing `.limit(1)` (writeInlineSourceFile's
-  // internal re-select in server/source-workspace.ts, now used by this
-  // action's write path via persistDesignFileEdit). Returning a real Promise
-  // with an extra `.limit()` method attached covers both call shapes with
-  // the same mocked resolved value. Same pattern as the 8 sibling actions
-  // migrated to readLiveSourceFile/writeInlineSourceFile (see
-  // insert-design-native-asset.spec.ts).
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
@@ -18,13 +9,6 @@ const mocks = vi.hoisted(() => {
     return promise;
   }
 
-  // Backing rows for the configured design's files. The action's own lookup
-  // filters by fileId/designId+filename (the fake accessFilter/and don't
-  // narrow further, so this fake matches by shape); writeInlineSourceFile's
-  // internal re-select filters by a single file id (`eq(designFiles.id,
-  // file.id)`), which this fake `where` recognizes by shape and narrows to,
-  // so the SAME row the action targeted is what gets re-selected for the CAS
-  // check.
   let rows: Array<Record<string, unknown>> = [];
   const fileSelectChain = {
     from: vi.fn(),
@@ -50,14 +34,10 @@ const mocks = vi.hoisted(() => {
   const db = {
     select: vi.fn(() => fileSelectChain),
     update: vi.fn(() => updateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+    transaction: vi.fn(async (callback) => callback(db)),
   };
 
-  // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile
-  // re-reads getText() right after seedFromText/applyText to persist the
-  // "authoritative" collab content back to SQL, so seedFromText must
-  // actually store what getText reads back. Cleared per-test in beforeEach
-  // (the vi.mock factory only runs once per file, so without an explicit
-  // reset this map would leak seeded content across tests).
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -85,12 +65,52 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@agent-native/core/collab", () => {
   const seeded = mocks.seededCollabText;
+  function makePreparedDoc(docId: string) {
+    const doc = {
+      content: seeded.get(docId) ?? "",
+      getText: vi.fn(() => ({
+        toString: () => doc.content,
+      })),
+    };
+    return doc;
+  }
+
   return {
+    CollabBaseVersionConflictError: class extends Error {},
     agentEnterDocument: mocks.agentEnterDocument,
     agentLeaveDocument: mocks.agentLeaveDocument,
     agentUpdateSelection: mocks.agentUpdateSelection,
     hasCollabState: mocks.hasCollabState,
     getText: vi.fn(async (docId: string) => seeded.get(docId) ?? ""),
+    applyTextToYDoc: vi.fn(
+      (doc: { content: string }, _fieldName: string, text: string) => {
+        doc.content = text;
+        return new Uint8Array(0);
+      },
+    ),
+    withPreparedYDocMutation: vi.fn(
+      async (
+        docId: string,
+        _requestSource: string | undefined,
+        callback: (lease: {
+          doc: ReturnType<typeof makePreparedDoc>;
+          baseVersion: number | null;
+          persist: (
+            transaction: unknown,
+            textSnapshot: string,
+          ) => Promise<void>;
+        }) => Promise<unknown>,
+      ) => {
+        const doc = makePreparedDoc(docId);
+        return callback({
+          doc,
+          baseVersion: seeded.has(docId) ? 1 : null,
+          persist: async (_transaction, textSnapshot) => {
+            seeded.set(docId, textSnapshot);
+          },
+        });
+      },
+    ),
     applyText: vi.fn(async (docId: string, text: string) => {
       seeded.set(docId, text);
       return text;
@@ -100,6 +120,10 @@ vi.mock("@agent-native/core/collab", () => {
     }),
   };
 });
+
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => mocks.db,
+}));
 
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: mocks.accessFilter,
@@ -191,6 +215,104 @@ describe("apply-visual-edit", () => {
         },
       }).success,
     ).toBe(false);
+  });
+
+  it("requires a value for style sets and omits it for style removal", () => {
+    const base = {
+      source: { kind: "design-file", designId: "design_123" },
+      intent: {
+        kind: "style",
+        target: { selector: "main" },
+        property: "color",
+      },
+    };
+
+    expect(action.schema.safeParse(base).success).toBe(false);
+    expect(
+      action.schema.safeParse({
+        ...base,
+        intent: { ...base.intent, operation: "set", value: "red" },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...base,
+        intent: { ...base.intent, operation: "remove" },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...base,
+        intent: {
+          ...base.intent,
+          operation: "remove",
+          value: "red",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("returns needsAgent for style removal from local JSX", async () => {
+    const result = await action.run({
+      source: {
+        kind: "local-file",
+        designId: "design_123",
+        connectionId: "connection_123",
+        path: "src/App.tsx",
+      },
+      intent: {
+        kind: "style",
+        operation: "remove",
+        target: { sourceAnchor: { line: 1, column: 1 } },
+        property: "color",
+      },
+    });
+
+    expect(result).toMatchObject({
+      result: { status: "needsAgent", changed: false },
+      persisted: false,
+    });
+  });
+
+  it("refuses breakpoint-scoped style removal without changing base or breakpoint CSS", async () => {
+    const content =
+      '<style>.card{color:tomato}@media(max-width:809px){.card{color:purple}}</style><div class="card" style="color:blue!important;color:green;width:10px"></div>';
+    setFiles([
+      {
+        id: "file_123",
+        designId: "design_123",
+        filename: "index.html",
+        fileType: "html",
+        content,
+        designData: JSON.stringify({
+          breakpointSet: {
+            breakpoints: [{ widthPx: 390 }, { widthPx: 810 }],
+          },
+          screenMetadata: { file_123: { width: 1280 } },
+        }),
+      },
+    ]);
+
+    const result = await action.run({
+      source: { kind: "design-file", fileId: "file_123" },
+      intent: {
+        kind: "style",
+        operation: "remove",
+        target: { selector: ".card" },
+        property: "color",
+      },
+      activeFrameWidthPx: 390,
+      includeContent: true,
+      persist: true,
+    });
+
+    expect(result).toMatchObject({
+      result: { status: "needsAgent", changed: false },
+      persisted: false,
+      patchedContent: content,
+    });
+    expect(mocks.applyVisualEdit).not.toHaveBeenCalled();
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
   });
 
   it("fails fast when fileId and designId disagree", async () => {
@@ -290,8 +412,6 @@ describe("apply-visual-edit", () => {
     expect(mocks.agentUpdateSelection).toHaveBeenCalledWith(
       "file_123",
       expect.objectContaining({
-        // Prefers the stable node-id anchor over the projection selector, and
-        // carries a short human-readable edit-intent label.
         selection: {
           selector: '[data-agent-native-node-id="hero-cta"]',
           label: "Editing text",
@@ -339,6 +459,31 @@ describe("apply-visual-edit", () => {
   // through readLiveSourceFile/writeInlineSourceFile (expectedVersionHash
   // CAS), not the old raw unconditional db.update + applyText/seedFromText.
   describe("persistence (readLiveSourceFile / writeInlineSourceFile CAS)", () => {
+    it("rejects broken stylesheet content before writing SQL or collaborative text", async () => {
+      const before =
+        "<style>:root{--primary:#0F766E;--accent:#ccfbf1}</style><main>Orbit</main>";
+      setFile(before);
+      mocks.applyVisualEdit.mockReturnValueOnce({
+        result: { status: "applied", changed: true },
+        projection: { nodes: [] },
+        content: before.replace("--primary:#0F766E;", '--primary:#0F766E;"}]'),
+      });
+
+      await expect(
+        action.run({
+          source: { kind: "design-file", fileId: "file_123" },
+          intent: {
+            kind: "style",
+            target: { selector: "main" },
+            property: "color",
+            value: "red",
+          },
+        }),
+      ).rejects.toThrow(/not valid CSS.*Unclosed string/);
+      expect(mocks.updateChain.set).not.toHaveBeenCalled();
+      expect(mocks.seededCollabText.size).toBe(0);
+    });
+
     it("persists the patched content and reports persisted: true when the edit actually changes the file", async () => {
       mocks.applyVisualEdit.mockReturnValueOnce({
         result: { status: "applied", changed: true },
@@ -358,8 +503,6 @@ describe("apply-visual-edit", () => {
 
       expect(result.persisted).toBe(true);
       expect(lastSavedContent()).toBe("<main>Updated</main>");
-      // agentEnterDocument/agentLeaveDocument presence bookkeeping must still
-      // wrap the persist, matching the pre-CAS-fix behavior.
       expect(mocks.agentEnterDocument).toHaveBeenCalledWith("file_123");
       expect(mocks.agentLeaveDocument).toHaveBeenCalledWith("file_123");
     });
@@ -386,15 +529,6 @@ describe("apply-visual-edit", () => {
     });
 
     it("surfaces a stale-base error instead of silently overwriting a concurrent collab edit", async () => {
-      // Simulate a live collab doc for this file (hasCollabState: true) so
-      // readLiveSourceFile's base comes from getText/seededCollabText rather
-      // than the SQL-stored content. applyVisualEdit runs synchronously
-      // between this action's initial live-content read (which captures
-      // `live.versionHash`) and its persist call — mutating the seeded collab
-      // text from inside the applyVisualEdit mock models a concurrent
-      // writer's change landing in exactly that window, which
-      // writeInlineSourceFile's internal re-check must catch and reject
-      // rather than silently overwrite.
       mocks.hasCollabState.mockResolvedValue(true);
       mocks.seededCollabText.set("file_123", "<main>Hello</main>");
       mocks.applyVisualEdit.mockImplementationOnce(() => {

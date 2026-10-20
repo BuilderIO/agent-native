@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   grants: [] as Array<Record<string, unknown>>,
   secrets: new Map<string, string>(),
   localCredential: undefined as string | undefined,
+  localCredentialScope: "user" as "user" | "org" | "workspace",
+  localCredentialScopeId: undefined as string | undefined,
+  currentUserEmail: "owner@example.test",
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
@@ -55,6 +58,73 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
   ),
   listWorkspaceConnections: vi.fn(async () => mocks.connections),
   listWorkspaceConnectionGrants: vi.fn(async () => mocks.grants),
+  resolveWorkspaceConnectionForApp: vi.fn(
+    async ({
+      connectionId,
+      appId,
+    }: {
+      connectionId: string;
+      appId: string;
+    }) => {
+      const connection = mocks.connections.find(
+        (entry) => entry.id === connectionId,
+      );
+      if (!connection) {
+        return {
+          available: false,
+          connection: null,
+          appAccess: null,
+          reason: `Workspace connection "${connectionId}" was not found in the current request scope.`,
+        };
+      }
+      const allowedApps = (connection as Record<string, any>).allowedApps ?? [];
+      const allowedUsers =
+        (connection as Record<string, any>).allowedUsers ?? [];
+      const status = (connection as Record<string, any>).status;
+      const grant = (mocks.grants as Array<Record<string, any>>).find(
+        (entry) =>
+          entry.connectionId === connectionId &&
+          (entry.appId === appId || entry.appId === "*"),
+      );
+      const appAllowed =
+        allowedApps.length === 0 ||
+        allowedApps.includes(appId) ||
+        Boolean(grant);
+      const userAllowed =
+        allowedUsers.length === 0 ||
+        allowedUsers.includes(mocks.currentUserEmail);
+      const healthy = status === "connected";
+      const available = healthy && appAllowed && userAllowed;
+      return {
+        available,
+        reason: available
+          ? "Connection is available to the current request scope."
+          : healthy
+            ? "Connection is restricted to different workspace members."
+            : "Connection is not connected.",
+        connection: available ? connection : null,
+        appAccess: {
+          appId,
+          available,
+          mode: !appAllowed
+            ? "unavailable"
+            : allowedUsers.length > 0 && !userAllowed
+              ? "unavailable"
+              : grant
+                ? "explicit-grant"
+                : "all-apps",
+          reason: available
+            ? "Connection is available to the current request scope."
+            : !healthy
+              ? "Connection is not connected."
+              : !appAllowed
+                ? `Grant ${appId} access before this connection can be reused by the app.`
+                : "Connection is restricted to different workspace members.",
+          grantId: grant?.id ?? null,
+        },
+      };
+    },
+  ),
 }));
 
 vi.mock("@agent-native/core/secrets", () => ({
@@ -65,12 +135,23 @@ vi.mock("@agent-native/core/secrets", () => ({
 }));
 
 vi.mock("@agent-native/core/credentials", () => ({
-  resolveCredential: vi.fn(async () => mocks.localCredential),
+  resolveCredentialDetailed: vi.fn(
+    async (_key: string, ctx: { userEmail: string }) =>
+      mocks.localCredential
+        ? {
+            value: mocks.localCredential,
+            scope: mocks.localCredentialScope,
+            scopeId: mocks.localCredentialScopeId ?? ctx.userEmail,
+          }
+        : undefined,
+  ),
 }));
 
 import {
+  assertSourceCredentialAvailable,
   inspectSourceCredentialAvailability,
   resolveSourceCredential,
+  resolveSourceCredentialWithProvenance,
 } from "./source-credentials.js";
 
 describe("resolveSourceCredential", () => {
@@ -79,6 +160,9 @@ describe("resolveSourceCredential", () => {
     mocks.grants = [];
     mocks.secrets.clear();
     mocks.localCredential = undefined;
+    mocks.localCredentialScope = "user";
+    mocks.localCredentialScopeId = undefined;
+    mocks.currentUserEmail = "owner@example.test";
   });
 
   it("prefers granted workspace connection credentials without exposing values in availability", async () => {
@@ -131,6 +215,7 @@ describe("resolveSourceCredential", () => {
         grantId: "grant-1",
         appAccessMode: "explicit-grant",
         scope: "org",
+        scopeId: "org-1",
       },
       missingMessage: null,
     });
@@ -148,6 +233,20 @@ describe("resolveSourceCredential", () => {
         ctx: { userEmail: "owner@example.test", orgId: "org-1" },
       }),
     ).resolves.toBe("brain-local-token");
+    await expect(
+      resolveSourceCredentialWithProvenance({
+        provider: "github",
+        key: "GITHUB_TOKEN",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "brain-local-token",
+      provenance: {
+        source: "brain_local",
+        scope: "user",
+        scopeId: "owner@example.test",
+      },
+    });
 
     mocks.localCredential = undefined;
     mocks.secrets.set("org:org-1:GITHUB_TOKEN", "registered-token");
@@ -158,6 +257,186 @@ describe("resolveSourceCredential", () => {
         ctx: { userEmail: "owner@example.test", orgId: "org-1" },
       }),
     ).resolves.toBe("registered-token");
+    await expect(
+      resolveSourceCredentialWithProvenance({
+        provider: "github",
+        key: "GITHUB_TOKEN",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "registered-token",
+      provenance: {
+        source: "registered_secret",
+        scope: "org",
+        scopeId: "org-1",
+      },
+    });
+  });
+
+  it("resolves organization-scoped local and registered secrets in org-only mode", async () => {
+    const ctx = {
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      credentialScope: "org" as const,
+    };
+    mocks.localCredential = "test-org-local-key";
+    mocks.localCredentialScope = "org";
+    mocks.localCredentialScopeId = "org-1";
+
+    await expect(
+      resolveSourceCredentialWithProvenance({
+        provider: "gong",
+        key: "GONG_ACCESS_KEY",
+        ctx,
+      }),
+    ).resolves.toMatchObject({
+      value: "test-org-local-key",
+      provenance: {
+        source: "brain_local",
+        scope: "org",
+        scopeId: "org-1",
+      },
+    });
+
+    mocks.localCredential = undefined;
+    mocks.localCredentialScope = "user";
+    mocks.localCredentialScopeId = undefined;
+    mocks.secrets.set("org:org-1:GONG_ACCESS_KEY", "test-org-key");
+
+    await expect(
+      resolveSourceCredentialWithProvenance({
+        provider: "gong",
+        key: "GONG_ACCESS_KEY",
+        ctx,
+      }),
+    ).resolves.toMatchObject({
+      value: "test-org-key",
+      provenance: {
+        source: "registered_secret",
+        scope: "org",
+        scopeId: "org-1",
+      },
+    });
+  });
+
+  it("does not resolve user-scoped credentials in org-only mode", async () => {
+    mocks.localCredential = "test-personal-key";
+    mocks.secrets.set(
+      "user:owner@example.test:GONG_ACCESS_KEY",
+      "test-user-key",
+    );
+
+    const availability = await inspectSourceCredentialAvailability({
+      provider: "gong",
+      key: "GONG_ACCESS_KEY",
+      ctx: {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        credentialScope: "org",
+      },
+    });
+
+    expect(availability).toMatchObject({
+      available: false,
+      provenance: null,
+    });
+    expect(availability.checked).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "brain_local",
+          status: "missing",
+        }),
+        expect.objectContaining({
+          source: "registered_secret",
+          status: "missing",
+        }),
+      ]),
+    );
+  });
+
+  it.each(["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"])(
+    "uses the organization Gong %s when a personal override also exists",
+    async (key) => {
+      mocks.secrets.set(`user:owner@example.test:${key}`, "personal-value");
+      mocks.secrets.set(`org:org-1:${key}`, "organization-value");
+
+      await expect(
+        resolveSourceCredentialWithProvenance({
+          provider: "gong",
+          key,
+          ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        }),
+      ).resolves.toMatchObject({
+        value: "organization-value",
+        provenance: {
+          source: "registered_secret",
+          provider: "gong",
+          key,
+          scope: "org",
+          scopeId: "org-1",
+        },
+      });
+    },
+  );
+
+  it("does not resolve user-scoped workspace connection refs in org-only mode", async () => {
+    mocks.connections = [
+      {
+        id: "personal-gong",
+        label: "Personal Gong",
+        provider: "gong",
+        status: "connected",
+        allowedApps: [],
+        credentialRefs: [{ key: "GONG_ACCESS_KEY", scope: "user" }],
+      },
+    ];
+    mocks.secrets.set(
+      "user:owner@example.test:GONG_ACCESS_KEY",
+      "test-user-key",
+    );
+
+    const availability = await inspectSourceCredentialAvailability({
+      provider: "gong",
+      key: "GONG_ACCESS_KEY",
+      workspaceConnectionId: "personal-gong",
+      ctx: {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        credentialScope: "org",
+      },
+    });
+
+    expect(availability).toMatchObject({
+      available: false,
+      provenance: null,
+    });
+    expect(availability.checked).toEqual([
+      expect.objectContaining({
+        source: "workspace_connection",
+        status: "missing",
+        connectionId: "personal-gong",
+      }),
+    ]);
+  });
+
+  it("keeps user-first registered-secret lookup without org-only scope", async () => {
+    mocks.secrets.set("user:owner@example.test:GITHUB_TOKEN", "test-user-key");
+    mocks.secrets.set("org:org-1:GITHUB_TOKEN", "test-org-key");
+
+    await expect(
+      resolveSourceCredentialWithProvenance({
+        provider: "github",
+        key: "GITHUB_TOKEN",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "test-user-key",
+      provenance: {
+        source: "registered_secret",
+        scope: "user",
+        scopeId: "owner@example.test",
+      },
+    });
   });
 
   it("does not fall back to deploy env credentials for source credentials", async () => {
@@ -324,6 +603,89 @@ describe("resolveSourceCredential", () => {
         source: "workspace_connection",
         status: "not_granted",
         connectionId: "bound-calendar",
+      }),
+    ]);
+  });
+
+  it("rejects a connected source when its referenced credential is missing", async () => {
+    mocks.connections = [
+      {
+        id: "conn-slack",
+        label: "Builder Slack",
+        provider: "slack",
+        status: "connected",
+        allowedApps: ["brain"],
+        credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+      },
+    ];
+
+    await expect(
+      assertSourceCredentialAvailable({
+        provider: "slack",
+        workspaceConnectionId: "conn-slack",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).rejects.toThrow(/SLACK_BOT_TOKEN.*missing/i);
+  });
+
+  it("allows source setup when the selected credential resolves", async () => {
+    mocks.connections = [
+      {
+        id: "conn-slack",
+        label: "Builder Slack",
+        provider: "slack",
+        status: "connected",
+        allowedApps: ["brain"],
+        credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+      },
+    ];
+    mocks.secrets.set("org:org-1:SLACK_BOT_TOKEN", "slack-token");
+
+    await expect(
+      assertSourceCredentialAvailable({
+        provider: "slack",
+        workspaceConnectionId: "conn-slack",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects a restricted workspace connection for a non-allowed user", async () => {
+    mocks.connections = [
+      {
+        id: "conn-slack",
+        label: "Restricted Slack",
+        provider: "slack",
+        status: "connected",
+        allowedApps: ["brain"],
+        allowedUsers: ["owner@example.test"],
+        credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+      },
+    ];
+    mocks.secrets.set("org:org-1:SLACK_BOT_TOKEN", "slack-token");
+    mocks.currentUserEmail = "teammate@example.test";
+
+    await expect(
+      assertSourceCredentialAvailable({
+        provider: "slack",
+        workspaceConnectionId: "conn-slack",
+        ctx: { userEmail: "teammate@example.test", orgId: "org-1" },
+      }),
+    ).rejects.toThrow(/not granted to Brain/i);
+
+    const availability = await inspectSourceCredentialAvailability({
+      provider: "slack",
+      key: "SLACK_BOT_TOKEN",
+      workspaceConnectionId: "conn-slack",
+      ctx: { userEmail: "teammate@example.test", orgId: "org-1" },
+    });
+
+    expect(availability.available).toBe(false);
+    expect(availability.checked).toEqual([
+      expect.objectContaining({
+        source: "workspace_connection",
+        status: "not_granted",
+        connectionId: "conn-slack",
       }),
     ]);
   });

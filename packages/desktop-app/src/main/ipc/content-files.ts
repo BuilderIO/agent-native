@@ -4,6 +4,8 @@ import {
   type DesktopContentFileRevealRequest,
   type DesktopContentFileWriteRequest,
   type DesktopContentFilesClearFolderRequest,
+  type DesktopContentFilesAssociateSourceRequest,
+  type DesktopContentFilesChangesRequest,
   type DesktopContentFilesFolder,
   type DesktopContentFilesFolderRequest,
   type DesktopContentFilesResult,
@@ -14,7 +16,6 @@ import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import type { ContentFilesGrant } from "../index";
 
 export interface ContentFilesIpcDeps {
-  /** Rejects requests that don't come from the Content app's own webview. */
   requireContentFilesWebviewAccess: (
     event: IpcMainInvokeEvent,
   ) => DesktopContentFilesResult | null;
@@ -27,6 +28,9 @@ export interface ContentFilesIpcDeps {
     grants?: ContentFilesGrant[],
   ) => DesktopContentFilesFolder[];
   chooseContentFilesFolder: () => Promise<DesktopContentFilesResult>;
+  associateContentFilesSource: (
+    request: DesktopContentFilesAssociateSourceRequest,
+  ) => DesktopContentFilesResult;
   writeContentFilesForRequest: (
     request: DesktopContentFilesWriteRequest,
   ) => Promise<DesktopContentFilesResult>;
@@ -43,13 +47,16 @@ export interface ContentFilesIpcDeps {
     request: DesktopContentFileRevealRequest,
   ) => Promise<DesktopContentFilesResult>;
   clearContentFilesGrant: (folderId?: string) => DesktopContentFilesResult;
+  subscribeContentFilesChanges: (
+    event: IpcMainInvokeEvent,
+    folderId?: string,
+  ) => DesktopContentFilesResult;
+  unsubscribeContentFilesChanges: (
+    event: IpcMainInvokeEvent,
+    folderId?: string,
+  ) => DesktopContentFilesResult;
 }
 
-/**
- * Registers the Content-app local-folder sync IPC handlers (get/choose/write/
- * write-file/delete-file/read/reveal-file/clear). All access is gated to the
- * Content app's own webview via `requireContentFilesWebviewAccess`.
- */
 export function registerContentFilesIpc(deps: ContentFilesIpcDeps): void {
   const {
     requireContentFilesWebviewAccess,
@@ -58,12 +65,15 @@ export function registerContentFilesIpc(deps: ContentFilesIpcDeps): void {
     contentFilesFolderInfo,
     contentFilesFoldersInfo,
     chooseContentFilesFolder,
+    associateContentFilesSource,
     writeContentFilesForRequest,
     writeContentFileForRequest,
     deleteContentFileForRequest,
     readContentFilesForRequest,
     revealContentFileForRequest,
     clearContentFilesGrant,
+    subscribeContentFilesChanges,
+    unsubscribeContentFilesChanges,
   } = deps;
 
   ipcMain.handle(
@@ -91,6 +101,18 @@ export function registerContentFilesIpc(deps: ContentFilesIpcDeps): void {
       const denied = requireContentFilesWebviewAccess(event);
       if (denied) return Promise.resolve(denied);
       return chooseContentFilesFolder();
+    },
+  );
+
+  ipcMain.handle(
+    IPC.CONTENT_FILES_ASSOCIATE_SOURCE,
+    (
+      event: IpcMainInvokeEvent,
+      request: DesktopContentFilesAssociateSourceRequest,
+    ): DesktopContentFilesResult => {
+      const denied = requireContentFilesWebviewAccess(event);
+      if (denied) return denied;
+      return associateContentFilesSource(request);
     },
   );
 
@@ -163,6 +185,30 @@ export function registerContentFilesIpc(deps: ContentFilesIpcDeps): void {
       const denied = requireContentFilesWebviewAccess(event);
       if (denied) return denied;
       return clearContentFilesGrant(request.folderId);
+    },
+  );
+
+  ipcMain.handle(
+    IPC.CONTENT_FILES_SUBSCRIBE_CHANGES,
+    (
+      event: IpcMainInvokeEvent,
+      request: DesktopContentFilesChangesRequest = {},
+    ): DesktopContentFilesResult => {
+      const denied = requireContentFilesWebviewAccess(event);
+      if (denied) return denied;
+      return subscribeContentFilesChanges(event, request.folderId);
+    },
+  );
+
+  ipcMain.handle(
+    IPC.CONTENT_FILES_UNSUBSCRIBE_CHANGES,
+    (
+      event: IpcMainInvokeEvent,
+      request: DesktopContentFilesChangesRequest = {},
+    ): DesktopContentFilesResult => {
+      const denied = requireContentFilesWebviewAccess(event);
+      if (denied) return denied;
+      return unsubscribeContentFilesChanges(event, request.folderId);
     },
   );
 }

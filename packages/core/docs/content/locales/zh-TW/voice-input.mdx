@@ -13,7 +13,7 @@ description: "代理聊天編輯器中的語音聽寫 - Builder Gemini、BYOK �
 
 開啟麥克風後，彈出式選單會讓您在**即時語音對話**和**可編輯聽寫**之間選擇。即時模式需要使用者範圍的 `OPENAI_API_KEY`，並透過 WebRTC 將瀏覽器連線到 `gpt-realtime-2.1`。聊天會收合為右下角的語音球；點選語音球即可顯示或隱藏聊天，而不會結束對話。即使聊天自動開啟，語音球也會持續顯示在聊天上方；精簡的波形會即時回應您和助理的聲音。
 
-語音模型使用與聊天相同且經過驗證的 Agent Native 工具，因此可以一邊說話，一邊在應用程式中導覽和呼叫動作。需要核准的動作會維持暫停，直到您核准為止。只有使用者和助理已完成的文字發言會附加到開始語音時的聊天討論串。結束語音模式後，聊天會自動開啟，方便您繼續輸入文字；音訊和暫時的轉錄片段都不會儲存。即時工作階段最長可持續 60 分鐘。
+語音模型使用與聊天相同且經過驗證的 Agent-Native 工具，因此可以一邊說話，一邊在應用程式中導覽和呼叫動作。需要核准的動作會維持暫停，直到您核准為止。只有使用者和助理已完成的文字發言會附加到開始語音時的聊天討論串。結束語音模式後，聊天會自動開啟，方便您繼續輸入文字；音訊和暫時的轉錄片段都不會儲存。即時工作階段最長可持續 60 分鐘。
 
 ## 它是如何工作的 {#how-it-works}
 
@@ -75,15 +75,15 @@ description: "代理聊天編輯器中的語音聽寫 - Builder Gemini、BYOK �
 
 ## 啟用提供者 {#enabling-providers}
 
-Builder 是最簡單的路徑：從“設定”連線 Builder.io（提供免費方案），預設提供者變為 Builder Gemini Flash-Lite。對於 BYOK 提供者，請在“設定”→“API 金鑰”中新增匹配的金鑰。
+Builder 是最簡單的路徑：從 **Settings → Connections → Integrations** 使用 Builder.io（提供免費方案），預設提供者變為 Builder Gemini Flash-Lite。對於 BYOK 提供者，請新增對應的 Gemini、Groq 或 OpenAI 金鑰。
 
 ### 每使用者（推薦用於 SaaS）
 
-使用者透過代理側邊欄設定 UI 設定自己的金鑰。它儲存為使用者範圍的加密秘密（透過 `readAppSecret`）。每個使用者為自己的轉錄付費；主機零成本。
+使用者在 **Settings → Agent → Model** 的 **Personal providers** 中新增自己的金鑰。它儲存為使用者範圍的加密秘密（透過 `readAppSecret`）。每個使用者為自己的轉錄付費；主機零成本。
 
 ### 共用（用於內部工具）
 
-將 `GEMINI_API_KEY`、`GROQ_API_KEY` 或 `OPENAI_API_KEY` 設定為環境變數或在 `settings` 表中。每個使用者的轉錄都會命中共用金鑰。
+將 `GEMINI_API_KEY`、`GROQ_API_KEY` 或 `OPENAI_API_KEY` 設定為環境變數，或請擁有者或管理員在 **Settings → Agent → Model** 的 **Organization providers** 中為組織新增。**Settings → Organization → Infrastructure** 中的 **Voice input** 列決定哪個提供者優先回應。每個使用者的轉錄都會使用共用金鑰。
 
 <Callout id="doc-block-j2gze7" tone="info">
 

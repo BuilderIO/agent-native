@@ -11,7 +11,7 @@ description: "Slack、Microsoft Teams、Discord インタラクション、メ�
 >
 > Teams には `MICROSOFT_TEAMS_APP_ID`、`MICROSOFT_TEAMS_APP_PASSWORD`、`MICROSOFT_TEAMS_ALLOWED_TENANT_IDS` が必要です。Discord には `DISCORD_APPLICATION_ID` と `DISCORD_PUBLIC_KEY` が必要です。Telegram には `TELEGRAM_WEBHOOK_SECRET`、WhatsApp には `WHATSAPP_APP_SECRET` も必要です。
 
-> **ディスパッチ テンプレートを使用しますか?** これらすべては **[設定] → [メッセージング]** で設定されます。クリックして各プラットフォームに接続します。独自のテンプレートをカスタマイズまたは構築する場合を除き、このページの残りの部分を読む必要はありません。 [Dispatch](/docs/dispatch) または [Dispatch template reference](/docs/template-dispatch) を参照してください。
+> **ディスパッチ テンプレートを使用しますか?** これらすべては **[管理] → [メッセージング]** で設定されます。クリックして各プラットフォームに接続します。独自のテンプレートをカスタマイズまたは構築する場合を除き、このページの残りの部分を読む必要はありません。 [Dispatch](/docs/dispatch) または [Dispatch template reference](/docs/template-dispatch) を参照してください。
 
 ## あなたにできること {#what-you-can-do}
 
@@ -127,7 +127,7 @@ Slack アプリには 1 つのイベント API リクエスト URL がありま�
 
 ### ヒント
 
-- **チャンネルメンション** — 作業開始時は @mention します。メンションなしの返信は、その同じスレッドで作業中の間だけ続行されます。
+- **チャンネルメンション** — 作業開始時は @mention します。エージェントに処理させる各チャンネルメッセージには明示的なメンションが必要です。通常のスレッド返信やチャンネルの一般的な会話では起動しません。
 - **DM** — 受け付ける個人 DM は非公開の会話であり、確認済み組織メンバーまたはリンク済み Slack ID が必要です。
 - **ID** — DM は検証済み Slack メールを同じアプリユーザーに関連付けられます。管理チャンネルは独自のサービス ID とポリシーを使用します。
 - **運用許可リスト** — 有効な署名シークレットが予期しないワークスペースで再利用されないように、`SLACK_ALLOWED_TEAM_IDS` を設定し、共有 Slack アプリの場合は `SLACK_ALLOWED_API_APP_IDS` を設定します。
@@ -135,13 +135,13 @@ Slack アプリには 1 つのイベント API リクエスト URL がありま�
 
 ### 管理対象の Add to Slack
 
-管理対象 OAuth が推奨設定です。**設定 → Messaging** で **Agent manifest** を選択し、
+管理対象 OAuth が推奨設定です。**管理 → Messaging** で **Agent manifest** を選択し、
 ホスト固有の `agent-native-slack-manifest.json` をダウンロードして、Slack の
 **App Manifest** からインポートします。このマニフェストは現在の `agent_view` と、
 DM 用の書き込み可能な **Messages** タブを有効にします。次の Bot Token Scopes を確認します。
 
 アプリアイコンはマニフェストには含まれません。Agents ピッカーを製品ブランドに合わせるため、
-**Basic Information → Display Information** で Agent Native アイコンをアップロードします。
+**Basic Information → Display Information** で Agent-Native アイコンをアップロードします。
 アプリの公開 `icon-512.svg` を元に、必要に応じて Slack が受け付けるアップロード形式へ変換できます。
 
 ```text
@@ -169,10 +169,9 @@ Event Subscriptions Request URL を
 `https://your-app.example.com/_agent-native/integrations/slack/webhook`、
 Interactivity Request URL を
 `https://your-app.example.com/_agent-native/integrations/slack/interactions` に設定します。
-`app_home_opened`、`app_context_changed`、`app_mention`、`message.channels`、
-`message.groups`、`message.im`、`message.mpim` を購読します。
+`app_home_opened`、`app_context_changed`、`app_mention`、`message.im` を購読します。
 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`、`SLACK_SIGNING_SECRET`
-を設定したら、**設定 → Messaging** で **Add to Slack** を選択します。各インストールの
+を設定したら、**管理 → Messaging** で **Add to Slack** を選択します。各インストールの
 トークンは暗号化され、会話キーはワークスペース、アプリ、チャンネル、スレッド別です。
 
 マニフェスト、スコープ、イベント、Agent view、Messages タブを変更した後は Slack アプリを
@@ -182,11 +181,11 @@ Interactivity Request URL を
 自分のトップバーから非表示にできます。インストール済みなのに表示されない場合は、これらの設定を
 確認するか、**Tools → Apps** から開いてください。
 
-個人の Slack DM は、確認済みの Agent Native 組織メンバー、またはそのメンバーにリンク済みの
+個人の Slack DM は、確認済みの Agent-Native 組織メンバー、またはそのメンバーにリンク済みの
 Slack ID からのみ受け付けます。チャンネルのサービスプリンシパルに対するポリシーと予算は別です。
 
-メンションなしの返信は実行中の同じスレッドだけを操作し、通常のチャンネル会話は
-エージェントを起動しません。制限された文脈にはリアクションとファイル参照が含まれ、
+各チャンネルメッセージにはエージェントへの明示的なメンションが必要です。通常の
+スレッド返信やチャンネルの一般的な会話ではエージェントを起動しません。制限された文脈にはリアクションとファイル参照が含まれ、
 ネイティブカードに計画、進捗、キャンセル、承認/拒否が表示されます。DM は個人 ID、
 管理チャンネルは明示したサービス ID とゲスト、Slack Connect、モデルのポリシーを
 使用します。チャンネルメモリは明示的な依頼だけで保存または削除され、自動保存されません。
@@ -205,7 +204,7 @@ Slack のメンションが動くようになると、次に必ず出てくる�
 Notion に手を付ける前に [Slack をセットアップ](#slack) を完了し、チャンネルでの `@mention` に返信が返ることを確認してください。以降の手順では次の 2 点が重要です。
 
 - `@mention` を含むメッセージが起動のきっかけであり、そのテキストがエージェントに渡ります。
-- 同じスレッドでの通常の追加返信がエージェントに届くのは、**そのスレッドで実行中の作業が残っている間だけ**です。実行が終わっていれば追加の返信は無視されるため、まだ聞いていると仮定せずに改めて @mention してください。
+- 同じスレッドで後から送る各メッセージにも、エージェントへの明示的なメンションが必要です。通常の返信は届かないため、新しい依頼ごとに改めて @mention してください。
 
 #### 2. プロバイダー API アクションを公開する
 
@@ -365,7 +364,7 @@ export default defineAction({
 | `notion credential not configured. Tried: NOTION_API_KEY` | 手順 3。キーが `.env` にあるか、実行者とは別のアカウントの **Personal** として保存されています。**Workspace** で保存してください。                      |
 | Notion が `404` を返す                                    | 手順 4。データベースがインテグレーションと共有されていません。                                                                                          |
 | Notion がプロパティについて `400` を返す                  | アクション内のプロパティ名または型がデータベースの列と一致していません。                                                                                |
-| 一度は成功したが、その後のスレッド返信が無視された        | 想定どおりの動作です。メンションなしのスレッド返信は、そのスレッドに実行中の作業がある間しかエージェントに届きません。改めて @mention してください。    |
+| 一度は成功したが、その後のスレッド返信が無視された        | 想定どおりの動作です。エージェントに処理させる各メッセージには明示的なメンションが必要です。改めて @mention してください。                              |
 
 ## テレグラムを設定する {#telegram}
 
@@ -489,7 +488,7 @@ export default defineAction({
 
 - **1 つのエージェント、1 つの受信箱。** すべてのチャネル (Slack、電子メール、テレグラム、WhatsApp) が Dispatch に流れます。統合のセットアップは 1 回だけです。
 - **代理人を派遣します。** 「先週のサインアップを要約してください」と依頼する — 派遣は分析エージェントに電話します。 「アリスへの返信の下書き」を依頼します。ディスパッチはメール エージェントに電話します。
-- **設定ではなくクリックです。** Dispatch の **[設定] → [メッセージング]** ページには、env-var フィールドが組み込まれたすべてのプラットフォームの接続ボタンがあります。
+- **設定ではなくクリックです。** Dispatch の **[管理] → [メッセージング]** ページには、env-var フィールドが組み込まれたすべてのプラットフォームの接続ボタンがあります。
 
 オーケストレーターが必要ない場合は、このページの環境変数を使用して、単一のテンプレートでメッセージングを直接接続できます。
 
@@ -646,6 +645,20 @@ export default createIntegrationsPlugin({
   systemPrompt: "You are a helpful assistant...",
 });
 ```
+
+`createIntegrationsPlugin()` は省略可能な `IntegrationsPluginOptions` オブジェクトを受け取ります。`initialToolNames?: readonly string[]` オプションで、最初のモデルリクエストに送るローカルアクションのスキーマを選択します。省略すると、すべてのローカルアクションが初期セットに含まれます。渡された配列はコピーされ、呼び出し元の配列は変更されません。
+
+明示的に空のリストを渡すと、ローカルアクションは `tool-search` で発見されるまで読み込まれません。フレームワークの必須ツールは最初から利用できます。次の設定は、デプロイ先に A2A ピアがない場合にアプリ間の委任も無効にします。
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+同じ初期ツールセットが Webhook 処理、キュー内のタスク、Google Docs のポーリングに適用されます。完全なアクションレジストリは引き続き検索できます。`callAgent: false` は独立して組み込みの `call-agent` アクションの登録を無効にし、`initialToolNames` に含まれていても登録しません。
 
 どのプラットフォームがアクティブになるかは、どの環境変数が設定されているかによって異なります。プラグインは、`/_agent-native/integrations/` の下にそれぞれの Webhook ルートを登録します。
 

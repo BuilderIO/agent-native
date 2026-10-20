@@ -147,7 +147,10 @@ describe("data-programs/actions", () => {
       "editor",
       { userEmail: "alice@example.com", orgId: "org_1" },
     );
-    expect(mocks.archiveDataProgram).toHaveBeenCalledWith("dp_1", "analytics");
+    expect(mocks.archiveDataProgram).toHaveBeenCalledWith("dp_1", "analytics", {
+      userEmail: "alice@example.com",
+      orgId: "org_1",
+    });
     expect(result).toEqual({ archived: true });
   });
 });

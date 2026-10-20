@@ -99,7 +99,6 @@ export function InboxList({
     <>
       <ListViewHeader
         title={t("inbox.pageTitle")}
-        description={t("inbox.pageDescription")}
         isPending={isPending}
         showSelectToggle={items.length > 0}
         selection={selection}

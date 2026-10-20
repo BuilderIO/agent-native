@@ -32,20 +32,6 @@ describe("repairUnboundedFirstPartyPanels", () => {
     expect(panels[1]).toMatchObject({ id: "broken", sql: fixedSql });
   });
 
-  it("uses SQLite date syntax for SQLite dashboard databases", () => {
-    const [{ legacySql }] = UNBOUNDED_FIRST_PARTY_PANEL_FIXES;
-    const result = repairUnboundedFirstPartyPanels(
-      {
-        panels: [{ source: "first-party", sql: legacySql }],
-      },
-      "sqlite",
-    );
-
-    const panels = result.config.panels as Record<string, unknown>[];
-    expect(panels[0]?.sql).toContain("date('now', '-365 days')");
-    expect(panels[0]?.sql).not.toContain("to_char(CURRENT_DATE");
-  });
-
   it("is a no-op when no panel SQL matches a known-unbounded pattern", () => {
     const config = {
       panels: [{ id: "fine", source: "first-party", sql: "SELECT 1 AS one" }],
@@ -62,6 +48,26 @@ describe("repairUnboundedFirstPartyPanels", () => {
     };
     const result = repairUnboundedFirstPartyPanels(config);
     expect(result.changed).toBe(false);
+  });
+
+  it("groups a saved raw-app sessions panel by the template key, bounded or not", () => {
+    const sessionFixes = UNBOUNDED_FIRST_PARTY_PANEL_FIXES.filter((fix) =>
+      fix.legacySql.startsWith(
+        "SELECT COALESCE(NULLIF(app, ''), 'unknown') AS app",
+      ),
+    );
+
+    expect(sessionFixes).toHaveLength(2);
+    for (const fix of sessionFixes) {
+      expect(
+        fix.sql.startsWith("SELECT lower(COALESCE(NULLIF(template, '')"),
+      ).toBe(true);
+      expect(fix.sql).toContain("GROUP BY lower(COALESCE(NULLIF(template, '')");
+      const { config } = repairUnboundedFirstPartyPanels({
+        panels: [{ id: "s", source: "first-party", sql: fix.legacySql }],
+      });
+      expect((config.panels as Array<{ sql: string }>)[0].sql).toBe(fix.sql);
+    }
   });
 
   it("every fixed replacement passes the strengthened per-scan-unit time-scope guard", () => {

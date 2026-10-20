@@ -71,14 +71,10 @@ export function builderReviewRowEffectLabel(effect: BuilderCmsWriteEffect) {
   return EFFECT_LABELS[effect] ?? EFFECT_LABELS.update_in_place;
 }
 
-/** The effect a row will actually run, accounting for a chosen transition. */
 export function builderReviewEffectiveRowEffect(
   baseEffect: BuilderCmsWriteEffect,
   selection?: BuilderReviewPublicationTransitionSelection,
 ): BuilderCmsWriteEffect {
-  // A create has no Builder entry yet, so a publish/unpublish transition can't
-  // apply — the adapter always writes a draft (create_draft) when there's no
-  // entry id. Never let a transition relabel a create.
   if (baseEffect === "create_draft") return "create_draft";
   if (selection?.publicationTransition === "publish") return "publish";
   if (selection?.publicationTransition === "unpublish") return "unpublish";
@@ -153,7 +149,6 @@ export function builderReviewDestinationLine(args: {
 }
 
 export function builderReviewResultStatus(status?: string): {
-  // i18n key under the `database.` namespace; resolved by the caller via t().
   labelKey: string;
   tone: "ok" | "warn" | "danger" | "muted";
 } {
@@ -309,8 +304,6 @@ export function BuilderSourceReviewDialog({
   canEdit: boolean;
   pending: boolean;
   executionPending?: boolean;
-  // Optional so the inline-database caller (DatabaseView) that doesn't surface
-  // batch results can still mount the dialog.
   batchResult?: ExecuteBuilderSourceBatchResponse | null;
   error?: string | null;
   checkedAt: string | null;
@@ -801,6 +794,36 @@ export function BuilderSourceReviewDialog({
                               <div className="font-medium">
                                 {row.bodyChange.summary}
                               </div>
+                              {row.bodyChange.currentExcerpt !== null ||
+                              row.bodyChange.proposedExcerpt !== null ? (
+                                <div
+                                  className="mt-2 grid gap-2 text-muted-foreground sm:grid-cols-2"
+                                  aria-label={t(
+                                    "database.bodyChangeComparison",
+                                  )}
+                                >
+                                  {row.bodyChange.currentExcerpt !== null ? (
+                                    <div className="min-w-0">
+                                      <div className="mb-1 font-medium text-foreground">
+                                        {t("database.currentBody")}
+                                      </div>
+                                      <div className="whitespace-pre-wrap break-words">
+                                        {row.bodyChange.currentExcerpt}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {row.bodyChange.proposedExcerpt !== null ? (
+                                    <div className="min-w-0">
+                                      <div className="mb-1 font-medium text-foreground">
+                                        {t("database.proposedBody")}
+                                      </div>
+                                      <div className="whitespace-pre-wrap break-words">
+                                        {row.bodyChange.proposedExcerpt}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
                               {row.bodyChange.warnings?.length ? (
                                 <div className="mt-1 text-muted-foreground">
                                   {row.bodyChange.warnings.join(" ")}

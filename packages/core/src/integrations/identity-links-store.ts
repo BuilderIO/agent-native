@@ -1,21 +1,10 @@
-/**
- * Durable links between a verified provider identity and an Agent Native user.
- * Provider credentials and raw provider payloads never belong in this table.
- */
-
 import { randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  isUniqueViolation,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, isUniqueViolation } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
 const TABLE = "integration_identity_links";
-let _initPromise: Promise<void> | undefined;
 
 export interface IntegrationIdentityLink {
   id: string;
@@ -29,7 +18,7 @@ export interface IntegrationIdentityLink {
 }
 
 function createSql(): string {
-  const integer = intType();
+  const integer = "BIGINT";
   return `CREATE TABLE IF NOT EXISTS ${TABLE} (
     id TEXT PRIMARY KEY,
     platform TEXT NOT NULL,
@@ -55,27 +44,23 @@ const INDEXES = [
   ],
 ] as const;
 
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      if (isPostgres()) {
+export const identityLinksStore = defineStore({
+  id: "identity_links",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
         await ensureTableExists(TABLE, createSql());
         for (const [name, sql] of INDEXES) {
           await ensureIndexExists(name, sql);
         }
-        return;
-      }
-      await retryOnDdlRace(() => client.execute(createSql()));
-      for (const [, sql] of INDEXES) {
-        await retryOnDdlRace(() => client.execute(sql));
-      }
-    })().catch((error) => {
-      _initPromise = undefined;
-      throw error;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return identityLinksStore.ready();
 }
 
 function required(value: string, name: string): string {
@@ -130,7 +115,6 @@ function matchesVerifiedLink(
   return row.userEmail === input.userEmail && row.orgId === input.orgId;
 }
 
-/** Persist a verified mapping and fail closed if it changes identity later. */
 export async function upsertVerifiedIntegrationIdentity(input: {
   platform: string;
   tenantId: string;
@@ -152,7 +136,7 @@ export async function upsertVerifiedIntegrationIdentity(input: {
   if (existing) {
     if (!matchesVerifiedLink(existing, { userEmail, orgId })) {
       throw new Error(
-        "This provider identity is already linked to a different Agent Native account.",
+        "This provider identity is already linked to a different Agent-Native account.",
       );
     }
     const updatedAt = Date.now();
@@ -191,7 +175,7 @@ export async function upsertVerifiedIntegrationIdentity(input: {
     );
     if (!raced || !matchesVerifiedLink(raced, { userEmail, orgId })) {
       throw new Error(
-        "This provider identity is already linked to a different Agent Native account.",
+        "This provider identity is already linked to a different Agent-Native account.",
       );
     }
     return raced;

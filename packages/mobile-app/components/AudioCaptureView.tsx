@@ -406,7 +406,7 @@ export default function AudioCaptureView({
   }, [captureState, handleClose, isActive, pendingMedia]);
   const statusCopy =
     kind === "meeting"
-      ? "Keep Agent Native open or lock your phone—capture continues in the background."
+      ? "Keep Agent-Native open or lock your phone—capture continues in the background."
       : "Speak naturally. You can review and edit the transcript before copying it.";
 
   return (
@@ -488,7 +488,7 @@ export default function AudioCaptureView({
             <Text className="text-text-muted text-sm leading-[20px] mb-4 mt-1.5">
               {permissionIssue === "notifications"
                 ? "Android requires a visible notification while a meeting records in the background. Enable notifications in system settings to continue."
-                : "Agent Native only records after you tap Start. Enable microphone access in system settings to continue."}
+                : "Agent-Native only records after you tap Start. Enable microphone access in system settings to continue."}
             </Text>
             <Pressable
               accessibilityRole="button"
@@ -545,7 +545,7 @@ export default function AudioCaptureView({
                   className="items-center bg-primary rounded-3xl flex-row gap-2 justify-center h-14 px-7 active:opacity-75"
                 >
                   <IconPlayerPlayFilled color="#0b0b0c" size={22} />
-                  <Text className="text-background-dark text-base font-bold">
+                  <Text className="text-primary-foreground text-base font-bold">
                     Retry save
                   </Text>
                 </Pressable>
@@ -557,7 +557,7 @@ export default function AudioCaptureView({
                   className="items-center bg-primary rounded-3xl flex-row gap-2 justify-center h-14 px-7 active:opacity-75"
                 >
                   <IconPlayerPlayFilled color="#0b0b0c" size={22} />
-                  <Text className="text-background-dark text-base font-bold">
+                  <Text className="text-primary-foreground text-base font-bold">
                     Try again
                   </Text>
                 </Pressable>
@@ -573,7 +573,7 @@ export default function AudioCaptureView({
                   className="items-center bg-primary rounded-3xl flex-row gap-2 justify-center h-14 px-7 active:opacity-75"
                 >
                   <IconMicrophone color="#0b0b0c" size={24} />
-                  <Text className="text-background-dark text-base font-bold">
+                  <Text className="text-primary-foreground text-base font-bold">
                     {captureState === "checking-permission"
                       ? "Getting ready…"
                       : "Start"}

@@ -1279,7 +1279,7 @@ async function attachCodeAgentRun(
   writeLine(output, `Attaching to Agent-Native Code run ${run.id}`);
   writeLine(
     output,
-    "Press Ctrl+C to detach. The session keeps its transcript.",
+    "Press Ctrl C to detach. The session keeps its transcript.",
   );
   writeLine(output, "");
 

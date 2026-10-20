@@ -1,14 +1,6 @@
-/**
- * Create a meeting — manually or from a calendar event.
- *
- * Two flows:
- *   1. From a calendar event — pass `calendarEventId`, we copy fields from
- *      the event row.
- *   2. Manual / ad-hoc — pass title and optional scheduledStart/End.
- */
-
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestUserName } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -20,6 +12,7 @@ import {
   getDefaultRecordingVisibility,
   nanoid,
 } from "../server/lib/recordings.js";
+import { detectMeetingPlatform } from "../shared/meeting-platform.js";
 
 const PLATFORMS = [
   "zoom",
@@ -78,7 +71,7 @@ export default defineAction({
     .refine((v) => v.title || v.calendarEventId, {
       message: "Provide either title or calendarEventId",
     }),
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const orgId = await getActiveOrganizationId();
@@ -93,13 +86,12 @@ export default defineAction({
       email: string;
       name?: string;
       isOrganizer?: boolean;
-    }> = args.participants ?? [];
+    }> = [...(args.participants ?? [])];
     let calendarEventIdLink: string | null = null;
     let source: "calendar" | "adhoc" | "manual" =
       args.source ?? (args.title ? "manual" : "adhoc");
 
     if (args.calendarEventId) {
-      // Verify the user owns the calendar account that hosts this event.
       const [event] = await db
         .select()
         .from(schema.calendarEvents)
@@ -117,7 +109,6 @@ export default defineAction({
           "You don't have access to the calendar account for this event",
         );
       }
-      // Re-use existing meeting if we already linked one.
       if (event.meetingId) {
         const [existing] = await db
           .select()
@@ -127,10 +118,6 @@ export default defineAction({
         if (existing) return { meeting: existing, created: false };
       }
 
-      // Claim the event row atomically before inserting a meetings row below
-      // — mirrors materializeCalendarMeetingFromVirtualId's TOCTOU fix, so
-      // two concurrent create-meeting calls for the same calendarEventId
-      // can't both insert a duplicate meeting.
       const claimed = await db
         .update(schema.calendarEvents)
         .set({ meetingId: id, updatedAt: new Date().toISOString() })
@@ -143,7 +130,6 @@ export default defineAction({
         .returning({ id: schema.calendarEvents.id });
 
       if (!claimed.length) {
-        // Someone else claimed it first — re-read and return their meeting.
         const [winnerEvent] = await db
           .select({ meetingId: schema.calendarEvents.meetingId })
           .from(schema.calendarEvents)
@@ -190,10 +176,22 @@ export default defineAction({
       }
     }
 
-    const visibility =
-      args.visibility ?? (await getDefaultRecordingVisibility(orgId));
+    const ownerName = getRequestUserName()?.trim() || undefined;
+    const ownerParticipant = participantsToInsert.find(
+      (participant) =>
+        participant.email.trim().toLowerCase() === ownerEmail.toLowerCase(),
+    );
+    if (ownerParticipant && !ownerParticipant.name?.trim() && ownerName) {
+      ownerParticipant.name = ownerName;
+    }
 
     try {
+      const visibility = await getDefaultRecordingVisibility(
+        orgId,
+        actionContext?.userEmail ?? ownerEmail,
+        args.visibility,
+      );
+
       await db.insert(schema.meetings).values({
         id,
         organizationId: orgId ?? null,
@@ -229,9 +227,6 @@ export default defineAction({
         );
       }
     } catch (err) {
-      // Roll back the calendar_events claim (only if it still points at our
-      // own id) so a future call can retry instead of leaving the event
-      // permanently pointed at a meeting that was never created.
       if (calendarEventIdLink) {
         await db
           .update(schema.calendarEvents)
@@ -260,12 +255,6 @@ export default defineAction({
 });
 
 function inferPlatformFromUrl(url: string): (typeof PLATFORMS)[number] {
-  const lower = url.toLowerCase();
-  if (lower.includes("zoom.us")) return "zoom";
-  if (lower.includes("meet.google.com")) return "meet";
-  if (lower.includes("teams.microsoft.com") || lower.includes("teams.live.com"))
-    return "teams";
-  if (lower.includes("webex")) return "webex";
   if (!url) return "adhoc";
-  return "other";
+  return detectMeetingPlatform(url);
 }

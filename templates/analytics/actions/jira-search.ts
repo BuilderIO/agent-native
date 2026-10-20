@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { searchIssues } from "../server/lib/jira";
@@ -8,8 +8,6 @@ import {
 } from "./_provider-action-utils";
 
 export default defineAction({
-  // Read-only provider query: safe to call from run-code `appAction` and
-  // reusable across continuation retries (no re-fetch on resume).
   readOnly: true,
   description:
     "Search Jira issues using JQL. Use this first when the user asks to search Jira tickets, issues, bugs, or project work. Do not use BigQuery for Jira data unless the user explicitly asks for a warehouse copy.",
@@ -25,6 +23,7 @@ export default defineAction({
       .describe("Comma-separated field names to include"),
   }),
   http: false,
+  grounding: true,
   run: async (args) => {
     const credentials = await requireActionCredentials(
       ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"],

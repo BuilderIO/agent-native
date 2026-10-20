@@ -1,24 +1,4 @@
-/**
- * Reusable dark-themed HTML email template.
- *
- * Email clients have limited CSS support, so everything is inlined and layout
- * uses tables for Outlook compatibility. The design mirrors the app's dark UI:
- * near-black card on neutral background, Inter typography with safe fallbacks.
- *
- * Default is monochrome (white CTA on dark). Pass `brandColor` to tint the
- * CTA button and inline links — Clips, for example, passes its purple.
- *
- * Usage:
- *   const { html, text } = renderEmail({
- *     preheader: "…",
- *     heading: "You're invited to join Acme",
- *     paragraphs: ["Alice invited you to join…"],
- *     cta: { label: "Accept invite", url: "https://…" },
- *     footer: "If you weren't expecting this, ignore this email.",
- *   });
- */
-
-import { getAppName } from "./app-name.js";
+import { getAppConfig } from "../app-config/index.js";
 
 export const AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID = "agent-native-logo";
 
@@ -33,42 +13,29 @@ export interface EmailLinkBlock {
   placement?: "before-cta" | "after-cta";
 }
 
+export interface EmailResourceBlock {
+  name: string;
+}
+
 export interface RenderEmailArgs {
-  /** Short preview text shown by email clients next to the subject. */
   preheader?: string;
-  /** Large headline at the top of the card. */
   heading: string;
-  /** Body paragraphs rendered after the heading. Plain strings — escaped. */
   paragraphs: string[];
-  /** Primary call-to-action rendered as a real button. */
   cta?: EmailCta;
-  /** Optional second button rendered beside the primary CTA, dark-filled. */
   secondaryCta?: EmailCta;
-  /** A treated, copyable URL shown before or after the CTA. */
   linkBlock?: EmailLinkBlock;
-  /**
-   * Optional trusted HTML injected above the CTA — e.g. a template-owned video
-   * thumbnail with a play badge. Injected verbatim, so only pass markup built
-   * by app/template code (never raw user input), and escape any dynamic values.
-   */
+  resourceBlock?: EmailResourceBlock;
   heroHtml?: string;
-  /** Body paragraphs rendered after the CTA and link block. Escaped-by-caller. */
   closingParagraphs?: string[];
-  /** Small muted text under the CTA (e.g. expiry note). */
   footer?: string;
-  /** Optional app name shown beside the framework logo. */
   brandName?: string;
-  /**
-   * Optional absolute `https://` logo URL shown in the brand header. When a
-   * valid URL is provided it replaces the default embedded Agent Native logo;
-   * anything else (missing, relative, non-https) falls back to that logo.
-   */
   brandLogoUrl?: string;
-  /**
-   * Optional brand hex color for the CTA button and inline links. Defaults to
-   * a monochrome near-white button with dark text.
-   */
   brandColor?: string;
+}
+
+export interface EmailTemplateApp {
+  name: string;
+  logoUrl?: string;
 }
 
 export interface RenderedEmail {
@@ -85,24 +52,17 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+export const escapeEmailHtml = escapeHtml;
+
 function escapeAttr(s: string): string {
   return escapeHtml(s);
 }
 
-/**
- * Only accept a strict `#rrggbb` hex color for `brandColor`. Anything else
- * could inject CSS into the inline `style` attribute (`red; background:url(…)`).
- */
 function sanitizeHexColor(input: string | undefined): string | undefined {
   if (!input) return undefined;
   return /^#[0-9a-fA-F]{6}$/.test(input) ? input : undefined;
 }
 
-/**
- * Only accept an absolute `https://` URL for the brand logo. Email clients drop
- * relative and mixed-content images, and an unvalidated string in `src` is an
- * injection surface — so anything else falls back to the embedded logo.
- */
 function sanitizeLogoUrl(input: string | undefined): string | undefined {
   if (!input) return undefined;
   try {
@@ -115,16 +75,18 @@ function sanitizeLogoUrl(input: string | undefined): string | undefined {
 export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   const preheader = args.preheader || "";
   const brand = sanitizeHexColor(args.brandColor);
-  const brandName = args.brandName?.trim() || getAppName() || "Agent Native";
+  const brandName =
+    args.brandName?.trim() || getAppConfig().app.name || "Agent-Native";
   const logoSrc =
     sanitizeLogoUrl(args.brandLogoUrl) ??
     `cid:${AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID}`;
 
-  // Monochrome default: near-white button with dark text. Brand override:
-  // colored button with white text.
   const ctaBg = brand ?? "#fafafa";
   const ctaFg = brand ? "#ffffff" : "#0a0a0c";
   const linkColor = brand ?? "#a1a1aa";
+  const resourceBorder = "#3f3f46"; // guard:allow-raw-color — email markup must inline colors for clients.
+  const resourceBackground = "#0a0a0c"; // guard:allow-raw-color — email markup must inline colors for clients.
+  const resourceText = "#fafafa"; // guard:allow-raw-color — email markup must inline colors for clients.
 
   // Trusted markup supplied by the caller (template code, not user input),
   // injected as-is so a template can own app-specific previews (e.g. a video
@@ -156,6 +118,12 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
         </tr>
       </table>
     `
+    : "";
+
+  const resourceBlockHtml = args.resourceBlock
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:24px 0 0 0; border:1px solid ${resourceBorder}; border-radius:10px; background:${resourceBackground};">
+        <tr><td style="padding:14px 16px; font-size:15px; line-height:1.5; font-weight:600; color:${resourceText};">${escapeHtml(args.resourceBlock.name)}</td></tr>
+      </table>`
     : "";
 
   const ctaButtonCell = (
@@ -228,8 +196,9 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
                   ${escapeHtml(args.heading)}
                 </h1>
                 ${paragraphsHtml}
-                ${heroHtml}
                 ${args.linkBlock?.placement !== "after-cta" ? linkBlockHtml : ""}
+                ${resourceBlockHtml}
+                ${heroHtml}
                 ${ctaHtml}
                 ${args.linkBlock?.placement === "after-cta" ? linkBlockHtml : ""}
                 ${closingParagraphsHtml}
@@ -253,6 +222,10 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   if (args.linkBlock && args.linkBlock.placement !== "after-cta") {
     textLines.push(args.linkBlock.intro);
     textLines.push(args.linkBlock.url);
+    textLines.push("");
+  }
+  if (args.resourceBlock) {
+    textLines.push(args.resourceBlock.name);
     textLines.push("");
   }
   if (args.cta) {
@@ -279,6 +252,22 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   return { html, text: textLines.join("\n").trim() };
 }
 
+export function emailHtmlToText(html: string): string {
+  return stripTags(
+    html
+      .replace(/<(head|style|script|title)\b[^>]*>[\s\S]*?<\/\1>/gi, "")
+      .replace(/<\/(p|div|h[1-6]|tr|li|table)>/gi, "\n\n")
+      .replace(
+        /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi,
+        (_match, dq, sq, bare, label) => `${label} (${dq ?? sq ?? bare})`,
+      ),
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function stripTags(s: string): string {
   return s
     .replace(/<br\s*\/?>/gi, "\n")
@@ -292,18 +281,16 @@ function stripTags(s: string): string {
     .trim();
 }
 
-/**
- * Build an inline `<strong>` tag with consistent styling for use inside
- * paragraph strings passed to `renderEmail`. Escapes the content.
- */
 export function emailStrong(text: string): string {
   return `<strong style="color:#fafafa; font-weight:600;">${escapeHtml(text)}</strong>`;
 }
 
-/**
- * Build a labelled inline link for paragraph strings passed to `renderEmail`.
- * Use this instead of rendering raw URLs in the visible email body.
- */
+export function emailQuote(text: string): string {
+  const content = escapeHtml(text.trim()).replace(/\r?\n/g, "<br />");
+  // guard:allow-raw-color — quoted blocks intentionally use a fixed email-safe accent
+  return `<div style="margin:0 0 16px 0; padding:12px 16px; border-left:3px solid #52525b; background:#18181b; color:#e4e4e7; font-size:16px; line-height:1.6;">${content}</div>`;
+}
+
 export function emailLink(label: string, url: string): string {
   return `<a href="${escapeAttr(url)}" style="color:#a1a1aa; text-decoration:underline;">${escapeHtml(label)}</a>`;
 }

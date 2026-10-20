@@ -1,32 +1,28 @@
-import Database from "better-sqlite3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Real in-memory sqlite behind the raw getDbExec client so the claim/lease/
-// finalize guards are exercised with genuine UPDATE ... WHERE semantics
-// (rowsAffected) instead of mocks. A fresh DB per test plus the store's
-// test-only init reset keeps CREATE TABLE idempotent across cases.
-let sqlite: Database.Database;
+import { createTestPglite } from "../../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
   isServerlessRuntime: () => false,
 }));
@@ -59,9 +55,13 @@ function baseInput(overrides: Record<string, unknown> = {}) {
   };
 }
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
   resetSandboxExecutionsStoreForTests();
+});
+
+afterEach(async () => {
+  await pglite.close();
 });
 
 describe("sandbox executions store", () => {
@@ -77,6 +77,22 @@ describe("sandbox executions store", () => {
     expect(row.timeoutMs).toBe(600_000);
     expect(row.claimToken).toBeNull();
     expect(row.leaseExpiresAt).toBeNull();
+    expect(row.allowedActionNames).toBeUndefined();
+  });
+
+  it("persists an explicit action surface and fails malformed data closed", async () => {
+    const row = await createSandboxExecution(
+      baseInput({ allowedActionNames: ["run-code", "read-things"] }),
+    );
+    expect(row.allowedActionNames).toEqual(["run-code", "read-things"]);
+
+    await pglite
+      .prepare(
+        "UPDATE sandbox_executions SET allowed_action_names = ? WHERE id = ?",
+      )
+      .run("not-json", row.id);
+    const malformed = await getSandboxExecutionInternal(row.id);
+    expect(malformed!.allowedActionNames).toEqual([]);
   });
 
   it("scopes owner reads: another owner cannot see the row", async () => {
@@ -85,7 +101,6 @@ describe("sandbox executions store", () => {
     expect(
       await getSandboxExecutionForOwner(row.id, "mallory@example.com"),
     ).toBeNull();
-    // Internal (executor) read stays unscoped.
     expect(await getSandboxExecutionInternal(row.id)).not.toBeNull();
   });
 
@@ -100,7 +115,6 @@ describe("sandbox executions store", () => {
     expect(first!.claimToken).toBe("token-a");
     expect(first!.leaseExpiresAt).toBe(now + 90_000);
 
-    // A racing second claim loses while the lease is fresh.
     const second = await claimSandboxExecution(row.id, "token-b", 90_000, now);
     expect(second).toBeNull();
   });
@@ -110,12 +124,10 @@ describe("sandbox executions store", () => {
     const t0 = Date.now();
     await claimSandboxExecution(row.id, "token-a", 90_000, t0);
 
-    // Before expiry: no reclaim.
     expect(
       await claimSandboxExecution(row.id, "token-b", 90_000, t0 + 60_000),
     ).toBeNull();
 
-    // After expiry: reclaim succeeds and bumps the attempt count.
     const reclaimed = await claimSandboxExecution(
       row.id,
       "token-b",
@@ -126,7 +138,6 @@ describe("sandbox executions store", () => {
     expect(reclaimed!.attemptCount).toBe(2);
     expect(reclaimed!.claimToken).toBe("token-b");
 
-    // Attempts exhausted (default max 2): a third expiry cannot be claimed.
     expect(
       await claimSandboxExecution(row.id, "token-c", 90_000, t0 + 300_000),
     ).toBeNull();
@@ -152,10 +163,8 @@ describe("sandbox executions store", () => {
     const row = await createSandboxExecution(baseInput());
     const t0 = Date.now();
     await claimSandboxExecution(row.id, "token-a", 90_000, t0);
-    // Simulate a lease expiry + reclaim by a second executor.
     await claimSandboxExecution(row.id, "token-b", 90_000, t0 + 90_001);
 
-    // The displaced executor's finalize is discarded.
     expect(
       await finalizeSandboxExecution(row.id, "token-a", {
         status: "succeeded",
@@ -164,7 +173,6 @@ describe("sandbox executions store", () => {
       }),
     ).toBe(false);
 
-    // The live claimer's finalize lands.
     expect(
       await finalizeSandboxExecution(row.id, "token-b", {
         status: "succeeded",
@@ -183,7 +191,6 @@ describe("sandbox executions store", () => {
     expect(done!.finishedAt).not.toBeNull();
     expect(done!.leaseExpiresAt).toBeNull();
 
-    // Terminal rows cannot be finalized again.
     expect(
       await finalizeSandboxExecution(row.id, "token-b", {
         status: "failed",
@@ -208,7 +215,6 @@ describe("sandbox executions store", () => {
     expect(done!.stdoutTruncated).toBe(true);
     expect(done!.stderr).toBe("y".repeat(50));
     expect(done!.stderrTruncated).toBe(false);
-    // Row cap can never exceed the hard storage ceiling.
     expect(done!.stdout.length).toBeLessThanOrEqual(
       SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS,
     );
@@ -219,17 +225,14 @@ describe("sandbox executions store", () => {
     const t0 = Date.now();
     await claimSandboxExecution(row.id, "token-a", 90_000, t0);
 
-    // Attempt budget not exhausted yet — reap refuses.
     expect(await failExpiredSandboxExecution(row.id, "lost", t0 + 90_001)).toBe(
       false,
     );
 
     await claimSandboxExecution(row.id, "token-b", 90_000, t0 + 90_002);
-    // Live lease — reap refuses.
     expect(await failExpiredSandboxExecution(row.id, "lost", t0 + 90_003)).toBe(
       false,
     );
-    // Expired + exhausted — reap lands.
     expect(
       await failExpiredSandboxExecution(row.id, "executor lost", t0 + 200_000),
     ).toBe(true);
@@ -246,8 +249,7 @@ describe("sandbox executions store", () => {
     const liveRunning = await createSandboxExecution(baseInput());
     const finished = await createSandboxExecution(baseInput());
 
-    // Backdate the stale queued row.
-    sqlite
+    await pglite
       .prepare(`UPDATE sandbox_executions SET updated_at = ? WHERE id = ?`)
       .run(now - 120_000, staleQueued.id);
     await claimSandboxExecution(expiredRunning.id, "t1", 1_000, now - 60_000);

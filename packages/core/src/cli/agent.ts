@@ -14,9 +14,11 @@ import {
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { getAppConfig } from "../app-config/index.js";
 import { createGitHubRepoToolEntries } from "../provider-api/github-repo.js";
+import { loadCliBootstrap } from "../scripts/cli-bootstrap.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
-import { loadEnv } from "../scripts/utils.js";
+import { loadEnv, serializeCliArgs } from "../scripts/utils.js";
 import { autoDiscoverActions } from "../server/action-discovery.js";
 import { captureCliOutput } from "../server/cli-capture.js";
 import {
@@ -158,6 +160,7 @@ export async function runAgent(
 ): Promise<number> {
   loadEnv();
   registerBuiltinEngines();
+  await loadCliBootstrap();
 
   const stdout = io.stdout ?? console.log;
   const stderr = io.stderr ?? console.error;
@@ -211,7 +214,7 @@ async function runLocalAgentLoop(parsed: ParsedAgentArgs): Promise<{
   const localActions = await autoDiscoverActions("auto");
   const builtinActions = await createHeadlessBuiltinActions();
   const repoActions = createGitHubRepoToolEntries({
-    appId: process.env.AGENT_NATIVE_APP_ID ?? process.env.APP_ID ?? "app",
+    appId: getAppConfig().app.id ?? "app",
   });
   const actions = { ...builtinActions, ...localActions, ...repoActions };
   const tools = actionsToEngineTools(actions);
@@ -289,16 +292,11 @@ function buildHeadlessSystemPrompt(actionNames: string[]): string {
 }
 
 function cliArgsFromToolArgs(args: Record<string, unknown>): string[] {
-  const cliArgs: string[] = [];
-  for (const [key, value] of Object.entries(args)) {
-    if (value === undefined) continue;
-    const normalized =
-      value != null && typeof value === "object"
-        ? JSON.stringify(value)
-        : String(value);
-    cliArgs.push(`--${key}`, normalized);
-  }
-  return cliArgs;
+  return serializeCliArgs(
+    Object.fromEntries(
+      Object.entries(args).filter(([, value]) => value !== undefined),
+    ),
+  );
 }
 
 export async function createHeadlessBuiltinActions(): Promise<
@@ -312,7 +310,7 @@ export async function createHeadlessBuiltinActions(): Promise<
       readOnly: true,
       tool: {
         description:
-          "Search version-matched Agent Native docs and readable Core, Toolkit, and first-party template source together. Use this first when a docs answer may require implementation evidence; supports substring, glob, SQL-like, and safe regex modes.",
+          "Search version-matched Agent-Native docs and readable Core, Toolkit, and first-party template source together. Use this first when a docs answer may require implementation evidence; supports substring, glob, SQL-like, and safe regex modes.",
         parameters: {
           type: "object",
           properties: {
@@ -359,7 +357,7 @@ export async function createHeadlessBuiltinActions(): Promise<
       readOnly: true,
       tool: {
         description:
-          "Search and read version-matched Agent Native framework documentation bundled in @agent-native/core, plus bundled AGENTS.md and codebase skills. Use --list to see pages, --query to search, and --slug to read a page.",
+          "Search and read version-matched Agent-Native framework documentation bundled in @agent-native/core, plus bundled AGENTS.md and codebase skills. Use --list to see pages, --query to search, and --slug to read a page.",
         parameters: {
           type: "object",
           properties: {

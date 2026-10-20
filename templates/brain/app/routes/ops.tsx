@@ -311,9 +311,7 @@ export default function OpsRoute() {
   return (
     <div className="min-h-full bg-background">
       <PageHeader
-        eyebrow={t("ops.eyebrow")}
         title={t("ops.title")}
-        description={t("ops.description")}
         actions={
           <div className="flex flex-wrap gap-2">
             <Select value={status} onValueChange={updateStatus}>

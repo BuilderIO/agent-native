@@ -32,7 +32,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the analytics template's v75-v83 incident
 // (packages/core/src/db/migrations.ts and templates/analytics/server/plugins/db.ts).
-const runCalendarMigrations = runMigrations(
+export const runCalendarMigrations = runMigrations(
   [
     {
       version: 1,
@@ -95,7 +95,6 @@ const runCalendarMigrations = runMigrations(
     created_at TEXT NOT NULL
   )`,
     },
-    // v10-v12: sharing columns for booking_links.
     {
       version: 10,
       sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
@@ -108,7 +107,6 @@ const runCalendarMigrations = runMigrations(
       version: 12,
       sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
     },
-    // v13: companion shares table for per-principal grants.
     {
       version: 13,
       sql: `CREATE TABLE IF NOT EXISTS booking_link_shares (
@@ -118,14 +116,9 @@ const runCalendarMigrations = runMigrations(
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
-    // v14: on Postgres, `is_active` was originally created as INTEGER (v2's
-    // `INTEGER NOT NULL DEFAULT 1` got adapted to BIGINT). The Drizzle schema
-    // maps `integer({mode: "boolean"})` to BOOLEAN on Postgres, so inserts pass
-    // `true`/`false`, which BIGINT rejects. Coerce to BOOLEAN on Postgres only;
-    // SQLite keeps is_active as INTEGER 0/1 and needs no migration.
     {
       version: 14,
       sql: {
@@ -161,11 +154,6 @@ const runCalendarMigrations = runMigrations(
     },
     {
       version: 18,
-      // Backfill owner_email + org_id on existing bookings. Direct slug match
-      // covers the common case; the redirect-aware subquery picks up bookings
-      // created under a slug that's since been renamed (the booking_links row
-      // now lives at the new slug, with booking_slug_redirects mapping the
-      // historical old_slug → current new_slug).
       sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS org_id TEXT;
 UPDATE bookings
@@ -185,17 +173,6 @@ SET owner_email = COALESCE(
   )
 WHERE owner_email = ${LEGACY_DEV_OWNER_SQL}`,
     },
-    // v19: performance indexes for the ownable booking_links table, its shares
-    // companion, and the bookings child rows. Plain CREATE INDEX IF NOT EXISTS
-    // only (no DESC / partial / Postgres-only syntax) so it runs on both
-    // Postgres and SQLite.
-    // - booking_links: accessFilter() predicates on (owner_email, org_id) plus
-    //   the list ordering by updated_at. slug already has a UNIQUE index from v2.
-    // - booking_link_shares: accessFilter()'s correlated EXISTS subqueries match
-    //   on (resource_id, principal_type, principal_id).
-    // - bookings: listed/joined by slug and filtered/ordered by the start time
-    //   range. There is no booking_link_id FK column — bookings link to
-    //   booking_links via slug.
     {
       version: 19,
       sql: `CREATE INDEX IF NOT EXISTS idx_booking_links_owner ON booking_links (owner_email, org_id, updated_at);
@@ -210,6 +187,36 @@ CREATE INDEX IF NOT EXISTS idx_bookings_slug_start ON bookings (slug, "start");`
       version: 21,
       name: "bookings-calendar-account-id",
       sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS calendar_account_id TEXT`,
+    },
+    {
+      version: 22,
+      name: "bookings-additional-guest-emails",
+      sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS additional_guest_emails TEXT`,
+    },
+    {
+      version: 23,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS booking_link_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
+    {
+      version: 24,
+      name: "bookings-meeting-link-pending",
+      sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS meeting_link_pending BOOLEAN NOT NULL DEFAULT false`,
+    },
+    {
+      version: 25,
+      name: "bookings-zoom-needs-review",
+      sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS zoom_needs_review BOOLEAN NOT NULL DEFAULT false`,
+    },
+    {
+      version: 26,
+      name: "bookings-zoom-provider-identifiers",
+      sql: `
+        ALTER TABLE bookings ADD COLUMN IF NOT EXISTS zoom_meeting_id TEXT;
+        ALTER TABLE bookings ADD COLUMN IF NOT EXISTS zoom_account_id TEXT;
+      `,
     },
   ],
   { table: "calendar_migrations" },
@@ -239,8 +246,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

@@ -4,6 +4,7 @@ import { app, type WebContents } from "electron";
 
 type WebContentsRole =
   | "shell-renderer"
+  | "quick-prompt-renderer"
   | "app-webview"
   | "oauth-window"
   | "web-contents";

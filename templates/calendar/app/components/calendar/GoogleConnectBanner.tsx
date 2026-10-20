@@ -1,9 +1,11 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { signOut } from "@agent-native/core/client/hooks";
 import {
   isInBuilderFrame,
   oauthRedirectUri,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
   IconCalendarCheck,
   IconX,
@@ -15,16 +17,10 @@ import {
   IconUpload,
   IconAlertTriangle,
   IconLogout,
-  IconInfoCircle,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -74,9 +70,16 @@ function getSetupSteps(t: CalendarT) {
 }
 
 const STATUS_POLL_INTERVAL_MS = 2000;
-// Bounds each status poll so a hung fetch can't leave the in-flight guard
-// permanently stuck and stall the interval forever.
 const STATUS_POLL_ABORT_MS = Math.max(10_000, STATUS_POLL_INTERVAL_MS * 4);
+
+function startManagedGoogleOAuth(): void {
+  const returnPath = `${window.location.pathname}${window.location.search}`;
+  startWorkspaceProviderOAuth("google_calendar", {
+    appId: "calendar",
+    returnPath,
+    scope: "user",
+  });
+}
 
 interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
@@ -99,6 +102,7 @@ export function GoogleConnectBanner({
 
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
+  const googleConfigured = googleStatus.data?.configured === true;
   const canOfferOAuthSetup = useMemo(() => shouldOfferGoogleOAuthSetup(), []);
 
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
@@ -121,7 +125,6 @@ export function GoogleConnectBanner({
     };
   }, []);
 
-  // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -149,18 +152,10 @@ export function GoogleConnectBanner({
     }
   }, [setupSteps.length]);
 
-  // Check if credentials are already configured on mount
   useEffect(() => {
-    fetchStatus();
+    void fetchStatus();
   }, [fetchStatus]);
 
-  // When auth URL is ready, open it and poll for connection.
-  //
-  // `wantAuthUrl` is the user's retry intent and must be in the deps so a
-  // second click after closing the popup re-runs this effect (the cached
-  // authUrl.data won't change on its own). The interval lives in a ref so
-  // flipping wantAuthUrl false below doesn't tear down an already-running
-  // poll; cleanup happens on unmount via the dedicated effect above.
   useEffect(() => {
     if (!wantAuthUrl || !authUrl.data?.url) return;
     setWantAuthUrl(false);
@@ -206,13 +201,12 @@ export function GoogleConnectBanner({
     }, STATUS_POLL_INTERVAL_MS);
   }, [wantAuthUrl, authUrl.data, isBuilderFrame]);
 
-  // When auth URL fails with missing credentials, show wizard
   useEffect(() => {
     if (authUrl.error) {
       setWantAuthUrl(false);
       if (canOfferOAuthSetup) {
         setShowWizard(true);
-        fetchStatus();
+        void fetchStatus();
       } else {
         setDesktopAuthIssue({
           code: "managed_credentials_unavailable",
@@ -230,29 +224,16 @@ export function GoogleConnectBanner({
       return;
     }
     setShowWizard(true);
-    fetchStatus();
+    void fetchStatus();
   }, [desktopAuthIssue, fetchStatus]);
 
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
   const handleSignOutForGoogle = useCallback(async () => {
-    try {
-      await fetch(agentNativePath("/_agent-native/auth/logout"), {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {
-      // Reload below still lands on the auth screen if the local cookie changed.
-    }
-    window.location.reload();
+    await signOut();
   }, []);
 
-  // When add-account URL is ready, open it and poll for new account.
-  // Same retry-intent rationale as the connect effect — `wantAddAccount`
-  // is in the deps so a second click rerun the effect; the polling
-  // interval lives in a ref so flipping wantAddAccount false here doesn't
-  // tear down the running poll.
   useEffect(() => {
     if (!wantAddAccount || !addAccountUrl.data?.url) return;
     if (isBuilderFrame) {
@@ -303,15 +284,17 @@ export function GoogleConnectBanner({
   }, [wantAddAccount, addAccountUrl.data, isBuilderFrame]);
 
   function handleConnect() {
+    if (!googleConfigured && !canOfferOAuthSetup) return;
     setDesktopAuthIssue(null);
     if (isDesktopGoogleAuth) {
       startDesktopGoogleAuth({ previousAccountCount: accounts.length });
       return;
     }
-    setWantAuthUrl(true);
+    startManagedGoogleOAuth();
   }
 
   function handleAddAccount() {
+    if (!googleConfigured && !canOfferOAuthSetup) return;
     if (isDesktopGoogleAuth) {
       startDesktopGoogleAuth({
         addAccount: true,
@@ -319,7 +302,7 @@ export function GoogleConnectBanner({
       });
       return;
     }
-    setWantAddAccount(true);
+    startManagedGoogleOAuth();
   }
 
   async function handleJsonUpload(file: File) {
@@ -357,7 +340,6 @@ export function GoogleConnectBanner({
 
       setSaved(true);
       await fetchStatus();
-      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setSaveError(
@@ -371,12 +353,21 @@ export function GoogleConnectBanner({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   function copyToClipboard(text: string, key: string) {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
   }
 
   if (dismissed) return null;
+  if (!googleStatus.data && !canOfferOAuthSetup && !googleStatus.isError)
+    return null;
+  if (
+    !googleConfigured &&
+    !canOfferOAuthSetup &&
+    !hasAccounts &&
+    !googleStatus.isError
+  )
+    return null;
 
   if (variant === "hero") {
     return (
@@ -390,27 +381,35 @@ export function GoogleConnectBanner({
         <p className="mt-2 max-w-xs text-[13px] text-muted-foreground leading-relaxed">
           {t("googleConnect.syncEventsDescription")}
         </p>
-        <Button
-          size="sm"
-          className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
-          onClick={handleConnect}
-          disabled={
-            authUrl.isLoading ||
-            authUrl.isFetching ||
-            isGoogleDesktopAuthPending
-          }
-        >
-          <GoogleIcon className="h-3.5 w-3.5" />
-          {authUrl.isLoading
-            ? t("common.connecting")
-            : hasAccounts
-              ? t("googleConnect.addAccount")
-              : allConfigured
-                ? t("googleConnect.connectGoogle")
+        {googleStatus.isError ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-6 gap-2 px-4 text-[13px] font-medium"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("common.retry")}
+          </Button>
+        ) : googleConfigured || canOfferOAuthSetup ? (
+          <Button
+            size="sm"
+            className="mt-6 gap-2 px-4 text-[13px] font-medium"
+            onClick={handleConnect}
+            disabled={
+              authUrl.isLoading ||
+              authUrl.isFetching ||
+              isGoogleDesktopAuthPending
+            }
+          >
+            <GoogleIcon className="h-3.5 w-3.5" />
+            {authUrl.isLoading
+              ? t("common.connecting")
+              : hasAccounts
+                ? t("googleConnect.addAccount")
                 : t("googleConnect.connectGoogle")}
-        </Button>
-
-        <GoogleVerificationNotice className="mt-3" />
+          </Button>
+        ) : null}
 
         <GoogleAuthIssuePanel
           issue={desktopAuthIssue}
@@ -427,12 +426,14 @@ export function GoogleConnectBanner({
                 className="group flex items-center gap-1.5 text-xs text-muted-foreground"
               >
                 <span>{account.email}</span>
-                <button
-                  onClick={() => disconnectGoogle.mutate(account.email)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/25 hover:text-foreground/50"
-                >
-                  <IconX className="h-3 w-3" />
-                </button>
+                {!account.shared && (
+                  <button
+                    onClick={() => disconnectGoogle.mutate(account.email)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/25 hover:text-foreground/50"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -460,7 +461,6 @@ export function GoogleConnectBanner({
     );
   }
 
-  // Connected with accounts — show compact account strip
   if (hasAccounts) {
     return (
       <div className="border-b border-border/30 bg-card">
@@ -472,25 +472,29 @@ export function GoogleConnectBanner({
                 className="group flex items-center gap-1.5 text-xs text-foreground/60"
               >
                 <span className="truncate">{account.email}</span>
-                <button
-                  onClick={() => disconnectGoogle.mutate(account.email)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
-                >
-                  <IconX className="h-3 w-3" />
-                </button>
+                {!account.shared && (
+                  <button
+                    onClick={() => disconnectGoogle.mutate(account.email)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             ))}
-            <button
-              onClick={handleAddAccount}
-              disabled={
-                addAccountUrl.isLoading ||
-                addAccountUrl.isFetching ||
-                isGoogleDesktopAuthPending
-              }
-              className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
-            >
-              {t("googleConnect.addAccountWithPlus")}
-            </button>
+            {(googleConfigured || canOfferOAuthSetup) && (
+              <button
+                onClick={handleAddAccount}
+                disabled={
+                  addAccountUrl.isLoading ||
+                  addAccountUrl.isFetching ||
+                  isGoogleDesktopAuthPending
+                }
+                className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
+              >
+                {t("googleConnect.addAccountWithPlus")}
+              </button>
+            )}
           </div>
           <Button
             variant="ghost"
@@ -507,11 +511,21 @@ export function GoogleConnectBanner({
           onDismiss={() => setDesktopAuthIssue(null)}
           className="mx-4 mb-3"
         />
+        {googleStatus.isError && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mx-4 mb-2"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("common.retry")}
+          </Button>
+        )}
       </div>
     );
   }
 
-  // Not connected or not configured — show setup banner
   return (
     <div className="border-b border-border/30 bg-card">
       {/* Compact banner row */}
@@ -526,12 +540,21 @@ export function GoogleConnectBanner({
                 ? t("googleConnect.readyToConnect")
                 : t("googleConnect.connectToSync")}
             </p>
-            <GoogleVerificationNotice className="mt-0.5" />
           </div>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {showWizard && !allConfigured && canOfferOAuthSetup ? (
+          {googleStatus.isError ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs h-7 font-medium"
+              onClick={() => void googleStatus.refetch()}
+              disabled={googleStatus.isFetching}
+            >
+              {t("common.retry")}
+            </Button>
+          ) : showWizard && !allConfigured && canOfferOAuthSetup ? (
             <Button
               size="sm"
               variant="outline"
@@ -616,50 +639,6 @@ export function GoogleConnectBanner({
   );
 }
 
-// Heads-up popover: Google shows a "hasn't verified this app" warning during
-// the OAuth consent flow because the connection runs through the user's own
-// Google Cloud project (External + Testing), not a Google-reviewed public app.
-// This explains that the warning is expected and how to safely continue.
-function GoogleVerificationNotice({ className = "" }: { className?: string }) {
-  const t = useT();
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={`inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-muted-foreground ${className}`}
-        >
-          <IconInfoCircle className="h-3 w-3" />
-          {t("googleConnect.googleMayShowWarning")}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="center" className="w-72 text-start">
-        <div className="flex items-start gap-2.5">
-          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
-            <IconAlertTriangle className="h-3.5 w-3.5" />
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-[13px] font-medium text-foreground">
-              {t("googleConnect.googleNotVerifiedTitle")}
-            </p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {t("googleConnect.googleWarningBeforeAdvanced")}{" "}
-              <span className="font-medium text-foreground">
-                {t("googleConnect.googleWarningAdvanced")}
-              </span>
-              {t("googleConnect.googleWarningBetweenActions")}{" "}
-              <span className="font-medium text-foreground">
-                {t("googleConnect.googleWarningUnsafe")}
-              </span>{" "}
-              {t("googleConnect.googleWarningAfterUnsafe")}
-            </p>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function GoogleAuthIssuePanel({
   issue,
   onSignOut,
@@ -705,7 +684,7 @@ function GoogleAuthIssuePanel({
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
-                className="h-8 gap-1.5 px-3 text-xs font-medium"
+                className="gap-1.5 text-xs font-medium"
                 onClick={onSignOut}
               >
                 <IconLogout className="h-3.5 w-3.5 rtl:-scale-x-100" />
@@ -714,7 +693,7 @@ function GoogleAuthIssuePanel({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                className="px-2 text-xs text-muted-foreground hover:text-foreground"
                 onClick={onDismiss}
               >
                 {t("googleConnect.dismiss")}
@@ -785,7 +764,7 @@ function SetupWizard({
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                !saved && setCurrentStep(i);
+                if (!saved) setCurrentStep(i);
               }
             }}
           >

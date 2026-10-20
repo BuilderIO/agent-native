@@ -9,6 +9,32 @@ export type RemoteCommandKind =
   | "status"
   | "computer-operation";
 
+export type RemoteExecutionWorkload =
+  | "code-agent"
+  | "scheduled-code"
+  | "external-agent";
+
+export type RemoteExecutionBackend =
+  | "desktop"
+  | "container"
+  | "kubernetes"
+  | "external";
+
+export type RemoteExecutionPersistence =
+  | "local-files"
+  | "persistent-volume"
+  | "ephemeral";
+
+export interface RemoteExecutionCapabilities {
+  backend?: RemoteExecutionBackend;
+  workloads?: RemoteExecutionWorkload[];
+  engines?: string[];
+  acceptsScheduledWork?: boolean;
+  acceptsPortalHandoffs?: boolean;
+  persistence?: RemoteExecutionPersistence;
+  adapters?: string[];
+}
+
 export type ComputerOperationClass =
   | "browser.observe"
   | "browser.control"
@@ -59,6 +85,7 @@ export interface RemoteComputerCapabilities {
 
 export interface RemoteDeviceMetadata extends Record<string, unknown> {
   computerCapabilities?: RemoteComputerCapabilities;
+  executionCapabilities?: RemoteExecutionCapabilities;
 }
 
 export type RemoteCommandStatus =
@@ -114,6 +141,7 @@ export interface RemoteCommand {
   result: unknown;
   platform: string | null;
   externalThreadId: string | null;
+  idempotencyKey?: string | null;
   computerOperation?: ComputerCommandEnvelope | null;
   attempts: number;
   nextCheckAt: number;

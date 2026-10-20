@@ -68,6 +68,7 @@ describe("browser command policy", () => {
       },
       { type: "key", key: "Enter", modifiers: ["shift"] },
       { type: "navigate", url: "https://example.com/path" },
+      { type: "open-tab", url: "https://example.com/new" },
       { type: "scroll", deltaX: 0, deltaY: 600, x: 10, y: 20 },
       { type: "detach" },
       { type: "stop" },

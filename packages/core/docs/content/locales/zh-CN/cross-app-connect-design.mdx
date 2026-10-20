@@ -1,0 +1,15 @@
+---
+title: "跨应用连接与 Agent-Native 应用市场"
+description: "Agent-Native 应用之间连接、配置和登录的设计方向。"
+---
+
+# 跨应用连接与 Agent-Native 应用市场
+
+这是“一键连接”应用的设计方向。使用 Dispatch 作为身份权威和现有 PKCE 流程，不添加通配符 Cookie。
+
+- Dispatch 仍是身份权威，组织成员资格通过签名 assertion 传递。
+- `/_agent-native/open` 处理深链接，本地登录作为回退。
+- 动态注册、Client ID 元数据、同意和撤销是应用市场的后续阶段。
+- 启用 `labs.connectApps` 后，`/connect` 会显示缓存的 `/apps.json` 目录，并在现有身份交接前验证代理卡。中心的动态注册和撤销仍是下一阶段。
+- 此版本不显示连接状态或断开操作；中心必须先提供应用注册表。
+- 请参阅[跨应用 SSO](/docs/cross-app-sso)。

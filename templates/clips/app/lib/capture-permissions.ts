@@ -1,5 +1,4 @@
 export type CaptureHostApp = {
-  /** The name macOS lists this app under in Privacy & Security. */
   name: string;
   kind: "desktop" | "browser";
 };
@@ -15,9 +14,6 @@ export type CaptureHostEnv = {
 
 const UNKNOWN_BROWSER = "your browser";
 
-// Arc does not identify itself in the user agent, but it injects its palette
-// variables onto the document element, so a browser reporting plain Chrome
-// while exposing --arc-palette-title is Arc.
 function detectArc(): boolean {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return false;
@@ -55,7 +51,7 @@ export function readCaptureHostEnv(): CaptureHostEnv {
 export function detectCaptureHostApp(env: CaptureHostEnv): CaptureHostApp {
   if (env.isTauri) return { name: "Clips", kind: "desktop" };
   if (/Electron/i.test(env.userAgent)) {
-    return { name: "Agent Native", kind: "desktop" };
+    return { name: "Agent-Native", kind: "desktop" };
   }
   const ua = env.userAgent;
   const name = /Vivaldi/i.test(ua)

@@ -9,13 +9,27 @@
  * the shared key. Successful fallback reads race-safely refresh the shared
  * ciphertext.
  *
+ * A development process connected to a remote database shares its rows with
+ * the deployments reading that database, but not necessarily their key
+ * material. It never refreshes shared ciphertext and refuses to write a secret
+ * unless the scope's stored secrets already use its preferred key, so it
+ * cannot strand values those deployments read.
+ *
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */
 
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import {
+  getDbExec,
+  getRuntimeDatabaseUrl,
+  isLocalDatabase,
+} from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { isDeployedServerRuntime } from "../db/server-runtime.js";
+import { defineStore } from "../db/store-registry.js";
+import { invalidateAgentEngineStatusCache } from "../server/agent-engine-status-cache.js";
+import { isLoopbackHost } from "../server/origin-allowlist.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   encryptSecretValue as encryptLegacyValue,
@@ -24,36 +38,21 @@ import {
   decryptSecretValue as decryptLegacyValue,
   hasSharedSecretEncryptionKeyMaterial,
 } from "./crypto.js";
+import { invalidateOptionalKeyCache } from "./optional-key-cache.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
 
-// ---------------------------------------------------------------------------
-// Table bootstrap
-// ---------------------------------------------------------------------------
+export const appSecretsStore = defineStore({
+  id: "app_secrets",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = APP_SECRETS_CREATE_SQL.replace(
+          /\bINTEGER\b/g,
+          "BIGINT",
+        );
 
-let _initPromise: Promise<void> | undefined;
-
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      // Postgres version of the CREATE TABLE — the generic `INTEGER` maps to
-      // BIGINT on Postgres, which we need for millisecond timestamps.
-      const createSql = isPostgres()
-        ? APP_SECRETS_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT")
-        : APP_SECRETS_CREATE_SQL;
-
-      if (isPostgres()) {
-        // Hot path: in production the table and both additive columns are
-        // virtually always already present. Issuing `CREATE`/`ALTER` would
-        // still take an ACCESS EXCLUSIVE lock — which, in a fresh background
-        // worker process behind a concurrent connection on the shared Neon DB,
-        // can block ~indefinitely. `ensureTableExists` / `ensureColumnExists`
-        // check `information_schema` first (a plain read, no lock) and run DDL
-        // ONLY for what is actually missing, wrapping any DDL that must run in a
-        // transaction-scoped `lock_timeout` so a contended lock fails fast. They
-        // also re-probe after a swallowed lock-timeout and THROW if the schema
-        // is still missing, so a timed-out DDL never poisons this init memo.
         await ensureTableExists("app_secrets", createSql);
         await ensureColumnExists(
           "app_secrets",
@@ -70,68 +69,22 @@ async function ensureTable(): Promise<void> {
           "shared_encrypted_value",
           `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS shared_encrypted_value TEXT`,
         );
-        return;
-      }
+      },
+    },
+  ],
+});
 
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem, keep the original
-      // create-then-additive-alter behaviour. SQLite has no
-      // `ADD COLUMN IF NOT EXISTS`, so the ALTERs stay wrapped in try/catch.
-      await client.execute(createSql);
-
-      // Additive migration: description column (for ad-hoc keys)
-      try {
-        await client.execute(
-          `ALTER TABLE app_secrets ADD COLUMN description TEXT`,
-        );
-      } catch {
-        // Column already exists — expected
-      }
-
-      // Additive migration: url_allowlist column
-      try {
-        await client.execute(
-          `ALTER TABLE app_secrets ADD COLUMN url_allowlist TEXT`,
-        );
-      } catch {
-        // Column already exists — expected
-      }
-
-      // Additive migration: workspace-shared ciphertext. Keep the legacy
-      // encrypted_value column so older app versions remain readable.
-      try {
-        await client.execute(
-          `ALTER TABLE app_secrets ADD COLUMN shared_encrypted_value TEXT`,
-        );
-      } catch {
-        // Column already exists — expected
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return appSecretsStore.ready();
 }
 
-// ---------------------------------------------------------------------------
-// Encryption — see ./crypto.ts. Keep encrypted_value on the legacy app-key
-// format for mixed-version deployments, and add shared_encrypted_value when a
-// stable workspace key is configured so sibling apps can read the same row.
-// ---------------------------------------------------------------------------
+export const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";
 
-/**
- * Return the last 4 characters of a secret, with any leading characters
- * masked. Used to show a preview without leaking the value.
- */
 export function last4(value: string): string {
   if (!value) return "";
   if (value.length <= 4) return "••••";
   return "••••" + value.slice(-4);
 }
-
-// ---------------------------------------------------------------------------
-// CRUD
-// ---------------------------------------------------------------------------
 
 export interface SecretRef {
   key: string;
@@ -141,10 +94,51 @@ export interface SecretRef {
 
 export interface WriteSecretArgs extends SecretRef {
   value: string;
-  /** Optional human-readable description (used for ad-hoc keys). */
   description?: string;
-  /** Optional JSON-stringified array of allowed URL origins. */
   urlAllowlist?: string;
+}
+
+export class AppSecretKeyMismatchError extends Error {
+  constructor(ref: SecretRef) {
+    super(
+      `Refusing to write secret "${ref.key}" (${ref.scope} scope): this development process is connected to a shared database, and the secrets stored there use encryption key material it does not prefer. Set WORKSPACE_SECRETS_ENCRYPTION_KEY to match the deployments that use this database, or point DATABASE_URL at a local database.`,
+    );
+    this.name = "AppSecretKeyMismatchError";
+  }
+}
+
+function isLocalDatabaseHost(): boolean {
+  if (isLocalDatabase()) return true;
+  const url = getRuntimeDatabaseUrl();
+  return URL.canParse(url) && isLoopbackHost(new URL(url).host);
+}
+
+function isDevelopmentProcessOnSharedDatabase(): boolean {
+  return !isDeployedServerRuntime() && !isLocalDatabaseHost();
+}
+
+function usesThisProcessKey(row: Record<string, unknown>): boolean {
+  const shared = row.shared_encrypted_value as string | null;
+  try {
+    if (shared) return !decryptValue(shared).needsReencrypt;
+    decryptLegacyValue(row.encrypted_value as string);
+    return true;
+  } catch {
+    return false; // coercion-ok: a failed decrypt is the mismatch this check reports
+  }
+}
+
+async function assertWriteKeepsSecretsReadable(ref: SecretRef): Promise<void> {
+  if (!isDevelopmentProcessOnSharedDatabase()) return;
+  // Check the whole scope: a new key has no row of its own, and a scope can
+  // mix rows from processes with different key material.
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ?`,
+    args: [ref.scope, ref.scopeId],
+  });
+  if (!rows.every((row) => usesThisProcessKey(row))) {
+    throw new AppSecretKeyMismatchError(ref);
+  }
 }
 
 /**
@@ -160,13 +154,9 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
       "writeAppSecret: key, value, scope, and scopeId are all required",
     );
   }
+  await assertWriteKeepsSecretsReadable(args);
   const client = getDbExec();
   const now = Date.now();
-  // Dual-write during rollout: old readers continue using encrypted_value,
-  // while new readers prefer the nullable shared ciphertext. An app-only
-  // deployment leaves the shared column null; on an update, a writer without
-  // shared key material clears any existing shared ciphertext rather than
-  // preserving it (see the upsert SQL below for why).
   const encrypted = encryptLegacyValue(value);
   const sharedEncrypted = hasSharedSecretEncryptionKeyMaterial()
     ? encryptValue(value)
@@ -183,7 +173,7 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   // deliberately left out of the `DO UPDATE SET` list so an existing row
   // keeps its original id (any stored references stay stable); only a
   // genuinely new row gets the freshly generated `id`. This syntax is
-  // portable across SQLite (UPSERT since 3.24) and Postgres.
+  // Uses Postgres' atomic UPSERT to avoid a check-then-write race.
   //
   // shared_encrypted_value is overwritten with `excluded.shared_encrypted_value`
   // (NULL when this writer lacks shared key material) rather than preserved
@@ -218,26 +208,13 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
     now,
   ];
 
-  invalidateRequestSecret(args);
-
-  if (isPostgres()) {
-    const { rows } = await client.execute({
-      sql: `${upsertSql} RETURNING id`,
-      args: upsertArgs,
-    });
-    return String(rows[0]?.id ?? id);
-  }
-
-  // SQLite: RETURNING support varies across better-sqlite3/libsql builds, so
-  // (matching the convention elsewhere in this codebase, e.g.
-  // integrations/pending-tasks-store.ts) re-read the id afterward instead of
-  // relying on it. The row is guaranteed to exist at this point, so this is
-  // a plain lookup rather than a TOCTOU-prone gate on the write itself.
-  await client.execute({ sql: upsertSql, args: upsertArgs });
   const { rows } = await client.execute({
-    sql: `SELECT id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
-    args: [scope, scopeId, key],
+    sql: `${upsertSql} RETURNING id`,
+    args: upsertArgs,
   });
+  invalidateRequestSecret(args);
+  invalidateOptionalKeyCache();
+  invalidateAgentEngineStatusCache();
   return String(rows[0]?.id ?? id);
 }
 
@@ -247,17 +224,9 @@ export interface ReadSecretResult {
   updatedAt: number;
 }
 
-/**
- * Read the shared-key format and retain compatibility with rows written before
- * app_secrets moved to its workspace-shared encryption boundary. The legacy
- * fallback is only useful when the current app owns the old row; sibling apps
- * will receive shared-key ciphertext after the next vault sync or update.
- */
 interface DecryptedAppSecretValue {
   value: string;
-  /** True when the app-scoped fallback decrypted encrypted_value. */
   usedLegacyKey: boolean;
-  /** True when shared_encrypted_value needs to be created or refreshed. */
   needsSharedCiphertext: boolean;
   /**
    * Existing ciphertext that must still match before a refresh. Null means the
@@ -304,13 +273,6 @@ function decryptAppSecretValue(
   }
 }
 
-/**
- * Create or refresh the shared column without touching encrypted_value. This
- * is intentionally best-effort: a read must still succeed if a deployment's
- * DB role cannot update the row. The compare-and-swap predicate prevents a
- * concurrent writer from being overwritten, and leaving updated_at untouched
- * preserves the row's user-visible ordering/metadata.
- */
 async function populateSharedAppSecret(
   id: unknown,
   value: string,
@@ -319,7 +281,8 @@ async function populateSharedAppSecret(
   if (
     id === undefined ||
     id === null ||
-    !hasSharedSecretEncryptionKeyMaterial()
+    !hasSharedSecretEncryptionKeyMaterial() ||
+    isDevelopmentProcessOnSharedDatabase()
   ) {
     return;
   }
@@ -383,9 +346,21 @@ function secretCacheKey(ref: SecretRef): string {
   return `${ref.scope}|${ref.scopeId}|${ref.key}`;
 }
 
-/** Drop this request's memo for a secret whose stored value just changed. */
 function invalidateRequestSecret(ref: SecretRef): void {
   requestSecretsCache()?.delete(secretCacheKey(ref));
+}
+
+const _warnedUndecryptableSecrets = new Set<string>();
+
+// Reads still report an undecryptable row as missing so credential resolution
+// can fall through to other scopes; the warning keeps the cause visible.
+function warnUndecryptableSecret(ref: SecretRef): void {
+  const id = secretCacheKey(ref);
+  if (_warnedUndecryptableSecrets.has(id)) return;
+  _warnedUndecryptableSecrets.add(id);
+  console.warn(
+    `[agent-native/secrets] Stored secret "${ref.key}" (${ref.scope} scope) cannot be decrypted with this process's encryption key material and is treated as missing. It was likely written by a process with different key material.`,
+  );
 }
 
 type AppSecretsReadQuery = { sql: string; args: unknown[] };
@@ -398,19 +373,19 @@ type AppSecretsReadQuery = { sql: string; args: unknown[] };
  */
 function isMissingAppSecretsTableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  const code = String((error as Error & { code?: unknown }).code ?? "");
+  const codeValue = (error as Error & { code?: unknown }).code;
+  const code = typeof codeValue === "string" ? codeValue : "";
   const message = error.message.toLowerCase();
   const namesAppSecrets = /(?:app_secrets|"app_secrets")/.test(message);
 
   if (code === "42P01") return namesAppSecrets;
   return (
     namesAppSecrets &&
-    (message.includes("no such table") ||
-      (message.includes("relation") && message.includes("does not exist")))
+    message.includes("relation") &&
+    message.includes("does not exist")
   );
 }
 
-/** Execute a read without schema probes on the normal path. */
 async function executeAppSecretsRead(query: AppSecretsReadQuery) {
   const client = getDbExec();
   try {
@@ -467,11 +442,11 @@ async function readAppSecretUncached(
   } catch {
     // Decryption failure — key rotated, tampered row, etc. Don't throw up the
     // stack in a way that could leak the ciphertext; just report missing.
+    warnUndecryptableSecret(ref);
     return null;
   }
 }
 
-/** Read several keys from one scope in a single database round trip. */
 export async function readAppSecrets(args: {
   keys: readonly string[];
   scope: SecretScope;
@@ -503,9 +478,6 @@ export async function readAppSecrets(args: {
     sql: `SELECT key, encrypted_value, shared_encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
     args: [args.scope, args.scopeId, ...keys],
   });
-  // The statement covered every uncached key in this scope, so a key missing
-  // from `rows` is genuinely absent — memo it as such rather than leaving a
-  // single-key read to go ask again.
   for (const key of keys) {
     cache?.set(
       secretCacheKey({ key, scope: args.scope, scopeId: args.scopeId }),
@@ -540,16 +512,16 @@ export async function readAppSecrets(args: {
       );
     } catch {
       // Match readAppSecret: corrupted or stale ciphertext behaves as missing.
+      warnUndecryptableSecret({
+        key,
+        scope: args.scope,
+        scopeId: args.scopeId,
+      });
     }
   }
   return results;
 }
 
-/**
- * Return just the metadata for a secret (no value). Used by the list route so
- * the UI can show the "Set" pill and last-4 without the decrypted value going
- * over the wire.
- */
 export async function getAppSecretMeta(
   ref: SecretRef,
 ): Promise<{ last4: string; updatedAt: number } | null> {
@@ -569,11 +541,15 @@ export interface SecretMeta {
   updatedAt: number;
 }
 
-/**
- * Read a secret's metadata, including ad-hoc fields (description, allowlist),
- * without ever decrypting or returning the plaintext value. Used by the
- * ad-hoc list route and any UI that wants to render a key tile.
- */
+export async function hasAppSecret(ref: SecretRef): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    args: [ref.scope, ref.scopeId, ref.key],
+  });
+  return rows.length > 0;
+}
+
 export async function readAppSecretMeta(
   ref: SecretRef,
 ): Promise<SecretMeta | null> {
@@ -680,12 +656,14 @@ function parseAllowlist(raw: string | null): string[] | null {
 
 export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {
   await ensureTable();
-  invalidateRequestSecret(ref);
   const { key, scope, scopeId } = ref;
   const client = getDbExec();
   const { rowsAffected } = await client.execute({
     sql: `DELETE FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ?`,
     args: [scope, scopeId, key],
   });
+  invalidateRequestSecret(ref);
+  invalidateOptionalKeyCache();
+  invalidateAgentEngineStatusCache();
   return rowsAffected > 0;
 }

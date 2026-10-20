@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { deleteSecret } from "../server/lib/vault-store.js";
@@ -9,5 +9,12 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Secret ID to delete"),
   }),
-  run: async (args) => deleteSecret(args.id),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
+  run: async ({ id }) => {
+    await deleteSecret(id);
+    return { deleted: true, id };
+  },
 });

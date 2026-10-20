@@ -268,27 +268,27 @@ Everything from here through [Local File Extensions](#local-file-extensions) is 
 
 Inside the iframe sandbox, every extension has these helpers on `window`:
 
-| Helper                                           | Purpose                                                   | Example                                                   |
-| ------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| `appAction(name, params)`                        | Call any of the host template's actions, including writes | `appAction('list-emails', { view: 'inbox' })`             |
-| `appFetch(path, options)`                        | Call allowed framework endpoints under `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
-| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user; never for writes) | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions     | Prefer `appAction` for app data writes                    |
-| `extensionFetch(url, options)`                   | Hit external APIs through a secure proxy with secrets     | `extensionFetch('https://api.github.com/user')`           |
-| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension (user / org scoping)           | `extensionData.set('notes', id, { text: '...' })`         |
-| `extensionData.list(collection, opts?)`          | List persisted items                                      | `extensionData.list('notes', { scope: 'all' })`           |
-| `extensionData.get(collection, id, opts?)`       | Get a single item                                         | `extensionData.get('notes', 'note-1')`                    |
-| `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                                   | `extensionData.remove('notes', 'note-1')`                 |
-| `window.slotContext`                             | Read the page/chat context passed into this slot          | `window.slotContext?.contactEmail`                        |
-| `agentNative.ui.output(value, opts?)`            | Record passive inline UI output in application state      | `agentNative.ui.output({ threshold })`                    |
-| `agentNative.chat.send(message, opts?)`          | Send a prompt or selected value back to the agent chat    | `agentNative.chat.send('Use Q2', { context: { q: 2 } })`  |
+| Helper                                           | Purpose                                                   | Example                                                                |
+| ------------------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `appAction(name, params)`                        | Call any of the host template's actions, including writes | `appAction('list-emails', { view: 'inbox' })`                          |
+| `appFetch(path, options)`                        | Call allowed framework endpoints under `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')`              |
+| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user; never for writes) | `dbQuery('SELECT id, name FROM tools')`                                |
+| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions     | Prefer `appAction` for app data writes                                 |
+| `extensionFetch(url, options)`                   | Hit external APIs through a secure proxy with secrets     | `extensionFetch('https://api.github.com/user')`                        |
+| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension (user / org scoping)           | `extensionData.set('notes', id, { text: '...' })`                      |
+| `extensionData.list(collection, opts?)`          | List persisted items                                      | `extensionData.list('notes', { scope: 'all' })`                        |
+| `extensionData.get(collection, id, opts?)`       | Get a single item                                         | `extensionData.get('notes', 'note-1')`                                 |
+| `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                                   | `extensionData.remove('notes', 'note-1')`                              |
+| `window.slotContext`                             | Read the page/chat context passed into this slot          | `window.slotContext?.contactEmail`                                     |
+| `agentNative.ui.output(value, opts?)`            | Record passive inline UI output in application state      | `agentNative.ui.output({ threshold })`                                 |
+| `agentNative.chat.send(message, opts?)`          | Send a prompt or selected value back to the agent chat    | `agentNative.chat.send('Use Q2', { submit: true, context: { q: 2 } })` |
 
 Three rules of thumb:
 
 - **Prefer `appAction` over raw SQL.** Actions are the template's official surface — they handle access control, scoping, and validation for you. `dbQuery` is read-only; `dbExec` remains for legacy trusted editor/admin extensions, but new app data writes should go through actions.
 - **Use `appAction` for template data.** Extension `appFetch` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are blocked by the iframe bridge.
 - **Prefer `extensionData` over making new tables.** Each extension gets its own isolated key-value store. No schema, no migration. Set `{ scope: 'org' }` to share with the user's org, `'user'` (default) for private.
-- **Use `agentNative.ui.output` for inline control values the agent should read later.** It writes `inline-ui:<extensionId>:output` to application state; `agentNative.chat.send` is for visible submit/apply messages.
+- **Use `agentNative.ui.output` for inline control values the agent should read later.** It writes `inline-ui:<extensionId>:output` to application state; `agentNative.chat.send` is draft-only unless `{ submit: true }` is passed for a user-triggered submit/apply message. Never call it from polling, refresh, or error handlers.
 
 ```html
 <script>
@@ -716,7 +716,7 @@ You also won't see this in normal use, but the agent has a third related concept
 ## What's next
 
 - [**Templates**](/docs/cloneable-saas) — the host apps extensions extend
-- [**Actions**](/docs/actions) — the operations an extension calls via `appAction`
+- [**Actions**](/docs/actions-overview) — the operations an extension calls via `appAction`
 - [**Data Programs**](/docs/data-programs) — the no-UI sibling primitive for cached, refreshable data sources
 - [**Sharing & Privacy**](/docs/sharing) — how extension visibility, org sharing, and per-user grants work
 - [**Onboarding & API Keys**](/docs/onboarding) — how secrets surface in the settings UI

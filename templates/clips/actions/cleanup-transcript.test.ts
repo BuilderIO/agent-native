@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockBuilderStream = vi.hoisted(() => vi.fn());
-const mockResolveBuilderCredentials = vi.hoisted(() => vi.fn());
+const mockResolveHasBuilderGatewayCredential = vi.hoisted(() => vi.fn());
 const mockResolveSecret = vi.hoisted(() => vi.fn());
 const mockNoteBuilderCreditsExhausted = vi.hoisted(() => vi.fn());
 const mockClearBuilderCreditsExhausted = vi.hoisted(() => vi.fn());
@@ -24,9 +24,9 @@ vi.mock("@agent-native/core/server", () => ({
       this.requiredCredential = opts.requiredCredential;
     }
   },
-  resolveBuilderCredentials: (...args: unknown[]) =>
-    mockResolveBuilderCredentials(...args),
-  resolveSecret: (...args: unknown[]) => mockResolveSecret(...args),
+  resolveHasBuilderGatewayCredential: (...args: unknown[]) =>
+    mockResolveHasBuilderGatewayCredential(...args),
+  resolveGeminiApiKey: () => mockResolveSecret("GOOGLE_GENERATIVE_AI_API_KEY"),
 }));
 
 vi.mock("@agent-native/core/voice", () => ({
@@ -47,10 +47,7 @@ import { cleanupMaxOutputTokens } from "./cleanup-transcript";
 describe("cleanup-transcript", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockResolveBuilderCredentials.mockResolvedValue({
-      privateKey: "bpk-test",
-      publicKey: "public-test",
-    });
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(true);
     mockResolveSecret.mockResolvedValue("gemini-key");
     mockNoteBuilderCreditsExhausted.mockResolvedValue(undefined);
     mockClearBuilderCreditsExhausted.mockResolvedValue(undefined);
@@ -81,7 +78,7 @@ describe("cleanup-transcript", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses GPT-5.6 Luna through Builder when the managed path succeeds", async () => {
+  it("uses Luna through Builder when the managed path succeeds", async () => {
     mockBuilderStream.mockImplementation(async function* () {
       yield { type: "text-delta", text: "Cleaned transcript from Luna." };
       yield { type: "stop", reason: "end_turn" };
@@ -98,9 +95,25 @@ describe("cleanup-transcript", () => {
       provider: "builder",
     });
     expect(mockBuilderStream).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-5-6-luna" }),
+      expect.objectContaining({ model: "gpt-6-luna" }),
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("skips the Builder gateway entirely when no Builder credential is connected", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+
+    const result = await cleanupTranscript.run({
+      transcript: "raw transcript",
+      task: "cleanup",
+    });
+
+    expect(result).toMatchObject({
+      task: "cleanup",
+      cleanedText: "Cleaned transcript from Gemini.",
+      provider: "gemini-byok",
+    });
+    expect(mockBuilderStream).not.toHaveBeenCalled();
   });
 
   it("falls back to BYOK Gemini when Builder credits are exhausted", async () => {
@@ -128,6 +141,29 @@ describe("cleanup-transcript", () => {
     );
   });
 
+  it("sends BYOK requests to Gemini 3.5 Flash-Lite without sampling parameters", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+
+    for (const task of ["cleanup", "title", "summary"] as const) {
+      await cleanupTranscript.run({ transcript: "raw transcript", task });
+    }
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    for (const [url, init] of vi.mocked(fetch).mock.calls) {
+      expect(url).toBe(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      );
+      const body = JSON.parse(
+        typeof init?.body === "string" ? init.body : "",
+      ) as {
+        generationConfig: Record<string, unknown>;
+      };
+      for (const key of ["temperature", "topP", "topK", "top_p", "top_k"]) {
+        expect(body.generationConfig).not.toHaveProperty(key);
+      }
+    }
+  });
+
   it("scales cleanup output budgets with transcript length for both providers", async () => {
     const transcript = "x".repeat(28_445);
 
@@ -138,7 +174,9 @@ describe("cleanup-transcript", () => {
       expect.objectContaining({ maxOutputTokens: 9_994 }),
     );
     const [, init] = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(init?.body)) as {
+    const body = JSON.parse(
+      typeof init?.body === "string" ? init.body : "",
+    ) as {
       generationConfig: { maxOutputTokens: number };
     };
     expect(body.generationConfig.maxOutputTokens).toBe(9_994);

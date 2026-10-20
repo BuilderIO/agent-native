@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { createGrant } from "../server/lib/vault-store.js";
@@ -12,5 +12,9 @@ export default defineAction({
       .string()
       .describe("App ID to grant access to, e.g. mail, calendar"),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => createGrant(args.secretId, args.appId),
 });

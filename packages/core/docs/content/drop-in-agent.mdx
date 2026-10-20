@@ -11,7 +11,7 @@ description: "Mount the agent chat + resources into any React app with <AgentPan
 
 </Callout>
 
-You don't need to build agent-native from scratch. The agent chat, resources tab, CLI terminal, voice input, and all the related infrastructure ship as a handful of React components you drop into any app.
+You don't need to build Agent-Native from scratch. The agent chat, resources tab, CLI terminal, voice input, and all the related infrastructure ship as a handful of React components you drop into any app.
 
 <Callout tone="info">
 
@@ -170,7 +170,7 @@ export default function AgentRoute() {
 }
 ```
 
-`<AgentPanel>` gives you the raw tabs (Chat / CLI / Resources) without the sidebar wrapper, the collapse button, or any state persistence. Put it wherever you want; you handle the layout.
+`<AgentPanel>` gives you the raw tabs (Chat / CLI / Resources) without the sidebar wrapper or the collapse button. Put it wherever you want; you control the surrounding layout.
 
 ### Selected props
 
@@ -184,7 +184,7 @@ Full props: `AgentPanelProps` in `@agent-native/core/client`.
 
 ## Programmatic messages: `sendToAgentChat()` {#send}
 
-A button that hands work off to the agent (instead of running an inline `llm()` call — the anti-pattern from the [ladder](/docs/what-is-agent-native#the-ladder)). For visible, user-initiated AI work, open the sidebar explicitly so the user can see, steer, and continue the same thread:
+A button that hands work off to the agent instead of creating a separate AI path with an inline `llm()` call. See [Why build apps this way](/docs/what-is-agent-native#why-build-apps-this-way) for why that distinction matters. For visible, user-initiated AI work, open the sidebar explicitly so the user can see, steer, and continue the same thread:
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -210,7 +210,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — create a separate chat thread for this prompt.
 - **`background`** — with `newTab`, run without focusing the new thread. The hidden run is tracked in `RunsTray`.
 - **`openSidebar`** — use `true` for visible user-initiated AI work. Set to `false` only for explicitly silent background or system-initiated sends. The default opens the sidebar so the user sees the response.
-- **`type`** — `"content"` (default) keeps the work in the embedded app agent, which operates through app tools unless its frame is intentionally granted workspace and write tooling. `"code"` routes to a separate code-capable frame (for repository source changes, see [Frames](/docs/frames)).
+- **`type`** — `"content"` (default) keeps the work in the embedded app agent, which operates through app tools unless its host is intentionally granted workspace and write tooling. `"code"` routes to a separate code-capable host (for repository source changes, see [Agent-Native Code UI](/docs/code-agents-ui)).
 
 `sendToAgentChat` returns a stable `tabId` you can use to track the chat run.
 
@@ -237,7 +237,7 @@ conversation itself belongs in the AgentSidebar composer.
 
 When the same route is embedded as an MCP App, submitted
 `sendToAgentChat()` calls are forwarded to the host chat where supported; see
-[Client](/docs/client#sendtoagentchat) for the MCP App bridge behavior.
+[Agent Chat](/docs/client-agent-chat#sendtoagentchat) for the MCP App bridge behavior.
 
 If you want a loading state, use the `useSendToAgentChat()` hook — it returns both `send` and `isGenerating`:
 
@@ -283,7 +283,7 @@ AI-shaped workflow inside one opaque action.
 
 ## Typesafe actions from the UI: `useActionMutation()` {#use-action-mutation}
 
-When the UI needs to run the same operation an agent tool would run — rung 3 of the [ladder](/docs/what-is-agent-native#rung-three) — use `useActionMutation`:
+When the UI needs to run the same operation an agent tool would run, use [`useActionMutation`](/docs/client-data#use-action-mutation):
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -294,11 +294,11 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-Type-safe arguments come from the zod schema in your `defineAction()`. See [Actions](/docs/actions) for the full action system.
+Type-safe arguments come from the zod schema in your `defineAction()`. See [Actions](/docs/actions-overview) for the full action system.
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI; that creates a separate AI path instead of using the shared agent loop.
 
 </Callout>
 
@@ -352,7 +352,7 @@ The user sees a chat button in the header, can open it, and can talk to the agen
 
 ## What's next
 
-- [**Actions**](/docs/actions) — `defineAction()` and `useActionMutation()`
+- [**Actions**](/docs/actions-overview) — `defineAction()` and `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — selection, navigation, view-screen
 - [**Agent Resources**](/docs/agent-resources) — what the Resources tab contains (skills, memory, MCP servers, scheduled jobs)
 - [**Voice Input**](/docs/voice-input) — the microphone in the chat composer

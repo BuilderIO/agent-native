@@ -1,30 +1,32 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconPlayerPlay,
-  IconPlayerPause,
+  IconPlayerPlayFilled,
+  IconPlayerPauseFilled,
   IconPlayerSkipForward,
   IconVolume,
   IconVolumeOff,
   IconMaximize,
+  IconMessagePlus,
   IconPictureInPicture,
   IconSubtitles,
   IconRectangle,
 } from "@tabler/icons-react";
-import { useState, type FocusEvent } from "react";
+import { useCallback, useState, type FocusEvent } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Slider } from "@/components/ui/slider";
 import {
   Tooltip,
   TooltipContent,
@@ -33,6 +35,8 @@ import {
 import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
 import { cn } from "@/lib/utils";
 
+import type { CommentPreviewData } from "./playback-comment-overlay";
+import { ReactionsTray, type ReactionHandler } from "./reactions-tray";
 import { Scrubber, msToClock } from "./scrubber";
 
 export const SPEED_OPTIONS = PLAYBACK_SPEED_OPTIONS;
@@ -45,14 +49,22 @@ export interface PlayerControlsProps {
   volume: number;
   muted: boolean;
   speed: number;
+  /** Rates the player can play; defaults to the native player's list. */
+  speedOptions?: readonly number[];
   captionsOn: boolean;
   hasCaptions: boolean;
   isFullscreen: boolean;
   isPip: boolean;
+  canPip?: boolean;
+  /** Sits below the video instead of over it, so its menus open downward. */
+  docked?: boolean;
   theaterMode: boolean;
-  comments?: { id: string; videoTimestampMs: number; content: string }[];
+  comments?: (CommentPreviewData & {
+    videoTimestampMs: number;
+  })[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
+  onMarkerLanesChange?: (lanes: Map<number, number>) => void;
   onPlayPause: () => void;
   onSeek: (ms: number) => void;
   onSeekRelative: (deltaMs: number) => void;
@@ -64,6 +76,11 @@ export interface PlayerControlsProps {
   onToggleFullscreen: () => void;
   onToggleTheater?: () => void;
   menuPortalContainer?: HTMLElement | null;
+  showReactionsAndComment?: boolean;
+  enableReactions?: boolean;
+  onReact?: ReactionHandler;
+  enableComments?: boolean;
+  onAddComment?: () => void;
 }
 
 export function PlayerControls(props: PlayerControlsProps) {
@@ -75,14 +92,18 @@ export function PlayerControls(props: PlayerControlsProps) {
     volume,
     muted,
     speed,
+    speedOptions = SPEED_OPTIONS,
     captionsOn,
     hasCaptions,
     isFullscreen,
     isPip,
+    canPip = true,
+    docked = false,
     theaterMode,
     comments,
     chapters,
     reactions,
+    onMarkerLanesChange,
     onPlayPause,
     onSeek,
     onSeekRelative,
@@ -94,9 +115,24 @@ export function PlayerControls(props: PlayerControlsProps) {
     onToggleFullscreen,
     onToggleTheater,
     menuPortalContainer,
+    showReactionsAndComment,
+    enableReactions,
+    onReact,
+    enableComments,
+    onAddComment,
   } = props;
 
   const [volumePopoverOpen, setVolumePopoverOpen] = useState(false);
+  // Docked controls must hold the markers that rise above the scrubber, so
+  // none of them reach up over the video.
+  const [markerLaneCount, setMarkerLaneCount] = useState(0);
+  const handleDockedMarkerLanes = useCallback(
+    (lanes: Map<number, number>) => {
+      setMarkerLaneCount(lanes.size ? Math.max(...lanes.values()) + 1 : 0);
+      onMarkerLanesChange?.(lanes);
+    },
+    [onMarkerLanesChange],
+  );
 
   const handleVolumeBlur = (event: FocusEvent<HTMLDivElement>) => {
     const nextFocusedElement = event.relatedTarget as Node | null;
@@ -106,27 +142,42 @@ export function PlayerControls(props: PlayerControlsProps) {
   };
 
   return (
-    <div className="px-3 pb-2 pt-10 bg-gradient-to-t from-black/80 via-black/50 to-transparent">
+    <div
+      className={
+        docked
+          ? cn(
+              "bg-player-control px-3 pb-2",
+              markerLaneCount === 0
+                ? "pt-2"
+                : markerLaneCount === 1
+                  ? "pt-3"
+                  : "pt-10",
+            )
+          : "px-3 pb-2 pt-10 bg-gradient-to-t from-black/80 via-black/50 to-transparent"
+      }
+    >
       <Scrubber
+        hoverPreviews={!docked}
         currentMs={currentMs}
         durationMs={durationMs}
         onSeek={onSeek}
         comments={comments}
         chapters={chapters}
         reactions={reactions}
+        onMarkerLanesChange={
+          docked ? handleDockedMarkerLanes : onMarkerLanesChange
+        }
       />
 
-      <div className="flex min-w-0 items-center gap-1.5 text-white">
+      {/* guard:allow-raw-color -- video controls overlay the dark player scrim itself, not themed app chrome, so text stays white regardless of light/dark mode */}
+      <div className="relative flex min-w-0 items-center gap-1.5 text-white">
         <IconBtn
           onClick={onPlayPause}
           tooltip={isPlaying ? "Pause (K)" : "Play (K)"}
           ariaLabel={isPlaying ? "Pause" : "Play"}
+          className="size-10 [&_svg]:size-5"
         >
-          {isPlaying ? (
-            <IconPlayerPause className="h-5 w-5" />
-          ) : (
-            <IconPlayerPlay className="h-5 w-5" />
-          )}
+          {isPlaying ? <IconPlayerPauseFilled /> : <IconPlayerPlayFilled />}
         </IconBtn>
 
         <IconBtn
@@ -155,23 +206,21 @@ export function PlayerControls(props: PlayerControlsProps) {
         >
           <Popover open={volumePopoverOpen} onOpenChange={setVolumePopoverOpen}>
             <PopoverTrigger asChild>
-              <button
+              <Button
                 data-player-ui
                 type="button"
+                variant="ghost"
+                size="icon-sm"
                 onClick={onToggleMute}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white hover:bg-white/10"
+                className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground shrink-0"
                 aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
               >
-                {muted || volume === 0 ? (
-                  <IconVolumeOff className="h-5 w-5" />
-                ) : (
-                  <IconVolume className="h-5 w-5" />
-                )}
-              </button>
+                {muted || volume === 0 ? <IconVolumeOff /> : <IconVolume />}
+              </Button>
             </PopoverTrigger>
             <PopoverContent
               data-player-ui
-              side="top"
+              side={docked ? "bottom" : "top"}
               align="center"
               sideOffset={8}
               portalled={false}
@@ -180,16 +229,15 @@ export function PlayerControls(props: PlayerControlsProps) {
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
               <div className="flex h-24 w-8 items-center justify-center">
-                <input
+                <Slider
                   aria-label="Volume"
-                  aria-orientation="vertical"
-                  type="range"
+                  orientation="vertical"
                   min={0}
                   max={1}
                   step={0.05}
-                  value={muted ? 0 : volume}
-                  onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-                  className="h-2 w-24 -rotate-90 cursor-pointer accent-white"
+                  value={[muted ? 0 : volume]}
+                  onValueChange={([value]) => onVolumeChange(value ?? 0)}
+                  className="h-24 w-2 data-[orientation=vertical]:flex-col [&_[data-orientation=vertical]]:h-full [&_[data-orientation=vertical]]:w-1.5 [&_[role=slider]]:size-3.5"
                 />
               </div>
             </PopoverContent>
@@ -210,7 +258,7 @@ export function PlayerControls(props: PlayerControlsProps) {
               active={captionsOn}
               tooltip="Captions (C)"
             >
-              <IconSubtitles className="h-5 w-5" />
+              <IconSubtitles />
             </IconBtn>
           </div>
         ) : null}
@@ -219,12 +267,15 @@ export function PlayerControls(props: PlayerControlsProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button
+                <Button
                   data-player-ui
-                  className="h-8 shrink-0 rounded-md px-2 text-xs font-medium tabular-nums hover:bg-white/10"
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground shrink-0 rounded-md px-2 text-xs font-medium tabular-nums"
                 >
                   {speed}x
-                </button>
+                </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>{t("playerControls.playbackSpeed")}</TooltipContent>
@@ -232,13 +283,12 @@ export function PlayerControls(props: PlayerControlsProps) {
           <DropdownMenuContent
             data-player-ui
             align="end"
-            side="top"
+            side={docked ? "bottom" : "top"}
             className="min-w-[90px]"
             container={menuPortalContainer}
           >
             <DropdownMenuLabel>Speed</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {SPEED_OPTIONS.map((rate) => (
+            {speedOptions.map((rate) => (
               <DropdownMenuItem
                 key={rate}
                 onSelect={() => onSpeedChange(rate)}
@@ -253,15 +303,17 @@ export function PlayerControls(props: PlayerControlsProps) {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <div className="hidden sm:block">
-          <IconBtn
-            onClick={onTogglePip}
-            active={isPip}
-            tooltip="Picture in picture"
-          >
-            <IconPictureInPicture className="h-5 w-5" />
-          </IconBtn>
-        </div>
+        {canPip ? (
+          <div className="hidden sm:block">
+            <IconBtn
+              onClick={onTogglePip}
+              active={isPip}
+              tooltip="Picture in picture"
+            >
+              <IconPictureInPicture />
+            </IconBtn>
+          </div>
+        ) : null}
 
         {onToggleTheater ? (
           <div className="hidden sm:block">
@@ -270,16 +322,38 @@ export function PlayerControls(props: PlayerControlsProps) {
               active={theaterMode}
               tooltip="Theater mode (T)"
             >
-              <IconRectangle className="h-5 w-5" />
+              <IconRectangle />
             </IconBtn>
           </div>
         ) : null}
 
         <IconBtn onClick={onToggleFullscreen} tooltip="Fullscreen (F)">
-          <IconMaximize
-            className={cn("h-5 w-5", isFullscreen && "rotate-180")}
-          />
+          <IconMaximize className={cn(isFullscreen && "rotate-180")} />
         </IconBtn>
+
+        {showReactionsAndComment ? (
+          <div
+            data-player-ui
+            className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-center gap-2"
+          >
+            {enableReactions && onReact ? (
+              <div className="pointer-events-auto">
+                <ReactionsTray reactions={reactions} onReact={onReact} />
+              </div>
+            ) : null}
+
+            {enableComments && onAddComment ? (
+              <div className="pointer-events-auto">
+                <IconBtn
+                  onClick={onAddComment}
+                  tooltip={t("commentsPanel.commentButton")}
+                >
+                  <IconMessagePlus />
+                </IconBtn>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -291,27 +365,35 @@ function IconBtn({
   tooltip,
   ariaLabel,
   active,
+  className,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   tooltip?: string;
   ariaLabel?: string;
   active?: boolean;
+  className?: string;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Button
           data-player-ui
+          type="button"
+          variant="ghost"
+          size="icon-sm"
           onClick={onClick}
           aria-label={ariaLabel ?? tooltip}
           className={cn(
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
-            active ? "bg-white/20 text-white" : "text-white hover:bg-white/10",
+            "shrink-0",
+            active
+              ? "bg-player-control-foreground/20 text-player-control-foreground hover:bg-player-control-foreground/25 hover:text-player-control-foreground"
+              : "text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground",
+            className,
           )}
         >
           {children}
-        </button>
+        </Button>
       </TooltipTrigger>
       <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>
@@ -321,7 +403,7 @@ function IconBtn({
 function SkipIcon({ direction }: { direction: "back" | "forward" }) {
   return (
     <IconPlayerSkipForward
-      className={cn("h-5 w-5", direction === "back" && "rotate-180")}
+      className={cn(direction === "back" && "rotate-180")}
     />
   );
 }

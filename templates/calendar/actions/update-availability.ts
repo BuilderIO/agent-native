@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { putUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
@@ -8,16 +8,27 @@ import {
   updateBookingUsername,
 } from "../server/handlers/booking-usernames.js";
 import type { AvailabilityConfig } from "../shared/api.js";
+import { availabilitySlotsOverlap } from "../shared/availability-schedule.js";
 
 const timeSlotSchema = z.object({
   start: z.string(),
   end: z.string(),
 });
 
-const dayScheduleSchema = z.object({
-  enabled: z.boolean(),
-  slots: z.array(timeSlotSchema),
-});
+const dayScheduleSchema = z
+  .object({
+    enabled: z.boolean(),
+    slots: z.array(timeSlotSchema),
+  })
+  .superRefine((day, ctx) => {
+    if (availabilitySlotsOverlap(day.slots)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["slots"],
+        message: "Availability windows must not overlap",
+      });
+    }
+  });
 
 const availabilitySchema = z.object({
   timezone: z.string(),
@@ -45,7 +56,6 @@ export default defineAction({
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
-    // The frontend sends the full availability config as the body
     const bookingUsername = args.bookingUsername
       ? await updateBookingUsername(email, args.bookingUsername)
       : await ensureBookingUsername(email);

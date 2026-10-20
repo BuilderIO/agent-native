@@ -8,11 +8,14 @@ const agentNativePlugins = agentNative as unknown as (
 ) => any[];
 
 export default defineConfig({
+  server: {
+    watch: {
+      ignored: ["**/data/**", "**/plans/**"],
+    },
+  },
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      // Browser-only renderers run in useEffect — keep them out of the CF Pages
-      // Functions bundle (25 MiB limit) and away from SSR DOM/canvas shims.
       ssrStubs: [
         "shiki",
         "mermaid",

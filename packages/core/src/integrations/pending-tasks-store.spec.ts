@@ -1,13 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeMock = vi.hoisted(() => vi.fn());
-const isPostgresMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  isPostgres: isPostgresMock,
   isProductionServerlessFunctionRuntime: () => false,
-  intType: () => "INTEGER",
 }));
 
 async function loadStore() {
@@ -18,7 +15,6 @@ async function loadStore() {
 describe("integration pending task store", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    isPostgresMock.mockReturnValue(false);
   });
 
   it("claims pending tasks and increments attempts", async () => {
@@ -46,7 +42,25 @@ describe("integration pending task store", () => {
         };
       }
       if (sql.includes("UPDATE integration_pending_tasks")) {
-        return { rows: [], rowsAffected: 1 };
+        return {
+          rows: [
+            {
+              id: "task-1",
+              platform: "slack",
+              external_thread_id: "thread-1",
+              payload: "{}",
+              owner_email: "alice+qa@agent-native.test",
+              org_id: null,
+              status: "processing",
+              attempts: 1,
+              error_message: null,
+              created_at: 1,
+              updated_at: 2,
+              completed_at: null,
+            },
+          ],
+          rowsAffected: 1,
+        };
       }
       return { rows: [] };
     });
@@ -74,11 +88,16 @@ describe("integration pending task store", () => {
     expect((updateCall?.[0] as { sql: string }).sql).toContain(
       "last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)",
     );
+    const recoverableSince = (updateCall?.[0] as { args: unknown[] }).args[4];
     expect((updateCall?.[0] as { args: unknown[] }).args).toEqual([
       "processing",
       expect.any(Number),
       "background-acknowledged",
       "task-1",
+      expect.any(Number),
+      recoverableSince,
+      recoverableSince,
+      recoverableSince,
     ]);
   });
 
@@ -160,70 +179,7 @@ describe("integration pending task store", () => {
           ),
       );
     expect(select?.sql).toContain("ORDER BY created_at ASC, id ASC");
-    expect(select?.args).toEqual(["slack", "thread-1"]);
-  });
-
-  it("returns null when a SQLite claim loses the conditional update race", async () => {
-    const { claimPendingTask } = await loadStore();
-    executeMock.mockImplementation(async (query: string | { sql: string }) => {
-      const sql = typeof query === "string" ? query : query.sql;
-      if (sql.includes("UPDATE integration_pending_tasks")) {
-        return { rows: [], rowsAffected: 0 };
-      }
-      if (sql.includes("SELECT id, platform")) {
-        return {
-          rows: [
-            {
-              id: "task-raced",
-              platform: "slack",
-              external_thread_id: "thread-1",
-              payload: "{}",
-              owner_email: "alice+qa@agent-native.test",
-              org_id: null,
-              status: "processing",
-              attempts: 1,
-              error_message: null,
-              created_at: 1,
-              updated_at: 2,
-              completed_at: null,
-            },
-          ],
-        };
-      }
-      return { rows: [] };
-    });
-
-    await expect(claimPendingTask("task-raced")).resolves.toBeNull();
-
-    const selectCall = executeMock.mock.calls.find(([query]) => {
-      const sql = typeof query === "string" ? query : query.sql;
-      return sql.includes("SELECT id, platform");
-    });
-    expect(selectCall).toBeUndefined();
-  });
-
-  it("does not claim failed tasks on the Postgres RETURNING path", async () => {
-    isPostgresMock.mockReturnValue(true);
-    const { claimPendingTask } = await loadStore();
-    executeMock.mockImplementation(async (query: string | { sql: string }) => {
-      const sql = typeof query === "string" ? query : query.sql;
-      if (sql.includes("UPDATE integration_pending_tasks")) {
-        return { rows: [] };
-      }
-      return { rows: [] };
-    });
-
-    await expect(claimPendingTask("task-failed")).resolves.toBeNull();
-
-    const updateCall = executeMock.mock.calls.find(([query]) => {
-      const sql = typeof query === "string" ? query : query.sql;
-      return sql.includes("UPDATE integration_pending_tasks");
-    });
-    expect(updateCall?.[0]).toEqual(
-      expect.objectContaining({
-        sql: expect.stringContaining("WHERE id = ? AND status = 'pending'"),
-      }),
-    );
+    expect(select?.args).toEqual(["slack", "thread-1", expect.any(Number)]);
   });
 
   it("only treats duplicate-key errors as duplicate webhook deliveries", async () => {
@@ -232,7 +188,7 @@ describe("integration pending task store", () => {
     expect(
       isDuplicateEventError(
         new Error(
-          "UNIQUE constraint failed: integration_pending_tasks.platform, integration_pending_tasks.external_event_key",
+          "duplicate key value violates unique constraint integration_pending_tasks.platform_external_event_key",
         ),
       ),
     ).toBe(true);
@@ -268,6 +224,49 @@ describe("integration pending task store", () => {
     expect(insert?.sql).toContain("dispatch_scope");
     expect(insert?.args.at(-1)).toBe("channel-7");
   });
+
+  it.each(["insert", "stage", "retry"] as const)(
+    "rejects inline image bytes before SQL during %s",
+    async (operation) => {
+      const {
+        insertPendingTask,
+        markTaskDeliveryRetryable,
+        PendingTaskPayloadNotPersistableError,
+        stageTaskDeliveryPayload,
+      } = await loadStore();
+      const payload = JSON.stringify({
+        attachments: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "aW1hZ2UtYnl0ZXM=",
+            },
+          },
+        ],
+      });
+
+      const write = {
+        insert: () =>
+          insertPendingTask({
+            id: "unsafe-task",
+            platform: "slack",
+            externalThreadId: "thread-unsafe",
+            payload,
+            ownerEmail: "member@example.com",
+          }),
+        stage: () => stageTaskDeliveryPayload("unsafe-task", payload),
+        retry: () =>
+          markTaskDeliveryRetryable("unsafe-task", payload, "delivery failed"),
+      }[operation];
+
+      await expect(write()).rejects.toBeInstanceOf(
+        PendingTaskPayloadNotPersistableError,
+      );
+      expect(executeMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("resolves valid Slack provenance from the caller's stored task", async () => {
     executeMock.mockImplementation(async (query: string | { sql: string }) => {
@@ -513,6 +512,34 @@ describe("integration pending task store", () => {
       expect.any(Number),
       "temporary provider error",
       "discord-task-retry",
+    ]);
+  });
+
+  it("does not consume retry budget when requeueing expected automation contention", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { markTaskRetryable } = await loadStore();
+
+    await markTaskRetryable(
+      "automation-task",
+      "Automation is already running.",
+      {
+        resetAttempts: true,
+      },
+    );
+
+    const retryUpdate = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("UPDATE integration_pending_tasks"),
+      );
+    expect(retryUpdate?.sql).toContain("attempts = 0");
+    expect(retryUpdate?.args).toEqual([
+      "pending",
+      expect.any(Number),
+      "Automation is already running.",
+      "automation-task",
     ]);
   });
 

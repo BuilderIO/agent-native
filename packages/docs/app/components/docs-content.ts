@@ -1,49 +1,18 @@
-/**
- * Loads all markdown doc files from @agent-native/core at build time via Vite glob import.
- * The source of truth for docs lives in packages/core/docs/content/.
- * Provides parsed frontmatter, raw markdown, and heading extraction for TOC + search.
- */
-
 import {
   docSourceFilenamesForSlug,
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../../lib/docs-source";
+import { hasDocBlockSyntax } from "./doc-block-detection";
+import { preloadDocBlocksContent } from "./doc-block-renderer";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
-  isDocsLocale,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "./docs-locale";
-
-// Keep default docs route-lazy. Eagerly importing and parsing the whole corpus
-// makes every SSR cold start pay for documents unrelated to the requested page.
-// During the migration `.mdx` wins when both source files exist for a slug;
-// `.md` remains a fallback.
-const docSourceLoaders = {
-  ...import.meta.glob("../../../core/docs/content/*.md", {
-    query: "?raw",
-    import: "default",
-  }),
-  ...import.meta.glob("../../../core/docs/content/*.mdx", {
-    query: "?raw",
-    import: "default",
-  }),
-} as Record<string, () => Promise<string>>;
-
-// Optional locale-specific docs live under packages/core/docs/content/locales/.
-// Keep these lazy. Translated Markdown should load per locale + route, not all
-// at startup, so non-English docs do not bloat the initial docs bundle.
-const localizedDocLoaders = {
-  ...import.meta.glob("../../../core/docs/content/locales/*/*.md", {
-    query: "?raw",
-    import: "default",
-  }),
-  ...import.meta.glob("../../../core/docs/content/locales/*/*.mdx", {
-    query: "?raw",
-    import: "default",
-  }),
-} as Record<string, () => Promise<string>>;
+import { docSourceLoaders, localizedDocLoaders } from "./docs-source-loaders";
+import { slugifyHeading } from "./heading-slug";
 
 export interface DocEntry {
   slug: string;
@@ -51,7 +20,7 @@ export interface DocEntry {
   description: string;
   search: string;
   draft?: boolean;
-  body: string; // markdown body (without frontmatter)
+  body: string;
   headings: { id: string; label: string; level: number }[];
 }
 
@@ -111,11 +80,9 @@ function extractHeadings(
   let inMdxBlock = false;
   for (const line of nonFencedMarkdownLines(body)) {
     if (/^<[A-Z][A-Za-z]*[\s>]/.test(line.text)) {
-      // Self-closing on one line (<Foo ... />) — don't enter block mode
       if (!line.text.trimEnd().endsWith("/>")) inMdxBlock = true;
       continue;
     }
-    // Closing tag or standalone /> (end of multi-line self-closing tag)
     if (/^<\/[A-Z][A-Za-z]*>/.test(line.text) || /^\s*\/>/.test(line.text)) {
       inMdxBlock = false;
       continue;
@@ -123,14 +90,9 @@ function extractHeadings(
     if (inMdxBlock) continue;
     const match = line.text.match(pattern);
     if (!match) continue;
-    const level = match[1].length; // 2, 3, or 4
+    const level = match[1].length;
     const label = match[2].replace(/`([^`]+)`/g, "$1").trim();
-    const id =
-      match[3] ||
-      label
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
+    const id = match[3] || slugifyHeading(label);
     headings.push({ id, label, level });
   }
   return headings;
@@ -158,7 +120,7 @@ function docEntryFromPath(path: string, raw: string): DocEntry {
 }
 
 function normalizeDocsLocale(locale: unknown): DocsLocale {
-  return isDocsLocale(locale) ? locale : DEFAULT_DOCS_LOCALE;
+  return docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE;
 }
 
 function localizedDocKey(locale: DocsLocale, slug: string): string | undefined {
@@ -226,8 +188,6 @@ export async function loadDoc(
 
   const key = localizedDocKey(docsLocale, slug);
   if (!key) {
-    // A missing translation should keep the localized route usable by showing
-    // the canonical source page instead of turning it into a 404.
     return loadDoc(slug, DEFAULT_DOCS_LOCALE);
   }
   const loader = localizedDocLoaders[key];
@@ -249,13 +209,6 @@ export async function loadDoc(
   return promise;
 }
 
-/**
- * Loads a doc and applies draft visibility, checking the canonical
- * (default-locale) entry's draft status even when serving a localized
- * translation. A translation's frontmatter can drift from the canonical
- * page it was translated from, so gating on the localized doc alone lets a
- * draft leak through any locale whose translator forgot `draft: true`.
- */
 export async function loadDocRespectingDraftVisibility(
   slug: string,
   locale: unknown = DEFAULT_DOCS_LOCALE,
@@ -271,10 +224,15 @@ export async function loadDocRespectingDraftVisibility(
   const isDraft = Boolean(doc.draft || canonical?.draft);
 
   if (isDraft && import.meta.env.VITE_SHOW_DRAFTS !== "true") return undefined;
-  // Normalize `draft` to the resolved status so callers that render a draft
-  // banner off this flag stay correct for translations whose frontmatter
-  // omits `draft: true` even though the canonical page is a draft.
-  return isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
+  const visibleDoc =
+    isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
+
+  return preloadDocBlocksForDoc(visibleDoc);
+}
+
+export async function preloadDocBlocksForDoc(doc: DocEntry): Promise<DocEntry> {
+  if (hasDocBlockSyntax(doc.body)) await preloadDocBlocksContent();
+  return doc;
 }
 
 export function hasLocalizedDoc(locale: unknown, slug: string): boolean {
@@ -324,7 +282,6 @@ export async function loadAllDocs(
   return getAllDocs(docsLocale);
 }
 
-/** Build a search index from all markdown content */
 async function buildSearchIndexFromDocs(
   docsList: DocEntry[],
   locale: unknown = DEFAULT_DOCS_LOCALE,
@@ -340,22 +297,15 @@ async function buildSearchIndexFromDocs(
     const lastLineNumber = lines.at(-1)?.lineNumber ?? 0;
     const sections: { id: string; label: string; startLine: number }[] = [];
 
-    // Find all h2/h3 headings
     for (const line of lines) {
       const m = line.text.match(/^(#{2,3})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/);
       if (m) {
         const label = m[2].replace(/`([^`]+)`/g, "$1").trim();
-        const id =
-          m[3] ||
-          label
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-|-$/g, "");
+        const id = m[3] || slugifyHeading(label);
         sections.push({ id, label, startLine: line.lineNumber });
       }
     }
 
-    // Add a page-level entry for the title + intro text (before first h2/h3)
     const introEndLine =
       sections.length > 0 ? sections[0].startLine - 1 : lastLineNumber;
     const introText = lines

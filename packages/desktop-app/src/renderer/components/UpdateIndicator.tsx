@@ -1,98 +1,53 @@
-import { IconDownload, IconRefresh, IconLoader2 } from "@tabler/icons-react";
+import { IconRefresh } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
-/**
- * Subscribes to auto-update status from the main process. Returns the latest
- * UpdateStatus, or null if Electron isn't available (e.g. browser preview).
- */
 export function useUpdateStatus(): UpdateStatus | null {
   const [status, setStatus] = useState<UpdateStatus | null>(null);
 
   useEffect(() => {
     const updater = window.electronAPI?.updater;
     if (!updater) return;
-    updater
+    let disposed = false;
+    let receivedStatusChange = false;
+    const unsubscribe = updater.onStatusChange((nextStatus) => {
+      receivedStatusChange = true;
+      if (!disposed) setStatus(nextStatus);
+    });
+    void updater
       .getStatus()
-      .then(setStatus)
+      .then((nextStatus) => {
+        // The IPC read and the event subscription race during startup. Do not
+        // let a stale read put the rail back into an earlier state after the
+        // main process has already broadcast a newer one.
+        if (!disposed && !receivedStatusChange) setStatus(nextStatus);
+      })
       .catch(() => {});
-    return updater.onStatusChange(setStatus);
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
   }, []);
 
   return status;
 }
 
-/**
- * Sidebar pill that becomes visible whenever an update is in flight or
- * ready to install. Hidden in idle / not-available / dev / unsupported
- * states so it doesn't add visual noise.
- */
 export function UpdateIndicator() {
   const status = useUpdateStatus();
+  const updater = window.electronAPI?.updater;
 
-  if (!status) return null;
+  if (!updater || status?.state !== "downloaded") return null;
 
-  // Hide when there's nothing to show.
-  if (
-    status.state === "idle" ||
-    status.state === "checking" ||
-    status.state === "not-available" ||
-    status.state === "unsupported"
-  ) {
-    return null;
-  }
-
-  if (status.state === "error") {
-    // Errors are non-actionable from the UI; let the next periodic check retry.
-    return null;
-  }
-
-  if (status.state === "available") {
-    // Auto-download starts immediately, so this is usually a brief flash
-    // before "downloading" arrives. Render a subtle pending state.
-    return (
-      <button
-        className="sidebar-item update-indicator update-indicator--pending"
-        tabIndex={-1}
-        title={`Update ${status.version} available — downloading…`}
-        aria-label={`Update ${status.version} available`}
-      >
-        <span className="icon-wrapper">
-          <IconDownload size={18} strokeWidth={1.75} />
-        </span>
-        <span className="item-label">Update</span>
-      </button>
-    );
-  }
-
-  if (status.state === "downloading") {
-    return (
-      <button
-        className="sidebar-item update-indicator update-indicator--downloading"
-        tabIndex={-1}
-        title={`Downloading update — ${status.percent}%`}
-        aria-label={`Downloading update, ${status.percent} percent`}
-      >
-        <span className="icon-wrapper">
-          <IconLoader2 size={18} strokeWidth={1.75} className="spin" />
-        </span>
-        <span className="item-label">{status.percent}%</span>
-      </button>
-    );
-  }
-
-  // Downloaded — clicking restarts the app and applies the update.
   return (
     <button
-      className="sidebar-item update-indicator update-indicator--ready"
-      tabIndex={-1}
-      onClick={() => window.electronAPI?.updater.install()}
-      title={`Update ${status.version} ready — click to restart`}
-      aria-label={`Update ${status.version} ready, click to restart`}
+      type="button"
+      className="code-agents-nav-link update-indicator update-indicator--ready"
+      onClick={() => updater.install()}
+      title={`Update ${status.version} ready - click to restart`}
+      aria-label={`Restart to update Agent-Native to version ${status.version}`}
+      data-update-indicator
     >
-      <span className="icon-wrapper">
-        <IconRefresh size={18} strokeWidth={1.75} />
-      </span>
-      <span className="item-label">Relaunch</span>
+      <IconRefresh size={15} strokeWidth={1.75} />
+      <span>Restart to update</span>
     </button>
   );
 }

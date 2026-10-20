@@ -1,9 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconStack2 } from "@tabler/icons-react";
 
 import { filterOtherApps, type ConnectedAppSummary } from "../lib/other-apps";
 import type { WorkspaceAppId } from "../lib/other-apps";
 import { cn } from "../lib/utils";
+import { isDefaultWorkspaceAppHiddenId } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
 import {
   APP_LIST_GRID_CLASS,
@@ -19,7 +19,7 @@ import {
   type WorkspaceTemplateLabels,
 } from "./workspace-template-card";
 
-type OtherAppEntry =
+export type OtherAppEntry =
   | { kind: "template"; template: CuratedWorkspaceTemplate }
   | { kind: "connected"; app: ConnectedAppSummary };
 
@@ -34,6 +34,26 @@ function getTemplateItems(
 ): CuratedWorkspaceTemplate[] {
   if (!result) return [];
   return Array.isArray(result) ? result : result.templates;
+}
+
+export function otherAppEntryMatchesQuery(
+  entry: OtherAppEntry,
+  query: string,
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  const searchable =
+    entry.kind === "template"
+      ? `${entry.template.name} ${entry.template.description ?? ""}`
+      : `${entry.app.name} ${entry.app.description ?? ""}`;
+  return searchable.toLowerCase().includes(normalizedQuery);
+}
+
+export function filterOtherAppEntries(
+  entries: OtherAppEntry[],
+  query: string,
+): OtherAppEntry[] {
+  return entries.filter((entry) => otherAppEntryMatchesQuery(entry, query));
 }
 
 export function mergeOtherAppEntries({
@@ -53,7 +73,13 @@ export function mergeOtherAppEntries({
 
   for (const template of getTemplateItems(templates)) {
     const id = templateKey(template);
-    if (!id || template.installed || workspaceAppIds.has(id)) continue;
+    if (
+      !id ||
+      isDefaultWorkspaceAppHiddenId(id) ||
+      template.installed ||
+      workspaceAppIds.has(id)
+    )
+      continue;
     seen.add(id);
     entries.push({ kind: "template", template });
   }
@@ -80,6 +106,9 @@ export function OtherAppsSection({
   onRetryConnectedApps,
   templateLabels,
   onRemixSuccess,
+  query = "",
+  heading = "Other apps",
+  embeddedInList = false,
   className,
 }: {
   templates?: CuratedWorkspaceTemplatesResult;
@@ -96,39 +125,53 @@ export function OtherAppsSection({
     result: unknown,
     template: CuratedWorkspaceTemplate,
   ) => void;
+  query?: string;
+  heading?: string | null;
+  embeddedInList?: boolean;
   className?: string;
 }) {
   const t = useT();
-  const entries = mergeOtherAppEntries({
-    templates,
-    connectedApps,
-    workspaceApps,
-  });
+  const entries = filterOtherAppEntries(
+    mergeOtherAppEntries({
+      templates,
+      connectedApps,
+      workspaceApps,
+    }),
+    query,
+  );
   const isLoading = templatesLoading || connectedAppsLoading;
   const hasError = Boolean(templatesError || connectedAppsError);
 
   if (!isLoading && !hasError && entries.length === 0) return null;
 
-  return (
-    <section className={cn("space-y-3 border-t pt-6", className)}>
-      <div className="flex min-w-0 items-start gap-2">
-        <IconStack2
-          size={16}
-          className="mt-0.5 shrink-0 text-muted-foreground"
-        />
-        <div className="min-w-0">
+  const entryCards = entries.map((entry) =>
+    entry.kind === "template" ? (
+      <WorkspaceTemplateCard
+        key={`template:${templateKey(entry.template)}`}
+        template={entry.template}
+        labels={templateLabels}
+        catalog
+        className={APP_LIST_GRID_ROW_CLASS}
+        onRemixSuccess={onRemixSuccess}
+      />
+    ) : (
+      <ConnectedAppCard
+        key={`connected:${entry.app.id}`}
+        app={entry.app}
+        className={APP_LIST_GRID_ROW_CLASS}
+      />
+    ),
+  );
+
+  const content = (
+    <>
+      {heading ? (
+        <div className="flex min-w-0 items-center">
           <h2 className="truncate text-sm font-semibold text-foreground">
-            {t("dispatch.pages.otherApps", { defaultValue: "Other apps" })}
+            {t("dispatch.pages.otherApps", { defaultValue: heading })}
           </h2>
-          {entries.length > 0 ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {t("dispatch.pages.availableCount", {
-                count: entries.length,
-              })}
-            </p>
-          ) : null}
         </div>
-      </div>
+      ) : null}
 
       {templatesError ? (
         <ActionQueryError
@@ -144,31 +187,24 @@ export function OtherAppsSection({
       ) : null}
 
       {isLoading && entries.length === 0 ? (
-        <OtherAppsSkeletonList />
+        embeddedInList ? (
+          <OtherAppsSkeletonRows />
+        ) : (
+          <OtherAppsSkeletonList />
+        )
       ) : entries.length > 0 ? (
-        <AppList className={APP_LIST_GRID_CLASS}>
-          {entries.map((entry) =>
-            entry.kind === "template" ? (
-              <WorkspaceTemplateCard
-                key={`template:${templateKey(entry.template)}`}
-                template={entry.template}
-                labels={templateLabels}
-                catalog
-                className={APP_LIST_GRID_ROW_CLASS}
-                onRemixSuccess={onRemixSuccess}
-              />
-            ) : (
-              <ConnectedAppCard
-                key={`connected:${entry.app.id}`}
-                app={entry.app}
-                className={APP_LIST_GRID_ROW_CLASS}
-              />
-            ),
-          )}
-        </AppList>
+        embeddedInList ? (
+          entryCards
+        ) : (
+          <AppList className={APP_LIST_GRID_CLASS}>{entryCards}</AppList>
+        )
       ) : null}
-    </section>
+    </>
   );
+
+  if (embeddedInList) return content;
+
+  return <section className={cn("space-y-3", className)}>{content}</section>;
 }
 
 function OtherAppsSkeletonList() {
@@ -191,5 +227,28 @@ function OtherAppsSkeletonList() {
         </div>
       ))}
     </AppList>
+  );
+}
+
+function OtherAppsSkeletonRows() {
+  return (
+    <>
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={index}
+          className={cn(
+            "flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0",
+            APP_LIST_GRID_ROW_CLASS,
+          )}
+        >
+          <Skeleton className="size-8 shrink-0 rounded-xl" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+          <Skeleton className="h-9 w-24 shrink-0 rounded-md" />
+        </div>
+      ))}
+    </>
   );
 }

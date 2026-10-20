@@ -25,6 +25,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 
@@ -376,7 +377,20 @@ export function useSidebarReorderItem(itemId: string) {
       opacity: sortable.isDragging ? 0.55 : undefined,
     } satisfies CSSProperties,
     attributes: sortable.attributes,
-    listeners: sortable.listeners,
+    listeners: sortable.listeners
+      ? {
+          ...sortable.listeners,
+          onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+            if (event.target !== event.currentTarget) return;
+            if (
+              event.key === "Enter" &&
+              event.currentTarget.matches('a[href], [role="link"]')
+            )
+              return;
+            sortable.listeners?.onKeyDown?.(event);
+          },
+        }
+      : undefined,
     itemId,
     isDragging: sortable.isDragging,
     dropIndicator,

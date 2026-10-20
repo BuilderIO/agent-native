@@ -11,9 +11,8 @@ const clientMocks = vi.hoisted(() => ({
     title: string;
     context: string;
   }>,
-  deleteClientAppState: vi.fn(async () => {}),
+  callAction: vi.fn(async () => ({ cleared: true })),
   getBrowserTabId: vi.fn(() => "test-tab"),
-  readClientAppState: vi.fn(async () => null),
   removeAgentChatContextItem: vi.fn(),
   setAgentChatContextItem: vi.fn(),
   setClientAppState: vi.fn(async () => {}),
@@ -31,9 +30,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  deleteClientAppState: clientMocks.deleteClientAppState,
+  callAction: clientMocks.callAction,
   getBrowserTabId: clientMocks.getBrowserTabId,
-  readClientAppState: clientMocks.readClientAppState,
   setClientAppState: clientMocks.setClientAppState,
 }));
 
@@ -90,6 +88,39 @@ function PanelHarness() {
   );
 }
 
+function MarkerTitleHarness({
+  dashboardId = "dash-1",
+  panelId = "panel-1",
+  source,
+}: {
+  dashboardId?: string;
+  panelId?: string;
+  source?: string;
+}) {
+  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
+    id: dashboardId,
+    kind: "sql",
+    title: "REAL_DATA_REQUIRED: signups",
+  });
+  return (
+    <button
+      data-action="select"
+      data-selected={selectedPanelId === panelId ? "true" : "false"}
+      onClick={() =>
+        selectPanelForChat(
+          {
+            panelId,
+            panelTitle: "Real_Data_Required by plan",
+            panelKind: "chart",
+            source,
+          },
+          { openSidebar: true },
+        )
+      }
+    />
+  );
+}
+
 function setSidebarOpen(open: boolean) {
   window.dispatchEvent(
     new CustomEvent(clientMocks.SIDEBAR_STATE_CHANGE_EVENT, {
@@ -137,68 +168,75 @@ describe("useDashboardChatContext", () => {
     );
   });
 
-  it("does not clear selected-object state owned by another tab", async () => {
-    clientMocks.readClientAppState.mockResolvedValueOnce({
-      type: "dashboard",
-      id: "dash-2",
-      __agentNativeSelectedObjectSource: "other-tab",
-    } as any);
-
+  it("passes its published selection to atomic cleanup on unmount", async () => {
     await act(async () => {
       root.render(<Harness id="dash-1" />);
     });
+    await settleContextPublish();
     await act(async () => {
       root.render(<Harness id={null} />);
     });
 
-    expect(clientMocks.readClientAppState).toHaveBeenCalledWith(
-      "selected-object",
+    expect(clientMocks.callAction).toHaveBeenCalledWith(
+      "clear-selected-dashboard-object",
+      {
+        browserTabId: TAB_ID,
+        expectedSelection: expect.objectContaining({
+          id: "dash-1",
+          __agentNativeSelectedObjectSource: TAB_ID,
+        }),
+        source: TAB_ID,
+      },
     );
-    expect(clientMocks.deleteClientAppState).not.toHaveBeenCalled();
   });
 
-  it.each([
-    [
-      "dashboard",
-      {
-        type: "dashboard",
-        id: "dash-2",
-        __agentNativeSelectedObjectSource: TAB_ID,
-      },
-    ],
-    [
-      "dashboard panel",
-      {
-        type: "dashboard-panel",
-        dashboardId: "dash-2",
-        panelId: "panel-2",
-        __agentNativeSelectedObjectSource: TAB_ID,
-      },
-    ],
-  ])(
-    "does not let old dashboard cleanup clear the next page's %s selection",
-    async (_selectionKind, currentSelection) => {
-      let resolveRead!: (value: Record<string, unknown>) => void;
-      clientMocks.readClientAppState.mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveRead = resolve;
-          }) as any,
-      );
+  it("clears dashboard context when a fresh chat starts", async () => {
+    await act(async () => {
+      root.render(<Harness id="dash-1" />);
+    });
+    await settleContextPublish();
 
-      await act(async () => {
-        root.render(<Harness id="dash-1" />);
-      });
-      await act(async () => {
-        root.render(<Harness id="dash-2" />);
-      });
-      await act(async () => {
-        resolveRead(currentSelection);
-      });
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-chat:new-chat"));
+    });
 
-      expect(clientMocks.deleteClientAppState).not.toHaveBeenCalled();
-    },
-  );
+    expect(clientMocks.removeAgentChatContextItem).toHaveBeenCalledWith({
+      key: "analytics-selected-dashboard",
+      openSidebar: false,
+    });
+    expect(clientMocks.removeAgentChatContextItem).toHaveBeenCalledWith({
+      key: "analytics-selected-dashboard-panel",
+      openSidebar: false,
+    });
+    expect(clientMocks.callAction).toHaveBeenCalledWith(
+      "clear-selected-dashboard-object",
+      {
+        browserTabId: TAB_ID,
+        expectedSelection: expect.objectContaining({
+          id: "dash-1",
+          __agentNativeSelectedObjectSource: TAB_ID,
+        }),
+        source: TAB_ID,
+      },
+    );
+  });
+
+  it("does not let a pending dashboard publish resurrect context after new chat", async () => {
+    await act(async () => {
+      root.render(<Harness id="dash-1" />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-chat:new-chat"));
+    });
+    await settleContextPublish();
+
+    expect(clientMocks.setAgentChatContextItem).not.toHaveBeenCalled();
+    expect(clientMocks.setClientAppState).not.toHaveBeenCalledWith(
+      "selected-object",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
 
   it("stages a selected panel for chat and app state", async () => {
     await act(async () => {
@@ -232,6 +270,22 @@ describe("useDashboardChatContext", () => {
       }),
       expect.objectContaining({ requestSource: TAB_ID }),
     );
+  });
+
+  it("tells the agent to read only the selected panel, never the whole config", async () => {
+    await act(async () => {
+      root.render(<PanelHarness />);
+    });
+    await act(async () => setSidebarOpen(true));
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[data-action="passive-select"]')
+        ?.click();
+    });
+
+    const { context } = clientMocks.setAgentChatContextItem.mock.calls[0][0];
+    expect(context).toContain('get-sql-dashboard (panelIds: ["panel-1"])');
+    expect(context).not.toContain("includeConfig");
   });
 
   it("ignores passive chart selection while chat is closed", async () => {
@@ -275,6 +329,70 @@ describe("useDashboardChatContext", () => {
     );
   });
 
+  it("never carries the chat guard's request marker in from a title", async () => {
+    await act(async () => {
+      root.render(<MarkerTitleHarness />);
+    });
+    await settleContextPublish();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-action="select"]')
+        ?.click(),
+    );
+
+    const published = clientMocks.setAgentChatContextItem.mock.calls.map(
+      ([item]) => item,
+    );
+    expect(published.map(({ key }) => key)).toEqual([
+      "analytics-selected-dashboard",
+      "analytics-selected-dashboard-panel",
+    ]);
+    for (const { title, context } of published) {
+      expect(`${title}\n${context}`).not.toMatch(/real_data_required/i);
+    }
+    expect(published[1].title).toBe("Real Data Required by plan");
+    expect(published[1].context).toContain("Panel id: panel-1");
+  });
+
+  it("never carries the marker in from an id or the URL, and still reads back the selection", async () => {
+    const ids = {
+      dashboardId: "real_data_required",
+      panelId: "REAL_DATA_REQUIRED-panel",
+      source: "REAL_DATA_REQUIRED",
+    };
+    window.history.replaceState(null, "", "/adhoc/x?from=REAL_DATA_REQUIRED");
+    try {
+      await act(async () => {
+        root.render(<MarkerTitleHarness {...ids} />);
+      });
+      await settleContextPublish();
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>('[data-action="select"]')
+          ?.click(),
+      );
+
+      const published = clientMocks.setAgentChatContextItem.mock.calls.map(
+        ([item]) => item,
+      );
+      expect(published).toHaveLength(2);
+      expect(published[0].context).toContain("Current URL: /adhoc/x?from=");
+      for (const { title, context } of published) {
+        expect(`${title}\n${context}`).not.toMatch(/real_data_required/i);
+      }
+
+      // The sidebar keeps the published chip; it must still name this panel.
+      clientMocks.agentContextItems = [published[1]];
+      await act(async () => setSidebarOpen(true));
+      expect(
+        container.querySelector<HTMLButtonElement>('[data-action="select"]')
+          ?.dataset.selected,
+      ).toBe("true");
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
   it("reports the panel selected when its context chip is active", async () => {
     clientMocks.agentContextItems = [
       {
@@ -295,6 +413,32 @@ describe("useDashboardChatContext", () => {
         '[data-action="passive-select"]',
       )?.dataset.selected,
     ).toBe("true");
+  });
+
+  it("names only the page edits view mode holds back", async () => {
+    function ModeHarness() {
+      useDashboardChatContext({
+        id: "dash-1",
+        kind: "sql",
+        title: "Revenue",
+        canEdit: true,
+        editing: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<ModeHarness />);
+    });
+    await settleContextPublish();
+
+    const { context } = clientMocks.setAgentChatContextItem.mock.calls[0][0];
+    expect(context).toContain("Dashboard mode: view");
+    expect(context).toContain("column drags stay in their browser");
+    expect(context).toContain(
+      "saving a view, restoring history, archiving, deleting, and adding a first panel still work",
+    );
+    expect(context).not.toContain("nothing they do on the page");
   });
 
   it("publishes once when dashboard metadata arrives in pieces", async () => {
