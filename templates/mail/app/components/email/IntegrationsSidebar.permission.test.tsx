@@ -128,10 +128,29 @@ afterEach(() => {
 });
 
 describe("Gong permission lookup in the integrations sidebar", () => {
-  it("shows a retryable error and keeps Gong hidden when lookup fails", () => {
+  it("keeps Gong hidden when a permission lookup fails without known access", () => {
     const refetch = vi.fn();
     mocks.mcpServersQuery = {
       data: undefined,
+      isSuccess: false,
+      isError: true,
+      isFetching: false,
+      refetch,
+    };
+
+    renderSidebar();
+
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add integrations" }));
+    expect(screen.queryByText("Gong call history")).toBeNull();
+    expect(refetch).not.toHaveBeenCalled();
+  });
+
+  it("shows a retryable error when a known manager's lookup fails", () => {
+    const refetch = vi.fn();
+    mocks.mcpServersQuery = {
+      data: { user: [], org: [], orgId: "org-1", role: "admin" },
       isSuccess: false,
       isError: true,
       isFetching: false,
@@ -145,9 +164,6 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(refetch).toHaveBeenCalledOnce();
-
-    fireEvent.click(screen.getByRole("button", { name: "Add integrations" }));
-    expect(screen.queryByText("Gong call history")).toBeNull();
   });
 
   it("silently hides Gong for a confirmed workspace member", () => {
@@ -164,6 +180,39 @@ describe("Gong permission lookup in the integrations sidebar", () => {
 
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText("Gong call history")).toBeNull();
+  });
+
+  it("shows an existing org Gong connection to members without setup controls", () => {
+    mocks.mcpServersQuery = {
+      data: {
+        user: [],
+        org: [
+          {
+            id: "gong-server",
+            scope: "org",
+            name: "Gong",
+            url: "https://mcp.gong.io/mcp",
+            authMode: "oauth",
+            createdAt: 0,
+            mergedId: "gong-server",
+            status: { state: "connected", toolCount: 3 },
+          },
+        ],
+        orgId: "org-1",
+        role: "member",
+      },
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    };
+
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: /Integrations/ }));
+
+    expect(screen.getByText("Gong call history")).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Connect" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Settings" })).toBeNull();
   });
 
   it("keeps legacy key controls for a member without org setup permission", () => {

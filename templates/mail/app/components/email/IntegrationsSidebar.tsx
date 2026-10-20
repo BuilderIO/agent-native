@@ -299,6 +299,8 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
   const canCreateOrgMcp = Boolean(mcpServers?.orgId && canManageGong);
   const gongConnected =
     mcpServersQuery.isSuccess && hasConnectedGongMcpServer(mcpServers);
+  const canRetryGongAccessCheck =
+    mcpServersQuery.isError && canManageGongConnection(mcpServers);
   const handleCreateMcpServer = useCallback(
     async (args: CreateMcpServerArgs) => {
       if (args.scope === "org" && !canCreateOrgMcp) {
@@ -308,13 +310,13 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
     },
     [canCreateOrgMcp, createMcpServer, t],
   );
-  const gongPermissionError = mcpServersQuery.isError ? (
+  const gongPermissionError = canRetryGongAccessCheck ? (
     <GongPermissionLookupError
       isRetrying={mcpServersQuery.isFetching}
       onRetry={() => void mcpServersQuery.refetch()}
     />
   ) : null;
-  const showGong = canManageGong || statuses.gong;
+  const showGong = canManageGong || statuses.gong || gongConnected;
 
   if (configuring) {
     const def = INTEGRATIONS.find((i) => i.id === configuring)!;
@@ -327,7 +329,7 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
     const connectedCount = [
       statuses.apollo,
       statuses.hubspot,
-      statuses.gong || (canManageGong && gongConnected),
+      statuses.gong || gongConnected,
       statuses.pylon,
     ].filter(Boolean).length;
     const visibleIntegrationCount = INTEGRATIONS.length - Number(!showGong);
