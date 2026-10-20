@@ -539,7 +539,7 @@ async function replaceAudienceUserMembersMutation(
   return { audienceId, aclHash, members: emails.length };
 }
 
-export async function listAccessibleAudienceIds(sourceIds?: string[]) {
+async function listAccessibleAudiences(sourceIds?: string[]) {
   const userEmail = getRequestUserEmail()?.trim().toLowerCase();
   const orgId = getRequestOrgId();
   if (!userEmail && !orgId) return [];
@@ -622,13 +622,26 @@ export async function listAccessibleAudienceIds(sourceIds?: string[]) {
     sourceDependencies,
     accessibleDependencySourceIds,
   );
-  return rows
-    .filter(
-      (row) =>
-        accessibleIds.has(row.id) &&
-        (!sourceIds?.length || sourceIds.includes(row.sourceId)),
-    )
-    .map((row) => row.id);
+  return rows.filter(
+    (row) =>
+      accessibleIds.has(row.id) &&
+      (!sourceIds?.length || sourceIds.includes(row.sourceId)),
+  );
+}
+
+export async function listAccessibleAudienceIds(sourceIds?: string[]) {
+  return (await listAccessibleAudiences(sourceIds)).map((row) => row.id);
+}
+
+export async function listAccessibleAudienceIdsBySource(sourceIds: string[]) {
+  const audiences = await listAccessibleAudiences(sourceIds);
+  const audiencesBySource = new Map<string, string[]>();
+  for (const audience of audiences) {
+    const audienceIds = audiencesBySource.get(audience.sourceId) ?? [];
+    audienceIds.push(audience.id);
+    audiencesBySource.set(audience.sourceId, audienceIds);
+  }
+  return audiencesBySource;
 }
 
 export function filterAudienceIdsByDependencies(

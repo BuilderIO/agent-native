@@ -742,6 +742,52 @@ describe("createAnthropicEngine", () => {
   });
 });
 
+describe("createAnthropicEngine model dispatch guard", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
+  it("does not open the provider stream when the dispatch guard denies it", async () => {
+    const streamSpy = vi.fn();
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: streamSpy };
+      },
+    }));
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    const beforeModelDispatch = vi.fn(async <T>(_dispatch: () => T) => ({
+      started: false as const,
+    }));
+    const onModelDispatchStarted = vi.fn();
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+
+    try {
+      await collectEvents(
+        freshCreate({ apiKey: "test-key" }).stream({
+          model: ANTHROPIC_DEFAULT_MODEL,
+          systemPrompt: "",
+          messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+          tools: [],
+          abortSignal: new AbortController().signal,
+          beforeModelDispatch,
+          onModelDispatchStarted,
+        }),
+      );
+
+      expect(beforeModelDispatch).toHaveBeenCalledOnce();
+      expect(streamSpy).not.toHaveBeenCalled();
+      expect(onModelDispatchStarted).not.toHaveBeenCalled();
+      expect(clearTimeoutSpy).toHaveBeenCalledOnce();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      vi.doUnmock("@anthropic-ai/sdk");
+    }
+  });
+});
+
 describe("createAnthropicEngine first-event deadline", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
