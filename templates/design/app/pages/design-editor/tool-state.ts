@@ -82,6 +82,13 @@ export function normalizeDesignMode(value: unknown): EditorMode | null {
     : null;
 }
 
+export function commentModeReturnScreenId(
+  mode: EditorMode,
+  activeFileId: string | null | undefined,
+): string | null {
+  return mode === "interact" ? (activeFileId ?? null) : null;
+}
+
 /**
  * `loading` is the stretch before the Labs answer arrives. It reads as off, but
  * a request that needs the lab waits for the answer instead of being refused.

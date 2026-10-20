@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DESIGN_EDITOR_TOOLS,
   areCommentPinsHidden,
+  commentModeReturnScreenId,
   commandRequestsAnnotate,
   getDesignBottomToolbarMode,
   normalizeDesignLeftPanel,
@@ -44,6 +45,18 @@ describe("resolveModeChangeView", () => {
     expect(
       resolveModeChangeView({ next: "interact", viewMode: "single" }),
     ).toBe("stay");
+  });
+});
+
+describe("commentModeReturnScreenId", () => {
+  it("restores the screen when comments are pinned from Interact", () => {
+    expect(commentModeReturnScreenId("interact", "screen-1")).toBe("screen-1");
+  });
+
+  it("returns to Design for comments opened from other modes", () => {
+    expect(commentModeReturnScreenId("edit", "screen-1")).toBeNull();
+    expect(commentModeReturnScreenId("annotate", "screen-1")).toBeNull();
+    expect(commentModeReturnScreenId("interact", null)).toBeNull();
   });
 });
 

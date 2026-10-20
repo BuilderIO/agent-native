@@ -48,6 +48,7 @@ import {
 import { computeInteractZoomToFit } from "../responsive-interact";
 import { hasSelectableCodeLayerParent } from "../selection-state";
 import {
+  commentModeReturnScreenId,
   resolveDrawStateWithoutLab,
   resolveModeForAnnotateLab,
   shouldAutoEnableDrawOverlay,
@@ -466,6 +467,15 @@ export function useEditorModes({
 
   const lastSettledSingleZoomRef = useRef<number | null>(null);
   const suppressOverviewPopForExplicitZoomRef = useRef(false);
+  const commentReturnScreenIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (mode === "annotate") return;
+    commentReturnScreenIdRef.current = commentModeReturnScreenId(
+      mode,
+      activeFile?.id,
+    );
+  }, [activeFile?.id, mode]);
+
   useEffect(() => {
     if (!activeFile || viewMode !== "single" || mode !== "edit") {
       lastSettledSingleZoomRef.current = null;
@@ -781,12 +791,18 @@ export function useEditorModes({
   ]);
 
   const handleExitReviewCommentMode = useCallback(() => {
+    const returnScreenId = commentReturnScreenIdRef.current;
+    commentReturnScreenIdRef.current = null;
     setPinMode(false);
     setOverviewCommentPinRequest(null);
     setDrawMode(false);
     setActiveTool("move");
-    setMode("edit");
-  }, []);
+    if (returnScreenId) {
+      handleModeChange("interact", { targetFileId: returnScreenId });
+    } else {
+      setMode("edit");
+    }
+  }, [handleModeChange]);
 
   const handleOverviewCommentPin = useCallback(
     (canvasPoint: { x: number; y: number }) => {
