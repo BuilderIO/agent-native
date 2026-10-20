@@ -123,7 +123,7 @@ jobs:
           E2E_RUN_ID="${E2E_RUN_ID}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/16
 
       - name: Run PR export E2E
-        if: github.event_name == 'pull_request'
+        if: matrix.shard != 'runtime-budget' && github.event_name == 'pull_request'
         working-directory: templates/design
         timeout-minutes: 37
         env:
@@ -135,7 +135,7 @@ jobs:
           pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts
 
       - name: Run PR marquee E2E
-        if: github.event_name == 'pull_request'
+        if: matrix.shard != 'runtime-budget' && github.event_name == 'pull_request'
         working-directory: templates/design
         timeout-minutes: 37
         env:

@@ -127,7 +127,10 @@ assert.equal(
 );
 const shardTimeout = shardStep?.["timeout-minutes"];
 assert.equal(shardTimeout, 37);
-assert.equal(prExportStep?.if, "github.event_name == 'pull_request'");
+assert.equal(
+  prExportStep?.if,
+  "matrix.shard != 'runtime-budget' && github.event_name == 'pull_request'",
+);
 assert.equal(prExportStep?.["timeout-minutes"], 37);
 assert.equal(
   prExportStep?.env?.E2E_RUN_ID,
@@ -140,7 +143,10 @@ assert.equal(
     "pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts",
   ].join("\n") + "\n",
 );
-assert.equal(prMarqueeStep?.if, "github.event_name == 'pull_request'");
+assert.equal(
+  prMarqueeStep?.if,
+  "matrix.shard != 'runtime-budget' && github.event_name == 'pull_request'",
+);
 assert.equal(prMarqueeStep?.["timeout-minutes"], 37);
 assert.equal(
   prMarqueeStep?.env?.E2E_RUN_ID,

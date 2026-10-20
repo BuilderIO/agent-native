@@ -388,6 +388,7 @@ test("native style states persist with the Motion inspector and timeline", async
       }),
     ]),
   );
+  await page.getByRole("tab", { name: "List", exact: true }).click();
   const textStyleDetails = page.locator(
     '[aria-label="Animations"] li > button[aria-pressed="true"]',
   );
@@ -399,6 +400,7 @@ test("native style states persist with the Motion inspector and timeline", async
   await expect(
     page.getByRole("combobox", { name: "Each", exact: true }),
   ).toHaveText("Character");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Order" })).toHaveText(
     "Left to right",
   );

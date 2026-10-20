@@ -1422,12 +1422,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designE2eWorkflow,
-    /^      - name: Run PR export E2E\n        if: github\.event_name == 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
+    /^      - name: Run PR export E2E\n        if: matrix\.shard != 'runtime-budget' && github\.event_name == 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
     "the PR export run must have its own setup and test budget",
   );
   assert.match(
     designE2eWorkflow,
-    /^      - name: Run PR marquee E2E\n        if: github\.event_name == 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
+    /^      - name: Run PR marquee E2E\n        if: matrix\.shard != 'runtime-budget' && github\.event_name == 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
     "the PR marquee run must have its own setup and test budget",
   );
   assert.deepEqual(
