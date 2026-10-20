@@ -185,7 +185,7 @@ function defaultSocialImageResponse(): Response {
   });
 }
 
-/** `work`'s result, or null when `deadline` passes first; never started late. */
+/** `work`'s result, or null if `deadline` passes before it starts or settles. */
 async function settleBy<T>(
   work: () => Promise<T>,
   deadline: number,
@@ -193,12 +193,14 @@ async function settleBy<T>(
   if (Date.now() >= deadline) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
+    const result = await Promise.race([
       work(),
       new Promise<null>((resolve) => {
         timer = setTimeout(() => resolve(null), deadline - Date.now());
       }),
     ]);
+    // The timer can fire late, so the clock, not the race, says what was late.
+    return Date.now() < deadline ? result : null;
   } finally {
     clearTimeout(timer);
   }

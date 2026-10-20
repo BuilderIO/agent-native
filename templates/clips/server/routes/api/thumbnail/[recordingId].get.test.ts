@@ -416,6 +416,33 @@ describe("/api/thumbnail/:recordingId route", () => {
     }
   });
 
+  it("treats a host check that finishes after the deadline as too late", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockRejectedValue(new Error("bucket timed out"));
+      // The clock passes the deadline without the race's timer getting a turn.
+      mockIsBlockedExtensionUrlWithDns.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 31_000);
+        return false;
+      });
+
+      const result = await handler(makeEvent() as any);
+
+      expectDefaultSocialRedirect(result);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("skips the public fallback when the bucket read spent the whole budget", async () => {
     vi.useFakeTimers();
     try {
