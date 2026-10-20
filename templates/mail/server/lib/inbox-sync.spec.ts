@@ -1847,6 +1847,50 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(result.degraded).toEqual({ count: 1, kind: "http_500" });
   });
 
+  it("retries degraded threads every step even behind a backlog larger than the budget", async () => {
+    const backlog = Array.from({ length: 400 }, (_, index) => `p${index}`);
+    currentRow = baseRow({
+      historyId: "1000",
+      archiveHistoryId: "1000",
+      hydratePendingIds: backlog,
+      degraded: { hydrate: ["bad1", "bad2"], verify: [], kind: "http_500" },
+    });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [],
+      historyId: "1000",
+    });
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[]) =>
+        requested.map((id) =>
+          id.startsWith("bad")
+            ? { id, data: null, error: "HTTP 500 backend" }
+            : {
+                id,
+                data: thread(id, { from: "a@ex.com", labelIds: ["INBOX"] }),
+              },
+        ),
+    );
+
+    const perStep: string[][] = [];
+    for (let step = 0; step < 4; step++) {
+      const before = mocks.gmailBatchGetThreads.mock.calls.length;
+      await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+      perStep.push(
+        mocks.gmailBatchGetThreads.mock.calls
+          .slice(before)
+          .flatMap((call) => call[1] as string[]),
+      );
+    }
+
+    for (const ids of perStep) {
+      expect(ids.length).toBeLessThanOrEqual(70);
+      expect(ids).toEqual(expect.arrayContaining(["bad1", "bad2"]));
+    }
+    // The backlog drains alongside the retries.
+    expect(currentRow.hydratePendingIds.length).toBeLessThan(400 - 4 * 60);
+    expect(currentRow.degraded.hydrate.sort()).toEqual(["bad1", "bad2"]);
+  });
+
   it("clears the degraded record once the failing thread reads again", async () => {
     currentRow = baseRow({
       historyId: "1000",

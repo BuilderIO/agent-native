@@ -72,6 +72,9 @@ const ARCHIVE_HISTORY_TYPES = ["labelRemoved", "messageDeleted"];
 const STEP_THREAD_READS = 70;
 // Of those, the share archive verification keeps when new mail also waits.
 const VERIFY_MIN_SHARE = 20;
+// Reads each step reserves, per list, for threads that failed before, so a
+// steady backlog of new mail cannot starve their retries.
+const RETRY_SHARE = 5;
 const CACHE_LOOKUP_CHUNK = 500;
 const HYDRATE_CHUNK = 50;
 
@@ -907,13 +910,36 @@ async function runIncrementalSyncStep(
   // threads. Hydration goes first, but verification always keeps a share so a
   // steady stream of new mail cannot starve archive handling. What does not fit
   // waits in the pending lists.
-  const hydrateNow = hydrateQueue.slice(
+  const hydrateRetry = hydrateQueue.filter((id) => priorFailedHydrate.has(id));
+  const hydrateFresh = hydrateQueue.filter((id) => !priorFailedHydrate.has(id));
+  const verifyRetry = verifyQueue.filter((id) => priorFailedVerify.has(id));
+  const verifyFresh = verifyQueue.filter((id) => !priorFailedVerify.has(id));
+  const retryHydrateReads = Math.min(RETRY_SHARE, hydrateRetry.length);
+  const retryVerifyReads = Math.min(RETRY_SHARE, verifyRetry.length);
+  const freshBudget = STEP_THREAD_READS - retryHydrateReads - retryVerifyReads;
+  const hydrateFreshNow = hydrateFresh.slice(
     0,
-    verifyQueue.length > 0
-      ? STEP_THREAD_READS - VERIFY_MIN_SHARE
-      : STEP_THREAD_READS,
+    verifyFresh.length > 0 ? freshBudget - VERIFY_MIN_SHARE : freshBudget,
   );
-  const verifyNow = verifyQueue.slice(0, STEP_THREAD_READS - hydrateNow.length);
+  const verifyFreshNow = verifyFresh.slice(
+    0,
+    freshBudget - hydrateFreshNow.length,
+  );
+  // Reads fresh work left unused go to more retries, hydration first.
+  let spare = freshBudget - hydrateFreshNow.length - verifyFreshNow.length;
+  const extraHydrate = Math.min(spare, hydrateRetry.length - retryHydrateReads);
+  spare -= extraHydrate;
+  const extraVerify = Math.min(spare, verifyRetry.length - retryVerifyReads);
+  const hydrateNow = [
+    ...hydrateFreshNow,
+    ...hydrateRetry.slice(0, retryHydrateReads + extraHydrate),
+  ];
+  const verifyNow = [
+    ...verifyFreshNow,
+    ...verifyRetry.slice(0, retryVerifyReads + extraVerify),
+  ];
+  const hydrateNowSet = new Set(hydrateNow);
+  const verifyNowSet = new Set(verifyNow);
 
   // Record the cursors and every unprocessed id before any thread read, so a
   // quota failure or crash mid-step retries the pending ids instead of
@@ -1034,11 +1060,11 @@ async function runIncrementalSyncStep(
   // had failed before go back to the degraded lists with the new failures.
   const hydrateUntried = [
     ...(hydrateError ? hydrateNow : []),
-    ...hydrateQueue.slice(hydrateNow.length),
+    ...hydrateQueue.filter((id) => !hydrateNowSet.has(id)),
   ];
   const verifyUntried = [
     ...(verifyCooledDown ? verifyNow : []),
-    ...verifyQueue.slice(verifyNow.length),
+    ...verifyQueue.filter((id) => !verifyNowSet.has(id)),
   ];
   const hydratePendingIds = [
     ...new Set([
