@@ -247,7 +247,11 @@ describe("comment tabs", () => {
     expect(showsCommentTabs(body, [thread("body-1", null)])).toBe(false);
     expect(showsCommentTabs(body, [propertyThread()])).toBe(false);
     expect(showsCommentTabs(body, [thread("gone-1", "gone")])).toBe(true);
-    expect(showsCommentTabs([], [thread("gone-1", "gone")])).toBe(false);
+    // The last Blocks field was deleted: its threads still group.
+    expect(showsCommentTabs([], [thread("gone-1", "gone")])).toBe(true);
+    expect(showsCommentTabs([], [thread("body-1", null)])).toBe(false);
+    // Fields not read yet.
+    expect(showsCommentTabs(undefined, [thread("gone-1", "gone")])).toBe(false);
   });
 
   it("counts open review per tab the way the margin shows it (CMT-3)", () => {

@@ -113,18 +113,20 @@ export function groupCommentsByTab<T>(
 
 /**
  * Whether the Comments panel groups and filters by tab: when the page has two
- * or more Blocks fields, or keeps threads from a tab since deleted.
+ * or more Blocks fields, or keeps threads from a tab since deleted. `tabs` is
+ * undefined until the page's fields are read.
  */
 export function showsCommentTabs(
-  tabs: readonly CommentTab[],
+  tabs: readonly CommentTab[] | undefined,
   threads: readonly Pick<CommentThread, "field" | "property">[],
 ): boolean {
+  if (!tabs) return false;
   if (tabs.length >= 2) return true;
-  if (tabs.length === 0) return false;
+  // With no Blocks fields left, the page body is still there.
+  const live = tabs.length > 0 ? tabs.map((tab) => tab.fieldId) : [null];
   return threads.some(
     (thread) =>
-      !thread.property &&
-      !tabs.some((tab) => tab.fieldId === commentThreadFieldId(thread)),
+      !thread.property && !live.includes(commentThreadFieldId(thread)),
   );
 }
 

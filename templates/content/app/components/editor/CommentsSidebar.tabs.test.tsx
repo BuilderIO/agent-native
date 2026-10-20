@@ -393,6 +393,24 @@ describe("comments across Blocks field tabs", () => {
     ]);
   });
 
+  it("lists a deleted tab's threads under its name once no Blocks field is left", () => {
+    const threads = [
+      thread("body-1", null),
+      thread("gone-1", "gone", "Old notes"),
+    ];
+    render(threads, { documentProperties: [] });
+    expect(feed()).toEqual([
+      "# comments.pageBody",
+      "body-1",
+      "# comments.fieldRemoved:Old notes",
+      "gone-1",
+    ]);
+
+    // Until the page's fields are read, nothing is known to be deleted.
+    render(threads, { documentProperties: undefined });
+    expect(feed()).toEqual(["body-1", "gone-1"]);
+  });
+
   it("starts a new comment in the tab its text is in (CMT-1)", async () => {
     actions.create.mockResolvedValue({ id: "created", threadId: "created" });
     render([], {

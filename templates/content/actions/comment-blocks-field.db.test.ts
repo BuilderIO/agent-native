@@ -327,6 +327,24 @@ describe("add-comment with fieldId", () => {
       add({ ...args, idempotencyKey: "never-saved-deleted-field-comment" }),
     ).rejects.toMatchObject({ errorCode: "comment_field_not_found" });
   });
+
+  it("replays a retry naming the primary field after it was deleted", async () => {
+    const fixture = await seedCollection("retry-deleted-primary");
+    const args = {
+      documentId: fixture.row,
+      content: "Lorem",
+      fieldId: fixture.primaryId,
+      idempotencyKey: "retry-deleted-primary-comment",
+    };
+    const first = await add(args);
+    await getDb()
+      .delete(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, fixture.primaryId));
+    await expect(add(args)).resolves.toMatchObject({
+      id: first.id,
+      replayed: true,
+    });
+  });
 });
 
 describe("listing comments by tab", () => {

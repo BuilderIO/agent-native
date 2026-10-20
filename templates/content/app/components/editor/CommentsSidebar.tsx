@@ -936,7 +936,8 @@ export function CommentsSidebar({
     [documentProperties],
   );
   const groupsByTab =
-    presentation === "history" && showsCommentTabs(commentTabs, threads);
+    presentation === "history" &&
+    showsCommentTabs(documentProperties && commentTabs, threads);
   const historyTabOptions = useMemo(
     () =>
       groupsByTab

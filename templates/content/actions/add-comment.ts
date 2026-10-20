@@ -279,7 +279,8 @@ export async function addCommentWithGuard(
       : resolveCommentBlocksField(documentId, args.fieldId)
   ).catch(async (error: unknown) => {
     // A retry of a submission that was saved replays it, even after its tab
-    // was deleted.
+    // was deleted. The primary field is saved as the body (null), so a retry
+    // naming it matches a body comment.
     if (args.clientOperationId || args.idempotencyKey) {
       const [saved] = await db
         .select({
@@ -295,7 +296,12 @@ export async function addCommentWithGuard(
           ),
         )
         .limit(1);
-      if (saved && saved.fieldId === (args.fieldId ?? null)) return saved;
+      if (
+        saved &&
+        (saved.fieldId === null || saved.fieldId === (args.fieldId ?? null))
+      ) {
+        return saved;
+      }
     }
     throw error;
   });
