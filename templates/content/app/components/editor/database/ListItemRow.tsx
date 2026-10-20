@@ -305,11 +305,23 @@ export function DatabaseLayoutListRow({
           <MetaValues values={line3} />
         </span>
       </SlotZone>
-      {trailing.length > 0 && !editing ? (
-        <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground sm:hidden">
+      {/* On phones End sits under the title, so it's edited there too. */}
+      <SlotZone
+        slot="trailing"
+        row={row}
+        showPlaceholder={isFirst}
+        empty={trailing.length === 0}
+        className="mt-1 inline-flex max-w-full sm:hidden"
+      >
+        <span
+          className={cn(
+            "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground",
+            !editing && "mt-1 sm:hidden",
+          )}
+        >
           <MetaValues values={trailing} />
         </span>
-      ) : null}
+      </SlotZone>
     </>
   );
 

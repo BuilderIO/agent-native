@@ -705,5 +705,43 @@ describe("ordinary property and table-view setup", () => {
       ...kept,
       titleWeight: "bold",
     });
+
+    // With two checkboxes, presets and a Start kind without a field pick
+    // the first in the view's order, as the UI does, not the first made.
+    const { expectedSchemaRevision } = await revisions();
+    const shipped = await asOwner(() =>
+      configureProperty.run({
+        operation: "create",
+        target,
+        expectedSchemaRevision,
+        idempotencyKey: "create-Shipped",
+        definition: { name: "Shipped", type: "checkbox" },
+      }),
+    );
+    await legacySave((view) => ({
+      ...view,
+      hiddenPropertyIds: [],
+      propertyOrderIds: [
+        shipped.value.id,
+        propertyIds.Due,
+        propertyIds.Pitch,
+        propertyIds.Done,
+      ],
+    }));
+    const checkboxKind = await update("checkbox-kind-in-order", "ideas", {
+      itemLayout: { leading: { kind: "checkbox" } },
+    });
+    expect(checkboxKind.value.itemLayout?.leading).toEqual({
+      kind: "checkbox",
+      propertyId: shipped.value.id,
+    });
+    await update("reset-before-order", "ideas", { itemLayout: null });
+    const checklistInOrder = await update("checklist-in-order", "ideas", {
+      itemLayoutPreset: "checklist",
+    });
+    expect(checklistInOrder.value.itemLayout?.leading).toEqual({
+      kind: "checkbox",
+      propertyId: shipped.value.id,
+    });
   });
 });

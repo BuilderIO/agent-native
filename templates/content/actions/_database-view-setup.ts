@@ -358,24 +358,35 @@ export function withSavableItemLayout<
     : view;
 }
 
+/**
+ * A view's properties in the order its UI lists them, so presets and slot
+ * defaults pick the same first checkbox, status or text field the UI does.
+ */
+function viewOrderedDefinitions(
+  view: ContentDatabaseView,
+  definitions: readonly PropertyDefinitionRow[],
+) {
+  const order = view.propertyOrderIds ?? [];
+  const rank = (id: string) => {
+    const index = order.indexOf(id);
+    return index < 0 ? order.length : index;
+  };
+  return [...definitions].sort(
+    (a, b) => rank(a.id) - rank(b.id) || a.position - b.position,
+  );
+}
+
 /** The default rows' properties: the view's visible properties in its order. */
 function defaultListRowProperties(
   view: ContentDatabaseView,
   definitions: readonly PropertyDefinitionRow[],
 ) {
   const hidden = new Set(view.hiddenPropertyIds ?? []);
-  const order = view.propertyOrderIds ?? [];
-  const rank = (id: string) => {
-    const index = order.indexOf(id);
-    return index < 0 ? order.length : index;
-  };
   return itemLayoutProperties(
-    definitions
-      .filter(
-        (definition) =>
-          definition.visibility !== "always_hide" && !hidden.has(definition.id),
-      )
-      .sort((a, b) => rank(a.id) - rank(b.id) || a.position - b.position),
+    viewOrderedDefinitions(view, definitions).filter(
+      (definition) =>
+        definition.visibility !== "always_hide" && !hidden.has(definition.id),
+    ),
   );
 }
 
@@ -400,7 +411,9 @@ function nextListItemLayout(
     );
   }
   if (itemLayout === null) return null;
-  const allProperties = itemLayoutProperties(definitions);
+  const allProperties = itemLayoutProperties(
+    viewOrderedDefinitions(view, definitions),
+  );
   // Properties hidden in this view can't be put in a slot, as in the UI.
   const hidden = new Set(view.hiddenPropertyIds ?? []);
   const properties = allProperties.filter(
