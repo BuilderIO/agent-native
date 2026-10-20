@@ -457,6 +457,7 @@ jobs:
             inspector-3a,
             inspector-3b,
             inspector-4a,
+            inspector-4c,
             inspector-4b,
             drag-1a,
             drag-1b,
@@ -526,6 +527,7 @@ jobs:
         timeout-minutes: 9
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          E2E_LOG_TEST_PROGRESS: "1"
         run: |
           set -euo pipefail
           # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.

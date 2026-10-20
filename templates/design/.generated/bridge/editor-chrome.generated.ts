@@ -921,6 +921,101 @@ export const editorChromeBridgeScript: string = `"use strict";
     return void 0;
   }
 
+  // shared/source-equivalent-selector.ts
+  var SOURCE_EQUIVALENT_SELECTOR_PREFIX = "source-equivalent:v1:";
+  function sourceEquivalentSelectorPath(selector) {
+    return selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX) ? selector.slice(SOURCE_EQUIVALENT_SELECTOR_PREFIX.length) : selector;
+  }
+  function alpineGeneratedChildrenOf(parent) {
+    const generated = [];
+    const children = parent.children;
+    for (let i = 0; i < children.length; i += 1) {
+      const child = children[i];
+      if (!child.tagName || child.tagName.toLowerCase() !== "template") {
+        continue;
+      }
+      if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
+      const lookup = child._x_lookup;
+      if (lookup) {
+        const map = lookup;
+        if (typeof map.forEach === "function" && typeof map.get === "function") {
+          map.forEach((item) => {
+            if (item) generated.push(item);
+          });
+        } else {
+          const record = lookup;
+          for (const key in record) {
+            if (Object.prototype.hasOwnProperty.call(record, key)) {
+              const item = record[key];
+              if (item) generated.push(item);
+            }
+          }
+        }
+      }
+    }
+    return generated;
+  }
+  function isEditorInjectedElement(el) {
+    return !!(el.getAttribute && (el.getAttribute("data-agent-native-edit-overlay") !== null || el.getAttribute("data-agent-native-hit-test-preview") !== null));
+  }
+  function resolveSourceEquivalentSelector(doc, selector) {
+    if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      return doc.querySelector(selector);
+    }
+    const resolution = resolveSourceEquivalentSelectorResult(doc, selector);
+    return resolution.status === "matched" ? resolution.element : null;
+  }
+  function resolveSourceEquivalentSelectorResult(doc, selector) {
+    if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      try {
+        const element = doc.querySelector(selector);
+        return element ? { status: "matched", element } : { status: "not-found" };
+      } catch (error) {
+        if (typeof error === "object" && error !== null && "name" in error && error.name === "SyntaxError") {
+          return { status: "invalid-selector", format: "legacy-css" };
+        }
+        throw error;
+      }
+    }
+    const sourcePath = sourceEquivalentSelectorPath(selector);
+    const parts = sourcePath.split(" > ");
+    if (parts.length < 2 || parts[0] !== "body") {
+      return { status: "invalid-selector", format: "source-path" };
+    }
+    const path = [];
+    for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
+      const match = /^([^\\s:()>]+)(?::nth-of-type\\((\\d+)\\))?$/.exec(
+        parts[partIndex] ?? ""
+      );
+      if (!match) return { status: "invalid-selector", format: "source-path" };
+      const index = match[2] === void 0 ? 1 : Number(match[2]);
+      if (!Number.isSafeInteger(index) || index < 1) {
+        return { status: "invalid-selector", format: "source-path" };
+      }
+      path.push({ tag: match[1] ?? "", index });
+    }
+    let current = doc.body;
+    for (const step of path) {
+      if (!current) return { status: "not-found" };
+      const generated = alpineGeneratedChildrenOf(current);
+      let seen = 0;
+      let found2 = null;
+      for (let i = 0; i < current.children.length; i += 1) {
+        const sib = current.children[i];
+        if (!sib || sib.tagName.toLowerCase() !== step.tag) continue;
+        if (generated.indexOf(sib) !== -1) continue;
+        if (isEditorInjectedElement(sib)) continue;
+        seen += 1;
+        if (seen === step.index) {
+          found2 = sib;
+          break;
+        }
+      }
+      current = found2;
+    }
+    return current && current !== doc.body ? { status: "matched", element: current } : { status: "not-found" };
+  }
+
   // shared/spacing-handle-rule.ts
   function isAutoLayoutDisplay(display) {
     return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -1030,6 +1125,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       (property) => styleValueIsPresent(style(property), EMPTY_STYLE_LENGTH)
     );
   }
+
+  // app/components/design/bridge/native-region-export.ts
+  var NATIVE_REGION_EXPORT_ATTRIBUTE = "data-an-native-region-export";
+  var NATIVE_EDITOR_VIEWPORT_CLIP_RULE = \`html:not([data-agent-native-interact]):not([\${NATIVE_REGION_EXPORT_ATTRIBUTE}]){overflow:clip}\`;
 
   // app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
@@ -1628,7 +1727,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       chromeTransitionStyle.textContent = // The scale vars live on the root; left inheritable, every write
       // restyles the whole document, deferred into the next time it scrolls in.
-      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}html:not([data-agent-native-interact]){overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}' + // A clipped root is a hidden viewport: the wheel reaches a live page in
+      // Interact and moves nothing. Interact owns scrolling, so it is released.
+      NATIVE_EDITOR_VIEWPORT_CLIP_RULE + '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -5217,6 +5318,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         (el.getAttribute("fill") || "") + (el.getAttribute("stroke") || "") + (el.style.cssText || "")
       );
     }
+    function authoredOpacityForEditor(el, computedOpacity) {
+      if (!el.hasAttribute("data-an-native-fill-suppressed") && !el.hasAttribute("data-an-native-layer-suppressed") && !el.hasAttribute("data-an-native-scene-suppressed") && !el.hasAttribute("data-an-native-receiver-suppressed"))
+        return computedOpacity;
+      var saved = el.getAttribute("data-an-native-authored-opacity");
+      var opacity = saved === null || !saved.trim() ? NaN : Number(saved);
+      if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1)
+        throw Object.assign(new Error("Native authored opacity is unavailable"), {
+          code: "native-authored-opacity-unavailable"
+        });
+      return String(opacity);
+    }
     function typedStyleValue(el, property) {
       var typedElement = el;
       if (typeof typedElement.computedStyleMap !== "function") {
@@ -5344,7 +5456,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       PORTABLE_STYLE_PROPERTIES.forEach(function(property2) {
         if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property2]) return;
-        var value = cs[property2] || cs.getPropertyValue(property2);
+        var value = property2 === "opacity" ? authoredOpacityForEditor(el, cs.opacity) : cs[property2] || cs.getPropertyValue(property2);
         var inlineValue = hostStyle && hostStyle.getPropertyValue(property2);
         if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property2] && !portableValueRendersNothing(el, property2, cs))) {
           styles[property2] = value;
@@ -5988,6 +6100,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeTarget = vectorStrokeTarget(el);
       var strokeCs = strokeTarget ? window.getComputedStyle(strokeTarget) : paintCs;
       var computed = collectComputedStyles(cs, paintCs, strokeCs);
+      computed.opacity = authoredOpacityForEditor(el, cs.opacity);
+      if (!vectorPaintTarget(el)) computed.vectorOpacity = computed.opacity;
       var paintTarget = vectorPaintTarget(el) || (el.tagName.toLowerCase() === "path" && el.hasAttribute("data-an-pen-nodes") ? el : null);
       var penNodesOwner = paintTarget && paintTarget.hasAttribute("data-an-pen-nodes") ? paintTarget : el;
       if (paintTarget && paintTarget.getAttribute("fill-opacity") === "0" && (penNodesOwner.getAttribute("data-an-pen-nodes") || "").indexOf("[0") === 0) {
@@ -6187,7 +6301,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         layers.push({
           backgroundColor: paint.backgroundColor,
           backgroundImage: paint.backgroundImage,
-          opacity: paint.opacity,
+          opacity: authoredOpacityForEditor(node, paint.opacity),
           mixBlendMode: paint.mixBlendMode
         });
         node = node.parentElement;
@@ -11994,32 +12108,73 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function resolveNodeHtmlPreviewTarget(target) {
       if (!target || typeof target !== "object") return null;
+      var selector = target.selector;
+      var isSourceEquivalentSelector = typeof selector === "string" && selector.indexOf(SOURCE_EQUIVALENT_SELECTOR_PREFIX) === 0;
+      var selectorMatch = null;
+      if (isSourceEquivalentSelector) {
+        selectorMatch = resolveSourceEquivalentSelector(
+          document,
+          selector
+        );
+      }
       var nodeId = target.nodeId;
       if (typeof nodeId === "string" && nodeId) {
-        try {
-          var nodeMatch = document.querySelector(
-            '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]'
-          );
-          if (nodeMatch && !isLayerInteractionBlocked(nodeMatch)) {
-            return nodeMatch;
+        var nodeMatches = document.querySelectorAll(
+          [
+            '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-code-layer-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-layer-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-builder-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-loc="' + escapeAttribute(nodeId) + '"]',
+            '[id="' + escapeAttribute(nodeId) + '"]'
+          ].join(",")
+        );
+        if (nodeMatches.length === 1) {
+          var uniqueNodeMatch = nodeMatches[0];
+          return uniqueNodeMatch && !isLayerInteractionBlocked(uniqueNodeMatch) ? uniqueNodeMatch : null;
+        }
+        if (nodeMatches.length > 1) {
+          if (!selectorMatch && typeof selector === "string" && selector && !isSourceEquivalentSelector) {
+            try {
+              selectorMatch = document.querySelector(selector);
+            } catch (error) {
+              if (typeof error === "object" && error !== null && "name" in error && error.name !== "SyntaxError") {
+                throw error;
+              }
+            }
           }
-        } catch (_err) {
+          if (selectorMatch && Array.prototype.indexOf.call(nodeMatches, selectorMatch) !== -1 && !isLayerInteractionBlocked(selectorMatch)) {
+            return selectorMatch;
+          }
+          return null;
         }
       }
-      var selector = target.selector;
-      if (typeof selector !== "string" || !selector) return null;
-      try {
-        var selectorMatch = document.querySelector(selector);
-        return selectorMatch && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
-      } catch (_err) {
-        return null;
+      if (!selectorMatch && typeof selector === "string" && selector && !isSourceEquivalentSelector) {
+        try {
+          selectorMatch = document.querySelector(selector);
+        } catch (error) {
+          if (typeof error === "object" && error !== null && "name" in error && error.name !== "SyntaxError") {
+            throw error;
+          }
+        }
       }
+      return selectorMatch && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
     }
     function postNodeHtmlPreviewApplied(proposalId) {
       window.parent.postMessage(
         {
           type: "agent-native:node-html-preview-applied",
           proposalId
+        },
+        "*"
+      );
+    }
+    function postNodeHtmlPreviewFailed(proposalId, reason) {
+      window.parent.postMessage(
+        {
+          type: "agent-native:node-html-preview-failed",
+          proposalId,
+          reason
         },
         "*"
       );
@@ -12075,16 +12230,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       var nextElement = parseNodeHtmlPreviewElement(data.html);
-      if (!nextElement) return;
+      if (!nextElement) {
+        postNodeHtmlPreviewFailed(proposalId, "preview-invalid");
+        return;
+      }
       if (activeNodeHtmlPreview && activeNodeHtmlPreview.proposalId === proposalId) {
         if (replaceNodeHtmlPreviewElement(activeNodeHtmlPreview, nextElement)) {
           postNodeHtmlPreviewApplied(proposalId);
+        } else {
+          postNodeHtmlPreviewFailed(proposalId, "preview-replacement-failed");
         }
         return;
       }
       if (activeNodeHtmlPreview) restoreActiveNodeHtmlPreview();
       var target = resolveNodeHtmlPreviewTarget(data.target);
       if (!target || !target.parentNode || target === document.documentElement) {
+        postNodeHtmlPreviewFailed(proposalId, "target-unresolved");
         return;
       }
       var originalOuterHTML = target.outerHTML;
@@ -12156,7 +12317,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           } catch (_err) {
           }
         }
-        if (matches.size > 1) return null;
+        var hasSourceEquivalentSelector = typeof selector === "string" && selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX);
+        if (matches.size > 1 && !hasSourceEquivalentSelector) return null;
         if (matches.size === 1) {
           var sourceMatch = Array.from(matches)[0];
           return sourceMatch && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
@@ -12164,6 +12326,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (typeof selector !== "string" || !selector) {
         return allowDocumentBody && !(typeof sourceId === "string" && sourceId) && !(typeof pendingId === "string" && pendingId) ? document.body : null;
+      }
+      if (selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+        var sourceMatch = resolveSourceEquivalentSelector(document, selector);
+        return sourceMatch && (matches.size === 0 || matches.has(sourceMatch)) && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
       }
       try {
         var selectorMatches = document.querySelectorAll(selector);
@@ -23280,7 +23446,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
         var measureSelector = typeof e.data.selector === "string" ? e.data.selector : "";
         var measureTarget = null;
-        if (measureSelector) {
+        if (measureSelector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+          measureTarget = resolveSourceEquivalentSelector(
+            document,
+            measureSelector
+          );
+        } else if (measureSelector) {
           try {
             measureTarget = document.querySelector(measureSelector);
           } catch (_err) {

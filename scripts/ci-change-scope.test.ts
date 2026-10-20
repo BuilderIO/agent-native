@@ -1834,6 +1834,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /E2E_REQUIRED_PIN_IDENTITIES="\$required_pin_identities_json"/,
     "the reporter must attest each resolved selector against its manifest title",
   );
+  assert.match(
+    regressionCases,
+    /^          E2E_LOG_TEST_PROGRESS: "1"$/m,
+    "focused Design tests must log per-case progress before a shard timeout",
+  );
   assert.equal(
     DESIGN_E2E_REGRESSION_PINS.length,
     107,

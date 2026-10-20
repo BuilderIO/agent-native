@@ -1386,8 +1386,21 @@ const overrides = {
     plainText: "सादा टेक्स्ट",
     searchLanguages: "भाषाएं खोजें...",
     noBlocksFields: "कोई Blocks फ़ील्ड नहीं है। प्रॉपर्टी मेनू से एक जोड़ें।",
-    reorderField: "{{name}} को फिर से क्रमबद्ध करें",
-    toggleField: "{{name}} टॉगल करें",
+    addBlockField: "फ़ील्ड जोड़ें",
+    blockFieldChanged: "पिछली बार देखने के बाद से बदला गया",
+    blockFieldTabs: "फ़ील्ड",
+    blockFieldMenu: "{{name}} के विकल्प",
+    blockFieldMenuScope: "इस संग्रह की हर पंक्ति में साझा",
+    blockFieldName: "फ़ील्ड का नाम",
+    renameBlockField: "नाम बदलें",
+    renameBlockFieldFailed: "फ़ील्ड का नाम नहीं बदला जा सका",
+    deleteBlockField: "हटाएँ",
+    deleteBlockFieldFailed: "फ़ील्ड हटाया नहीं जा सका",
+    deleteBlockFieldQuestion: "“{{name}}” हटाएँ?",
+    deleteBlockFieldDescription:
+      "इससे इस संग्रह की हर पंक्ति से “{{name}}” और उसका टेक्स्ट हट जाएगा। इसे पूर्ववत नहीं किया जा सकता।",
+    deleteBlockFieldBodyWarning:
+      "“{{name}}” पेज का मुख्य भाग है, इसलिए हर पंक्ति का मुख्य टेक्स्ट भी हट जाएगा।",
   },
   comments: {
     add: "टिप्पणी जोड़ें...",

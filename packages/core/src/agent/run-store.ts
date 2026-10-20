@@ -3550,7 +3550,16 @@ export async function markTurnAborted(
       args: [`agent-native:run-slot:${threadId}`],
     });
     await lockAndAssertCurrentExecutionFences(tx);
-    await lockTurnExecutionLease(tx, threadId, turnId);
+    const lease = await lockTurnExecutionLease(tx, threadId, turnId);
+    if (
+      fence &&
+      (!lease ||
+        !lease.isLive ||
+        lease.ownerRunId !== fence.runId ||
+        lease.generation !== fence.generation)
+    ) {
+      throw new StaleExecutionFenceError(fence);
+    }
     const running = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' AND dispatch_mode IS DISTINCT FROM 'turn-abort'`,
       args: [threadId, turnId],
