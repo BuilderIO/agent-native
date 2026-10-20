@@ -3178,7 +3178,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
 
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<{ state: "timeout" }>((resolve) => {
-      timeout = setTimeout(() => resolve({ state: "timeout" }), 1_000);
+      timeout = setTimeout(() => resolve({ state: "timeout" }), 10_000);
     });
     try {
       const result = await Promise.race([

@@ -1853,7 +1853,7 @@ const messages = {
     unmuteMicrophone: "Ativar microfone",
     uploadVideo: "Upload video",
     takeScreenshot: "Fazer captura de tela",
-    importLoom: "Import Loom",
+    importLoom: "Importar vídeo",
     importing: "Importing...",
     import: "Import",
     recordNew: "Nova gravação",
@@ -2108,8 +2108,8 @@ const messages = {
       "Esta gravação ainda está sendo processada, então o Clips manteve sua cópia aqui. Aguarde ou envie de novo.",
   },
   importRoute: {
-    pageTitle: "Importar Loom — Clips",
-    title: "Importar Loom",
+    pageTitle: "Importar vídeo — Clips",
+    title: "Importar vídeo",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importar",
     helperText:

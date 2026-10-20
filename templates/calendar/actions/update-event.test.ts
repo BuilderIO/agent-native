@@ -28,7 +28,24 @@ vi.mock("../server/lib/event-video-conferencing.js", () => ({
   prepareZoomMeetingPatch: vi.fn(),
 }));
 
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
+
 import action from "./update-event";
+
+// Every caller's gate judges the call as prepared: validated, defaults
+// applied.
+async function gate(args: Record<string, unknown>) {
+  const needsApproval = action.needsApproval;
+  if (typeof needsApproval !== "function") {
+    throw new Error("expected a predicate");
+  }
+  const intent = await actionCallIntent(action, args);
+  if (!intent.valid) throw intent.error;
+  return needsApproval(preparedCallArguments(intent) as never);
+}
 
 function recurringWorkingLocationEvent() {
   return {
@@ -705,9 +722,6 @@ describe("update-event working locations", () => {
 
 describe("update-event approval gate", () => {
   it("gates a guest notification and a cross-calendar move, not a field edit", async () => {
-    const gate = action.needsApproval;
-    if (typeof gate !== "function") throw new Error("expected a predicate");
-
     expect(await gate({ id: "google-a", title: "Renamed" } as never)).toBe(
       false,
     );
@@ -726,9 +740,6 @@ describe("update-event approval gate", () => {
   });
 
   it("gates adding a guest, which invites them by default", async () => {
-    const gate = action.needsApproval;
-    if (typeof gate !== "function") throw new Error("expected a predicate");
-
     expect(
       await gate({
         id: "google-a",
@@ -763,9 +774,6 @@ describe("update-event approval gate", () => {
   });
 
   it("does not stop an update whose attendee input names nobody reachable", async () => {
-    const gate = action.needsApproval;
-    if (typeof gate !== "function") throw new Error("expected a predicate");
-
     expect(
       await gate({ id: "google-a", addAttendees: "not-an-address" } as never),
     ).toBe(false);

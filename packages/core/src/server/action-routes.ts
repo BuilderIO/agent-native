@@ -22,6 +22,7 @@ import {
   failedCallEmitsChange,
   recordInvalidActionCall,
   preparedCallArguments,
+  preparedCallNeedsApproval,
   ranCallEmitsChange,
   runPreparedActionCall,
 } from "../action.js";
@@ -61,6 +62,7 @@ import {
 import {
   LLM_PROVIDER_MISSING_ERROR_CODE,
   LLM_PROVIDER_MISSING_STATUS,
+  UI_CAPABILITY_REQUIRED_ERROR_CODE,
 } from "../shared/action-error-codes.js";
 import {
   agentNativeMcpInstructions,
@@ -91,6 +93,7 @@ import {
   countCredentialState,
 } from "../tracking/failure-counters.js";
 import { redact, redactErrorStack } from "../tracking/redaction.js";
+import { actionApprovalRequiredError } from "./action-approval.js";
 import { ACTION_ROUTE_PREFIX, bindActionBatch } from "./action-batch.js";
 import { notifyActionChangeForResponse } from "./action-change.js";
 import {
@@ -268,6 +271,24 @@ function isFrontendActionRequest(event: any): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The frontend header is only the client's claim. A request proves it came
+ * from this app's signed-in UI with a same-origin request that carries the
+ * short-lived UI capability the browser minted for the same user.
+ */
+function isProvenUiRequest(
+  event: any,
+  caller: ActionCaller,
+  userEmail: string | undefined,
+): boolean {
+  return (
+    caller === "frontend" &&
+    Boolean(userEmail) &&
+    isSameOriginRequest(event) &&
+    hasUiActionCapability(event, userEmail)
+  );
 }
 
 type CorsOrigin = {
@@ -1189,18 +1210,16 @@ function mountActionRoutesInternal(
               : isFrontendActionRequest(event)
                 ? "frontend"
                 : "http");
-        const frontendCaller = requestCaller === "frontend";
-        if (
-          entry.uiOnly === true &&
-          (!frontendCaller ||
-            !userEmail ||
-            !isSameOriginRequest(event) ||
-            !hasUiActionCapability(event, userEmail))
-        ) {
+        const provenUiRequest = isProvenUiRequest(
+          event,
+          requestCaller,
+          userEmail,
+        );
+        if (entry.uiOnly === true && !provenUiRequest) {
           setResponseStatus(event, 403);
           return {
             error: "This action can only be called from the signed-in app UI.",
-            errorCode: "ui_capability_required",
+            errorCode: UI_CAPABILITY_REQUIRED_ERROR_CODE,
           };
         }
         const timezone = readTimezoneHeader(event);
@@ -1547,32 +1566,28 @@ function mountActionRoutesInternal(
               // Each reader below gets its own copy of the prepared
               // arguments; this one is for a failure's change marker.
               params = preparedCallArguments(prepared) as Record<string, any>;
-              if (caller === "webmcp" && entry.needsApproval !== undefined) {
-                let mustApprove = false;
-                try {
-                  mustApprove =
-                    typeof entry.needsApproval === "function"
-                      ? Boolean(
-                          await entry.needsApproval(
-                            preparedCallArguments(prepared),
-                            {
-                              userEmail,
-                              orgId: orgId ?? null,
-                              appId: options?.appId,
-                              caller,
-                            },
-                          ),
-                        )
-                      : entry.needsApproval === true;
-                } catch {
-                  mustApprove = true;
-                }
-                if (mustApprove) {
-                  throw new ActionContractError(
-                    `"${name}" requires human approval for these arguments. WebMCP tool calls cannot grant that approval themselves — ask the user to confirm this action in chat, then call it there.`,
-                    { errorCode: "approval_required", statusCode: 409 },
-                  );
-                }
+              // Approval is given in the app: in its UI, or in an agent chat
+              // or MCP flow that runs the action in-process. No other HTTP
+              // caller can grant it. The app's UI is the proven browser app or
+              // its MCP directory widget, whose capability is scoped to the
+              // resources and actions the user is working on.
+              if (
+                !provenUiRequest &&
+                !directoryWidgetReadAllowed &&
+                !directoryWidgetWriteAllowed &&
+                (await preparedCallNeedsApproval(entry, prepared, {
+                  userEmail,
+                  orgId: orgId ?? null,
+                  appId: options?.appId,
+                  caller,
+                  actionName: name,
+                }))
+              ) {
+                throw actionApprovalRequiredError(
+                  name,
+                  caller,
+                  Boolean(verifiedServiceIdentity),
+                );
               }
               const result = await runPreparedActionCall(
                 entry,

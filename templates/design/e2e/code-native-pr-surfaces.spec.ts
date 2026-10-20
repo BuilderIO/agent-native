@@ -573,6 +573,7 @@ test("typing a 4000 ms animation duration saves a 4s animation that reopens span
     await openMotionDockFromMenu(page);
     await addOpacityTrack(page);
     await app.settled();
+    await page.getByRole("tab", { name: "List", exact: true }).click();
     expect(managedMotionCss(await app.savedHtml(id))).toStrictEqual([
       expectedAlphaOpacityCss(),
     ]);

@@ -2035,6 +2035,10 @@ export default {
       accept: "Accept",
       reject: "Reject",
       resolveFailed: "Could not resolve this proposal",
+      previewTargetUnavailable:
+        "Could not find the selected element, so this preview was not shown. Select the element again to retry.",
+      previewFailed:
+        "Could not show this preview. Select the element again to retry.",
     },
     capabilities: {
       "deterministic-style-edit": "Safe style edit",

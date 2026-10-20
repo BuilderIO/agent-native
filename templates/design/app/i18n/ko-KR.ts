@@ -2097,6 +2097,10 @@ export default {
       accept: "적용",
       reject: "거부",
       resolveFailed: "이 제안을 처리하지 못했습니다",
+      previewTargetUnavailable:
+        "선택한 요소를 찾을 수 없어 미리보기를 표시하지 못했습니다. 요소를 다시 선택한 후 다시 시도하세요.",
+      previewFailed:
+        "미리보기를 표시하지 못했습니다. 요소를 다시 선택한 후 다시 시도하세요.",
     },
     capabilities: {
       "deterministic-style-edit": "안전한 스타일 편집",

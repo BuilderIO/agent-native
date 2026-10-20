@@ -739,6 +739,21 @@ const FEEDBACK_STATUS_REACTIONS_REGEX_CASES = [
   [false, "A ticket emoji is already on the issue."],
 ];
 
+const FEEDBACK_SWEEP_LIFETIME_RE =
+  /(?=.*\b(?:slack|feedback)\b)(?=.*\b(?:sweep|triag\w*|scan)\b)(?=.*\b(?:forever|perpetual|open[- ]ended|endless|(?:3|three)\s+days?|every few hours)\b)(?=.*\b(?:stop|not supposed to|should(?:n['’]?t| not)\s+(?:go|continue|run)|do not|don['’]?t)\b)/is;
+const FEEDBACK_SWEEP_LIFETIME_REGEX_CASES = [
+  [
+    true,
+    "You've been sweeping Slack for 3 days; stop, this should not go forever because separate agents sweep every few hours.",
+  ],
+  [
+    true,
+    "Stop the open-ended feedback triage at its cutoff; scheduled agents handle later windows.",
+  ],
+  [false, "A scheduled Slack sweep runs every few hours."],
+  [false, "Please triage this bounded feedback window."],
+];
+
 const POST_MERGE_FEEDBACK_FOLLOWUP_RE =
   /(?=.*\b(?:Slack|reporter|thread)s?\b)(?=.*(?:\b(?:PR|fix|issue)\b[^.!?]{0,160}\b(?:merg(?:e|ed|es|ing)|land(?:s|ed|ing)?)\b|\b(?:merg(?:e|ed|es|ing)|land(?:s|ed|ing)?)\b[^.!?]{0,160}\b(?:PR|fix|issue)\b))(?=.*\b(?:go back|follow[ -]?up|reply|respond|tell|notify|update)\b)(?=.*\b(?:after|once|when|anytime|every time|please|make sure|remind|forgot|missed|didn['’]?t|haven['’]?t|merg(?:e|ed|es|ing)|land(?:s|ed|ing)?)\b)/is;
 const POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES = [
@@ -3436,6 +3451,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_SWEEP_LIFETIME_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_ATTACHMENT_COVERAGE_RE.test(message) !== expected,
@@ -3735,7 +3756,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -4068,6 +4089,13 @@ const PATTERNS = [
     fixedBy:
       "feedback:inventory-check required independent source-receipt parity + review-latest-feedback channel-inventory procedure (2026-10-17)",
     re: FEEDBACK_CHANNEL_COVERAGE_RE,
+  },
+  {
+    key: "feedback-sweep-unbounded",
+    label: "Had to stop an open-ended feedback sweep",
+    fixedBy:
+      ".agents/skills/review-latest-feedback/references/channel-inventory.md + feedback:inventory-check fixed window and bounded retry (2026-10-20)",
+    re: FEEDBACK_SWEEP_LIFETIME_RE,
   },
   {
     key: "feedback-attachment-coverage",

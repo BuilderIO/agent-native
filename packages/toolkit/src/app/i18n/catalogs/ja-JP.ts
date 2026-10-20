@@ -1017,7 +1017,26 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM、連絡先、会社、取引、チケット、顧客分析",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "ワークスペースで管理する HubSpot MCP Auth App が設定されている場合、どのメンバーも OAuth と PKCE で個人の HubSpot アカウントを接続できます。設定されていない場合は、接続する前に HubSpot Developer Platform でアプリを作成してください。既存の HubSpot OAuth コネクターは引き続きアプリのアクションで利用できます。",
+    "ワークスペースのオーナーが HubSpot MCP Auth App を設定すると、各メンバーが自分の HubSpot アカウントを接続できます。",
+  "mcpIntegrations.hubspot.setupTitle": "HubSpot MCP を設定",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "ワークスペースのオーナーが HubSpot MCP を一度設定します。その後、各メンバーが自分のアカウントを接続します。",
+  "mcpIntegrations.hubspot.workspaceSetupStatus":
+    "ワークスペースの設定が必要です",
+  "mcpIntegrations.hubspot.setupChecking": "ワークスペースの設定を確認中…",
+  "mcpIntegrations.hubspot.setupUnavailable": "設定状況を確認できません",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "ワークスペースの OAuth 設定を確認できませんでした。もう一度お試しください。",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "HubSpot MCP Auth App を作成し、Agent-Native settings → API keys にクライアント ID とシークレットを追加してください。",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "ワークスペースのオーナーに HubSpot MCP Auth App の作成と、Agent-Native settings → API keys へのクライアント ID とシークレットの追加を依頼してください。設定後、自分の HubSpot アカウントを接続できます。",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "HubSpot MCP を接続する前にワークスペースに参加してください。",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "ワークスペースの認証情報を追加",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "再確認",
+  "mcpIntegrations.hubspot.retrySetupStatus": "再試行",
   "mcpIntegrations.catalog.pylon.description":
     "Pylon のサポートデータを検索、更新します。",
   "mcpIntegrations.catalog.pylon.useCase":
