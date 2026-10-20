@@ -3419,6 +3419,11 @@ describe("createAgentKitProtocolAdapter", () => {
     const replay = await transport.startRun({
       threadId: "thread-1",
       messages: [userMessage("Publish it")],
+      queuePromotion: {
+        messageId: "queued-message",
+        claimId: "claim-1",
+        turnId: "turn-queued-message",
+      },
     });
 
     expect(replay.runId).toBe(resumed!.runId);

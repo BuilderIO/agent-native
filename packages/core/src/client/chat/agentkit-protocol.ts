@@ -3931,7 +3931,7 @@ export function createAgentKitProtocolAdapter(
           turnMetadata,
           undefined,
           {
-            attachReplayedRun: true,
+            attachReplayedRun: input.queuePromotion !== undefined,
           },
         );
       };
