@@ -4,10 +4,14 @@ import { expect, test } from "./rails";
 
 const PENDING_GENERATION_STALE_MS = 30 * 60_000;
 
-test("restored generation with existing output clears without a stale warning", async ({
+test("restored stale generation with existing output keeps its stale warning", async ({
   app,
   page,
 }) => {
+  app.allowFailure(
+    /error toast Generation may have stopped before creating files/,
+    "restoring a stale generation should surface its retry warning",
+  );
   const designId = await app.seed(
     "<!doctype html><html><body><main>Existing generated output</main></body></html>",
     { title: "stale-generation-output" },
@@ -93,7 +97,7 @@ test("restored generation with existing output clears without a stale warning", 
             .__e2eErrorToasts ?? [],
       ),
     )
-    .toEqual([]);
+    .toContain("Generation may have stopped before creating files.");
 });
 
 test("failed generation on an existing design keeps the retry path", async ({
@@ -207,7 +211,7 @@ test("failed generation on an existing design keeps the retry path", async ({
   await page.unroute(activeRunRoute);
 });
 
-test("failed generation after changed template output does not retry", async ({
+test("failed generation after changed template output keeps its retry path", async ({
   app,
   page,
 }) => {
@@ -374,7 +378,10 @@ test("failed generation after changed template output does not retry", async ({
         page.evaluate((key) => sessionStorage.getItem(key), pendingKey),
       )
       .toBeNull();
-    await expect.poll(() => retriedThreadId, { timeout: 3_000 }).toBeNull();
+    await expect
+      .poll(() => retriedThreadId, { timeout: 20_000 })
+      .not.toBeNull();
+    expect(retriedThreadId).not.toBe(failedThreadId);
   } finally {
     await page.unroute(activeRunRoute);
   }

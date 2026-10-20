@@ -10,6 +10,7 @@ import {
   isPendingGenerationStale,
   PENDING_GENERATION_STALE_MS,
   readPendingGeneration,
+  resolvePendingGenerationOutputBaseline,
   resolvePreviousRunBaseline,
   snapshotGenerationOutputBaseline,
   shouldSkipPendingGenerationResume,
@@ -231,7 +232,7 @@ describe("template refinement output", () => {
     ).toBe(false);
   });
 
-  it("recognizes changed or newly created files as refinement output", () => {
+  it("does not attribute changed or newly created files to a refinement run", () => {
     const pending = {
       templateId: "template-1",
       templateBaselineFiles: [
@@ -243,13 +244,13 @@ describe("template refinement output", () => {
       hasPendingGenerationOutput(pending, [
         { ...copied, content: "<main>Refined template</main>" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasPendingGenerationOutput(pending, [
         copied,
         { ...copied, id: "file-2" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("does not infer output from file revisions without a persisted baseline", () => {
@@ -263,7 +264,7 @@ describe("template refinement output", () => {
     ).toBe(false);
   });
 
-  it("treats a changed tracked support file as completed template refinement", () => {
+  it("does not infer template completion from changed support files", () => {
     const stylesheet = {
       id: "file-css",
       filename: "styles.css",
@@ -291,7 +292,7 @@ describe("template refinement output", () => {
         copied,
         { ...stylesheet, content: "body { margin: 16px }" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasPendingGenerationOutput({ templateId: "template-1" }, [
         copied,
@@ -317,7 +318,7 @@ describe("board file is not generation output", () => {
     ).toBe(false);
   });
 
-  it("still recognizes a real screen alongside the board file", () => {
+  it("does not infer run output from a real screen alongside the board file", () => {
     const screen = {
       id: "file-1",
       filename: "index.html",
@@ -333,7 +334,7 @@ describe("board file is not generation output", () => {
         },
         [board, screen],
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("does not treat CSS/JSX/asset support files as a generated screen", () => {
@@ -390,6 +391,19 @@ describe("generation output baseline", () => {
     updatedAt: "2026-07-10T12:00:00.000Z",
   };
 
+  it("keeps the persisted output baseline when continuing a question flow", () => {
+    const persisted = [{ id: "persisted-file", contentHash: "3:persisted" }];
+    const live = [{ id: "live-file", contentHash: "3:live" }];
+
+    expect(resolvePendingGenerationOutputBaseline(persisted, live)).toBe(
+      persisted,
+    );
+    expect(resolvePendingGenerationOutputBaseline(undefined, live)).toBe(live);
+    expect(resolvePendingGenerationOutputBaseline(undefined, undefined)).toBe(
+      undefined,
+    );
+  });
+
   it("does not treat existing HTML as output from a new prompt", () => {
     const pending = {
       prompt: "Add a settings page",
@@ -434,7 +448,7 @@ describe("generation output baseline", () => {
     ).toBe(false);
   });
 
-  it("recognizes changed and newly created HTML against the prompt baseline", () => {
+  it("does not infer run output from changed or newly created HTML", () => {
     const pending = {
       prompt: "Add a settings page",
       outputBaselineFiles: snapshotGenerationOutputBaseline([existing]),
@@ -444,12 +458,28 @@ describe("generation output baseline", () => {
       hasPendingGenerationOutput(pending, [
         { ...existing, content: "<main>Updated settings page</main>" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasPendingGenerationOutput(pending, [
         existing,
         { ...existing, id: "file-2", filename: "settings.html" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("keeps retryable state after an unrelated HTML edit", () => {
+    const pending = {
+      prompt: "Add a settings page",
+      outputBaselineFiles: snapshotGenerationOutputBaseline([existing]),
+    };
+    const manuallyEdited = {
+      ...existing,
+      content: "<main>Manually adjusted design</main>",
+    };
+
+    expect(hasPendingGenerationOutput(pending, [manuallyEdited])).toBe(false);
+    expect(shouldSkipPendingGenerationResume(pending, [manuallyEdited])).toBe(
+      false,
+    );
   });
 });

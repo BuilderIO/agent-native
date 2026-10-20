@@ -232,6 +232,16 @@ const RECONNECTABLE_TERMINAL_RUN_STATUSES = new Set([
   "aborted",
 ]);
 
+function isDuplicateSubmissionMarker(run: {
+  status: string;
+  terminalReason?: string | null;
+}): boolean {
+  return (
+    run.status === "aborted" &&
+    run.terminalReason === "aborted:duplicate_submission"
+  );
+}
+
 export const SQL_SUBSCRIPTION_ACTIVE_POLL_MS = 125;
 
 export const SQL_SUBSCRIPTION_IDLE_POLL_MS = 500;
@@ -2946,67 +2956,46 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       hasInFlightWork: sqlSnapshot?.inFlightSince != null,
     };
   }
-  const sqlRun = await getRunByThread(threadId, { includeTerminal: true });
+  let sqlRun = await getRunByThread(threadId, { includeTerminal: true });
   if (!sqlRun) return null;
-  if (
-    sqlRun.status === "aborted" &&
-    sqlRun.terminalReason === "aborted:duplicate_submission"
-  ) {
+  if (isDuplicateSubmissionMarker(sqlRun)) {
     // A foreground duplicate request has its own synthetic aborted row, but
     // the accepted run remains the thread's actual work. Another isolate has
     // no in-memory run map to disambiguate those rows, so prefer the live row.
     const liveRun = await getRunByThread(threadId);
     if (liveRun) {
+      sqlRun = liveRun;
+    } else {
+      const acceptedRun = (
+        await listRunsForThread(threadId, { limit: 50 })
+      ).find((run) => !isDuplicateSubmissionMarker(run));
+      if (
+        !acceptedRun ||
+        !RECONNECTABLE_TERMINAL_RUN_STATUSES.has(acceptedRun.status)
+      ) {
+        return null;
+      }
+      const terminalAge =
+        Date.now() -
+        (acceptedRun.completedAt ??
+          acceptedRun.heartbeatAt ??
+          acceptedRun.startedAt);
+      if (terminalAge > TERMINAL_RUN_RECONNECT_WINDOW_MS) return null;
       return {
-        runId: liveRun.id,
-        threadId: liveRun.threadId,
-        turnId: liveRun.turnId ?? liveRun.id,
-        status: legacyWireRunStatus(liveRun.status),
-        inFlight: liveRun.status === "running",
-        heartbeatAt:
-          liveRun.status === "running"
-            ? Date.now()
-            : (liveRun.heartbeatAt ?? liveRun.startedAt),
-        lastProgressAt: liveRun.lastProgressAt,
-        dispatchMode: liveRun.dispatchMode,
-        terminalReason: liveRun.terminalReason,
-        diagStage: liveRun.diagStage,
+        runId: acceptedRun.id,
+        threadId: acceptedRun.threadId,
+        turnId: acceptedRun.turnId ?? acceptedRun.id,
+        status: legacyWireRunStatus(acceptedRun.status),
+        inFlight: false,
+        heartbeatAt: acceptedRun.heartbeatAt ?? acceptedRun.startedAt,
+        lastProgressAt: acceptedRun.lastProgressAt,
+        dispatchMode: acceptedRun.dispatchMode,
+        terminalReason: acceptedRun.terminalReason,
+        diagStage: acceptedRun.diagStage,
         awaitingRedispatch: false,
-        hasInFlightWork: liveRun.inFlightSince != null,
+        hasInFlightWork: false,
       };
     }
-
-    const acceptedRun = (await listRunsForThread(threadId, { limit: 50 })).find(
-      (run) =>
-        run.status !== "aborted" ||
-        run.terminalReason !== "aborted:duplicate_submission",
-    );
-    if (
-      !acceptedRun ||
-      !RECONNECTABLE_TERMINAL_RUN_STATUSES.has(acceptedRun.status)
-    ) {
-      return null;
-    }
-    const terminalAge =
-      Date.now() -
-      (acceptedRun.completedAt ??
-        acceptedRun.heartbeatAt ??
-        acceptedRun.startedAt);
-    if (terminalAge > TERMINAL_RUN_RECONNECT_WINDOW_MS) return null;
-    return {
-      runId: acceptedRun.id,
-      threadId: acceptedRun.threadId,
-      turnId: acceptedRun.turnId ?? acceptedRun.id,
-      status: legacyWireRunStatus(acceptedRun.status),
-      inFlight: false,
-      heartbeatAt: acceptedRun.heartbeatAt ?? acceptedRun.startedAt,
-      lastProgressAt: acceptedRun.lastProgressAt,
-      dispatchMode: acceptedRun.dispatchMode,
-      terminalReason: acceptedRun.terminalReason,
-      diagStage: acceptedRun.diagStage,
-      awaitingRedispatch: false,
-      hasInFlightWork: false,
-    };
   }
   if (sqlRun.status === "running") {
     // FALLBACK HARDENING: a background-dispatched run that is still UNCLAIMED
@@ -3148,6 +3137,7 @@ async function fetchNewerRunForSameTurn(
     : Infinity;
   if (
     latest &&
+    !isDuplicateSubmissionMarker(latest) &&
     latest.id !== memRun.runId &&
     latest.startedAt > memRun.startedAt &&
     (latest.turnId ?? latest.id) === memRun.turnId &&

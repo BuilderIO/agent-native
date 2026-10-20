@@ -59,6 +59,7 @@ import {
   patchPendingGeneration,
   PENDING_GENERATION_STALE_MS,
   readPendingGeneration,
+  resolvePendingGenerationOutputBaseline,
   resolvePreviousRunBaseline,
 } from "@/lib/pending-generation";
 import { buildShellDesign } from "@/lib/shell-design";
@@ -317,14 +318,6 @@ export function useEditorGenerationAndAccess({
     if (generationOutputReadyRef.current === null) return;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
-    if (generationOutputReadyRef.current) {
-      clearPendingGeneration(id);
-      setHasPendingGeneration(false);
-      setGenerationIssue(null);
-      setRetryablePrompt(null);
-      staleToastShownRef.current = false;
-      return;
-    }
     rememberPendingGenerationForRetry();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
@@ -351,22 +344,13 @@ export function useEditorGenerationAndAccess({
         setGenerationIssue(null);
         return;
       }
-      const hasOutput = generationOutputReadyRef.current;
-      const preservedForRetry = hasOutput
-        ? false
-        : rememberPendingGenerationForRetry();
       clearPendingGeneration(id);
       setHasPendingGeneration(false);
+      setRetryablePrompt(null);
       staleToastShownRef.current = false;
-      setGenerationIssue(
-        hasOutput
-          ? null
-          : preservedForRetry
-            ? t("designEditor.generationStoppedRetry")
-            : t("designEditor.generationStoppedCheckAgent"),
-      );
+      setGenerationIssue(null);
     }, 4000);
-  }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
+  }, [clearGenerationCompleteTimer, id]);
   const handleGenerationStopped = useCallback(() => {
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
@@ -381,21 +365,6 @@ export function useEditorGenerationAndAccess({
     if (generationOutputReadyRef.current === null) return;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
-    const pending = readPendingGeneration(id, { allowUntimestamped: true });
-    const hasPersistedOutputBaseline = pending?.templateId
-      ? pending.templateBaselineFiles !== undefined
-      : pending?.outputBaselineFiles !== undefined;
-    if (
-      generationOutputReadyRef.current === true &&
-      hasPersistedOutputBaseline
-    ) {
-      clearPendingGeneration(id);
-      setHasPendingGeneration(false);
-      setGenerationIssue(null);
-      setRetryablePrompt(null);
-      staleToastShownRef.current = false;
-      return;
-    }
     const preservedForRetry = rememberPendingGenerationForRetry();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
@@ -499,8 +468,10 @@ export function useEditorGenerationAndAccess({
       );
       const previousRunId = baseline.runId ?? undefined;
       const previousRunBaselineVerified = baseline.verified;
-      const outputBaselineFiles =
-        generationOutputBaselineRef.current ?? pending?.outputBaselineFiles;
+      const outputBaselineFiles = resolvePendingGenerationOutputBaseline(
+        pending?.outputBaselineFiles,
+        generationOutputBaselineRef.current,
+      );
       patchPendingGeneration(id, {
         prompt: pending?.prompt ?? "Continue from answered design questions.",
         files: pending?.files ?? [],

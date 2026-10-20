@@ -37,15 +37,14 @@ describe("empty design", () => {
     );
   });
 
-  it("only treats failed generation output as success with a saved baseline", () => {
+  it("keeps failed generations retryable regardless of changed design files", () => {
     const handler = source.slice(
       source.indexOf("const handleGenerationFailed = useCallback"),
       source.indexOf("const getKnownPreviousRunBaseline"),
     );
 
-    expect(handler).toContain("generationOutputReadyRef.current === true");
-    expect(handler).toContain("pending.templateBaselineFiles !== undefined");
-    expect(handler).toContain("pending?.outputBaselineFiles !== undefined");
+    expect(handler).not.toContain("generationOutputReadyRef.current === true");
+    expect(handler).not.toContain("hasPersistedOutputBaseline");
     expect(handler).toContain("rememberPendingGenerationForRetry()");
     expect(handler).toContain('t("designEditor.generationStoppedRetry")');
   });

@@ -1749,6 +1749,59 @@ describe("useAgentGenerating", () => {
     container.remove();
   });
 
+  it("does not reuse an observed run ID over a verified idle baseline", async () => {
+    const onComplete = vi.fn();
+    const onRunConfirmed = vi.fn();
+    const state = (active: boolean, status: string, runId?: string) => ({
+      ok: true,
+      json: async () => ({ active, status, ...(runId ? { runId } : {}) }),
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(state(true, "running", "observed-run"))
+      .mockResolvedValueOnce(state(false, "completed", "observed-run"))
+      .mockResolvedValueOnce(state(false, "idle"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onRunConfirmed={onRunConfirmed}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab");
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(onRunConfirmed).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "design_tab", reason: "stopped" },
+        }),
+      );
+      latest!.track("design_tab", {
+        ignorePreviousRun: true,
+        previousRunBaselineVerified: true,
+      });
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+
+    expect(onRunConfirmed).toHaveBeenCalledTimes(2);
+    expect(latest!.generating).toBe(false);
+    expect(onComplete).toHaveBeenCalledWith("design_tab");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("clears an unconfirmed generation after the start timeout", async () => {
     const onComplete = vi.fn();
     const onStale = vi.fn();

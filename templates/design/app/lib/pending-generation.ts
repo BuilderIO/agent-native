@@ -39,6 +39,13 @@ export interface PreviousRunBaseline {
   turnId?: string;
 }
 
+export function resolvePendingGenerationOutputBaseline(
+  persisted: PendingGeneration["outputBaselineFiles"],
+  live: PendingGeneration["outputBaselineFiles"],
+): PendingGeneration["outputBaselineFiles"] {
+  return persisted ?? live;
+}
+
 export function resolvePreviousRunBaseline(
   baseline: PreviousRunBaseline | null | undefined,
   pending: Pick<
@@ -126,13 +133,9 @@ export function shouldSkipPendingGenerationResume<
   return hasPendingGenerationOutput(pending, files);
 }
 
-function isTrackedTemplateOutputFile(file: { filename?: string }): boolean {
-  return !(file.filename && isBoardFile(file.filename));
-}
-
 export function hasPendingGenerationOutput(
-  pending: PendingGeneration | null,
-  files: readonly {
+  _pending: PendingGeneration | null,
+  _files: readonly {
     id: string;
     filename?: string;
     fileType?: string;
@@ -141,32 +144,8 @@ export function hasPendingGenerationOutput(
     updatedAt?: string | null;
   }[],
 ): boolean {
-  if (!pending) return false;
-  if (pending.templateId) {
-    if (pending.templateBaselineFiles === undefined) return false;
-
-    const trackedFiles = files.filter(isTrackedTemplateOutputFile);
-    const baseline = new Map(
-      pending.templateBaselineFiles.map((file) => [file.id, file.contentHash]),
-    );
-    return trackedFiles.some(
-      (file) =>
-        !baseline.has(file.id) ||
-        baseline.get(file.id) !== sourceContentHash(file.content),
-    );
-  }
-
-  if (pending.outputBaselineFiles !== undefined) {
-    const baseline = new Map(
-      pending.outputBaselineFiles.map((file) => [file.id, file.contentHash]),
-    );
-    return generationOutputFiles(files).some(
-      (file) =>
-        !baseline.has(file.id) ||
-        baseline.get(file.id) !== sourceContentHash(file.content),
-    );
-  }
-
+  // Design file changes carry no active run identity, so only run status can
+  // confirm that changed or newly created files came from this generation.
   return false;
 }
 

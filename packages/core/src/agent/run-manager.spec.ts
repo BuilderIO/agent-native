@@ -5241,6 +5241,85 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("reaps a stale accepted live run found behind a duplicate-submission marker", async () => {
+    const now = Date.now();
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: "run-duplicate-stale-live",
+        threadId: "thread-duplicate-stale-live",
+        turnId: "turn-duplicate-stale-live",
+        status: "aborted",
+        startedAt: now,
+        heartbeatAt: now,
+        completedAt: now,
+        lastProgressAt: null,
+        terminalReason: "aborted:duplicate_submission",
+      })
+      .mockResolvedValueOnce({
+        id: "run-accepted-stale-live",
+        threadId: "thread-duplicate-stale-live",
+        turnId: "turn-accepted-stale-live",
+        status: "running",
+        startedAt: now - 100_000,
+        heartbeatAt: now - 95_000,
+        completedAt: null,
+        lastProgressAt: now - 95_000,
+        dispatchMode: "background-processing",
+      });
+    vi.mocked(reapIfStale).mockResolvedValueOnce(true);
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-duplicate-stale-live",
+    );
+
+    expect(result).toBeNull();
+    expect(reapIfStale).toHaveBeenCalledWith("run-accepted-stale-live");
+  });
+
+  it("leaves a deferred accepted background run for redispatch behind a duplicate marker", async () => {
+    const now = Date.now();
+    const heartbeatAt = now - 30_000;
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: "run-duplicate-deferred",
+        threadId: "thread-duplicate-deferred",
+        turnId: "turn-duplicate-deferred",
+        status: "aborted",
+        startedAt: now,
+        heartbeatAt: now,
+        completedAt: now,
+        lastProgressAt: null,
+        terminalReason: "aborted:duplicate_submission",
+      })
+      .mockResolvedValueOnce({
+        id: "run-accepted-deferred",
+        threadId: "thread-duplicate-deferred",
+        turnId: "turn-accepted-deferred",
+        status: "running",
+        startedAt: now - 30_000,
+        heartbeatAt,
+        completedAt: null,
+        lastProgressAt: heartbeatAt,
+        dispatchMode: "background",
+      });
+    vi.mocked(reapIfStale).mockResolvedValueOnce(false);
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-duplicate-deferred",
+    );
+
+    expect(reapUnclaimedBackgroundRun).not.toHaveBeenCalled();
+    expect(reapIfStale).toHaveBeenCalledWith("run-accepted-deferred");
+    expect(result).toMatchObject({
+      runId: "run-accepted-deferred",
+      status: "running",
+      inFlight: true,
+      heartbeatAt,
+      dispatchMode: "background",
+      awaitingRedispatch: true,
+    });
+  });
+
   it("skips a duplicate-submission marker when no accepted run is live", async () => {
     const now = Date.now();
     const duplicateMarker = {
@@ -5671,6 +5750,47 @@ describe("run manager soft timeout", () => {
       status: "running",
       turnId: "turn-stale-sql-with-successor",
     });
+  });
+
+  it("keeps the accepted in-memory run authoritative over a duplicate-submission marker", async () => {
+    const turnId = "turn-in-memory-duplicate-marker";
+    const run = startRun(
+      "run-in-memory-accepted",
+      "thread-in-memory-duplicate-marker",
+      async () => {},
+      undefined,
+      { turnId },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.status).toBe("completed");
+
+    const duplicateMarker = {
+      id: "run-in-memory-duplicate-marker",
+      threadId: "thread-in-memory-duplicate-marker",
+      turnId,
+      status: "aborted",
+      startedAt: run.startedAt + 1,
+      heartbeatAt: Date.now(),
+      completedAt: Date.now(),
+      lastProgressAt: null,
+      terminalReason: "aborted:duplicate_submission",
+    };
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce(duplicateMarker)
+      .mockResolvedValueOnce(duplicateMarker);
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-in-memory-duplicate-marker",
+    );
+
+    expect(result).toMatchObject({
+      runId: run.runId,
+      status: "completed",
+      turnId,
+      inFlight: false,
+    });
+    expect(result).not.toHaveProperty("successorOfRunId");
+    expect(result?.runId).not.toBe("run-in-memory-duplicate-marker");
   });
 
   it("propagates run snapshot lookup failures instead of returning in-memory status", async () => {

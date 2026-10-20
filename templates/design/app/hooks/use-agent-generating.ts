@@ -718,9 +718,11 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       clearHandoffTimeout();
       previousRunIdRef.current = trackOptions.ignorePreviousRun
         ? (trackOptions.previousRunId ??
-          (lastObservedRunRef.current?.tabId === tabId
-            ? lastObservedRunRef.current.runId
-            : null))
+          (trackOptions.previousRunBaselineVerified === true
+            ? null
+            : lastObservedRunRef.current?.tabId === tabId
+              ? lastObservedRunRef.current.runId
+              : null))
         : null;
       currentRunIdRef.current = trackOptions.currentRunId ?? null;
       currentTurnIdRef.current = trackOptions.currentTurnId ?? null;
