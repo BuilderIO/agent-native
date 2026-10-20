@@ -1183,6 +1183,7 @@ class CollabDocConnection {
             `${this.baseUrl}/${this.docId}/awareness`,
             {
               method: "POST",
+              signal: pollAbort.signal,
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 clientId: this.ydoc.clientID,
