@@ -344,6 +344,31 @@ describe("processWebContent", () => {
     expect(result.searchSource).toBe("raw");
   });
 
+  it("searches extracted text when responseMode is raw and source is extracted", async () => {
+    const { processWebContent } = await import("./web-content.js");
+    const extracted = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+      search: { query: "Readable content", source: "extracted" },
+    });
+    expect(extracted.searchSource).toBe("extracted");
+    expect(
+      extracted.matches?.some((match) => match.match === "Readable content"),
+    ).toBe(true);
+
+    const rawOnly = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+      search: { query: "unsafe()", source: "extracted" },
+    });
+    expect(rawOnly.searchSource).toBe("extracted");
+    expect(rawOnly.matches ?? []).toHaveLength(0);
+  });
+
   it("labels searchSource raw when extraction yields no text and the search falls back to raw markup", async () => {
     const { processWebContent } = await import("./web-content.js");
     const body =

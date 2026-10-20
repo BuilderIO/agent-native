@@ -280,10 +280,10 @@ export async function processWebContent(
     }
     const matchResult = findWebContentMatches({
       raw: options.body,
-      extracted: baseContent,
+      extracted: hasRealExtractedContent ? realExtractedText : baseContent,
       search,
       fallbackSearchSource,
-      hasExtractedContent,
+      hasExtractedContent: hasRealExtractedContent,
     });
     Object.assign(result, matchResult);
     if (options.includeLinks) result.links = extracted?.links ?? [];
@@ -298,10 +298,10 @@ export async function processWebContent(
   if (hasWebContentSearch(search)) {
     const matchResult = findWebContentMatches({
       raw: options.body,
-      extracted: baseContent,
+      extracted: hasRealExtractedContent ? realExtractedText : baseContent,
       search,
       fallbackSearchSource,
-      hasExtractedContent,
+      hasExtractedContent: hasRealExtractedContent,
     });
     result.matches = matchResult.matches;
     result.totalMatches = matchResult.totalMatches;
@@ -774,9 +774,9 @@ function findWebContentMatches(options: {
   | "searchTruncated"
 > {
   const search = options.search ?? {};
-  // No usable extracted text, or the selected corpus is the raw body
-  // (responseMode "raw", failed extraction, empty markdown/text). Force raw
-  // so the reported source matches the bytes that were searched.
+  // Force raw only when there is no usable extracted text. responseMode
+  // "raw" still displays the raw body, but an explicit source: "extracted"
+  // must search the extracted markdown/text when that text exists.
   const requestedSource = search.source ?? options.fallbackSearchSource;
   let sourceMode: WebSearchSource = options.hasExtractedContent
     ? requestedSource
