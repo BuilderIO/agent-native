@@ -5760,7 +5760,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
               )}
               {activeAnnotation && (
                 <AnnotationPopover
-                  key={activeAnnotation.annotation.id}
                   annotation={activeAnnotation.annotation}
                   position={activeAnnotation.position}
                   isPending={commentWritePending}
@@ -9426,12 +9425,14 @@ function ReplyComposer({
   isPending,
   placeholder,
   autoFocus,
+  focusKey,
   onSubmit,
 }: {
   author: CommentAuthorPresentation;
   isPending: boolean;
   placeholder?: string;
   autoFocus?: boolean;
+  focusKey?: unknown;
   onSubmit: (message: string) => Promise<void>;
 }) {
   const t = useT();
@@ -9473,6 +9474,7 @@ function ReplyComposer({
             }
             resetKey={`reply-${resetKey}`}
             autoFocus={autoFocus}
+            focusKey={focusKey}
             className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
             onChange={setDraft}
             onSubmitShortcut={() => void submit()}
@@ -9537,6 +9539,7 @@ function AnnotationPopover({
 }) {
   const t = useT();
   const popoverRef = useRef<HTMLDivElement>(null);
+  const editChosenFromMenuRef = useRef(false);
   const [editing, setEditing] = useState(false);
   const [messageDraft, setMessageDraft] = useState<
     Pick<CommentDraft, "message" | "mentions">
@@ -9650,9 +9653,10 @@ function AnnotationPopover({
                 className="w-48 rounded-xl"
                 data-comment-popover-portal
                 onCloseAutoFocus={(event) => {
-                  // Edit puts focus in its editor; leave it there.
-                  if (document.activeElement !== document.body)
-                    event.preventDefault();
+                  // Edit puts focus in its editor; leave it there. Other
+                  // actions return to the button.
+                  if (editChosenFromMenuRef.current) event.preventDefault();
+                  editChosenFromMenuRef.current = false;
                 }}
               >
                 {canResolve && (
@@ -9671,7 +9675,10 @@ function AnnotationPopover({
                 {canEditRootComment && (
                   <DropdownMenuItem
                     className="gap-2"
-                    onClick={() => setEditing(true)}
+                    onClick={() => {
+                      editChosenFromMenuRef.current = true;
+                      setEditing(true);
+                    }}
                   >
                     <IconPencil className="size-4" />
                     {t("plansPage.comments.editFirstComment")}
@@ -9802,6 +9809,9 @@ function AnnotationPopover({
             author={pendingAuthor}
             isPending={isPending}
             autoFocus
+            // Opening another thread reuses this popover, so give the
+            // reply box the caret again.
+            focusKey={annotation.id}
             onSubmit={(reply) => onReply(annotation.id, reply)}
           />
         </div>

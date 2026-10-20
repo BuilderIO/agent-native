@@ -873,6 +873,40 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(editComposer?.selectionStart).toBe(rootComment.body.length);
   });
 
+  it("returns focus to the menu button after an action other than Edit", async () => {
+    const onMarkThreadUnread = vi.fn();
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canEditComment
+          onMarkThreadUnread={onMarkThreadUnread}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions"]',
+    );
+    await act(async () => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const markUnread = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Mark as unread");
+    markUnread?.focus();
+    await act(async () => markUnread?.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+
+    expect(onMarkThreadUnread).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("shows only the controls authorized for the current viewer", () => {
     act(() => {
       root.render(

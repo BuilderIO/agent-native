@@ -257,6 +257,7 @@ export function ReviewThreadPanel({
     }>
   >([]);
   const createPendingRef = useRef(false);
+  const editChosenFromMenuRef = useRef(false);
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null);
   const replyingThreadIdRef = useRef<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
@@ -1233,14 +1234,19 @@ export function ReviewThreadPanel({
                               align="end"
                               className="w-44"
                               onCloseAutoFocus={(event) => {
-                                // Edit puts focus in its composer; leave it there.
-                                if (document.activeElement !== document.body)
+                                // Edit puts focus in its composer; leave it
+                                // there. Other actions return to the button.
+                                if (editChosenFromMenuRef.current)
                                   event.preventDefault();
+                                editChosenFromMenuRef.current = false;
                               }}
                             >
                               {editAllowed ? (
                                 <DropdownMenuItem
-                                  onSelect={() => startEditing(thread.root)}
+                                  onSelect={() => {
+                                    editChosenFromMenuRef.current = true;
+                                    startEditing(thread.root);
+                                  }}
                                 >
                                   {editLabel}
                                 </DropdownMenuItem>

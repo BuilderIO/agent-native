@@ -1148,11 +1148,13 @@ export function CommentsSidebar({
   const pendingFocus = displayedPendingComment?.focus;
   useEffect(() => {
     if (!pendingFocus || presentation !== "inline") return;
-    // A new comment has no saved caret yet. It takes focus from the page,
-    // which keeps it through the toolbar click or shortcut that opened the
-    // comment, so typing goes into the comment. A restored draft only takes
-    // focus nobody else holds.
-    const isNew = pendingFocus.current?.start === undefined;
+    // A new comment has no saved caret yet ({}); a draft that lost focus has
+    // none at all (null) and stays put. A new comment takes focus from the
+    // page, which keeps it through the toolbar click or shortcut that opened
+    // the comment, so typing goes into the comment. A restored draft only
+    // takes focus nobody else holds.
+    const isNew =
+      pendingFocus.current !== null && pendingFocus.current.start === undefined;
     let movedAway = false;
     const relinquish = (event: FocusEvent) => {
       if (!pendingCardRef.current?.contains(event.target as Node))

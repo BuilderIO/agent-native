@@ -59,4 +59,15 @@ describe("autoFocus", () => {
     expect(handle).not.toBeNull();
     expect(document.activeElement).toBe(editor());
   });
+
+  it("runs the cleanup a callback ref returns", async () => {
+    const cleanup = vi.fn();
+    const ref = vi.fn(() => cleanup);
+    await render(ref);
+    act(() => root.unmount());
+    // React detaches with the cleanup, never by calling the ref with null.
+    expect(cleanup).toHaveBeenCalledTimes(ref.mock.calls.length);
+    expect(ref).not.toHaveBeenCalledWith(null);
+    root = createRoot(container);
+  });
 });

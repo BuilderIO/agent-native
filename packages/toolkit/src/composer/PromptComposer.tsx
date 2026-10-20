@@ -727,8 +727,18 @@ function PromptComposerInner({
   const handleRef = useCallback(
     (handle: TiptapComposerHandle | null) => {
       localRef.current = handle;
-      if (typeof composerRef === "function") composerRef(handle);
-      else if (composerRef) composerRef.current = handle;
+      if (typeof composerRef !== "function") {
+        if (composerRef) composerRef.current = handle;
+        return;
+      }
+      const cleanup = composerRef(handle);
+      // React runs a returned cleanup instead of calling the ref with null,
+      // so pass the caller's cleanup through.
+      if (typeof cleanup !== "function") return;
+      return () => {
+        localRef.current = null;
+        cleanup();
+      };
     },
     [composerRef],
   );

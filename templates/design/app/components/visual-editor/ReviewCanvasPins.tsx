@@ -3477,6 +3477,7 @@ function ReviewThreadPopover({
   onSendToAgent?: () => void;
 }) {
   const t = useT();
+  const editChosenFromMenuRef = useRef(false);
   const rootAuthor = reviewAuthorLabel(thread.root, t("review.reviewer"));
   const avatarUrl = useAvatarUrl(thread.root.authorEmail);
   const [replyUploading, setReplyUploading] = useState(false);
@@ -3564,13 +3565,19 @@ function ReviewThreadPopover({
             align="end"
             className="w-44"
             onCloseAutoFocus={(event) => {
-              // Edit puts focus in its composer; leave it there.
-              if (document.activeElement !== document.body)
-                event.preventDefault();
+              // Edit puts focus in its composer; leave it there. Other
+              // actions return to the button.
+              if (editChosenFromMenuRef.current) event.preventDefault();
+              editChosenFromMenuRef.current = false;
             }}
           >
             {canEdit ? (
-              <DropdownMenuItem onSelect={onEdit}>
+              <DropdownMenuItem
+                onSelect={() => {
+                  editChosenFromMenuRef.current = true;
+                  onEdit();
+                }}
+              >
                 {t("review.editComment")}
               </DropdownMenuItem>
             ) : null}
