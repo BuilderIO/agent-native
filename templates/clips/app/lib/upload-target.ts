@@ -289,13 +289,15 @@ export function abandonUploadTarget(
   pending: { id: string; abortUrl: string; localOnly?: boolean } | null,
   options: {
     intake: boolean;
-    trash: (id: string) => Promise<unknown>;
+    abandon: (id: string) => Promise<unknown>;
     abort: (abortUrl: string) => Promise<unknown>;
   },
 ): Promise<unknown> | null {
   if (!pending || pending.localOnly) return null;
   return (
-    options.intake ? options.abort(pending.abortUrl) : options.trash(pending.id)
+    options.intake
+      ? options.abort(pending.abortUrl)
+      : options.abandon(pending.id)
   ).catch((err: unknown) => {
     // coercion-ok: a row left behind is reaped when its lease expires.
     console.warn("[recorder] could not give up the upload row:", err);

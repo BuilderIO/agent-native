@@ -2001,11 +2001,10 @@ export default function RecordRoute() {
               }),
             }).catch(() => {});
           } else {
-            fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: orphan.id }),
-            }).catch(() => {});
+            callAction(
+              "abandon-recording-start" as any,
+              { id: orphan.id } as any,
+            ).catch(() => {});
           }
         }
         try {
@@ -2756,11 +2755,8 @@ export default function RecordRoute() {
       // the copy's lock. The copy itself is kept, so nothing recorded is lost.
       void abandonUploadTarget(pendingRef.current, {
         intake: !!clipIntakeRef.current,
-        trash: (id) =>
-          callAction(
-            "trash-recording" as any,
-            { id, skipIfReady: true } as any,
-          ),
+        abandon: (id) =>
+          callAction("abandon-recording-start" as any, { id } as any),
         abort: (abortUrl) =>
           fetch(abortUrl, {
             method: "POST",

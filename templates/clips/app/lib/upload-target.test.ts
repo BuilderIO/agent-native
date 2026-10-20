@@ -548,35 +548,35 @@ describe("openUploadTarget", () => {
 
 describe("abandonUploadTarget", () => {
   it("trashes the row of a recorder that could not start", async () => {
-    const trash = vi.fn(async () => ({}));
+    const abandon = vi.fn(async () => ({}));
     const abort = vi.fn(async () => ({}));
 
     await abandonUploadTarget(
       { id: "srv-1", abortUrl: "/api/uploads/srv-1/abort" },
-      { intake: false, trash, abort },
+      { intake: false, abandon, abort },
     );
 
-    expect(trash).toHaveBeenCalledWith("srv-1");
+    expect(abandon).toHaveBeenCalledWith("srv-1");
     expect(abort).not.toHaveBeenCalled();
   });
 
   it("aborts an intake row, and leaves a local-only take alone", async () => {
-    const trash = vi.fn(async () => ({}));
+    const abandon = vi.fn(async () => ({}));
     const abort = vi.fn(async () => ({}));
 
     await abandonUploadTarget(
       { id: "srv-1", abortUrl: "/abort" },
-      { intake: true, trash, abort },
+      { intake: true, abandon, abort },
     );
     expect(abort).toHaveBeenCalledWith("/abort");
 
     expect(
       abandonUploadTarget(
         { id: "local-1", abortUrl: "", localOnly: true },
-        { intake: false, trash, abort },
+        { intake: false, abandon, abort },
       ),
     ).toBeNull();
-    expect(trash).not.toHaveBeenCalled();
+    expect(abandon).not.toHaveBeenCalled();
   });
 });
 
