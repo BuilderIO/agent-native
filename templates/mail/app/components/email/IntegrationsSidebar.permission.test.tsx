@@ -213,6 +213,42 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     expect(screen.getByText("Gong call history")).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Connect" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Settings" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+  });
+
+  it("preserves connected state and manager controls when a background refetch fails", () => {
+    mocks.mcpServersQuery = {
+      data: {
+        user: [],
+        org: [
+          {
+            id: "gong-server",
+            scope: "org",
+            name: "Gong",
+            url: "https://mcp.gong.io/mcp",
+            authMode: "oauth",
+            createdAt: 0,
+            mergedId: "gong-server",
+            status: { state: "connected", toolCount: 3 },
+          },
+        ],
+        orgId: "org-1",
+        role: "admin",
+      },
+      isSuccess: false,
+      isError: true,
+      isFetching: false,
+      refetch: vi.fn(),
+    };
+
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "Integrations (1/4)" }));
+
+    expect(screen.getByText("Gong call history")).not.toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Couldn't check whether you can connect to Gong.",
+    );
+    expect(screen.getByRole("menuitem", { name: "Settings" })).not.toBeNull();
   });
 
   it("keeps legacy key controls for a member without org setup permission", () => {

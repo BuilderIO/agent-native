@@ -294,13 +294,10 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
   const mcpServersQuery = useMcpServers({ defer: true });
   const createMcpServer = useCreateMcpServer();
   const mcpServers = mcpServersQuery.data;
-  const canManageGong =
-    mcpServersQuery.isSuccess && canManageGongConnection(mcpServers);
+  const canManageGong = canManageGongConnection(mcpServers);
   const canCreateOrgMcp = Boolean(mcpServers?.orgId && canManageGong);
-  const gongConnected =
-    mcpServersQuery.isSuccess && hasConnectedGongMcpServer(mcpServers);
-  const canRetryGongAccessCheck =
-    mcpServersQuery.isError && canManageGongConnection(mcpServers);
+  const gongConnected = hasConnectedGongMcpServer(mcpServers);
+  const canRetryGongAccessCheck = mcpServersQuery.isError && canManageGong;
   const handleCreateMcpServer = useCallback(
     async (args: CreateMcpServerArgs) => {
       if (args.scope === "org" && !canCreateOrgMcp) {
@@ -566,6 +563,8 @@ function IntegrationRow({
 }) {
   const t = useT();
   const { disconnect } = useIntegration(def.id);
+  const showSettings =
+    def.id !== "gong" || canManageMcpSetup || legacyConnected;
 
   return (
     <div className="flex items-center gap-2.5 py-1.5 group relative">
@@ -583,68 +582,70 @@ function IntegrationRow({
           <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
             <IconCheck className="h-3 w-3 text-emerald-400" />
           </div>
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    aria-label={t("mail.toolbar.settings")}
-                    className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors"
-                  >
-                    <IconSettings className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-36">
-              {def.id === "gong" ? (
-                <>
-                  {canManageMcpSetup && (
-                    <DropdownMenuItem
-                      onClick={mcpConnected ? onManage : onConfigure}
-                      className="text-[12px] text-foreground/70"
+          {showSettings && (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      aria-label={t("mail.toolbar.settings")}
+                      className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors"
                     >
-                      {mcpConnected
-                        ? t("mail.toolbar.settings")
-                        : t("mail.integrations.connect")}
-                    </DropdownMenuItem>
-                  )}
-                  {legacyConnected && (
-                    <>
+                      <IconSettings className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-36">
+                {def.id === "gong" ? (
+                  <>
+                    {canManageMcpSetup && (
                       <DropdownMenuItem
-                        onClick={onLegacyConfigure}
+                        onClick={mcpConnected ? onManage : onConfigure}
                         className="text-[12px] text-foreground/70"
                       >
-                        {t("mail.integrations.updateKey")}
+                        {mcpConnected
+                          ? t("mail.toolbar.settings")
+                          : t("mail.integrations.connect")}
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => disconnect.mutate()}
-                        className="text-[12px] text-destructive/80"
-                      >
-                        {t("mail.integrations.disconnect")}
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  <DropdownMenuItem
-                    onClick={() => onConfigure()}
-                    className="text-[12px] text-foreground/70"
-                  >
-                    {t("mail.integrations.updateKey")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => disconnect.mutate()}
-                    className="text-[12px] text-destructive/80"
-                  >
-                    {t("mail.integrations.disconnect")}
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                    )}
+                    {legacyConnected && (
+                      <>
+                        <DropdownMenuItem
+                          onClick={onLegacyConfigure}
+                          className="text-[12px] text-foreground/70"
+                        >
+                          {t("mail.integrations.updateKey")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => disconnect.mutate()}
+                          className="text-[12px] text-destructive/80"
+                        >
+                          {t("mail.integrations.disconnect")}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => onConfigure()}
+                      className="text-[12px] text-foreground/70"
+                    >
+                      {t("mail.integrations.updateKey")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => disconnect.mutate()}
+                      className="text-[12px] text-destructive/80"
+                    >
+                      {t("mail.integrations.disconnect")}
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       ) : (
         <button
