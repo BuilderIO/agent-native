@@ -203,6 +203,7 @@ const PROBLEM_STATUS: Record<GitHubSourceProblemCode, number> = {
   rate_limited: 429,
   too_large: 413,
   unavailable: 502,
+  sync_failed: 500,
   storage_unavailable: 503,
 };
 
@@ -772,12 +773,16 @@ function emptyResult(
   };
 }
 
-/** The problem a sync records when it fails for a reason it can't name, like a dropped socket. */
+/**
+ * The problem a sync records when it fails for a reason it can't name, like a
+ * database error. The GitHub client names its own failures, a dropped
+ * connection included, so this one isn't GitHub's.
+ */
 function unexpectedProblem(
   at: string,
 ): NonNullable<GitHubSourceState["problem"]> {
   return {
-    code: "unavailable",
+    code: "sync_failed",
     message: "The sync failed. The background sync tries again.",
     at,
   };

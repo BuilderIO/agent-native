@@ -52,6 +52,7 @@ const database = {
   githubProblemRateLimited: "GitHub 正在限制请求，同步会自动恢复。",
   githubProblemTooLarge: "该文件夹的文件数超出了关联可跟随的上限。",
   githubProblemUnavailable: "GitHub 没有响应，同步会自动恢复。",
+  githubProblemSyncFailed: "上次同步失败，会自动重试。",
   githubProblemStorageUnavailable: "图片正在等待设置文件存储。",
   githubLinkInvalidUrl:
     "粘贴 GitHub 文件夹链接，例如 github.com/owner/repo/tree/main/docs。",

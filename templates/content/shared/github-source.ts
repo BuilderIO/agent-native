@@ -176,6 +176,8 @@ export type GitHubSourceSkipReason = "mdx" | "too-large" | "not-text";
 /**
  * What went wrong reading a linked folder, in terms a status line can explain
  * and fix: reconnect, regain access, restore the branch or folder, or wait.
+ * `unavailable` is GitHub not answering; `sync_failed` is a failure in
+ * Content itself, like a database error.
  */
 export type GitHubSourceProblemCode =
   | "connection"
@@ -186,6 +188,7 @@ export type GitHubSourceProblemCode =
   | "rate_limited"
   | "too_large"
   | "unavailable"
+  | "sync_failed"
   | "storage_unavailable";
 
 export type GitHubSourceFileClass =

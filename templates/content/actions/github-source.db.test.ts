@@ -627,7 +627,7 @@ describe("GitHub folder source", () => {
     );
     expect(linked).toMatchObject({
       dryRun: false,
-      sync: { state: "error", problem: { code: "unavailable" } },
+      sync: { state: "error", problem: { code: "sync_failed" } },
       source: { sourceType: "github" },
     });
     expect(linked.summary).toContain("the first sync failed");
@@ -635,7 +635,7 @@ describe("GitHub folder source", () => {
     const status = await as(() => getSource.run({ databaseId: database.id }));
     expect(status.source?.syncState).toBe("error");
     expect(status.source?.metadata.github?.problem).toMatchObject({
-      code: "unavailable",
+      code: "sync_failed",
     });
   });
 
@@ -1677,7 +1677,7 @@ describe("GitHub folder freshness", () => {
     const status = await as(() => getSource.run({ databaseId: database.id }));
     expect(status.source).toMatchObject({ syncState: "error", lastError });
     expect(status.source?.metadata.github?.problem).toMatchObject({
-      code: "unavailable",
+      code: "sync_failed",
     });
   });
 
@@ -1762,7 +1762,7 @@ describe("GitHub folder freshness", () => {
     ).rejects.toThrow("socket hang up");
     const status = await as(() => getSource.run({ databaseId: database.id }));
     expect(status.source?.metadata.github?.problem).toMatchObject({
-      code: "unavailable",
+      code: "sync_failed",
     });
     // The failed action sends no event of its own, so other readers' status
     // lines hear about the problem from this one.
@@ -1880,7 +1880,7 @@ describe("GitHub folder freshness", () => {
     expect(changes).toEqual(announced);
     const failed = await as(() => getSource.run({ databaseId: database.id }));
     expect(failed.source?.metadata.github?.problem).toMatchObject({
-      code: "unavailable",
+      code: "sync_failed",
     });
   });
 

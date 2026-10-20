@@ -143,6 +143,23 @@ describe("GitHub source status line", () => {
     expect(statusLine().className).toContain("border-destructive/30");
   });
 
+  it("tells a failed sync apart from GitHub not answering", () => {
+    renderUi(
+      <GitHubSourceStatusLine
+        source={githubSource({
+          problem: {
+            code: "sync_failed",
+            message: "The sync failed. The background sync tries again.",
+            at: new Date().toISOString(),
+          },
+        })}
+      />,
+    );
+    expect(
+      statusLine().querySelector("[data-github-source-problem]")?.textContent,
+    ).toBe("The last sync failed. It tries again on its own.");
+  });
+
   it("announces a problem, not the rest of the line and its clock", () => {
     renderUi(
       <GitHubSourceStatusLine

@@ -1221,6 +1221,7 @@ const overrides = {
     githubProblemRateLimited: "GitHub 正在限制要求，同步會自動恢復。",
     githubProblemTooLarge: "該資料夾的檔案數超出了連結可跟隨的上限。",
     githubProblemUnavailable: "GitHub 沒有回應，同步會自動恢復。",
+    githubProblemSyncFailed: "上次同步失敗，會自動重試。",
     githubProblemStorageUnavailable: "圖片正在等待設定檔案儲存空間。",
     githubLinkInvalidUrl:
       "貼上 GitHub 資料夾連結，例如 github.com/owner/repo/tree/main/docs。",

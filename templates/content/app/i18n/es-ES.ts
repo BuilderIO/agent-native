@@ -62,6 +62,8 @@ const database = {
     "La carpeta tiene más archivos de los que un vínculo puede seguir.",
   githubProblemUnavailable:
     "GitHub no respondió. La sincronización se reanuda sola.",
+  githubProblemSyncFailed:
+    "La última sincronización falló. Se vuelve a intentar sola.",
   githubProblemStorageUnavailable:
     "Las imágenes esperan a que se configure el almacenamiento de archivos.",
   githubLinkInvalidUrl:

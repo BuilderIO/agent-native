@@ -15,6 +15,7 @@ const PROBLEM_KEYS: Record<GitHubSourceProblemCode, DatabaseMessageKey> = {
   rate_limited: "githubProblemRateLimited",
   too_large: "githubProblemTooLarge",
   unavailable: "githubProblemUnavailable",
+  sync_failed: "githubProblemSyncFailed",
   storage_unavailable: "githubProblemStorageUnavailable",
 };
 

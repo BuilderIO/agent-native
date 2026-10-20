@@ -62,6 +62,7 @@ const databaseMessages = {
     "GitHub is limiting requests. Syncing resumes on its own.",
   githubProblemTooLarge: "The folder has more files than a link can follow.",
   githubProblemUnavailable: "GitHub didn’t answer. Syncing resumes on its own.",
+  githubProblemSyncFailed: "The last sync failed. It tries again on its own.",
   githubProblemStorageUnavailable: "Images wait for file storage to be set up.",
   githubLinkInvalidUrl:
     "Paste a GitHub folder link, like github.com/owner/repo/tree/main/docs.",

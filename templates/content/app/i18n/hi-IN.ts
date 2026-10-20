@@ -57,6 +57,7 @@ const database = {
     "GitHub अनुरोध सीमित कर रहा है। सिंक अपने आप फिर शुरू होगा।",
   githubProblemTooLarge: "फ़ोल्डर में इतनी फ़ाइलें हैं जितनी कोई लिंक फ़ॉलो नहीं कर सकता।",
   githubProblemUnavailable: "GitHub ने जवाब नहीं दिया। सिंक अपने आप फिर शुरू होगा।",
+  githubProblemSyncFailed: "पिछला सिंक विफल रहा। यह अपने आप फिर से कोशिश करेगा।",
   githubProblemStorageUnavailable: "इमेज फ़ाइल स्टोरेज सेट होने का इंतज़ार कर रही हैं।",
   githubLinkInvalidUrl:
     "GitHub फ़ोल्डर का लिंक पेस्ट करें, जैसे github.com/owner/repo/tree/main/docs।",

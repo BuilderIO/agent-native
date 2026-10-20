@@ -60,6 +60,8 @@ const database = {
     "폴더의 파일 수가 연결로 따라갈 수 있는 한도를 넘었습니다.",
   githubProblemUnavailable:
     "GitHub가 응답하지 않았습니다. 동기화는 자동으로 다시 시작됩니다.",
+  githubProblemSyncFailed:
+    "마지막 동기화에 실패했습니다. 자동으로 다시 시도합니다.",
   githubProblemStorageUnavailable:
     "이미지는 파일 저장소 설정을 기다리고 있습니다.",
   githubLinkInvalidUrl:

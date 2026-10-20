@@ -61,6 +61,8 @@ const database = {
     "A pasta tem mais arquivos do que um vínculo consegue seguir.",
   githubProblemUnavailable:
     "O GitHub não respondeu. A sincronização continua sozinha.",
+  githubProblemSyncFailed:
+    "A última sincronização falhou. Ela tenta de novo sozinha.",
   githubProblemStorageUnavailable:
     "As imagens aguardam a configuração do armazenamento de arquivos.",
   githubLinkInvalidUrl:

@@ -55,6 +55,7 @@ const database = {
   githubProblemRateLimited: "يحدّ GitHub من الطلبات. ستستأنف المزامنة تلقائيًا.",
   githubProblemTooLarge: "يحتوي المجلد على ملفات أكثر مما يمكن للرابط متابعته.",
   githubProblemUnavailable: "لم يستجب GitHub. ستستأنف المزامنة تلقائيًا.",
+  githubProblemSyncFailed: "فشلت آخر مزامنة. ستُعاد المحاولة تلقائيًا.",
   githubProblemStorageUnavailable: "تنتظر الصور إعداد تخزين الملفات.",
   githubLinkInvalidUrl:
     "الصق رابط مجلد على GitHub، مثل github.com/owner/repo/tree/main/docs.",

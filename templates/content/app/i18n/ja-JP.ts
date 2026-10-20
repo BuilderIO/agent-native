@@ -64,6 +64,7 @@ const database = {
     "フォルダーのファイル数がリンクで追跡できる上限を超えています。",
   githubProblemUnavailable:
     "GitHub から応答がありません。同期は自動的に再開されます。",
+  githubProblemSyncFailed: "前回の同期に失敗しました。自動的に再試行されます。",
   githubProblemStorageUnavailable:
     "画像はファイルストレージの設定を待っています。",
   githubLinkInvalidUrl:

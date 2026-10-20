@@ -64,6 +64,8 @@ const database = {
     "Der Ordner hat mehr Dateien, als eine Verknüpfung verfolgen kann.",
   githubProblemUnavailable:
     "GitHub hat nicht geantwortet. Die Synchronisierung läuft von selbst weiter.",
+  githubProblemSyncFailed:
+    "Die letzte Synchronisierung ist fehlgeschlagen. Sie wird von selbst erneut versucht.",
   githubProblemStorageUnavailable:
     "Bilder warten darauf, dass der Dateispeicher eingerichtet wird.",
   githubLinkInvalidUrl:

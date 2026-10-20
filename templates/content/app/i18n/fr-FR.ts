@@ -63,6 +63,8 @@ const database = {
     "Le dossier contient plus de fichiers qu’un lien ne peut en suivre.",
   githubProblemUnavailable:
     "GitHub n’a pas répondu. La synchronisation reprendra d’elle-même.",
+  githubProblemSyncFailed:
+    "La dernière synchronisation a échoué. Elle sera relancée d’elle-même.",
   githubProblemStorageUnavailable:
     "Les images attendent la configuration du stockage de fichiers.",
   githubLinkInvalidUrl:
