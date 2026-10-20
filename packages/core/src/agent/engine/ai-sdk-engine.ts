@@ -41,6 +41,7 @@ import {
   finalizeStreamedToolInputs,
   observeStreamedToolInput,
 } from "./translate-anthropic.js";
+import { startModelDispatch } from "./types.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -498,8 +499,8 @@ class AISDKEngine implements AgentEngine {
     const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
     const toolInputs = createStreamedToolInputState();
 
-    try {
-      const result = streamText({
+    const dispatch = await startModelDispatch(opts, () =>
+      streamText({
         model: providerModel,
         system: opts.systemPrompt,
         messages,
@@ -518,8 +519,18 @@ class AISDKEngine implements AgentEngine {
         ...(Object.keys(providerOpts).length > 0
           ? { providerOptions: providerOpts }
           : {}),
-      });
+      }),
+    ).catch((error) => {
+      firstEventAbort.cleanup();
+      throw error;
+    });
+    if (!dispatch.started) {
+      firstEventAbort.cleanup();
+      return;
+    }
+    const result = dispatch.value;
 
+    try {
       let bufferedStop: EngineEvent | undefined;
       let sawFirstEvent = false;
       let credentialFailureRecorded = false;
