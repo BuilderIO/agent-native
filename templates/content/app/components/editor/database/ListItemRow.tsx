@@ -188,7 +188,19 @@ export function DatabaseLayoutListRow({
       />
     );
   } else if (resolved.leading.kind === "checkbox" && leadingProperty) {
-    leading = (
+    const box = cn(
+      "flex size-4 items-center justify-center rounded border-2 transition-colors",
+      checked
+        ? "border-database-blue bg-database-blue text-database-blue-foreground"
+        : "border-muted-foreground/60",
+    );
+    const mark = checked ? <IconCheck className="size-3" stroke={3} /> : null;
+    // In Edit rows the whole slot is a button, so the box is only a picture.
+    leading = editing ? (
+      <span aria-hidden="true" className={box}>
+        {mark}
+      </span>
+    ) : (
       <button
         type="button"
         role="checkbox"
@@ -196,14 +208,13 @@ export function DatabaseLayoutListRow({
         aria-label={`${leadingProperty.definition.name}: ${title}`}
         disabled={!interactive}
         className={cn(
-          "flex size-4 items-center justify-center rounded border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
-          checked
-            ? "border-database-blue bg-database-blue text-database-blue-foreground"
-            : "border-muted-foreground/60 enabled:hover:border-foreground",
+          box,
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
+          !checked && "enabled:hover:border-foreground",
         )}
         onClick={() => row.onToggleCheckbox(item, leadingProperty)}
       >
-        {checked ? <IconCheck className="size-3" stroke={3} /> : null}
+        {mark}
       </button>
     );
   } else if (resolved.leading.kind === "status" && leadingProperty) {

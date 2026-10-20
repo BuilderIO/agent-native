@@ -389,6 +389,34 @@ export function dropDeletedContentDatabaseItemLayoutReferences(
 }
 
 /**
+ * Line 3 or End after someone picks a property in the slot's menu, or
+ * Nothing (null). Saved properties the menu doesn't offer, such as ones
+ * hidden in this view, stay for when they're shown again; they give up their
+ * place only when the slot is full.
+ */
+export function toggleContentDatabaseItemLayoutMetaProperty(
+  savedIds: readonly string[],
+  offeredIds: readonly string[],
+  id: string | null,
+): string[] {
+  const offered = new Set(offeredIds);
+  const next =
+    id === null
+      ? savedIds.filter((saved) => !offered.has(saved))
+      : savedIds.includes(id)
+        ? savedIds.filter((saved) => saved !== id)
+        : [...savedIds, id];
+  for (
+    let index = next.length - 1;
+    index >= 0 && next.length > MAX_ITEM_LAYOUT_META_PROPERTIES;
+    index -= 1
+  ) {
+    if (!offered.has(next[index])) next.splice(index, 1);
+  }
+  return next;
+}
+
+/**
  * The layout a full-view save stores. References the view already saved
  * stay, hidden or retyped or not; a new reference the rows can't show (the
  * wrong type, or hidden) is dropped, as is any reference to a deleted

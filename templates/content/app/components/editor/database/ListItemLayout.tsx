@@ -13,6 +13,7 @@ import {
   matchingContentDatabaseItemLayoutPreset,
   MAX_ITEM_LAYOUT_META_PROPERTIES,
   startingContentDatabaseItemLayout,
+  toggleContentDatabaseItemLayoutMetaProperty,
   type ContentDatabaseItemLayoutPresetId,
   type ContentDatabaseItemLayoutSlot,
 } from "@shared/database-item-layout";
@@ -97,12 +98,11 @@ function PropertyChoices({
   noneLabel?: string;
   onChange: (ids: string[]) => void;
 }) {
-  // A saved slot can name a property that has since been deleted or hidden.
-  // It isn't shown, so it doesn't count toward the limit and is dropped the
-  // next time this slot changes.
-  const selectedIds = savedIds.filter((id) =>
-    properties.some((property) => property.definition.id === id),
-  );
+  // A saved slot can name a property this menu doesn't offer: one hidden, or
+  // one since deleted. It isn't shown, so it doesn't count toward the limit.
+  // In Line 3 and End it stays saved for when it's shown again.
+  const offeredIds = properties.map((property) => property.definition.id);
+  const selectedIds = savedIds.filter((id) => offeredIds.includes(id));
   const rows = [
     ...(noneLabel ? [{ id: "", name: noneLabel }] : []),
     ...properties.map((property) => ({
@@ -134,12 +134,13 @@ function PropertyChoices({
             disabled={full}
             className="flex h-8 items-center gap-2 rounded px-2 text-left text-sm enabled:hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             onClick={() => {
-              if (!row.id) return onChange([]);
-              if (!multiple) return onChange([row.id]);
+              if (!multiple) return onChange(row.id ? [row.id] : []);
               onChange(
-                selected
-                  ? selectedIds.filter((id) => id !== row.id)
-                  : [...selectedIds, row.id],
+                toggleContentDatabaseItemLayoutMetaProperty(
+                  savedIds,
+                  offeredIds,
+                  row.id || null,
+                ),
               );
             }}
           >

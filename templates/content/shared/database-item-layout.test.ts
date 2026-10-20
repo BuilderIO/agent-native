@@ -13,6 +13,7 @@ import {
   resolveContentDatabaseItemLayout,
   savableContentDatabaseItemLayout,
   startingContentDatabaseItemLayout,
+  toggleContentDatabaseItemLayoutMetaProperty,
   withSavedContentDatabaseItemLayout,
 } from "./database-item-layout";
 import type { DocumentPropertyType } from "./properties";
@@ -185,6 +186,34 @@ describe("always-hidden properties", () => {
       leading: { kind: "page_icon", propertyId: null },
       trailing: ["due"],
     });
+  });
+});
+
+describe("toggleContentDatabaseItemLayoutMetaProperty", () => {
+  // "secret" is saved in the slot but hidden, so the menu doesn't offer it.
+  const offered = ["a", "b", "c", "d", "e", "f", "g"];
+
+  it("keeps hidden properties while visible ones are picked", () => {
+    const saved = ["a", "secret", "b"];
+    expect(
+      toggleContentDatabaseItemLayoutMetaProperty(saved, offered, "c"),
+    ).toEqual(["a", "secret", "b", "c"]);
+    expect(
+      toggleContentDatabaseItemLayoutMetaProperty(saved, offered, "a"),
+    ).toEqual(["secret", "b"]);
+    expect(
+      toggleContentDatabaseItemLayoutMetaProperty(saved, offered, null),
+    ).toEqual(["secret"]);
+  });
+
+  it("gives a hidden property's place to a sixth visible one", () => {
+    expect(
+      toggleContentDatabaseItemLayoutMetaProperty(
+        ["a", "secret", "b", "c", "d", "e"],
+        offered,
+        "f",
+      ),
+    ).toEqual(["a", "b", "c", "d", "e", "f"]);
   });
 });
 
