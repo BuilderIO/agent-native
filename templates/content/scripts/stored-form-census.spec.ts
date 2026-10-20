@@ -31,8 +31,8 @@ import {
   redactCredentials,
   runStoredFormCensusCli,
   withReadOnlySnapshot,
-} from "./stored-form-census";
-import { CENSUS_STATEMENTS } from "./stored-form-census-scan";
+} from "./_stored-form-census";
+import { CENSUS_STATEMENTS } from "./_stored-form-census-scan";
 
 const PRODUCTION_HOST = "ep-prod-endpoint-123456.us-east-2.aws.neon.tech";
 const BRANCH_HOST = "ep-census-branch-654321.us-east-2.aws.neon.tech";

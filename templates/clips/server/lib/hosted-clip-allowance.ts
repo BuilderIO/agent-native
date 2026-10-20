@@ -15,6 +15,9 @@ const applicationState = table("application_state", {
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 const ALLOWANCE_LOCK_KEY = "clips-hosted-clip-allowances";
+type HostedClipAllowanceTransaction = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
 
 function escapeLikeWildcards(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
@@ -362,9 +365,7 @@ function identityOwnerWhere(identityKey: string, userId: string) {
 }
 
 async function withAllowanceLock<T>(
-  run: (
-    tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0],
-  ) => Promise<T>,
+  run: (tx: HostedClipAllowanceTransaction) => Promise<T>,
 ): Promise<T> {
   return getDb().transaction(async (tx) => {
     // The global byte and daily caps span identities, so every state change shares one lock.
@@ -1011,6 +1012,81 @@ export async function releaseHostedClipAllowance(input: {
       );
     }
     return { ok: true, allowance, alreadyReleased: false };
+  });
+}
+
+/** Serialize a hosted recording insert with orphan-reservation cleanup. */
+export async function withReservedHostedClipAllowance<T>(input: {
+  recordingId: string;
+  userId: string;
+  createRecording: (tx: HostedClipAllowanceTransaction) => Promise<T>;
+}): Promise<T> {
+  return withAllowanceLock(async (tx) => {
+    const current = await findOwnedAllowance(
+      tx,
+      input.recordingId,
+      input.userId,
+    );
+    if (current.status !== "reserved") {
+      throw new HostedClipAllowanceInvariantError(
+        "invalid_transition",
+        "A hosted recording can only be created while its allowance is reserved.",
+      );
+    }
+    return input.createRecording(tx);
+  });
+}
+
+/** Release an old reservation only when its recording row was never committed or was fully deleted. */
+export async function releaseOrphanedHostedClipAllowance(input: {
+  recordingId: string;
+  userId: string;
+  createdBefore: Date;
+  now?: Date;
+}): Promise<boolean> {
+  const createdBefore = input.createdBefore.toISOString();
+  const updatedAt = (input.now ?? new Date()).toISOString();
+  return withAllowanceLock(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(allowanceTable)
+      .where(eq(allowanceTable.recordingId, input.recordingId))
+      .for("update", { of: allowanceTable })
+      .limit(1);
+    if (
+      !current ||
+      current.status !== "reserved" ||
+      current.userId !== input.userId ||
+      current.createdAt >= createdBefore
+    ) {
+      return false;
+    }
+
+    // guard:allow-unscoped — system reaper checks for any row tied to this reservation before release.
+    const [recording] = await tx
+      .select({ id: schema.recordings.id })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, input.recordingId))
+      .limit(1);
+    if (recording) return false;
+
+    const [released] = await tx
+      .update(allowanceTable)
+      .set({
+        status: "released",
+        quotaBytes: 0,
+        releasedAt: updatedAt,
+        updatedAt,
+      })
+      .where(
+        and(
+          eq(allowanceTable.recordingId, input.recordingId),
+          eq(allowanceTable.status, "reserved"),
+          lt(allowanceTable.createdAt, createdBefore),
+        ),
+      )
+      .returning({ recordingId: allowanceTable.recordingId });
+    return Boolean(released);
   });
 }
 

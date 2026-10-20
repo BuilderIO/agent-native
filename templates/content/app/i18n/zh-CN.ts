@@ -1090,6 +1090,10 @@ const comments = {
   accepted: "已接受",
   rejected: "已拒绝",
   noFilteredComments: "没有匹配的评论。",
+  tabFilter: "标签页",
+  allTabs: "所有标签页",
+  fieldRemoved: "{{name}}（已删除）",
+  pageBody: "页面正文",
 };
 
 const reviewDiscussions = {
@@ -1482,6 +1486,7 @@ const overrides = {
     addBlockField: "添加字段",
     blockFieldChanged: "自你上次查看后已更改",
     blockFieldTabs: "字段",
+    blockFieldOpenComments_other: "{{count}} 条未解决的评论",
     blockFieldMenu: "{{name}} 选项",
     blockFieldMenuScope: "此集合中的每一行共用",
     blockFieldName: "字段名称",

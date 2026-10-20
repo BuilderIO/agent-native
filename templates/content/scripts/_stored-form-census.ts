@@ -5,7 +5,7 @@ import { closeDbExec, createDbExec, type DbExec } from "@agent-native/core/db";
 import {
   CENSUS_STATEMENTS,
   runStoredFormCensusScan,
-} from "./stored-form-census-scan.js";
+} from "./_stored-form-census-scan.js";
 
 // Read-only census of Content page bodies for the stored-form rebuild (L6a).
 // It has no write path: every statement goes through `readOnlyStatement`, the
@@ -15,7 +15,7 @@ import {
 
 export const PRODUCTION_HOSTS_ENV = "CONTENT_PRODUCTION_DATABASE_HOSTS";
 
-const USAGE = `Usage: tsx scripts/stored-form-census.ts --database-url-env=<ENV_VAR> [options]
+const USAGE = `Usage: tsx scripts/_stored-form-census.ts --database-url-env=<ENV_VAR> [options]
 
 Reads Content page bodies, live copies, suggestions, comments and drafts in one
 read-only transaction and prints counts, kinds and page IDs as JSON.

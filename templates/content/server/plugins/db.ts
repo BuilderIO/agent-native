@@ -1470,6 +1470,12 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 123,
+      name: "content-comment-blocks-field-targets",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_name TEXT`,
+    },
+    {
+      version: 123,
       name: "builder-private-payload-cleanup-queue",
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_id TEXT;
         ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_name TEXT;
