@@ -169,16 +169,18 @@ export function contentDatabaseFilterGroupMode(
   groupId: string,
   viewMode: ContentDatabaseFilterMode,
 ): ContentDatabaseFilterMode {
-  return (
-    filters.find(
-      (filter) => filter.filterGroupId === groupId && filter.filterGroupMode,
-    )?.filterGroupMode ??
-    filters.find(
-      (filter) =>
-        filter.parentFilterGroupId === groupId && filter.parentFilterGroupMode,
-    )?.parentFilterGroupMode ??
-    viewMode
-  );
+  for (const filter of filters) {
+    if (filter.filterGroupId === groupId && filter.filterGroupMode) {
+      return filter.filterGroupMode;
+    }
+    if (
+      filter.parentFilterGroupId === groupId &&
+      filter.parentFilterGroupMode
+    ) {
+      return filter.parentFilterGroupMode;
+    }
+  }
+  return viewMode;
 }
 
 export function withContentDatabaseFilterGroupMode<

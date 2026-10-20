@@ -456,6 +456,15 @@ describe("content database filter groups", () => {
     expect(
       contentDatabaseFilterGroupMode(nestedOnly, "advanced-a", "and"),
     ).toBe("and");
+
+    // A nested rule's parent mode counts as a stored mode in rule order.
+    const nestedFirst = [
+      nestedRule("advanced-a", "equals", "12", { parent: "or" }),
+      advancedRule("less_than", "5", "and"),
+    ];
+    expect(contentDatabaseFilterGroupMode(nestedFirst, "advanced", "and")).toBe(
+      "or",
+    );
   });
 
   it("reads a group's mode from its inactive rules too", () => {
