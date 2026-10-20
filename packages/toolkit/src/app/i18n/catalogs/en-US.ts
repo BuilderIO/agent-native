@@ -3182,6 +3182,16 @@ const messages = {
   "reportProblem.notAttached": "The report was not attached.",
   "reportProblem.agentMessage":
     "Something went wrong in the app. Use the attached problem report to explain what happened.",
+  "unsupportedDevice.title": "Open this on a larger screen",
+  "unsupportedDevice.titleDeck": "Open this deck on a larger screen",
+  "unsupportedDevice.titleDesign": "Open this design on a larger screen",
+  "unsupportedDevice.body":
+    "{{app}} works on iPad, tablets, and desktops. Email yourself the link to pick it up there.",
+  "unsupportedDevice.email": "Email me the link",
+  "unsupportedDevice.share": "Share link",
+  "unsupportedDevice.copy": "Copy link",
+  "unsupportedDevice.copied": "Link copied",
+  "unsupportedDevice.emailSubject": "Open {{app}} on your computer",
 } as const;
 
 export default messages;

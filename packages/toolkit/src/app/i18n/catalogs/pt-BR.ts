@@ -3351,6 +3351,16 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "O relatório não foi anexado.",
   "reportProblem.agentMessage":
     "Algo deu errado no app. Use o relatório do problema anexado para explicar o que aconteceu.",
+  "unsupportedDevice.title": "Abra em uma tela maior",
+  "unsupportedDevice.titleDeck": "Abra esta apresentação em uma tela maior",
+  "unsupportedDevice.titleDesign": "Abra este design em uma tela maior",
+  "unsupportedDevice.body":
+    "O {{app}} funciona em iPad, tablets e computadores. Envie o link por e-mail para continuar por lá.",
+  "unsupportedDevice.email": "Enviar o link por e-mail",
+  "unsupportedDevice.share": "Compartilhar link",
+  "unsupportedDevice.copy": "Copiar link",
+  "unsupportedDevice.copied": "Link copiado",
+  "unsupportedDevice.emailSubject": "Abra o {{app}} no seu computador",
 };
 
 export default messages;

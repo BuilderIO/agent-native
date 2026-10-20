@@ -2902,6 +2902,16 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "回報未能附加。",
   "reportProblem.agentMessage":
     "應用程式出了問題。請根據附上的問題回報說明發生了什麼事。",
+  "unsupportedDevice.title": "請在較大的螢幕上開啟",
+  "unsupportedDevice.titleDeck": "請在較大的螢幕上開啟此簡報",
+  "unsupportedDevice.titleDesign": "請在較大的螢幕上開啟此設計",
+  "unsupportedDevice.body":
+    "{{app}}支援 iPad、平板與桌面裝置。將連結寄到信箱，即可在那裡繼續。",
+  "unsupportedDevice.email": "將連結寄給我",
+  "unsupportedDevice.share": "分享連結",
+  "unsupportedDevice.copy": "複製連結",
+  "unsupportedDevice.copied": "已複製連結",
+  "unsupportedDevice.emailSubject": "在電腦上開啟{{app}}",
 };
 
 export default messages;

@@ -3390,6 +3390,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "Le rapport n'a pas été joint.",
   "reportProblem.agentMessage":
     "Un problème est survenu dans l'app. Utilisez le rapport de problème joint pour expliquer ce qui s'est passé.",
+  "unsupportedDevice.title": "À ouvrir sur un écran plus grand",
+  "unsupportedDevice.titleDeck":
+    "Ouvrez cette présentation sur un écran plus grand",
+  "unsupportedDevice.titleDesign": "Ouvrez ce design sur un écran plus grand",
+  "unsupportedDevice.body":
+    "{{app}} fonctionne sur iPad, tablette et ordinateur. Envoyez-vous le lien par e-mail pour reprendre là-bas.",
+  "unsupportedDevice.email": "M'envoyer le lien par e-mail",
+  "unsupportedDevice.share": "Partager le lien",
+  "unsupportedDevice.copy": "Copier le lien",
+  "unsupportedDevice.copied": "Lien copié",
+  "unsupportedDevice.emailSubject": "Ouvrir {{app}} sur votre ordinateur",
 };
 
 export default messages;
