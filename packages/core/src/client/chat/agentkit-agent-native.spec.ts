@@ -5462,6 +5462,7 @@ describe("createAgentNativeAgentKitTransport", () => {
   function foldedContinuationThread(options: {
     snapshotSawContinuation: boolean;
     endsWithToolPart?: boolean;
+    textAfterTool?: string;
   }) {
     const assistantEvent = (runId: string, id: string) => ({
       id: `event-${runId}`,
@@ -5509,7 +5510,12 @@ describe("createAgentNativeAgentKitTransport", () => {
               parts: [
                 { type: "text", text: "First half." },
                 ...(options.endsWithToolPart
-                  ? [{ type: "data", data: { toolCallId: "tool-1" } }]
+                  ? [
+                      { type: "data", data: { toolCallId: "tool-1" } },
+                      ...(options.textAfterTool
+                        ? [{ type: "text", text: options.textAfterTool }]
+                        : []),
+                    ]
                   : []),
               ],
             },
@@ -5663,6 +5669,33 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(snapshot?.messages[1]?.parts).toMatchObject([
       { type: "text", text: "First half." },
       { type: "data" },
+      { type: "text", text: " Second half." },
+    ]);
+    await transport.dispose();
+  });
+
+  it("keeps hydrated continuation text after the tool part", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json(
+              foldedContinuationThread({
+                snapshotSawContinuation: false,
+                endsWithToolPart: true,
+                textAfterTool: " Second",
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-folded",
+    });
+
+    expect(snapshot?.messages[1]?.parts).toEqual([
+      { type: "text", text: "First half." },
+      { type: "data", data: { toolCallId: "tool-1" } },
       { type: "text", text: " Second half." },
     ]);
     await transport.dispose();

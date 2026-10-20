@@ -189,13 +189,16 @@ function mergeStoredAssistantTextParts(
     storedText.startsWith(messageText) &&
     storedText.length > messageText.length
   ) {
-    let replacedText = false;
-    messageParts = messageParts.map((part) => {
-      if (part.type !== "text") return part;
-      if (replacedText) return { ...part, text: "" };
-      replacedText = true;
-      return { ...part, text: storedText };
-    });
+    let lastTextIndex = -1;
+    for (const [index, part] of messageParts.entries()) {
+      if (part.type === "text") lastTextIndex = index;
+    }
+    const suffix = storedText.slice(messageText.length);
+    messageParts = messageParts.map((part, index) =>
+      index === lastTextIndex && part.type === "text"
+        ? { ...part, text: `${part.text}${suffix}` }
+        : part,
+    );
   }
   return mergeStoredReasoningParts(messageParts, storedParts);
 }
