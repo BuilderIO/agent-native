@@ -663,6 +663,7 @@ export async function handleWorkspaceProviderOAuthCallback(
             ? { externalAccountId: identity.accountId }
             : {}),
           ...(identity.config ?? {}),
+          workspaceConnectionScope: flow.scope,
           ...(providerId === "salesforce"
             ? {
                 salesforceLoginUrl:

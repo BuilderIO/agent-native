@@ -25,7 +25,8 @@ import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./lib/test-traffic";
 const REPOSITORY = "BuilderIO/agent-native";
 const WORKFLOW_PATH = ".github/workflows/beta-e2e.yml";
 const WORKFLOW_NAME = "Beta E2E (browser)";
-const EXACT_GREP = String.raw`\[chat-reliability\] refresh mid-run restores the complete answer`;
+const EXACT_GREP =
+  "[chat-reliability] refresh mid-run restores the complete answer";
 const MAX_EVENT_BYTES = 64 * 1024;
 const MAX_GITHUB_JSON_BYTES = 1024 * 1024;
 const MAX_ARTIFACT_BYTES = 24 * 1024 * 1024;

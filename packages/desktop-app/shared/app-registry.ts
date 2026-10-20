@@ -12,6 +12,29 @@ const DEFAULT_DESKTOP_TEMPLATE_GATEWAY_URL = "http://127.0.0.1:8080";
 const DESKTOP_APP_ICON_OVERRIDES: Partial<Record<string, string>> = {
   clips: "VideoPlus",
 };
+
+export interface DesktopAppLaunchBehavior {
+  /** Mount the app's webview hidden at launch instead of on first open. */
+  preloadAtLaunch?: boolean;
+  /** GET read action the 4-minute origin warm-up also calls, result discarded. */
+  warmReadAction?: { name: string; params?: Record<string, string> };
+}
+
+const DESKTOP_APP_LAUNCH_BEHAVIOR: Partial<
+  Record<string, DesktopAppLaunchBehavior>
+> = {
+  mail: {
+    preloadAtLaunch: true,
+    warmReadAction: { name: "list-inbox-threads" },
+  },
+};
+
+export function getDesktopAppLaunchBehavior(
+  appId: string,
+): DesktopAppLaunchBehavior {
+  return DESKTOP_APP_LAUNCH_BEHAVIOR[appId] ?? {};
+}
+
 export const DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS = [
   "mail",
   "calendar",
