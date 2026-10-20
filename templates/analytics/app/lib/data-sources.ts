@@ -155,9 +155,10 @@ export const dataSources: DataSource[] = [
     description: "Query your data warehouse datasets directly with SQL",
     category: "analytics",
     icon: IconDatabase,
+    credentialRequirementMode: "all",
     envKeys: [
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       "BIGQUERY_PROJECT_ID",
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       "ANALYTICS_BIGQUERY_EVENTS_TABLE",
     ],
     docsUrl: "https://cloud.google.com/bigquery/docs",
@@ -191,6 +192,7 @@ export const dataSources: DataSource[] = [
         inputPlaceholder: '{"type": "service_account", ...}',
         inputType: "textarea",
         inputAcceptFile: ".json",
+        optional: true,
       },
       {
         title: "Enter your BigQuery Project ID",

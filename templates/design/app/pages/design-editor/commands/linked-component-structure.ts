@@ -100,8 +100,8 @@ export function resolveLinkedComponentSelection(args: {
     source: { kind: "design-file", fileId: args.fileId },
   });
   const nodes = args.nodeIds.map((nodeId) => {
-    const matches = projection.nodes.filter(
-      (node) => node.dataAttributes["data-agent-native-node-id"] === nodeId,
+    const matches = projection.nodes.filter((node) =>
+      componentNodeIdMatches(node, nodeId),
     );
     if (matches.length !== 1) {
       throw new Error(

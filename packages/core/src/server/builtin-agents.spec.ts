@@ -93,6 +93,41 @@ describe("parseBuiltinAgentsConfig", () => {
     ).toEqual(["assets"]);
   });
 
+  it("parses per-built-in HTTPS URL overrides without changing inclusion", () => {
+    const { config, warnings } = parseBuiltinAgentsConfig({
+      mode: "selected",
+      include: ["design"],
+      urls: { Design: "https://beta.design.agent-native.com" },
+    });
+
+    expect(config).toEqual({
+      mode: "selected",
+      include: ["design"],
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  it("fails loudly for unknown URL ids and invalid HTTPS URL forms", () => {
+    expect(() =>
+      parseBuiltinAgentsConfig({
+        urls: { "not-a-template": "https://peer.test" },
+      }),
+    ).toThrow("builtinAgents.urls contains an unknown built-in agent id");
+
+    for (const url of [
+      "http://design.agent-native.com",
+      "https://design.agent-native.com?",
+      "https://design.agent-native.com#design",
+      "https://design.agent-native.com/design path",
+      "https://design.agent-native.com/\u0000",
+    ]) {
+      expect(() => parseBuiltinAgentsConfig({ urls: { design: url } })).toThrow(
+        "builtinAgents.urls values must be absolute HTTPS URLs without credentials, query, or fragment",
+      );
+    }
+  });
+
   it("warns and uses the default for an invalid mode", () => {
     const { config, warnings } = parseBuiltinAgentsConfig({ mode: "some" });
     expect(config.mode).toBe("all");

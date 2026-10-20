@@ -139,7 +139,34 @@ describe("PGlite dev reloads", () => {
     }
   });
 
-  it.each(["execute", "transaction", "atomicBatch"] as const)(
+  it("drops capabilities the initialized adapter does not have", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.doMock("@electric-sql/pglite", () => ({
+      PGlite: {
+        create: vi.fn(async () => ({
+          query: vi.fn(async () => ({ rows: [] })),
+          close: vi.fn(async () => {}),
+        })),
+      },
+    }));
+
+    const { closeDbExec, getDbExec } = await import("./client.js");
+    const proxy = getDbExec();
+    try {
+      await proxy.execute("SELECT 1");
+      // The proxy is shared, so feature detection must see what the adapter
+      // supports: PGlite has transactions but no atomic batches.
+      expect(proxy.atomicBatch).toBeUndefined();
+      expect(typeof proxy.transaction).toBe("function");
+    } finally {
+      await closeDbExec();
+    }
+  });
+
+  it.each(["execute", "transaction"] as const)(
     "rejects a retained database proxy during %s when shutdown wins its initialization continuation",
     async (method) => {
       vi.stubEnv("DATABASE_URL", "pglite:memory");
@@ -174,10 +201,7 @@ describe("PGlite dev reloads", () => {
         });
         const staleOperation = Promise.resolve().then(() => {
           if (method === "execute") return retainedProxy.execute("SELECT 2");
-          if (method === "transaction") {
-            return retainedProxy.transaction!(async () => undefined);
-          }
-          return retainedProxy.atomicBatch!(["SELECT 2"]);
+          return retainedProxy.transaction!(async () => undefined);
         });
 
         await expect(staleOperation).rejects.toMatchObject({

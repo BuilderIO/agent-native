@@ -8,11 +8,12 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { sendAhrefsEvent } from "../../lib/ahrefs-analytics";
 import { useAssistantLoading } from "../../shell-ready";
-import { sitePathForLocale } from "../docs-locale";
+import { isDocsPath, sitePathForLocale } from "../docs-locale";
+import MobileDocsNav from "../MobileDocsNav";
 import { useSearchModal } from "../use-search-modal";
 import { Button } from "./ds/button";
 import { IconButton, ThemeIconButton } from "./ds/icon-button";
@@ -130,6 +131,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
   } = useSearchModal();
   const t = useT();
   const { locale } = useLocale();
+  const location = useLocation();
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -171,91 +173,101 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
   const searchLabel = t("header.searchAria");
 
   return (
-    <header className="builder-brand-tokens sticky top-0 z-50 h-[64px] w-full border-b border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] backdrop-blur-[12px]">
-      <div className="mx-auto flex h-full w-full max-w-site items-center justify-between">
-        <div className="flex items-center gap-[var(--spacing-8)]">
-          <LogoContextMenu brandHref={localizedPath("/brand")}>
-            <Link
-              to={localizedPath("/")}
-              aria-label="Agent-Native"
-              className="flex text-[var(--b-text-primary)]"
-            >
-              <Logo />
-            </Link>
-          </LogoContextMenu>
+    <div className="sticky top-0 z-50">
+      <header className="builder-brand-tokens relative z-10 h-[64px] w-full border-b border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] backdrop-blur-[12px]">
+        <div className="mx-auto flex h-full w-full max-w-site items-center justify-between">
+          <div className="flex items-center gap-[var(--spacing-8)]">
+            <LogoContextMenu brandHref={localizedPath("/brand")}>
+              <Link
+                to={localizedPath("/")}
+                aria-label="Agent-Native"
+                className="flex text-[var(--b-text-primary)]"
+              >
+                <Logo />
+              </Link>
+            </LogoContextMenu>
 
-          <nav className="hidden items-center gap-1 lg:flex">
+            <nav className="hidden items-center gap-1 lg:flex">
+              {navLinks.map((link) => (
+                <NavLink
+                  key={link.label}
+                  href={link.href}
+                  external={link.external}
+                  showArrow={link.showArrow}
+                  onClick={() => sendAhrefsEvent(link.analyticsEvent)}
+                >
+                  {link.label}
+                </NavLink>
+              ))}
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Language and theme moved to the footer; the header keeps only
+              search, GitHub, and Ask AI. The mobile panel below still carries
+              all of them, since it is the only nav on small screens. */}
+            <div className="hidden items-stretch gap-3 lg:flex">
+              <SearchTrigger onClick={openSearch} label={searchLabel} />
+              <GithubStarsButton starCount={starCount} />
+              <AskAiIconButton />
+            </div>
+
+            <div className="flex items-center gap-2 lg:hidden">
+              <IconButton
+                dimBorder
+                onClick={openSearch}
+                aria-label={searchLabel}
+              >
+                <IconSearch size={18} stroke={1.5} />
+              </IconButton>
+              <button
+                type="button"
+                onClick={() => setMobileOpen((open) => !open)}
+                aria-label={t("header.toggleNavigation")}
+                aria-expanded={mobileOpen}
+                className="flex h-10 w-10 cursor-pointer items-center justify-center border-none bg-transparent text-[var(--b-text-primary)]"
+              >
+                {mobileOpen ? <IconX size={20} /> : <IconMenu2 size={20} />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {mobileOpen && (
+          <div className="absolute top-full right-0 left-0 flex flex-col gap-[var(--spacing-3)] border-t border-solid border-[var(--b-border-default)] bg-[var(--b-bg-page)] px-[var(--spacing-10)] py-[var(--spacing-4)] lg:hidden">
             {navLinks.map((link) => (
               <NavLink
                 key={link.label}
                 href={link.href}
                 external={link.external}
                 showArrow={link.showArrow}
-                onClick={() => sendAhrefsEvent(link.analyticsEvent)}
+                onClick={() => {
+                  sendAhrefsEvent(link.analyticsEvent);
+                  setMobileOpen(false);
+                }}
               >
                 {link.label}
               </NavLink>
             ))}
-          </nav>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {/* Language and theme moved to the footer; the header keeps only
-              search, GitHub, and Ask AI. The mobile panel below still carries
-              all of them, since it is the only nav on small screens. */}
-          <div className="hidden items-stretch gap-3 lg:flex">
-            <SearchTrigger onClick={openSearch} label={searchLabel} />
-            <GithubStarsButton starCount={starCount} />
-            <AskAiIconButton />
+            <div className="mt-[var(--spacing-2)] flex items-center gap-[var(--spacing-3)]">
+              <GithubStarsButton starCount={starCount} className="h-10" />
+              <LanguagePicker dimBorder />
+              <ThemeIconButton dimBorder />
+              <AskAiIconButton />
+            </div>
           </div>
+        )}
 
-          <div className="flex items-center gap-2 lg:hidden">
-            <IconButton dimBorder onClick={openSearch} aria-label={searchLabel}>
-              <IconSearch size={18} stroke={1.5} />
-            </IconButton>
-            <button
-              type="button"
-              onClick={() => setMobileOpen((open) => !open)}
-              aria-label={t("header.toggleNavigation")}
-              aria-expanded={mobileOpen}
-              className="flex h-10 w-10 cursor-pointer items-center justify-center border-none bg-transparent text-[var(--b-text-primary)]"
-            >
-              {mobileOpen ? <IconX size={20} /> : <IconMenu2 size={20} />}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {mobileOpen && (
-        <div className="absolute top-full right-0 left-0 flex flex-col gap-[var(--spacing-3)] border-t border-solid border-[var(--b-border-default)] bg-[var(--b-bg-page)] px-[var(--spacing-10)] py-[var(--spacing-4)] lg:hidden">
-          {navLinks.map((link) => (
-            <NavLink
-              key={link.label}
-              href={link.href}
-              external={link.external}
-              showArrow={link.showArrow}
-              onClick={() => {
-                sendAhrefsEvent(link.analyticsEvent);
-                setMobileOpen(false);
-              }}
-            >
-              {link.label}
-            </NavLink>
-          ))}
-          <div className="mt-[var(--spacing-2)] flex items-center gap-[var(--spacing-3)]">
-            <GithubStarsButton starCount={starCount} className="h-10" />
-            <LanguagePicker dimBorder />
-            <ThemeIconButton dimBorder />
-            <AskAiIconButton />
-          </div>
-        </div>
-      )}
-
-      {searchEverOpened && (
-        <Suspense fallback={null}>
-          <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
-        </Suspense>
-      )}
-    </header>
+        {searchEverOpened && (
+          <Suspense fallback={null}>
+            <SearchModal
+              open={searchOpen}
+              onClose={() => setSearchOpen(false)}
+            />
+          </Suspense>
+        )}
+      </header>
+      {isDocsPath(location.pathname) ? <MobileDocsNav /> : null}
+    </div>
   );
 }

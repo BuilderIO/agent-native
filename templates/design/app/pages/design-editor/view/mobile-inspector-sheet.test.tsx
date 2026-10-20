@@ -16,7 +16,10 @@ vi.mock("@/components/design/EditPanel", () => ({
 
 type SheetArgs = Parameters<typeof renderMobileInspectorSheet>[0];
 
-function sheetArgs(overrides: { minimalUi: boolean }): SheetArgs {
+function sheetArgs(overrides: {
+  minimalUi: boolean;
+  motionDockOpen?: boolean;
+}): SheetArgs {
   return {
     editorCore: {
       t: (key: string) => key,
@@ -25,6 +28,7 @@ function sheetArgs(overrides: { minimalUi: boolean }): SheetArgs {
     } as unknown as EditorCore,
     editorHistory: {
       minimalUi: overrides.minimalUi,
+      motionDockOpen: overrides.motionDockOpen ?? false,
     } as unknown as EditorHistory,
     editorLiveEditsAndPresence: {
       initialGenerationChromeLimited: false,
@@ -37,6 +41,9 @@ function sheetArgs(overrides: { minimalUi: boolean }): SheetArgs {
 }
 
 async function mount(args: SheetArgs) {
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -59,9 +66,43 @@ describe("mobile inspector sheet", () => {
   it("stays a closed sheet with its trigger on the docked layout", async () => {
     const { unmount } = await mount(sheetArgs({ minimalUi: false }));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(
-      document.querySelector('button[aria-label="editPanel.properties"]'),
-    ).not.toBeNull();
+    const trigger = document.querySelector(
+      'button[aria-label="editPanel.properties"]',
+    );
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.className).toContain("w-[min(92vw,360px)]");
+    await unmount();
+  });
+
+  it("keeps the inspector non-modal and above the Motion dock", async () => {
+    const { unmount } = await mount(
+      sheetArgs({ minimalUi: false, motionDockOpen: true }),
+    );
+    const trigger = document.querySelector(
+      'button[aria-label="editPanel.properties"]',
+    );
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.getAttribute("aria-modal")).toBeNull();
+    expect(dialog?.className).toContain("w-[min(max(240px,48vw),360px)]");
+    expect(dialog?.style.height).toBe("auto");
+    expect(document.querySelector("[data-radix-dialog-overlay]")).toBeNull();
+
+    await act(async () => {
+      document.body.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true }),
+      );
+    });
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     await unmount();
   });
 });

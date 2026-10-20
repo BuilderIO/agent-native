@@ -12,6 +12,11 @@ description: >-
 and linked skills. This does not override the active design system, Creative
 Context, reference deck, or source material that the app already provides.
 
+Slides owns the deck's authoring. Use Slides actions with the hydrated design
+system and reference context. Keep deck generation and edits in Slides; call
+Design only for a user-requested Design-owned input or a capability only Design
+provides, then return to Slides for all deck authoring.
+
 ## Read before
 
 Read a reference with `docs-search --slug "skill-create-deck--references-<file>"`,
@@ -40,8 +45,10 @@ for example `skill-create-deck--references-reference-inputs`.
    deck one slide at a time.
 5. For long or live in-app generation, call `create-deck` with `slides: []`,
    then add slides sequentially as they are authored so each write preserves
-   its per-slide Creative Context provenance. Wait for each result; after the
-   first slide, read that slide once to verify the visual contract.
+   its per-slide Creative Context provenance. Wait for each result, but do not
+   read back slides you just wrote: you already hold their HTML, and the
+   `add-slide` result carries the stored `contentHash`. Check the finished deck
+   once at the end (`get-layout-overflows` and `audit-contrast` together).
 6. If the connected browser does not consume the navigation command, call
    `navigate` with the new deck id.
 

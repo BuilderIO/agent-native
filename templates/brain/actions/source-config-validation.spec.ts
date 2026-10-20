@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   stableJson: vi.fn((value: unknown) => JSON.stringify(value)),
   assertSourceCredentialAvailable: vi.fn(),
   assertSourceWorkspaceConnectionAvailable: vi.fn(),
+  assertBrainAdmin: vi.fn(),
+  recordZoomAuditEvent: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", async (importOriginal) => ({
@@ -35,13 +37,33 @@ const select = vi.fn(() => ({
   from: vi.fn(() => ({ where: vi.fn(() => ({ limit })) })),
 }));
 
-vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({ update: vi.fn(() => ({ set })), select }),
-  schema: { brainSources: { id: "brainSources.id" } },
-}));
+vi.mock("../server/db/index.js", () => {
+  const db = () => ({
+    update: vi.fn(() => ({ set })),
+    select,
+    transaction: async (fn: (tx: unknown) => Promise<void>) => fn(db()),
+  });
+  return {
+    getDb: db,
+    schema: { brainSources: { id: "brainSources.id" } },
+  };
+});
 
 vi.mock("../server/lib/brain.js", () => mocks);
 vi.mock("../server/lib/source-credentials.js", () => mocks);
+vi.mock("../server/lib/zoom-governance.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/zoom-governance.js")
+  >()),
+  assertBrainAdmin: mocks.assertBrainAdmin,
+  recordZoomAuditEvent: mocks.recordZoomAuditEvent,
+}));
+
+const ADMIN = { email: "admin@example.test", orgId: "org-1" };
+const notAdmin = () =>
+  Object.assign(new Error("Only Brain admins"), {
+    errorCode: "brain_admin_required",
+  });
 
 import createSourceAction from "./create-source.js";
 import updateSourceAction from "./update-source.js";
@@ -57,6 +79,7 @@ describe("create-source config validation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.createSource.mockResolvedValue({ id: "source-1" });
+    mocks.assertBrainAdmin.mockResolvedValue(ADMIN);
   });
 
   it("refuses to create a Slack source from a malformed channel entry", async () => {
@@ -157,11 +180,15 @@ describe("create-source config validation", () => {
     expect(mocks.createSource).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses a Zoom meeting filter entry that is not an ID or title", async () => {
+  it("refuses a Zoom source without approved meeting series IDs", async () => {
     for (const zoom of [
+      {},
+      { meetingIds: [] },
       { meetingIds: ["GTM Weekly Sync"] },
       { meetingIds: ["123"] },
-      { meetingTopics: ["   "] },
+      { meetingTopics: ["Marketing Standup"] },
+      { meetingIds: ["123 4567 8901"], meetingTopics: ["Marketing Standup"] },
+      { lookbackDays: 7 },
     ]) {
       await expect(
         createSource.run({
@@ -177,6 +204,33 @@ describe("create-source config validation", () => {
     expect(mocks.createSource).not.toHaveBeenCalled();
   });
 
+  it("refuses to create a live Zoom source with no zoom config", async () => {
+    for (const config of [undefined, {}, { pollMinutes: 60 }]) {
+      await expect(
+        createSource.run({
+          title: "Zoom meetings",
+          provider: "zoom",
+          visibility: "org",
+          config,
+        }),
+        JSON.stringify(config),
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("creates a Zoom fixture source without approved meeting series", async () => {
+    await expect(
+      createSource.run({
+        title: "Zoom fixture",
+        provider: "zoom",
+        visibility: "org",
+        config: { fixture: true, transcripts: ["Ada: hello"] },
+      }),
+    ).resolves.toMatchObject({ source: { id: "source-1" } });
+  });
+
   it("creates a source from config passed as a JSON string", async () => {
     await createSource.run({
       title: "Zoom meetings",
@@ -189,29 +243,58 @@ describe("create-source config validation", () => {
       expect.objectContaining({
         config: { zoom: { meetingIds: ["123 4567 8901"] } },
       }),
+      expect.anything(),
     );
   });
 
-  it("creates a Zoom source filtered to meeting IDs and titles", async () => {
+  it("creates a Zoom source limited to approved meeting series", async () => {
     await expect(
       createSource.run({
         title: "Zoom meetings",
         provider: "zoom",
         visibility: "org",
         config: {
-          zoom: {
-            meetingIds: ["123 4567 8901", 98765432101],
-            meetingTopics: ["Marketing Standup"],
-          },
+          zoom: { meetingIds: ["123 4567 8901", 98765432101] },
         },
       }),
     ).resolves.toMatchObject({ source: { id: "source-1" } });
+    expect(mocks.recordZoomAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: "source-1",
+        actorEmail: ADMIN.email,
+        event: "allowlist-changed",
+        detail: expect.objectContaining({
+          created: true,
+          added: ["12345678901", "98765432101"],
+        }),
+      }),
+      expect.anything(),
+    );
+    const txDb = (mocks.createSource.mock.calls[0] as unknown[])[1];
+    expect(txDb).toBeDefined();
+    expect(mocks.recordZoomAuditEvent.mock.calls[0][1]).toBe(txDb);
+  });
+
+  it("refuses to create a Zoom source for a non-admin", async () => {
+    mocks.assertBrainAdmin.mockRejectedValue(notAdmin());
+
+    await expect(
+      createSource.run({
+        title: "Zoom meetings",
+        provider: "zoom",
+        visibility: "org",
+        config: { zoom: { meetingIds: ["123 4567 8901"] } },
+      }),
+    ).rejects.toMatchObject({ errorCode: "brain_admin_required" });
+    expect(mocks.createSource).not.toHaveBeenCalled();
+    expect(mocks.recordZoomAuditEvent).not.toHaveBeenCalled();
   });
 });
 
 describe("update-source config validation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.assertBrainAdmin.mockResolvedValue(ADMIN);
     mocks.assertAccess.mockResolvedValue({
       resource: {
         id: "source-1",
@@ -243,7 +326,7 @@ describe("update-source config validation", () => {
     mocks.assertAccess.mockResolvedValue({
       resource: { id: "source-1", provider: "zoom", configJson: "{}" },
     });
-    const zoom = { lookbackDays: 7, meetingTopics: ["Marketing Standup"] };
+    const zoom = { lookbackDays: 7, meetingIds: ["123 4567 8901"] };
 
     await updateSource.run({
       id: "source-1",
@@ -253,6 +336,34 @@ describe("update-source config validation", () => {
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({ configJson: JSON.stringify({ zoom }) }),
     );
+    expect(mocks.recordZoomAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "allowlist-changed",
+        actorEmail: ADMIN.email,
+        detail: {
+          added: ["12345678901"],
+          removed: [],
+          changedSettings: ["lookbackDays"],
+        },
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("refuses Zoom setting changes from a non-admin", async () => {
+    mocks.assertAccess.mockResolvedValue({
+      resource: { id: "source-1", provider: "zoom", configJson: "{}" },
+    });
+    mocks.assertBrainAdmin.mockRejectedValue(notAdmin());
+
+    await expect(
+      updateSource.run({
+        id: "source-1",
+        config: { zoom: { meetingIds: ["123 4567 8901"] } },
+      }),
+    ).rejects.toMatchObject({ errorCode: "brain_admin_required" });
+    expect(set).not.toHaveBeenCalled();
+    expect(mocks.recordZoomAuditEvent).not.toHaveBeenCalled();
   });
 
   it("validates config passed as a JSON string", async () => {
@@ -262,6 +373,7 @@ describe("update-source config validation", () => {
 
     for (const configJson of [
       JSON.stringify({ zoom: { meetingIds: ["Weekly Sync"] } }),
+      JSON.stringify({ zoom: { lookbackDays: 14 } }),
       "not json",
       "[1]",
     ]) {

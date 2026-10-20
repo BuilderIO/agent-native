@@ -64,6 +64,26 @@ describe("zoom bridge payload", () => {
     expect(posted).toHaveLength(0);
   });
 
+  it("leaves a Cmd/Ctrl wheel to the page while Interact owns it", () => {
+    const setInteraction = (interact: boolean) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "set-interaction-mode", interact },
+          source: window.parent,
+        }),
+      );
+
+    setInteraction(true);
+    const interacting = dispatchWheel({ deltaY: -100, deltaMode: 0 });
+    expect(interacting.defaultPrevented).toBe(false);
+    expect(posted).toHaveLength(0);
+
+    setInteraction(false);
+    const designing = dispatchWheel({ deltaY: -100, deltaMode: 0 });
+    expect(designing.defaultPrevented).toBe(true);
+    expect(posted).toHaveLength(1);
+  });
+
   it("does not cancel a non-cancelable wheel", () => {
     const event = new WheelEvent("wheel", {
       bubbles: true,

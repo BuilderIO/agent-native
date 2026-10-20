@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../../a2a/test-pglite.js";
+import { __resetStoreLedgerSnapshotForTests } from "../../db/store-registry.js";
 import type { AuditEvent } from "../types.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -52,11 +53,14 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
     errorCode: over.errorCode ?? null,
     ownerEmail: over.ownerEmail ?? "alice@x.com",
     visibility: over.visibility ?? "private",
+    reportedClientName: over.reportedClientName ?? null,
+    reportedClientVersion: over.reportedClientVersion ?? null,
   };
 }
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   seq = 0;
 });
@@ -86,11 +90,36 @@ describe("export-audit-events", () => {
     expect(result.truncated).toBe(false);
     const lines = result.content.split("\n");
     expect(lines[0]).toBe(
-      "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility,app",
+      "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility,app,reported_client_name,reported_client_version,oauth_client_id,approval",
     );
     expect(result.content).toContain(
       '"has ""quotes"", a comma, and\na newline"',
     );
+  });
+
+  it("neutralizes spreadsheet formulas in self-reported client fields", async () => {
+    const formulaValues = ["=1+1", " +1+1", "\t-1+1", "\u00a0@SUM(1+1)"];
+    for (const [index, reportedClientName] of formulaValues.entries()) {
+      await insertAuditEvent(
+        makeEvent({ id: `formula-${index}`, reportedClientName }),
+      );
+    }
+    await insertAuditEvent(
+      makeEvent({
+        id: "formula-version",
+        reportedClientVersion: "\t@SUM(1+1)",
+      }),
+    );
+
+    const result = await exportAuditEvents.run(
+      { format: "csv" },
+      { userEmail: "alice@x.com" },
+    );
+
+    for (const formulaValue of formulaValues) {
+      expect(result.content).toContain(`,'${formulaValue},`);
+    }
+    expect(result.content).toContain(",'\t@SUM(1+1),");
   });
 
   it("exports NDJSON that parses line-by-line", async () => {

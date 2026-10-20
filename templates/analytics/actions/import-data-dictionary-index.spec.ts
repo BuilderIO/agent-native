@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(() => "org_test"),
   getRequestUserEmail: vi.fn(() => "admin@example.test"),
   requireAnalyticsAdminContext: vi.fn(async () => ({ orgId: "org_test" })),
-  putOrgSetting: vi.fn(),
+  mutateOrgSetting: vi.fn(async (_orgId, _key, updater) => updater(null)),
   invalidateSourceIndexCache: vi.fn(),
 }));
 
@@ -18,7 +18,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  putOrgSetting: mocks.putOrgSetting,
+  mutateOrgSetting: mocks.mutateOrgSetting,
 }));
 
 vi.mock("../server/lib/db-admin-connections.js", () => ({
@@ -68,7 +68,7 @@ describe("import-data-dictionary-index", () => {
     expect(result).toMatchObject({
       entryCount: 1,
       scanSummary: null,
-      unresolvedTrackingCallSites: 0,
+      unresolvedTrackingCallSites: null,
       message: expect.stringContaining(
         "Scan quality counts are unavailable for this bundle",
       ),
@@ -101,7 +101,7 @@ describe("import-data-dictionary-index", () => {
     });
   });
 
-  it("defaults unresolved counts for bundles with older scan summaries", async () => {
+  it("reports unresolved counts unavailable for older scan summaries", async () => {
     const result = await action.run(
       {
         bundle: sourceIndexBundle({
@@ -114,10 +114,14 @@ describe("import-data-dictionary-index", () => {
     );
 
     expect(result).toMatchObject({
-      scanSummary: { unresolvedTrackingCallSites: 0 },
-      unresolvedTrackingCallSites: 0,
+      scanSummary: {
+        unsafeEntriesOmitted: 2,
+        unsafeFieldsOmitted: 3,
+        truncatedFields: 4,
+      },
+      unresolvedTrackingCallSites: null,
       message: expect.stringContaining(
-        "found 0 tracking call sites with unresolved event names",
+        "could not determine the unresolved tracking call count",
       ),
     });
   });

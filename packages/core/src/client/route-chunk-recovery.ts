@@ -8,10 +8,12 @@ import {
   STALE_CHUNK_RELOAD_AT_KEY,
   STALE_CHUNK_RELOAD_COOLDOWN_MS,
 } from "../shared/route-chunk-recovery-bootstrap.js";
+import { recordNav } from "./recorder.js";
 
 const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
 const STALE_CHUNK_EXHAUSTED_KEY = "__agentNativeStaleChunkRecoveryExhausted";
+const recoveryStates = new WeakMap<Window, RouteChunkRecoveryState>();
 
 /**
  * Fired on `window` the first time a stale chunk could not be recovered by a
@@ -71,6 +73,17 @@ export function rememberIntendedNavigation(
 ): void {
   state.intendedHref = href;
   state.intendedAt = now;
+}
+
+/** Preserve router-driven targets whose route module fails before history commits. */
+export function rememberRouteChunkRecoveryNavigation(
+  href: string,
+  win: Window | undefined = typeof window === "undefined" ? undefined : window,
+): void {
+  if (!win) return;
+  const state = recoveryStates.get(win);
+  const sameOrigin = sameOriginHref(win, href);
+  if (state && sameOrigin) rememberIntendedNavigation(state, sameOrigin);
 }
 
 export function getFreshIntendedNavigation(
@@ -440,7 +453,9 @@ function patchHistoryMethod(
       const href = sameOriginHref(win, String(args[2]));
       if (href) rememberIntendedNavigation(state, href);
     }
-    return original.apply(this, args);
+    const result = original.apply(this, args);
+    recordNav();
+    return result;
   };
 }
 
@@ -497,6 +512,7 @@ export function installRouteChunkRecovery(
   clearChunkRecoveryCacheBuster(win);
 
   const state = createRouteChunkRecoveryState();
+  recoveryStates.set(win, state);
 
   win.document.addEventListener(
     "click",

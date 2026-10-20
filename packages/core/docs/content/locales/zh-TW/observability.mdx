@@ -364,6 +364,8 @@ export default defineAppConfig({
 
 在指標中，`gen_ai.tool.name` 是框架動作的名稱或 `other`；只有當引擎將某個模型 ID 列為支援時，`gen_ai.request.model` 才會是該模型 ID，否則為 `_OTHER`。因此，應用程式自訂的工具與呼叫端傳入的模型 ID 不會產生無限增長的序列；span 中會保留確切的值。
 
+在 `gen_ai.client.operation.duration` 上，失敗模型呼叫的 `error.type` 在呼叫回傳 4xx 或 5xx 時為提供者的 HTTP 狀態（`http_429`、`http_529`）；否則當引擎的錯誤代碼對應其中之一時為 `rate_limit`、`context_overflow`、`provider_error` 或 `no_model_connected`；其餘情況為 `_OTHER`。每次重試都是一次獨立的呼叫，擁有各自的 `error.type`，因此多次重試受限流請求的執行即使最終成功，也會記錄多個 `http_429` 呼叫。
+
 每個請求都會設定 `http.route`，其值來自一個封閉集合：框架端點的路由範本（`/_agent-native/auth/session`、`/_agent-native/agent-chat/runs/:runId/events`）、動作宣告的範本、應用程式自身的 Nitro 檔案路由（`/api/clips/:id`），或一個分桶。分桶包括：這些命名空間中未列出的路徑對應的 `/_agent-native/*`、`/mcp/*` 與 `/.well-known/*`，其他 API 路徑對應的 `/api/*`，檔案請求對應的 `static`，其他 `GET` 或 `HEAD` 請求對應的 `page`，以及 `other`。原始請求路徑永遠不會被記錄。`http.server` span 會帶有相同的值。
 
 ## 連接 OpenTelemetry 後端 {#otel-provider}

@@ -9,9 +9,9 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
-import { getDbExec, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
+import { getDbExec, isUniqueViolation } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import type { SecretScope } from "../secrets/register.js";
 import {
   deleteAppSecret,
@@ -20,8 +20,6 @@ import {
 } from "../secrets/storage.js";
 
 const TABLE = "integration_installations";
-let _initPromise: Promise<void> | undefined;
-
 export type IntegrationInstallationStatus =
   | "connected"
   | "disconnected"
@@ -168,29 +166,23 @@ const INDEXES = [
   ],
 ] as const;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const client = getDbExec();
-      const ddl = createSql();
-      {
-        await ensureTableExists(TABLE, ddl);
+export const installationsStore = defineStore({
+  id: "integration_installations",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(TABLE, createSql());
         for (const [name, sql] of INDEXES) {
           await ensureIndexExists(name, sql);
         }
-        return;
-      }
-      await retryOnDdlRace(() => client.execute(ddl));
-      for (const [, sql] of INDEXES) {
-        await retryOnDdlRace(() => client.execute(sql));
-      }
-    })().catch((error) => {
-      _initPromise = undefined;
-      throw error;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return installationsStore.ready();
 }
 
 function required(value: string, name: string): string {

@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { parseStoredChapters } from "@shared/stored-chapters";
 import {
   IconArrowLeft,
   IconCheck,
@@ -77,6 +78,7 @@ import {
   savePlaybackSpeedPreference,
   SLOW_SPEED_CEILING,
 } from "@/lib/playback-speed";
+import { storageAwareErrorMessage } from "@/lib/storage-setup-error-message";
 import {
   addCut,
   addSplitAt,
@@ -378,14 +380,13 @@ export function EditorLayout({
     () => parseEdits(recording?.editsJson),
     [recording?.editsJson],
   );
-  const chapters: Array<{ startMs: number; title: string }> = useMemo(() => {
-    if (Array.isArray(playerData?.chapters)) return playerData.chapters;
-    try {
-      return recording?.chaptersJson ? JSON.parse(recording.chaptersJson) : [];
-    } catch {
-      return [];
-    }
-  }, [playerData?.chapters, recording?.chaptersJson]);
+  const chapters: Array<{ startMs: number; title: string }> = useMemo(
+    () =>
+      Array.isArray(playerData?.chapters)
+        ? playerData.chapters
+        : parseStoredChapters(recording?.chaptersJson),
+    [playerData?.chapters, recording?.chaptersJson],
+  );
 
   const savedEdits: EditsJson = useMemo(() => {
     const next = pendingTrims ? { ...edits, trims: pendingTrims } : edits;
@@ -422,7 +423,10 @@ export function EditorLayout({
     () => buildTimelinePieces(durationMs, shownEdits),
     [durationMs, shownEdits],
   );
-  const selectedClip = useMemo(() => {
+  const selectedRange = useMemo(() => {
+    if (selection?.kind === "range") {
+      return { startMs: selection.startMs, endMs: selection.endMs };
+    }
     if (selection?.kind !== "clip") return null;
     const piece = pieces.find(
       (p) =>
@@ -524,8 +528,8 @@ export function EditorLayout({
     ) => {
       const nextTotalWidth = getTimelineTotalWidth(viewportWidth, nextZoom);
       const maxScrollLeft = Math.max(0, nextTotalWidth - viewportWidth);
-      const anchorMs = selectedClip
-        ? (selectedClip.startMs + selectedClip.endMs) / 2
+      const anchorMs = selectedRange
+        ? (selectedRange.startMs + selectedRange.endMs) / 2
         : playheadMs;
       const fallbackAnchorRatio =
         durationMs > 0
@@ -542,7 +546,7 @@ export function EditorLayout({
       const anchorX = anchorRatio * nextTotalWidth;
       return Math.max(0, Math.min(maxScrollLeft, anchorX - viewportX));
     },
-    [durationMs, playheadMs, selectedClip, viewportWidth],
+    [durationMs, playheadMs, selectedRange, viewportWidth],
   );
 
   const setAnchoredZoom = useCallback(
@@ -990,6 +994,7 @@ export function EditorLayout({
           status?: string;
           percent?: number;
           error?: string;
+          errorCode?: string;
         };
         if (typeof data.percent === "number") setBurnPercent(data.percent);
         if (data.status === "running") {
@@ -1008,6 +1013,25 @@ export function EditorLayout({
         if (burnToastRef.current !== null) toast.dismiss(burnToastRef.current);
         burnToastRef.current = null;
 
+        if (data.status === "failed") {
+          toast.error(
+            storageAwareErrorMessage(
+              data,
+              t("recordingPage.connectStorageFinishSaving"),
+              t("editorLayout.burnFailed"),
+            ),
+          );
+          try {
+            await refetchPlayerDataRef.current();
+          } catch (err) {
+            console.warn("[editor] could not refresh after a failed burn", {
+              recordingId,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return;
+        }
+
         const refreshed = await refetchPlayerDataRef.current();
         const overlaysLeft = parseRedactions(
           parseEdits((refreshed?.data as any)?.recording?.editsJson).overlays,
@@ -1019,8 +1043,6 @@ export function EditorLayout({
           setSelectedRedactionId(null);
           setRedactMode(false);
           toast.success(t("editorLayout.burnedRedactionsDone"));
-        } else if (data.status === "failed") {
-          toast.error(data.error ?? t("editorLayout.burnFailed"));
         } else {
           toast.message(t("editorLayout.burnProgressUnreadable"));
         }
@@ -1100,7 +1122,7 @@ export function EditorLayout({
   const addRedaction = useCallback(
     (rect: RedactionRect) => {
       const at = Math.round(playheadMs);
-      const range = selectedClip ?? { startMs: at, endMs: at + 5_000 };
+      const range = selectedRange ?? { startMs: at, endMs: at + 5_000 };
       const startMs = Math.round(range.startMs);
       const redaction: VideoRedaction = clampRedactionToDuration(
         {
@@ -1122,7 +1144,7 @@ export function EditorLayout({
       playheadMs,
       redactionStyle,
       savedRedactions,
-      selectedClip,
+      selectedRange,
     ],
   );
 
@@ -1208,9 +1230,14 @@ export function EditorLayout({
       }
     } catch (err: any) {
       setBurning(false);
-      toast.error(err?.message ?? t("editorLayout.burnFailed"), {
-        id: burnToastRef.current ?? undefined,
-      });
+      toast.error(
+        storageAwareErrorMessage(
+          err,
+          t("recordingPage.connectStorageFinishSaving"),
+          t("editorLayout.burnFailed"),
+        ),
+        { id: burnToastRef.current ?? undefined },
+      );
       burnToastRef.current = null;
     }
   }, [
@@ -1308,12 +1335,12 @@ export function EditorLayout({
       await commitEdits(removeCut(savedEdits, selection.cutId));
       return;
     }
-    if (!selectedClip) return;
+    if (!selectedRange) return;
     setSelection(null);
     await commitEdits(
-      addCut(savedEdits, selectedClip.startMs, selectedClip.endMs),
+      addCut(savedEdits, selectedRange.startMs, selectedRange.endMs),
     );
-  }, [commitEdits, savedEdits, selectedClip, selection]);
+  }, [commitEdits, savedEdits, selectedRange, selection]);
 
   const seek = useCallback(
     (ms: number) => {
@@ -1583,7 +1610,7 @@ export function EditorLayout({
             onZoomChange={handleZoomChange}
             timelineActive={activeSurface === "timeline"}
             edits={savedEdits}
-            selectionRange={selectedClip}
+            selectionRange={selectedRange}
             onCutRange={callTrim}
             onSplit={splitAtPlayhead}
             redactMode={redactMode}
@@ -1899,8 +1926,12 @@ export function EditorLayout({
         {chaptersOpen ? (
           <div className="flex min-h-0 min-w-0 flex-col border-l border-border">
             <ChaptersEditor
+              // Its unsaved edit and stored list belong to one recording.
+              key={recordingId}
               recordingId={recordingId}
               chapters={chapters}
+              mediaUpdatedAt={recording.mediaUpdatedAt ?? ""}
+              updatedAt={recording.updatedAt ?? ""}
               currentMs={playheadMs}
               onSeek={seek}
               className="flex-1"

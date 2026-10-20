@@ -7,6 +7,7 @@ const mockAccessFilter = vi.fn(() => "access-filter");
 const mockWhere = vi.fn();
 const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
+const mockReadDeckLinkedDesignSystem = vi.fn();
 
 vi.mock("@agent-native/core/server", () => ({
   hydrateBuilderDesignSystemReference: (
@@ -35,6 +36,12 @@ vi.mock("../server/db/index.js", () => ({
     designSystems: { id: "id", ownerEmail: "ownerEmail", data: "data" },
     designSystemShares: { resourceId: "resourceId" },
   },
+}));
+
+vi.mock("./_linked-design-system.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./_linked-design-system.js")>()),
+  readDeckLinkedDesignSystem: (...args: unknown[]) =>
+    mockReadDeckLinkedDesignSystem(...args),
 }));
 
 import action from "./get-design-system.js";
@@ -227,6 +234,28 @@ describe("get-design-system", () => {
         "access-filter",
       ],
     });
+  });
+
+  it("serves a deck reader the deck's linked design system without writing to it", async () => {
+    const deck = { designSystemId: "builder-ds-1", data: "{}" };
+    const { resource } = await mockResolveAccess();
+    mockResolveAccess.mockImplementation((type: string) =>
+      Promise.resolve(type === "deck" ? { resource: deck } : null),
+    );
+    mockReadDeckLinkedDesignSystem.mockResolvedValue({
+      resource,
+      viaDeck: true,
+    });
+
+    const result = await action.run({ id: "builder-ds-1", deckId: "deck-1" });
+
+    expect(mockReadDeckLinkedDesignSystem).toHaveBeenCalledWith(
+      deck,
+      "builder-ds-1",
+    );
+    expect(Object.keys(result).sort()).toEqual(["data", "id", "title"]);
+    expect(mockHydrateBuilderDesignSystemReference).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it("does not persist the Builder doc-count cache from a widget read", async () => {

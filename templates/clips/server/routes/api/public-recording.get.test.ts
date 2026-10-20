@@ -7,6 +7,7 @@ const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockSetCookie = vi.hoisted(() => vi.fn());
 const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
+const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
@@ -44,6 +45,8 @@ vi.mock("@agent-native/core/server", () => ({
   getForwardedRequestURL: (...args: unknown[]) => mockGetRequestURL(...args),
   getSession: (...args: unknown[]) => mockGetSession(...args),
   signShortLivedToken: (...args: unknown[]) => mockSignShortLivedToken(...args),
+  verifyShortLivedToken: (...args: unknown[]) =>
+    mockVerifyShortLivedToken(...args),
   signScopedAgentAccessToken: (...args: unknown[]) =>
     mockSignScopedAgentAccessToken(...args),
   verifyScopedAgentAccessToken: (...args: unknown[]) =>
@@ -192,6 +195,7 @@ describe("/api/public-recording route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSignShortLivedToken.mockReset();
+    mockVerifyShortLivedToken.mockReset();
     mockSignScopedAgentAccessToken.mockReset();
     mockVerifyScopedAgentAccessToken.mockReset();
     mockGetHeader.mockReturnValue(undefined);
@@ -233,6 +237,7 @@ describe("/api/public-recording route", () => {
     expect(result).toMatchObject({
       recording: {
         videoUrl: "/api/video/rec-1?t=media-token",
+        mediaAccessToken: "media-token",
         videoSizeBytes: 1200,
         mediaUpdatedAt: "2026-01-01T00:00:00.000Z",
       },
@@ -254,10 +259,60 @@ describe("/api/public-recording route", () => {
         partitioned: true,
       }),
     );
+    expect(mockSetCookie).toHaveBeenCalledTimes(1);
     expect(mockResolvePlayerVideoUrl).toHaveBeenCalledWith(
       expect.objectContaining({ id: "rec-1" }),
       expect.objectContaining({ addPasswordToken: false }),
     );
+  });
+
+  it("reuses a valid protected-media token across public-share polling", async () => {
+    const firstEvent = { setCookies: [] as unknown[] };
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+    );
+
+    const firstResult = (await handler(firstEvent as any)) as any;
+    const firstToken = firstResult.recording.videoUrl?.split("?t=")[1];
+    expect(firstToken).toBe("media-token");
+
+    const secondEvent = { setCookies: [] as unknown[] };
+    mockGetHeader.mockImplementation((_event, name) =>
+      name === "x-clips-media-token" ? firstToken : undefined,
+    );
+    mockVerifyShortLivedToken.mockReturnValue({ ok: true });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+    );
+
+    const secondResult = (await handler(secondEvent as any)) as any;
+
+    expect(secondResult.recording.videoUrl).toBe(
+      firstResult.recording.videoUrl,
+    );
+    expect(secondResult.recording.mediaAccessToken).toBe(firstToken);
+    expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
+      firstToken,
+      "rec-1:password-scoped",
+    );
+    expect(mockSignShortLivedToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not inspect a cached media token until the password gate succeeds", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetHeader.mockImplementation((_event, name) =>
+      name === "x-clips-media-token" ? "cached-token" : undefined,
+    );
+    mockVerifySharePassword.mockReturnValue(false);
+    mockGetDb.mockReturnValue(createDbWithSelectResults([[makeRecording()]]));
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Password required",
+      passwordRequired: true,
+    });
+
+    expect(mockVerifyShortLivedToken).not.toHaveBeenCalled();
+    expect(mockSignShortLivedToken).not.toHaveBeenCalled();
   });
 
   it("scopes context tokens to the recording access version", async () => {

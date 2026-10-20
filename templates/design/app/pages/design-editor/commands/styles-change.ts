@@ -37,6 +37,7 @@ export interface StylesChangeArgs {
       runtimeApplied?: boolean;
       elementInfo?: ElementInfo;
       originalStyles?: Record<string, string>;
+      requirePersistedSourceAcceptance?: boolean;
     },
   ) => void;
   handleClearBreakpointOverride: (
@@ -253,5 +254,12 @@ export function runStylesChange(
     commitStylesToSelectedLayers(Object.fromEntries(entries), meta?.phase)
   )
     return;
-  commitVisualStyles(target, Object.fromEntries(entries));
+  const stylePatch = Object.fromEntries(entries);
+  if (meta?.requirePersistedSourceAcceptance) {
+    commitVisualStyles(target, stylePatch, {
+      requirePersistedSourceAcceptance: true,
+    });
+  } else {
+    commitVisualStyles(target, stylePatch);
+  }
 }

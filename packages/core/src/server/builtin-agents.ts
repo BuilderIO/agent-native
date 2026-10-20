@@ -14,6 +14,8 @@ export interface BuiltinAgentsConfig {
   mode: BuiltinAgentsMode;
   /** Built-ins this workspace offers. Anything else is unknown to it. */
   include: string[];
+  /** Hosted URL overrides, applied only when a built-in is offered. */
+  urls?: Record<string, string>;
 }
 
 export const BUILTIN_AGENTS_ENV_KEY = "AGENT_NATIVE_BUILTIN_AGENTS_JSON";
@@ -51,6 +53,67 @@ function parseIdList(
   return ids;
 }
 
+function parseBuiltinAgentUrls(
+  value: unknown,
+): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(
+      "builtinAgents.urls must be an object mapping built-in ids to URLs",
+    );
+  }
+
+  const urls: Record<string, string> = {};
+  const seenIds = new Set<string>();
+  for (const [rawId, rawUrl] of Object.entries(value)) {
+    const id = normalizeAgentId(rawId);
+    if (!BUILTIN_AGENT_CATALOG_IDS.includes(id)) {
+      throw new Error(
+        "builtinAgents.urls contains an unknown built-in agent id",
+      );
+    }
+    if (seenIds.has(id)) {
+      throw new Error(
+        "builtinAgents.urls contains duplicate built-in agent ids",
+      );
+    }
+    seenIds.add(id);
+
+    if (typeof rawUrl !== "string" || rawUrl.trim() !== rawUrl) {
+      throw new Error(
+        "builtinAgents.urls values must be absolute HTTPS URLs without credentials, query, or fragment",
+      );
+    }
+
+    let url: URL;
+    try {
+      url = new URL(rawUrl);
+    } catch {
+      throw new Error(
+        "builtinAgents.urls values must be absolute HTTPS URLs without credentials, query, or fragment",
+      );
+    }
+    if (
+      /[\s\p{Cc}]/u.test(rawUrl) ||
+      !/^https:\/\//i.test(rawUrl) ||
+      url.protocol !== "https:" ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      /[?#]/.test(rawUrl)
+    ) {
+      throw new Error(
+        "builtinAgents.urls values must be absolute HTTPS URLs without credentials, query, or fragment",
+      );
+    }
+
+    urls[id] = rawUrl;
+  }
+  return urls;
+}
+
 export function parseBuiltinAgentsConfig(raw: unknown): {
   config: BuiltinAgentsConfig;
   warnings: string[];
@@ -64,15 +127,20 @@ export function parseBuiltinAgentsConfig(raw: unknown): {
     return { config: frameworkDefaultBuiltinAgentsConfig(), warnings };
   }
   const record = raw as Record<string, unknown>;
+  const urls = parseBuiltinAgentUrls(record.urls);
+  const urlsConfig = urls === undefined ? {} : { urls };
   const mode = record.mode ?? "all";
   if (mode !== "all" && mode !== "none" && mode !== "selected") {
     warnings.push(
       `builtinAgents.mode must be "all", "none", or "selected"; using the default`,
     );
-    return { config: frameworkDefaultBuiltinAgentsConfig(), warnings };
+    return {
+      config: { ...frameworkDefaultBuiltinAgentsConfig(), ...urlsConfig },
+      warnings,
+    };
   }
   if (mode === "none") {
-    return { config: { mode, include: [] }, warnings };
+    return { config: { mode, include: [], ...urlsConfig }, warnings };
   }
 
   let include: string[];
@@ -91,7 +159,7 @@ export function parseBuiltinAgentsConfig(raw: unknown): {
       parseIdList(record.include, "builtinAgents.include", warnings) ?? [];
   }
 
-  return { config: { mode, include }, warnings };
+  return { config: { mode, include, ...urlsConfig }, warnings };
 }
 
 function readRawBuiltinAgentsConfig(): {

@@ -9,8 +9,8 @@ description: >-
 
 Use the shared review actions for design feedback:
 
-1. Call `view-screen` first so the active design, screen, inspector tab, and
-   review queue are current.
+1. Call `view-screen` first so the active design, screen, and review queue are
+   current.
 2. Call `get-review-feedback` for the open queue and work on one root thread at
    a time. Keep the thread id, target screen id, anchor node id, and nearby
    context together while editing.

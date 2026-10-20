@@ -3,13 +3,13 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowUpRight,
   IconCircleCheck,
   IconCircleDashed,
   IconCircleX,
   IconClock,
-  IconSparkles,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -82,7 +82,7 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
             </p>
           </div>
           <Button className="shrink-0 gap-2" onClick={askAgent}>
-            <IconSparkles className="size-4" />
+            <AgentMark className="size-4" />
             {currentWorkflow.primaryAction}
             <IconArrowUpRight className="size-4" />
           </Button>

@@ -19,6 +19,8 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 import {
+  hostedStorageAuthFailure,
+  normalizeRecordingFailureCode,
   normalizeRecordingPlatform,
   trackRecordingFailure,
 } from "./recording-failures.js";
@@ -114,6 +116,29 @@ describe("recording failure analytics", () => {
   it("accepts only the normalized platform vocabulary", () => {
     expect(normalizeRecordingPlatform("extension")).toBe("extension");
     expect(normalizeRecordingPlatform("Chrome")).toBe("unknown");
+  });
+
+  it("recognizes hosted storage auth status and typed provider codes", () => {
+    expect(hostedStorageAuthFailure({ statusCode: 403 })).toEqual({
+      status: 403,
+    });
+    expect(
+      hostedStorageAuthFailure({
+        cause: Object.assign(new Error("Access denied"), {
+          Code: "SignatureDoesNotMatch",
+        }),
+      }),
+    ).toEqual({});
+    expect(
+      hostedStorageAuthFailure({
+        name: "AccessDeniedException",
+        $metadata: { httpStatusCode: 403 },
+      }),
+    ).toEqual({ status: 403 });
+    expect(hostedStorageAuthFailure({ statusCode: 503 })).toBeNull();
+    expect(normalizeRecordingFailureCode("hosted_storage_unavailable")).toBe(
+      "hosted_storage_unavailable",
+    );
   });
 
   it("tracks normalized stage and status for an HTML chunk error", () => {

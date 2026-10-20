@@ -1449,7 +1449,7 @@ export async function getDesktopBuilderConnectionStatus(
     return builderUnavailable(
       error instanceof Error && error.name === "TimeoutError"
         ? "Builder connection status timed out."
-        : "Could not reach Builder connection status.",
+        : "Could not check Builder.io connection status.",
     );
   }
 }

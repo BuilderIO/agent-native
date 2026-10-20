@@ -1,4 +1,15 @@
-import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
+import {
+  MCP_APP_EXTENSION_ID,
+  MCP_APP_MIME_TYPE,
+  type ActionAuthorize,
+  type ActionRunContext,
+} from "../action.js";
+import { isJsonSchemaObject } from "../json-schema/subschemas.js";
+import {
+  plainJsonSnapshot,
+  UnusableSchemaError,
+} from "../json-schema/unusable-schema.js";
+import { assertUsableSchema } from "../json-schema/usable-schema.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError, httpStatusFromError } from "./errors.js";
 import {
@@ -28,6 +39,8 @@ interface ServerEntry {
   transport: any;
   tools: McpTool[];
   error?: string;
+  /** Why each listed tool left out of `tools` cannot be offered. */
+  unusableTools?: string[];
   pendingRequests: number;
   pendingRequestsDrained: Promise<void>;
   resolvePendingRequests?: () => void;
@@ -35,6 +48,81 @@ interface ServerEntry {
 }
 
 type ErrorSink = (error: unknown) => void;
+
+/**
+ * Why a listed tool cannot be offered to the model, or null when it can. A
+ * schema `assertUsableSchema` refuses would fail every turn it is sent in or
+ * be widened to accept what it refuses, so the tool is held back and the
+ * reason reported with the server's status instead.
+ */
+function unusableToolReason(tool: {
+  name: string;
+  inputSchema?: unknown;
+}): string | null {
+  if (!isJsonSchemaObject(tool.inputSchema)) return null;
+  try {
+    assertUsableSchema(plainJsonSnapshot(tool.inputSchema));
+    return null;
+  } catch (error) {
+    if (!(error instanceof UnusableSchemaError)) throw error;
+    return `Tool "${tool.name}" is unavailable: its input schema ${error.reason} at ${error.path || "/"}.`;
+  }
+}
+
+type ListedTool = {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
+};
+
+/**
+ * The tools a `tools/list` result offers, and why each one it leaves out
+ * cannot be offered. A tool listed exactly as in `previous` keeps its object,
+ * because `callTool` refuses a call whose tool changed while it was being
+ * authorized.
+ */
+function readListedTools(
+  serverId: string,
+  listed: { tools?: ListedTool[] } | undefined,
+  previous: McpTool[] = [],
+): { tools: McpTool[]; unusableTools: string[] } {
+  const tools: McpTool[] = [];
+  const unusableTools: string[] = [];
+  for (const t of listed?.tools ?? []) {
+    const reason = unusableToolReason(t);
+    if (reason) {
+      unusableTools.push(reason);
+      continue;
+    }
+    const name = buildPrefixedName(serverId, t.name);
+    const same = previous.find(
+      (tool) =>
+        tool.name === name && JSON.stringify(tool.raw) === JSON.stringify(t),
+    );
+    tools.push(
+      same ?? {
+        source: serverId,
+        name,
+        originalName: t.name,
+        ...(t.title ? { title: t.title } : {}),
+        description: t.description ?? t.name,
+        inputSchema: (t.inputSchema ?? {
+          type: "object",
+          properties: {},
+        }) as Record<string, unknown>,
+        ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
+        ...(t.annotations ? { annotations: t.annotations } : {}),
+        ...(t._meta ? { _meta: t._meta } : {}),
+        raw: { ...t },
+      },
+    );
+  }
+  return { tools, unusableTools };
+}
 
 function isNode(): boolean {
   return (
@@ -69,6 +157,17 @@ export interface McpClientManagerOptions {
   debug?: boolean;
   connectTimeoutMs?: number;
 }
+
+export interface McpToolCallOptions {
+  /** Identity and invocation source forwarded to the authorization callback. */
+  context?: ActionRunContext;
+  /** Fallback used by standalone action wrappers without a manager resolver. */
+  authorize?: ActionAuthorize<Record<string, unknown>>;
+}
+
+export type McpToolAuthorizationResolver = (
+  tool: McpTool,
+) => ActionAuthorize<Record<string, unknown>> | undefined;
 
 function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolean {
   const typeA = a.type ?? "stdio";
@@ -170,12 +269,23 @@ export class McpClientManager {
   private config: McpConfig | null;
   private sdk: SdkModules | null = null;
   private readonly listeners: Set<() => void> = new Set();
+  private resolveToolAuthorization?: McpToolAuthorizationResolver;
   private reconfigureQueue: Promise<unknown> = Promise.resolve();
+  private readonly toolRefreshes = new Map<string, Promise<void>>();
 
   constructor(config: McpConfig | null, options: McpClientManagerOptions = {}) {
     this.config = config;
     this.debug = !!options.debug;
     this.connectTimeoutMs = options.connectTimeoutMs;
+  }
+
+  /**
+   * Install the app-owned authorization resolver used by every MCP tool-call
+   * surface. Passing `undefined` restores the backwards-compatible no-policy
+   * behavior.
+   */
+  setToolAuthorizationResolver(resolver?: McpToolAuthorizationResolver): void {
+    this.resolveToolAuthorization = resolver;
   }
 
   get enabled(): boolean {
@@ -459,33 +569,12 @@ export class McpClientManager {
         timeoutMs,
       );
       if (callbackError) throw callbackError;
-      const rawTools: Array<{
-        name: string;
-        title?: string;
-        description?: string;
-        inputSchema?: Record<string, unknown>;
-        outputSchema?: Record<string, unknown>;
-        annotations?: Record<string, unknown>;
-        _meta?: Record<string, unknown>;
-      }> = (listed?.tools ?? []) as any[];
+      const { tools, unusableTools } = readListedTools(entry.id, listed);
 
       entry.client = client;
       entry.transport = transport;
-      entry.tools = rawTools.map((t) => ({
-        source: entry.id,
-        name: buildPrefixedName(entry.id, t.name),
-        originalName: t.name,
-        ...(t.title ? { title: t.title } : {}),
-        description: t.description ?? t.name,
-        inputSchema: (t.inputSchema ?? {
-          type: "object",
-          properties: {},
-        }) as Record<string, unknown>,
-        ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
-        ...(t.annotations ? { annotations: t.annotations } : {}),
-        ...(t._meta ? { _meta: t._meta } : {}),
-        raw: { ...t },
-      }));
+      entry.unusableTools = unusableTools;
+      entry.tools = tools;
       handshakeComplete = true;
     } catch (err) {
       await safelyClose(client, recordConnectionError);
@@ -684,6 +773,76 @@ export class McpClientManager {
     return { added, removed, unchanged, reconnected };
   }
 
+  /**
+   * Lists a connected server's tools again over its current connection, so a
+   * tool held back for its schema returns once the server fixes it. Unlike a
+   * reconnect, this leaves the connection and the calls running on it alone.
+   */
+  async refreshTools(serverId: string): Promise<void> {
+    // One list at a time per server: two in flight could commit in the order
+    // they finish and leave the older answer standing.
+    const previous = this.toolRefreshes.get(serverId) ?? Promise.resolve();
+    const task = previous.then(() => this.listToolsAgain(serverId));
+    this.toolRefreshes.set(
+      serverId,
+      task.catch(() => {
+        /* failures surface on the caller, not on the queue */
+      }),
+    );
+    return task;
+  }
+
+  private async listToolsAgain(serverId: string): Promise<void> {
+    const entry = this.servers.get(serverId);
+    if (!entry?.client || entry.error) {
+      throw new Error(
+        `MCP server "${serverId}" is not connected${
+          entry?.error ? `: ${entry.error}` : ""
+        }`,
+      );
+    }
+    await this.withExpiredSessionRetry(entry, async (current) => {
+      const client = current.client;
+      const listed = await withConnectTimeout(
+        Promise.resolve(client.listTools()),
+        `MCP server ${serverId} tools/list`,
+        mcpConnectTimeoutMs(this.connectTimeoutMs),
+      );
+      // A connection that replaced this one meanwhile listed its own tools.
+      if (this.servers.get(serverId) !== current || current.client !== client) {
+        return;
+      }
+      const { tools, unusableTools } = readListedTools(
+        serverId,
+        listed,
+        current.tools,
+      );
+      current.tools = tools;
+      current.unusableTools = unusableTools;
+      this.emitChange();
+    }).catch(async (error: unknown) => {
+      // The SDK records a list that fails at the transport, refused over HTTP
+      // or unable to reach the server, as a connection error. Leave the
+      // server as a failed connect leaves it: none of its tools offered, and
+      // a call to one refused as a call to a server that is not connected
+      // instead of sent over the failed connection. A JSON-RPC error or the
+      // timeout above records none, so the tools listed before stay.
+      const live = this.servers.get(serverId);
+      if (live?.client && live.error) {
+        const { client, transport } = live;
+        Object.assign(live, {
+          client: null,
+          transport: null,
+          tools: [],
+          unusableTools: undefined,
+        });
+        this.emitChange();
+        await this.closeEntry({ ...live, client, transport });
+      }
+      throw error;
+    });
+  }
+
   getTools(): McpTool[] {
     if (!this.enabled) return [];
     const out: McpTool[] = [];
@@ -714,7 +873,11 @@ export class McpClientManager {
     return !!entry?.client && !entry.error;
   }
 
-  async callTool(prefixedName: string, args: unknown): Promise<unknown> {
+  async callTool(
+    prefixedName: string,
+    args: unknown,
+    options: McpToolCallOptions = {},
+  ): Promise<unknown> {
     const parsed = parseMcpToolName(prefixedName);
     if (!parsed) {
       throw new Error(
@@ -729,19 +892,47 @@ export class McpClientManager {
         }`,
       );
     }
-    return this.withExpiredSessionRetry(entry, (current) => {
+    const normalizedArgs =
+      args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+    // The expired-session retry replays this attempt on a reconnected entry
+    // whose tool metadata was reloaded, so authorization must run per attempt.
+    return this.withExpiredSessionRetry(entry, async (current) => {
       const known = current.tools.find((t) => t.name === prefixedName);
       if (!known) {
         throw new Error(
           `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
         );
       }
-      return current.client.callTool({
+      const client = current.client;
+      const authorize =
+        this.resolveToolAuthorization?.(known) ?? options.authorize;
+      if (authorize) {
+        const verdict = await authorize(normalizedArgs, options.context);
+        if (verdict === false) {
+          const error = new Error("Not authorized") as Error & {
+            statusCode: number;
+          };
+          error.name = "ForbiddenError";
+          error.statusCode = 403;
+          throw error;
+        }
+      }
+      const liveEntry = this.servers.get(parsed.serverId);
+      const liveTool = liveEntry?.tools.find(
+        (tool) => tool.name === prefixedName,
+      );
+      if (
+        liveEntry !== current ||
+        liveEntry.client !== client ||
+        liveTool !== known
+      ) {
+        throw new Error(
+          `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
+        );
+      }
+      return client.callTool({
         name: parsed.toolName,
-        arguments:
-          args && typeof args === "object"
-            ? (args as Record<string, unknown>)
-            : {},
+        arguments: normalizedArgs,
       });
     });
   }
@@ -800,6 +991,10 @@ export class McpClientManager {
     await task;
   }
 
+  /**
+   * `errors` holds a server's connection failure, or, for a server that is
+   * still connected, why each of its tools left out of `tools` is unusable.
+   */
   getStatus(): {
     configuredServers: string[];
     connectedServers: string[];
@@ -815,6 +1010,9 @@ export class McpClientManager {
     const errors: Record<string, string> = {};
     for (const entry of this.servers.values()) {
       if (entry.error) errors[entry.id] = entry.error;
+      else if (entry.unusableTools?.length) {
+        errors[entry.id] = entry.unusableTools.join(" ");
+      }
     }
     return {
       configuredServers: this.configuredServers,

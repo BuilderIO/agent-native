@@ -257,13 +257,18 @@ export function resolveSourceBaseForPublication(args: {
   pending?: {
     content: string;
     identityMigrationSourceContent?: string;
+    deferCollabReconcile?: boolean;
   };
   collabContent?: string | null;
   persistedContent?: string | null;
   beforeContent: string;
 }): string {
-  const pendingContent = args.pending?.content;
-  const migrationSource = args.pending?.identityMigrationSourceContent;
+  const pendingContent = args.pending?.deferCollabReconcile
+    ? undefined
+    : args.pending?.content;
+  const migrationSource = args.pending?.deferCollabReconcile
+    ? undefined
+    : args.pending?.identityMigrationSourceContent;
   if (
     pendingContent !== undefined &&
     migrationSource !== undefined &&

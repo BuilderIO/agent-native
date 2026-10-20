@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   autoHeightScreenIds,
   getAllScreenFrameEntries,
+  getOverviewCanvasZoomForFrame,
   pinnedHeightScreenIds,
   withMeasuredFrameHeights,
 } from "./overview-camera";
@@ -11,6 +12,25 @@ const PERSISTED_GEOMETRY = { x: 0, y: 0, width: 1440, height: 1024 };
 const DEFAULT_AUTO_SCREENS = [{ id: "a" }];
 const DEFAULT_AUTO_PINNED_IDS = pinnedHeightScreenIds(DEFAULT_AUTO_SCREENS);
 const DEFAULT_AUTO_HEIGHT_IDS = autoHeightScreenIds(DEFAULT_AUTO_SCREENS);
+
+describe("getOverviewCanvasZoomForFrame", () => {
+  it("converts display zoom using the target frame and source widths", () => {
+    const activeBasisZoom = getOverviewCanvasZoomForFrame({
+      displayZoom: 100,
+      frameWidth: 1440,
+      sourceWidth: 1280,
+    });
+    const targetBasisZoom = getOverviewCanvasZoomForFrame({
+      displayZoom: 100,
+      frameWidth: 390,
+      sourceWidth: 1280,
+    });
+
+    expect(targetBasisZoom).toBeCloseTo(100 / (390 / 1280));
+    expect(targetBasisZoom).not.toBeCloseTo(activeBasisZoom);
+    expect(targetBasisZoom * (390 / 1280)).toBeCloseTo(100);
+  });
+});
 
 describe("withMeasuredFrameHeights", () => {
   it("grows a frame's height to a taller measured content height", () => {

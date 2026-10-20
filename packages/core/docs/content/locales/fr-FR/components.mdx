@@ -18,7 +18,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 ```
 
 Évitez d'importer des composants UI à partir du package `@agent-native/core` nu. Utiliser
@@ -619,7 +619,7 @@ modèle de ressources d'espace de travail qui alimente l'onglet Espace de travai
 Le panneau complet ne nécessite aucun accessoire :
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel />;
 ```
@@ -631,6 +631,8 @@ import { useState } from "react";
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
   useUpdateResource,
@@ -669,16 +671,16 @@ function WorkspaceResources() {
 
 ## Autre public UI {#other-ui}
 
-| Zone          | APIs                                                            | Chemin d'importation                      |
-| ------------- | --------------------------------------------------------------- | ----------------------------------------- |
-| Partage       | `<ShareButton>`, `<ShareDialog>`                                | `@agent-native/core/client/sharing`       |
-| Sharing UI    | `<VisibilityBadge>`                                             | `@agent-native/toolkit/sharing`           |
-| Notifications | `<NotificationsBell>`                                           | `@agent-native/core/client/notifications` |
-| Progrès       | `<RunsTray>`, crochets de progression et types                  | `@agent-native/core/client/progress`      |
-| Intégration   | `useOnboarding()`, crochets de panneau d'intégration            | `@agent-native/core/client/onboarding`    |
-| Observabilité | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                  | `@agent-native/toolkit/app/observability` |
-| Ressources    | `<ResourcesPanel>`, `<ResourceTree>`, hooks de ressources       | `@agent-native/core/client/resources`     |
-| Éditeur riche | `<SharedRichEditor>`, commandes slash, crochets de nœud de bloc | `@agent-native/toolkit/editor`            |
+| Zone                    | APIs                                                                  | Chemin d'importation                                                        |
+| ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Partage                 | `<ShareButton>`, `<ShareDialog>`                                      | `@agent-native/toolkit/app/sharing`                                         |
+| Sharing UI              | `<VisibilityBadge>`                                                   | `@agent-native/toolkit/sharing`                                             |
+| Notifications           | `<NotificationsBell>`                                                 | `@agent-native/toolkit/app/notifications`                                   |
+| Registre des exécutions | `<RunsTray>`, types d’exécution et fonctions du registre côté serveur | `@agent-native/toolkit/app/progress + @agent-native/core/progress`          |
+| Intégration             | `useOnboarding()`, crochets de panneau d'intégration                  | `@agent-native/core/client/onboarding`                                      |
+| Observabilité           | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                        | `@agent-native/toolkit/app/observability`                                   |
+| Ressources              | `<ResourcesPanel>`, `<ResourceTree>`, hooks de ressources             | `@agent-native/toolkit/app/resources + @agent-native/core/client/resources` |
+| Éditeur riche           | `<SharedRichEditor>`, commandes slash, crochets de nœud de bloc       | `@agent-native/toolkit/editor`                                              |
 
 ## Complétion de texte unique {#one-off-text-completion}
 

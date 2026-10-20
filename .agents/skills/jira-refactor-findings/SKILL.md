@@ -45,25 +45,31 @@ The skill knows nothing about git or bug reports. It reads:
   against `targets.json`, or the given systems and files, by fingerprint,
   system, nesting, and shared files, into `jira-matches.json`. Run it before
   investigating, so you don't re-plan ticketed work.
-- `jira-sighting.ts --run <id> --key KEY --system <system> [--apply]`:
-  records that a ticketed system came up again. It comments at most once per
-  cooldown, or once every four cooldowns on a declined ticket. With
-  `--source <url> --source-title "<title>" --note "<how>"` (a bug traced to
-  the ticket) it always comments once. It refuses tickets resolved as fixed:
-  that is a recurrence, so upsert a plan instead.
-- `jira-upsert.ts --plan <file> [--apply]`: turns a finished plan into Jira
-  state. It is a dry run without `--apply`, and idempotent on re-run:
-  - no ticket: create one with the Pod, the label, the plan attached, and
-    the run link;
-  - open ticket: a sighting, plus a comment and the updated plan once per
-    cooldown. Bug-triggered plans always comment once;
-  - fixed ticket: a new recurrence ticket linked to the old one;
-  - declined ticket: a sighting, a rare comment, and never re-filed.
+- `jira-upsert.ts`: the only script that writes findings to Jira. It takes
+  one of two inputs and records every sighting the same way:
+  - `--plan <file>`: a finished plan. It matches by exact fingerprint, then
+    by overlap (fingerprint anchor, same or nested system, shared files). An
+    overlap is never merged silently: pass `--key KEY` when the plan is that
+    ticket's root problem, or `--distinct-from KEY,...` when it is a
+    different one. No match creates a ticket with the Pod, the label, the
+    plan attached, and the run link. A ticket resolved as fixed gets a new
+    recurrence ticket linked to the old one; a declined ticket is never
+    re-filed.
+  - `--run <id> --key KEY --system <system>`: a hot system already covered by
+    an open or declined ticket, without a plan. With
+    `--source <url> --source-title "<title>" --note "<how>"` it records a bug
+    traced to the ticket. It refuses tickets resolved as fixed: that is a
+    recurrence, so upsert a plan instead.
 
-  It refuses unfinished plans (`TODO(agent)` markers, missing confidence),
+  A sighting always updates the ticket's property. It comments at most once
+  per cooldown since the last comment (four cooldowns for a declined ticket),
+  and always once per run for a bug source. It is a dry run without
+  `--apply`, and re-runs finish what a partial failure skipped: a run's
+  comment is never repeated, a missing plan attachment or recurrence link is
+  added, and a ticket the run created is completed rather than sighted. It
+  refuses unfinished plans (`TODO(agent)` markers, missing confidence),
   `low`-confidence creates, and creates past `maxNewTicketsPerRun` unless
-  `--over-cap`. Use `--duplicate-of KEY` when you judge a plan to duplicate a
-  ticket under a different fingerprint.
+  `--over-cap`.
 
 Each applied action appends to the run's `jira-results.json`, and the
 upsert writes the ticket key back into the plan.

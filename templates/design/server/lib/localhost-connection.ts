@@ -65,22 +65,15 @@ export async function resolveLocalhostConnectionScope(options?: {
     }
   }
 
-  const ownerEmail = getRequestUserEmail();
-  if (ownerEmail) {
-    const requestOrgId = getRequestOrgId();
-    return {
-      ownerEmail,
-      orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
-    };
-  }
-
   const capability = getRequestAuthCapability();
   if (
     designId &&
     capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) &&
     decodeCapabilityDesignId(capability) === designId
   ) {
-    const access = await resolveAccess("design", designId);
+    const access = await resolveAccess("design", designId, {
+      authCapability: capability,
+    });
     const resource = access?.resource as
       | { ownerEmail?: unknown; orgId?: unknown }
       | undefined;
@@ -99,6 +92,15 @@ export async function resolveLocalhostConnectionScope(options?: {
     return {
       ownerEmail: resource.ownerEmail,
       orgId: typeof resource.orgId === "string" ? resource.orgId : null,
+    };
+  }
+
+  const ownerEmail = getRequestUserEmail();
+  if (ownerEmail) {
+    const requestOrgId = getRequestOrgId();
+    return {
+      ownerEmail,
+      orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
     };
   }
 
@@ -271,9 +273,25 @@ export function localhostBridgeRequestError(
   }
   return new LocalhostConnectionError(
     "bridge-request-failed",
-    `Bridge ${operation} failed (${status}): ${errText}`,
+    `Bridge ${operation} failed (${status}): ${bridgeErrorDetail(errText)}`,
     424,
   );
+}
+
+function bridgeErrorDetail(errText: string): string {
+  let body: unknown;
+  try {
+    body = JSON.parse(errText);
+  } catch {
+    return errText;
+  }
+  if (!body || typeof body !== "object") return errText;
+  const { error, url, status } = body as Record<string, unknown>;
+  if (typeof error === "string" && error) return error;
+  if (typeof url === "string" && typeof status === "number") {
+    return `${url} responded ${status}.`;
+  }
+  return errText;
 }
 
 export async function fetchLocalhostSnapshot(args: {

@@ -31,6 +31,7 @@ export interface RecordingSummary {
   status: "uploading" | "processing" | "ready" | "failed";
   uploadProgress?: number;
   failureReason?: string | null;
+  failureCode?: string | null;
   visibility: "private" | "org" | "public";
   hasPassword: boolean;
   expiresAt: string | null;
@@ -254,6 +255,7 @@ export function useInfiniteRecordings(
 
 export function useRecordingsCount(
   args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
+  options: { enabled?: boolean } = {},
 ) {
   const normalizedArgs = Object.fromEntries(
     Object.entries(args).filter(([, value]) => value != null),
@@ -266,6 +268,7 @@ export function useRecordingsCount(
         typeof data?.total === "number" ? data.total : undefined,
       retry: false,
       throwOnError: false,
+      enabled: options.enabled,
     },
   );
 }

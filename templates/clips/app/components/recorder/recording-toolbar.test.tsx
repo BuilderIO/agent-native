@@ -197,7 +197,7 @@ describe("RecordingToolbar live microphone meter", () => {
     expect(noAudioWarning()?.style.color).toBe("var(--playhead-rec)");
   });
 
-  it("clears on audible input and restarts the grace period when silence resumes", async () => {
+  it("keeps silence warnings suppressed after audio until the next clip", async () => {
     await renderToolbar();
     await act(async () => vi.advanceTimersByTime(5_100));
     expect(noAudioWarning()).not.toBeNull();
@@ -213,6 +213,11 @@ describe("RecordingToolbar live microphone meter", () => {
     expect(waveform()?.dataset.level).toBe("0");
 
     await act(async () => vi.advanceTimersByTime(200));
+    expect(noAudioWarning()).toBeNull();
+
+    await renderToolbar({ active: false });
+    await renderToolbar();
+    await act(async () => vi.advanceTimersByTime(5_100));
     expect(noAudioWarning()).not.toBeNull();
   });
 
@@ -348,5 +353,31 @@ describe("RecordingToolbar live microphone meter", () => {
     act(() => root?.unmount());
     root = null;
     expect(contexts[0]?.close).toHaveBeenCalledOnce();
+  });
+
+  it("still warns if the microphone track ends after audio was detected", async () => {
+    sampleValue = 180;
+    await renderToolbar();
+    await act(async () => vi.advanceTimersByTime(20));
+    expect(noAudioWarning()).toBeNull();
+
+    await act(async () => track.end());
+
+    expect(noAudioWarning()).not.toBeNull();
+  });
+
+  it("warns when the microphone track ends while paused after audio was detected", async () => {
+    sampleValue = 180;
+    await renderToolbar();
+    await act(async () => vi.advanceTimersByTime(20));
+    expect(noAudioWarning()).toBeNull();
+
+    await renderToolbar({ isPaused: true });
+    await act(async () => track.end());
+    expect(noAudioWarning()).toBeNull();
+
+    await renderToolbar({ isPaused: false });
+
+    expect(noAudioWarning()).not.toBeNull();
   });
 });

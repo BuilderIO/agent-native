@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { actionCallIsRetrySafe } from "../../action-call-classification.js";
 import {
   buildProviderApiAuditSummary,
   sanitizeProviderApiAuditPath,
@@ -247,6 +248,36 @@ describe("provider API action factories", () => {
     await expect(
       scoped.run({ provider: "github", path: "/repos", stageAs: "repos" }),
     ).rejects.toThrow("No authenticated context");
+  });
+});
+
+describe("provider API request retry safety", () => {
+  const action = createProviderApiRequestAction({ executeRequest: vi.fn() });
+  const retrySafe = (args: Record<string, unknown>) =>
+    actionCallIsRetrySafe(action, {
+      provider: "github",
+      path: "/repos",
+      ...args,
+    });
+
+  it("allows provider reads and re-staging under the same name", () => {
+    expect(retrySafe({})).toBe(true);
+    expect(retrySafe({ method: "head" })).toBe(true);
+    expect(retrySafe({ stageAs: "repos" })).toBe(true);
+  });
+
+  it("forwards allowPersistentApproval so a per-request gate is not overridden", () => {
+    const gated = createProviderApiRequestAction(
+      { executeRequest: vi.fn() },
+      { allowPersistentApproval: false },
+    );
+    expect(gated.allowPersistentApproval).toBe(false);
+    expect(action.allowPersistentApproval).toBeUndefined();
+  });
+
+  it("refuses writes and workspace file saves, which a replay could overwrite", () => {
+    expect(retrySafe({ method: "POST" })).toBe(false);
+    expect(retrySafe({ saveToFile: "github/repos.json" })).toBe(false);
   });
 });
 

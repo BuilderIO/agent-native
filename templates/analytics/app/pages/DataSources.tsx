@@ -90,11 +90,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { getIdToken } from "@/lib/auth";
 import {
+  canConnectWorkspaceOAuth,
   dataSourceOAuthReturnPath,
   focusedDataSourceFromSearchParams,
   getOptionalCredentialKeys,
   getSharedConnectionStatus,
-  getGoogleDriveConnection,
+  getGoogleSheetsConnection,
+  hasExistingWorkspaceConnection,
   isWorkspaceOAuthSource,
   isSourceReady,
   isSourceLocallyConfigured,
@@ -114,6 +116,11 @@ import {
   type DataSourceCategory,
   type WalkthroughStep,
 } from "@/lib/data-sources";
+import {
+  SearchConsoleDetail,
+  searchConsoleState,
+  useContentCollectionStatus,
+} from "@/pages/data-sources/SearchConsoleDetail";
 
 import {
   ConnectionTestStatus,
@@ -150,9 +157,10 @@ interface FirstPartyAnalyticsHealthResponse {
   status: "healthy" | "monitor" | "recommend_bigquery" | "unavailable";
   externalBackendRecommendation?: "none" | "connect" | "use" | "unknown";
   metrics: {
-    eventCount: number;
-    slowQueryCount24h: number;
-    maxQueryDurationMs24h: number;
+    coverage: { kind: "all_time" | "recent_window" | "unavailable" };
+    eventCount: number | null;
+    slowQueryCount24h: number | null;
+    maxQueryDurationMs24h: number | null;
   };
   externalBackends?: Array<{
     id: "bigquery" | "amplitude";
@@ -555,10 +563,15 @@ function GitHubOAuthView({
   );
 }
 
-function startWorkspaceOAuth(provider: string, returnPath: string): void {
+function startWorkspaceOAuth(
+  provider: string,
+  returnPath: string,
+  scope: "user" | "organization" = "organization",
+): void {
   const params = new URLSearchParams({
     appId: "analytics",
     return: returnPath,
+    scope,
   });
   window.location.assign(
     agentNativePath(
@@ -572,11 +585,17 @@ function WorkspaceOAuthView({
   label,
   connected,
   returnPath = "/data-sources",
+  scope = "organization",
+  showDescription = true,
+  onAddLocalCredentials,
 }: {
   provider: string;
   label: string;
   connected: boolean;
   returnPath?: string;
+  scope?: "user" | "organization";
+  showDescription?: boolean;
+  onAddLocalCredentials?: () => void;
 }) {
   const t = useT();
 
@@ -589,19 +608,33 @@ function WorkspaceOAuthView({
           </div>
           <div className="min-w-0 space-y-1">
             <p className="text-xs font-medium text-foreground">{label}</p>
-            <p className="text-xs text-muted-foreground">
-              {t("dataSources.sharedIntegration")}
-            </p>
+            {showDescription && (
+              <p className="text-xs text-muted-foreground">
+                {t("dataSources.sharedIntegration")}
+              </p>
+            )}
           </div>
         </div>
-        <Button
-          size="sm"
-          variant={connected ? "outline" : "default"}
-          onClick={() => startWorkspaceOAuth(provider, returnPath)}
-          className="shrink-0 text-xs"
-        >
-          {connected ? t("dataSources.reconnect") : t("dataSources.connect")}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {onAddLocalCredentials && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onAddLocalCredentials}
+              className="text-xs"
+            >
+              {t("dataSources.addLocalCredentials")}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant={connected ? "outline" : "default"}
+            onClick={() => startWorkspaceOAuth(provider, returnPath, scope)}
+            className="shrink-0 text-xs"
+          >
+            {connected ? t("dataSources.reconnect") : t("dataSources.connect")}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -675,6 +708,7 @@ function WorkspaceReadyView({
   oauthReturnPath,
   onSaved,
   onAddLocalCredentials,
+  showDescription = true,
 }: {
   source: DataSource;
   sharedConnectionStatus: SharedConnectionStatus | null;
@@ -682,6 +716,7 @@ function WorkspaceReadyView({
   oauthReturnPath: string;
   onSaved: () => void;
   onAddLocalCredentials: () => void;
+  showDescription?: boolean;
 }) {
   const t = useT();
   const [testResult, setTestResult] = useState<{
@@ -705,9 +740,11 @@ function WorkspaceReadyView({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        {t("dataSources.workspaceReadyDescription")}
-      </p>
+      {showDescription && (
+        <p className="text-xs text-muted-foreground">
+          {t("dataSources.workspaceReadyDescription")}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
@@ -740,7 +777,13 @@ function WorkspaceReadyView({
           <Button
             size="sm"
             variant="outline"
-            onClick={() => startWorkspaceOAuth(source.id, oauthReturnPath)}
+            onClick={() =>
+              startWorkspaceOAuth(
+                source.id,
+                oauthReturnPath,
+                source.id === "bigquery" ? "user" : "organization",
+              )
+            }
             className="text-xs"
           >
             {t("dataSources.reconnect")}
@@ -1263,7 +1306,10 @@ function DataSourceDetail({
     !readyViaWorkspace &&
     !showLocalCredentials;
   const workspaceRoleLoading =
-    isWorkspaceOAuthSource(source) && !ready && !orgLoaded;
+    isWorkspaceOAuthSource(source) &&
+    source.id !== "bigquery" &&
+    !ready &&
+    !orgLoaded;
   const showUnknownStatus = statusUnknown && !ready && !showLocalCredentials;
 
   if (showUnknownStatus) {
@@ -1326,17 +1372,35 @@ function DataSourceDetail({
           </div>
         </div>
       )}
-      {sharedConnectionStatus &&
+      {source.id !== "bigquery" &&
+        sharedConnectionStatus &&
         sharedConnectionStatus.kind !== "needs_credentials" &&
         sharedConnectionStatus.kind !== "needs_grant" && (
           <SharedConnectionStatusRow status={sharedConnectionStatus} />
         )}
       {locallyConfigured ? (
-        <ConnectedView
-          source={source}
-          onSaved={onSaved}
-          envStatus={envStatus}
-        />
+        <>
+          <ConnectedView
+            source={source}
+            onSaved={onSaved}
+            envStatus={envStatus}
+          />
+          {source.id === "bigquery" && hasOrg && (
+            <WorkspaceOAuthView
+              provider="bigquery"
+              label={source.name}
+              connected={
+                sharedConnectionStatus?.connection?.grantState ===
+                  "connected" ||
+                sharedConnectionStatus?.kind === "needs_grant" ||
+                sharedConnectionStatus?.kind === "needs_reauth"
+              }
+              returnPath={oauthReturnPath}
+              scope="user"
+              showDescription={false}
+            />
+          )}
+        </>
       ) : readyViaWorkspace && !showCredentialSetup ? (
         <WorkspaceReadyView
           source={source}
@@ -1345,15 +1409,24 @@ function DataSourceDetail({
           oauthReturnPath={oauthReturnPath}
           onSaved={onSaved}
           onAddLocalCredentials={() => setShowLocalCredentials(true)}
+          showDescription={source.id !== "bigquery"}
         />
       ) : workspaceRoleLoading ? (
         <Skeleton className="h-9 w-full rounded-md" />
-      ) : preferWorkspaceSetup && canManageOrg ? (
+      ) : preferWorkspaceSetup &&
+        canConnectWorkspaceOAuth(source, canManageOrg, hasOrg) ? (
         <WorkspaceOAuthView
           provider={source.id}
           label={source.name}
-          connected={sharedConnectionStatus?.kind === "needs_grant"}
+          connected={hasExistingWorkspaceConnection(sharedConnectionStatus)}
           returnPath={oauthReturnPath}
+          scope={source.id === "bigquery" ? "user" : "organization"}
+          showDescription={source.id !== "bigquery"}
+          onAddLocalCredentials={
+            source.id === "bigquery"
+              ? () => setShowLocalCredentials(true)
+              : undefined
+          }
         />
       ) : preferWorkspaceSetup ? (
         <Button
@@ -1588,9 +1661,7 @@ function useFirstPartyAnalyticsData() {
     | undefined;
   const healthStatus = healthQuery.isError ? "unavailable" : health?.status;
   const externalBackends = health?.externalBackends ?? [];
-  const externalBackendConfigured = externalBackends.some(
-    (backend) => backend.configured === true,
-  );
+  const externalBackendConfigured = health?.bigQuery.configured === true;
   const recommendsExternalBackend = healthStatus === "recommend_bigquery";
   const healthTitleKey = recommendsExternalBackend
     ? externalBackendConfigured
@@ -1763,10 +1834,16 @@ function FirstPartyAnalyticsDetail() {
             <div className="mt-4 grid grid-cols-3 gap-2">
               <div>
                 <div className="text-muted-foreground">
-                  {t("dataSources.analyticsEventCount")}
+                  {t(
+                    health.metrics.coverage.kind === "recent_window"
+                      ? "dataSources.analyticsRecentEventCount"
+                      : "dataSources.analyticsEventCount",
+                  )}
                 </div>
                 <div className="font-medium text-foreground">
-                  {formatNumber(health.metrics.eventCount)}
+                  {health.metrics.eventCount === null
+                    ? t("dataSources.statusUnknown")
+                    : formatNumber(health.metrics.eventCount)}
                 </div>
               </div>
               <div>
@@ -1774,7 +1851,9 @@ function FirstPartyAnalyticsDetail() {
                   {t("dataSources.slowQueries24h")}
                 </div>
                 <div className="font-medium text-foreground">
-                  {formatNumber(health.metrics.slowQueryCount24h)}
+                  {health.metrics.slowQueryCount24h === null
+                    ? t("dataSources.statusUnknown")
+                    : formatNumber(health.metrics.slowQueryCount24h)}
                 </div>
               </div>
               <div>
@@ -1782,10 +1861,14 @@ function FirstPartyAnalyticsDetail() {
                   {t("dataSources.maxQueryDuration")}
                 </div>
                 <div className="font-medium text-foreground">
-                  {formatNumber(health.metrics.maxQueryDurationMs24h / 1_000, {
-                    maximumFractionDigits: 1,
-                  })}
-                  s
+                  {health.metrics.maxQueryDurationMs24h === null
+                    ? t("dataSources.statusUnknown")
+                    : `${formatNumber(
+                        health.metrics.maxQueryDurationMs24h / 1_000,
+                        {
+                          maximumFractionDigits: 1,
+                        },
+                      )}s`}
                 </div>
               </div>
             </div>
@@ -2136,8 +2219,9 @@ export default function DataSources() {
       statusData.workspaceConnections?.available === false);
 
   const firstParty = useFirstPartyAnalyticsData();
+  const contentCollection = useContentCollectionStatus();
   const googleSheetsConnected =
-    getGoogleDriveConnection(statusData)?.grantState === "connected";
+    getGoogleSheetsConnection(statusData)?.grantState === "connected";
 
   const handleSaved = () => {
     void queryClient.invalidateQueries({
@@ -2292,11 +2376,60 @@ export default function DataSources() {
       .toLowerCase(),
     detail: (
       <WorkspaceOAuthView
-        provider="google_drive"
+        provider="google_sheets"
         label={t("dataSources.googleSheets")}
         connected={googleSheetsConnected}
       />
     ),
+  };
+
+  const searchConsoleLabel = {
+    unavailable: {
+      label: t("dataSources.statusUnknown"),
+      className: "text-destructive",
+    },
+    collecting: {
+      label: t("dataSources.searchConsole.statusCollecting"),
+      className: "text-emerald-500",
+    },
+    needs_access: {
+      label: t("dataSources.searchConsole.statusNeedsAccess"),
+      className: "text-amber-600 dark:text-amber-400",
+    },
+    failed: {
+      label: t("dataSources.searchConsole.statusFailed"),
+      className: "text-destructive",
+    },
+    off: {
+      label: t("dataSources.notConfigured"),
+      className: "text-muted-foreground",
+    },
+  }[searchConsoleState(contentCollection.data, contentCollection.error)];
+  const searchConsoleEntry: SourceEntry = {
+    id: "google-search-console",
+    name: t("dataSources.searchConsole.name"),
+    description: t("dataSources.searchConsole.description"),
+    category: "seo",
+    logo: (
+      <SourceLogo
+        id="google-search-console"
+        name={t("dataSources.searchConsole.name")}
+        fallbackIcon={IconSearch}
+      />
+    ),
+    status: contentCollection.isLoading ? undefined : searchConsoleLabel.label,
+    statusClassName: searchConsoleLabel.className,
+    connected:
+      searchConsoleState(contentCollection.data, contentCollection.error) ===
+      "collecting",
+    searchText: [
+      t("dataSources.searchConsole.name"),
+      t("dataSources.searchConsole.description"),
+      "google search console gsc seo clicks impressions",
+    ]
+      .join(" ")
+      .toLowerCase(),
+    detail: <SearchConsoleDetail />,
   };
 
   const customApiEntry: SourceEntry = {
@@ -2325,6 +2458,7 @@ export default function DataSources() {
     firstPartyEntry,
     ...sourceEntries,
     googleSheetsEntry,
+    searchConsoleEntry,
     customApiEntry,
   ];
   const activeEntry = entries.find((entry) => entry.id === activeId);

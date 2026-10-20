@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { openMcpAppHostLink } from "@agent-native/core/client/mcp-app-host";
 import React, { act } from "react";
@@ -23,6 +24,13 @@ const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 vi.mock("@agent-native/core/client/mcp-app-host", () => ({
   openMcpAppHostLink: vi.fn(() => false),
+}));
+
+vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/analytics")
+  >()),
+  trackEvent: vi.fn(),
 }));
 
 function jsonResponse(data: unknown): Response {
@@ -105,6 +113,9 @@ function BuilderConnectProbeContent({
         {flow.connecting ? "connecting" : "idle"}{" "}
         {flow.statusResolved ? "resolved" : "unresolved"}{" "}
         {flow.accountExists ? "account-exists" : "no-account-exists"}
+      </output>
+      <output data-testid="status-check-enabled">
+        {flow.statusCheckEnabled ? "enabled" : "disabled"}
       </output>
       <output data-testid="credential-source">
         {flow.credentialSource ?? "none"}
@@ -324,6 +335,21 @@ describe("useBuilderStatus", () => {
     );
   });
 
+  it("distinguishes a disabled status check from one still loading", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe enabled={false} />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="status-check-enabled"]')
+        ?.textContent,
+    ).toBe("disabled");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps the last good Builder status when a refresh fails", async () => {
     vi.stubGlobal(
       "fetch",
@@ -497,6 +523,7 @@ describe("useBuilderConnectFlow", () => {
     vi.stubGlobal("open", openSpy);
     vi.mocked(openMcpAppHostLink).mockReset();
     vi.mocked(openMcpAppHostLink).mockReturnValue(false);
+    vi.mocked(trackEvent).mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -552,6 +579,25 @@ describe("useBuilderConnectFlow", () => {
       expectedConnectUrl(signedConnectUrl),
     );
     expect(container.textContent).not.toContain("Popup blocked");
+  });
+
+  it("tracks the sign-in popup click with its connect URL kind", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    openSpy.mockReturnValue(createPopupStub());
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+    });
+    await flushAfterPaint();
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+    });
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      "builder connect clicked",
+      expect.objectContaining({ connect_url_kind: "provided" }),
+    );
   });
 
   it("waits for an embedded waiting popup before navigating to Builder", async () => {
@@ -934,6 +980,32 @@ describe("useBuilderConnectFlow", () => {
         "Couldn't create your Builder account. Try again or connect an existing account.",
       );
       expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it("tracks one-click clicks and failures under canonical event names", async () => {
+      mockActivation(() =>
+        activationResponse(503, { ok: false, code: "provision_failed" }),
+      );
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([
+        [
+          "builder_connect_clicked",
+          expect.objectContaining({ connect_url_kind: "provision" }),
+        ],
+        [
+          "builder_connect_failed",
+          expect.objectContaining({
+            reason: "provision_failed",
+            connect_url_kind: "provision",
+          }),
+        ],
+      ]);
     });
 
     it("shows status retry when a failed setup is followed by an unreadable status", async () => {
@@ -2552,7 +2624,7 @@ describe("useBuilderConnectFlow", () => {
     expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it("routes the existing-account choice through the surface callback", async () => {
+  it("routes the single connect action through the surface callback when provisioning is unavailable", async () => {
     const flow = {
       connecting: false,
       statusResolved: true,
@@ -2576,14 +2648,23 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector("button")?.click();
     });
 
-    const existingAccountAction = Array.from(
+    const connectAction = Array.from(
       document.querySelectorAll<HTMLButtonElement>(
         "[data-radix-popper-content-wrapper] button",
       ),
-    ).find((button) => button.textContent?.includes("Use Builder.io"));
-    expect(existingAccountAction).toBeDefined();
+    ).find((button) => button.textContent?.includes("Connect Builder.io"));
+    expect(connectAction).toBeDefined();
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLButtonElement>(
+          "[data-radix-popper-content-wrapper] button",
+        ),
+      ).some((button) =>
+        button.textContent?.includes("I have a Builder.io account"),
+      ),
+    ).toBe(false);
 
-    await act(async () => existingAccountAction?.click());
+    await act(async () => connectAction?.click());
 
     expect(onConnect).toHaveBeenCalledWith(false);
     expect(flow.start).not.toHaveBeenCalled();

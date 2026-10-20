@@ -30,6 +30,7 @@ export type DesignLeftPanel =
   | "assets"
   | "tools"
   | "tokens"
+  | "threads"
   | "import"
   | "code";
 
@@ -52,6 +53,7 @@ export function isDesignLeftPanelEnabled(
     value !== "assets" &&
     value !== "tools" &&
     value !== "tokens" &&
+    value !== "threads" &&
     value !== "import" &&
     value !== "code"
   ) {
@@ -72,7 +74,7 @@ export interface DesignFile {
   filename: string;
   fileType: string;
   content: string;
-  createdAt: string;
+  createdAt: string | null;
   updatedAt: string;
 }
 

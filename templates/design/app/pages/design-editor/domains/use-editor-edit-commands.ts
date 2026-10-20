@@ -20,6 +20,7 @@ import {
   preferredCodeLayerSelector,
 } from "../code-layer-state";
 import { runChangeSelectedZIndex } from "../commands/change-selected-z-index";
+import { copyVisualProperties } from "../commands/copy-properties";
 import { releaseCrossScreenDropAdmission } from "../commands/cross-screen-element-drop";
 import {
   cancelCrossScreenRollbackTimeout,
@@ -45,7 +46,10 @@ import {
   pendingLiveStructureEditsFromEdit,
   pendingLiveStructureEditsFromUndoEntry,
 } from "../pending-edits";
-import { overviewSelectionTargetsElement } from "../selection-state";
+import {
+  overviewNudgeTargetsElement,
+  overviewSelectionTargetsElement,
+} from "../selection-state";
 import { type DesignFile } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
@@ -159,6 +163,7 @@ export function useEditorEditCommands({
     recordLocalContentHistoryChangeFallback,
     flushPendingFileCreationHistoryEntries,
     discardPendingLiveStructureTransaction,
+    captureCurrentSelection,
   } = editorHistory;
   const {
     restoreSelectionSnapshot,
@@ -610,18 +615,22 @@ export function useEditorEditCommands({
     [canEditDesign, files, id, performDeleteFiles, queryClient, t],
   );
 
-  const handleOverviewNudgeSelection = useCallback(() => {
-    if (
-      overviewSelectionTargetsElement({
+  const handleOverviewNudgeSelection = useCallback(
+    (targetScreenIds: string[]) =>
+      !overviewNudgeTargetsElement({
+        targetScreenIds,
+        explicitScreenIds: explicitOverviewScreenSelectionRef.current,
         selectedElement,
         selectedLayerIds: selectedLayerIdsState,
         fileIds: files.map((file) => file.id),
-      })
-    ) {
-      return false;
-    }
-    return true;
-  }, [files, selectedElement, selectedLayerIdsState]);
+      }),
+    [
+      explicitOverviewScreenSelectionRef,
+      files,
+      selectedElement,
+      selectedLayerIdsState,
+    ],
+  );
 
   const handleDeleteOverviewSelection = useCallback(
     (selectedIds: string[], explicitScreenDeletion = false) => {
@@ -685,22 +694,7 @@ export function useEditorEditCommands({
 
   const handleCopyProps = useCallback(() => {
     if (!selectedElement) return;
-    copiedStylePropsRef.current = {
-      color: selectedElement.computedStyles.color,
-      backgroundColor: selectedElement.computedStyles.backgroundColor,
-      borderColor: selectedElement.computedStyles.borderColor,
-      borderStyle: selectedElement.computedStyles.borderStyle,
-      borderWidth: selectedElement.computedStyles.borderWidth,
-      borderRadius: selectedElement.computedStyles.borderRadius,
-      boxShadow: selectedElement.computedStyles.boxShadow,
-      opacity: selectedElement.computedStyles.opacity,
-      fontFamily: selectedElement.computedStyles.fontFamily,
-      fontSize: selectedElement.computedStyles.fontSize,
-      fontWeight: selectedElement.computedStyles.fontWeight,
-      lineHeight: selectedElement.computedStyles.lineHeight,
-      letterSpacing: selectedElement.computedStyles.letterSpacing,
-      textAlign: selectedElement.computedStyles.textAlign,
-    };
+    copiedStylePropsRef.current = copyVisualProperties(selectedElement);
     setHasPropsClipboard(true);
   }, [selectedElement]);
 
@@ -1046,6 +1040,7 @@ export function useEditorEditCommands({
         applyLocalContentUpdate,
         canEditDesign,
         allowPendingLiveEdits: canEditLiveScreens && !canEditDesign,
+        captureCurrentSelection,
         clipboardPasteRedoStackRef,
         clipboardPasteUndoStackRef,
         codeLayerOwnerByNodeIdRef,
@@ -1120,6 +1115,7 @@ export function useEditorEditCommands({
     [
       ydoc,
       activeFile,
+      captureCurrentSelection,
       applyFileContentUpdate,
       applyDesignDataHistoryChanges,
       applyGeometryHistoryContentChangesRef,

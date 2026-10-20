@@ -20,6 +20,12 @@ query text and row values. For Git-backed dbt roots, `generatedAt` uses the
 latest root's commit committer time in UTC, so the same dbt commits produce the
 same timestamp. Generation fails if any dbt root lacks Git commit metadata.
 Fingerprints still change when indexed files differ from the commit.
+The in-app GitHub/dbt rebuild replaces only the configured dbt source IDs in
+the stored index. It retains other imported sources and leaves the editable
+dictionary overlay alone. Freshness is tracked per source so a dbt refresh does
+not make older tracking-code or Sigma references appear fresh. If an existing
+index cannot be validated or the combined bundle exceeds its limits, the build
+fails without replacing the stored index.
 Keep the generated JSON outside Git because it can contain internal table,
 event, and column names. CI tests revisions, fingerprints, commit-time
 generation, missing-commit failure, and the 90-day stale signal against

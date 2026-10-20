@@ -4,6 +4,7 @@ import { count, desc, eq, sql } from "drizzle-orm";
 import { getRequestHeader, getRequestIP, type H3Event } from "h3";
 
 import { getDb, schema } from "../db/index.js";
+import { trackClipEventForOwner } from "./clip-funnel-tracking.js";
 import { nanoid } from "./recordings.js";
 
 export const AGENT_VIEW_SESSION_MS = 30 * 60 * 1000;
@@ -45,7 +46,12 @@ export function agentKeyFor(userAgent: string, ip: string): string {
 export async function recordAgentView(
   event: H3Event,
   recordingId: string,
-  options: { agentLabel?: string | null; nowMs?: number } = {},
+  options: {
+    agentLabel?: string | null;
+    nowMs?: number;
+    ownerEmail?: string | null;
+    viaScopedLink?: boolean;
+  } = {},
 ): Promise<void> {
   try {
     const nowMs = options.nowMs ?? Date.now();
@@ -58,7 +64,7 @@ export async function recordAgentView(
     const agentLabel =
       options.agentLabel?.trim() || agentLabelFromUserAgent(userAgent);
 
-    await getDb()
+    const [row] = await getDb()
       .insert(schema.recordingAgentViews)
       .values({
         id: nanoid(),
@@ -85,7 +91,17 @@ export async function recordAgentView(
           agentLabel: sql`COALESCE(excluded.agent_label, ${schema.recordingAgentViews.agentLabel})`,
           requestCount: sql`${schema.recordingAgentViews.requestCount} + 1`,
         },
+      })
+      .returning({ requestCount: schema.recordingAgentViews.requestCount });
+    // Only the request that created this clip × agent × session row counts;
+    // later polls in the same session only bump request_count.
+    if (row?.requestCount === 1) {
+      trackClipEventForOwner(event, "clip_agent_viewed", options.ownerEmail, {
+        output_id: recordingId,
+        agent_label: agentLabel,
+        via_scoped_link: options.viaScopedLink === true,
       });
+    }
   } catch (err) {
     console.warn("[agent-views] failed to record agent view:", err);
   }

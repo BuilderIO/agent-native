@@ -1,10 +1,11 @@
 ---
 name: adding-tests-and-ci
 description: >-
-  Where a new test belongs and how to scope CI jobs, steps, and workflow
-  triggers so they run only when a change can affect them. Use when adding or
-  moving a test, adding or changing a CI job, step, or workflow, or when a job
-  is slow or runs on unrelated changes.
+  Where a new test belongs, how to write a browser E2E test that fails when the
+  feature breaks, and how to scope CI jobs, steps, and workflow triggers so
+  they run only when a change can affect them. Use when adding, moving, or
+  writing a test (including Design E2E specs), adding or changing a CI job,
+  step, or workflow, or when a job is slow or runs on unrelated changes.
 scope: dev
 metadata:
   internal: true
@@ -51,6 +52,40 @@ root script test forces a full run.
   `scripts/ci-test-lanes.ts` about the path.
 - Never skip, disable, or quarantine a test to get green.
 
+## Writing a browser E2E test
+
+A browser test is the most expensive tier, so it has to fail when the feature
+breaks the way a user would see it. A test that only checks that something
+happened stays green while the result is wrong.
+
+- **Assert the exact end state, stated literally:** the saved parent, order,
+  position, and size. A fired message, `toContain`, a file over N bytes, or a
+  loose `closeTo` passes over the bug.
+- **Read persisted state, not only the DOM.** Wait for the save to settle, then
+  read what the server stored. An edit that never saved must fail.
+- **Fail on collateral change.** Diff the saved document before and after, and
+  allow only the nodes the step meant to touch.
+- **Fail on app errors by default, in a fixture:** console and page errors,
+  app responses of 400 or more, error toasts, a save still in flight at
+  teardown, and page loads the test did not start. A request that fails and is
+  then retried still counts.
+- **Own the data.** Create a fresh record per test and delete it after the
+  page leaves. Never mutate a shared seed or delete a record under an open
+  editor.
+- **Drive the real input path at any zoom.** Click, drag, and type at positions
+  computed from the app's own geometry; constant page-pixel offsets break when
+  the default zoom changes.
+- **One flow per test, a guard before each step, no conditionals, no sleeps.**
+  In a serial chain, one failure skips everything after it.
+- **Keep artifacts out of the watched source tree.** A file written there
+  reloads the dev server mid-test; use `testInfo.outputPath`.
+- **Check intent before calling it a bug.** Read the source first; some saved
+  attributes that look like leaks are deliberate metadata. A test that asserts
+  correct behaviour and fails is a bug report: never loosen it to pass.
+
+Design's harness (`templates/design/e2e/rails.ts`) and its traps are in
+[references/design-e2e.md](references/design-e2e.md).
+
 ## Test workers
 
 Fast-test lanes run Vitest with `VITEST_CONCURRENCY=100%`, one worker per
@@ -85,18 +120,18 @@ another. With 500 slots CI plans eight lanes (`LANES` in `ci.yml`): each costs
 
 ## Adding or changing a CI job
 
-| Rule | Why, from this repo |
-|---|---|
-| Give a job its own check in `CHECK_NAMES` whose condition names the paths that can change its result. Never borrow another job's output. | The Postgres connection budget reused `neon_query_budget` and ran on every template edit. Its probe imports only `@agent-native/core/db`. |
-| Per-app work takes a list output, not a boolean. Shared packages or a full run select every app; a template change selects that template; an empty selection turns the check off. If the check is on and the list is empty, the job fails. | `query_budget_apps` and `ssr_boot_apps`: a one-template PR built and measured all 16 templates (12–13 min). When shared code selects every template, `query_budget_matrix` splits them across two jobs. The beta publisher's `discover-sites` publishes only sites whose dependency closure changed. |
-| Split the expensive step from the cheap one. Keep the cheap check on every run and gate the expensive step on its narrower inputs. | Android: `expo export` runs whenever a file Metro bundles changes, but the Gradle compile, the bulk of the ~23 min Android job, runs only when `packages/mobile-app`, the lockfile, or the workflow changed. |
-| A path filter covers the job's whole dependency closure, including install-time inputs: root `package.json`, `pnpm-workspace.yaml`, the prebuild script, and the lockfile. | The desktop canary filter missed the bundled Chrome extension and then the postinstall inputs. Each gap skipped runs that should have caught a break. `guard:mobile-build-paths` traces Metro's imports and fails when the mobile filter misses one. |
-| Subscribe only to events that can change the outcome. Validators pin some trigger sets, e.g. `scripts/validate-*-workflow.ts` and `scripts/package-release-workflow.test.ts`; update them in the same change. | Content product conformance reran on `labeled`/`unlabeled` but never reads labels, and on title edits although it reads the body only for its declaration. |
-| Do not add a job for under a minute of work. Checkout, install, and a pool slot cost more than the check. Fold it into a job with the same setup, and do not duplicate what `pnpm guards` already runs. | Consolidation took PR pushes from ~31 to ~23 jobs. It folded PGlite locking into Content DB tests, privacy evals into Brain evals, QA static into Security guards, and the changeset check into Lint & format, and dropped a drizzle guard job `pnpm guards` covered. |
-| Batch periodic publishing on a schedule with change detection, instead of once per merge. | Nightly npm snapshots publish every 3 h, and only when a publishable path changed since the last successful scheduled run. |
-| PR workflows cancel superseded runs: `group: <name>-${{ github.event.pull_request.number \|\| github.ref }}` with `cancel-in-progress: true`. Publishers on `main` use `cancel-in-progress: false` so a deploy is never killed mid-flight. An event rejected only by a job `if` still joins the run's group and cancels a real run, so filter it in `on:` or give ignored events a throwaway group. | Visual Recap events the gate ignored used to cancel an in-progress recap; they now get a throwaway group. |
-| When scope cannot be computed, run everything or fail. Never skip. | An unreadable beta site list, an unknown base, or unrelated history publishes every site. A failed `git diff` fails the step; it is never `\|\| true`. |
-| Print what fails, not everything. | The full-tree lint printed ~15k pre-existing warnings over the one error. It now runs `oxlint --quiet`. |
+| Rule                                                                                                                                                                                                                                                                                                                                                                                                | Why, from this repo                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Give a job its own check in `CHECK_NAMES` whose condition names the paths that can change its result. Never borrow another job's output.                                                                                                                                                                                                                                                            | The Postgres connection budget reused `neon_query_budget` and ran on every template edit. Its probe imports only `@agent-native/core/db`.                                                                                                                                                            |
+| Per-app work takes a list output, not a boolean. Shared packages or a full run select every app; a template change selects that template; an empty selection turns the check off. If the check is on and the list is empty, the job fails.                                                                                                                                                          | `query_budget_apps` and `ssr_boot_apps`: a one-template PR built and measured all 16 templates (12–13 min). When shared code selects every template, `query_budget_matrix` splits them across two jobs. The beta publisher's `discover-sites` publishes only sites whose dependency closure changed. |
+| Split the expensive step from the cheap one. Keep the cheap check on every run and gate the expensive step on its narrower inputs.                                                                                                                                                                                                                                                                  | Android: `expo export` runs whenever a file Metro bundles changes, but the Gradle compile, the bulk of the ~23 min Android job, runs only when `packages/mobile-app`, the lockfile, or the workflow changed.                                                                                         |
+| A path filter covers the job's whole dependency closure, including install-time inputs: root `package.json`, `pnpm-workspace.yaml`, the prebuild script, and the lockfile.                                                                                                                                                                                                                          | The desktop canary filter missed the bundled Chrome extension and then the postinstall inputs. Each gap skipped runs that should have caught a break. `guard:mobile-build-paths` traces Metro's imports and fails when the mobile filter misses one.                                                 |
+| Subscribe only to events that can change the outcome. Validators pin some trigger sets, e.g. `scripts/validate-*-workflow.ts` and `scripts/package-release-workflow.test.ts`; update them in the same change.                                                                                                                                                                                       | Content product conformance reran on `labeled`/`unlabeled` but never reads labels, and on title edits although it reads the body only for its declaration.                                                                                                                                           |
+| Do not add a job for under a minute of work. Checkout, install, and a pool slot cost more than the check. Fold it into a job with the same setup, and do not duplicate what `pnpm guards` already runs.                                                                                                                                                                                             | Consolidation took PR pushes from ~31 to ~23 jobs. It folded PGlite locking into Content DB tests, privacy evals into Brain evals, QA static into Security guards, and the changeset check into Lint & format, and dropped a drizzle guard job `pnpm guards` covered.                                |
+| Batch periodic publishing on a schedule with change detection, instead of once per merge.                                                                                                                                                                                                                                                                                                           | Nightly npm snapshots publish every 3 h, and only when a publishable path changed since the last successful scheduled run.                                                                                                                                                                           |
+| PR workflows cancel superseded runs: `group: <name>-${{ github.event.pull_request.number \|\| github.ref }}` with `cancel-in-progress: true`. Publishers on `main` use `cancel-in-progress: false` so a deploy is never killed mid-flight. An event rejected only by a job `if` still joins the run's group and cancels a real run, so filter it in `on:` or give ignored events a throwaway group. | Visual Recap events the gate ignored used to cancel an in-progress recap; they now get a throwaway group.                                                                                                                                                                                            |
+| When scope cannot be computed, run everything or fail. Never skip.                                                                                                                                                                                                                                                                                                                                  | An unreadable beta site list, an unknown base, or unrelated history publishes every site. A failed `git diff` fails the step; it is never `\|\| true`.                                                                                                                                               |
+| Print what fails, not everything.                                                                                                                                                                                                                                                                                                                                                                   | The full-tree lint printed ~15k pre-existing warnings over the one error. It now runs `oxlint --quiet`.                                                                                                                                                                                              |
 
 A skipped job counts as passing for required checks, so gating a required job
 or step with `if` is safe. Every uppercase key a workflow adds under `env:`

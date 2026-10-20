@@ -35,8 +35,7 @@ it.
 - `doctor.ts`: the base branch is present, and `gh` is authenticated.
 - `collect.ts`: writes `commits.json`, with first-parent commits on
   `origin/<baseBranch>` for `--lookback-days`, and the ones inside
-  `--window-hours` marked. For window PRs it adds GitHub metadata, unless
-  `--no-prs` is passed. It uses tree-level data only, and takes seconds.
+  `--window-hours` marked. It uses tree-level data only, and takes seconds.
 - `analyze.ts`: writes `analysis.json`, `analysis.md`, and `targets.json`.
   - **Window mode** (the default): picks the systems the review window
     touched most. Each gets a percentile score against every active system,

@@ -11,6 +11,7 @@ vi.mock("../db/client.js", () => ({
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let writes: Array<{ sql: string; args: unknown[] }> = [];
 let failLearnSharedApprovalMigration = false;
+let failBuiltinAgentSeed = false;
 
 const sharedClient = {
   async execute(arg: string | { sql: string; args?: unknown[] }) {
@@ -22,6 +23,14 @@ const sharedClient = {
       /^\s*UPDATE resources SET content = \?/i.test(sql)
     ) {
       throw new Error("injected migration failure");
+    }
+    if (
+      failBuiltinAgentSeed &&
+      /^\s*INSERT INTO resources/i.test(sql) &&
+      typeof args[1] === "string" &&
+      args[1].startsWith("remote-agents/")
+    ) {
+      throw new Error("injected builtin manifest seed failure");
     }
     if (/^\s*create/i.test(sql)) {
       await pglite.exec(sql);
@@ -52,10 +61,12 @@ beforeEach(async () => {
   pglite = await createTestPglite();
   writes = [];
   failLearnSharedApprovalMigration = false;
+  failBuiltinAgentSeed = false;
   vi.resetModules();
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   await pglite.close();
 });
@@ -86,6 +97,77 @@ describe("default resource seeding is once per database, not per process", () =>
     const paths = rows.map((r) => r.path);
     expect(paths).toContain("AGENTS.md");
     expect(paths).toContain("LEARNINGS.md");
+  });
+
+  it("propagates invalid builtin URL config and retries without a seed marker", async () => {
+    const markerKey = "resources-seeded:shared:v1";
+    vi.stubEnv(
+      "AGENT_NATIVE_BUILTIN_AGENTS_JSON",
+      JSON.stringify({ urls: { design: "http://design.agent-native.com" } }),
+    );
+
+    const first = await import("./store.js");
+    await expect(first.resourceList("__shared__")).rejects.toThrow(
+      "builtinAgents.urls values must be absolute HTTPS URLs without credentials, query, or fragment",
+    );
+    expect(
+      (
+        await sharedClient.execute({
+          sql: "SELECT value FROM public.settings WHERE key = ?",
+          args: [markerKey],
+        })
+      ).rows,
+    ).toEqual([]);
+
+    vi.stubEnv("AGENT_NATIVE_BUILTIN_AGENTS_JSON", "");
+    writes = [];
+    vi.resetModules();
+    const retried = await import("./store.js");
+    const rows = await retried.resourceList("__shared__");
+
+    expect(rows.map((row) => row.path)).toContain("remote-agents/design.json");
+    expect(
+      (
+        await sharedClient.execute({
+          sql: "SELECT value FROM public.settings WHERE key = ?",
+          args: [markerKey],
+        })
+      ).rows,
+    ).toHaveLength(1);
+  });
+
+  it("propagates builtin manifest write failures and retries without a seed marker", async () => {
+    const markerKey = "resources-seeded:shared:v1";
+    failBuiltinAgentSeed = true;
+
+    const first = await import("./store.js");
+    await expect(first.resourceList("__shared__")).rejects.toThrow(
+      "injected builtin manifest seed failure",
+    );
+    expect(
+      (
+        await sharedClient.execute({
+          sql: "SELECT value FROM public.settings WHERE key = ?",
+          args: [markerKey],
+        })
+      ).rows,
+    ).toEqual([]);
+
+    failBuiltinAgentSeed = false;
+    writes = [];
+    vi.resetModules();
+    const retried = await import("./store.js");
+    const rows = await retried.resourceList("__shared__");
+
+    expect(rows.map((row) => row.path)).toContain("remote-agents/design.json");
+    expect(
+      (
+        await sharedClient.execute({
+          sql: "SELECT value FROM public.settings WHERE key = ?",
+          args: [markerKey],
+        })
+      ).rows,
+    ).toHaveLength(1);
   });
 
   it("does not recreate a deleted shared skill while its migration runs", async () => {

@@ -152,7 +152,9 @@ export function dataDictionaryTrustRank(entry: {
   approved?: unknown;
   aiGenerated?: unknown;
   sourceKind?: unknown;
+  sourceIndexStale?: unknown;
 }): number {
+  if (entry.sourceIndexStale === true) return 0;
   if (entry.approved === true) return 4;
   if (entry.sourceKind === "dbt") return 3;
   if (entry.sourceKind === "code") return 2;
@@ -183,6 +185,18 @@ const GENERIC_NAME_TERMS = new Set([
   "report",
   "table",
   "view",
+]);
+
+const DICTIONARY_SCOPES = new Set([
+  "analytics_user",
+  "crm_record",
+  "membership",
+  "membership_roster",
+  "organization",
+  "person",
+  "product_activity",
+  "product_user",
+  "session",
 ]);
 const MAX_SCORED_FIELD_CHARS = 4_000;
 
@@ -248,8 +262,70 @@ export function relevanceTerms(search: string): string[] {
 }
 
 export function semanticScopeForSearch(value: string): string {
-  const terms = new Set(searchTerms(value));
+  const intent = stripNonPositiveInstructions(value);
+  const terms = new Set(searchTerms(intent));
   const has = (...values: string[]) => values.some((term) => terms.has(term));
+  const asksForRoleAssignment =
+    /\b(?:roles?|permissions?|access)\b.{0,48}\b(?:assign(?:ed|ment|ments|ing)?|grant(?:ed|s|ing)?|change(?:d|s|ing)?|update(?:d|s|ing)?|add(?:ed|s|ing)?|remov(?:e|ed|al|ing))\b|\b(?:assign(?:ed|ment|ments|ing)?|grant(?:ed|s|ing)?|change(?:d|s|ing)?|update(?:d|s|ing)?|add(?:ed|s|ing)?|remov(?:e|ed|al|ing))\b.{0,48}\b(?:roles?|permissions?|access)\b/i.test(
+      intent,
+    );
+  const hasTimeQualifier =
+    /\b(?:daily|weekly|monthly|quarterly|yearly|annually|today|yesterday|last|past|previous|prior|since|during|between|before|after|within|over|from|as of|day|week|month|quarter|year)\b|\b20\d{2}\b|\b\d{4}-\d{2}-\d{2}\b/i.test(
+      intent,
+    );
+  const hasAnalyticsAppContext =
+    /\b(?:agent[ -]?native|analytics)\b/i.test(intent) &&
+    /\b(?:app|application)\b/i.test(intent);
+  const hasAnalyticsMembershipContext =
+    hasAnalyticsAppContext &&
+    /\b(?:members?|membership|seats?|roles?|permissions?|access|roster|licenses?|billable)\b/i.test(
+      intent,
+    );
+  const asksForAnalyticsAppOpens =
+    hasAnalyticsAppContext &&
+    /\b(?:open(?:ed|ing|s)?|launch(?:ed|ing|es)?)\b/i.test(intent) &&
+    !hasAnalyticsMembershipContext;
+  if (asksForAnalyticsAppOpens) return "analytics_user";
+  const asksForMembershipRows =
+    /\b(?:role|roles|permission|permissions|access|roster|list|row|rows|record|records|who|which)\b/i.test(
+      intent,
+    );
+  const asksForAggregate =
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|annually)\b|\bper\s+(?:day|week|month|quarter|year)\b/i.test(
+      intent,
+    );
+  const asksForTimeScopedActiveUsers =
+    /\b(?:active|activity|dau|wau|mau)\b/i.test(intent) &&
+    /\b(?:users?|people|persons?)\b/i.test(intent) &&
+    /\b(?:dau|wau|mau|daily|weekly|monthly|unique|distinct|trend|timeline|rolling|calendar|over|during|since|last|past)\b/i.test(
+      intent,
+    ) &&
+    !/\b(?:members?|membership|seats?|roster|permissions?|access|licenses?|billable)\b/i.test(
+      intent,
+    );
+  const hasTimeScopedRoleDetail =
+    asksForMembershipRows &&
+    hasTimeQualifier &&
+    !asksForTimeScopedActiveUsers &&
+    /\b(?:roles?|permissions?|access)\b/i.test(intent) &&
+    /\b(?:users?|people|persons?|members?|organizations?|orgs?|workspaces?|teams?)\b/i.test(
+      intent,
+    );
+  if (asksForRoleAssignment || hasTimeScopedRoleDetail) {
+    return asksForMembershipRows && !asksForAggregate
+      ? "membership_roster"
+      : "membership";
+  }
+  if (hasAnalyticsMembershipContext) {
+    return asksForMembershipRows && !asksForAggregate
+      ? "membership_roster"
+      : "membership";
+  }
+  if (asksForTimeScopedActiveUsers) {
+    return /\b(?:builder(?:\.io)?|product)\b/i.test(intent)
+      ? "product_activity"
+      : "active_user_activity";
+  }
   if (
     ((has("agent") && has("native")) || has("analytics", "analytic")) &&
     has("user", "person", "people", "member")
@@ -262,7 +338,6 @@ export function semanticScopeForSearch(value: string): string {
     has(
       "event",
       "activity",
-      "active",
       "usage",
       "feature",
       "funnel",
@@ -275,6 +350,15 @@ export function semanticScopeForSearch(value: string): string {
     return "product_activity";
   }
   if (
+    asksForMembershipRows &&
+    !asksForAggregate &&
+    has("organization", "org", "company", "workspace", "team") &&
+    (has("user", "person", "people", "member") || /\bwho\b/i.test(intent))
+  ) {
+    return "membership_roster";
+  }
+  if (has("active") && has("membership", "member")) return "membership";
+  if (
     has("organization", "org", "company", "workspace", "team") &&
     has("membership", "member")
   ) {
@@ -286,25 +370,179 @@ export function semanticScopeForSearch(value: string): string {
   ) {
     return "membership";
   }
+  if (
+    has("active") &&
+    has("user", "person", "people") &&
+    has("builder", "product") &&
+    !has("organization", "org", "company", "workspace", "team")
+  ) {
+    return "product_activity";
+  }
   if (has("builder", "product") && has("user", "person", "people", "member")) {
     return "product_user";
   }
   if (has("organization", "org", "company", "workspace", "team")) {
     return "organization";
   }
+  if (has("active") && has("user", "person", "people")) {
+    return "unknown";
+  }
   if (has("user", "person", "people", "profile", "seat")) return "person";
   return "unknown";
+}
+
+export function semanticScopeForCandidate(value: string): string {
+  const scope = semanticScopeForSearch(value);
+  return scope === "active_user_activity" ? "product_activity" : scope;
+}
+
+export function semanticScopeForDictionaryEntry(
+  entry: Record<string, unknown>,
+): string {
+  const declared =
+    typeof entry.semanticScope === "string" &&
+    DICTIONARY_SCOPES.has(entry.semanticScope)
+      ? entry.semanticScope
+      : "";
+  const evidence = [
+    entry.metric,
+    entry.definition,
+    entry.source,
+    entry.table,
+    entry.grain,
+    entry.primaryEntity,
+    entry.timeDimension,
+    entry.semanticModel,
+    entry.queryTemplate,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  const semanticEvidence = [
+    entry.metric,
+    entry.definition,
+    entry.grain,
+    entry.primaryEntity,
+    entry.timeDimension,
+    entry.semanticModel,
+    entry.queryTemplate,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  const isAnalyticsAppActivity =
+    /\b(?:agent[\s-]*native|analytics)\b/.test(semanticEvidence) &&
+    /\b(?:app|application)\b/.test(semanticEvidence) &&
+    /\b(?:open(?:ed|ing|s)?|launch(?:ed|ing|es)?)\b/.test(semanticEvidence) &&
+    !/\b(?:members?|membership|seats?|roles?|permissions?|access|roster|licenses?|billable)\b/.test(
+      semanticEvidence,
+    );
+  const isActiveUserActivityMetric =
+    /\bactive user(?:s| id)?\b|\bactive builders?\b/.test(evidence) &&
+    /\b(?:event|activity|usage|page\s+views?|sessions?|ai chat)\b/.test(
+      evidence,
+    ) &&
+    /\b(?:date|time|day|week|month|period|timestamp|daily|weekly|monthly)\b/.test(
+      evidence,
+    );
+
+  if (
+    isAnalyticsAppActivity &&
+    (!declared || declared === "product_activity")
+  ) {
+    return "analytics_user";
+  }
+  if (
+    isActiveUserActivityMetric &&
+    (!declared || declared === "analytics_user") &&
+    !isAnalyticsAppActivity
+  ) {
+    return "product_activity";
+  }
+  if (declared) return declared;
+  return semanticScopeForCandidate(evidence);
+}
+
+export function stripNonPositiveInstructions(value: string): string {
+  const keepPositiveContinuation = (match: string) => {
+    const actionContinuation =
+      /\b(?:but|and)\s+(?:please\s+)?(?:show|include|report|return|provide|display|list|find|compare|calculate|summarize)\b/i.exec(
+        match,
+      );
+    const nounPhraseContinuation =
+      /\band\s+(?!(?:no|not|never|without|don't|do\s+not|avoid)\b)(?:(?:a|an|the|my|your|his|her|its|our|their|this|that|these|those|all|both|each|some|any)\s+)?[\p{L}\p{N}'-]+(?:\s+[\p{L}\p{N}'-]+){0,2}(?=\s+(?:but|and)\b|$)/iu.exec(
+        match,
+      );
+    const qualifierContinuation =
+      /\b(?:by|with|for|from|per|at|in|on|over|across|between)\s+(?!(?:no|not|never|without|don't|do\s+not|avoid)\b)[\p{L}\p{N}'-]+(?:\s+[\p{L}\p{N}'-]+){0,2}/iu.exec(
+        match,
+      );
+    const continuation = [
+      actionContinuation,
+      nounPhraseContinuation,
+      qualifierContinuation,
+    ]
+      .filter((candidate): candidate is RegExpExecArray => candidate !== null)
+      .sort((left, right) => left.index - right.index)[0];
+    const retainedContinuation = continuation
+      ? match.slice(continuation.index).trim()
+      : "";
+    return retainedContinuation ? ` ${retainedContinuation}` : " ";
+  };
+
+  return value
+    .replace(/(?:^|[;,.!?])\s*metadata only\b/gi, " ")
+    .replace(
+      /(?:^|[;,.!?]|\bbut\b|\band\b)\s*(?:please\s+)?(?:do\s+not|don't|never|avoid)\s+(?:report|return|show|include|provide|display)\s+(?:any\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b(?:(?!\b(?:but|and)\s+(?:please\s+)?(?:show|include|report|return|provide|display|list|find|compare|calculate|summarize)\b)[^;,.!?])*/gi,
+      keepPositiveContinuation,
+    )
+    .replace(
+      /(?:^|[;,.!?]|\bbut\b|\band\b)?\s*(?:with\s+)?\bno\s+(?:(?:any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
+      keepPositiveContinuation,
+    )
+    .replace(
+      /(?:^|[;,.!?]|\bbut\b|\band\b)?\s*without\s+(?:(?:a|an|any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
+      keepPositiveContinuation,
+    )
+    .trim()
+    .replace(/^[,;.!?]+|[,;.!?]+$/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 export function semanticScopeCompatibility(
   candidateScope: string,
   requestedScope: string,
 ): number {
+  if (requestedScope === "active_user_activity") {
+    return [
+      "product_activity",
+      "analytics_user",
+      "membership",
+      "membership_roster",
+    ].includes(candidateScope)
+      ? 1
+      : 0;
+  }
   if (candidateScope === "unknown" || requestedScope === "unknown") return 1;
   if (candidateScope === requestedScope) return 2;
+  if (requestedScope === "membership_roster") return 0;
+  if (
+    candidateScope === "membership_roster" &&
+    requestedScope === "membership"
+  ) {
+    return 1;
+  }
   if (
     requestedScope === "person" &&
-    ["product_user", "analytics_user", "membership"].includes(candidateScope)
+    [
+      "product_user",
+      "analytics_user",
+      "membership",
+      "membership_roster",
+    ].includes(candidateScope)
   ) {
     return 2;
   }

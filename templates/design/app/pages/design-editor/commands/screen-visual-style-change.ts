@@ -49,6 +49,7 @@ export interface ScreenVisualStyleChangeArgs {
       routePath?: string;
       relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       runtimeApplied?: boolean;
+      requirePersistedSourceAcceptance?: boolean;
     },
   ) => void;
   overviewScreens: OverviewScreen[];
@@ -95,6 +96,7 @@ export function runScreenVisualStyleChange(
     preserveSelection?: boolean;
     routePath?: string;
     runtimeApplied?: boolean;
+    requirePersistedSourceAcceptance?: boolean;
     relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ) {

@@ -41,6 +41,37 @@ observed values and confidence. Where it conflicts with the help-page contracts
 above or with earlier prose in this file, the measured value wins. It records
 Google behavior only; it is not evidence about this editor.
 
+### In-place text editing against rich text editors (2026-10-15)
+
+The text session was measured against stock Squire (schema-free, edits the DOM
+it is given), Tiptap StarterKit (the Content editor), Lexical and native
+Chromium contenteditable, in real Chromium, over 515 scenarios in 11 behavior
+areas (Enter, Backspace/Delete, lists, inline marks, selection, clipboard,
+history, input rules, typing/whitespace, links, block conversion). Rules the
+session now follows, where the references agree and Google Docs does too:
+Enter on an already-empty list item or quote paragraph exits it, while Enter
+over a selection that empties a block splits it; Backspace in an empty or
+nested list item outdents one level and a top-level item exits to a paragraph;
+Delete and Backspace join across headings, quotes and lists without eating the
+neighbouring character; a list toggle acts on the item holding the caret and
+joins adjacent same-type lists; a paste keeps lists as lists and bare URLs
+become links; typing after a collapsed Cmd+B keeps the space; Cmd+A selects
+the whole text box on the first press; undo never throws and each structural
+edit is its own step; the saved markup holds no zero-width placeholders and
+no emptied inline wrappers.
+
+Deliberate differences: Backspace at the start of a heading that follows text
+demotes it before merging (Notion-style); a space left trailing after a word
+delete is a no-break space until text follows, because slide text is not
+`white-space: pre-wrap`; a pasted list is inserted as separate blocks rather
+than merging its first item into the line; Tab never leaves the editor.
+`in-place-text-session.browser.spec.ts` drives 120 of these scenarios with
+real keystrokes; the happy-dom suites `in-place-text-session.rte-*.test.ts`
+cover the DOM contract. Known gaps: undo of the exit of an authored
+`<li></li>` with no placeholder puts the caret in the next item; pointer
+selection (double/triple click) and IME composition were not part of this
+differential.
+
 ### Local browser run (2026-10-08 UTC) and what is not yet re-run
 
 `.tmp/slides-ux/verify/verify.mjs` (Playwright, headless Chromium, 1440x900,

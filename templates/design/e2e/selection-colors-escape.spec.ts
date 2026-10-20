@@ -1,6 +1,10 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
-
-import { enterDirectMode, expandAllLayers, gotoEditor } from "./helpers";
+import {
+  expect,
+  expectOnlyChanged,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
 const FIXTURE = `<!doctype html><html><body style="margin:0">
 <main data-agent-native-node-id="paint-owner" data-agent-native-layer-name="Paint owner" data-an-primitive="frame" style="position:relative;width:500px;height:300px">
@@ -8,96 +12,80 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
 <p data-agent-native-node-id="paint-text" data-an-primitive="text" style="position:absolute;left:20px;top:140px;margin:0;color:#f97316;font:24px sans-serif">Paint</p>
 </main></body></html>`;
 
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(`/_agent-native/actions/${name}`, {
-    data: input,
-  });
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
+const ORANGE = "rgb(249, 115, 22)";
+const BLUE = "rgb(59, 130, 246)";
+
+/** Shape fill, shape stroke and text colour, resolved the way the canvas renders them. */
+async function savedPaints(app: App, nodes: Map<string, SavedNode>) {
+  return app.page.evaluate(
+    ({ shape, text }) => {
+      const resolve = (style: string, property: string) => {
+        const probe = document.createElement("div");
+        probe.style.cssText = style;
+        document.body.append(probe);
+        const value = getComputedStyle(probe).getPropertyValue(property);
+        probe.remove();
+        return value;
+      };
+      return [
+        resolve(shape, "background-color"),
+        resolve(shape, "border-top-color"),
+        resolve(text, "color"),
+      ];
+    },
+    {
+      shape: nodes.get("paint-shape")?.attrs.style ?? "",
+      text: nodes.get("paint-text")?.attrs.style ?? "",
+    },
+  );
 }
 
-test("Selection Colors commits survive picker Escape and undo together", async ({
-  page,
-  request,
-}) => {
-  let observingPaintGesture = false;
-  const hmrEvents: string[] = [];
-  page.on("websocket", (socket) => {
-    socket.on("framereceived", ({ payload }) => {
-      const message = String(payload);
-      if (
-        observingPaintGesture &&
-        /"type":"(?:update|full-reload)"/.test(message)
-      ) {
-        hmrEvents.push(message);
-      }
-    });
-  });
-  const created = await action(request, "create-design", {
-    title: `Selection Colors Escape ${Date.now()}`,
-    projectType: "prototype",
-  });
-  if (typeof created.id !== "string") throw new Error("Missing design id");
-  try {
-    await action(request, "create-file", {
-      designId: created.id,
-      filename: "index.html",
-      content: FIXTURE,
-      fileType: "html",
-    });
-    await gotoEditor(page, created.id);
-    await enterDirectMode(page);
-    await expandAllLayers(page);
-    const tree = page.getByRole("tree", { name: "Layers" });
-    await tree
-      .getByRole("button", { name: "Paint owner", exact: true })
-      .click();
-    const selected = tree.locator('[role="treeitem"][aria-selected="true"]');
-    await expect(selected).toContainText("Paint owner");
-    await page.getByRole("button", { name: "Show selection colors" }).click();
-    await page.getByRole("button", { name: /^#f97316$/i }).click();
-    const hex = page.getByRole("textbox", { name: "Hex", exact: true });
-    await expect(hex).toBeVisible();
-    observingPaintGesture = true;
-    await hex.fill("3B82F6");
-    await hex.press("Enter");
-    await expect(hex).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(hex).toBeHidden();
-    await expect(selected).toContainText("Paint owner");
+async function livePaints(app: App) {
+  return [
+    await app
+      .node("paint-shape")
+      .evaluate((element) => getComputedStyle(element).backgroundColor),
+    await app
+      .node("paint-shape")
+      .evaluate((element) => getComputedStyle(element).borderTopColor),
+    await app
+      .node("paint-text")
+      .evaluate((element) => getComputedStyle(element).color),
+  ];
+}
 
-    const frame = page
-      .locator("iframe[data-design-preview-iframe]")
-      .last()
-      .contentFrame();
-    const paints = () =>
-      frame
-        .locator('[data-agent-native-node-id="paint-owner"]')
-        .evaluate((owner) => {
-          const shape = owner.querySelector(
-            '[data-agent-native-node-id="paint-shape"]',
-          );
-          const text = owner.querySelector(
-            '[data-agent-native-node-id="paint-text"]',
-          );
-          if (!shape || !text) throw new Error("Missing paint descendants");
-          return [
-            getComputedStyle(shape).backgroundColor,
-            getComputedStyle(shape).borderTopColor,
-            getComputedStyle(text).color,
-          ];
-        });
-    await expect.poll(paints).toEqual(Array(3).fill("rgb(59, 130, 246)"));
-    await page.keyboard.press("ControlOrMeta+z");
-    await expect.poll(paints).toEqual(Array(3).fill("rgb(249, 115, 22)"));
-    expect(hmrEvents).toEqual([]);
-  } finally {
-    await action(request, "delete-design", { id: created.id });
-  }
+test("a Selection Colors edit saves to every paint, survives the picker's Escape, and one undo restores all three", async ({
+  app,
+}) => {
+  const id = await app.seed(FIXTURE);
+  await app.open(id);
+  await app.zoomToFit();
+  const empty = await app.pagePoint(400, 250);
+  await app.page.mouse.click(empty.x, empty.y);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Paint owner"]);
+  await app.settled();
+  const before = await app.savedNodes(id);
+
+  await app.page.getByRole("button", { name: "Show selection colors" }).click();
+  await app.page.getByRole("button", { name: /^#f97316$/i }).click();
+  const hex = app.page.getByRole("textbox", { name: "Hex", exact: true });
+  await hex.fill("3B82F6");
+  await hex.press("Enter");
+  await app.page.keyboard.press("Escape");
+
+  await expect(hex).toBeHidden();
+  await expect.poll(() => app.selectedLayers()).toEqual(["Paint owner"]);
+  await expect.poll(() => livePaints(app)).toEqual([BLUE, BLUE, BLUE]);
+  await app.settled();
+  const edited = await app.savedNodes(id);
+  expect(await savedPaints(app, edited)).toEqual([BLUE, BLUE, BLUE]);
+  expectOnlyChanged(before, edited, ["paint-shape", "paint-text"]);
+
+  await app.page.keyboard.press("ControlOrMeta+z");
+
+  await expect.poll(() => livePaints(app)).toEqual([ORANGE, ORANGE, ORANGE]);
+  await app.settled();
+  const undone = await app.savedNodes(id);
+  expect(await savedPaints(app, undone)).toEqual([ORANGE, ORANGE, ORANGE]);
+  expectOnlyChanged(before, undone, []);
 });

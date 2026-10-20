@@ -71,6 +71,10 @@ vi.mock("../db/client.js", () => ({
   isLocalDatabase: mocks.isLocalDatabase,
   getDatabaseUrl: mocks.getDatabaseUrl,
 }));
+vi.mock("../db/store-registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/store-registry.js")>()),
+  withStoreMigrationLock: (run: () => Promise<unknown>) => run(),
+}));
 vi.mock("../db/migrations.js", () => ({
   runMigrations: mocks.runMigrations,
 }));
@@ -129,8 +133,9 @@ describe("runFrameworkReleaseMigrations", () => {
     mocks.runFrameworkSchemaEnsures.mockImplementation(async () => {
       mocks.order.push("schema-ensures");
     });
-    mocks.runBetterAuthMigrations.mockImplementation(async () => {
-      mocks.order.push("better-auth");
+    mocks.ensureSharingAccessIndexes.mockImplementation(async () => {
+      mocks.order.push("sharing-indexes");
+      return 0;
     });
   });
 
@@ -138,28 +143,22 @@ describe("runFrameworkReleaseMigrations", () => {
   // is the owning store's `ensureTable()`, which production serverless never
   // runs. Without this call the release step creates a fraction of the schema
   // and reports success.
-  it("creates the stores' own schema, before the versioned migrations", async () => {
+  it("creates the stores' own schema, before the sharing indexes", async () => {
     await runFrameworkReleaseMigrations(null);
 
     expect(mocks.runFrameworkSchemaEnsures).toHaveBeenCalledTimes(1);
-    expect(mocks.order).toEqual(["schema-ensures", "better-auth"]);
-  });
-
-  it("runs the durable trigger event queue migration", async () => {
-    await runFrameworkReleaseMigrations(null);
-
-    expect(mocks.runAutomationTriggerEventMigrations).toHaveBeenCalledOnce();
+    expect(mocks.order).toEqual(["schema-ensures", "sharing-indexes"]);
   });
 
   it("propagates a schema-ensure failure instead of migrating on regardless", async () => {
     mocks.runFrameworkSchemaEnsures.mockRejectedValueOnce(new Error("boom"));
 
     await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow("boom");
-    expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+    expect(mocks.ensureSharingAccessIndexes).not.toHaveBeenCalled();
   });
 
   describe("database identity", () => {
-    it("records identity after schema ensures, before the versioned migrations", async () => {
+    it("records identity after schema ensures, before the sharing indexes", async () => {
       mocks.getAppConfig.mockReturnValue({
         migration: { deployContext: undefined },
         app: { slug: "chat" },
@@ -171,10 +170,10 @@ describe("runFrameworkReleaseMigrations", () => {
       const schemaEnsuresOrder =
         mocks.runFrameworkSchemaEnsures.mock.invocationCallOrder[0];
       const identityOrder = mocks.mutateSetting.mock.invocationCallOrder[0];
-      const betterAuthOrder =
-        mocks.runBetterAuthMigrations.mock.invocationCallOrder[0];
+      const laterStepOrder =
+        mocks.ensureSharingAccessIndexes.mock.invocationCallOrder[0];
       expect(identityOrder).toBeGreaterThan(schemaEnsuresOrder);
-      expect(identityOrder).toBeLessThan(betterAuthOrder);
+      expect(identityOrder).toBeLessThan(laterStepOrder);
       expect(
         mocks.identityRows.get(DATABASE_IDENTITY_SETTING_KEY),
       ).toMatchObject({ app: "chat" });
@@ -208,7 +207,7 @@ describe("runFrameworkReleaseMigrations", () => {
       ).resolves.toBeUndefined();
 
       expect(mocks.mutateSetting).not.toHaveBeenCalled();
-      expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
+      expect(mocks.ensureSharingAccessIndexes).toHaveBeenCalled();
     });
 
     it("fails the release when recording identity fails, like a schema-ensure failure", async () => {
@@ -221,37 +220,36 @@ describe("runFrameworkReleaseMigrations", () => {
       await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow(
         "db unreachable",
       );
-      expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+      expect(mocks.ensureSharingAccessIndexes).not.toHaveBeenCalled();
     });
   });
 
-  it("runs the approval schema before request paths can use it", async () => {
+  it("leaves lists folded into stores to the store pass", async () => {
     await runFrameworkReleaseMigrations(null);
-
-    expect(mocks.runMigrations).toHaveBeenCalledWith(
-      mocks.agentToolApprovalMigrations,
-      { table: "_agent_tool_approval_migrations" },
-    );
-    expect(mocks.runMigrations).toHaveBeenCalledWith(
-      mocks.identitySsoMigrations,
-      { table: "_identity_sso_migrations" },
-    );
-    expect(mocks.runMigrations).toHaveBeenCalledWith(
-      mocks.remoteDeviceMigrations,
-      { table: "_remote_device_migrations" },
-    );
 
     const migrationTables = mocks.runMigrations.mock.calls.map(
       ([, options]) => (options as { table: string }).table,
     );
-    expect(migrationTables).toEqual(
-      expect.arrayContaining([
-        "_chat_thread_schema_migrations",
-        "_agent_run_migrations",
-        "_agent_harness_session_migrations",
-        "_usage_alert_migrations",
-      ]),
-    );
+    for (const folded of [
+      "_agent_tool_approval_migrations",
+      "_identity_sso_migrations",
+      "_remote_device_migrations",
+      "_chat_thread_schema_migrations",
+      "_agent_run_migrations",
+      "_agent_harness_session_migrations",
+      "_usage_alert_migrations",
+      "_oauth_token_migrations",
+      "_observability_migrations",
+      "_workspace_connections_migrations",
+      "_org_migrations",
+      "_context_xray_migrations",
+      "_observational_memory_migrations",
+      "_better_auth_migrations",
+    ]) {
+      expect(migrationTables).not.toContain(folded);
+    }
+    expect(mocks.runAutomationTriggerEventMigrations).not.toHaveBeenCalled();
+    expect(mocks.runFrameworkSchemaEnsures).toHaveBeenCalled();
   });
 
   it("fails a production release migration that resolved to a local database", async () => {
@@ -265,7 +263,7 @@ describe("runFrameworkReleaseMigrations", () => {
       /unusable database/,
     );
     expect(mocks.runFrameworkSchemaEnsures).not.toHaveBeenCalled();
-    expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+    expect(mocks.ensureSharingAccessIndexes).not.toHaveBeenCalled();
   });
 
   it("allows a local database on a beta branch-deploy build", async () => {
@@ -275,7 +273,7 @@ describe("runFrameworkReleaseMigrations", () => {
     mocks.isLocalDatabase.mockReturnValue(true);
 
     await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
-    expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
+    expect(mocks.ensureSharingAccessIndexes).toHaveBeenCalled();
   });
 
   it("fails when the production database url is a masked secret", async () => {
@@ -288,7 +286,7 @@ describe("runFrameworkReleaseMigrations", () => {
     await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow(
       /masked secret/,
     );
-    expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+    expect(mocks.ensureSharingAccessIndexes).not.toHaveBeenCalled();
   });
 
   it("allows a production release migration against a remote database", async () => {
@@ -298,6 +296,6 @@ describe("runFrameworkReleaseMigrations", () => {
     mocks.isLocalDatabase.mockReturnValue(false);
 
     await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
-    expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
+    expect(mocks.ensureSharingAccessIndexes).toHaveBeenCalled();
   });
 });

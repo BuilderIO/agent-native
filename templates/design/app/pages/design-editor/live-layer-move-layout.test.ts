@@ -66,6 +66,7 @@ describe("readLiveLayerMoveLayout", () => {
       sourcePosition: "",
       sourceParentDisplay: "block",
       destinationDisplay: "flex",
+      sourceAbsoluteOffsetInDestination: { x: 0, y: 0 },
     });
   });
 
@@ -211,6 +212,7 @@ describe("readLiveLayerMoveLayout", () => {
       sourcePosition: "absolute",
       sourceParentDisplay: "flex",
       destinationDisplay: "flex",
+      sourceAbsoluteOffsetInDestination: { x: 0, y: 0 },
     });
   });
 

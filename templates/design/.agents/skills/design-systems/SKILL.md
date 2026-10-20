@@ -259,11 +259,23 @@ pnpm action import-design-tokens \
 ```
 
 Supported sources are `files`, `paste`, and `current-design`. The action parses
-CSS variables, design.md-style labeled lines, Tailwind/theme JSON, colors,
-spacing, radii, and fonts, then persists them through the design's
-`tweakSelections` so the canvas updates like any other token edit. Treat manual
+CSS variables, design.md-style labeled lines, Tailwind/theme JSON, DTCG (W3C
+design tokens) JSON, colors, spacing, radii, and fonts, then persists them
+through the design's
+`tweakSelections` so the canvas updates like any other token edit. DTCG
+`$type`s become token types (see below), and `{group.token}` references become
+`var(--group-token)`. Treat manual
 `apply-design-token-edit` calls as a last-resort one-off edit after import has
 been tried or ruled out.
+
+When you do create a token with `apply-design-token-edit`, pass `type` (`color`,
+`font-family`, `font-weight`, `font-size`, `line-height`, `letter-spacing`,
+`spacing`, `container`, `breakpoint`, `radius`, `shadow`, `opacity`) — the same
+types the Tokens panel `+` menu offers. It is stored in `designs.data.tokenTypes`;
+without it the type is guessed from the name, which often gets the font types
+and opacity wrong. Each type belongs to one panel section (font types go under
+Typography, opacity under Shadows & Effects). Omit `type` when only changing an
+existing token's value.
 
 ### Source: Documents (DOCX, PPTX, PDF)
 

@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
+import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 import {
+  byParagraphTargets,
   expandByParagraphAnimations,
   getElementAnimationValue,
   getElementPath,
@@ -9,9 +11,14 @@ import {
   getSlideAnimationTargetKey,
   getSlideAnimationTargetPreview,
   parseSlideAnimationElements,
+  resolveRevealSteps,
   resolveSlideAnimationElement,
   resolveSlideAnimationTargets,
+  revealStepsOf,
+  storedOrdinalAtPath,
+  storedPathOfRenderedElement,
 } from "@/lib/slide-animation-elements";
+import { stampSlideSource } from "@/lib/slide-source-map";
 
 const contentSlide = `<div class="fmd-slide" style="padding: 80px 110px; justify-content: center;">
   <div style="font-size: 16px;">SECTION</div>
@@ -100,12 +107,16 @@ describe("slide animation element parsing", () => {
         elementPath: [99],
       }),
     ).toBeNull();
-    expect(
-      resolveSlideAnimationTargets(root, [
-        { elementIndex: 0, elementPath: [2, 0] },
-        { elementIndex: 1, elementPath: [99] },
-      ]),
-    ).toBeNull();
+    const outcomes = resolveRevealSteps(root, [
+      { id: "kept", elementIndex: 0, elementPath: [2, 0] },
+      { id: "stale", elementIndex: 1, elementPath: [99] },
+    ]);
+    expect(outcomes[0]).toMatchObject({ ok: true, path: [2, 0] });
+    expect(outcomes[1]).toMatchObject({
+      ok: false,
+      id: "stale",
+      reason: "stale-path",
+    });
   });
 
   it("flattens the editor-only AutoFit wrapper before persisting a path", () => {
@@ -166,9 +177,41 @@ describe("slide animation element parsing", () => {
       { elementIndex: 1, elementPath: [1] },
     ];
     expect(
-      resolveSlideAnimationTargets(root, targets)?.map(({ key }) => key),
+      revealStepsOf(resolveRevealSteps(root, targets)).map((step) =>
+        step.path.join("."),
+      ),
     ).toEqual(["0", "1"]);
     expect(getSlideAnimationTargetKey(html, targets[1]!)).toBe("1");
+  });
+
+  it("reveals every imported paragraph of a text object through the resolver", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide">
+        <div class="fmd-pptx-text">
+          <p data-pptx-paragraph="0">First</p>
+          <p data-pptx-paragraph="1">Second</p>
+        </div>
+      </div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const outcomes = resolveRevealSteps(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(revealStepsOf(outcomes).map((step) => step.path)).toEqual([
+      [0, 0],
+      [0, 1],
+    ]);
   });
 
   it("expands paragraph animations from an individually selected paragraph", () => {
@@ -760,14 +803,15 @@ describe("slide animation element parsing", () => {
       elementIndex: element.index,
       elementPath: element.path,
     }));
-    const resolved = resolveSlideAnimationTargets(root, targets);
+    const outcomes = resolveRevealSteps(root, targets);
 
-    expect(resolved?.map((entry) => entry.key)).toEqual(
+    expect(outcomes.every((outcome) => outcome.ok)).toBe(true);
+    expect(revealStepsOf(outcomes).map((step) => step.path.join("."))).toEqual(
       elements.map((element) => element.path.join(".")),
     );
     expect(
-      resolveSlideAnimationTargets(root, [targets[0]!, targets[0]!]),
-    ).toBeNull();
+      resolveRevealSteps(root, [targets[0]!, targets[0]!])[1],
+    ).toMatchObject({ ok: false, reason: "duplicate-after-expansion" });
   });
 
   it("includes empty styled shapes without exposing styled layout wrappers", () => {
@@ -786,5 +830,192 @@ describe("slide animation element parsing", () => {
       [0, 0],
       [0, 1],
     ]);
+  });
+});
+
+function slideRoot(html: string): Element {
+  const root = new DOMParser()
+    .parseFromString(html, "text/html")
+    .querySelector(".fmd-slide");
+  if (!root) throw new Error("fixture has no .fmd-slide");
+  return root;
+}
+
+describe("reveal resolver", () => {
+  const boxSlide = `<div class="fmd-slide">
+    <div class="text-box"><p>One</p><p>Two</p><p>Three</p></div>
+  </div>`;
+
+  it("resolves a plain reveal to one step on its element", () => {
+    const [outcome] = resolveRevealSteps(slideRoot(boxSlide), [
+      { id: "a", elementIndex: 0, elementPath: [0, 1], type: "fade" },
+    ]);
+    expect(outcome).toMatchObject({ ok: true, id: "a", path: [0, 1] });
+    expect(revealStepsOf([outcome!]).map((step) => step.path)).toEqual([
+      [0, 1],
+    ]);
+  });
+
+  it("reports a path that no longer resolves as stale-path", () => {
+    const [outcome] = resolveRevealSteps(slideRoot(boxSlide), [
+      { id: "gone", elementIndex: 0, elementPath: [9, 9], type: "fade" },
+    ]);
+    expect(outcome).toMatchObject({
+      ok: false,
+      id: "gone",
+      reason: "stale-path",
+    });
+  });
+
+  it("reports an elementIndex with no legacy container child as missing-element", () => {
+    const [outcome] = resolveRevealSteps(slideRoot(boxSlide), [
+      { id: "legacy", elementIndex: 7, type: "fade" },
+    ]);
+    expect(outcome).toMatchObject({ ok: false, reason: "missing-element" });
+  });
+
+  it("reports every reveal as missing-element when the content has no slide root", () => {
+    const outcomes = resolveRevealSteps(null, [
+      { id: "a", elementIndex: 0, elementPath: [0], type: "fade" },
+    ]);
+    expect(outcomes).toMatchObject([{ ok: false, reason: "missing-element" }]);
+  });
+
+  it("keeps resolving the other reveals when one is stale", () => {
+    const outcomes = resolveRevealSteps(slideRoot(boxSlide), [
+      { id: "stale", elementIndex: 0, elementPath: [5], type: "fade" },
+      { id: "ok", elementIndex: 0, elementPath: [0, 0], type: "zoom" },
+    ]);
+    expect(outcomes.map((outcome) => outcome.ok)).toEqual([false, true]);
+  });
+
+  it("plays an explicit reveal at its paragraph's step in a by-paragraph reveal", () => {
+    const outcomes = resolveRevealSteps(slideRoot(boxSlide), [
+      { id: "explicit", elementIndex: 1, elementPath: [0, 1], type: "fade" },
+      {
+        id: "paragraphs",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "fade",
+      },
+    ]);
+    expect(outcomes[0]).toMatchObject({ ok: true, steps: [] });
+    expect(
+      revealStepsOf(outcomes).map((step) => [step.animation.id, step.path]),
+    ).toEqual([
+      ["paragraphs", [0, 0]],
+      ["explicit", [0, 1]],
+      ["paragraphs", [0, 2]],
+    ]);
+  });
+
+  it("rejects a by-paragraph reveal on a box when the box is also revealed", () => {
+    const outcomes = resolveRevealSteps(slideRoot(boxSlide), [
+      { id: "box", elementIndex: 0, elementPath: [0], type: "fade" },
+      {
+        id: "paragraphs",
+        elementIndex: 0,
+        elementPath: [0],
+        byParagraph: true,
+        type: "fade",
+      },
+    ]);
+    expect(outcomes[1]).toMatchObject({
+      ok: false,
+      reason: "duplicate-after-expansion",
+    });
+  });
+
+  it("keeps plain nested reveals, which are not expansions", () => {
+    const outcomes = resolveRevealSteps(slideRoot(boxSlide), [
+      { id: "box", elementIndex: 0, elementPath: [0], type: "fade" },
+      { id: "child", elementIndex: 0, elementPath: [0, 0], type: "zoom" },
+    ]);
+    expect(outcomes.every((outcome) => outcome.ok)).toBe(true);
+  });
+
+  it("steps a container's paragraphs in document order", () => {
+    const steps = byParagraphTargets(slideRoot(boxSlide).children[0]!);
+    expect(steps.map((step) => step.textContent)).toEqual([
+      "One",
+      "Two",
+      "Three",
+    ]);
+  });
+
+  it("starts the reveal at a selected paragraph and runs to the end", () => {
+    const [outcome] = resolveRevealSteps(slideRoot(boxSlide), [
+      {
+        id: "from-two",
+        elementIndex: 1,
+        elementPath: [0, 1],
+        byParagraph: true,
+        type: "fade",
+      },
+    ]);
+    expect(revealStepsOf([outcome!]).map((step) => step.path)).toEqual([
+      [0, 1],
+      [0, 2],
+    ]);
+  });
+
+  it("treats an element with only inline children as one step", () => {
+    const root = slideRoot(
+      `<div class="fmd-slide"><p><span>a</span><span>b</span></p></div>`,
+    );
+    const [outcome] = resolveRevealSteps(root, [
+      {
+        id: "inline",
+        elementIndex: 0,
+        elementPath: [0],
+        byParagraph: true,
+        type: "fade",
+      },
+    ]);
+    expect(revealStepsOf([outcome!]).map((step) => step.path)).toEqual([[0]]);
+  });
+
+  it("expands a div-with-paragraphs as the editor shows it", () => {
+    const root = slideRoot(
+      `<div class="fmd-slide"><div><div><p>One</p><p>Two</p></div></div></div>`,
+    );
+    const [outcome] = resolveRevealSteps(root, [
+      {
+        id: "text",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "fade",
+      },
+    ]);
+    expect(revealStepsOf([outcome!]).map((step) => step.path)).toEqual([
+      [0, 0, 0],
+      [0, 0, 1],
+    ]);
+  });
+});
+
+describe("stored-path derivation", () => {
+  it("derives the stored path of a rendered element after the sanitizer drops an svg before it", () => {
+    const stored = `<div class="fmd-slide"><svg viewBox="0 0 4 4"><circle r="1"/></svg><p>Headline</p><p>Body</p></div>`;
+    const rendered = sanitizeSlideHtml(
+      stampSlideSource(stored, "slide-1").html,
+      {},
+    );
+    const renderedRoot = slideRoot(rendered);
+    const headline = Array.from(renderedRoot.querySelectorAll("p"))[0]!;
+
+    // The rendered DOM has no svg, so its own index for Headline is 0.
+    expect(getPersistedElementPath(renderedRoot, headline)).toEqual([0]);
+    // The stored HTML, which the runtime resolves against, has the svg at 0.
+    expect(storedPathOfRenderedElement(stored, headline)).toEqual([1]);
+    expect(storedOrdinalAtPath(stored, [1])).toBe(3);
+    expect(
+      resolveSlideAnimationElement(slideRoot(stored), {
+        elementIndex: 1,
+        elementPath: [1],
+      })?.textContent,
+    ).toBe("Headline");
   });
 });

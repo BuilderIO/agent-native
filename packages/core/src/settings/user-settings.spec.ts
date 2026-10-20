@@ -56,6 +56,19 @@ describe("user-settings", () => {
       await getUserSetting("user+tag@example.com", "key");
       expect(mockGetSetting).toHaveBeenCalledWith("u:user+tag@example.com:key");
     });
+
+    it("can bypass cached values for authorization-sensitive selection", async () => {
+      mockGetSetting.mockResolvedValue({ orgId: "org-1" });
+
+      await getUserSetting("alice@test.com", "active-org-id", {
+        bypassCache: true,
+      });
+
+      expect(mockGetSetting).toHaveBeenCalledWith(
+        "u:alice@test.com:active-org-id",
+        { bypassCache: true },
+      );
+    });
   });
 
   describe("getUserSettings", () => {

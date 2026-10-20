@@ -18,8 +18,8 @@ import { HomeImportButton } from "@/components/editor/HomeImportButton";
 import { cn } from "@/lib/utils";
 
 const pageTitleKeys: Record<string, string> = {
-  "/": "navigation.designs",
-  "/home": "navigation.designs",
+  "/": "navigation.home",
+  "/home": "navigation.home",
   "/design-systems": "navigation.designSystems",
   "/design-systems/setup": "navigation.setupDesignSystem",
   "/settings": "navigation.settings",

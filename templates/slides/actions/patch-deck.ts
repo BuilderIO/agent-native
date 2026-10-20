@@ -10,7 +10,7 @@
  * Agent actions (update-slide, add-slide, etc.) continue to use their own
  * dedicated actions which also use the same per-deck lock.
  */
-import { ActionContractError, isActionContractError } from "@agent-native/core";
+import { ActionContractError } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -38,7 +38,11 @@ import {
   deckVersionChatContextFromAction,
   deckVersionContentSignature,
 } from "../server/lib/deck-versions.js";
-import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
+import {
+  applySlideContentEdits,
+  SlideContentEditSchema,
+  type SlideContentEdit,
+} from "../server/lib/slide-content-patch.js";
 import {
   HYGIENE_ACTION_DESCRIPTION,
   slideHygieneResult,
@@ -48,7 +52,11 @@ import {
   sourceImportForDeck,
   type SourceImportMetadata,
 } from "../server/lib/source-import.js";
-import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
+import {
+  assertSlideAnimationsResolve,
+  type SlideAnimationBaseline,
+} from "../server/lib/validate-slide-animations.js";
+import { ANIMATION_TRIGGERS } from "../shared/api.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { isRealSlide } from "../shared/blank-slide.js";
 import { stableStringify } from "../shared/deck-content.js";
@@ -63,7 +71,12 @@ import {
   hashSlideContent,
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
-import { assertStyleOnlyEdit } from "../shared/slide-style-only.js";
+import {
+  clampTransitionSpeed,
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+  SLIDE_TRANSITION_SPEED,
+} from "../shared/slide-transitions.js";
 import {
   trackDeckCreationStarted,
   trackSlideContentEdited,
@@ -114,20 +127,26 @@ const SlideAnimationSchema = z.object({
     .int()
     .min(0)
     .describe(
-      "0-based legacy child index. Keep it paired with elementPath for compatibility.",
+      "0-based legacy child index. Resolution uses elementPath when present, so keep it paired with elementPath for compatibility.",
     ),
   elementPath: z
     .array(z.number().int().min(0))
     .min(1)
     .optional()
     .describe(
-      "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Required for agent-created or content-revised animations; re-read final HTML after content edits.",
+      "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Required when this patch sends an animations list; reveals that a content patch keeps do not need it. Re-read final HTML after content edits.",
     ),
   byParagraph: z
     .boolean()
     .optional()
     .describe(
-      "Reveal each paragraph in this text object as its own click step.",
+      "Reveal each paragraph or list item inside this element as its own click step, in document order. A paragraph reveal starts at that paragraph and runs through the rest of its container. With nothing to split it is one step.",
+    ),
+  trigger: z
+    .enum(ANIMATION_TRIGGERS)
+    .optional()
+    .describe(
+      "When this step plays. on-click (default) waits for its own click. with-previous plays in the same click as the step before it, so the objects appear together. The first step always waits for a click.",
     ),
   type: z
     .enum(["appear", "fade", "slide-up", "zoom"])
@@ -135,6 +154,11 @@ const SlideAnimationSchema = z.object({
       "Animation used when this step is revealed. Supported semantics: appear (immediate reveal), fade (opacity), slide-up (subtle upward motion), zoom (subtle scale). Do not invent other types.",
     ),
 });
+
+const SLIDE_TRANSITION_DESCRIPTION =
+  "Transition on the boundary before this slide. It plays in either direction, and this slide, the later of the pair, supplies the type and speed; backward plays it reversed. One of: none, dissolve, fade, slide-from-right, slide-from-left, flip, cube, gallery. Legacy instant, slide, and zoom are accepted and stored as their canonical equivalents. Null resets to none. On patch-slide, omitting it keeps the current transition; on add-slide, omitting it means none.";
+const SLIDE_TRANSITION_SPEED_DESCRIPTION =
+  "Speed of this slide's transition, from 0 (slowest, 5.0 s) to 49 (fastest, 0.1 s). Null resets to the default 45 (0.5 s). On patch-slide, omitting it keeps the current speed; on add-slide, omitting it means the default 45 (0.5 s).";
 
 const SlideFieldsSchema = z.object({
   content: z.string().optional(),
@@ -147,16 +171,24 @@ const SlideFieldsSchema = z.object({
   imagePrompt: z.string().nullable().optional(),
   excalidrawData: z.string().nullable().optional(),
   transition: z
-    .enum(["instant", "none", "fade", "slide", "zoom"])
+    .enum(SLIDE_TRANSITION_INPUTS)
     .nullable()
     .optional()
-    .describe("Transition used when entering this slide"),
+    .describe(SLIDE_TRANSITION_DESCRIPTION),
+  transitionSpeed: z
+    .number()
+    .int()
+    .min(SLIDE_TRANSITION_SPEED.min)
+    .max(SLIDE_TRANSITION_SPEED.max)
+    .nullable()
+    .optional()
+    .describe(SLIDE_TRANSITION_SPEED_DESCRIPTION),
   animations: z
     .array(SlideAnimationSchema)
     .nullable()
     .optional()
     .describe(
-      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes.",
+      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes. Omit it to keep the current reveals; a content change that strands one, or moves one onto a different element, fails with a slide_animation_* error (400) and writes nothing. [] or null clears every reveal.",
     ),
   splitByParagraph: z.boolean().nullable().optional(),
   skipped: z
@@ -177,7 +209,14 @@ const PatchSlideOp = z
   .object({
     op: z.literal("patch-slide"),
     slideId: z.string(),
-    fields: SlideFieldsSchema,
+    fields: SlideFieldsSchema.default({}),
+    edits: z
+      .array(SlideContentEditSchema)
+      .min(1)
+      .optional()
+      .describe(
+        "Ordered find/replace edits against this slide's current HTML, same shape as update-slide edits. Prefer this over fields.content for small changes such as a color swap, so unchanged markup is not regenerated. Do not combine with fields.content.",
+      ),
     baseContentHash: z
       .string()
       .min(1)
@@ -191,12 +230,6 @@ const PatchSlideOp = z
       .describe(
         "Exact snapshots for every non-content field being replaced: use {present:false} when absent, otherwise {present:true,value}. Stale retries only apply when each field still matches its snapshot or the requested value.",
       ),
-    styleOnly: z
-      .boolean()
-      .optional()
-      .describe(
-        "Enforce a CSS-only edit that preserves text, markup, element order, and protected layout CSS. Requires fields.content and baseContentHash.",
-      ),
     preserveSource: z
       .boolean()
       .optional()
@@ -206,6 +239,16 @@ const PatchSlideOp = z
       ),
   })
   .superRefine((operation, context) => {
+    if (
+      operation.edits !== undefined &&
+      operation.fields.content !== undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["edits"],
+        message: "Use either edits or fields.content, not both",
+      });
+    }
     if (
       operation.fields.content !== undefined &&
       operation.baseContentHash === undefined
@@ -241,24 +284,6 @@ const PatchSlideOp = z
           });
         }
       }
-    }
-    if (!operation.styleOnly) return;
-    if (operation.fields.content === undefined) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["fields", "content"],
-        message: "styleOnly requires a complete slide content value",
-      });
-    }
-    const unsupportedFields = Object.keys(operation.fields).filter(
-      (field) => field !== "content",
-    );
-    if (unsupportedFields.length > 0) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["fields"],
-        message: "styleOnly accepts only fields.content",
-      });
     }
   });
 
@@ -304,9 +329,25 @@ const AddSlideOp = z.object({
       imagePrompt: z.string().optional(),
       excalidrawData: z.string().optional(),
       transition: z
-        .enum(["instant", "none", "fade", "slide", "zoom"])
-        .optional(),
-      animations: z.array(z.unknown()).optional(),
+        .enum(SLIDE_TRANSITION_INPUTS)
+        .nullable()
+        .optional()
+        .describe(SLIDE_TRANSITION_DESCRIPTION),
+      transitionSpeed: z
+        .number()
+        .int()
+        .min(SLIDE_TRANSITION_SPEED.min)
+        .max(SLIDE_TRANSITION_SPEED.max)
+        .nullable()
+        .optional()
+        .describe(SLIDE_TRANSITION_SPEED_DESCRIPTION),
+      animations: z
+        .array(SlideAnimationSchema)
+        .nullable()
+        .optional()
+        .describe(
+          "Complete ordered on-click reveal list for the new slide. Omitted, null, or [] means no reveals. Use elementPath from the final HTML and 0-based indexes.",
+        ),
       splitByParagraph: z.boolean().optional(),
       skipped: z.boolean().optional(),
     })
@@ -352,6 +393,7 @@ const MCP_WIDGET_PATCH_SLIDE_FIELDS = new Set([
   "imageUrl",
   "excalidrawData",
   "transition",
+  "transitionSpeed",
   "animations",
   "splitByParagraph",
   "skipped",
@@ -366,6 +408,7 @@ const MCP_WIDGET_ADD_SLIDE_FIELDS = new Set([
   "imageUrl",
   "excalidrawData",
   "transition",
+  "transitionSpeed",
   "animations",
   "splitByParagraph",
   "skipped",
@@ -700,6 +743,66 @@ export function assertSourceImportSlidesCovered(
   );
 }
 
+// Edit results keep the wrapper exactly as written: re-normalizing would insert
+// default padding when a color or --deck-* edit touches an unpadded wrapper.
+const editResolvedOperations = new WeakSet<Operation>();
+
+async function resolvePatchSlideEdits(
+  operations: Operation[],
+  slides: Array<{ id?: unknown; content?: unknown }>,
+): Promise<Operation[]> {
+  // Resolved in order so a later op on the same slide builds on the content
+  // an earlier op produced instead of clobbering it. baseContentHash still
+  // names the pre-batch content, which is what the stale check compares.
+  const pendingContent = new Map<string, string>();
+  const resolved: Operation[] = [];
+  for (const operation of operations) {
+    if (operation.op !== "patch-slide") {
+      resolved.push(operation);
+      continue;
+    }
+    if (!operation.edits) {
+      if (operation.fields.content !== undefined) {
+        const source = slides.find((entry) => entry?.id === operation.slideId);
+        pendingContent.set(
+          operation.slideId,
+          normalizeSlidePaddingForWrite(
+            typeof source?.content === "string" ? source.content : undefined,
+            operation.fields.content,
+          ),
+        );
+      }
+      resolved.push(operation);
+      continue;
+    }
+    const slide = slides.find((entry) => entry?.id === operation.slideId);
+    if (!slide) {
+      fail(
+        `patch-slide edits target slide "${operation.slideId}", which does not exist in the current deck. Check the slideId; if this slide is added by add-slide in the same call, edits cannot target it until a later call. No slides were changed.`,
+        { errorCode: "slide_not_found", statusCode: 404 },
+      );
+    }
+    const originalContent = String(slide.content ?? "");
+    const currentContent =
+      pendingContent.get(operation.slideId) ?? originalContent;
+    const { edits, ...rest } = operation;
+    const patched = await applySlideContentEdits(
+      currentContent,
+      edits as SlideContentEdit[],
+    );
+    pendingContent.set(operation.slideId, patched.content);
+    const next: Operation = {
+      ...rest,
+      fields: { ...rest.fields, content: patched.content },
+      baseContentHash:
+        rest.baseContentHash ?? hashSlideContent(originalContent),
+    };
+    editResolvedOperations.add(next);
+    resolved.push(next);
+  }
+  return resolved;
+}
+
 const AgentPatchDeckInputSchema = z.object({
   deckId: z.string().describe("Deck ID"),
   rewriteSource: z
@@ -740,7 +843,7 @@ const AgentPatchDeckInputSchema = z.object({
     )
     .min(1)
     .describe(
-      "Use patch-slide for content or slide fields, add-slide to append a slide, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields for top-level deck fields such as title or starred. For every patch-slide that changes content, read that target with get-deck compact=false and include its contentHash as baseContentHash. Set styleOnly=true only for CSS-only content changes that preserve text, markup, element order, and protected layout CSS. For a deck-wide source restyle, include one patch-slide operation with content and its matching hash for every existing source slide.",
+      "Use patch-slide for content or slide fields, add-slide to append a slide, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields for top-level deck fields such as title or starred. For a small change to existing slide HTML (a color, a word, one declaration), send patch-slide edits instead of fields.content; edits apply to the current HTML and need no baseContentHash. For every patch-slide that replaces fields.content, read that target with get-deck compact=false and include its contentHash as baseContentHash. For a deck-wide source restyle, include one patch-slide operation with content and its matching hash for every existing source slide.",
     ),
 });
 
@@ -784,6 +887,34 @@ function storedCreativeContext(value: unknown): {
 // Core merge logic (exported for unit tests)
 // ---------------------------------------------------------------------------
 
+// Transition fields are stored canonical so every reader sees a value from
+// SLIDE_TRANSITION_TYPES. null and undefined pass through: null is an explicit
+// clear that the caller applies by deleting the key.
+function canonicalSlideFieldValue(field: string, value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (field === "transition") return normalizeSlideTransition(value);
+  if (field === "transitionSpeed") return clampTransitionSpeed(value as number);
+  return value;
+}
+
+// get-deck reads an absent transition or speed as null, so a snapshot of null
+// and a missing key name the same slide state. Unrecognized values are not
+// coerced: they stay distinct and fail the comparison.
+function readerSlideFieldValue(
+  field: "transition" | "transitionSpeed",
+  value: unknown,
+): unknown {
+  if (field === "transition") {
+    if (value === null || value === undefined) return "none";
+    return (SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(value)
+      ? normalizeSlideTransition(value)
+      : value;
+  }
+  return value === null || value === undefined
+    ? SLIDE_TRANSITION_SPEED.default
+    : value;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function applyOperation(
   deck: any,
@@ -791,7 +922,6 @@ export function applyOperation(
   options?: {
     clearLayoutWarningDismissal?: boolean;
     sourceContentHashes?: ReadonlyMap<string, string>;
-    styleOnlyBaseline?: string;
   },
 ): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -829,7 +959,10 @@ export function applyOperation(
         const baseline = op.baseFields?.[field];
         if (!baseline) continue;
         const currentValue = slide[field];
-        const desiredValue = fields[field as keyof typeof fields];
+        const desiredValue = canonicalSlideFieldValue(
+          field,
+          fields[field as keyof typeof fields],
+        );
         const alreadyDesired =
           desiredValue === null
             ? currentValue === undefined
@@ -843,11 +976,19 @@ export function applyOperation(
           field === "notes"
             ? stableStringify(currentValue ?? "") ===
               stableStringify(baseline.present ? (baseline.value ?? "") : "")
-            : baseline.present
-              ? currentValue !== undefined &&
-                stableStringify(currentValue) ===
-                  stableStringify(baseline.value)
-              : currentValue === undefined;
+            : field === "transition" || field === "transitionSpeed"
+              ? stableStringify(readerSlideFieldValue(field, currentValue)) ===
+                stableStringify(
+                  readerSlideFieldValue(
+                    field,
+                    baseline.present ? baseline.value : undefined,
+                  ),
+                )
+              : baseline.present
+                ? currentValue !== undefined &&
+                  stableStringify(currentValue) ===
+                    stableStringify(baseline.value)
+                : currentValue === undefined;
         if (!matchesBaseline) {
           fail(
             `Slide field ${field} changed since it was read. Re-read the slide and reconcile this field before retrying.`,
@@ -867,15 +1008,9 @@ export function applyOperation(
       if (fields.content !== undefined) {
         const previousContent =
           typeof slide.content === "string" ? slide.content : undefined;
-        const nextContent = op.styleOnly
+        const nextContent = editResolvedOperations.has(op)
           ? fields.content
           : normalizeSlidePaddingForWrite(previousContent, fields.content);
-        if (op.styleOnly) {
-          assertStyleOnlyEdit(
-            options?.styleOnlyBaseline ?? String(slide.content ?? ""),
-            nextContent,
-          );
-        }
         assertNoRenderArtifacts(previousContent ?? "", nextContent, op.slideId);
         slide.content = nextContent;
       }
@@ -891,12 +1026,13 @@ export function applyOperation(
         "imagePrompt",
         "excalidrawData",
         "transition",
+        "transitionSpeed",
         "animations",
         "splitByParagraph",
         "skipped",
       ] as const) {
         if (alreadyDesiredFields.has(key)) continue;
-        const value = fields[key];
+        const value = canonicalSlideFieldValue(key, fields[key]);
         if (value === null) delete slide[key];
         else if (value !== undefined) slide[key] = value;
       }
@@ -990,6 +1126,15 @@ export function applyOperation(
         layout: fields.layout ?? "content",
       };
       delete newSlide.imageLoading;
+      for (const key of [
+        "transition",
+        "transitionSpeed",
+        "animations",
+      ] as const) {
+        const value = canonicalSlideFieldValue(key, newSlide[key]);
+        if (value === null || value === undefined) delete newSlide[key];
+        else newSlide[key] = value;
+      }
       const insertAfterIdx = afterSlideId
         ? slides.findIndex((s: { id: string }) => s.id === afterSlideId)
         : -1;
@@ -1064,48 +1209,20 @@ export function slideContents(deck: any): Map<string, string> {
   return contents;
 }
 
-export function clearOmittedAnimationsForAgentContentPatches(
+// The stored content and reveals of every slide, read before any operation runs.
+// Reveal objects are replaced, never mutated, so a shallow copy is a true baseline.
+export function slideAnimationBaselines(
   deck: any,
-  operations: readonly Operation[],
-  options?: {
-    sourceImport?: SourceImportMetadata | null;
-    contentChangedSlideIds?: ReadonlySet<string>;
-  },
-): void {
-  const explicitAnimationSlideIds = new Set(
-    operations.flatMap((operation) =>
-      operation.op === "patch-slide" &&
-      operation.fields.animations !== undefined
-        ? [operation.slideId]
-        : [],
-    ),
-  );
-  const sourceSlideIds = new Set(
-    options?.sourceImport?.slideIds ??
-      options?.sourceImport?.slides.map((slide) => slide.id) ??
-      [],
-  );
-  const slideIds = new Set(
-    operations.flatMap((operation) =>
-      operation.op === "patch-slide" &&
-      operation.fields.content !== undefined &&
-      !operation.styleOnly &&
-      operation.fields.animations === undefined &&
-      !explicitAnimationSlideIds.has(operation.slideId) &&
-      (options?.contentChangedSlideIds?.has(operation.slideId) ?? true) &&
-      (operation.preserveSource === false ||
-        !sourceSlideIds.has(operation.slideId))
-        ? [operation.slideId]
-        : [],
-    ),
-  );
-  if (!slideIds.size) return;
-
-  for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
-    if (slideIds.has(slide?.id) && Array.isArray(slide.animations)) {
-      delete slide.animations;
-    }
+): Map<string, SlideAnimationBaseline> {
+  const baselines = new Map<string, SlideAnimationBaseline>();
+  for (const slide of Array.isArray(deck?.slides) ? deck.slides : []) {
+    if (typeof slide?.id !== "string") continue;
+    baselines.set(slide.id, {
+      content: typeof slide.content === "string" ? slide.content : "",
+      animations: Array.isArray(slide.animations) ? [...slide.animations] : [],
+    });
   }
+  return baselines;
 }
 
 export function assertPatchedSlideAnimationsResolve(
@@ -1114,6 +1231,7 @@ export function assertPatchedSlideAnimationsResolve(
   options?: {
     requireElementPaths?: boolean;
     contentChangedSlideIds?: ReadonlySet<string>;
+    baselines?: ReadonlyMap<string, SlideAnimationBaseline>;
   },
 ): void {
   const slideIdsToValidate = new Set(
@@ -1122,7 +1240,6 @@ export function assertPatchedSlideAnimationsResolve(
         return [];
       }
       const contentChanged =
-        (operation.op !== "patch-slide" || !operation.styleOnly) &&
         operation.fields.content !== undefined &&
         (options?.contentChangedSlideIds?.has(operation.slideId) ?? true);
       return operation.fields.animations !== undefined || contentChanged
@@ -1131,6 +1248,17 @@ export function assertPatchedSlideAnimationsResolve(
     }),
   );
   if (slideIdsToValidate.size === 0) return;
+
+  // Only a reveal list the caller sent must carry element paths. Reveals that a
+  // content patch keeps are checked the same way update-slide checks them.
+  const explicitAnimationSlideIds = new Set(
+    operations.flatMap((operation) =>
+      (operation.op === "patch-slide" || operation.op === "add-slide") &&
+      operation.fields.animations !== undefined
+        ? [operation.slideId]
+        : [],
+    ),
+  );
 
   const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
   for (const slideId of slideIdsToValidate) {
@@ -1142,7 +1270,10 @@ export function assertPatchedSlideAnimationsResolve(
       slideId,
       content: typeof slide.content === "string" ? slide.content : "",
       animations: slide.animations,
-      requireElementPaths: options?.requireElementPaths,
+      requireElementPaths:
+        options?.requireElementPaths === true &&
+        explicitAnimationSlideIds.has(slideId),
+      baseline: options?.baselines?.get(slideId),
     });
   }
 }
@@ -1177,6 +1308,42 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
   );
 }
 
+// Replay is safe only where an op sets end state by id or is CAS-guarded. A
+// content-replacing patch-slide qualifies only with its own baseContentHash:
+// the agent path sends no revision, and edits resolve against stored content,
+// so an unhashed occurrence-based edit would re-apply to another match on replay.
+function patchDeckRetrySafe(input: {
+  operations?: readonly unknown[];
+}): boolean {
+  if (!Array.isArray(input.operations)) return false;
+  return input.operations.every((raw) => {
+    const operation = raw as {
+      op?: unknown;
+      slideId?: unknown;
+      edits?: unknown;
+      baseContentHash?: unknown;
+      fields?: { content?: unknown };
+    };
+    switch (operation.op) {
+      case "patch-slide":
+        return (
+          (operation.edits === undefined &&
+            operation.fields?.content === undefined) ||
+          typeof operation.baseContentHash === "string"
+        );
+      // applyOperation skips an add-slide whose slideId already exists.
+      case "add-slide":
+        return typeof operation.slideId === "string";
+      case "delete-slide":
+      case "reorder-slides":
+      case "patch-deck-fields":
+        return true;
+      default:
+        return false;
+    }
+  });
+}
+
 export default defineAction({
   title: "Patch Slides deck",
   description:
@@ -1186,8 +1353,11 @@ export default defineAction({
     "source restyle, set requireAllSourceSlides=true and send one patch-slide " +
     "operation with content for every imported slide in one call; the action " +
     "rejects partial coverage. For animations, inspect the final slide HTML, " +
-    "then patch content and the complete ordered animations list together; " +
-    "use delete-slide to remove a slide and reorder-slides to set the order; " +
+    "then patch content and the complete ordered animations list together. " +
+    "A content patch that omits animations keeps the current reveals; one its " +
+    "change strands or moves onto a different element fails with a slide_animation_* error (400) and writes nothing. " +
+    "Send animations: [] to clear every reveal. " +
+    "Use delete-slide to remove a slide and reorder-slides to set the order; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +
     "Then call get-deck once with slideIds and compact=false to verify the " +
     "persisted full source, notes, IDs, and animation metadata before reporting " +
@@ -1245,11 +1415,12 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  retrySafe: patchDeckRetrySafe,
   run: async (
     {
       deckId,
       clientWrite,
-      operations,
+      operations: requestedOperations,
       requireAllSourceSlides,
       rewriteSource,
       creativeContext,
@@ -1277,7 +1448,7 @@ export default defineAction({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);
       if (
-        !isMcpWidgetPatchAllowed(ctx?.caller, operations, {
+        !isMcpWidgetPatchAllowed(ctx?.caller, requestedOperations, {
           rewriteSource,
           hasCreativeContext: creativeContext !== undefined,
           requireAllSourceSlides,
@@ -1308,6 +1479,13 @@ export default defineAction({
           },
         );
       }
+
+      // Resolved against this attempt's row so a stale-revision retry
+      // re-applies the edits to the fresh slide content.
+      const operations = await resolvePatchSlideEdits(
+        requestedOperations,
+        Array.isArray(deck.slides) ? deck.slides : [],
+      );
 
       const writeDisposition = assertDeckClientWriteCurrent(
         row,
@@ -1443,6 +1621,7 @@ export default defineAction({
       const deletedSlideIds = new Set<string>();
       const signaturesBeforeOperations = slideSignatures(deck);
       const contentsBeforeOperations = slideContents(deck);
+      const animationBaselinesBeforeOperations = slideAnimationBaselines(deck);
       const fitFieldsBeforeOperations = new Map<
         string,
         { content: unknown; layout: unknown; excalidrawData: unknown }
@@ -1485,36 +1664,10 @@ export default defineAction({
           (deck.slides as Array<{ id?: string }>).some(
             (slide) => slide.id === op.slideId,
           );
-        let operationChangedStructure: boolean;
-        try {
-          operationChangedStructure = applyOperation(deck, op, {
-            clearLayoutWarningDismissal: isAgentCaller,
-            sourceContentHashes,
-          });
-        } catch (error) {
-          if (
-            op.op !== "patch-slide" ||
-            !op.styleOnly ||
-            !isActionContractError(error) ||
-            ![
-              "style_only_slide_structure_changed",
-              "style_only_slide_layout_changed",
-            ].includes(error.errorCode)
-          ) {
-            throw error;
-          }
-          const slide = (
-            deck.slides as Array<{ id: string; content?: unknown }>
-          ).find((entry) => entry.id === op.slideId);
-          const styleOnlyBaseline = await formatSlideHtml(
-            String(slide?.content ?? ""),
-          );
-          operationChangedStructure = applyOperation(deck, op, {
-            clearLayoutWarningDismissal: isAgentCaller,
-            sourceContentHashes,
-            styleOnlyBaseline,
-          });
-        }
+        const operationChangedStructure = applyOperation(deck, op, {
+          clearLayoutWarningDismissal: isAgentCaller,
+          sourceContentHashes,
+        });
         structuralOperationApplied ||= operationChangedStructure;
         if (
           existedBeforeDelete &&
@@ -1548,7 +1701,7 @@ export default defineAction({
             nextContent:
               op.fields.content === undefined
                 ? undefined
-                : op.styleOnly
+                : editResolvedOperations.has(op)
                   ? op.fields.content
                   : normalizeSlidePaddingForWrite(
                       contentsBeforeOperations.get(op.slideId),
@@ -1652,15 +1805,10 @@ export default defineAction({
       }
 
       if (sourceImportCleared) delete deck.sourceImport;
-      if (isAgentCaller) {
-        clearOmittedAnimationsForAgentContentPatches(deck, operations, {
-          sourceImport: sourceImportCleared ? null : sourceImport,
-          contentChangedSlideIds,
-        });
-      }
       assertPatchedSlideAnimationsResolve(deck, operations, {
         requireElementPaths: isAgentCaller,
         contentChangedSlideIds,
+        baselines: animationBaselinesBeforeOperations,
       });
 
       const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
@@ -1983,7 +2131,10 @@ export default defineAction({
       return base;
     };
     return withDeckLock(deckId, () =>
-      retryDeckWrite(applyPatch, isMergeSafeDeckPatchOperations(operations)),
+      retryDeckWrite(
+        applyPatch,
+        isMergeSafeDeckPatchOperations(requestedOperations),
+      ),
     );
   },
 });

@@ -1030,6 +1030,17 @@ export function canonicalElementInfoForCodeLayerNode(
   };
 }
 
+/** True for a full element info from the live frame, not one rebuilt from a code layer. */
+export function hasSettledPortableStyles(
+  info: ElementInfo | null,
+): info is ElementInfo {
+  return (
+    info?.portableStyleSnapshot !== undefined ||
+    info?.styleSnapshotCaptureFailed === true ||
+    info?.styleSnapshotReadOnDemand === true
+  );
+}
+
 export function elementInfoForOwnedCodeLayerNode(args: {
   info: ElementInfo | null;
   node: CodeLayerNode;
@@ -1037,8 +1048,7 @@ export function elementInfoForOwnedCodeLayerNode(args: {
 }): ElementInfo {
   const { info, node, ownerFileId } = args;
   if (
-    (info?.portableStyleSnapshot !== undefined ||
-      info?.styleSnapshotCaptureFailed === true) &&
+    hasSettledPortableStyles(info) &&
     info.sourceLayerIdentity?.screenId === ownerFileId &&
     info.sourceLayerIdentity.nodeId === node.id
   ) {

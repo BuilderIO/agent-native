@@ -7,6 +7,7 @@ import {
   type TargetedCandidate,
   type TargetedMatchesResult,
 } from "@agent-native/core/shared";
+import { z } from "zod";
 
 export type SlideContentEdit =
   | {
@@ -45,6 +46,82 @@ export type SlideContentEdit =
       expectedMatches?: number;
       required?: boolean;
     };
+
+export const SlideContentEditSchema = z.union([
+  z
+    .object({
+      op: z.literal("replace").optional(),
+      find: z.string().optional(),
+      objectId: z.string().min(1).optional(),
+      replace: z.string(),
+      all: z.boolean().optional(),
+      occurrence: z.number().int().positive().optional(),
+      expectedMatches: z.number().int().nonnegative().optional(),
+      required: z.boolean().optional(),
+    })
+    .superRefine((edit, context) => {
+      if (edit.find !== undefined && edit.objectId !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "This replace edit sent both find and objectId. Resend it with ONLY objectId (omit find, all, occurrence) to replace a selected element's content, or with ONLY find to search and replace text.",
+        });
+      } else if (edit.find === undefined && edit.objectId === undefined) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "A replace edit needs find (the text to search for) or objectId (the selected element's data-slide-object-id).",
+        });
+      }
+      if (
+        edit.find === undefined &&
+        edit.objectId !== undefined &&
+        (edit.all !== undefined || edit.occurrence !== undefined)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "objectId replacement does not support all or occurrence; resend the edit without them (they apply only to find).",
+        });
+      }
+      if (
+        edit.objectId !== undefined &&
+        edit.expectedMatches !== undefined &&
+        edit.expectedMatches !== 1
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "objectId replacement expectedMatches must be 1",
+        });
+      }
+    }),
+  z.object({
+    op: z.enum(["insert-before", "insert-after"]),
+    marker: z.string(),
+    content: z.string(),
+    occurrence: z.number().int().positive().optional(),
+    expectedMatches: z.number().int().nonnegative().optional(),
+    required: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal("replace-between"),
+    start: z.string(),
+    end: z.string(),
+    content: z.string(),
+    includeDelimiters: z.boolean().optional(),
+    expectedMatches: z.number().int().nonnegative().optional(),
+    required: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal("regex-replace"),
+    pattern: z.string(),
+    replace: z.string(),
+    flags: z.string().optional(),
+    all: z.boolean().optional(),
+    expectedMatches: z.number().int().nonnegative().optional(),
+    required: z.boolean().optional(),
+  }),
+]);
 
 export class SlideContentEditError extends Error {
   readonly code = "slide_content_edit_failed";

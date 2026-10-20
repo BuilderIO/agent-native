@@ -3,6 +3,51 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-19
+
+### Improved
+
+- The Sources list loads with fewer database queries, including when showing capture counts and latest syncs.
+
+## 2026-10-16
+
+### Fixed
+
+- Brain reports when Gong credentials cannot be checked, so teams can tell a vault issue from a missing key.
+
+## 2026-10-15
+
+### Added
+
+- Brain can answer Gong call questions with shared organization credentials, so teammates without individual Gong seats can get live call data.
+
+### Improved
+
+- Saving a source's settings refreshes the Sources list faster, and the source shows "Updating…" until its new settings appear.
+
+## 2026-10-13
+
+### Changed
+
+- Only organization owners and admins can create Zoom sources or change which meetings they import. Brain records who changed a Zoom meeting list and which approved meetings each sync read from Zoom.
+- The Sources page offers Zoom only to organization owners and admins. Other members see an existing Zoom source's settings as read-only and can still rename it.
+
+### Removed
+
+- Zoom sources no longer import AI Companion summaries. Brain imports only transcripts from cloud recordings, so the Zoom app no longer needs the meeting summary permissions.
+
+## 2026-10-10
+
+### Changed
+
+- Zoom sources now import only recurring meeting series listed by meeting ID. A source with no approved series imports nothing, and meeting titles no longer select meetings.
+
+## 2026-10-07
+
+### Added
+
+- Zoom sources can import AI Companion meeting summaries, so meetings that were never recorded still reach Brain.
+
 ## 2026-10-06
 
 ### Added

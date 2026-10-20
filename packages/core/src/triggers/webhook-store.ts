@@ -1,6 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import type { JobFrontmatter } from "../jobs/frontmatter.js";
 import type { Resource } from "../resources/store.js";
 import {
@@ -17,8 +17,6 @@ import {
 } from "./webhook.js";
 
 const WEBHOOK_SECRET_KEY_PREFIX = "automation-webhook:";
-
-let _initPromise: Promise<void> | undefined;
 
 function secretRef(
   resource: Pick<Resource, "id" | "owner">,
@@ -39,11 +37,13 @@ function secretRef(
   };
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const client = getDbExec();
-      const createSql = `CREATE TABLE IF NOT EXISTS automation_webhook_tokens (
+export const automationWebhookTokensStore = defineStore({
+  id: "automation_webhook_tokens",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `CREATE TABLE IF NOT EXISTS automation_webhook_tokens (
   token_hash TEXT PRIMARY KEY,
   automation_id TEXT NOT NULL UNIQUE,
   owner TEXT NOT NULL,
@@ -54,19 +54,14 @@ export async function ensureTable(): Promise<void> {
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL
 )`;
-
-      {
         await ensureTableExists("automation_webhook_tokens", createSql);
-        return;
-      }
-      await client.execute(createSql);
-    })().catch((error) => {
-      _initPromise = undefined;
-      throw error;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return automationWebhookTokensStore.ready();
 }
 
 export async function saveAutomationWebhookToken(

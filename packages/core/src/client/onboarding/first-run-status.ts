@@ -73,9 +73,6 @@ async function requestFirstRunOnboardingStatus(): Promise<boolean> {
     ]);
     dispatchFirstRunOnboardingStatus(firstRun);
     return firstRun;
-  } catch (error) {
-    dispatchFirstRunOnboardingStatus(false);
-    throw error;
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId);
   }

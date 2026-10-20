@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { trackDesignCreated } from "./_design-tracking.js";
 
 export default defineAction({
   description:
@@ -22,7 +23,7 @@ export default defineAction({
       .optional()
       .describe("Title for the copy (defaults to 'Copy of ...')"),
   }),
-  run: async ({ id, title }) => {
+  run: async ({ id, title }, ctx) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
 
@@ -96,6 +97,17 @@ export default defineAction({
         );
       }
     });
+
+    trackDesignCreated(
+      newId,
+      {
+        creationMethod: "duplicate",
+        projectType: source.projectType,
+        designSystemId: source.designSystemId,
+        sourceDesignId: id,
+      },
+      ctx,
+    );
 
     return {
       id: newId,

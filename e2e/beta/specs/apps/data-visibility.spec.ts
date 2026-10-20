@@ -170,11 +170,21 @@ test.describe("clips recorder", () => {
         timeout: 90_000,
       });
       await renderedText(page, "beta.clips idle recorder");
-      // "Clips recorder" is the mode picker's accessible name, not page text.
-      // A single-select toggle group is a radiogroup. Recording never asks for
-      // storage first, so an account with no video storage sees it too.
+      const skipStorageSetup = page.getByRole("button", {
+        name: /skip for now/i,
+      });
+      const modePicker = page.getByRole("radiogroup", {
+        name: /Clips recorder/i,
+      });
       await expect(
-        page.getByRole("radiogroup", { name: /Clips recorder/i }),
+        skipStorageSetup.or(modePicker).first(),
+        "beta.clips /record showed neither optional storage setup nor the recorder",
+      ).toBeVisible({ timeout: 45_000 });
+      if (await skipStorageSetup.isVisible()) await skipStorageSetup.click();
+      // "Clips recorder" is the mode picker's accessible name, not page text.
+      // A single-select toggle group is a radiogroup.
+      await expect(
+        modePicker,
         "beta.clips /record did not render the idle recorder's mode picker",
       ).toBeVisible({ timeout: 45_000 });
       const recorderBody = await renderedText(page, "beta.clips idle recorder");

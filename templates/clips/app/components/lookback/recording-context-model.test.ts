@@ -93,4 +93,47 @@ describe("recording context model", () => {
       ]),
     ).toBe(true);
   });
+
+  it("does not poll unclaimed pending items for viewers who cannot process them", () => {
+    expect(
+      hasUnfinishedContextItems(
+        [item({ status: "pending", mediaRecordingId: null })],
+        false,
+      ),
+    ).toBe(false);
+    expect(
+      hasUnfinishedContextItems(
+        [
+          item({
+            status: "processing",
+            mediaRecordingId: null,
+            processingClaimFresh: true,
+          }),
+        ],
+        false,
+      ),
+    ).toBe(true);
+  });
+
+  it("stops share-viewer polling when a processing claim becomes stale", () => {
+    const staleProcessing = item({
+      status: "processing",
+      mediaRecordingId: null,
+      processingClaimFresh: false,
+    });
+    expect(hasUnfinishedContextItems([staleProcessing], false)).toBe(false);
+    expect(hasUnfinishedContextItems([staleProcessing], true)).toBe(true);
+  });
+
+  it("uses the safe waiting state for viewers without a device ID", () => {
+    expect(
+      hasUnfinishedContextItems([
+        item({
+          status: "pending",
+          capturedDeviceId: undefined,
+          waitingForDevice: true,
+        }),
+      ]),
+    ).toBe(false);
+  });
 });

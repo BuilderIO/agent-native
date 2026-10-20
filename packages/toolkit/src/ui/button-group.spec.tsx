@@ -101,6 +101,10 @@ describe("ButtonGroup", () => {
         ":not([data-slot=button-group-separator]+*)",
       ),
     ).toBe(true);
+    expect(horizontal?.className).toContain(
+      ":not(:has(~:not([data-button-group-ignore])))",
+    );
+    expect(horizontal?.className).not.toContain("nth-last-child");
     expect(nested?.className).toContain("border-s-current/20");
     expect(
       horizontal?.querySelector('[data-slot="button-group-separator"]'),

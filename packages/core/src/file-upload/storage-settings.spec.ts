@@ -13,6 +13,14 @@ const providersRef = vi.hoisted(() => ({
 const builderRef = vi.hoisted(() => ({
   result: false as boolean | Error,
 }));
+const readinessRef = vi.hoisted(() => ({
+  result: {
+    selectedOrg: "selected" as const,
+    provider: "builder" as const,
+    readiness: "ready" as const,
+    builderAuthorized: "yes" as const,
+  },
+}));
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecrets: vi.fn(
@@ -66,6 +74,10 @@ vi.mock("../server/builder-oauth.js", () => ({
   BUILDER_ASSETS_WRITE_SCOPE: "builder:assets:write",
 }));
 
+vi.mock("./storage-readiness.js", () => ({
+  getPrivateStorageReadinessForUser: async () => readinessRef.result,
+}));
+
 import {
   clearFileStorage,
   getFileStorageStatus,
@@ -92,6 +104,12 @@ describe("file storage settings", () => {
     providersRef.list = [{ id: "s3", name: "S3-compatible object storage" }];
     providersRef.active = null;
     builderRef.result = false;
+    readinessRef.result = {
+      selectedOrg: "selected",
+      provider: "builder",
+      readiness: "ready",
+      builderAuthorized: "yes",
+    };
   });
 
   it("saves every value at workspace scope and reports saved keys without secrets", async () => {
@@ -231,6 +249,18 @@ describe("file storage settings", () => {
     builderRef.result = new Error("credential store down");
     const status = await getFileStorageStatus(ctx);
     expect(status.builderUploadConfigured).toBeNull();
+  });
+
+  it("includes finite private-storage readiness without exposing credentials", async () => {
+    const status = await getFileStorageStatus(ctx);
+
+    expect(status.privateStorageReadiness).toEqual({
+      selectedOrg: "selected",
+      provider: "builder",
+      readiness: "ready",
+      builderAuthorized: "yes",
+    });
+    expect(JSON.stringify(status)).not.toContain("owner@example.com");
   });
 
   it("infers the provider preset from the endpoint", () => {

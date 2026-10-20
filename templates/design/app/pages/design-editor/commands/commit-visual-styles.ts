@@ -1,5 +1,8 @@
 import type { CodeLayerProjection } from "@shared/code-layer";
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  pinFixedFlexSiblingsOfNode,
+} from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
@@ -68,6 +71,7 @@ import { applyInlineStylesToHtml } from "@/pages/design-editor/screen-command-ut
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import { prepareCanonicalSourceContent } from "../source-publication";
+import type { FileContentSaveCompletion } from "./save-file-content";
 
 export interface CommitVisualStylesArgs {
   activeBreakpointUpperBoundPx: number | null;
@@ -75,6 +79,8 @@ export interface CommitVisualStylesArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   activeCodeLayerProjection: CodeLayerProjection;
   activeFile: DesignFile;
+  activeFileIdRef?: RefObject<string | null>;
+  currentYDocRef?: RefObject<Y.Doc | null>;
   activeProjectionContent: string;
   canEditDesign: boolean;
   canApplyContentEdit: (fileId: string) => boolean;
@@ -94,6 +100,7 @@ export interface CommitVisualStylesArgs {
       pendingUndoGestureId?: string;
       preserveSelection?: boolean;
       routePath?: string;
+      requirePersistedSourceAcceptance?: boolean;
     },
   ) => void;
   isSynced: boolean;
@@ -113,8 +120,10 @@ export interface CommitVisualStylesArgs {
       expectedVersionHash: string;
       syncCollab?: boolean;
       immediate?: boolean;
+      deferCollabReconcile?: boolean;
+      onPersistedContent?: (acceptedContent: string) => void;
     },
-  ) => void;
+  ) => Promise<FileContentSaveCompletion | false> | void;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
   recordLocalContentHistoryChangeFallback: (
     change: ContentHistoryChange,
@@ -194,6 +203,8 @@ export function runCommitVisualStyles(
     lastDuplicateTransformRef,
     lastLocalContentRef,
     latestActiveContentRef,
+    activeFileIdRef,
+    currentYDocRef,
     liveScreenSnapshotsById,
     onNoRenderedBox,
     queueFileContentSave,
@@ -228,6 +239,7 @@ export function runCommitVisualStyles(
     pendingUndoGestureId?: string;
     preserveSelection?: boolean;
     routePath?: string;
+    requirePersistedSourceAcceptance?: boolean;
   } = {},
 ) {
   trace("persist", "commit-styles", {
@@ -423,7 +435,7 @@ export function runCommitVisualStyles(
       );
       return;
     }
-    sendRuntimeStylePreview();
+    if (!options.requirePersistedSourceAcceptance) sendRuntimeStylePreview();
     applyLinkedComponentEdit(activeFile.id, durableNodeId, {
       kind: "styleBatch",
       values: Object.fromEntries(entries),
@@ -461,6 +473,23 @@ export function runCommitVisualStyles(
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const canUpdateCurrentFilePatchProof = () =>
+    !options.requirePersistedSourceAcceptance ||
+    activeFileIdRef === undefined ||
+    activeFileIdRef.current === activeFile.id;
+  const setPatchProofForCurrentFile = (
+    next: SetStateAction<PatchProofState | null>,
+  ) => {
+    if (!canUpdateCurrentFilePatchProof()) return;
+    if (!options.requirePersistedSourceAcceptance) {
+      setPatchProof(next);
+      return;
+    }
+    setPatchProof((previous) => {
+      if (!canUpdateCurrentFilePatchProof()) return previous;
+      return typeof next === "function" ? next(previous) : next;
+    });
+  };
   if (!targetNode && elementInfoIsRuntimeOnly(targetInfo)) {
     const resolutionFailure =
       targetResolution.status === "ambiguous"
@@ -473,7 +502,7 @@ export function runCommitVisualStyles(
     toast.error(resolutionFailure, {
       duration: 4000,
     });
-    setPatchProof({
+    setPatchProofForCurrentFile({
       id: proofId,
       fileId: activeFile.id,
       filename: activeFile.filename,
@@ -499,7 +528,7 @@ export function runCommitVisualStyles(
     });
     return;
   }
-  setPatchProof({
+  setPatchProofForCurrentFile({
     id: proofId,
     fileId: activeFile.id,
     filename: activeFile.filename,
@@ -522,7 +551,7 @@ export function runCommitVisualStyles(
     status: "runtime",
     createdAt: Date.now(),
   });
-  sendRuntimeStylePreview();
+  if (!options.requirePersistedSourceAcceptance) sendRuntimeStylePreview();
   const committedSelection = selectedElementRef.current;
   commitAfterPaint(() => {
     const latestContent = getScreenContent(activeFile.id);
@@ -594,8 +623,20 @@ export function runCommitVisualStyles(
             ...Object.fromEntries(entries),
           })
         : null;
+    const resizedNodeId =
+      activeBreakpointUpperBoundPx == null &&
+      entries.some(
+        ([property]) => property === "width" || property === "height",
+      )
+        ? targetNode?.dataAttributes["data-agent-native-node-id"]
+        : undefined;
+    const scopedContent =
+      resizedNodeId && !stylePatch.failed
+        ? pinFixedFlexSiblingsOfNode(stylePatch.content, resizedNodeId)
+        : stylePatch.content;
+    const siblingsPinned = scopedContent !== stylePatch.content;
     const commitResolution = resolveVisualStyleCommitContent({
-      scopedContent: stylePatch.content,
+      scopedContent,
       scopedFailure: stylePatch.failed,
       legacyFallbackContent,
       breakpointScoped: activeBreakpointUpperBoundPx != null,
@@ -606,7 +647,7 @@ export function runCommitVisualStyles(
         t("designEditor.patchProof.selectorMissing"),
       );
       toast.error(failureMessage, { duration: 4000 });
-      setPatchProof((prev) =>
+      setPatchProofForCurrentFile((prev) =>
         prev?.id === proofId
           ? { ...prev, status: "failed", error: failureMessage }
           : prev,
@@ -651,7 +692,7 @@ export function runCommitVisualStyles(
       toast.error(message, {
         id: `design-source-integrity:${activeFile.id}`,
       });
-      setPatchProof((previous) =>
+      setPatchProofForCurrentFile((previous) =>
         previous?.id === proofId
           ? { ...previous, status: "failed", error: message }
           : previous,
@@ -683,6 +724,114 @@ export function runCommitVisualStyles(
           );
         })
       : null;
+
+    if (options.requirePersistedSourceAcceptance) {
+      const capturedLatestActiveContent = latestActiveContentRef.current;
+      const capturedLastLocalContent = lastLocalContentRef.current;
+      const currentYDoc = currentYDocRef ? currentYDocRef.current : ydoc;
+      const capturedYDoc =
+        currentYDoc && !currentYDoc.isDestroyed ? currentYDoc : null;
+      const capturedYText = capturedYDoc?.getText("content");
+      const capturedYTextContent = capturedYText?.toJSON() ?? null;
+      setPatchProofForCurrentFile((prev) =>
+        prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+      );
+      queueFileContentSave(activeFile.id, resolvedNextContent, {
+        expectedVersionHash: sourceContentHash(latestContent),
+        syncCollab: false,
+        immediate: true,
+        deferCollabReconcile: true,
+        onPersistedContent: (acceptedContent) => {
+          const acceptedYDoc = currentYDocRef ? currentYDocRef.current : ydoc;
+          const currentAcceptedYDoc =
+            acceptedYDoc && !acceptedYDoc.isDestroyed ? acceptedYDoc : null;
+          const currentYTextContent =
+            currentAcceptedYDoc?.getText("content").toJSON() ?? null;
+          if (
+            (activeFileIdRef !== undefined &&
+              activeFileIdRef.current !== activeFile.id) ||
+            latestActiveContentRef.current !== capturedLatestActiveContent ||
+            lastLocalContentRef.current !== capturedLastLocalContent ||
+            capturedYDoc !== currentAcceptedYDoc ||
+            capturedYTextContent !== currentYTextContent
+          ) {
+            return;
+          }
+
+          try {
+            const writeLiveDoc = canWriteCollabText(
+              currentAcceptedYDoc,
+              isSynced,
+              capturedYTextContent ?? latestContent,
+            );
+            const yjsHistoryAvailable = Boolean(
+              viewModeRef.current !== "overview" &&
+              writeLiveDoc &&
+              undoManagerRef.current,
+            );
+            if (
+              acceptedContent !== latestContent &&
+              !suppressContentHistoryRef.current
+            ) {
+              const change = {
+                fileId: activeFile.id,
+                before: latestContent,
+                after: acceptedContent,
+              };
+              if (yjsHistoryAvailable) {
+                recordLocalContentHistoryChangeFallback(change);
+              } else if (viewModeRef.current === "overview") {
+                recordContentHistoryEntry(change);
+              } else {
+                recordLocalContentHistoryEntry(change);
+              }
+            }
+
+            setCollabContent(acceptedContent);
+            setCollabContentFileId(activeFile.id);
+            lastLocalContentRef.current = acceptedContent;
+            latestActiveContentRef.current = acceptedContent;
+            if (currentAcceptedYDoc && writeLiveDoc) {
+              const ytext = currentAcceptedYDoc.getText("content");
+              if (ytext.toJSON() !== acceptedContent) {
+                if (!yjsHistoryAvailable) {
+                  undoManagerRef.current?.clear(true, false);
+                }
+                writeCollabText(
+                  currentAcceptedYDoc,
+                  ytext,
+                  acceptedContent,
+                  yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
+                );
+              }
+            }
+            if (
+              previewContentReplaceNeedsRenderFallback(
+                replacePreviewContent(acceptedContent, selector, {
+                  forceFullDocument: true,
+                }),
+              )
+            ) {
+              setContentRenderRevision((revision) => revision + 1);
+            }
+          } catch (error) {
+            const message =
+              designSaveErrorMessage(error) ?? t("common.genericError");
+            toast.error(message, {
+              id: `design-source-integrity:${activeFile.id}`,
+            });
+            setPatchProofForCurrentFile((prev) =>
+              prev?.id === proofId
+                ? { ...prev, status: "failed", error: message }
+                : prev,
+            );
+            console.error("Accepted source publication failed", error);
+          }
+        },
+      });
+      return;
+    }
+
     const liveSnapshotUpdated = activeLiveSnapshot
       ? updateLiveScreenSnapshotContent(activeFile.id, resolvedNextContent)
       : false;
@@ -690,7 +839,7 @@ export function runCommitVisualStyles(
       setPatchProof((prev) =>
         prev?.id === proofId ? { ...prev, status: "queued" } : prev,
       );
-      if (!runtimeStyleApplied) {
+      if (!runtimeStyleApplied || siblingsPinned) {
         setContentRenderRevision((revision) => revision + 1);
       }
     } else {
@@ -753,12 +902,15 @@ export function runCommitVisualStyles(
         syncCollab: !writeLiveDoc,
       });
       if (
-        shouldReplacePreviewAfterVisualStyleCommit({
-          runtimeApplied: options.runtimeApplied,
-          runtimeStyleApplied,
-        }) &&
+        (siblingsPinned ||
+          shouldReplacePreviewAfterVisualStyleCommit({
+            runtimeApplied: options.runtimeApplied,
+            runtimeStyleApplied,
+          })) &&
         previewContentReplaceNeedsRenderFallback(
-          replacePreviewContent(resolvedNextContent, selector),
+          replacePreviewContent(resolvedNextContent, selector, {
+            forceFullDocument: siblingsPinned,
+          }),
         )
       ) {
         setContentRenderRevision((revision) => revision + 1);

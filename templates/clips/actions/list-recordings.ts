@@ -322,6 +322,7 @@ export default defineAction({
           status: schema.recordings.status,
           uploadProgress: schema.recordings.uploadProgress,
           failureReason: schema.recordings.failureReason,
+          failureCode: schema.recordings.failureCode,
           visibility: schema.recordings.visibility,
           hasPassword: sql<number>`(
             CASE WHEN ${schema.recordings.password} IS NOT NULL
@@ -451,6 +452,7 @@ export default defineAction({
         status: r.status,
         uploadProgress: r.uploadProgress,
         failureReason: r.failureReason,
+        failureCode: r.failureCode,
         visibility: r.visibility,
         hasPassword: Number(r.hasPassword ?? 0) > 0,
         expiresAt: r.expiresAt,

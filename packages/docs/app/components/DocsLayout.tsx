@@ -11,7 +11,6 @@ import {
 import { resolveFragmentRedirect } from "./docs-slug-redirects";
 import DocsPrevNext from "./DocsPrevNext";
 import DocsSidebar from "./DocsSidebar";
-import MobileDocsNav from "./MobileDocsNav";
 import TableOfContents from "./TableOfContents";
 
 function useLegacyFragmentRedirect(pathname: string, hash: string) {
@@ -68,8 +67,7 @@ export default function DocsLayout({
   return (
     <div className="mx-auto flex w-full max-w-site px-0 lg:px-6">
       <DocsSidebar />
-      <main className="min-w-0 flex-1 border-0 border-[var(--docs-border)] px-4 pb-16 pt-0 sm:px-6 lg:border-x lg:px-12 lg:pt-8">
-        <MobileDocsNav />
+      <main className="min-w-0 flex-1 border-0 border-[var(--docs-border)] px-4 pb-16 pt-6 sm:px-6 lg:border-x lg:px-12 lg:pt-8">
         <article className="docs-article mx-auto max-w-[900px]">
           {children}
         </article>

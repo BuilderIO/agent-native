@@ -1,5 +1,6 @@
 /**
- * Embedded canvas gesture bridge — injected into every canvas iframe.
+ * Embedded canvas gesture bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
+ * Its Interact-mode guards remain as defense in depth.
  *
  * A screen preview is a real iframe, so wheel and pointer-drag events never
  * bubble to the canvas underneath. In embedded mode we forward bounded wheel
@@ -13,6 +14,9 @@
  *     Space hotkey relay to the host; local Space-pan is always available
  *   __EDITING_SAFETY_ENABLED__ — boolean literal; true outside Interact mode
  *     to freeze authored motion and block native link/form navigation
+ *   __INTERACTION_MODE__ — boolean literal; true while Interact owns the
+ *     page. Every gesture below is then inert: the wheel, the middle button,
+ *     Space and a drag are the page's own, so none is cancelled or forwarded
  *
  * Protocol (iframe → parent, only when enabled):
  *
@@ -29,6 +33,7 @@
  *   { type: 'embedded-canvas-gesture-mode', wheelEnabled,
  *     spaceKeyForwardingEnabled }
  *   { type: 'embedded-canvas-pan-cancel' }
+ *   { type: 'set-interaction-mode', interact }
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -38,11 +43,13 @@
 declare var __EMBEDDED_WHEEL_FORWARDING_ENABLED__: boolean;
 declare var __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__: boolean;
 declare var __EDITING_SAFETY_ENABLED__: boolean;
+declare var __INTERACTION_MODE__: boolean;
 
 (function () {
   var wheelEnabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
   var spaceKeyForwardingEnabled = __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__;
   var editingSafetyEnabled = __EDITING_SAFETY_ENABLED__;
+  var interactionMode = __INTERACTION_MODE__;
   var leftButtonEnabled = false;
   var temporarySpacePanEnabled = false;
   var forwardedSpaceKeyDown = false;
@@ -121,6 +128,7 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onWheel(e: WheelEvent): void {
+    if (interactionMode) return;
     var zoomIntent = !!(e.ctrlKey || e.metaKey);
     if (!wheelEnabled && !zoomIntent) return;
     stopNativeInteraction(e);
@@ -193,7 +201,9 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onPointerDown(e: PointerEvent): void {
-    if (activePointerId !== null || !shouldStartPan(e)) return;
+    if (interactionMode || activePointerId !== null || !shouldStartPan(e)) {
+      return;
+    }
     activePointerId = e.pointerId;
     activeButton = e.button === 1 ? 1 : 0;
     suppressClick = true;
@@ -259,6 +269,7 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
 
   function onKeyDown(e: KeyboardEvent): void {
     if (
+      interactionMode ||
       e.key !== " " ||
       e.code !== "Space" ||
       e.metaKey ||
@@ -315,6 +326,17 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
     }
     if (e.data.type === "embedded-canvas-pan-mode") {
       leftButtonEnabled = !!e.data.leftButtonEnabled;
+      return;
+    }
+    if (e.data.type === "set-interaction-mode") {
+      interactionMode = e.data.interact === true;
+      if (interactionMode) {
+        cancelActivePan();
+        if (forwardedSpaceKeyDown) {
+          forwardedSpaceKeyDown = false;
+          postToParent({ type: "design-hotkey-up", key: " ", code: "Space" });
+        }
+      }
       return;
     }
     if (e.data.type === "embedded-canvas-gesture-mode") {

@@ -12,6 +12,7 @@ import {
   canonicalElementInfoForCodeLayerNode,
   canonicalizeElementInfoFromProjection,
   elementInfoFromCodeLayerNode,
+  hasSettledPortableStyles,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
@@ -49,7 +50,6 @@ export interface ScreenElementSelectArgs {
   ) => ApplyFileContentUpdateResult;
   clearPendingOverviewLayerSelectionTimer: () => void;
   createdOverviewLayerSelection: { screenId: string; layerId: string } | null;
-  focusDesignInspectorForSelection: () => void;
   getCodeLayerProjectionForScreen: (
     screenId: string,
   ) => CodeLayerProjection | null;
@@ -87,7 +87,6 @@ export function runScreenElementSelect(
     applyFileContentUpdate,
     clearPendingOverviewLayerSelectionTimer,
     createdOverviewLayerSelection,
-    focusDesignInspectorForSelection,
     getCodeLayerProjectionForScreen,
     getScreenContent,
     handleBreakpointBarSelect,
@@ -158,8 +157,7 @@ export function runScreenElementSelect(
         node?.dataAttributes["data-agent-native-node-id"] ===
           pendingLayerId)) &&
     !isScreenRootElementInfo(canonical) &&
-    (canonical.portableStyleSnapshot !== undefined ||
-      canonical.styleSnapshotCaptureFailed === true) &&
+    hasSettledPortableStyles(canonical) &&
     !blockedSelection;
   if (ignoredLayerSelectionEcho) {
     if (exactPendingLayerEcho) setSelectedElement(canonical);
@@ -359,6 +357,5 @@ export function runScreenElementSelect(
   }
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");
-  focusDesignInspectorForSelection();
   return true;
 }

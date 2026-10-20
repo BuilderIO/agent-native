@@ -69,7 +69,14 @@ export function getDesignSystemImageStyleReferenceUrls(
 }
 
 export function mergeDesignSystemData(value: unknown): DesignSystemData {
-  return mergeWithDefaults(DEFAULT_DESIGN_SYSTEM, value);
+  const merged = mergeWithDefaults(DEFAULT_DESIGN_SYSTEM, value);
+  // resolveSlideBackground prefers slideDefaults, so a defaulted white slide
+  // background would hide a dark colors.background the design system did set.
+  const storedSlideDefaults = isRecord(value) ? value.slideDefaults : undefined;
+  if (!isRecord(storedSlideDefaults) || !storedSlideDefaults.background) {
+    merged.slideDefaults.background = merged.colors.background;
+  }
+  return merged;
 }
 
 export interface DeckDesignSystemResult {
@@ -114,14 +121,21 @@ export function resolveDeckDesignSystem(
 
 export function useDeckDesignSystem(
   designSystemId?: string | null,
+  deckId?: string | null,
 ): DeckDesignSystemResult {
   const { data, isLoading } = useActionQuery<{
     id: string;
     title: string;
     data: string;
-  }>("get-design-system", designSystemId ? { id: designSystemId } : undefined, {
-    enabled: Boolean(designSystemId),
-  });
+  }>(
+    "get-design-system",
+    designSystemId
+      ? { id: designSystemId, ...(deckId ? { deckId } : {}) }
+      : undefined,
+    {
+      enabled: Boolean(designSystemId),
+    },
+  );
 
   return {
     ...resolveDeckDesignSystem(designSystemId, data),

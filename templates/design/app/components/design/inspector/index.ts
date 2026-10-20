@@ -68,6 +68,12 @@ export {
   type PointerGestureState,
 } from "./DesignColorPicker";
 export {
+  parseVarReference,
+  tokenVarCss,
+  type DesignColorToken,
+  type DesignColorTokens,
+} from "./color-picker-tokens";
+export {
   allFrameSizePresets,
   FRAME_SIZE_PRESET_CATEGORIES,
   type FrameSizePreset,

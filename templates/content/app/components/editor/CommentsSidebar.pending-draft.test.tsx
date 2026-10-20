@@ -157,6 +157,7 @@ describe("new comment responsive draft", () => {
     return (
       <>
         <button data-outside>Outside</button>
+        <div data-page-editor contentEditable tabIndex={-1} />
         {width < 800 ? (
           <section key="anchored">{sidebar}</section>
         ) : (
@@ -223,13 +224,14 @@ describe("new comment responsive draft", () => {
     await show(390);
     await open();
     await addMention();
-    await type("Mobile @Reviewer baseline comment");
-    await show(768);
-    expect(richEditorValue(input())).toBe("Mobile @Reviewer baseline comment");
-    await show(1280);
-    expect(richEditorValue(input())).toBe("Mobile @Reviewer baseline comment");
-    await show(390);
-    expect(richEditorValue(input())).toBe("Mobile @Reviewer baseline comment");
+    await typeRichEditorText(input(), "baseline comment");
+    const reviewerChip = () =>
+      input().querySelector('[data-mention-ref-id="reviewer@example.test"]');
+    for (const width of [768, 1280, 390]) {
+      await show(width);
+      expect(richEditorValue(input())).toBe("Mobile Reviewer baseline comment");
+      expect(reviewerChip()).not.toBeNull();
+    }
     expect(owner.pendingComment).toMatchObject({
       quotedText: selected.quotedText,
       anchor: selected.anchor,
@@ -245,7 +247,7 @@ describe("new comment responsive draft", () => {
       anchorSuffix: " paragraph.",
       anchorStartOffset: 2,
       mentions: JSON.stringify([
-        { email: "reviewer@example.test", name: "Reviewer" },
+        { kind: "person", email: "reviewer@example.test", name: "Reviewer" },
       ]),
     });
   });
@@ -280,6 +282,29 @@ describe("new comment responsive draft", () => {
     await show(1280);
     expect(document.activeElement).toBe(outside);
     expect(richEditorValue(input())).toBe("Keep this draft");
+  });
+
+  it.each([390, 1280])(
+    "takes focus from the page that opened a new comment at %ipx",
+    async (width) => {
+      await show(width);
+      // The selection toolbar and Mod+Shift+M leave focus in the page.
+      const page = container.querySelector<HTMLElement>("[data-page-editor]")!;
+      page.focus();
+      expect(document.activeElement).toBe(page);
+      await open();
+      expect(document.activeElement).toBe(input());
+    },
+  );
+
+  it("lets focus moved away right after opening stay put", async () => {
+    await show(1280);
+    await act(async () => start(selected));
+    const outside =
+      container.querySelector<HTMLButtonElement>("[data-outside]")!;
+    outside.focus();
+    await settle();
+    expect(document.activeElement).toBe(outside);
   });
 
   it("retains a failed submission, clears success and explicitly starts a fresh selection", async () => {

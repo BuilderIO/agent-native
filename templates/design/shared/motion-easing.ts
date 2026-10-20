@@ -1,3 +1,5 @@
+import { isValidMotionEase as isCoreValidMotionEase } from "@agent-native/core/shared/motion-easing";
+
 export interface MotionCurvePreset {
   label: string;
   value: string;
@@ -20,6 +22,183 @@ export const MOTION_CURVE_PRESETS: MotionCurvePreset[] = [
 export interface MotionSpring {
   bounce: number;
   settle: number;
+}
+
+export interface MotionEasingVariable {
+  id: string;
+  name: string;
+  value: string;
+  collection?: string;
+}
+
+function isConcreteMotionEase(ease: string): boolean {
+  return isCoreValidMotionEase(ease) && !isMotionEaseVariableReference(ease);
+}
+
+/** Accepts concrete easings and canonical references at editing boundaries. */
+export function isValidMotionEase(ease: string): boolean {
+  return isConcreteMotionEase(ease) || isMotionEaseVariableReference(ease);
+}
+
+export const MOTION_EASING_VARIABLE_MAX_COUNT = 256;
+const MOTION_EASING_VARIABLE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MOTION_EASING_VARIABLE_REFERENCE_RE =
+  /^var\(--an-motion-ease-([a-z0-9][a-z0-9-]{0,63})\)$/;
+
+export function createMotionEaseVariableId(
+  name: string,
+  existingIds: readonly string[] = [],
+): string {
+  const base =
+    name
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64)
+      .replace(/-+$/g, "") || "easing";
+  const used = new Set(existingIds);
+  if (!used.has(base)) return base;
+
+  for (let suffix = 2; ; suffix += 1) {
+    const ending = `-${suffix}`;
+    const candidate = `${base.slice(0, 64 - ending.length).replace(/-+$/g, "")}${ending}`;
+    if (!used.has(candidate)) return candidate;
+  }
+}
+
+export function motionEaseVariableName(id: string): string {
+  if (!MOTION_EASING_VARIABLE_ID_RE.test(id)) {
+    throw new TypeError(
+      "Motion easing variable ids must be 1 to 64 lowercase letters, digits, or hyphens and start with a letter or digit.",
+    );
+  }
+  return `--an-motion-ease-${id}`;
+}
+
+export function motionEaseVariableToken(id: string): string {
+  return `var(${motionEaseVariableName(id)})`;
+}
+
+/** Returns the id from a canonical Motion easing variable reference. */
+export function motionEaseVariableId(ease: string): string | null {
+  const match = MOTION_EASING_VARIABLE_REFERENCE_RE.exec(ease);
+  return match?.[1] ?? null;
+}
+
+export function isMotionEaseVariableReference(ease: string): boolean {
+  return motionEaseVariableId(ease) !== null;
+}
+
+/** Validates the bounded definitions stored in a versioned Motion source document. */
+export function assertValidMotionEasingVariables(
+  value: unknown,
+): asserts value is MotionEasingVariable[] {
+  if (
+    !Array.isArray(value) ||
+    value.length > MOTION_EASING_VARIABLE_MAX_COUNT
+  ) {
+    throw new TypeError(
+      `Motion easing variables must be an array of 0 to ${MOTION_EASING_VARIABLE_MAX_COUNT} entries.`,
+    );
+  }
+
+  const ids = new Set<string>();
+  for (const [index, variable] of value.entries()) {
+    if (
+      typeof variable !== "object" ||
+      variable === null ||
+      Array.isArray(variable)
+    ) {
+      throw new TypeError(`Motion easing variable ${index} must be an object.`);
+    }
+    const candidate = variable as Record<string, unknown>;
+    if (
+      Object.keys(candidate).some(
+        (key) => !["id", "name", "value", "collection"].includes(key),
+      )
+    ) {
+      throw new TypeError(
+        `Motion easing variable ${index} contains an unsupported field.`,
+      );
+    }
+    if (
+      typeof candidate.id !== "string" ||
+      !MOTION_EASING_VARIABLE_ID_RE.test(candidate.id)
+    ) {
+      throw new TypeError(`Motion easing variable ${index} has an invalid id.`);
+    }
+    if (ids.has(candidate.id)) {
+      throw new TypeError(
+        `Motion easing variable id "${candidate.id}" is duplicated.`,
+      );
+    }
+    ids.add(candidate.id);
+
+    if (!isBoundedEasingVariableText(candidate.name, 128)) {
+      throw new TypeError(
+        `Motion easing variable ${index} must have a non-empty name of at most 128 characters.`,
+      );
+    }
+    if (
+      candidate.collection !== undefined &&
+      !isBoundedEasingVariableText(candidate.collection, 128)
+    ) {
+      throw new TypeError(
+        `Motion easing variable ${index} must have a non-empty collection name of at most 128 characters.`,
+      );
+    }
+    if (
+      typeof candidate.value !== "string" ||
+      candidate.value.length > 512 ||
+      !isConcreteMotionEase(candidate.value)
+    ) {
+      throw new TypeError(
+        `Motion easing variable ${index} must contain a concrete supported easing value.`,
+      );
+    }
+  }
+}
+
+function isBoundedEasingVariableText(
+  value: unknown,
+  maxLength: number,
+): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.length <= maxLength &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  );
+}
+
+/** Resolves a named reference or returns a valid concrete easing token. */
+export function resolveMotionEase(
+  ease: string,
+  variables: readonly MotionEasingVariable[] = [],
+): string {
+  if (isConcreteMotionEase(ease)) return ease;
+  const id = motionEaseVariableId(ease);
+  if (id === null) {
+    throw new TypeError(`"${ease}" is not a supported motion easing value.`);
+  }
+  assertValidMotionEasingVariables(variables);
+  const matches = variables.filter((variable) => variable.id === id);
+  if (matches.length !== 1) {
+    throw new TypeError(
+      matches.length === 0
+        ? `Motion easing variable "${id}" is not defined.`
+        : `Motion easing variable id "${id}" is ambiguous.`,
+    );
+  }
+  const value = matches[0]!.value;
+  if (!isConcreteMotionEase(value)) {
+    throw new TypeError(
+      `Motion easing variable "${id}" does not contain a concrete supported easing value.`,
+    );
+  }
+  return value;
 }
 
 export const MOTION_SPRING_DEFAULT_BOUNCE = 0.25;

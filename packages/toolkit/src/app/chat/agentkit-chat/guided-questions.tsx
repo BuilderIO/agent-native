@@ -1097,6 +1097,35 @@ export type PendingQuestionRefetchResult =
   | { status: "none" }
   | { status: "error"; error: unknown };
 
+/**
+ * Window event dispatched once per human submit of a guided question card,
+ * only when the flow's `onSubmitMessage` resolves `{ delivered: true }`, so apps can
+ * observe answers (for example, which option was picked) without owning the
+ * flow.
+ */
+export const GUIDED_QUESTIONS_SUBMITTED_EVENT =
+  "agentNative.guidedQuestionsSubmitted";
+
+export interface GuidedQuestionsSubmittedDetail {
+  stateKey: string;
+  questions: GuidedQuestion[];
+  answers: GuidedQuestionAnswers;
+}
+
+function announceGuidedQuestionsSubmitted(
+  detail: GuidedQuestionsSubmittedDetail,
+): void {
+  // Listeners are observers; a throwing one must never block the submit.
+  try {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent(GUIDED_QUESTIONS_SUBMITTED_EVENT, { detail }),
+    );
+  } catch {
+    // coercion-ok: an observer failure must not affect delivering the answers.
+  }
+}
+
 function payloadBelongsToThread(
   payload: GuidedQuestionPayload,
   threadId: string | undefined,
@@ -1241,9 +1270,13 @@ export function useGuidedQuestionFlow({
   }, [queryClient, resolvedQueryKey, scopedKey, stateKey]);
 
   const sendAndClearOnDelivery = useCallback(
-    (send: () => void | Promise<{ delivered: boolean }>) => {
+    (
+      send: () => void | Promise<{ delivered: boolean }>,
+      onDelivered?: () => void,
+    ) => {
       if (submissionInFlightRef.current) return;
       const result = send();
+      // A synchronous send reports no delivery, so it is never announced.
       if (!result) {
         clear();
         return;
@@ -1252,7 +1285,9 @@ export function useGuidedQuestionFlow({
       setIsSubmitting(true);
       void result
         .then(({ delivered }) => {
-          if (delivered) clear();
+          if (!delivered) return;
+          onDelivered?.();
+          clear();
         })
         .catch((error) => {
           console.error("Guided question submission failed", error);
@@ -1276,6 +1311,12 @@ export function useGuidedQuestionFlow({
         return;
       }
       if (isSubmissionBlocked) return;
+      const announce = () =>
+        announceGuidedQuestionsSubmitted({
+          stateKey,
+          questions: visiblePayload?.questions ?? [],
+          answers,
+        });
       const formattedAnswers = formatGuidedAnswersForAgent(
         answers,
         visiblePayload?.questions,
@@ -1292,15 +1333,18 @@ export function useGuidedQuestionFlow({
         .filter(Boolean)
         .join("\n\n");
       if (onSubmitMessage) {
-        sendAndClearOnDelivery(() =>
-          onSubmitMessage({
-            answers,
-            formattedAnswers,
-            message: resolvedSubmitMessage,
-            context,
-          }),
+        sendAndClearOnDelivery(
+          () =>
+            onSubmitMessage({
+              answers,
+              formattedAnswers,
+              message: resolvedSubmitMessage,
+              context,
+            }),
+          announce,
         );
       } else {
+        // Fire-and-forget: there is no delivery signal to announce on.
         sendToAgentChat({
           message: resolvedSubmitMessage,
           context,
@@ -1315,6 +1359,7 @@ export function useGuidedQuestionFlow({
       onSubmitMessage,
       sendAndClearOnDelivery,
       isSubmissionBlocked,
+      stateKey,
       visiblePayload,
       submitMessage,
     ],

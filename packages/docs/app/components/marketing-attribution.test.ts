@@ -190,6 +190,10 @@ describe("installAppLinkAttribution", () => {
     uninstall = undefined;
     document.body.innerHTML = "";
     localStorage.clear();
+    // Capture reads a touch back from its cookie when storage is empty.
+    for (const name of ["an_ft", "an_lt"]) {
+      document.cookie = `${name}=; path=/; max-age=0`;
+    }
     history.replaceState(null, "", "/");
     delete (document as { referrer?: string }).referrer;
   });

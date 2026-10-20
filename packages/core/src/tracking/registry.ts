@@ -38,7 +38,7 @@ function testIdentityOf(
   ].find((value): value is string => isTestIdentity(value));
 }
 
-function isTrackingSuppressed(
+export function isTrackingSuppressed(
   userId: string | undefined,
   properties?: Record<string, unknown>,
 ): boolean {

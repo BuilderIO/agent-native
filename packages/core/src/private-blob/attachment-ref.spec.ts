@@ -38,7 +38,7 @@ vi.mock("../tracking/failure-counters.js", () => ({
 const uploadFileMock = vi.hoisted(() => vi.fn());
 const getActiveFileUploadProviderForRequestMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../file-upload/index.js", () => ({
+vi.mock("../file-upload/registry.js", () => ({
   deleteUploadedFile: vi.fn(),
   getActiveFileUploadProviderForRequest:
     getActiveFileUploadProviderForRequestMock,

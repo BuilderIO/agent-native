@@ -93,6 +93,7 @@ import {
   type BuilderConnectTransport,
 } from "../settings/index.js";
 import { RouterSidebarLink } from "../shared/index.js";
+import { useRegisterAgentChatSurface } from "./agent-chat-presence.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   SettingsReturnPathRecorder,
@@ -2733,6 +2734,7 @@ function AgentPanelErrorFallback({
 }
 
 export function AgentPanel(props: AgentPanelProps) {
+  useRegisterAgentChatSurface(true);
   const [resetKey, setResetKey] = useState(0);
   const resetPanel = useCallback(() => {
     try {

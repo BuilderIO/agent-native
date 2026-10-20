@@ -10,10 +10,8 @@ import { randomBytes, randomUUID, createHash } from "node:crypto";
 
 import { getDbExec, isConnectionError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import { applicationTypeForRedirectUris } from "./oauth-client-metadata.js";
-
-let _initPromise: Promise<void> | undefined;
 
 export const MCP_OAUTH_CODE_TTL_MS = 10 * 60_000;
 
@@ -64,10 +62,13 @@ export const MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: number =
 export const MCP_OAUTH_REGISTER_MAX = 60;
 export const MCP_OAUTH_REGISTER_WINDOW_MS = 60_000;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const createClientsSql = `
+export const mcpOauthStore = defineStore({
+  id: "mcp_oauth",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createClientsSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
           client_id TEXT PRIMARY KEY,
           client_name TEXT,
@@ -79,7 +80,7 @@ export async function ensureTable(): Promise<void> {
           created_at BIGINT
         )
       `;
-      const createCodesSql = `
+        const createCodesSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_codes (
           code TEXT PRIMARY KEY,
           client_id TEXT NOT NULL,
@@ -97,7 +98,7 @@ export async function ensureTable(): Promise<void> {
           consumed_at BIGINT
         )
       `;
-      const createRefreshTokensSql = `
+        const createRefreshTokensSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_tokens (
           id TEXT PRIMARY KEY,
           token_hash TEXT UNIQUE NOT NULL,
@@ -116,35 +117,40 @@ export async function ensureTable(): Promise<void> {
         )
       `;
 
-      await ensureTableExists("mcp_oauth_clients", createClientsSql);
-      await ensureColumnExists(
-        "mcp_oauth_clients",
-        "application_type",
-        `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
-      );
-      await ensureTableExists("mcp_oauth_codes", createCodesSql);
-      // Legacy owners may already have been transferred; leave their bindings unset.
-      await ensureColumnExists(
-        "mcp_oauth_codes",
-        "issued_for_email",
-        `ALTER TABLE mcp_oauth_codes ADD COLUMN IF NOT EXISTS issued_for_email TEXT`,
-      );
-      await ensureTableExists(
-        "mcp_oauth_refresh_tokens",
-        createRefreshTokensSql,
-      );
-      await ensureColumnExists(
-        "mcp_oauth_refresh_tokens",
-        "issued_for_email",
-        `ALTER TABLE mcp_oauth_refresh_tokens ADD COLUMN IF NOT EXISTS issued_for_email TEXT`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+        await ensureTableExists("mcp_oauth_clients", createClientsSql);
+        await ensureColumnExists(
+          "mcp_oauth_clients",
+          "application_type",
+          `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
+        );
+        await ensureTableExists("mcp_oauth_codes", createCodesSql);
+        await ensureColumnExists(
+          "mcp_oauth_codes",
+          "client_name",
+          `ALTER TABLE mcp_oauth_codes ADD COLUMN IF NOT EXISTS client_name TEXT`,
+        );
+        // Legacy owners may already have been transferred; leave their bindings unset.
+        await ensureColumnExists(
+          "mcp_oauth_codes",
+          "issued_for_email",
+          `ALTER TABLE mcp_oauth_codes ADD COLUMN IF NOT EXISTS issued_for_email TEXT`,
+        );
+        await ensureTableExists(
+          "mcp_oauth_refresh_tokens",
+          createRefreshTokensSql,
+        );
+        await ensureColumnExists(
+          "mcp_oauth_refresh_tokens",
+          "issued_for_email",
+          `ALTER TABLE mcp_oauth_refresh_tokens ADD COLUMN IF NOT EXISTS issued_for_email TEXT`,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return mcpOauthStore.ready();
 }
 
 export const ensureOAuthTables = ensureTable;
@@ -161,6 +167,7 @@ export interface OAuthClientRow {
 }
 
 export interface OAuthCodeRow {
+  clientName: string | null;
   code: string;
   clientId: string;
   redirectUri: string;
@@ -271,6 +278,7 @@ function mapClientRow(row: any): OAuthClientRow {
 
 function mapCodeRow(row: any): OAuthCodeRow {
   return {
+    clientName: row.client_name ?? row.clientName ?? null,
     code: row.code,
     clientId: row.client_id ?? row.clientId,
     redirectUri: row.redirect_uri ?? row.redirectUri,
@@ -397,6 +405,7 @@ export async function getOAuthClient(
 export async function createOAuthCode(
   params: {
     clientId: string;
+    clientName?: string | null;
     redirectUri: string;
     codeChallenge: string;
     codeChallengeMethod: string;
@@ -414,7 +423,7 @@ export async function createOAuthCode(
   const now = Date.now();
   const expiresAt = now + MCP_OAUTH_CODE_TTL_MS;
   const result = await client.execute({
-    sql: `INSERT INTO mcp_oauth_codes (code, client_id, redirect_uri, code_challenge, code_challenge_method, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_oauth_codes (code, client_id, redirect_uri, code_challenge, code_challenge_method, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, consumed_at, client_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       code,
       params.clientId,
@@ -430,6 +439,7 @@ export async function createOAuthCode(
       now,
       expiresAt,
       null,
+      params.clientName ?? null,
     ],
   });
   if (result.rowsAffected !== 1) {
@@ -439,6 +449,7 @@ export async function createOAuthCode(
   }
   return {
     code,
+    clientName: params.clientName ?? null,
     clientId: params.clientId,
     redirectUri: params.redirectUri,
     codeChallenge: params.codeChallenge,

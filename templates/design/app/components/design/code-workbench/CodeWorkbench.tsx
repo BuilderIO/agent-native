@@ -64,6 +64,7 @@ export interface CodeWorkbenchActiveFile {
 export interface CodeWorkbenchProps {
   designId: string;
   canEdit: boolean;
+  active: boolean;
   activeFileId?: string | null;
   activeFilename?: string | null;
   selectedNodeId?: string | null;
@@ -105,6 +106,7 @@ export function CodeWorkbench(props: CodeWorkbenchProps) {
 function CodeWorkbenchInner({
   designId,
   canEdit,
+  active,
   activeFileId,
   activeFilename,
   selectedNodeId,
@@ -424,7 +426,7 @@ function CodeWorkbenchInner({
         commands={commands}
         context={commandContext}
       />
-      <BufferSyncGroup designId={designId} />
+      <BufferSyncGroup designId={designId} active={active} />
     </div>
   );
 }

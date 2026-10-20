@@ -1,10 +1,11 @@
-import { IconCheck, IconChevronDown } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { IconChevronDown } from "@tabler/icons-react";
+import { Fragment, type ReactNode } from "react";
 
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -20,8 +21,16 @@ export type DesignToolbarOption = {
   label: string;
   icon: ReactNode;
   shortcut?: string;
+  /** The variant the group's main button currently arms. */
   active?: boolean;
   disabled?: boolean;
+  /**
+   * Looks unavailable but still takes the click, for an item whose click is the
+   * way to make it available (Image/video asking to connect storage).
+   */
+  dimmed?: boolean;
+  /** Draw a divider above this item. */
+  separatorBefore?: boolean;
   onSelect: () => void;
 };
 
@@ -46,35 +55,49 @@ export function DesignPenToolIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * One toolbar group as a split button: the 32px tool, a 1px seam and a 16px
+ * chevron that opens the group's menu. A group with a single item has no
+ * chevron. The tool fills with the accent while it is armed.
+ */
 export function DesignToolbarTool({
+  groupId,
   active,
   label,
   icon,
+  optionsLabel,
   options,
   onPrimary,
+  primaryShortcut,
 }: {
+  groupId: string;
   active: boolean;
   label: string;
   icon: ReactNode;
+  /** Accessible name of the chevron; the group's name, not the armed variant's. */
+  optionsLabel: string;
   options: DesignToolbarOption[];
   onPrimary: () => void;
+  /** Shown in the tooltip beside the label. */
+  primaryShortcut?: string;
 }) {
   const hasOptionsMenu = options.length > 1;
-  const primaryShortcut =
-    options.find((option) => option.active)?.shortcut ?? options[0]?.shortcut;
   return (
-    <div className="flex h-8 items-center text-neutral-200">
+    <div
+      data-design-toolbar-group={groupId}
+      className="flex h-8 items-center gap-px"
+    >
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
             className={cn(
-              "flex size-8 cursor-pointer items-center justify-center rounded-md transition-colors",
+              // guard:allow-raw-color - fixed dark editor chrome, intentionally theme-independent
+              "flex size-8 cursor-pointer items-center justify-center rounded-lg text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
-                ? // guard:allow-raw-color - fixed dark editor chrome, intentionally theme-independent
-                  "bg-[var(--design-editor-accent-color)] text-white"
+                ? "bg-[var(--design-editor-accent-color)] text-[var(--design-editor-accent-contrast-color)] hover:bg-[var(--design-editor-accent-hover-color)]"
                 : // guard:allow-raw-color - fixed dark editor chrome, intentionally theme-independent
-                  "hover:bg-white/10 hover:text-white",
+                  "hover:bg-white/10",
             )}
             onClick={onPrimary}
             aria-label={label}
@@ -98,10 +121,9 @@ export function DesignToolbarTool({
               type="button"
               className={cn(
                 // guard:allow-raw-color - fixed dark editor chrome, intentionally theme-independent
-                "flex h-8 w-4 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/10 hover:text-white",
-                active && "text-neutral-200",
+                "flex h-8 w-4 cursor-pointer items-center justify-center rounded-md text-white/65 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-white/15 data-[state=open]:text-white",
               )}
-              aria-label={`${label} options`}
+              aria-label={optionsLabel}
             >
               <IconChevronDown className="size-3" />
             </button>
@@ -110,29 +132,37 @@ export function DesignToolbarTool({
             side="top"
             align="center"
             sideOffset={12}
-            className="w-56 rounded-2xl border-border bg-popover p-2 text-popover-foreground shadow-md"
+            className="min-w-[151px] rounded-[10px] border-border bg-popover p-0 text-popover-foreground shadow-md"
           >
             {options.map((option) => (
-              <DropdownMenuItem
-                key={option.key}
-                disabled={option.disabled}
-                onSelect={option.onSelect}
-                className="h-10 rounded-lg text-sm text-popover-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:text-muted-foreground"
-              >
-                <span className="mr-2 flex size-5 items-center justify-center text-popover-foreground">
-                  {option.active ? (
-                    <IconCheck className="size-4" />
-                  ) : (
-                    option.icon
+              <Fragment key={option.key}>
+                {option.separatorBefore ? (
+                  <DropdownMenuSeparator className="mx-0 my-0" />
+                ) : null}
+                <DropdownMenuItem
+                  disabled={option.disabled}
+                  aria-disabled={option.dimmed ? true : undefined}
+                  aria-current={option.active ? "true" : undefined}
+                  data-option={option.key}
+                  onSelect={option.onSelect}
+                  className={cn(
+                    "h-7 gap-2 rounded-lg px-2 py-1 text-sm text-popover-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:text-muted-foreground",
+                    option.dimmed && "opacity-50",
                   )}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                {option.shortcut && (
-                  <DropdownMenuShortcut className="ml-3 text-muted-foreground">
-                    {option.shortcut}
-                  </DropdownMenuShortcut>
-                )}
-              </DropdownMenuItem>
+                >
+                  <span className="flex w-5 shrink-0 items-center justify-center p-0.5">
+                    {option.icon}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {option.label}
+                  </span>
+                  {option.shortcut ? (
+                    <DropdownMenuShortcut className="ms-3 text-xs tracking-normal text-muted-foreground opacity-100">
+                      {option.shortcut}
+                    </DropdownMenuShortcut>
+                  ) : null}
+                </DropdownMenuItem>
+              </Fragment>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>

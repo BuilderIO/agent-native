@@ -48,6 +48,17 @@ afterEach(() => {
 });
 
 describe("slide selection chrome", () => {
+  it("draws the selection frame with one 2px blue border", () => {
+    const outline = document.createElement("div");
+    outline.setAttribute("data-slide-selection-chrome", "true");
+    document.body.append(outline);
+
+    const style = getComputedStyle(outline);
+    expect(style.borderTopColor).toBe("#1a73e8");
+    expect(style.borderTopWidth).toBe("2px");
+    expect(style.boxShadow).toBe("none");
+  });
+
   it("uses white handles with a 2px #1a73e8 stroke and no shadow", () => {
     renderSelectionChrome();
 

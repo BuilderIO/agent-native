@@ -123,6 +123,7 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
 
 interface DesignExtensionsPanelProps {
   context: DesignExtensionSlotContext;
+  motionLabEnabled: boolean;
   className?: string;
   hideAssetLibrary?: boolean;
   title?: string;
@@ -1315,14 +1316,15 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
   const handleAskAgent = () => {
     sendToDesignAgentChat({
       message:
-        "Apply a motion preset to the selected element. Suggest fade-in, slide-up, pulse, bounce, or spin, then call apply-motion-edit to write the keyframes atomically.",
+        "Apply a motion preset to the selected element. Inspect existing motion first with get-motion-timeline, preview the selected frame, then save the timeline with apply-motion-edit. For inline HTML or React JSX, adopt supported static CSS animations into the timeline when present.",
       context: [
         `Design id: ${context.designId}`,
         context.activeFileId ? `Active file id: ${context.activeFileId}` : null,
         context.selectedElement
           ? `Selected element: ${JSON.stringify({ selector: context.selectedElement.selector, sourceId: context.selectedElement.sourceId }, null, 2)}`
           : "No element selected — ask the user to click an element first.",
-        "Call get-motion-timeline to check for an existing timeline, then preview-motion-frame first, then apply-motion-edit for the atomic write.",
+        "Inline HTML <style> and React JSX <style> CSS import supports one static animation per uniquely resolved simple selector, using top-level @keyframes, fixed longhand timing, a supported easing, and static keyframe values for supported properties. React requires one lossless static JSX text or string/template literal with no substitutions. On save, adopted animation declarations and @keyframes move into managed Motion CSS; unrelated CSS remains. Removing the Motion timeline removes adopted animation CSS. This does not import JSX style-prop animations/transitions, JavaScript runtime animations, GSAP, Web Animations API calls, external stylesheets, or Alpine x-transition directives. Unsupported or ambiguous CSS must remain unchanged.",
+        "React/JSX source writeback uses verified managed Motion CSS; it does not import unmarked CSS. Call get-motion-timeline, then preview-motion-frame, then apply-motion-edit.",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -1360,6 +1362,7 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
 
 export function DesignExtensionsPanel({
   context,
+  motionLabEnabled,
   className,
   hideAssetLibrary = false,
   title,
@@ -1459,25 +1462,31 @@ export function DesignExtensionsPanel({
       icon: <IconAssembly className="size-3.5" />,
       panel: <TokenAuditorPanel context={context} />,
     },
-    {
-      id: "design.motion-presets",
-      label: "Motion Presets",
-      description: "One-click animation presets for elements",
-      category: "motion",
-      icon: <IconPlayerPlay className="size-3.5" />,
-      panel: <MotionPresetsPanel context={context} />,
-    },
+    ...(motionLabEnabled
+      ? [
+          {
+            id: "design.motion-presets" as const,
+            label: "Motion Presets",
+            description: "One-click animation presets for elements",
+            category: "motion" as const,
+            icon: <IconPlayerPlay className="size-3.5" />,
+            panel: <MotionPresetsPanel context={context} />,
+          },
+        ]
+      : []),
   ];
   const firstPartyRows = allFirstPartyRows.filter(
     (row) => !hideAssetLibrary || row.id !== "design.asset-library",
   );
   const normalizedSearch = searchQuery.trim().toLowerCase();
+  const visibleCategoryFilter =
+    !motionLabEnabled && categoryFilter === "motion" ? "all" : categoryFilter;
   const sourceMatches = (source: ToolSourceFilter) =>
     !enableExtensionDiscovery ||
     sourceFilter === "all" ||
     sourceFilter === source;
   const categoryMatches = (category: ToolCategoryFilter) =>
-    categoryFilter === "all" || categoryFilter === category;
+    visibleCategoryFilter === "all" || visibleCategoryFilter === category;
   const textMatches = (name: string, description?: string | null) => {
     if (!normalizedSearch) return true;
     return `${name} ${description ?? ""}`
@@ -1559,13 +1568,15 @@ export function DesignExtensionsPanel({
           ) : null}
           <ToolFilterMenu
             label="Category"
-            value={categoryFilter}
+            value={visibleCategoryFilter}
             onChange={setCategoryFilter}
             options={[
               { value: "all", label: "Category" },
               { value: "shader", label: "Shaders" },
               { value: "tokens", label: "Tokens" },
-              { value: "motion", label: "Motion" },
+              ...(motionLabEnabled
+                ? [{ value: "motion" as const, label: "Motion" }]
+                : []),
               ...(enableExtensionDiscovery
                 ? [{ value: "plugins" as const, label: "Plugins" }]
                 : []),

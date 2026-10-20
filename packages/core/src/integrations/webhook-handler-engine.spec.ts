@@ -13,7 +13,7 @@ const updateThreadDataMock = vi.hoisted(() => vi.fn());
 const grantThreadUserShareMock = vi.hoisted(() => vi.fn());
 const setThreadSourceIfMissingMock = vi.hoisted(() => vi.fn());
 const isInBackgroundFunctionRuntimeMock = vi.hoisted(() => vi.fn(() => false));
-const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const resolveOrgScopeForEmailMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
@@ -109,7 +109,7 @@ vi.mock("./integration-durable-dispatch.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgA2ASecret: getOrgA2ASecretMock,
-  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+  resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
 function fakeFilterInitialEngineTools(
@@ -343,7 +343,10 @@ describe("integration webhook handler engine resolution", () => {
     grantThreadUserShareMock.mockResolvedValue(undefined);
     setThreadSourceIfMissingMock.mockResolvedValue(false);
     isInBackgroundFunctionRuntimeMock.mockReturnValue(false);
-    resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-qa",
+    });
     getOrgA2ASecretMock.mockResolvedValue(null);
     resolveOwnerEngineApiKeyMock.mockResolvedValue({
       apiKey: undefined,
@@ -1588,6 +1591,64 @@ describe("integration webhook handler engine resolution", () => {
         apiKeyEnvVar: "OPENAI_API_KEY",
         model: "gpt-5.2",
       });
+    },
+  );
+
+  it(
+    "preserves confirmed personal scope through the integration engine resolver",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      resolveOrgScopeForEmailMock.mockResolvedValue({
+        status: "organization",
+        orgId: "org-after-enqueue",
+      });
+      getConfiguredEngineNameForRequestMock.mockImplementationOnce(async () => {
+        const { getRequestContext } =
+          await import("../server/request-context.js");
+        expect(getRequestContext()).toMatchObject({
+          userEmail: "personal+qa@example.com",
+          orgScope: "personal",
+        });
+        return "anthropic";
+      });
+
+      const task = pendingTask({
+        ownerEmail: "personal+qa@example.com",
+        orgId: null,
+        payload: JSON.stringify({
+          incoming: {
+            platform: "fake",
+            externalThreadId: "thread-personal",
+            text: "hello",
+            platformContext: {},
+            timestamp: 1001,
+          },
+          principalType: "user",
+        }),
+      });
+
+      await processIntegrationTask(task, {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "",
+        ownerEmail: task.ownerEmail,
+      });
+
+      expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+        engineOption: "anthropic",
+        ownerEmail: task.ownerEmail,
+        anthropicFallback: "",
+      });
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+      const stagedPayload = JSON.parse(
+        stageTaskDeliveryPayloadMock.mock.calls.at(-1)![1],
+      );
+      expect(stagedPayload).toMatchObject({ orgScope: "personal" });
     },
   );
 

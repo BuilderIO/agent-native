@@ -2,7 +2,9 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
+
+import { expect, test } from "./rails";
 
 interface ReplayPayload {
   replayId?: string;
@@ -66,6 +68,9 @@ function watchPage(page: Page, baseURL: string) {
   const consoleErrors: string[] = [];
   const failedResponses: string[] = [];
   const requestFailures: string[] = [];
+  // A query the app cancels and refetches while sign-in settles aborts its first
+  // request; only an abort that nothing later retried is a failure.
+  const unretriedAborts = new Map<string, string>();
   const appOrigin = new URL(baseURL).origin;
   page.on("console", (message) => {
     const text = message.text();
@@ -77,6 +82,7 @@ function watchPage(page: Page, baseURL: string) {
   page.on("response", (response) => {
     const { origin, pathname } = new URL(response.url());
     if (origin !== appOrigin) return;
+    if (response.ok()) unretriedAborts.delete(response.url());
     // Vite can invalidate one lazy dependency while optimizing a cold dev server.
     if (
       response.status() >= 400 &&
@@ -98,13 +104,19 @@ function watchPage(page: Page, baseURL: string) {
       ) {
         return;
       }
+      if (errorText === "net::ERR_ABORTED") {
+        unretriedAborts.set(request.url(), `${pathname} ${errorText}`);
+        return;
+      }
       requestFailures.push(`${pathname} ${errorText}`);
     }
   });
   return {
     consoleErrors,
     failedResponses,
-    requestFailures,
+    get requestFailures() {
+      return [...requestFailures, ...unretriedAborts.values()];
+    },
   };
 }
 

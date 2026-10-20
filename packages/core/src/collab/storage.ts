@@ -1,36 +1,37 @@
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 
-let _initPromise: Promise<void> | undefined;
+export const collabDocsStore = defineStore({
+  id: "collab_docs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const nowDefault = "NOW()::text";
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS _collab_docs (
+            doc_id TEXT PRIMARY KEY,
+            yjs_state TEXT NOT NULL,
+            text_snapshot TEXT NOT NULL DEFAULT '',
+            version INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT (${nowDefault})
+          )
+        `;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const nowDefault = "NOW()::text";
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS _collab_docs (
-          doc_id TEXT PRIMARY KEY,
-          yjs_state TEXT NOT NULL,
-          text_snapshot TEXT NOT NULL DEFAULT '',
-          version INTEGER NOT NULL DEFAULT 0,
-          updated_at TEXT NOT NULL DEFAULT (${nowDefault})
-        )
-      `;
+        await ensureTableExists("_collab_docs", createSql);
+        await ensureColumnExists(
+          "_collab_docs",
+          "version",
+          `ALTER TABLE _collab_docs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
+        );
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("_collab_docs", createSql);
-      await ensureColumnExists(
-        "_collab_docs",
-        "version",
-        `ALTER TABLE _collab_docs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return collabDocsStore.ready();
 }
 
 export interface YDocStateRecord {

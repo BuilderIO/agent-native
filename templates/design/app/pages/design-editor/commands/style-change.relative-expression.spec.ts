@@ -627,6 +627,35 @@ describe("runStyleChange screen routing", () => {
   });
 });
 
+it("forwards persisted source acceptance only when requested", () => {
+  const commitVisualStyles = vi.fn();
+
+  runStyleChange(
+    {
+      commitInteractionStateStyles: () => false,
+      commitRelativeStyleDeltaToSelectedLayers: () => false,
+      commitStylesToSelectedLayers: () => false,
+      commitCapturedStyleTargets: () => {},
+      commitVisualStyles,
+      handleClearBreakpointOverride: () => false,
+      previewInteractionStateStyles: () => {},
+      selectedCanvasSelectorCandidates: [],
+      selectedElement: null,
+      selectedLayerTargetsRef: { current: [] },
+      textEditingState: { active: false },
+    },
+    "backgroundImage",
+    "url(https://example.test/fill.png)",
+    { phase: "commit", requirePersistedSourceAcceptance: true },
+  );
+
+  expect(commitVisualStyles).toHaveBeenCalledWith(
+    "body",
+    { backgroundImage: "url(https://example.test/fill.png)" },
+    { requirePersistedSourceAcceptance: true },
+  );
+});
+
 describe("runStylesChange mixed relative margin deltas", () => {
   it("routes only the linked margin sides through the per-target relative path", () => {
     const commitRelativeStyleDeltaToSelectedLayers = vi.fn(() => true);

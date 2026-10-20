@@ -1,3 +1,17 @@
+export type LocalhostWriteConsentRequestOutcome =
+  | "opened"
+  | "missing-connection"
+  | "not-editable";
+
+export function isLocalhostWriteConsentError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "LocalWriteConsentRequiredError" ||
+      error.name === "WriteConsentRequiredError" ||
+      /write-consent grant|grant expired/i.test(error.message))
+  );
+}
+
 export function localhostConsentRequestDisposition({
   requestKey,
   lastHandledKey,

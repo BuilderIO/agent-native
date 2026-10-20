@@ -11,7 +11,7 @@ import {
 
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
@@ -74,7 +74,6 @@ const EMBED_ROUTE_ALIASES: Record<string, string[]> = {
   ],
 };
 
-let _initPromise: Promise<void> | undefined;
 let _devSigningKey: string | undefined;
 
 export interface EmbedSessionTicketInput {
@@ -196,51 +195,54 @@ export function resolvedEmbedCapabilityScope(
   return scope;
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const embedTicketsCreateSql = `
-        CREATE TABLE IF NOT EXISTS agent_native_embed_tickets (
-          ticket_hash TEXT PRIMARY KEY,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          target_path TEXT NOT NULL,
-          scope TEXT,
-          created_at BIGINT NOT NULL,
-          expires_at BIGINT NOT NULL,
-          consumed_at BIGINT,
-          renewal_expires_at BIGINT,
-          session_active_until BIGINT
-        )
-      `;
-      await ensureTableExists(
-        "agent_native_embed_tickets",
-        embedTicketsCreateSql,
-      );
-      await ensureColumnExists(
-        "agent_native_embed_tickets",
-        "renewal_expires_at",
-        "ALTER TABLE agent_native_embed_tickets ADD COLUMN renewal_expires_at BIGINT",
-      );
-      await ensureColumnExists(
-        "agent_native_embed_tickets",
-        "session_active_until",
-        "ALTER TABLE agent_native_embed_tickets ADD COLUMN session_active_until BIGINT",
-      );
-      await ensureTableExists(
-        "agent_native_embed_session_revocations",
-        `CREATE TABLE IF NOT EXISTS agent_native_embed_session_revocations (
-          owner_hash TEXT PRIMARY KEY,
-          revoked_before BIGINT NOT NULL
-        )`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+export const embedSessionsStore = defineStore({
+  id: "embed_sessions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const embedTicketsCreateSql = `
+          CREATE TABLE IF NOT EXISTS agent_native_embed_tickets (
+            ticket_hash TEXT PRIMARY KEY,
+            owner_email TEXT NOT NULL,
+            org_id TEXT,
+            target_path TEXT NOT NULL,
+            scope TEXT,
+            created_at BIGINT NOT NULL,
+            expires_at BIGINT NOT NULL,
+            consumed_at BIGINT,
+            renewal_expires_at BIGINT,
+            session_active_until BIGINT
+          )
+        `;
+        await ensureTableExists(
+          "agent_native_embed_tickets",
+          embedTicketsCreateSql,
+        );
+        await ensureColumnExists(
+          "agent_native_embed_tickets",
+          "renewal_expires_at",
+          "ALTER TABLE agent_native_embed_tickets ADD COLUMN renewal_expires_at BIGINT",
+        );
+        await ensureColumnExists(
+          "agent_native_embed_tickets",
+          "session_active_until",
+          "ALTER TABLE agent_native_embed_tickets ADD COLUMN session_active_until BIGINT",
+        );
+        await ensureTableExists(
+          "agent_native_embed_session_revocations",
+          `CREATE TABLE IF NOT EXISTS agent_native_embed_session_revocations (
+            owner_hash TEXT PRIMARY KEY,
+            revoked_before BIGINT NOT NULL
+          )`,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return embedSessionsStore.ready();
 }
 
 function getSigningKey(): string {

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import {
@@ -8,6 +8,7 @@ import {
   expandAllLayers,
   gotoEditor,
 } from "./helpers";
+import { childrenOf, expect, expectOnlyChanged, test } from "./rails";
 
 const WORKSPACE_ID = "frame-containment-workspace";
 const FRAME_ID = "frame-containment-artwork";
@@ -62,41 +63,6 @@ test.afterEach(async ({ page }) => {
   ).toEqual([]);
 });
 
-async function postAction(
-  page: Page,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await page.request.post(
-    appPath(`/_agent-native/actions/${name}`),
-    { data: input, headers: { "Content-Type": "application/json" } },
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
-}
-
-async function createReproDesign(page: Page): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: `Frame containment ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created?.id ?? created?.data?.id ?? created?.design?.id;
-  if (typeof designId !== "string") {
-    throw new Error(`create-design returned no id: ${JSON.stringify(created)}`);
-  }
-  await postAction(page, "create-file", {
-    designId,
-    filename: "index.html",
-    content: REPRO_HTML,
-    fileType: "html",
-  });
-  return designId;
-}
-
 async function readDesign(page: Page, designId: string) {
   const response = await page.request.get(
     appPath(`/_agent-native/actions/get-design?id=${designId}`),
@@ -128,8 +94,7 @@ function layerRowButton(page: Page, name: string) {
   return page
     .getByRole("tree", { name: "Layers" })
     .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first();
+    .filter({ has: page.locator(`span[title="${name}"]`) });
 }
 
 async function previewFrame(page: Page) {
@@ -178,10 +143,11 @@ async function previewFrame(page: Page) {
 
 // Covers auto-layout movement and persistence through resize and reload.
 test("Layers moves a Frame into auto layout while keeping nested content anchored through resize and reload", async ({
+  app,
   page,
 }) => {
   test.setTimeout(120_000);
-  const designId = await createReproDesign(page);
+  const designId = await app.seed(REPRO_HTML);
   await gotoEditor(page, designId);
   await expandAllLayers(page);
 
@@ -200,6 +166,8 @@ test("Layers moves a Frame into auto layout while keeping nested content anchore
       badgeBottomGap: 13,
     });
 
+  await app.settled();
+  const before = await app.savedNodes(designId);
   const artworkBounds = await artworkRow.boundingBox();
   const workspaceBounds = await workspaceRow.boundingBox();
   if (!artworkBounds || !workspaceBounds) {
@@ -222,6 +190,13 @@ test("Layers moves a Frame into auto layout while keeping nested content anchore
       childNodeIds(await readSource(page, designId), WORKSPACE_ID),
     )
     .toContain(FRAME_ID);
+  await app.settled();
+  const afterMove = await app.savedNodes(designId);
+  expect(childrenOf(afterMove, WORKSPACE_ID)).toStrictEqual([
+    "frame-containment-sidebar",
+    FRAME_ID,
+  ]);
+  expectOnlyChanged(before, afterMove, [FRAME_ID]);
   const sourceAfterMove = await readSource(page, designId);
   const frameStyleAfterMove = styleForNode(sourceAfterMove, FRAME_ID);
   await test.info().attach("source-after-frame-reparent.html", {
@@ -262,7 +237,7 @@ test("Layers moves a Frame into auto layout while keeping nested content anchore
     /data-agent-native-node-id="frame-containment-artwork"[^>]*style="[^"]*position:\s*relative\s*!important/i,
   );
 
-  await artworkRow.click({ force: true });
+  await artworkRow.click();
   const width = page.getByRole("textbox", {
     name: /^W(?: size in pixels)?$/,
   });

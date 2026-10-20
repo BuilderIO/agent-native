@@ -18,6 +18,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS: WorkspaceConnectionProvider[] = [
   "notion",
   "gmail",
   "google_calendar",
+  "bigquery",
   "google_drive",
   "google_docs",
   "google_sheets",

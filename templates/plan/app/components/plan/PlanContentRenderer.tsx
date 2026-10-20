@@ -49,6 +49,13 @@ import {
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
+import {
+  findPlanBlock,
+  hasPlanBlockStructureChange,
+  isWideLayoutBlock,
+  updatePlanBlocks,
+  visitPlanBlocks,
+} from "./plan-block-structure";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import { PlanTableOfContents } from "./PlanTableOfContents";
 import { collectPlanTocItems } from "./PlanTableOfContents.utils";
@@ -109,26 +116,6 @@ type PlanContentRendererProps = {
   visualSurfaceMode?: PlanVisualSurfaceMode;
   onVisualSurfaceModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
-
-function blockStructureSignature(blocks: PlanBlock[]): string {
-  const walk = (list: PlanBlock[]): string =>
-    list
-      .map((block) => {
-        if (block.type === "tabs") {
-          return `tabs:${block.id}[${block.data.tabs
-            .map((tab) => `${tab.id}(${walk(tab.blocks)})`)
-            .join(",")}]`;
-        }
-        if (block.type === "columns") {
-          return `columns:${block.id}[${block.data.columns
-            .map((column) => `${column.id}(${walk(column.blocks)})`)
-            .join(",")}]`;
-        }
-        return `${block.type}:${block.id}`;
-      })
-      .join("|");
-  return walk(blocks);
-}
 
 export function getPlanCodeAnnotationLayout({
   isRecap,
@@ -226,7 +213,7 @@ export function PlanContentRenderer({
     if (
       onContentPatch &&
       nextBlock.type === "rich-text" &&
-      findBlock(content.blocks, id)?.type === "rich-text"
+      findPlanBlock(content.blocks, id)?.type === "rich-text"
     ) {
       await onContentPatch({
         op: "update-rich-text",
@@ -249,13 +236,13 @@ export function PlanContentRenderer({
     }
     const next = {
       ...content,
-      blocks: updateBlocks(content.blocks, id, () => nextBlock),
+      blocks: updatePlanBlocks(content.blocks, id, () => nextBlock),
     };
     await onContentChange?.(next);
   };
 
   const updateRichTextBlock = async (blockId: string, markdown: string) => {
-    const block = findBlock(content.blocks, blockId);
+    const block = findPlanBlock(content.blocks, blockId);
     if (!block || block.type !== "rich-text") return;
     if (onContentPatch) {
       await onContentPatch({
@@ -424,8 +411,7 @@ export function PlanContentRenderer({
   ) => {
     if (
       onOptimisticBlocks &&
-      blockStructureSignature(nextBlocks) !==
-        blockStructureSignature(content.blocks)
+      hasPlanBlockStructureChange(content.blocks, nextBlocks)
     ) {
       onOptimisticBlocks(nextBlocks);
     }
@@ -608,20 +594,7 @@ export function PlanContentRenderer({
   ]);
   const blockLookup = useMemo(() => {
     const blocks = new Map<string, PlanBlock>();
-    const visit = (block: PlanBlock) => {
-      blocks.set(block.id, block);
-      if (block.type === "tabs") {
-        for (const tab of block.data.tabs) {
-          for (const child of tab.blocks) visit(child);
-        }
-      }
-      if (block.type === "columns") {
-        for (const column of block.data.columns) {
-          for (const child of column.blocks) visit(child);
-        }
-      }
-    };
-    for (const block of content.blocks) visit(block);
+    visitPlanBlocks(content.blocks, (block) => blocks.set(block.id, block));
     return blocks;
   }, [content.blocks]);
   const fileToBlockIdMap = useMemo<Map<string, string>>(() => {
@@ -928,38 +901,6 @@ function renderFlowBlockFrame(block: PlanBlock, node: ReactNode) {
   );
 }
 
-function isWideLayoutBlock(block: PlanBlock): boolean {
-  switch (block.type) {
-    case "diff":
-    case "annotated-code":
-      return true;
-    case "tabs":
-      return (
-        block.data.orientation === "vertical" ||
-        block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks))
-      );
-    default:
-      return false;
-  }
-}
-
-function blocksContainDiffLike(blocks: PlanBlock[]): boolean {
-  return blocks.some(blockContainsDiffLike);
-}
-
-function blockContainsDiffLike(block: PlanBlock): boolean {
-  if (block.type === "diff" || block.type === "annotated-code") return true;
-  if (block.type === "tabs") {
-    return block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks));
-  }
-  if (block.type === "columns") {
-    return block.data.columns.some((column) =>
-      blocksContainDiffLike(column.blocks),
-    );
-  }
-  return false;
-}
-
 function isChangedFilesHeadingBlock(block: PlanBlock | undefined): boolean {
   if (!block || block.type !== "rich-text") return false;
   return /^#{1,6}\s+(?:(?:changed|added|removed|touched|modified)\s+files|files(?:\s+(?:changed|added|removed|touched|modified))?)\s*$/i.test(
@@ -1130,58 +1071,6 @@ function EditableHeaderText({
   ) : (
     <p {...commonProps}>{value}</p>
   );
-}
-
-function updateBlocks(
-  blocks: PlanBlock[],
-  id: string,
-  updater: (block: PlanBlock) => PlanBlock,
-): PlanBlock[] {
-  return blocks.map((block) => {
-    if (block.id === id) return updater(block);
-    if (block.type === "tabs") {
-      return {
-        ...block,
-        data: {
-          tabs: block.data.tabs.map((tab) => ({
-            ...tab,
-            blocks: updateBlocks(tab.blocks, id, updater),
-          })),
-        },
-      };
-    }
-    if (block.type === "columns") {
-      return {
-        ...block,
-        data: {
-          columns: block.data.columns.map((column) => ({
-            ...column,
-            blocks: updateBlocks(column.blocks, id, updater),
-          })),
-        },
-      };
-    }
-    return block;
-  });
-}
-
-function findBlock(blocks: PlanBlock[], id: string): PlanBlock | null {
-  for (const block of blocks) {
-    if (block.id === id) return block;
-    if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
-        const match = findBlock(tab.blocks, id);
-        if (match) return match;
-      }
-    }
-    if (block.type === "columns") {
-      for (const column of block.data.columns) {
-        const match = findBlock(column.blocks, id);
-        if (match) return match;
-      }
-    }
-  }
-  return null;
 }
 
 function computeRecapStats(

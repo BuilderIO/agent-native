@@ -864,12 +864,16 @@ async function handleProxy(
       };
     }
 
-    const { text } = await readResponseTextWithLimit(response);
+    const responseText = await readResponseTextWithLimit(response);
+    if (responseText.truncated) {
+      setResponseStatus(event, 502);
+      return { error: responseText.text };
+    }
     let responseBody: unknown;
     try {
-      responseBody = JSON.parse(text);
+      responseBody = JSON.parse(responseText.text);
     } catch {
-      responseBody = text;
+      responseBody = responseText.text;
     }
 
     return {

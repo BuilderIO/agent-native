@@ -107,7 +107,9 @@ export const LOCALHOST_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
   indexTokens: available(),
   writeTokens: planned("Token write-back lands with bridge hardening"),
   previewMotion: available(),
-  writeMotion: available(),
+  writeMotion: available(
+    "Version-checked Motion writes are supported only for proven localhost React/JSX targets after explicit user consent; other localhost formats are unsupported",
+  ),
   branch: unavailable("Branching requires a connected Builder app"),
   deployPreview: unavailable("Deploy previews require a connected Builder app"),
   deploy: unavailable("Deploy requires a connected Builder app"),

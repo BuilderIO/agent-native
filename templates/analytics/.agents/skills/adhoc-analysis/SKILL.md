@@ -63,7 +63,7 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 **Tips for data gathering:**
 
 - Start with the primary source (e.g., HubSpot for deals), then enrich with secondary sources
-- For named deal/account deep dives, call `account-deep-dive` first with the
+- For the CRM side of named deal/account deep dives, call `account-deep-dive` first (ask what was said in Gong calls with `run-gong-native-insight`) with the
   account, company, domain, deal, or opportunity name. It returns HubSpot deals,
   associated companies/contacts/tickets/notes/emails, Gong call detail, compact
   transcript excerpts, coverage counts, and gaps. Use targeted `hubspot-records`

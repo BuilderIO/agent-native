@@ -8,10 +8,14 @@ const mocks = vi.hoisted(() => ({
   captureReplayScreenshot: vi.fn(),
   fetchSessionReplayPlayback: vi.fn(),
   getIdToken: vi.fn(),
+  useActionQuery: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   appApiPath: (path: string) => `/api/${path}`,
+}));
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: mocks.useActionQuery,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -98,6 +102,8 @@ describe("SessionReplayStoryboardExportDialog screenshot capture", () => {
   const getDisplayMedia = vi.fn();
 
   beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockClear();
+    getDisplayMedia.mockClear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       callback(0);
@@ -128,6 +134,12 @@ describe("SessionReplayStoryboardExportDialog screenshot capture", () => {
       recording: { eventCount: 12 },
     });
     mocks.getIdToken.mockResolvedValue("test-token");
+    mocks.useActionQuery.mockReturnValue({
+      data: { code: "ready", targetClass: "beta_design" },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -210,5 +222,97 @@ describe("SessionReplayStoryboardExportDialog screenshot capture", () => {
     );
     expect(getDisplayMedia).not.toHaveBeenCalled();
     expect(container.textContent).toContain("sessions.storyboardComplete");
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "check-replay-storyboard-design-target",
+      {},
+      expect.objectContaining({ enabled: true, retry: false }),
+    );
+  });
+
+  it("keeps capture disabled when the caller target preflight is not ready", async () => {
+    mocks.useActionQuery.mockReturnValue({
+      data: {
+        code: "notready",
+        failureCode: "target_mismatch",
+        targetClass: "configured_design",
+      },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+    });
+    await act(async () => {
+      root.render(
+        <SessionReplayStoryboardExportDialog
+          open
+          onOpenChange={() => {}}
+          cohortTotal={1}
+          recordings={[
+            {
+              id: "replay-1",
+              startedAt: "2026-10-08T11:22:27.000Z",
+              durationMs: 60_000,
+              eventCount: 12,
+              app: "clips",
+              template: "clips",
+              path: "/library",
+            },
+          ]}
+        />,
+      );
+    });
+
+    const captureButton = container.querySelector<HTMLButtonElement>(
+      'button[type="submit"]',
+    );
+    expect(captureButton?.disabled).toBe(true);
+    expect(captureButton?.dataset.targetCode).toBe("notready");
+    expect(captureButton?.dataset.targetFailureCode).toBe("target_mismatch");
+    expect(captureButton?.dataset.targetClass).toBe("configured_design");
+    expect(container.textContent).toContain("sessions.storyboardCaptureFailed");
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    expect(mocks.captureReplayScreenshot).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not trust a cached ready result while the dialog preflight refreshes", async () => {
+    mocks.useActionQuery.mockReturnValue({
+      data: { code: "ready", targetClass: "beta_design" },
+      isLoading: false,
+      isFetching: true,
+      error: null,
+    });
+    await act(async () => {
+      root.render(
+        <SessionReplayStoryboardExportDialog
+          open
+          onOpenChange={() => {}}
+          cohortTotal={1}
+          recordings={[
+            {
+              id: "replay-1",
+              startedAt: "2026-10-08T11:22:27.000Z",
+              durationMs: 60_000,
+              eventCount: 12,
+              app: "clips",
+              template: "clips",
+              path: "/library",
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLButtonElement>('button[type="submit"]')
+        ?.disabled,
+    ).toBe(true);
+    expect(mocks.captureReplayScreenshot).not.toHaveBeenCalled();
   });
 });

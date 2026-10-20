@@ -111,6 +111,10 @@ import {
   type DesignFilter,
 } from "@/lib/design-filter";
 import {
+  designPromptReferenceTypes,
+  trackDesignPromptSubmitted,
+} from "@/lib/design-funnel-tracking";
+import {
   clearPendingGeneration,
   writePendingGeneration,
 } from "@/lib/pending-generation";
@@ -192,6 +196,8 @@ type HomeSuggestionsResult =
         | "agent_engine_settings_unavailable";
       suggestions: [];
     };
+
+const HOME_SUGGESTIONS_UI_TIMEOUT_MS = 12_000;
 
 function isReadyHomeSuggestions(
   result: HomeSuggestionsResult | undefined,
@@ -341,7 +347,7 @@ export default function Index() {
   const createFromTemplateMutation = useActionMutation(
     "create-design-from-template",
   );
-  const createFusionAppMutation = useActionMutation("create-fusion-app");
+  const createFusionAppMutation = useActionMutation("create-builder-app");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design");
@@ -437,13 +443,58 @@ export default function Index() {
     homeSuggestionsQuery.data.suggestions.length === 3
       ? homeSuggestionsQuery.data.suggestions
       : null;
-  const homeSuggestionsUnavailable =
+  const homeSuggestionsQueryUnavailable =
     !homeSuggestionsQuery.isFetching &&
     quickActionsEnabled &&
     (homeSuggestionsQuery.isError ||
       homeSuggestionsQuery.data?.status === "unavailable" ||
       (homeSuggestionsQuery.data?.status === "ready" &&
         homeSuggestionsQuery.data.suggestions.length !== 3));
+  const [homeSuggestionsTimeout, setHomeSuggestionsTimeout] = useState({
+    scope: homeSuggestionsIdentityScope,
+    timedOut: false,
+  });
+  if (homeSuggestionsTimeout.scope !== homeSuggestionsIdentityScope) {
+    setHomeSuggestionsTimeout({
+      scope: homeSuggestionsIdentityScope,
+      timedOut: false,
+    });
+  }
+  const homeSuggestionsTimedOut =
+    quickActionsEnabled &&
+    homeSuggestionsTimeout.scope === homeSuggestionsIdentityScope &&
+    homeSuggestionsTimeout.timedOut;
+  useEffect(() => {
+    if (
+      !quickActionsEnabled ||
+      homeSuggestionsSnapshot !== null ||
+      readyHomeSuggestions !== null ||
+      homeSuggestionsQueryUnavailable
+    ) {
+      setHomeSuggestionsTimeout({
+        scope: homeSuggestionsIdentityScope,
+        timedOut: false,
+      });
+      return;
+    }
+    const timer = window.setTimeout(
+      () =>
+        setHomeSuggestionsTimeout({
+          scope: homeSuggestionsIdentityScope,
+          timedOut: true,
+        }),
+      HOME_SUGGESTIONS_UI_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [
+    quickActionsEnabled,
+    homeSuggestionsSnapshot,
+    readyHomeSuggestions,
+    homeSuggestionsQueryUnavailable,
+    homeSuggestionsIdentityScope,
+  ]);
+  const homeSuggestionsUnavailable =
+    homeSuggestionsQueryUnavailable || homeSuggestionsTimedOut;
   useEffect(() => {
     if (homeSuggestionsSnapshot !== null) return;
     const result = homeSuggestionsQuery.data;
@@ -460,7 +511,7 @@ export default function Index() {
     } else if (
       quickActionsEnabled &&
       homeSuggestionsProfileReady &&
-      homeSuggestionsUnavailable
+      homeSuggestionsQueryUnavailable
     ) {
       setHomeSuggestionsSnapshotState({
         scope: homeSuggestionsIdentityScope,
@@ -474,7 +525,7 @@ export default function Index() {
     homeSuggestionsIdentityScope,
     quickActionsEnabled,
     homeSuggestionsProfileReady,
-    homeSuggestionsUnavailable,
+    homeSuggestionsQueryUnavailable,
     fallbackHomeSuggestions,
   ]);
   const homeSuggestions =
@@ -484,6 +535,7 @@ export default function Index() {
   const homeSuggestionsLoading =
     homeSuggestionsSnapshot === null &&
     readyHomeSuggestions === null &&
+    !homeSuggestionsTimedOut &&
     (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
@@ -735,7 +787,8 @@ export default function Index() {
   const createDesign = useCallback(
     (
       title: string,
-      designSystemId?: string | null,
+      designSystemId: string | null | undefined,
+      creationMethod: "prompt" | "blank",
     ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
@@ -783,6 +836,7 @@ export default function Index() {
           title: finalTitle,
           projectType,
           ...(designSystemId !== undefined ? { designSystemId } : {}),
+          creationMethod,
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -836,8 +890,11 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
-      pendingOptions?: { skipQuestions?: boolean },
+      pendingOptions?: { skipQuestions?: boolean; fromSkip?: boolean },
     ) => {
+      const promptSource = quickStartRef.current
+        ? "suggestion_chip"
+        : "composer";
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const templateCopyDesignSystemId =
@@ -850,6 +907,25 @@ export default function Index() {
         newDesignMode === "app"
           ? await resolveAppDesignSystemId()
           : templateCopyDesignSystemId;
+      const reportPromptSubmitted = (outputId: string) => {
+        if (pendingOptions?.fromSkip) return;
+        try {
+          trackDesignPromptSubmitted({
+            outputId,
+            source: promptSource,
+            prompt,
+            referenceTypes: designPromptReferenceTypes({
+              contextItems: options.contextItems,
+              files,
+              templateSelected: Boolean(selectedTemplate),
+              designSystemId,
+            }),
+            startMode: selectedTemplate ? "template" : newDesignMode,
+          });
+        } catch {
+          // coercion-ok: analytics must never block opening the new design.
+        }
+      };
 
       if (selectedTemplate && newDesignMode === "design") {
         setNewDesignHandoffPending(true);
@@ -924,6 +1000,7 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
+          reportPromptSubmitted(result.id);
           void navigate(`/design/${result.id}`);
           return;
         } catch (error) {
@@ -939,8 +1016,17 @@ export default function Index() {
 
       const derivedTitle = derivePromptTitle(prompt);
 
-      const { id, title, ready } = createDesign(derivedTitle, designSystemId);
-      handleGenerateDesignTitle(id, prompt, title);
+      const { id, title, ready } = createDesign(
+        derivedTitle,
+        designSystemId,
+        "prompt",
+      );
+      // The title action needs the saved design, and create-design is still in flight.
+      void ready.then(
+        () => handleGenerateDesignTitle(id, prompt, title),
+        // coercion-ok: a failed create reports itself, and there is no design to title.
+        () => {},
+      );
 
       if (fullAppBuildingEnabled && newDesignMode === "app") {
         try {
@@ -966,10 +1052,10 @@ export default function Index() {
               message: prompt,
               context:
                 `The user's request is to build this design as a full app. ` +
-                `create-fusion-app returned status "not-configured" for design ` +
+                `create-builder-app returned status "not-configured" for design ` +
                 `${id}. ${result?.message ?? ""} Help the user connect ` +
                 `Builder.io (see connect-builder-app), then retry ` +
-                `create-fusion-app with the user's prompt.`,
+                `create-builder-app with the user's prompt.`,
               submit: true,
             });
           })
@@ -984,7 +1070,7 @@ export default function Index() {
                 `The user's request is to build this design as a full app. ` +
                 `Starting the full-app build for design ${id} failed: ` +
                 `${message}. Check whether the design row exists, Builder is ` +
-                `connected, and create-fusion-app can be retried safely.`,
+                `connected, and create-builder-app can be retried safely.`,
               submit: true,
             });
           });
@@ -1012,6 +1098,7 @@ export default function Index() {
         }
       }
 
+      reportPromptSubmitted(id);
       trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
       void navigate(`/design/${id}`);
@@ -1046,6 +1133,7 @@ export default function Index() {
       const { id, ready } = createDesign(
         t("home.untitledDesign"),
         designSystemId,
+        "blank",
       );
       await ready;
       void navigate(`/design/${id}`);
@@ -1074,11 +1162,16 @@ export default function Index() {
         }
         return false;
       }
-      await handleSubmitPrompt("", [], {
-        contextItems: await homeContext.prepareSubmission(
-          snapshotComposerContextItems(homeContext.contextItems),
-        ),
-      });
+      await handleSubmitPrompt(
+        "",
+        [],
+        {
+          contextItems: await homeContext.prepareSubmission(
+            snapshotComposerContextItems(homeContext.contextItems),
+          ),
+        },
+        { fromSkip: true },
+      );
       return false;
     }
     await startBlankDesign();
@@ -1264,6 +1357,12 @@ export default function Index() {
       />
     </div>
   );
+  const showHomeSuggestions =
+    quickActionsEnabled &&
+    (homeSuggestionsLoading ||
+      homeSuggestionsUnavailable ||
+      readyHomeSuggestions !== null ||
+      homeSuggestionsSnapshot !== null);
 
   return (
     <>
@@ -1299,8 +1398,8 @@ export default function Index() {
               onOpenChange={() => {}}
               composerComponent={PromptComposer}
               composerRef={composerRef}
-              showModelSelector={agentEngineConfigured}
-              modelStatusChecksEnabled={agentEngineConfigured}
+              showModelSelector
+              modelStatusChecksEnabled
               requireAgentEngine
               showMissingApiKeySetup={false}
               title={t("home.newDesignLower")}
@@ -1313,6 +1412,7 @@ export default function Index() {
                   : t("home.describeBuild")
               }
               onSkip={handleSkipToEditor}
+              showInlineSkip={false}
               skipLabel={
                 selectedTemplate
                   ? t("templatesPage.useTemplate")
@@ -1359,47 +1459,76 @@ export default function Index() {
           </div>
         }
         quickActions={
-          homeSuggestionsLoading ||
-          homeSuggestionsUnavailable ||
-          readyHomeSuggestions !== null ||
-          homeSuggestionsSnapshot !== null ? (
-            <AgentSuggestionBar
-              loading={homeSuggestionsLoading}
-              announceUpdates
-              layout="single-line"
-              suggestions={homeSuggestions.map((suggestion, index) => ({
-                ...suggestion,
-                id: suggestion.id ?? `design-home-${index}`,
-                disabled:
-                  !quickActionsEnabled ||
-                  newDesignHandoffPending ||
-                  quickStartPending,
-              }))}
-              ariaLabel={t("home.suggestedPrompts")}
-              className="px-0 py-0"
-              onSelect={async (suggestion) => {
-                if (
-                  !quickActionsEnabled ||
-                  quickStartRef.current ||
-                  !composerRef.current
-                )
-                  return;
-                quickStartRef.current = true;
-                submissionErrorRef.current = false;
-                setQuickStartPending(true);
-                try {
-                  const accepted = await composerRef.current.submitWithText(
-                    agentSuggestionPrompt(suggestion),
-                  );
-                  if (!accepted && !submissionErrorRef.current) {
-                    toast.error(t("homeContext.notReady"));
-                  }
-                } finally {
-                  quickStartRef.current = false;
-                  setQuickStartPending(false);
-                }
-              }}
-            />
+          showHomeSuggestions || !selectedTemplate ? (
+            <div
+              data-home-prompt-actions
+              className="flex w-full min-w-0 items-center justify-between gap-1"
+            >
+              {showHomeSuggestions ? (
+                <AgentSuggestionBar
+                  loading={homeSuggestionsLoading}
+                  announceUpdates
+                  layout="single-line"
+                  suggestions={homeSuggestions.map((suggestion, index) => ({
+                    ...suggestion,
+                    id: suggestion.id ?? `design-home-${index}`,
+                    disabled:
+                      !quickActionsEnabled ||
+                      newDesignHandoffPending ||
+                      quickStartPending,
+                  }))}
+                  ariaLabel={t("home.suggestedPrompts")}
+                  className="min-w-0 flex-1 px-0 py-0"
+                  onSelect={async (suggestion) => {
+                    if (
+                      !quickActionsEnabled ||
+                      quickStartRef.current ||
+                      !composerRef.current
+                    )
+                      return;
+                    quickStartRef.current = true;
+                    submissionErrorRef.current = false;
+                    setQuickStartPending(true);
+                    try {
+                      const accepted = await composerRef.current.submitWithText(
+                        agentSuggestionPrompt(suggestion),
+                      );
+                      if (!accepted && !submissionErrorRef.current) {
+                        toast.error(t("homeContext.notReady"));
+                      }
+                    } finally {
+                      quickStartRef.current = false;
+                      setQuickStartPending(false);
+                    }
+                  }}
+                />
+              ) : (
+                <span className="min-w-0 flex-1" />
+              )}
+              {!selectedTemplate ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  disabled={newDesignHandoffPending}
+                  className="h-7 shrink-0 px-2 font-normal text-muted-foreground hover:text-foreground"
+                  data-testid="design-home-skip-prompt"
+                  onClick={() => {
+                    // startBlankDesign shows the failure toast before rejecting.
+                    void handleSkipToEditor().catch((error: unknown) => {
+                      trace("persist", "skip-to-editor-failed", {
+                        message:
+                          error instanceof Error
+                            ? error.message
+                            : String(error),
+                      });
+                    });
+                  }}
+                >
+                  {t("promptDialog.skipPrompt")}
+                </Button>
+              ) : null}
+            </div>
           ) : null
         }
       >

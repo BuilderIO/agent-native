@@ -3,10 +3,89 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-09
+## 2026-10-19
 
 ### Improved
 
+- Database views can filter one property more than once, number filters add ≥ and ≤, and filter chips name their operator, like "Status: is not done".
+
+### Fixed
+
+- Edits made from a block's menu or a table's row and column menus, such as deleting a table, adding a row or turning off the header row, are now saved instead of coming back after a reload
+- Starting a comment puts the cursor in the comment box, ready to type.
+- Table row and column options now appear for the row or column under the pointer, Escape selects the cell before leaving the editor, wide tables keep their add-column control on screen on phones, and a tap near a table's edge on a touch screen edits the cell there instead of adding a row or column
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-18
+
+### Improved
+
+- Collection pages with more than one Blocks field show each field as a tab you can rename or delete
+- Block text and background colors use Content's own palette, and colored backgrounds are now readable in dark mode
+
+### Fixed
+
+- Blocks fields preserve literal whitespace and support hosted agent reads and edits
+- Renaming a Blocks field from a collection's column menu saves the new name again
+- Word counts can save open Blocks fields before counting on hosted deployments
+
+## 2026-10-17
+
+### Improved
+
+- Connected AI assistants can read a page with the edits still open in your editor
+
+## 2026-10-16
+
+### Fixed
+
+- Opening a page in a new tab while another tab is still saving no longer sends a second save or files a copy to History.
+- Typing steadily in one tab no longer makes another open tab show "This page changed elsewhere" after its edits saved.
+- Reopening a page after someone else renamed it no longer adds a copy of your edits to Version History
+
+## 2026-10-12
+
+### Improved
+
+- Pages open faster in a fresh browser
+
+## 2026-10-11
+
+### Improved
+
+- Comment mentions of people and agents now stay as avatar and logo chips after sending, hovering a mention or author shows who it is, including an AI author's model, effort, and run, and someone newly mentioned in an edit gets an email
+- AI comments use the dedicated agent icon for the author fallback and send control.
+
+### Fixed
+
+- Share and copy buttons stay the same height in the editor
+
+## 2026-10-10
+
+### Improved
+
+- ChatGPT and Codex widgets use the app's standard document layout, with a normal-size Share button.
+- The ChatGPT and Codex widget no longer pins a formatting toolbar to the top of the page; formatting appears on a text selection and from the slash menu, as in the app.
+
+### Fixed
+
+- Accepting a suggested edit in a comment thread no longer shows a false save error or briefly loses the thread's highlight, and the Comment tooltip and Cancel button display correctly.
+- Content keeps acknowledged edits when a stale collaborator snapshot arrives
+- The Share and Copy link actions are clearly separated in the document toolbar.
+
+## 2026-10-09
+
+### Added
+
+- AI suggestions from a comment now appear in that comment thread, where accepting or rejecting them leaves the thread open, and replying to the AI there revises the suggestion
+- ChatGPT and Codex widgets show the document's top bar with a working Share button and the full formatting toolbar for bold, italic, headings, lists, links, and undo.
+
+### Improved
+
+- Pages open faster and recover more reliably from loading failures.
 - Format Content documents directly in ChatGPT widgets
 - Pages without a collection open faster.
 
@@ -17,6 +96,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-08
 
+### Added
+
+- Agents can update page and database descriptions and read their full saved guidance.
+
 ### Improved
 
 - The Content editor fits ChatGPT's panel sizes and supports direct edits to documents and database rows in the widget.
@@ -24,6 +107,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Collection rows remain readable through MCP even when descriptions and saved views are long
 - New blank documents open ready to edit without an unrelated collection prompt.
 - The sidebar hides empty Pinned sections and aligns the workspace selector and search with the navigation sections.
 - Unsaved edits stay attached to the latest title when another tab renames a page
@@ -51,6 +135,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Import Markdown files as pages from the page menu or by dropping them on a page, with a preview of anything that won't come across and one-click undo
 - External agents can now move a page and its sub-pages to recoverable Trash, list Trash, and restore it through Content's MCP tools.
 
 ### Improved
@@ -75,6 +160,10 @@ time from the command menu (Cmd+K → "What's new").
 - Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
 
 ## 2026-10-05
+
+### Added
+
+- The Share dialog's Agents tab can add Content to Cursor or VS Code in one click, so an agent there can read the page you share
 
 ### Improved
 

@@ -127,6 +127,17 @@ surface. The app supplies rows, typed columns, editor slots, selection state,
 and persistence callbacks. The kit provides keyboard navigation, active-cell
 behavior, optional selection, column sizing, and the scroll surface.
 
+<WireframeBlock id="doc-block-toolkit-data-grid">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:420px;box-sizing:border-box;padding:22px;display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><h2 style='margin:0'>Projects</h2><span class='wf-pill'>3 rows</span><div style='flex:1'></div><button><span data-icon='search'></span> Filter</button></div><div class='wf-card' style='padding:0;overflow:hidden'><div style='display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;border-bottom:1px solid var(--wf-line);font-weight:600'><div style='padding:10px 12px'>Name</div><div style='padding:10px 12px'>Owner</div><div style='padding:10px 12px'>Status</div><div style='padding:10px 12px'>Updated</div></div><div style='display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;border-bottom:1px solid var(--wf-line)'><div style='padding:10px 12px'>Website refresh</div><div style='padding:10px 12px'>Maya</div><div style='padding:10px 12px'><span class='wf-pill accent'>In progress</span></div><div style='padding:10px 12px'>Today</div></div><div style='display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;border-bottom:1px solid var(--wf-line)'><div style='padding:10px 12px'>Q3 launch</div><div style='padding:10px 12px'>Kai</div><div style='padding:10px 12px'><span class='wf-pill'>Planning</span></div><div style='padding:10px 12px'>Yesterday</div></div><div style='display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr'><div style='padding:10px 12px;border:2px solid var(--wf-accent);border-radius:4px'>Onboarding</div><div style='padding:10px 12px'>Steve</div><div style='padding:10px 12px'><span class='wf-pill'>Review</span></div><div style='padding:10px 12px'>Aug 8</div></div></div><small class='wf-muted'>Toolkit handles grid interaction. The app provides rows, columns, cell editors, and saved preferences.</small></div>"
+    }
+  />
+</WireframeBlock>
+
+The mock highlights an active cell. The app still owns the row data, property editors, actions, and saved view preferences.
+
 The grid does not fetch data, call actions, resolve credentials, or persist
 edits. Use `renderHeader`, `renderBody`, `renderRow`, and `renderFooter` when an
 app needs to keep its own headers, grouping, row actions, or summary rows.

@@ -1,5 +1,6 @@
 // i18n-raw-literal-disable-file -- Static Content artwork, not interactive UI.
 import "./ContentLandingMock.css";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   IconChevronDown,
   IconClock,
@@ -312,7 +313,9 @@ function TaskWorkspace() {
         <div className="content-table-empty">＋ Add a task</div>
       </div>
       <div className="content-database-instruction">
-        <span>✧</span>
+        <span>
+          <AgentMark size={8} />
+        </span>
         <b>Agent instructions</b>
         <p>
           When marking a task complete, add a short result to its page and link

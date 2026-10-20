@@ -16,7 +16,7 @@ contract is the runtime: chat streaming, thread state, actions, context,
 attachments, model selection, runs, and SQL-backed sync. Use the stock
 components when you can, and drop down a layer when you need custom product UI.
 
-Import browser UI from focused client subpaths:
+Import browser UI from focused package subpaths:
 
 ```tsx
 import { AgentSidebar } from "@agent-native/toolkit/app/chat";
@@ -24,12 +24,13 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 ```
 
-Avoid importing UI components from the bare `@agent-native/core` package. Use
-`@agent-native/core/client` or a focused `@agent-native/core/client/*` subpath
-so bundlers choose the browser-safe entry.
+Import reusable Toolkit UI from its focused `@agent-native/toolkit/app/*` or
+`@agent-native/toolkit/ui/*` entry. Import Core runtime hooks from
+`@agent-native/core/client/*`. Old Core UI import paths that moved to Toolkit
+are deprecated tombstones, not compatibility re-exports.
 
 Use `@agent-native/toolkit` for reusable app-building pieces that are not part
 of the foundational runtime contract: shadcn-style UI primitives, shared hooks,
@@ -627,8 +628,8 @@ const collab = useCollaborativeDoc({
 
 ## Agent Resources {#resources}
 
-Use `@agent-native/core/client/resources` when you want to expose the same
-agent resource model that powers the agent panel's Resources tab.
+Use `@agent-native/toolkit/app/resources` for the reusable panel, tree, and editor. Use
+`@agent-native/core/client/resources` for resource data hooks and mutations.
 
 | API                                                                   | Use when                                                                |
 | --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -643,7 +644,7 @@ agent resource model that powers the agent panel's Resources tab.
 The complete panel needs no props:
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel />;
 ```
@@ -655,6 +656,8 @@ import { useState } from "react";
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
   useUpdateResource,
@@ -693,16 +696,24 @@ function WorkspaceResources() {
 
 ## Other Public UI {#other-ui}
 
-| Area          | APIs                                                   | Import path                               |
-| ------------- | ------------------------------------------------------ | ----------------------------------------- |
-| Sharing       | `<ShareButton>`, `<ShareDialog>`                       | `@agent-native/core/client/sharing`       |
-| Sharing UI    | `<VisibilityBadge>`                                    | `@agent-native/toolkit/sharing`           |
-| Notifications | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
-| Progress      | `<RunsTray>`, progress hooks and types                 | `@agent-native/core/client/progress`      |
-| Onboarding    | `useOnboarding()`, onboarding panel hooks              | `@agent-native/core/client/onboarding`    |
-| Observability | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/toolkit/app/observability` |
-| Resources     | `<ResourcesPanel>`, `<ResourceTree>`, resource hooks   | `@agent-native/core/client/resources`     |
-| Rich editor   | `<SharedRichEditor>`, slash commands, block node hooks | `@agent-native/toolkit/editor`            |
+| Area           | APIs                                                                           | Import path                                |
+| -------------- | ------------------------------------------------------------------------------ | ------------------------------------------ |
+| Agent page     | `<AgentTabsPage>`                                                              | `@agent-native/toolkit/app/agent-page`     |
+| Blocks UI      | `BlockView`, `SchemaBlockEditor`, `BlockRegistryProvider`                      | `@agent-native/toolkit/app/blocks`         |
+| Canvas         | `DrawOverlay`, `CanvasCommentPins`                                             | `@agent-native/toolkit/canvas-annotations` |
+| Chat history   | `ChatHistoryList`, `ChatHistoryRail`                                           | `@agent-native/toolkit/chat-history`       |
+| Data grid      | `<DataGrid>`                                                                   | `@agent-native/toolkit/data-grid`          |
+| Dashboard      | `DataTable`, `DateRangePicker`, `GenericChartPanel`, `MetricCard`, `StatsCard` | `@agent-native/toolkit/dashboard`          |
+| Sharing        | `<ShareButton>`, `<ShareDialog>`                                               | `@agent-native/toolkit/app/sharing`        |
+| Sharing UI     | `<VisibilityBadge>`                                                            | `@agent-native/toolkit/sharing`            |
+| Notifications  | `<NotificationsBell>`                                                          | `@agent-native/toolkit/app/notifications`  |
+| Progress       | `<RunsTray>`                                                                   | `@agent-native/toolkit/app/progress`       |
+| Run registry   | Run types and server registry functions                                        | `@agent-native/core/progress`              |
+| Onboarding     | `useOnboarding()`, onboarding panel hooks                                      | `@agent-native/core/client/onboarding`     |
+| Observability  | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                                 | `@agent-native/toolkit/app/observability`  |
+| Resources UI   | `<ResourcesPanel>`, `<ResourceTree>`, `<ResourceEditor>`                       | `@agent-native/toolkit/app/resources`      |
+| Resource hooks | Resource data hooks                                                            | `@agent-native/core/client/resources`      |
+| Rich editor    | `<SharedRichEditor>`, slash commands, block node hooks                         | `@agent-native/toolkit/editor`             |
 
 ## One-Off Text Completion {#one-off-text-completion}
 

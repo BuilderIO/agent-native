@@ -1,5 +1,6 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { flushSync } from "react-dom";
+import type * as Y from "yjs";
 
 import {
   armPendingTextCapture,
@@ -11,6 +12,19 @@ import {
 } from "@/components/design/design-canvas/pending-text-capture";
 import { PENDING_TEXT_EDIT_TIMEOUT_MS } from "@/components/design/design-canvas/pending-text-edit";
 import type { ElementInfo } from "@/components/design/types";
+import {
+  stampContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionBefore,
+  stampLocalContentHistorySelectionAfter,
+  stampYjsUndoSelection,
+  stampYjsUndoSelectionAfter,
+  type ContentHistoryEntry,
+  type ContentHistoryChange,
+  type ContentHistorySelectionAfterMap,
+  type GeometryHistorySelection,
+  type YjsUndoSelectionSnapshot,
+  type YjsUndoStackTop,
+} from "@/pages/design-editor/history";
 import {
   isTextEditSessionOutcome,
   scheduleBeginTextEditForScreen,
@@ -53,6 +67,24 @@ export interface PrimitiveCreatedArgs {
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
 }
 
+export interface PrimitiveCreatedHistorySelectionArgs {
+  contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
+  contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
+  contentUndoStackTopBefore: ContentHistoryEntry | undefined;
+  captureCurrentSelection: () => GeometryHistorySelection;
+  yjsUndoSelection?: {
+    undoManagerRef: RefObject<Y.UndoManager | null>;
+    undoStackTopBefore: YjsUndoStackTop;
+    selectionBefore: YjsUndoSelectionSnapshot;
+    recorded: boolean;
+  };
+  localContentUndoSelection?: {
+    undoStackRef: RefObject<ContentHistoryChange[]>;
+    undoStackTopBefore: ContentHistoryChange | undefined;
+    selectionBefore: YjsUndoSelectionSnapshot;
+  };
+}
+
 export function runPrimitiveCreated(
   {
     activeLeftPanel,
@@ -80,6 +112,7 @@ export function runPrimitiveCreated(
     nextTool?: "move" | "pen";
     preserveActiveTool?: boolean;
   },
+  historySelection?: PrimitiveCreatedHistorySelectionArgs,
 ) {
   const isBoardTarget = Boolean(boardFileId && screenId === boardFileId);
   const revealLayers = shouldRevealLayersOnFirstCreate({
@@ -108,6 +141,42 @@ export function runPrimitiveCreated(
     setMode("edit");
   });
 
+  if (historySelection) {
+    if (historySelection.yjsUndoSelection) {
+      const { undoManagerRef, undoStackTopBefore, selectionBefore, recorded } =
+        historySelection.yjsUndoSelection;
+      stampYjsUndoSelection(
+        undoManagerRef.current,
+        undoStackTopBefore,
+        selectionBefore,
+      );
+      stampYjsUndoSelectionAfter(undoManagerRef.current, recorded, {
+        selectedElement: null,
+        selectedLayerIds: [nodeId],
+      });
+    }
+    if (historySelection.localContentUndoSelection) {
+      const { undoStackRef, undoStackTopBefore, selectionBefore } =
+        historySelection.localContentUndoSelection;
+      stampLocalContentHistorySelectionBefore(
+        undoStackRef.current,
+        undoStackTopBefore,
+        selectionBefore,
+      );
+      stampLocalContentHistorySelectionAfter(
+        undoStackRef.current,
+        undoStackTopBefore,
+        { selectedElement: null, selectedLayerIds: [nodeId] },
+      );
+    }
+    stampContentHistorySelectionAfter(
+      historySelection.contentUndoStackRef.current,
+      historySelection.contentHistorySelectionAfterRef.current,
+      historySelection.contentUndoStackTopBefore,
+      historySelection.captureCurrentSelection(),
+    );
+  }
+
   const textNodeId = pendingTextEditNodeIdRef.current;
   pendingTextEditNodeIdRef.current = null;
   if (textNodeId) {
@@ -116,6 +185,7 @@ export function runPrimitiveCreated(
     capture.bind(textNodeId);
     beginTextEditForOwner(screenId, textNodeId, { afterPointerGesture: true });
     let abandoned = false;
+    let canceledByPendingOwner = false;
     let cleanedUp = false;
     const cleanUpIfUntouched = () => {
       if (cleanedUp) return;
@@ -150,6 +220,7 @@ export function runPrimitiveCreated(
       isAbandoned: () =>
         abandoned || !isPendingTextRequestLive(screenId, textNodeId),
       onExhausted: (finalStatus) => {
+        if (canceledByPendingOwner) return;
         const pending = pendingEmptyTextEditRef.current;
         if (!pending || pending.nodeId !== textNodeId || pending.settled) {
           return;
@@ -174,6 +245,7 @@ export function runPrimitiveCreated(
       screenId,
       nodeId: textNodeId,
       cancel: () => {
+        canceledByPendingOwner = true;
         cancel();
         window.setTimeout(() => {
           if (isPendingTextRequestLive(screenId, textNodeId)) return;

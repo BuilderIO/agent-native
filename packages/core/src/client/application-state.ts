@@ -1,6 +1,7 @@
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
+import { recordStateWrite } from "./recorder.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 const pendingMutations = new Map<string, Promise<void>>();
@@ -275,7 +276,7 @@ export async function writeClientAppState<T = unknown>(
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
   assertAgentNativeApiEnabled(`write application state "${key}"`);
-  return runClientAppStateMutation(key, async () => {
+  const write = runClientAppStateMutation(key, async () => {
     const response = await fetch(appStateUrl(key), {
       method: "PUT",
       headers: buildHeaders(options.requestSource),
@@ -288,6 +289,8 @@ export async function writeClientAppState<T = unknown>(
       `Write application state "${key}"`,
     );
   });
+  recordStateWrite(key, value, write, options.signal);
+  return write;
 }
 
 export async function compareAndSetClientAppState(
@@ -323,7 +326,7 @@ export async function deleteClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
   assertAgentNativeApiEnabled(`delete application state "${key}"`);
-  await runClientAppStateMutation(key, async () => {
+  const deletion = runClientAppStateMutation(key, async () => {
     const response = await fetch(appStateUrl(key), {
       method: "DELETE",
       headers: {
@@ -341,6 +344,8 @@ export async function deleteClientAppState(
       `Delete application state "${key}"`,
     );
   });
+  recordStateWrite(key, undefined, deletion, options.signal);
+  await deletion;
 }
 
 export async function setClientAppState<T = unknown>(

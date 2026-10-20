@@ -36,11 +36,19 @@ export function renderRightSidebarActions({
       data-design-chrome-region="right-toolbar"
       className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
     >
+      {/* Presence leads the row and the zoom sits under it. When nothing
+          leads (no presence, no waitlist CTA) the leading cluster renders
+          empty and drops out of the grid, so the zoom joins the Share row,
+          next to Share: the floating title pill covers the panel's top-left
+          corner in a narrow frame. */}
       <div
         data-design-chrome-region="right-toolbar-actions"
-        className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]"
+        className="group/actions grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--design-baseline-half)] gap-y-[var(--design-baseline-half)]"
       >
-        <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
+        <div
+          data-design-right-toolbar-leading
+          className="col-start-1 flex min-h-[var(--design-row-height)] min-w-0 items-center gap-[var(--design-baseline-half)] empty:hidden"
+        >
           {hostEmbeddedEditor ? null : (
             <>
               {presenceControl}
@@ -53,20 +61,23 @@ export function renderRightSidebarActions({
             nowrap label wide enough to push this row past the right rail's
             edge on its own, and a shrink-0 row has no way to give that space
             back — it just overflows the panel. */}
-        <div className="flex min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
+        <div className="col-start-2 row-start-1 flex min-h-[var(--design-row-height)] min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
           {renderPendingNodeRewriteControl(rightToolbarCompact)}
           {reviewFeedbackControl}
           {!sessionResolved || isSignedIn ? publishWaitlistControl : null}
           {renderShareControl(false)}
         </div>
-      </div>
-      {localPreviewRow ? (
-        <div className="mt-[var(--design-baseline-half)]">
-          {localPreviewRow}
+
+        {localPreviewRow ? (
+          <div className="col-span-full min-w-0">{localPreviewRow}</div>
+        ) : null}
+
+        <div
+          data-design-right-toolbar-zoom
+          className="col-start-1 flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center justify-self-start group-has-[[data-design-right-toolbar-leading]:empty]/actions:row-start-1 group-has-[[data-design-right-toolbar-leading]:empty]/actions:justify-self-end"
+        >
+          <div className="shrink-0">{renderZoomControl("inspector")}</div>
         </div>
-      ) : null}
-      <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center gap-[var(--design-baseline-half)]">
-        <div className="shrink-0">{renderZoomControl("inspector")}</div>
       </div>
     </div>
   );

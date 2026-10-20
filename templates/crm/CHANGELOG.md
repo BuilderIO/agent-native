@@ -1,5 +1,11 @@
 # CRM changelog
 
+## 2026-10-09
+
+### Improved
+
+- Ask chats open on their own shareable URL at /ask/<id>, and /ask always starts a blank chat.
+
 ## 2026-10-08
 
 ### Improved

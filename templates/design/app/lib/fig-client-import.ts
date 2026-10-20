@@ -47,6 +47,8 @@ export class FigClientImportError extends Error {
   constructor(
     message: string,
     readonly remoteMutationStarted: boolean,
+    /** The caller's prepared import is still decoded and can render another selection. */
+    readonly preparedReusable = false,
   ) {
     super(message);
     this.name = "FigClientImportError";
@@ -57,6 +59,7 @@ export interface PreparedFigImport {
   file: File;
   summary: FigImportSummary;
   render(selection?: ReadonlySet<string>): Promise<RenderedBrowserFigImport>;
+  isAlive(): boolean;
   dispose(): void;
 }
 
@@ -70,6 +73,7 @@ function startFigImportWorker(): FigImportWorker {
     return {
       prepare: (file) => session.prepare(file),
       render: async (selection) => session.render(selection),
+      isAlive: () => true,
       dispose: () => {},
     };
   }
@@ -132,6 +136,7 @@ function startFigImportWorker(): FigImportWorker {
     prepare: (file) => call<FigImportSummary>({ type: "prepare", file }),
     render: (selection) =>
       call<RenderedBrowserFigImport>({ type: "render", selection }),
+    isAlive: () => stopped === null,
     dispose: () => stop(new Error("The .fig import was cancelled.")),
   };
 }
@@ -217,9 +222,13 @@ export async function importFigInBrowser(
   try {
     onProgress?.({ phase: "rendering" });
     rendered = await prepared.render(selection);
-  } finally {
-    prepared.dispose();
+  } catch (error) {
+    const reusable = Boolean(options.prepared) && prepared.isAlive();
+    if (!reusable) prepared.dispose();
+    const message = error instanceof Error ? error.message : String(error);
+    throw new FigClientImportError(message, false, reusable);
   }
+  prepared.dispose();
 
   let remoteMutationStarted = false;
   let uploaded = 0;
@@ -291,6 +300,9 @@ export async function importFigInBrowser(
     files: [],
     warnings: converted.warnings,
     skippedEmbeddedImageCount: rendered.skippedEmbeddedImageCount || undefined,
+    skippedFrames: converted.skippedFrames.length
+      ? converted.skippedFrames.map((frame) => frame.frameName)
+      : undefined,
   };
   let sentFrames = 0;
   try {

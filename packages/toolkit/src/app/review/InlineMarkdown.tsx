@@ -44,6 +44,8 @@ export interface InlineMarkdownProtectedSpan {
   label: string;
   className?: string;
   title?: string;
+  /** Protect only the occurrence of `source` starting at this offset. */
+  at?: number;
 }
 
 export function InlineMarkdown({
@@ -137,23 +139,37 @@ export function InlineMarkdown({
 
 const PROTECTED_SPAN_PREFIX = "https://inline-markdown-protected.invalid/span/";
 
+// One pass over the original text: replacing span by span would match a
+// shorter source again inside the link label a longer one just produced.
 function protectInlineMarkdownSpans(
   content: string,
   spans: readonly InlineMarkdownProtectedSpan[],
 ): string {
-  return [...spans]
-    .map((span, index) => ({ span, index }))
-    .filter(({ span }) => span.source.length > 0)
-    .sort((a, b) => b.span.source.length - a.span.source.length)
-    .reduce(
-      (markdown, { span, index }) =>
-        markdown
-          .split(span.source)
-          .join(
-            `[${escapeProtectedSpanLabel(span.label)}](${PROTECTED_SPAN_PREFIX}${index})`,
-          ),
-      content,
-    );
+  const matches: { start: number; end: number; index: number }[] = [];
+  spans.forEach(({ source, at }, index) => {
+    if (!source) return;
+    if (at !== undefined) {
+      if (content.startsWith(source, at))
+        matches.push({ start: at, end: at + source.length, index });
+      return;
+    }
+    for (
+      let start = content.indexOf(source);
+      start !== -1;
+      start = content.indexOf(source, start + source.length)
+    ) {
+      matches.push({ start, end: start + source.length, index });
+    }
+  });
+  matches.sort((a, b) => a.start - b.start || b.end - a.end);
+  let markdown = "";
+  let cursor = 0;
+  for (const { start, end, index } of matches) {
+    if (start < cursor) continue;
+    markdown += `${content.slice(cursor, start)}[${escapeProtectedSpanLabel(spans[index]!.label)}](${PROTECTED_SPAN_PREFIX}${index})`;
+    cursor = end;
+  }
+  return markdown + content.slice(cursor);
 }
 
 function escapeProtectedSpanLabel(label: string): string {

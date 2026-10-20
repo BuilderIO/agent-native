@@ -1,654 +1,248 @@
+import type { Page } from "@playwright/test";
+
 import {
   expect,
+  expectOnlyChanged,
+  styleOf,
   test,
-  type APIRequestContext,
-  type Locator,
-  type Page,
-} from "@playwright/test";
+  type App,
+  type SavedNode,
+} from "./rails";
 
-import { e2eBaseURL } from "./base-url";
-import { gotoEditor } from "./helpers";
+const ICON_PARTS = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;width:900px;height:700px;background:#ffffff">
+  <div data-agent-native-node-id="lens" data-agent-native-layer-name="Lens" style="position:absolute;left:100px;top:60px;width:40px;height:40px;border-radius:50%;background:#18181b"></div>
+  <div data-agent-native-node-id="handle" data-agent-native-layer-name="Handle" style="position:absolute;left:200px;top:180px;width:12px;height:60px;background:#18181b"></div>
+  <div data-agent-native-node-id="bystander" data-agent-native-layer-name="Bystander" style="position:absolute;left:480px;top:60px;width:120px;height:120px;background:#e4e4e7"></div>
+</body></html>`;
 
-let designId: string;
-let baseURLForActions: string;
+const HOME = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;width:900px;height:700px;background:#ffffff">
+  <div data-agent-native-node-id="icon-grid" data-agent-native-layer-name="Icon grid" style="position:absolute;left:600px;top:40px;width:24px;height:24px;outline:1px dashed #d4d4d8"></div>
+</body></html>`;
 
-const ICON_SCREEN = `<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8" /><title>Search icon</title></head>
-  <body style="margin:0;min-width:900px;min-height:700px;background:#ffffff">
-    <div
-      data-agent-native-node-id="icon-grid"
-      data-agent-native-layer-name="icon grid"
-      style="position:absolute;left:600px;top:40px;width:24px;height:24px;outline:1px dashed #d4d4d8"
-    ></div>
-  </body>
-</html>`;
+const BOARD_IFRAME =
+  "[data-board-surface-layer] iframe[data-design-preview-iframe]";
 
-async function postAction(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-): Promise<any> {
-  const res = await request.post(
-    `${baseURLForActions}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
+test.use({ viewport: { width: 1600, height: 1000 } });
+
+type Point = { x: number; y: number };
+
+async function clickCentre(
+  app: App,
+  nodeId: string,
+  modifiers: "Shift"[] = [],
+) {
+  const rect = await app.designRect(nodeId);
+  const point = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
   );
-  if (!res.ok()) {
-    throw new Error(`${name} failed: ${res.status()} ${await res.text()}`);
-  }
-  return res.json();
+  for (const key of modifiers) await app.page.keyboard.down(key);
+  await app.page.mouse.click(point.x, point.y);
+  for (const key of modifiers) await app.page.keyboard.up(key);
 }
 
-async function getAction(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-): Promise<any> {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(input)) {
-    if (value != null) params.append(key, String(value));
-  }
-  const res = await request.get(
-    `${baseURLForActions}/_agent-native/actions/${name}?${params}`,
-  );
-  if (!res.ok()) {
-    throw new Error(`${name} failed: ${res.status()} ${await res.text()}`);
-  }
-  return res.json();
+/** Page pixels are whole numbers; this returns the design point the pointer really reaches. */
+async function snappedPagePoint(app: App, point: Point) {
+  const page = await app.pagePoint(point.x, point.y);
+  const origin = await app.pagePoint(0, 0);
+  const x = Math.round(page.x);
+  const y = Math.round(page.y);
+  return {
+    page: { x, y },
+    design: { x: (x - origin.x) / page.scale, y: (y - origin.y) / page.scale },
+  };
 }
 
-test.beforeEach(async ({ page }, workerInfo) => {
-  baseURLForActions =
-    (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
-  const created = await postAction(page.request, "create-design", {
-    title: "Search icon build",
-    projectType: "prototype",
-  });
-  designId = created?.id ?? created?.data?.id ?? created?.design?.id;
-  if (!designId) throw new Error(`create-design returned no id: ${created}`);
-  await postAction(page.request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: ICON_SCREEN,
-    fileType: "html",
-  });
-  await gotoEditor(page, designId);
-});
-
-test.use({ viewport: { width: 1440, height: 1000 } });
-
-test.afterEach(async ({ page }) => {
-  if (!designId) return;
-  await postAction(page.request, "delete-design", { id: designId }).catch(
-    () => {},
-  );
-  designId = "";
-});
-
-function toolButton(page: Page, name: string): Locator {
-  return page.locator(`button[aria-label="${name}"]`).first();
-}
-
-function screenShell(page: Page, name = "Home"): Locator {
-  return page.locator("[data-screen-shell]").filter({ hasText: name }).first();
-}
-
-function homeScreenCard(page: Page): Locator {
-  return screenShell(page).locator("[data-screen-card]");
-}
-
-function selectedLayerRow(page: Page): Locator {
-  return page.locator('[role="treeitem"][aria-selected="true"]').first();
-}
-
-interface DesignFileRecord {
-  id: string;
-  filename: string;
-  content: string;
-  fileType?: string;
-}
-
-async function designFiles(page: Page): Promise<DesignFileRecord[]> {
-  const result = await getAction(page.request, "get-design", { id: designId });
-  return (result.files ?? []).map((file: any) => ({
-    id: String(file.id ?? ""),
-    filename: String(file.filename ?? ""),
-    content: String(file.content ?? ""),
-    fileType: typeof file.fileType === "string" ? file.fileType : undefined,
-  }));
-}
-
-async function fileContent(page: Page, filename: string): Promise<string> {
-  const file = (await designFiles(page)).find(
-    (candidate) => candidate.filename === filename,
-  );
-  if (!file) throw new Error(`File not found: ${filename}`);
-  return file.content;
-}
-
-async function primitiveCount(
-  page: Page,
-  filename: string,
-  kind: string,
-): Promise<number> {
-  const content = await fileContent(page, filename);
-  return page.evaluate(
-    ({ html, primitiveKind }) => {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      return doc.querySelectorAll(`[data-an-primitive="${primitiveKind}"]`)
-        .length;
-    },
-    { html: content, primitiveKind: kind },
-  );
-}
-
-async function primitiveStyle(
-  page: Page,
-  filename: string,
-  kind: string,
-): Promise<{
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  style: string;
-} | null> {
-  const content = await fileContent(page, filename);
-  return page.evaluate(
-    ({ html, primitiveKind }) => {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const el = doc.querySelector<HTMLElement>(
-        `[data-an-primitive="${primitiveKind}"]`,
-      );
-      if (!el) return null;
-      return {
-        left: Number.parseFloat(el.style.left),
-        top: Number.parseFloat(el.style.top),
-        width: Number.parseFloat(el.style.width),
-        height: Number.parseFloat(el.style.height),
-        style: el.getAttribute("style") ?? "",
-      };
-    },
-    { html: content, primitiveKind: kind },
-  );
-}
-
-async function dragBetween(
-  page: Page,
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-  options?: { shift?: boolean },
-): Promise<void> {
-  await page.waitForTimeout(200);
-  if (options?.shift) await page.keyboard.down("Shift");
+async function drag(page: Page, from: Point, to: Point) {
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 12 });
-  await page.waitForTimeout(200);
+  await page.mouse.move(to.x, to.y, { steps: 16 });
   await page.mouse.up();
-  if (options?.shift) await page.keyboard.up("Shift");
-  await page.waitForTimeout(200);
 }
 
-function inspectorSection(page: Page, title: RegExp | string): Locator {
-  const heading =
-    typeof title === "string"
-      ? page.getByRole("heading", { name: title, exact: true })
-      : page.getByRole("heading", { name: title });
-  return page.locator("section").filter({ has: heading }).first();
-}
-
-function addStrokeButton(section: Locator): Locator {
-  return section
-    .locator('[data-inspector-action-rail] button[aria-label="Add stroke"]')
+/** The "-" shortcut, then waits until the screen stops moving so coordinates read afterwards are final. */
+async function zoomOut(app: App) {
+  const frame = app.page
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first();
-}
-
-function layerTree(page: Page): Locator {
-  return page.getByRole("tree", { name: "Layers" });
-}
-
-function layerRowButton(page: Page, name: string): Locator {
-  return layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first();
-}
-
-function renameInput(page: Page): Locator {
-  return page.getByRole("textbox", { name: /rename/i });
-}
-
-const undoShortcut = process.platform === "darwin" ? "Meta+z" : "Control+z";
-const groupShortcut = process.platform === "darwin" ? "Meta+g" : "Control+g";
-
-test("build and group a search icon", async ({ page }) => {
-  const card = await homeScreenCard(page).boundingBox();
-  if (!card) throw new Error("no screen card box");
-
-  await test.step("O selects the Ellipse tool; Shift-drag draws an aspect-locked ellipse", async () => {
-    await page.keyboard.press("o");
-    await expect(toolButton(page, "Ellipse")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    const start = {
-      x: card.x + card.width * 0.6,
-      y: card.y + card.height * 0.08,
-    };
-    await dragBetween(
-      page,
-      start,
-      { x: start.x + 34, y: start.y + 61 }, // deliberately non-square input
-      { shift: true },
-    );
-    await expect
-      .poll(() => primitiveCount(page, "index.html", "ellipse"), {
-        timeout: 20_000,
-      })
-      .toBe(1);
-    const ellipse = await primitiveStyle(page, "index.html", "ellipse");
-    expect(
-      ellipse,
-      "ellipse primitive must exist after the drag",
-    ).not.toBeNull();
-    expect(
-      Math.abs((ellipse!.width ?? 0) - (ellipse!.height ?? 0)),
-      `shift-drag must lock width==height, got ${ellipse!.width}x${ellipse!.height}`,
-    ).toBeLessThan(1);
-    await expect(selectedLayerRow(page)).toContainText(/Ellipse/i);
-  });
-
-  await test.step("typed W/H inspector fields resize the lens to 16x16", async () => {
-    const wField = page.getByLabel("W size in pixels");
-    const hField = page.getByLabel("H size in pixels");
-    await expect(wField).toBeVisible({ timeout: 10_000 });
-    await wField.fill("16");
-    await wField.press("Enter");
-    await hField.fill("16");
-    await hField.press("Enter");
-    await expect
-      .poll(async () => primitiveStyle(page, "index.html", "ellipse"))
-      .toEqual(expect.objectContaining({ width: 16, height: 16 }));
-  });
-
-  await test.step("Add stroke sets weight 2; Remove layer on Fill clears the fill", async () => {
-    const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await addStrokeButton(strokeSection).click();
-    const weightField = strokeSection.getByLabel("Weight").first();
-    await expect(weightField).toBeVisible({ timeout: 10_000 });
-    await weightField.fill("2");
-    await weightField.press("Enter");
-
-    const fillSection = inspectorSection(page, /^Fill$/i);
-    await expect(
-      fillSection.locator('button[aria-label="Remove layer"]'),
-      "a freshly drawn shape must start with one removable Fill layer row",
-    ).toHaveCount(1);
-    await fillSection.locator('button[aria-label="Remove layer"]').click();
-
-    await expect
-      .poll(async () => {
-        const ellipse = await primitiveStyle(page, "index.html", "ellipse");
-        return ellipse?.style ?? "";
-      })
-      .toMatch(/border-width:\s*2px/);
-    await expect
-      .poll(async () => {
-        const ellipse = await primitiveStyle(page, "index.html", "ellipse");
-        return ellipse?.style ?? "";
-      })
-      .not.toMatch(/background-color:\s*rgb/);
-  });
-
-  await test.step("P selects the Pen tool; two clicks + Enter commit a Vector handle", async () => {
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("p");
-    await expect(toolButton(page, "Pen")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await page.waitForTimeout(150);
-    const anchor = {
-      x: card.x + card.width * 0.58,
-      y: card.y + card.height * 0.1,
-    };
-    await page.mouse.click(anchor.x, anchor.y);
-    await page.mouse.click(anchor.x, anchor.y + 4);
-    await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
-    await page.keyboard.press("Enter");
-    await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-    await expect(selectedLayerRow(page)).toContainText(/Vector/i);
-  });
-
-  await test.step("stroke weight 2 applies to the handle", async () => {
-    const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await addStrokeButton(strokeSection).click();
-    const weightField = strokeSection.getByLabel("Weight").first();
-    await expect(weightField).toBeVisible({ timeout: 10_000 });
-    await weightField.fill("2");
-    await weightField.press("Enter");
-    await expect
-      .poll(async () => {
-        const content = await fileContent(page, "index.html");
-        return page.evaluate((html) => {
-          const doc = new DOMParser().parseFromString(html, "text/html");
-          const svg = doc.querySelector(
-            'svg[data-agent-native-layer-name="Vector"]',
-          );
-          if (!svg) throw new Error("no Vector svg in index.html");
-          return [svg, ...Array.from(svg.querySelectorAll("*"))]
-            .map(
-              (element) =>
-                `${element.getAttribute("style") ?? ""};stroke-width:${element.getAttribute("stroke-width") ?? ""}`,
-            )
-            .join(";");
-        }, content);
-      })
-      // Adding a stroke writes 1px; only the typed weight produces 2px. A bare
-      // /2px/ also matched geometry such as top:102px.
-      .toMatch(/(?:^|;)\s*stroke-width:\s*2(?:px)?(?:;|$)/);
-    const capControl = strokeSection.getByRole("button", { name: /round/i });
-    await expect(capControl).toHaveCount(0);
-  });
-
-  await test.step("Cmd+G groups the selected layers; one undo restores both layers", async () => {
-    await layerRowButton(page, "Ellipse").click();
-    await layerRowButton(page, "Vector").click({ modifiers: ["Shift"] });
-    await expect(
-      page.locator('[role="treeitem"][aria-selected="true"]'),
-    ).toHaveCount(2);
-
-    const preGroupEllipseId = await layerRowButton(
-      page,
-      "Ellipse",
-    ).getAttribute("data-layer-node-id");
-    const preGroupVectorId = await layerRowButton(page, "Vector").getAttribute(
-      "data-layer-node-id",
-    );
-    if (!preGroupEllipseId || !preGroupVectorId) {
-      throw new Error(
-        `expected Ellipse/Vector layer rows to carry data-layer-node-id, got ${preGroupEllipseId}/${preGroupVectorId}`,
-      );
-    }
-
-    const preGroupNodeIds = await page.evaluate(
-      (html) => {
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        return ["Ellipse", "Vector"].map((name) => {
-          const node = doc.querySelector(
-            `[data-agent-native-layer-name="${name}"]`,
-          );
-          const id = node?.getAttribute("data-agent-native-node-id");
-          if (!id) throw new Error(`${name} has no data-agent-native-node-id`);
-          return { id, name };
-        });
+  const before = JSON.stringify(await frame.boundingBox());
+  await app.page.keyboard.press("-");
+  let previous = "";
+  await expect
+    .poll(
+      async () => {
+        const now = JSON.stringify(await frame.boundingBox());
+        const stable = now === previous && now !== before;
+        previous = now;
+        return stable;
       },
-      await fileContent(page, "index.html"),
-    );
+      {
+        intervals: [100],
+        message: "the canvas never settled after zooming out",
+      },
+    )
+    .toBe(true);
+}
 
-    const unionButton = page.getByRole("button", { name: /union/i });
-    await expect(
-      unionButton,
-      "no 'Union selection' affordance exists anywhere in the editor chrome",
-    ).toHaveCount(0);
+async function savedBoard(app: App, designId: string) {
+  return app
+    .savedNodes(designId, "__board__.html")
+    .catch(() => new Map<string, SavedNode>());
+}
 
-    await page.keyboard.press(groupShortcut);
-    await expect
-      .poll(async () => {
-        const content = await fileContent(page, "index.html");
-        return page.evaluate((html) => {
-          const doc = new DOMParser().parseFromString(html, "text/html");
-          return doc.querySelectorAll('[data-agent-native-layer-name="Group"]')
-            .length;
-        }, content);
-      })
-      .toBe(1);
-    await expect(
-      page.locator('[role="treeitem"][aria-selected="true"]'),
-    ).toHaveCount(1);
-    await expect(selectedLayerRow(page)).toContainText(/Group/i);
-    const groupChildren = async () => {
-      const html = await fileContent(page, "index.html");
-      return page.evaluate((source) => {
-        const doc = new DOMParser().parseFromString(source, "text/html");
-        const group = doc.querySelector(
-          '[data-agent-native-layer-name="Group"]',
-        );
-        if (!group) throw new Error("no Group in index.html");
-        return Array.from(group.children)
-          .map((child) => ({
-            id: child.getAttribute("data-agent-native-node-id"),
-            name: child.getAttribute("data-agent-native-layer-name"),
-          }))
-          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-      }, html);
-    };
-    expect(
-      await groupChildren(),
-      "Cmd+G must wrap the two original nodes, not re-minted copies",
-    ).toEqual(preGroupNodeIds);
+function expectNear(actual: number, expected: number, label: string) {
+  expect(
+    Math.abs(actual - expected),
+    `${label}: ${actual}, expected ${expected}`,
+  ).toBeLessThanOrEqual(1.5);
+}
 
-    await page.keyboard.press(undoShortcut);
-    await expect
-      .poll(async () => primitiveCount(page, "index.html", "ellipse"))
-      .toBe(1);
-    await expect
-      .poll(async () => {
-        const c = await fileContent(page, "index.html");
-        return page.evaluate((html) => {
-          const doc = new DOMParser().parseFromString(html, "text/html");
-          return doc.querySelectorAll('[data-agent-native-layer-name="Group"]')
-            .length;
-        }, c);
-      })
-      .toBe(0);
-    await expect(
-      page.locator('[role="treeitem"][aria-selected="true"]'),
-    ).toHaveCount(2);
-    const selectedLayerNames = await page
-      .locator(
-        '[role="treeitem"][aria-selected="true"] [data-layer-row-button] span[title]',
-      )
-      .evaluateAll((nodes) =>
-        nodes
-          .map((node) => node.getAttribute("title"))
-          .filter((name): name is string => Boolean(name))
-          .sort(),
-      );
-    expect(selectedLayerNames).toEqual(["Ellipse", "Vector"]);
-    const selectedLayerIdsAfterUndo = await page
-      .locator(
-        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
-      )
-      .evaluateAll((nodes) =>
-        nodes
-          .map((node) => node.getAttribute("data-layer-node-id"))
-          .filter((id): id is string => Boolean(id))
-          .sort(),
-      );
-    expect(selectedLayerIdsAfterUndo).toEqual(
-      [preGroupEllipseId, preGroupVectorId].sort(),
-    );
-    await expect(layerRowButton(page, "Vector")).toHaveAttribute(
-      "data-layer-node-id",
-      preGroupVectorId,
-    );
-    await expect(layerRowButton(page, "Ellipse")).toHaveAttribute(
-      "data-layer-node-id",
-      preGroupEllipseId,
-    );
+test("Align vertical centers on two top-level layers centres both on their shared bounding box and saves only their tops", async ({
+  app,
+}) => {
+  const id = await app.seed(ICON_PARTS);
+  await app.open(id);
+  await app.zoomToFit();
+  await clickCentre(app, "lens");
+  await clickCentre(app, "handle", ["Shift"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Handle", "Lens"]);
+  const before = await app.savedNodes(id);
 
-    await page.keyboard.press(groupShortcut);
-    await expect
-      .poll(async () => {
-        const c = await fileContent(page, "index.html");
-        return page.evaluate((html) => {
-          const doc = new DOMParser().parseFromString(html, "text/html");
-          return doc.querySelectorAll('[data-agent-native-layer-name="Group"]')
-            .length;
-        }, c);
-      })
-      .toBe(1);
-    expect(await groupChildren()).toEqual(preGroupNodeIds);
+  await app.page
+    .getByRole("button", { name: "Align vertical centers" })
+    .click();
+
+  await expect(app.node("lens")).toHaveCSS("top", "130px");
+  await app.settled();
+  const after = await app.savedNodes(id);
+  expect(styleOf(after.get("lens"))).toEqual({
+    ...styleOf(before.get("lens")),
+    top: "130px",
   });
-
-  await test.step("Align disables for a lone root-level group (no parent frame); a 2-object selection aligns to its own bbox instead", async () => {
-    await layerRowButton(page, "Group").click();
-    await expect(
-      page.getByRole("button", { name: "Align horizontal centers" }),
-    ).toBeDisabled({ timeout: 5_000 });
-
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Shift+g" : "Control+Shift+g",
-    );
-    await expect
-      .poll(async () => primitiveCount(page, "index.html", "ellipse"))
-      .toBe(1);
-
-    await layerRowButton(page, "Ellipse").click();
-    await layerRowButton(page, "Vector").click({ modifiers: ["Shift"] });
-    const alignV = page.getByRole("button", { name: "Align vertical centers" });
-    await expect(alignV).toBeEnabled({ timeout: 5_000 });
-    const beforeEllipse = await primitiveStyle(page, "index.html", "ellipse");
-    const beforeVector = await primitiveStyle(page, "index.html", "path");
-    await alignV.click();
-    await page.waitForTimeout(400);
-    const afterEllipse = await primitiveStyle(page, "index.html", "ellipse");
-    const afterVector = await primitiveStyle(page, "index.html", "path");
-    expect(afterEllipse, "ellipse must still exist after align").not.toBeNull();
-    expect(afterVector, "vector must still exist after align").not.toBeNull();
-    const beforeCenterDelta = Math.abs(
-      beforeEllipse!.top +
-        beforeEllipse!.height / 2 -
-        (beforeVector!.top + beforeVector!.height / 2),
-    );
-    const afterCenterDelta = Math.abs(
-      afterEllipse!.top +
-        afterEllipse!.height / 2 -
-        (afterVector!.top + afterVector!.height / 2),
-    );
-    expect(
-      afterCenterDelta,
-      `vertical centers must coincide after align (was ${beforeCenterDelta}px apart, now ${afterCenterDelta}px apart)`,
-    ).toBeLessThan(1);
-
-    await layerRowButton(page, "Ellipse").click();
-    await layerRowButton(page, "Vector").click({ modifiers: ["Shift"] });
-    await page.keyboard.press(groupShortcut);
-    await expect
-      .poll(async () => {
-        const c = await fileContent(page, "index.html");
-        return page.evaluate((html) => {
-          const doc = new DOMParser().parseFromString(html, "text/html");
-          return doc.querySelectorAll('[data-agent-native-layer-name="Group"]')
-            .length;
-        }, c);
-      })
-      .toBe(1);
+  expect(styleOf(after.get("handle"))).toEqual({
+    ...styleOf(before.get("handle")),
+    top: "120px",
   });
-
-  await test.step("double-click rename in the layers panel renames the group to search-icon", async () => {
-    await layerRowButton(page, "Group").dblclick({ force: true });
-    const input = renameInput(page);
-    await expect(input).toBeVisible();
-    await input.fill("search-icon");
-    await input.press("Enter");
-    await expect(renameInput(page)).toHaveCount(0);
-    await expect(layerRowButton(page, "search-icon")).toBeVisible();
-    await expect
-      .poll(
-        async () => {
-          const content = await fileContent(page, "index.html");
-          return page.evaluate((html) => {
-            const doc = new DOMParser().parseFromString(html, "text/html");
-            return Boolean(
-              doc.querySelector('[data-agent-native-layer-name="search-icon"]'),
-            );
-          }, content);
-        },
-        { timeout: 10_000 },
-      )
-      .toBe(true);
+  expectOnlyChanged(before, after, ["lens", "handle"]);
+  expect(await app.designRect("lens")).toEqual({
+    x: 100,
+    y: 130,
+    width: 40,
+    height: 40,
   });
+  expect(await app.designRect("handle")).toEqual({
+    x: 200,
+    y: 120,
+    width: 12,
+    height: 60,
+  });
+  await expect.poll(() => app.selectedLayers()).toEqual(["Handle", "Lens"]);
 });
 
-test("overview canvas: draw, rename, and move a board rectangle into the screen", async ({
-  page,
+test("a Shift-drawn board square dragged into the screen lands centred on the release point and leaves the board", async ({
+  app,
 }) => {
-  const cardBox = await homeScreenCard(page).boundingBox();
-  if (!cardBox) throw new Error("no screen card box");
+  const id = await app.seed(HOME);
+  await app.open(id);
+  await app.zoomToFit();
+  await zoomOut(app);
+  const page = app.page;
+  const screenBefore = await app.savedNodes(id);
+  const boardBefore = await savedBoard(app, id);
+  const start = await snappedPagePoint(app, { x: -230, y: 80 });
+  const { scale } = await app.pagePoint(0, 0);
 
-  const boardStart = { x: cardBox.x + cardBox.width + 120, y: cardBox.y + 60 };
-
-  await test.step("R + shift-drag on the empty overview canvas creates a square board object, not a screen element", async () => {
-    await page.keyboard.press("r");
-    await expect(toolButton(page, "Rectangle")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await dragBetween(
-      page,
-      boardStart,
-      {
-        x: boardStart.x + 70,
-        y: boardStart.x - boardStart.x + boardStart.y + 111,
-      },
-      { shift: true },
-    );
-    await expect
-      .poll(() => primitiveCount(page, "__board__.html", "rectangle"), {
-        timeout: 20_000,
-      })
-      .toBe(1);
-    expect(await primitiveCount(page, "index.html", "rectangle")).toBe(0);
-    const boardRect = await primitiveStyle(page, "__board__.html", "rectangle");
-    expect(boardRect).not.toBeNull();
-    expect(
-      Math.abs((boardRect!.width ?? 0) - (boardRect!.height ?? 0)),
-    ).toBeLessThan(1);
+  await page.keyboard.press("r");
+  await expect(
+    page.getByRole("button", { name: "Rectangle", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.down("Shift");
+  await drag(page, start.page, {
+    x: start.page.x + Math.round(70 * scale),
+    y: start.page.y + Math.round(111 * scale),
   });
+  await page.keyboard.up("Shift");
+  await app.settled();
 
-  await test.step("double-click rename retitles the board rectangle", async () => {
-    await layerRowButton(page, "Rectangle").dblclick({ force: true });
-    const input = renameInput(page);
-    await expect(input).toBeVisible();
-    await input.fill("board-sticker");
-    await input.press("Enter");
-    await expect(layerRowButton(page, "board-sticker")).toBeVisible();
+  const board = await savedBoard(app, id);
+  const drawn = [...board.values()].filter((node) => !boardBefore.has(node.id));
+  expect(
+    drawn.map((node) => node.attrs["data-an-primitive"]),
+    "one rectangle drawn on the board",
+  ).toStrictEqual(["rectangle"]);
+  const rectId = drawn[0]!.id;
+  const square = styleOf(drawn[0]);
+  expect(square.width, "Shift locks the rectangle to a square").toBe(
+    square.height,
+  );
+  expectNear(
+    parseFloat(square.width),
+    Math.round(111 * scale) / scale,
+    "the square follows the longer drag side",
+  );
+  expectOnlyChanged(screenBefore, await app.savedNodes(id), []);
+
+  const onBoard = (await page
+    .locator(BOARD_IFRAME)
+    .contentFrame()
+    .locator(`[data-agent-native-node-id="${rectId}"]`)
+    .boundingBox())!;
+  const release = await snappedPagePoint(app, { x: 300, y: 260 });
+  // The pointer only reaches whole page pixels, so the grab sits a fraction off the centre.
+  const grab = {
+    x: Math.round(onBoard.x + onBoard.width / 2),
+    y: Math.round(onBoard.y + onBoard.height / 2),
+  };
+  const grabOffset = {
+    x: (onBoard.x + onBoard.width / 2 - grab.x) / scale,
+    y: (onBoard.y + onBoard.height / 2 - grab.y) / scale,
+  };
+  await drag(page, grab, release.page);
+  await app.settled();
+
+  const screenAfter = await app.savedNodes(id);
+  const body = [...screenAfter.values()].find((node) => node.tag === "body")!;
+  const moved = screenAfter.get(rectId);
+  expect(moved?.parent, "reparented into the screen body").toBe(body.id);
+  expect((await savedBoard(app, id)).has(rectId), "left the board").toBe(false);
+  const { style: _boardStyle, ...boardAttrs } = drawn[0]!.attrs;
+  const { style: _screenStyle, ...screenAttrs } = moved!.attrs;
+  expect(
+    screenAttrs,
+    "a cross-file move marks the layer as a style-preserving clone root",
+  ).toEqual({
+    ...boardAttrs,
+    "data-agent-native-clone-root": "true",
+    "data-agent-native-preserve-styles": "true",
   });
-
-  await test.step("dragging the board object into the screen reparents it into the screen's HTML, off the board", async () => {
-    const rectLocator = page
-      .locator("[data-board-surface-layer] iframe")
-      .first()
-      .contentFrame()
-      .locator('[data-an-primitive="rectangle"]')
-      .first();
-    const rectBox = await rectLocator.boundingBox();
-    if (!rectBox) throw new Error("no board rectangle box");
-
-    await toolButton(page, "Move").click();
-    await page.waitForTimeout(200);
-    const from = {
-      x: rectBox.x + rectBox.width / 2,
-      y: rectBox.y + rectBox.height / 2,
-    };
-    const to = {
-      x: cardBox.x + cardBox.width * 0.3,
-      y: cardBox.y + cardBox.height * 0.3,
-    };
-    await dragBetween(page, from, to);
-
-    await expect
-      .poll(() => primitiveCount(page, "__board__.html", "rectangle"), {
-        timeout: 20_000,
-      })
-      .toBe(0);
-    await expect
-      .poll(() => primitiveCount(page, "index.html", "rectangle"), {
-        timeout: 20_000,
-      })
-      .toBe(1);
+  const landed = styleOf(moved);
+  expect({ width: landed.width, height: landed.height }).toEqual({
+    width: square.width,
+    height: square.height,
   });
+  const side = parseFloat(square.width);
+  expectNear(
+    parseFloat(landed.left),
+    release.design.x + grabOffset.x - side / 2,
+    `saved left in "${moved!.attrs.style}"`,
+  );
+  expectNear(
+    parseFloat(landed.top),
+    release.design.y + grabOffset.y - side / 2,
+    `saved top in "${moved!.attrs.style}"`,
+  );
+  expectOnlyChanged(screenBefore, screenAfter, [rectId]);
+  const rendered = await app.designRect(rectId);
+  expectNear(
+    rendered.x + rendered.width / 2,
+    release.design.x + grabOffset.x,
+    "rendered centre x",
+  );
+  expectNear(
+    rendered.y + rendered.height / 2,
+    release.design.y + grabOffset.y,
+    "rendered centre y",
+  );
 });

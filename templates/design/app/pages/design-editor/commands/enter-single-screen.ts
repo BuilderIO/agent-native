@@ -43,6 +43,11 @@ export interface EnterSingleScreenArgs {
 
 export interface EnterSingleScreenOptions {
   mode?: EditorMode;
+  /**
+   * Moving between screens inside Interact keeps the device the person picked
+   * instead of re-deriving it from the new screen's own size.
+   */
+  keepInteractDevice?: boolean;
 }
 
 export function runEnterSingleScreen(
@@ -111,11 +116,13 @@ export function runEnterSingleScreen(
       setScreenZoom(FOCUSED_SCREEN_ZOOM);
     }
     setMode(entryMode);
-    setInteractDeviceName(nextInteractDevice.name);
-    setInteractDeviceSize({
-      width: nextInteractDevice.width,
-      height: nextInteractDevice.height,
-    });
+    if (!options?.keepInteractDevice) {
+      setInteractDeviceName(nextInteractDevice.name);
+      setInteractDeviceSize({
+        width: nextInteractDevice.width,
+        height: nextInteractDevice.height,
+      });
+    }
     return;
   }
   viewModeRef.current = "single";
@@ -138,11 +145,13 @@ export function runEnterSingleScreen(
     setHoveredElement(null);
     setActiveTool("move");
     setScreenZoom(restoredZoom);
-    setInteractDeviceName(nextInteractDevice.name);
-    setInteractDeviceSize({
-      width: nextInteractDevice.width,
-      height: nextInteractDevice.height,
-    });
+    if (!options?.keepInteractDevice) {
+      setInteractDeviceName(nextInteractDevice.name);
+      setInteractDeviceSize({
+        width: nextInteractDevice.width,
+        height: nextInteractDevice.height,
+      });
+    }
     setViewMode("single");
   };
 

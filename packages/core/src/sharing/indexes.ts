@@ -1,3 +1,4 @@
+// guard:allow-unreleased-schema — indexes framework and app share tables discovered at release time; runs last in release-migrations.ts, not owned by one store
 import { createHash } from "node:crypto";
 
 import { getDbExec, type DbExec } from "../db/client.js";

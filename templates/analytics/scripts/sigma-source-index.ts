@@ -18,7 +18,7 @@ export interface SigmaReviewManifest {
 }
 
 export interface SigmaSourceIndex {
-  source: { id: "sigma"; contentFingerprint: string };
+  source: { id: "sigma"; contentFingerprint: string; generatedAt?: string };
   scanSummary: {
     unsafeEntriesOmitted: number;
     unsafeFieldsOmitted: number;
@@ -375,6 +375,27 @@ function shortEntryId(workbookId: string, elementId: string): string {
   return `sigma-${digest}`;
 }
 
+function oldestReviewedWorkbookUpdatedAt(
+  selections: SigmaReviewManifest["items"],
+  workbookById: ReadonlyMap<string, SigmaWorkbook>,
+): string | undefined {
+  const timestamps = selections.map((selection) => {
+    const updatedAt = workbookById.get(selection.workbookId)?.updatedAt?.trim();
+    if (
+      !updatedAt ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i.test(
+        updatedAt,
+      )
+    ) {
+      return undefined;
+    }
+    const timestamp = Date.parse(updatedAt);
+    return Number.isFinite(timestamp) ? timestamp : undefined;
+  });
+  if (timestamps.some((timestamp) => timestamp === undefined)) return undefined;
+  return new Date(Math.min(...(timestamps as number[]))).toISOString();
+}
+
 export async function buildSigmaSourceIndex(args: {
   manifestPath: string;
   baseUrl: string;
@@ -508,8 +529,16 @@ export async function buildSigmaSourceIndex(args: {
   const contentFingerprint = createHash("sha256")
     .update(JSON.stringify(fingerprintRecords))
     .digest("hex");
+  const generatedAt = oldestReviewedWorkbookUpdatedAt(
+    manifest.items,
+    workbookById,
+  );
   return {
-    source: { id: "sigma", contentFingerprint },
+    source: {
+      id: "sigma",
+      contentFingerprint,
+      ...(generatedAt ? { generatedAt } : {}),
+    },
     entries,
     scanSummary,
   };

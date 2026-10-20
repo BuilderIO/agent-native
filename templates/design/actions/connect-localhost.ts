@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -11,6 +11,12 @@ import {
   makeLocalhostRouteId,
   titleFromRoutePath,
 } from "../shared/source-mode.js";
+import {
+  containsVisualEditBridgeCredentials,
+  isBrowserVisibleVisualEditRequest,
+  rejectBrowserBridgeCredentials,
+  stripVisualEditBridgeCredentials,
+} from "./visual-edit-browser-request.js";
 
 const routeSchema = z.object({
   id: z.string().optional(),
@@ -217,7 +223,11 @@ export default defineAction({
       .optional()
       .default("connected"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
+    rejectBrowserBridgeCredentials(
+      ctx,
+      containsVisualEditBridgeCredentials(args),
+    );
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
 
     const now = new Date().toISOString();
@@ -279,11 +289,12 @@ export default defineAction({
       .where(eq(schema.designLocalhostConnections.id, id))
       .limit(1);
 
-    // Older CLI versions used a non-user-scoped connection ID. Reuse that
-    // credential only when this owner/org has one unambiguous row for the
-    // exact app URL and root; otherwise a new row could mint a token that an
-    // already-running bridge does not have.
-    if (!args.id && !existing[0] && rootPath) {
+    // Older CLI versions used a non-user-scoped connection ID, and a browser
+    // reconnect names only the app URL. Reuse a credential only when this
+    // owner/org has one unambiguous row for the exact app URL (and root, when
+    // given); otherwise a new row could mint a token that an already-running
+    // bridge does not have.
+    if (!args.id && !existing[0]) {
       const priorConnections = await db
         .select({
           id: schema.designLocalhostConnections.id,
@@ -300,7 +311,9 @@ export default defineAction({
           and(
             ownerOrgScope,
             eq(schema.designLocalhostConnections.devServerUrl, devServerUrl),
-            eq(schema.designLocalhostConnections.rootPath, rootPath),
+            ...(rootPath
+              ? [eq(schema.designLocalhostConnections.rootPath, rootPath)]
+              : []),
             ...(requestedBridgeUrl
               ? [
                   eq(
@@ -327,6 +340,7 @@ export default defineAction({
         existing = [prior];
       }
     }
+    routeManifest.rootPath ??= existing[0]?.rootPath ?? undefined;
 
     if (
       existing[0] &&
@@ -336,6 +350,16 @@ export default defineAction({
       throw new Error(
         `Connection id "${id}" already belongs to another user or organization. ` +
           "Omit id so a per-user connection id is derived instead.",
+      );
+    }
+
+    if (isBrowserVisibleVisualEditRequest(ctx) && !existing[0]) {
+      fail(
+        "No saved localhost bridge matches this app. Register the bridge through a trusted CLI or server action first.",
+        {
+          errorCode: "localhost_bridge_registration_required",
+          statusCode: 409,
+        },
       );
     }
 
@@ -419,7 +443,7 @@ export default defineAction({
       return { bridgeToken: stored.bridgeToken, previewToken };
     });
 
-    return {
+    const result = {
       id,
       sourceType: "localhost",
       name: baseValues.name,
@@ -434,5 +458,8 @@ export default defineAction({
       previewToken: effectivePreviewToken,
       bridgeToken: effectiveBridgeToken,
     };
+    return isBrowserVisibleVisualEditRequest(ctx)
+      ? stripVisualEditBridgeCredentials(result)
+      : result;
   },
 });

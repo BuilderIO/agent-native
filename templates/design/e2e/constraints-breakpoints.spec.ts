@@ -1,15 +1,10 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
-
-import { e2eBaseURL } from "./base-url";
-import { expandAllLayers } from "./helpers";
-
-const PAGE_W = 1440;
-const PAGE_H = 900;
+import { appPath, expandAllLayers } from "./helpers";
+import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
 const FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Constraints</title></head>
-  <body style="margin:0;min-height:${PAGE_H}px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+  <body style="margin:0;min-height:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
     <div data-agent-native-node-id="parent" data-agent-native-layer-name="Parent"
          style="position:absolute;left:20px;top:60px;width:280px;height:200px;background:#1f2937">
       <div data-agent-native-node-id="child" data-agent-native-layer-name="Child"
@@ -25,406 +20,306 @@ const FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
-let baseURL = "";
+test.use({ viewport: { width: 1600, height: 1000 } });
 
-async function postAction(
-  page: Page,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const res = await page.request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
-    {
-      data: input,
-      headers: { "Content-Type": "application/json" },
-    },
+async function action(app: App, name: string, input: Record<string, unknown>) {
+  const response = await app.page.request.post(
+    appPath(`/_agent-native/actions/${name}`),
+    { data: input },
   );
-  if (!res.ok())
+  if (!response.ok()) {
     throw new Error(
-      `${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`,
+      `${name}: ${response.status()} ${(await response.text()).slice(0, 200)}`,
     );
-  return res.json();
+  }
+  return response.json();
 }
 
-async function newDesign(page: Page, content = FIXTURE): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: "constraints and breakpoints",
-    projectType: "prototype",
-  });
-  const id = created?.id ?? created?.data?.id;
-  if (!id) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content,
-    fileType: "html",
-  });
+async function designData(app: App, designId: string) {
+  const record = await (
+    await app.page.request.get(
+      appPath(`/_agent-native/actions/get-design?id=${designId}`),
+    )
+  ).json();
+  return {
+    record,
+    data:
+      typeof record.data === "string"
+        ? JSON.parse(record.data || "{}")
+        : (record.data ?? {}),
+  };
+}
+
+async function breakpoints(app: App, designId: string) {
+  return ((await designData(app, designId)).data.breakpointSet?.breakpoints ??
+    []) as { label: string; widthPx: number }[];
+}
+
+async function openFixture(app: App) {
+  const id = await app.seed(FIXTURE);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.settled();
   return id;
 }
 
-async function designRecord(page: Page, designId: string) {
-  return page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
-    .then((r) => r.json());
-}
-
-async function indexHtml(page: Page, designId: string): Promise<string> {
-  const record = await designRecord(page, designId);
-  return (
-    (record.files ?? []).find((f: any) => f.filename === "index.html")
-      ?.content ?? ""
-  );
-}
-
-function toolbar(page: Page): Locator {
-  return page.locator("[data-design-bottom-toolbar]");
-}
-
-function layerRow(page: Page, name: string): Locator {
-  return page
+async function selectLayer(app: App, name: string) {
+  await expandAllLayers(app.page);
+  await app.page
     .getByRole("tree", { name: "Layers" })
-    .getByRole("treeitem")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first();
+    .getByRole("button", { name, exact: true })
+    .click();
+  await expect.poll(() => app.selectedLayers()).toEqual([name]);
 }
 
-function node(page: Page, id: string): Locator {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator(`[data-agent-native-node-id="${id}"]`);
+async function openConstraints(app: App) {
+  await app.page.getByRole("button", { name: "Constraints" }).click();
+  await expect(
+    app.page.getByRole("combobox", { name: "Horizontal" }),
+  ).toBeVisible();
 }
 
-async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, {
-    waitUntil: "domcontentloaded",
-  });
-  await toolbar(page)
-    .locator('button[aria-label="Move"]')
-    .waitFor({ timeout: 45_000 });
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .waitFor({ timeout: 30_000 });
-  await expandAllLayers(page);
-  await page.waitForTimeout(500);
-}
-
-async function rendered(page: Page, id: string) {
-  return node(page, id).evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    return { left: r.left, top: r.top, width: r.width, height: r.height };
-  });
-}
-
-async function setWidth(page: Page, value: string): Promise<void> {
-  const input = page
+async function setWidth(app: App, value: string) {
+  const input = app.page
     .getByText("W", { exact: true })
     .first()
     .locator("xpath=following::input[1]");
   await input.fill(value);
   await input.press("Enter");
-  await page.waitForTimeout(2200);
 }
 
-async function openConstraints(page: Page): Promise<boolean> {
-  const toggle = page.locator('button[aria-label="Constraints"]');
-  if ((await toggle.count()) === 0) return false;
-  await toggle.first().click();
-  await page.waitForTimeout(1200);
-  return true;
+/** The child's box relative to its parent's, as rendered. */
+async function childInParent(app: App) {
+  const parent = await app.designRect("parent");
+  const child = await app.designRect("child");
+  return {
+    left: child.x - parent.x,
+    top: child.y - parent.y,
+    width: child.width,
+    height: child.height,
+  };
 }
 
-test.use({ viewport: { width: 1600, height: 1000 } });
+async function editAtPhoneWidth(app: App, designId: string) {
+  await action(app, "add-breakpoint", {
+    designId,
+    label: "Tablet",
+    widthPx: 810,
+  });
+  await action(app, "add-breakpoint", {
+    designId,
+    label: "Phone",
+    widthPx: 390,
+  });
+  await action(app, "apply-visual-edit", {
+    source: { kind: "design-file", designId, filename: "index.html" },
+    intent: {
+      kind: "style",
+      target: { nodeId: "child" },
+      property: "background",
+      value: "rgb(255, 0, 0)",
+    },
+    activeFrameWidthPx: 390,
+  });
+}
 
-test.beforeEach(async ({ page }, testInfo) => {
-  baseURL =
-    (testInfo.project.use.baseURL as string | undefined) ??
-    process.env.E2E_BASE_URL ??
-    e2eBaseURL();
-});
+function mediaBounds(html: string) {
+  return [...html.matchAll(/@media[^{]*max-width:\s*(\d+)px/gi)].map((match) =>
+    Number(match[1]),
+  );
+}
 
 test.describe("constraints", () => {
-  test("a child defaults to Top and Left constraints", async ({ page }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await layerRow(page, "Child").click();
-    await page.waitForTimeout(1500);
-    expect(
-      await openConstraints(page),
-      "no Constraints control for a child of a frame",
-    ).toBe(true);
+  test("a child of a frame defaults to Left and Top constraints, and opening them saves nothing", async ({
+    app,
+  }) => {
+    const id = await openFixture(app);
+    const before = await app.savedNodes(id);
+    await selectLayer(app, "Child");
 
-    const text = await page.evaluate(() => {
-      const heading = Array.from(
-        document.querySelectorAll<HTMLElement>("*"),
-      ).find(
-        (el) =>
-          el.children.length === 0 &&
-          (el.textContent ?? "").trim() === "Constraints",
-      );
-      return (
-        heading?.parentElement?.parentElement?.innerText?.replace(
-          /\s+/g,
-          " ",
-        ) ?? ""
-      );
+    await openConstraints(app);
+
+    await expect(
+      app.page.getByRole("combobox", { name: "Horizontal" }),
+    ).toHaveText("Left");
+    await expect(
+      app.page.getByRole("combobox", { name: "Vertical" }),
+    ).toHaveText("Top");
+    await app.settled();
+    expectOnlyChanged(before, await app.savedNodes(id), []);
+  });
+
+  test("widening the parent keeps a Left+Top child's offset and size", async ({
+    app,
+  }) => {
+    const id = await openFixture(app);
+    const before = await app.savedNodes(id);
+    expect(await childInParent(app)).toEqual({
+      left: 20,
+      top: 20,
+      width: 180,
+      height: 60,
     });
-    expect(
-      text,
-      `The default constraints should include Top and Left. Panel reads "${text}".`,
-    ).toMatch(/Left/i);
-    expect(text).toMatch(/Top/i);
+    await selectLayer(app, "Parent");
+
+    await setWidth(app, "600");
+
+    await expect
+      .poll(async () => styleOf((await app.savedNodes(id)).get("parent")).width)
+      .toBe("600px");
+    await app.settled();
+    expect((await app.designRect("parent")).width).toBe(600);
+    expect(await childInParent(app)).toEqual({
+      left: 20,
+      top: 20,
+      width: 180,
+      height: 60,
+    });
+    expectOnlyChanged(before, await app.savedNodes(id), ["parent"]);
   });
 
-  test("a Left+Top child keeps its offset when the parent widens", async ({
-    page,
+  test("a Scale-constrained child keeps its share of the parent's width when the parent widens", async ({
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    const before = await rendered(page, "child");
-    const parentBefore = await rendered(page, "parent");
+    const id = await openFixture(app);
+    const before = await app.savedNodes(id);
+    await selectLayer(app, "Child");
+    await openConstraints(app);
+    await app.page.getByRole("combobox", { name: "Horizontal" }).click();
+    await app.page.getByRole("option", { name: "Scale" }).click();
+    await expect(
+      app.page.getByRole("combobox", { name: "Horizontal" }),
+    ).toHaveText("Scale");
+    await app.settled();
+    expect(await childInParent(app), "choosing Scale moves nothing").toEqual({
+      left: 20,
+      top: 20,
+      width: 180,
+      height: 60,
+    });
 
-    await layerRow(page, "Parent").click();
-    await page.waitForTimeout(1500);
-    await setWidth(page, "600");
+    await selectLayer(app, "Parent");
+    await setWidth(app, "800");
 
-    const after = await rendered(page, "child");
-    const parentAfter = await rendered(page, "parent");
-    expect(
-      Math.abs(parentAfter.width - parentBefore.width),
-      `precondition: the parent must actually resize for this constraint to be testable. ` +
-        `width went ${parentBefore.width} -> ${parentAfter.width}.`,
-    ).toBeGreaterThanOrEqual(1);
-    expect(
-      Math.round(after.left - parentAfter.left),
-      `Top+Left should preserve the child offset from its parent. Offset went ${Math.round(before.left - parentBefore.left)} → ` +
-        `${Math.round(after.left - parentAfter.left)}.`,
-    ).toBe(Math.round(before.left - parentBefore.left));
+    await expect
+      .poll(async () => styleOf((await app.savedNodes(id)).get("parent")).width)
+      .toBe("800px");
+    await app.settled();
+    const scaled = await childInParent(app);
+    expect(Math.abs(scaled.left - (800 * 20) / 280)).toBeLessThanOrEqual(1);
+    expect(Math.abs(scaled.width - (800 * 180) / 280)).toBeLessThanOrEqual(1);
+    expect({ top: scaled.top, height: scaled.height }).toEqual({
+      top: 20,
+      height: 60,
+    });
+    expectOnlyChanged(before, await app.savedNodes(id), ["parent", "child"]);
   });
 
-  test("a Scale-constrained child keeps its percentage of the parent width", async ({
-    page,
+  test("constraints are offered for a frame's child but not for an auto-layout child", async ({
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await layerRow(page, "Child").click();
-    await page.waitForTimeout(1500);
-    const opened = await openConstraints(page);
-    expect(opened, "no Constraints control to set Scale with").toBe(true);
+    await openFixture(app);
+    const constraints = app.page.getByRole("button", { name: "Constraints" });
+    await selectLayer(app, "Child");
+    await expect(
+      constraints,
+      "control: an absolute child has them",
+    ).toHaveCount(1);
 
-    await page.getByRole("combobox", { name: "Horizontal" }).first().click();
-    const scaleOption = page.getByRole("option", { name: /Scale/i });
-    await expect(scaleOption.first()).toBeVisible({ timeout: 10_000 });
-    await scaleOption.first().click();
-    await page.waitForTimeout(1500);
-
-    const childBefore = await rendered(page, "child");
-    const parentBefore = await rendered(page, "parent");
-    const ratio = childBefore.width / parentBefore.width;
-
-    await layerRow(page, "Parent").click();
-    await page.waitForTimeout(1500);
-    await setWidth(page, "800");
-
-    const childAfter = await rendered(page, "child");
-    const parentAfter = await rendered(page, "parent");
-    expect(
-      childAfter.width / parentAfter.width,
-      `Scale should preserve the child's proportion of the parent. ` +
-        `Ratio went ${ratio.toFixed(3)} → ${(childAfter.width / parentAfter.width).toFixed(3)}.`,
-    ).toBeCloseTo(ratio, 2);
-  });
-
-  test("constraints are not offered for a child of an auto-layout frame", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await layerRow(page, "Auto Child").click();
-    await page.waitForTimeout(1500);
-    expect(
-      await page.locator('button[aria-label="Constraints"]').count(),
-      `Constraints should be hidden for children of auto-layout frames.`,
-    ).toBe(0);
+    await selectLayer(app, "Auto Child");
+    await expect(constraints).toHaveCount(0);
   });
 });
 
 test.describe("breakpoints", () => {
   test("add-breakpoint records the width in the design's breakpointSet", async ({
-    page,
+    app,
   }) => {
-    const id = await newDesign(page);
-    await postAction(page, "add-breakpoint", {
+    const id = await app.seed(FIXTURE);
+    expect(await breakpoints(app, id), "precondition: none").toEqual([]);
+
+    await action(app, "add-breakpoint", {
       designId: id,
       label: "Tablet",
       widthPx: 810,
     });
-    const record = await designRecord(page, id);
-    const data =
-      typeof record.data === "string"
-        ? JSON.parse(record.data || "{}")
-        : (record.data ?? {});
-    const widths = (data.breakpointSet?.breakpoints ?? []).map(
-      (b: any) => b.widthPx,
-    );
-    expect(
-      widths,
-      `skill: add-breakpoint "adds a device-width frame to designs.data.breakpointSet". ` +
-        `breakpointSet.breakpoints is ${JSON.stringify(data.breakpointSet?.breakpoints ?? null)}.`,
-    ).toContain(810);
+
+    expect(await breakpoints(app, id)).toEqual([
+      expect.objectContaining({ label: "Tablet", widthPx: 810 }),
+    ]);
   });
 
-  test("a duplicate breakpoint width is ignored", async ({ page }) => {
-    const id = await newDesign(page);
-    await postAction(page, "add-breakpoint", {
+  test("a duplicate breakpoint width is ignored", async ({ app }) => {
+    const id = await app.seed(FIXTURE);
+    await action(app, "add-breakpoint", {
       designId: id,
       label: "Tablet",
       widthPx: 810,
     });
-    await postAction(page, "add-breakpoint", {
+    const once = await breakpoints(app, id);
+    expect(once.map((breakpoint) => breakpoint.widthPx)).toEqual([810]);
+
+    await action(app, "add-breakpoint", {
       designId: id,
       label: "Tablet",
       widthPx: 810,
     }).catch(() => {});
-    const record = await designRecord(page, id);
-    const data =
-      typeof record.data === "string"
-        ? JSON.parse(record.data || "{}")
-        : (record.data ?? {});
-    const widths = (data.breakpointSet?.breakpoints ?? []).map(
-      (b: any) => b.widthPx,
-    );
-    expect(
-      widths.filter((w: number) => w === 810).length,
-      `skill: "Duplicate widths are ignored". Got ${JSON.stringify(widths)}.`,
-    ).toBe(1);
+
+    expect(await breakpoints(app, id)).toEqual(once);
   });
 
   test("an edit at a narrower breakpoint scopes to next-wider minus one", async ({
-    page,
+    app,
   }) => {
-    const id = await newDesign(page);
-    await postAction(page, "add-breakpoint", {
-      designId: id,
-      label: "Tablet",
-      widthPx: 810,
-    });
-    await postAction(page, "add-breakpoint", {
-      designId: id,
-      label: "Phone",
-      widthPx: 390,
-    });
-    await postAction(page, "apply-visual-edit", {
-      source: { kind: "design-file", designId: id, filename: "index.html" },
-      intent: {
-        kind: "style",
-        target: { nodeId: "child" },
-        property: "background",
-        value: "rgb(255, 0, 0)",
-      },
-      activeFrameWidthPx: 390,
-    });
+    const id = await app.seed(FIXTURE);
+    const before = await app.savedNodes(id);
 
-    const html = await indexHtml(page, id);
-    const media = /@media[^{]*max-width:\s*(\d+)px/gi;
-    const bounds: number[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = media.exec(html))) bounds.push(Number(m[1]));
-    expect(
-      bounds,
-      `skill: "The bound for an override is next-wider frame width - 1" — editing at 390 ` +
-        `with an 810 breakpoint present must scope to max-width: 809px. Found ${JSON.stringify(bounds)}.`,
-    ).toContain(809);
+    await editAtPhoneWidth(app, id);
+
+    const html = await app.savedHtml(id);
+    expect(mediaBounds(html)).toEqual([809]);
+    expect(html).toMatch(
+      /@media[^{]*max-width:\s*809px[^{]*\{[^}]*\[data-agent-native-node-id="child"\][^{]*\{[^}]*background:\s*rgb\(255, 0, 0\)/,
+    );
+    expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
   test("a breakpoint edit persists when the document has no head", async ({
-    page,
+    app,
   }) => {
-    const id = await newDesign(
-      page,
+    const id = await app.seed(
       FIXTURE.replace(/\s*<head>[\s\S]*?<\/head>/i, ""),
     );
-    await postAction(page, "add-breakpoint", {
-      designId: id,
-      label: "Tablet",
-      widthPx: 810,
-    });
-    await postAction(page, "add-breakpoint", {
-      designId: id,
-      label: "Phone",
-      widthPx: 390,
-    });
-    await postAction(page, "apply-visual-edit", {
-      source: { kind: "design-file", designId: id, filename: "index.html" },
-      intent: {
-        kind: "style",
-        target: { nodeId: "child" },
-        property: "background",
-        value: "rgb(255, 0, 0)",
-      },
-      activeFrameWidthPx: 390,
-    });
+    const before = await app.savedNodes(id);
 
-    const html = await indexHtml(page, id);
-    expect(html).toContain("max-width: 809px");
+    await editAtPhoneWidth(app, id);
+
+    const html = await app.savedHtml(id);
+    expect(mediaBounds(html)).toEqual([809]);
     expect(html.indexOf("<style")).toBeGreaterThan(html.indexOf("<html"));
     expect(html.indexOf("<style")).toBeLessThan(html.indexOf("</html>"));
+    expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
   test("the default device set is a desktop base plus mobile only", async ({
-    page,
-  }, testInfo) => {
-    const created = await postAction(page, "create-design", {
-      title: "generated default device fixture",
-      projectType: "prototype",
-    });
-    const id = created?.id ?? created?.data?.id;
-    if (!id) throw new Error("create-design returned no id");
+    app,
+  }) => {
+    const id = await app.seed(FIXTURE);
 
-    const generated = await postAction(page, "generate-design", {
+    const generated = await action(app, "generate-design", {
       designId: id,
       prompt: "Create a responsive constraints test fixture.",
-      files: [
-        {
-          filename: "index.html",
-          content: FIXTURE,
-          fileType: "html",
-        },
-      ],
+      files: [{ filename: "index.html", content: FIXTURE, fileType: "html" }],
     });
     expect(generated.savedFiles).toHaveLength(1);
 
-    const record = await designRecord(page, id);
-    const data =
-      typeof record.data === "string"
-        ? JSON.parse(record.data || "{}")
-        : (record.data ?? {});
-    const screen = (record.files ?? []).find(
-      (file: any) => file.filename === "index.html",
+    const { record, data } = await designData(app, id);
+    const screen = record.files.find(
+      (file: { filename: string }) => file.filename === "index.html",
     );
-    expect(screen, "generate-design must save index.html").toBeDefined();
     expect(data.canvasFrames?.[screen.id]?.width).toBe(1440);
-
-    const breakpoints = data.breakpointSet?.breakpoints ?? [];
-    await testInfo.attach("generated-device-defaults", {
-      body: JSON.stringify(
-        {
-          designId: id,
-          screenId: screen.id,
-          primaryFrame: data.canvasFrames?.[screen.id],
-          breakpoints,
-        },
-        null,
-        2,
-      ),
-      contentType: "application/json",
-    });
-    expect(breakpoints).toHaveLength(1);
-    expect(breakpoints[0]).toMatchObject({
-      label: "Mobile",
-      widthPx: 390,
-    });
+    expect(data.breakpointSet?.breakpoints).toEqual([
+      expect.objectContaining({ label: "Mobile", widthPx: 390 }),
+    ]);
   });
 });

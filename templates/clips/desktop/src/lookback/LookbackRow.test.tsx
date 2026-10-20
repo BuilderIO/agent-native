@@ -57,6 +57,7 @@ function render(props: Partial<LookbackRowProps> = {}) {
   const handlers = {
     onSecondsChange: vi.fn(),
     onTurnOnRewind: vi.fn(),
+    onTurnOffRewind: vi.fn(),
   };
   act(() => {
     root.render(
@@ -119,6 +120,7 @@ describe("LookbackRow with Rewind off", () => {
 
     expect(trigger().disabled).toBe(false);
     expect(trigger().textContent).toContain("Off");
+    expect(trigger().textContent).not.toContain("None");
     expect(trigger().textContent).not.toContain("30 s");
     expect(buttonWithText("Turn on Rewind")).toBeUndefined();
     expect(handlers.onSecondsChange).not.toHaveBeenCalled();
@@ -127,17 +129,53 @@ describe("LookbackRow with Rewind off", () => {
   it("opens the explanation popover instead of the dropdown", () => {
     const handlers = render({ seconds: 30, rewindOn: false });
 
+    expect(document.querySelector(".rewind-off-popover-reveal")).toBeNull();
+
     act(() => trigger().click());
 
     expect(menuItemTexts()).toEqual([]);
     expect(document.body.textContent).toContain("Turn on Rewind");
     expect(document.body.textContent).toContain(
-      "Rewind keeps a local history of your screen",
+      "To include earlier screen time, turn on Rewind first.",
+    );
+    expect(document.body.textContent).toContain(
+      "While Rewind is on, it keeps recent screen history on this device within your time and storage limits.",
+    );
+    expect(document.body.textContent).toContain(
+      "When Rewind is off, saved history can remain past those limits until recording starts again.",
+    );
+    expect(document.body.textContent).toContain(
+      "To erase it now, open Settings > Rewind > Storage > On this device and choose Delete all.",
+    );
+    expect(document.body.textContent).toContain(
+      "A requested Clip is reviewed before sending by default, unless you turn off review before sending in Rewind settings.",
+    );
+    expect(
+      document
+        .querySelector(".rewind-off-popover-reveal")
+        ?.getAttribute("data-state"),
+    ).toBe("open");
+    expect(buttonWithText("What is this?")?.className).toContain("w-full");
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "justify-center",
+    );
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "focus-visible:ring-inset",
+    );
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "focus-visible:ring-offset-0",
+    );
+    expect(buttonWithText("Turn on Rewind")?.className).toContain(
+      "focus-visible:ring-inset",
+    );
+    expect(buttonWithText("Turn on Rewind")?.className).toContain(
+      "focus-visible:ring-offset-0",
     );
 
     const turnOn = buttonWithText("Turn on Rewind");
     expect(turnOn).toBeDefined();
     act(() => turnOn?.click());
+    expect(document.querySelector(".rewind-off-popover-reveal")).toBeNull();
     expect(handlers.onTurnOnRewind).toHaveBeenCalledTimes(1);
     expect(handlers.onSecondsChange).not.toHaveBeenCalled();
   });
@@ -165,15 +203,67 @@ describe("LookbackRow with Rewind on", () => {
     expect(buttonWithText("Turn on Rewind")).toBeUndefined();
 
     openMenu();
+    const noneOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ).find((item) => item.textContent?.trim() === "None");
+    const descriptionId = noneOption?.getAttribute("aria-describedby");
+
+    expect(descriptionId).toBeTruthy();
+    expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
+      "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
+    );
+    expect(document.getElementById(descriptionId ?? "")?.className).toContain(
+      "sr-only",
+    );
     expect(menuItemTexts()).toEqual([
-      "Off",
+      "None",
       "30 s",
       "5 min",
       "45 s",
       "2 min",
       "Custom…",
+      "Turn off",
       "What is this?",
     ]);
+  });
+
+  it("reads None when Include last is unset and shows no status note", () => {
+    render({ seconds: 0, rewindOn: true });
+
+    expect(trigger().textContent).toContain("None");
+    expect(host.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("explains that None excludes earlier screen time without stopping Rewind", () => {
+    render({ seconds: 0, rewindOn: true });
+
+    openMenu();
+
+    const noneOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ).find((item) => item.textContent?.trim() === "None");
+    const descriptionId = noneOption?.getAttribute("aria-describedby");
+
+    expect(descriptionId).toBeTruthy();
+    expect(document.getElementById(descriptionId ?? "")?.textContent).toContain(
+      "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
+    );
+    expect(
+      document.getElementById(descriptionId ?? "")?.className,
+    ).not.toContain("sr-only");
+    expect(document.body.textContent).toContain(
+      "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
+    );
+  });
+
+  it("turns Rewind off from the menu without changing the length", () => {
+    const handlers = render({ seconds: 300, rewindOn: true });
+
+    openMenu();
+    act(() => menuItemWithText("Turn off")?.click());
+
+    expect(handlers.onTurnOffRewind).toHaveBeenCalledTimes(1);
+    expect(handlers.onSecondsChange).not.toHaveBeenCalled();
   });
 
   it("refuses a custom length over five minutes and accepts a valid one", async () => {

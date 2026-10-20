@@ -5,15 +5,26 @@ const ensureColumnExistsMock = vi.hoisted(() => vi.fn(async () => true));
 const ensureIndexExistsMock = vi.hoisted(() => vi.fn(async () => true));
 const ensureTableExistsMock = vi.hoisted(() => vi.fn(async () => true));
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: executeMock }),
-}));
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  const exec = {
+    execute: (statement: string | { sql: string }) =>
+      storeLedgerResult(
+        typeof statement === "string" ? statement : statement.sql,
+      ) ?? executeMock(statement),
+  };
+  return {
+    getDbExec: () => exec,
+  };
+});
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: ensureColumnExistsMock,
   ensureIndexExists: ensureIndexExistsMock,
   ensureTableExists: ensureTableExistsMock,
 }));
-vi.mock("../db/migrations.js", () => ({
+vi.mock("../db/migrations.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/migrations.js")>()),
   runMigrations: vi.fn(() => vi.fn(async () => {})),
 }));
 vi.mock("../agent/run-manager.js", () => ({

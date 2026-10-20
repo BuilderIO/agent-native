@@ -17,7 +17,6 @@ import {
   listRemoteDevicesForOwner,
 } from "../integrations/remote-devices-store.js";
 import { describeCron, effectiveTimezone } from "../jobs/cron.js";
-import { parseJobResource } from "../jobs/frontmatter.js";
 import { queueAutomationRunNow } from "../jobs/run-now.js";
 import {
   getIntegrationRequestContext,
@@ -317,32 +316,16 @@ async function handleUpdate(
       },
     );
     await refreshEventSubscriptions();
-    const previous = parseJobResource(definition.resource.content);
-    const changed =
-      definition.body !== previous.body ||
-      definition.meta.enabled !== previous.meta.enabled ||
-      definition.meta.schedule !== previous.meta.schedule ||
-      definition.meta.timezone !== previous.meta.timezone ||
-      definition.meta.condition !== previous.meta.condition ||
-      definition.meta.delegatedPolicyId !== previous.meta.delegatedPolicyId ||
-      definition.meta.model !== previous.meta.model ||
-      definition.meta.reasoningEffort !== previous.meta.reasoningEffort ||
-      definition.meta.executionHostId !== previous.meta.executionHostId ||
-      definition.meta.executionEngine !== previous.meta.executionEngine ||
-      definition.meta.executionCwd !== previous.meta.executionCwd ||
-      JSON.stringify(definition.meta.mcpTools ?? []) !==
-        JSON.stringify(previous.meta.mcpTools ?? []) ||
-      definition.meta.orgId !== previous.meta.orgId ||
-      definition.meta.runAs !== previous.meta.runAs;
     return JSON.stringify({
       updated: true,
       name: definition.name,
-      ...(changed
+      ...(definition.changed
         ? {
             change: {
               verb:
-                definition.meta.enabled !== previous.meta.enabled
-                  ? definition.meta.enabled
+                definition.requestedEnabled !== undefined &&
+                definition.requestedEnabled !== definition.previouslyEnabled
+                  ? definition.requestedEnabled
                     ? "enabled"
                     : "disabled"
                   : "updated",

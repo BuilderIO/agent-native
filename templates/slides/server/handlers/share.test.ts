@@ -71,6 +71,9 @@ vi.mock("../lib/slides-tracking.js", () => ({
 
 import { shareDeck } from "./share";
 
+const launchContent =
+  '<div class="fmd-slide"><h1>Launch</h1><div class="text-box"><p>One</p><p>Two</p></div></div>';
+
 describe("shareDeck", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -92,7 +95,7 @@ describe("shareDeck", () => {
           slides: [
             {
               id: "slide-1",
-              content: "<h1>Launch</h1>",
+              content: launchContent,
               notes: "internal talking points",
               layout: "title",
               background: "#111",
@@ -140,7 +143,7 @@ describe("shareDeck", () => {
     expect(slides).toEqual([
       {
         id: "slide-1",
-        content: "<h1>Launch</h1>",
+        content: launchContent,
         notes: "",
         layout: "title",
         background: "#111",
@@ -173,6 +176,47 @@ describe("shareDeck", () => {
       "design-system",
       "design-system-1",
     );
+  });
+
+  it("snapshots a reveal whose stored path went stale with its stale-path issue", async () => {
+    mockAssertAccess.mockResolvedValue({
+      resource: {
+        title: "Launch review",
+        data: JSON.stringify({
+          slides: [
+            {
+              id: "slide-1",
+              content: launchContent,
+              animations: [
+                {
+                  id: "anim-ok",
+                  elementIndex: 0,
+                  elementPath: [1, 0],
+                  type: "fade",
+                },
+                {
+                  id: "anim-gone",
+                  elementIndex: 0,
+                  elementPath: [9],
+                  type: "fade",
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    });
+
+    await shareDeck({} as any);
+
+    const row = insertedRows.current[0] as Record<string, unknown>;
+    const [slide] = JSON.parse(row.slides as string);
+    expect(
+      slide.animations.map((animation: { id: string }) => animation.id),
+    ).toEqual(["anim-ok", "anim-gone"]);
+    expect(slide.animationIssues).toEqual([
+      { index: 1, id: "anim-gone", code: "stale-path" },
+    ]);
   });
 
   it("records share_link_created on the server without the token", async () => {

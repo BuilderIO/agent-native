@@ -1,8 +1,23 @@
+import { registerAuthPublicPaths } from "@agent-native/core/server";
 import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
+import {
+  getBuilderIdentitySession,
+  isBuilderIdentityEnabled,
+} from "../lib/builder-identity.js";
+
+registerAuthPublicPaths(["/api/session-replay-storyboard"]);
 
 export default createToolkitAuthPlugin({
+  // Hosted inside Builder: Builder is the identity provider (no Design-side
+  // accounts). See server/lib/builder-identity.ts.
+  ...(isBuilderIdentityEnabled()
+    ? {
+        getSession: getBuilderIdentitySession,
+        trustCustomEmailVerification: true,
+      }
+    : {}),
   workspaceAppAudience: "internal",
   workspaceAppPublicPaths: ["/", "/visual-edit", "/design", "/present"],
   marketing: {
@@ -18,6 +33,7 @@ export default createToolkitAuthPlugin({
     ],
   },
   publicPaths: [
+    "/api/builder-identity/exchange",
     "/api/design-handoff",
     // Agent-readable context link: fetched with no session cookie, so the
     // gate must not 401 before the handler verifies its scoped token.

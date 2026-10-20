@@ -145,6 +145,15 @@ describe("slides pptx export route", () => {
       deckId: "deck-1",
       includeNotes: true,
     });
+    expect(mockRun.mock.calls[0][1]).toMatchObject({
+      caller: "http",
+      userEmail: "user@example.com",
+      orgId: "org-1",
+      slidesPptxDownload: true,
+    });
+    expect(mockRun.mock.calls[0][1]).not.toHaveProperty(
+      "slidesPptxDownloadPersist",
+    );
     expect(mockRun.mock.calls[1][0]).toEqual({
       deckId: "deck-1",
       includeNotes: true,

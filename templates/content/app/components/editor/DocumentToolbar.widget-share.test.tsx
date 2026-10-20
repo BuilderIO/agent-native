@@ -227,8 +227,8 @@ describe("Share inside an MCP App widget", () => {
       "agentChat.share.loadPeopleFailed",
     );
 
-    const add = Array.from(document.body.querySelectorAll("button")).find(
-      (button) => button.textContent === "agentChat.share.add",
+    const add = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="agentChat.share.add"]',
     );
     await act(async () => add!.click());
     await settle();

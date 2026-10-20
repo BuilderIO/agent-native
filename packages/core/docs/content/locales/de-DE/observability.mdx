@@ -364,6 +364,8 @@ Core erfasst zusätzlich Metriken, sobald der Host mit `registerObservabilityPro
 
 Bei Metriken ist `gen_ai.tool.name` der Name einer Framework-Aktion oder `other`, und `gen_ai.request.model` ist die Modell-ID nur, wenn die Engine sie als unterstützt führt, andernfalls `_OTHER`. App-definierte Tools und vom Aufrufer übergebene Modell-IDs können daher keine unbegrenzte Anzahl von Serien erzeugen; Spans behalten die exakten Werte.
 
+Das `error.type` eines fehlgeschlagenen Modellaufrufs in `gen_ai.client.operation.duration` ist der HTTP-Status des Providers, wenn der Aufruf einen 4xx- oder 5xx-Status zurückgab (`http_429`, `http_529`), andernfalls `rate_limit`, `context_overflow`, `provider_error` oder `no_model_connected`, wenn der Fehlercode der Engine einen davon benennt, andernfalls `_OTHER`. Jeder Wiederholungsversuch ist ein eigener Aufruf mit eigenem `error.type`, daher erfasst ein Lauf, der eine gedrosselte Anfrage mehrmals wiederholt, mehrere `http_429`-Aufrufe, selbst wenn er erfolgreich endet.
+
 `http.route` wird bei jeder Anfrage gesetzt und stammt aus einer geschlossenen Menge: dem Routen-Template eines Framework-Endpunkts (`/_agent-native/auth/session`, `/_agent-native/agent-chat/runs/:runId/events`), dem deklarierten Template einer Aktion, der eigenen Nitro-Dateiroute der App (`/api/clips/:id`) oder einem Sammelwert. Die Sammelwerte sind `/_agent-native/*`, `/mcp/*` und `/.well-known/*` für einen nicht aufgeführten Pfad in diesen Namensräumen, `/api/*` für jeden anderen API-Pfad, `static` für Dateianfragen, `page` für jedes andere `GET` oder `HEAD` und `other`. Ein roher Anfragepfad wird nie aufgezeichnet. Der Span `http.server` trägt denselben Wert.
 
 ## Ein OpenTelemetry-Backend anbinden {#otel-provider}

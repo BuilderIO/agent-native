@@ -1,16 +1,16 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
-
-let initPromise: Promise<void> | undefined;
+import { defineStore } from "../db/store-registry.js";
 
 export const INTEGRATION_AWAITING_INPUT_TTL_MS = 24 * 60 * 60 * 1000;
 
-export async function ensureTable(): Promise<void> {
-  if (!initPromise) {
-    const initPromiseWithRequestDbPoolScope = (async () => {
-      const client = getDbExec();
-      const createSql = `
+export const awaitingInputsStore = defineStore({
+  id: "awaiting_inputs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
         CREATE TABLE IF NOT EXISTS integration_awaiting_inputs (
           platform TEXT NOT NULL,
           external_thread_id TEXT NOT NULL,
@@ -21,18 +21,14 @@ export async function ensureTable(): Promise<void> {
           PRIMARY KEY (platform, external_thread_id)
         )
       `;
-      {
         await ensureTableExists("integration_awaiting_inputs", createSql);
-        return;
-      }
-      await client.execute(createSql);
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
-  }
-  return initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return awaitingInputsStore.ready();
 }
 
 export async function setIntegrationAwaitingInput(input: {
@@ -107,5 +103,5 @@ export async function clearIntegrationAwaitingInput(
 }
 
 export function _resetIntegrationAwaitingInputStoreForTests(): void {
-  initPromise = undefined;
+  awaitingInputsStore.reset();
 }

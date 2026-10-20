@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -115,6 +115,8 @@ import {
   launchChromium,
   type PlaywrightModule,
 } from "../server/lib/playwright-runtime.js";
+import { degradeWideColorsInHtml } from "../shared/export-color-fallback.js";
+import { parseEffectsFromHtml } from "../shared/native-effects.js";
 
 export function chromiumUnavailableReason(err: unknown): string {
   const detail = err instanceof Error ? err.message : String(err);
@@ -180,6 +182,21 @@ export function parseRgbColor(color: string): number[] | null {
   return [Number(m[1]), Number(m[2]), Number(m[3])];
 }
 
+/**
+ * A background `parseRgbColor` cannot read and that is not transparent, such
+ * as `oklch()` or `color(display-p3 ...)`. The contrast check makes no claim
+ * about text on it: judging against the page behind would be a guess.
+ * `collectPageDiagnostics` duplicates this.
+ */
+export function isUnreadableOpaqueColor(color: string): boolean {
+  const value = color.trim().toLowerCase();
+  if (!value || value === "transparent") return false;
+  if (parseRgbColor(value)) return false;
+  return !/^(?:rgba?|oklch|color)\([^)]*(?:,|\/)\s*0(?:\.0+)?%?\s*\)$/.test(
+    value,
+  );
+}
+
 export function requiredContrastRatio(
   fontSizePx: number,
   fontWeight: number,
@@ -232,12 +249,22 @@ function collectPageDiagnostics(): {
     return [Number(m[1]), Number(m[2]), Number(m[3])];
   }
 
-  function effectiveBackground(el: Element): number[] {
+  function isUnreadableOpaqueColor(color: string): boolean {
+    const value = color.trim().toLowerCase();
+    if (!value || value === "transparent") return false;
+    if (parseRgb(value)) return false;
+    return !/^(?:rgba?|oklch|color)\([^)]*(?:,|\/)\s*0(?:\.0+)?%?\s*\)$/.test(
+      value,
+    );
+  }
+
+  function effectiveBackground(el: Element): number[] | null {
     let node: Element | null = el;
     while (node) {
       const style = getComputedStyle(node);
       const rgb = parseRgb(style.backgroundColor);
       if (rgb) return rgb;
+      if (isUnreadableOpaqueColor(style.backgroundColor)) return null;
       node = node.parentElement;
     }
     return [255, 255, 255];
@@ -326,8 +353,8 @@ function collectPageDiagnostics(): {
       if (isLeafWithText && rect.width > 0 && rect.height > 0) {
         const style = getComputedStyle(el);
         const fg = parseRgb(style.color);
-        if (fg) {
-          const bg = effectiveBackground(el);
+        const bg = fg ? effectiveBackground(el) : null;
+        if (fg && bg) {
           const ratio = contrastRatio(fg, bg);
           const fontSizePx = Number.parseFloat(style.fontSize || "16");
           const fontWeight = Number.parseInt(style.fontWeight || "400", 10);
@@ -471,6 +498,16 @@ export default defineAction({
     }
 
     const html = await liveContent(file.id, file.content ?? "");
+    const native = parseEffectsFromHtml(html);
+    if (
+      native.errors.length ||
+      native.document?.instances.some((instance) => instance.enabled)
+    ) {
+      fail("Native Design effects require a live editor PNG capture.", {
+        errorCode: "native_export_live_frame_required",
+        statusCode: 422,
+      });
+    }
 
     let playwright: PlaywrightModule;
     try {
@@ -531,7 +568,9 @@ export default defineAction({
         });
 
         try {
-          await page.setContent(html, { waitUntil: "networkidle" });
+          await page.setContent(degradeWideColorsInHtml(html), {
+            waitUntil: "networkidle",
+          });
           await page
             .evaluate(async () => {
               const fontsReady = document.fonts?.ready;

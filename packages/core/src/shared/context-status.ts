@@ -77,6 +77,6 @@ export function preloadedContextUnavailableNote(
 ): string {
   const reason = status === "timed_out" ? "timed out" : "failed";
   return wrapNote(
-    `${options.partial ? "Some preloaded context" : "Preloaded context"} was unavailable this turn (${reason}); search for anything relevant with the available tools before answering.`,
+    `${options.partial ? "Some preloaded context" : "Preloaded context"} was unavailable this turn (${reason}); if the request depends on workspace knowledge, such as prior work, team docs, brand defaults, or people, search for it with the available tools before answering; otherwise continue without it.`,
   );
 }

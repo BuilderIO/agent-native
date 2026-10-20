@@ -1,11 +1,12 @@
 import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useHref, useLocation, useNavigate } from "react-router";
 
 import {
   buildSettingsRoute,
   STANDARD_APP_ROUTES,
 } from "../navigation/index.js";
 import { appPath } from "./api-path.js";
+import { rememberRouteChunkRecoveryNavigation } from "./route-chunk-recovery.js";
 
 /** Dispatched on `window` to open Settings; `detail.page` names a page id. */
 export const OPEN_SETTINGS_PAGE_EVENT = "agent-native:open-settings-page";
@@ -74,13 +75,20 @@ export function useSettingsShortcut({
 }: { enabled?: boolean } = {}): void {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const routerRootHref = useHref("/");
 
   useEffect(() => {
     if (!enabled) return;
 
     const open = (page?: string) => {
       if (!page && isSettingsRoutePath(pathname)) return;
-      void navigate(settingsPagePath(page));
+      const target = settingsPagePath(page);
+      const basePath = new URL(
+        routerRootHref,
+        window.location.href,
+      ).pathname.replace(/\/+$/, "");
+      rememberRouteChunkRecoveryNavigation(`${basePath}${target}`);
+      void navigate(target);
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -105,7 +113,7 @@ export function useSettingsShortcut({
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener(OPEN_SETTINGS_PAGE_EVENT, handleOpenRequest);
     };
-  }, [enabled, navigate, pathname]);
+  }, [enabled, navigate, pathname, routerRootHref]);
 }
 
 /** Mount point for `useSettingsShortcut`; must render inside a router. */

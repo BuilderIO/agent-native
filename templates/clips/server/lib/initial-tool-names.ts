@@ -6,6 +6,7 @@ export const INITIAL_TOOL_NAMES = [
   "prepare-crm-call-evidence",
   "request-transcript",
   "create-recording",
+  "get-video-storage-status",
   "import-loom-recording",
   "update-recording",
   "finalize-recording",

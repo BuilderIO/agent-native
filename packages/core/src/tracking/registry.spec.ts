@@ -313,6 +313,23 @@ describe("tracking registry", () => {
     });
   });
 
+  it.each(["builder connect clicked", "builder_connect_clicked"])(
+    "records %s as builder_connect_clicked and a CTA click",
+    (name) => {
+      const events = captureEvents();
+
+      track(name, { connect_url_kind: "provision" });
+
+      const names = events.map((event) => event.name);
+      expect(names.filter((n) => n === "builder_connect_clicked")).toHaveLength(
+        1,
+      );
+      expect(
+        events.find((event) => event.name === "cta_clicked"),
+      ).toMatchObject({ properties: { cta_name: "builder_connect_clicked" } });
+    },
+  );
+
   it("emits a canonical alias with provenance for legacy event names", () => {
     const events = captureEvents();
     const legacyName = "session status";

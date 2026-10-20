@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { IconChevronDown } from "@tabler/icons-react";
-import { useCallback, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -26,7 +26,6 @@ import {
 import { Input } from "@/components/ui/input";
 
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
-import type { EditorContentAndComponents } from "../domains/use-editor-content-and-components";
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorExportAndHandoff } from "../domains/use-editor-export-and-handoff";
 import type { EditorFilesAndSaving } from "../domains/use-editor-files-and-saving";
@@ -48,7 +47,6 @@ interface ProjectTitleControlProps {
   editorActiveScreenAndGeometry: EditorActiveScreenAndGeometry;
   editorLiveEditsAndPresence: EditorLiveEditsAndPresence;
   editorLayoutAndStructure: EditorLayoutAndStructure;
-  editorContentAndComponents: EditorContentAndComponents;
   editorExportAndHandoff: EditorExportAndHandoff;
   editorSourceAndSync: EditorSourceAndSync;
   design: DesignData;
@@ -63,7 +61,6 @@ function ProjectTitleControl({
   editorActiveScreenAndGeometry,
   editorLiveEditsAndPresence,
   editorLayoutAndStructure,
-  editorContentAndComponents,
   editorExportAndHandoff,
   editorSourceAndSync,
   design,
@@ -81,21 +78,15 @@ function ProjectTitleControl({
     setTitleEditing,
     files,
   } = editorFilesAndSaving;
-  const {
-    hasPendingVisualStyleEdits,
-    clearPendingLiveEditState,
-    setMinimalUi,
-    setActiveLeftPanel,
-  } = editorHistory;
+  const { hasPendingVisualStyleEdits, clearPendingLiveEditState } =
+    editorHistory;
   const { setSaveTemplateOpen } = editorLiveEditsAndPresence;
   const { setHistoryOpen } = editorLayoutAndStructure;
-  const { setUiHidden } = editorContentAndComponents;
-  const { skipPendingEditNavigationBlockRef, setPendingImportFile } =
+  const { skipPendingEditNavigationBlockRef, openImportFilePicker } =
     editorSourceAndSync;
   const navigate = useNavigate();
   const deleteDesignMutation = useActionMutation("delete-design");
   const [trashDialogOpen, setTrashDialogOpen] = useState(false);
-  const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const suppressFileMenuReturnFocusRef = useRef(false);
 
   const handleDuplicateDesign = useCallback(() => {
@@ -139,19 +130,6 @@ function ProjectTitleControl({
     skipPendingEditNavigationBlockRef,
     t,
   ]);
-
-  const handleImportFileChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      event.target.value = "";
-      if (!file) return;
-      setMinimalUi(false);
-      setUiHidden(false);
-      setActiveLeftPanel("import");
-      setPendingImportFile(file);
-    },
-    [setActiveLeftPanel, setMinimalUi, setPendingImportFile, setUiHidden],
-  );
 
   if (titleEditing && canEditDesign) {
     return (
@@ -222,9 +200,7 @@ function ProjectTitleControl({
               >
                 {t("designEditor.saveAsTemplate")}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => importFileInputRef.current?.click()}
-              >
+              <DropdownMenuItem onClick={openImportFilePicker}>
                 {t("designEditor.fileMenu.import")}
               </DropdownMenuItem>
               <DropdownMenuSub>
@@ -251,13 +227,6 @@ function ProjectTitleControl({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
-      <input
-        ref={importFileInputRef}
-        type="file"
-        accept=".fig,.html,.htm"
-        className="hidden"
-        onChange={handleImportFileChange}
-      />
       <AlertDialog open={trashDialogOpen} onOpenChange={setTrashDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

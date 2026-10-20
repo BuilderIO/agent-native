@@ -121,6 +121,7 @@ interface PendingSend {
   requestMode?: "act" | "plan";
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  submissionExpiresAt?: number;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
@@ -227,6 +228,18 @@ function deliverPendingSend(
   onHandoff: (delivered: boolean) => boolean,
 ): void | Promise<void> {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
+  if (
+    send.submissionExpiresAt !== undefined &&
+    send.submissionExpiresAt <= Date.now()
+  ) {
+    if (onHandoff(false))
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "submission-expired",
+      );
+    return;
+  }
   if (!send.submit) {
     return deliverPendingPrefill(ref, send, isCurrent, onHandoff).catch(
       (error: unknown) => {
@@ -250,6 +263,9 @@ function deliverPendingSend(
     ...(send.requestMode ? { requestMode: send.requestMode } : {}),
     ...(send.attachments ? { attachments: send.attachments } : {}),
     ...(send.submitMessageId ? { submitMessageId: send.submitMessageId } : {}),
+    ...(send.submissionExpiresAt !== undefined
+      ? { submissionExpiresAt: send.submissionExpiresAt }
+      : {}),
     ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
     ...(send.actionScope ? { actionScope: send.actionScope } : {}),
     // An approval resume is a protocol continuation, not a visible prompt.
@@ -2259,6 +2275,23 @@ export function MultiTabAssistantChat({
     (onlyThreadId?: string, immediate?: boolean) => void
   >(
     (onlyThreadId, immediate = false) => {
+      for (const delivery of [...pendingDeliveries.current]) {
+        if (
+          delivery.send.submissionExpiresAt === undefined ||
+          delivery.send.submissionExpiresAt > Date.now()
+        ) {
+          continue;
+        }
+        pendingDeliveries.current = pendingDeliveries.current.filter(
+          (pending) => pending !== delivery,
+        );
+        reportAgentChatSubmitResult(
+          delivery.send.submitMessageId,
+          false,
+          "submission-expired",
+        );
+        cancelAgentChatSubmit(delivery.send.submitMessageId);
+      }
       const active = activeThreadIdRef.current;
       for (const delivery of pendingDeliveries.current) {
         if (delivery.threadId === null && active) delivery.threadId = active;
@@ -2285,6 +2318,21 @@ export function MultiTabAssistantChat({
           continue;
         }
         if (!chatRefs.current.has(threadId)) continue;
+        if (delivery.modelOverride) {
+          threadModelRef.current.set(threadId, delivery.modelOverride);
+          delete delivery.modelOverride;
+          bumpModelSelectionVersion();
+          // The tab's handle still holds the previous selection and send gate
+          // until it re-renders; the version bump re-runs this flush after that.
+          continue;
+        }
+        if (
+          delivery.send.submit &&
+          !hostManagedModels &&
+          modelListLoading &&
+          !resolveThreadModelSelection(threadId)
+        )
+          continue;
         const lane = { delivery, handedOff: false };
         deliveryLanes.current.set(threadId, lane);
         if (!delivery.targetReported) {
@@ -2298,10 +2346,6 @@ export function MultiTabAssistantChat({
           if (deliveryLanes.current.get(threadId) === lane)
             deliveryLanes.current.delete(threadId);
           continue;
-        }
-        if (delivery.modelOverride) {
-          threadModelRef.current.set(threadId, delivery.modelOverride);
-          bumpModelSelectionVersion();
         }
         const deliver = () => {
           if (deliveryLanes.current.get(threadId) !== lane) return;
@@ -2375,7 +2419,12 @@ export function MultiTabAssistantChat({
         else setTimeout(deliver, 50);
       }
     },
-    [bumpModelSelectionVersion],
+    [
+      bumpModelSelectionVersion,
+      hostManagedModels,
+      modelListLoading,
+      resolveThreadModelSelection,
+    ],
   );
 
   // Listen for builder.submitChat postMessages
@@ -2508,9 +2557,11 @@ export function MultiTabAssistantChat({
         ...(submitMessageId ? { submitMessageId } : {}),
         ...(usageLabel ? { usageLabel } : {}),
         ...(actionScope ? { actionScope } : {}),
+        ...(typeof parsed.submissionExpiresAt === "number"
+          ? { submissionExpiresAt: parsed.submissionExpiresAt }
+          : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
       };
-
       // Resolved once, up front, and carried with the send until a thread
       // exists to key it by. Applying it only when `model` matched
       // `availableModels` dropped every override that arrived before the

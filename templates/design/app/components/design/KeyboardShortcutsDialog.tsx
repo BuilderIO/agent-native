@@ -63,11 +63,16 @@ export function isEditorHotkeyBlockedByShortcutsDialog(event: KeyboardEvent) {
   );
 }
 
+export type KeyboardShortcutsInitialFocus = "search" | "nudge";
+
 interface KeyboardShortcutsDialogProps {
   open: boolean;
   onClose: () => void;
+  initialFocus?: KeyboardShortcutsInitialFocus;
   nudgeAmounts?: NudgeAmounts;
   onNudgeAmountsChange?: (next: NudgeAmounts) => void;
+  /** Shortcut ids to leave out because their tool is not available. */
+  unavailableShortcutIds?: readonly string[];
 }
 
 const ACCESSIBLE_KEY_NAME_BY_TOKEN: Record<string, string> = {
@@ -263,10 +268,12 @@ function KeyboardShortcutsBody({
   nudgeAmounts,
   onNudgeAmountsChange,
   searchRef,
+  unavailableShortcutIds,
 }: {
   nudgeAmounts: NudgeAmounts;
   onNudgeAmountsChange?: (next: NudgeAmounts) => void;
   searchRef: RefObject<HTMLInputElement | null>;
+  unavailableShortcutIds?: readonly string[];
 }) {
   const t = useT();
   const [query, setQuery] = useState("");
@@ -286,8 +293,9 @@ function KeyboardShortcutsBody({
           t(`designEditor.keyboardShortcuts.categories.${category}`),
         rowLabel: (labelKey) => t(labelKey),
         codeCommands,
+        unavailableIds: unavailableShortcutIds,
       }),
-    [applePlatform, codeCommands, query, t],
+    [applePlatform, codeCommands, query, t, unavailableShortcutIds],
   );
 
   const sectionTop = (category: string) => {
@@ -427,11 +435,14 @@ function KeyboardShortcutsBody({
 export function KeyboardShortcutsDialog({
   open,
   onClose,
+  initialFocus = "search",
   nudgeAmounts = DEFAULT_NUDGE_AMOUNTS,
   onNudgeAmountsChange,
+  unavailableShortcutIds,
 }: KeyboardShortcutsDialogProps) {
   const t = useT();
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
 
   return (
     <Dialog
@@ -441,12 +452,24 @@ export function KeyboardShortcutsDialog({
       }}
     >
       <DialogContent
+        ref={contentRef}
         {...{ [DIALOG_ATTRIBUTE]: "" }}
         hideClose
         aria-describedby={undefined}
         className="flex h-[min(640px,calc(100dvh-32px))] w-[calc(100vw-24px)] max-w-[760px] flex-col gap-0 overflow-hidden p-0"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
+          if (initialFocus === "nudge") {
+            const nudgeField =
+              contentRef.current?.querySelector<HTMLInputElement>(
+                '[data-nudge-amount="small"]',
+              );
+            if (nudgeField) {
+              nudgeField.focus();
+              nudgeField.select();
+              return;
+            }
+          }
           searchRef.current?.focus({ preventScroll: true });
         }}
         // The editor restores focus itself (handleCloseKeyboardShortcuts), so
@@ -473,6 +496,7 @@ export function KeyboardShortcutsDialog({
           nudgeAmounts={nudgeAmounts}
           onNudgeAmountsChange={onNudgeAmountsChange}
           searchRef={searchRef}
+          unavailableShortcutIds={unavailableShortcutIds}
         />
       </DialogContent>
     </Dialog>

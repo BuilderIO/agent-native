@@ -1,5 +1,7 @@
 // Runs preflight checks and exits 0 ready, 1 a check failed, 2 a check could
 // not run (credentials, network). Every check reports; none is skipped.
+import { ScriptError } from "./cli.ts";
+
 type Status = "ok" | "warn" | "fail" | "error";
 
 export interface Check {
@@ -19,9 +21,14 @@ export async function runDoctor(checks: Check[]): Promise<void> {
         detail: await check.run(),
       });
     } catch (error) {
+      // A check that could not run (exit code 2) is an error, not a failure.
+      const couldNotRun = error instanceof ScriptError && error.exitCode === 2;
       results.push({
         name: check.name,
-        status: check.onFail ?? "fail",
+        status:
+          couldNotRun && check.onFail !== "warn"
+            ? "error"
+            : (check.onFail ?? "fail"),
         detail: error instanceof Error ? error.message : String(error),
       });
     }

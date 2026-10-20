@@ -24,6 +24,7 @@ export function EditorTopBar({
   mode,
   onModeChange,
   modes = EDITOR_TOP_BAR_MODES.map((entry) => entry.mode),
+  leading,
   center,
   zoomControl,
   presence,
@@ -36,6 +37,8 @@ export function EditorTopBar({
   onModeChange: (mode: EditorMode) => void;
   /** Modes to offer, in `EDITOR_TOP_BAR_MODES` order. */
   modes?: readonly EditorMode[];
+  /** Mode-specific controls beside the mode switch (Interact's device and theme). */
+  leading?: ReactNode;
   /** Route / URL controls. Empty until a mode needs it. */
   center?: ReactNode;
   zoomControl?: ReactNode;
@@ -63,9 +66,9 @@ export function EditorTopBar({
           "--top-bar-inspector": `${inspectorWidth ?? 0}px`,
         } as CSSProperties
       }
-      className="absolute left-[var(--top-bar-left-narrow)] right-0 top-0 z-[60] grid h-12 grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] items-center gap-1 overflow-hidden border-b border-border bg-[var(--design-editor-panel-bg)] p-2 transition-[left] duration-150 ease-out motion-reduce:transition-none sm:gap-2 md:left-[var(--top-bar-left)]"
+      className="absolute left-[var(--top-bar-left-narrow)] right-0 top-0 z-[60] grid h-12 grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)] items-center gap-1 overflow-hidden overscroll-x-contain border-b border-border bg-[var(--design-editor-panel-bg)] p-2 transition-[left] duration-150 ease-out motion-reduce:transition-none max-sm:overflow-x-auto max-sm:[scrollbar-width:none] max-sm:[&::-webkit-scrollbar]:hidden sm:gap-2 md:left-[var(--top-bar-left)]"
     >
-      <div className="flex min-w-0 items-center">
+      <div className="flex min-w-0 items-center gap-2">
         {visibleModes.length > 0 ? (
           <div
             role="group"
@@ -95,6 +98,7 @@ export function EditorTopBar({
             })}
           </div>
         ) : null}
+        {leading}
       </div>
       <div
         data-design-top-bar-center

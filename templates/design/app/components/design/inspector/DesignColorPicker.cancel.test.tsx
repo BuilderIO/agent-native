@@ -56,13 +56,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function pointerEvent(type: string, clientX: number) {
+// The knob travels 8px inside each end of the track, so x = value + 8.
+function pointerEvent(type: string, value: number) {
   return new PointerEvent(type, {
     bubbles: true,
     cancelable: true,
     pointerId: 7,
     pointerType: "mouse",
-    clientX,
+    clientX: value + 8,
   });
 }
 
@@ -106,10 +107,10 @@ describe("DesignColorPicker active opacity gesture cancellation", () => {
           y: 0,
           left: 0,
           top: 0,
-          right: 100,
-          bottom: 14,
-          width: 100,
-          height: 14,
+          right: 116,
+          bottom: 16,
+          width: 116,
+          height: 16,
           toJSON: () => ({}),
         }) as DOMRect,
     });

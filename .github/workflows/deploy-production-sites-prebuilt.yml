@@ -139,7 +139,13 @@ jobs:
   beta-e2e:
     name: Beta E2E pre-flight
     if: ${{ inputs.beta_e2e }}
+    # GitHub checks nested permissions before the run starts, even when this job
+    # is skipped; beta-e2e.yml's report job needs actions: read.
+    permissions:
+      actions: read
+      contents: read
     uses: ./.github/workflows/beta-e2e.yml
+    # Duplicate job keys are rejected by the YAML parser.
     with:
       apps: all
       lane: public

@@ -1,6 +1,6 @@
 import { getDbExec, type DbExec } from "../../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../../db/request-pool-context.js";
+import { defineStore } from "../../db/store-registry.js";
 import type { Visibility } from "../../sharing/schema.js";
 import type {
   ResourceSuggestion,
@@ -10,9 +10,8 @@ import type {
   ResourceSuggestionProposal,
 } from "./types.js";
 
-let initialized: Promise<void> | undefined;
 export function __resetSuggestionTablesForTests(): void {
-  initialized = undefined;
+  reviewSuggestionsStore.reset();
 }
 const newId = () => globalThis.crypto.randomUUID();
 const encode = (value: unknown) =>
@@ -27,13 +26,12 @@ function decodeSuggestionIds(value: unknown): string[] {
   return ids;
 }
 
-export async function ensureSuggestionTables(
-  client = getDbExec(),
-): Promise<void> {
-  if (client !== getDbExec()) return;
-  if (!initialized)
-    initialized = retainRequestDbPoolScope(
-      (async () => {
+export const reviewSuggestionsStore = defineStore({
+  id: "review_suggestions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async (exec) => {
         const ddl = [
           `CREATE TABLE IF NOT EXISTS agent_review_suggestions (id TEXT PRIMARY KEY, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, adapter_kind TEXT NOT NULL, adapter_version INTEGER NOT NULL, thread_id TEXT NOT NULL, author_email TEXT, actor_kind TEXT NOT NULL, base_revision TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', summary TEXT NOT NULL, owner_email TEXT, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata_json TEXT)`,
           `CREATE TABLE IF NOT EXISTS agent_review_suggestion_operations (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, ordinal INTEGER NOT NULL, operation_kind TEXT NOT NULL, target_id TEXT, before_json TEXT, after_json TEXT, anchor_json TEXT, dependencies_json TEXT, schema_version INTEGER NOT NULL)`,
@@ -82,18 +80,23 @@ export async function ensureSuggestionTables(
             );
           }
         }
-        await client.execute(
+        await exec.execute(
           "CREATE INDEX IF NOT EXISTS idx_review_suggestions_resource ON agent_review_suggestions (resource_type, resource_id, created_at)",
         );
-        await client.execute(
+        await exec.execute(
           "CREATE INDEX IF NOT EXISTS idx_review_suggestion_operations ON agent_review_suggestion_operations (suggestion_id, ordinal)",
         );
-        await client.execute(
+        await exec.execute(
           "CREATE INDEX IF NOT EXISTS idx_review_suggestion_proposal_members ON agent_review_suggestions (proposal_id, created_at)",
         );
-      })(),
-    );
-  await initialized;
+      },
+    },
+  ],
+});
+
+export function ensureSuggestionTables(client = getDbExec()): Promise<void> {
+  if (client !== getDbExec()) return Promise.resolve();
+  return reviewSuggestionsStore.ready();
 }
 
 export interface SuggestionCreationReceipt {

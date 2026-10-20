@@ -2,6 +2,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(target_os = "windows")]
 use std::time::Duration;
+#[cfg(target_os = "macos")]
+use std::time::Duration as MacDuration;
 
 #[cfg(target_os = "macos")]
 use objc2_foundation::NSProcessInfo;
@@ -41,44 +43,60 @@ pub(crate) fn supports_disabled_background_throttling(os_major_version: isize) -
 // a platform bug with no public workaround. Everything up to macOS 14 works
 // correctly, and on 15.4+ the majority of capture apps still honour it.
 #[cfg(target_os = "macos")]
+fn apply_window_capture_excluded(window: &WebviewWindow, excluded: bool) -> Result<(), String> {
+    let label = window.label().to_string();
+    let ns_window_ptr = window
+        .ns_window()
+        .map_err(|err| format!("ns_window() failed: {err}"))?;
+    if ns_window_ptr.is_null() {
+        return Err("ns_window is null".to_string());
+    }
+    // 0 == NSWindowSharingNone, 1 == NSWindowSharingReadOnly (default).
+    // Pass as NSUInteger (usize) to match the Objective-C selector signature.
+    // SAFETY: callers run this on the main thread, as required by AppKit.
+    unsafe {
+        let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+        let sharing_type = if excluded { 0usize } else { 1usize };
+        let _: () = objc2::msg_send![&*obj, setSharingType: sharing_type];
+    }
+    let mode = if excluded {
+        "NSWindowSharingNone"
+    } else {
+        "NSWindowSharingReadOnly"
+    };
+    dlog!("[clips-tray] set_window_capture_excluded({label}): {mode} applied");
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn set_window_capture_excluded(window: &WebviewWindow, excluded: bool) {
     let win = window.clone();
     if let Err(err) = win.clone().run_on_main_thread(move || {
-        let label = win.label().to_string();
-        let ns_window_ptr = match win.ns_window() {
-            Ok(p) => p,
-            Err(err) => {
-                eprintln!(
-                    "[clips-tray] set_window_capture_excluded({label}): ns_window() failed: {err}"
-                );
-                return;
-            }
-        };
-        if ns_window_ptr.is_null() {
-            eprintln!("[clips-tray] set_window_capture_excluded({label}): ns_window is null");
-            return;
+        if let Err(err) = apply_window_capture_excluded(&win, excluded) {
+            eprintln!("[clips-tray] set_window_capture_excluded: {err}");
         }
-        // 0 == NSWindowSharingNone, 1 == NSWindowSharingReadOnly (default).
-        // Pass as NSUInteger (usize) to match the Objective-C selector
-        // signature.
-        // SAFETY: ns_window() returns a live NSWindow* owned by Tauri. We're
-        // guaranteed to be on the main thread here (run_on_main_thread), which
-        // is what AppKit's setSharingType: requires. The setter is idempotent
-        // and has no return value.
-        unsafe {
-            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
-            let sharing_type = if excluded { 0usize } else { 1usize };
-            let _: () = objc2::msg_send![&*obj, setSharingType: sharing_type];
-        }
-        let mode = if excluded {
-            "NSWindowSharingNone"
-        } else {
-            "NSWindowSharingReadOnly"
-        };
-        dlog!("[clips-tray] set_window_capture_excluded({label}): {mode} applied");
     }) {
         eprintln!("[clips-tray] set_window_capture_excluded: run_on_main_thread failed: {err}");
     }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn set_window_capture_excluded_and_wait(
+    window: &WebviewWindow,
+    excluded: bool,
+) -> Result<(), String> {
+    let win = window.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    win.clone()
+        .run_on_main_thread(move || {
+            let _ = sender.send(apply_window_capture_excluded(&win, excluded));
+        })
+        .map_err(|err| format!("run_on_main_thread failed: {err}"))?;
+
+    // ScreenCaptureKit snapshots window sharing state when it creates a stream.
+    receiver
+        .recv_timeout(MacDuration::from_secs(5))
+        .map_err(|err| format!("timed out applying capture sharing state: {err}"))?
 }
 
 #[cfg(target_os = "macos")]
@@ -144,8 +162,8 @@ pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri
         }
     };
     #[cfg(not(target_os = "macos"))]
-    let builder = builder
-        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+    let builder =
+        builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
     let builder = builder
         .title("Clips")
         .inner_size(
@@ -224,8 +242,7 @@ pub fn configure_overlay_behavior(window: &WebviewWindow) {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn configure_overlay_behavior(_window: &WebviewWindow) {
-}
+pub fn configure_overlay_behavior(_window: &WebviewWindow) {}
 
 #[cfg(target_os = "macos")]
 pub fn raise_to_status_level(window: &WebviewWindow) {
@@ -265,8 +282,7 @@ pub fn raise_to_status_level(window: &WebviewWindow) {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub fn raise_to_status_level(_window: &WebviewWindow) {
-}
+pub fn raise_to_status_level(_window: &WebviewWindow) {}
 
 #[cfg(any(target_os = "windows", test))]
 fn advance_topmost_generation(current_generation: &AtomicU64) -> u64 {
@@ -313,16 +329,13 @@ pub fn start_topmost_reassert_loop(
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn set_capture_excluded(_window: &WebviewWindow) {
-}
+pub fn set_capture_excluded(_window: &WebviewWindow) {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn set_capture_excluded_always(_window: &WebviewWindow) {
-}
+pub fn set_capture_excluded_always(_window: &WebviewWindow) {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn set_capture_included(_window: &WebviewWindow) {
-}
+pub fn set_capture_included(_window: &WebviewWindow) {}
 
 pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]

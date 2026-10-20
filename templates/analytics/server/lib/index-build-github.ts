@@ -69,6 +69,11 @@ async function readHeadCommit(
       }),
     );
   if (!result.response.ok) {
+    if (result.response.status === 404) {
+      throw new Error(
+        "GitHub could not find this repository or the current authorization cannot access it (HTTP 404). Verify the owner and repository name, and that the connected account has access.",
+      );
+    }
     throw new Error(
       `GitHub commit lookup failed with HTTP ${result.response.status}.`,
     );
@@ -122,10 +127,17 @@ async function fetchFilesInto(
 function withRevision(
   bundle: SourceIndexBundle,
   revision: string,
+  repository: DbtRepository,
 ): SourceIndexBundle {
   return parseSourceIndexBundle({
     ...bundle,
-    sources: bundle.sources.map((source) => ({ ...source, revision })),
+    sources: bundle.sources.map((source) => ({
+      ...source,
+      sourceKind: "dbt",
+      repositoryRef: `${repository.owner}/${repository.repo}`,
+      revision,
+      generatedAt: bundle.generatedAt,
+    })),
     entries: bundle.entries.map((entry) =>
       entry.sourceKind === "dbt"
         ? { ...entry, sourceRevision: revision }
@@ -174,7 +186,10 @@ export async function buildDbtSourceIndexFromGitHub(
         generatedAt: head.committedAt,
       }),
     );
-    return { bundle: withRevision(bundle, head.sha), revision: head.sha };
+    return {
+      bundle: withRevision(bundle, head.sha, repository),
+      revision: head.sha,
+    };
   } finally {
     await rm(parent, { recursive: true, force: true });
   }

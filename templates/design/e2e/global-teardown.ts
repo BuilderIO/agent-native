@@ -9,6 +9,7 @@ function runId(): string | undefined {
 export interface DesignE2eCleanupPaths {
   pgliteDir?: string;
   resultsDir?: string;
+  retryFailureMarker?: string;
 }
 
 export function designE2eRunRoot(
@@ -26,10 +27,15 @@ export function cleanupDesignE2eArtifacts(
   exitCode: number,
   remove: (path: string) => void = (target) =>
     rmSync(target, { force: true, recursive: true }),
+  exists: (path: string) => boolean = existsSync,
 ): void {
   if (exitCode !== 0) return;
-  for (const target of [paths.pgliteDir, paths.resultsDir]) {
-    if (target) remove(target);
+  if (paths.pgliteDir) remove(paths.pgliteDir);
+  if (
+    paths.resultsDir &&
+    !(paths.retryFailureMarker && exists(paths.retryFailureMarker))
+  ) {
+    remove(paths.resultsDir);
   }
 }
 
@@ -73,7 +79,14 @@ export default async function globalTeardown(): Promise<void> {
   rmSync(attachmentStorageTlsDir, { recursive: true, force: true });
   const cleanup = (exitCode: number) => {
     try {
-      cleanupDesignE2eArtifacts({ pgliteDir, resultsDir }, exitCode);
+      cleanupDesignE2eArtifacts(
+        {
+          pgliteDir,
+          resultsDir,
+          retryFailureMarker: path.join(resultsDir, "retry-failure.marker"),
+        },
+        exitCode,
+      );
     } catch (error) {
       console.error(
         `[e2e] could not clean run artifacts: ${error instanceof Error ? error.message : String(error)}`,

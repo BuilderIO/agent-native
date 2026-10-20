@@ -175,6 +175,7 @@ export function ShareRecordingPopover({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
         <JoinedShareControl
+          className="clips-share-control"
           trigger={<PopoverTrigger asChild>{children}</PopoverTrigger>}
           copyLabel={t("recordRoute.copyLinkAction")}
           copiedLabel={t("recordRoute.linkCopied")}

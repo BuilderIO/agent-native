@@ -158,6 +158,37 @@ describe("ShareDialog primitive normalization", () => {
     ).toContain("mt-10");
   });
 
+  it("draws the tab row as underline tabs that switch between link and embed", async () => {
+    await renderDialog(vi.fn(), {
+      shareUrl: "https://share.example.test/doc-1",
+      embedUrl: "https://embed.example.test/doc-1",
+    });
+
+    const list = document.body.querySelector('[role="tablist"]');
+    expect(list?.className).toContain("bg-transparent");
+    expect(list?.className).not.toContain("bg-muted");
+    const tabs = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="tab"]'),
+    );
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "share.link",
+      "share.embed",
+    ]);
+    for (const tab of tabs) expect(tab.className).toContain("after:h-0.5");
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).toContain("share.generalAccess");
+
+    act(() => {
+      tabs[1].dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+      );
+    });
+
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).toContain("share.embedUrl");
+    expect(document.body.textContent).not.toContain("share.generalAccess");
+  });
+
   it("keeps individual access on the primary link surface", async () => {
     await renderDialog(vi.fn(), {
       shareUrl: "https://share.example.test/doc-1",

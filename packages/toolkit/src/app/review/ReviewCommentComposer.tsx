@@ -21,6 +21,7 @@ import {
   IconSend,
 } from "@tabler/icons-react";
 import {
+  useEffect,
   useRef,
   useState,
   type ReactNode,
@@ -91,16 +92,37 @@ export function ReviewCommentComposer({
 }: ReviewCommentComposerProps) {
   const canSubmit = Boolean(value.trim()) && !disabled;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!autoFocus) return;
+    // A menu item that opens this composer (Edit, say) mounts it while the
+    // menu still traps focus, so keep trying for a few frames until it lands.
+    let attempts = 0;
+    let frame = 0;
+    const focusTextarea = () => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      if (document.activeElement !== textarea && ++attempts < 10)
+        frame = requestAnimationFrame(focusTextarea);
+    };
+    focusTextarea();
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus]);
   const [mentionSearch, setMentionSearch] = useState("");
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
   const [mentionTriggerIndex, setMentionTriggerIndex] = useState<number | null>(
     null,
   );
   const mentionTokenEndRef = useRef<number | null>(null);
-  const resetMention = () => {
+  const preserveMentionAnchorOnOpenRef = useRef(false);
+  const resetMentionSearch = () => {
     setMentionSearch("");
     setMentionTriggerIndex(null);
     mentionTokenEndRef.current = null;
+  };
+  const resetMention = () => {
+    resetMentionSearch();
     setMentionMenuOpen(false);
   };
   const filteredMentionOptions = mentionOptions.filter((mention) => {
@@ -192,8 +214,22 @@ export function ReviewCommentComposer({
         modal={false}
         open={mentionMenuOpen}
         onOpenChange={(open) => {
+          if (open) {
+            const preserveMentionAnchor =
+              preserveMentionAnchorOnOpenRef.current &&
+              mentionTriggerIndex !== null &&
+              value[mentionTriggerIndex] === "@" &&
+              mentionTokenEndRef.current !== null;
+            preserveMentionAnchorOnOpenRef.current = false;
+            if (!preserveMentionAnchor) {
+              setMentionSearch("");
+              setMentionTriggerIndex(null);
+              mentionTokenEndRef.current = null;
+            }
+          }
           setMentionMenuOpen(open);
           if (!open) {
+            preserveMentionAnchorOnOpenRef.current = false;
             setMentionSearch("");
             setMentionTriggerIndex(null);
             mentionTokenEndRef.current = null;
@@ -214,7 +250,7 @@ export function ReviewCommentComposer({
             aria-label={mentionLabel}
             tabIndex={showCommentTools ? undefined : -1}
             onClick={() => {
-              resetMention();
+              resetMentionSearch();
             }}
           >
             <IconAt className="size-4" />
@@ -291,7 +327,6 @@ export function ReviewCommentComposer({
       <Textarea
         {...textareaProps}
         ref={textareaRef}
-        autoFocus={autoFocus}
         value={value}
         disabled={disabled}
         onChange={(event) => {
@@ -382,6 +417,7 @@ export function ReviewCommentComposer({
             setMentionTriggerIndex(triggerIndex);
             mentionTokenEndRef.current = triggerIndex + 1;
             setMentionSearch("");
+            preserveMentionAnchorOnOpenRef.current = true;
             setMentionMenuOpen(true);
             requestAnimationFrame(() => {
               const textarea = textareaRef.current;
@@ -401,7 +437,7 @@ export function ReviewCommentComposer({
       mentionMenuOpen ||
       showCommentAction ||
       showAgentAction ? (
-        <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @2xs/review:flex-row @2xs/review:items-center">
+        <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @xs/review:flex-row @xs/review:items-center">
           {showCommentTools ||
           commentToolsEnd ||
           mentionMenuOpen ||
@@ -411,7 +447,7 @@ export function ReviewCommentComposer({
                 showCommentTools || commentToolsEnd ? "" : undefined
               }
               className={cn(
-                "flex min-w-0 items-center gap-0.5 @2xs/review:me-auto",
+                "flex min-w-0 items-center gap-0.5 @xs/review:me-auto",
                 !showCommentTools && !commentToolsEnd && "contents",
               )}
             >
@@ -455,13 +491,13 @@ export function ReviewCommentComposer({
             </div>
           ) : null}
           {showCommentAction || showAgentAction ? (
-            <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 @2xs/review:flex-row @2xs/review:justify-end">
+            <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 @xs/review:flex-row @xs/review:justify-end">
               {showCommentAction ? (
                 <Button
                   type="submit"
                   size="sm"
                   disabled={!canSubmit}
-                  className="h-8 w-full gap-1.5 @2xs/review:w-auto @2xs/review:min-w-28 @2xs/review:shrink-0"
+                  className="h-8 w-full gap-1.5 @xs/review:w-auto @xs/review:min-w-28 @xs/review:shrink-0"
                 >
                   {submittingTarget === "human" ? (
                     <Spinner className="size-3.5" />
@@ -479,7 +515,7 @@ export function ReviewCommentComposer({
                   size="sm"
                   variant="outline"
                   disabled={!canSubmit}
-                  className="h-8 w-full min-w-0 gap-1.5 @2xs/review:w-auto"
+                  className="h-8 w-full min-w-0 gap-1.5 @xs/review:w-auto"
                   onClick={() => submit("agent")}
                 >
                   {submittingTarget === "agent" ? (

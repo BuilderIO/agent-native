@@ -122,7 +122,7 @@ describe("document page background inspector", () => {
 
     openBackgroundPicker();
     const linear = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Linear"]',
+      'button[aria-label="Gradient"]',
     );
     expect(linear).not.toBeNull();
     act(() => linear!.click());

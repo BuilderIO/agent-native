@@ -10,6 +10,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 
+const setupMocks = vi.hoisted(() => ({
+  connectFlow: null as null | {
+    connecting: boolean;
+    start: (options: { provisionAccount: boolean }) => void;
+    cancel?: () => void;
+  },
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     (
@@ -19,6 +27,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "Use Builder.io (free) or configure your own S3-compatible object storage.",
         "onboarding.fileStorage.custom": "Use custom keys",
         "composer.connectBuilder": "Connect Builder.io",
+        "common.cancel": "Cancel",
       }) as Record<string, string>
     )[key] ?? key,
 }));
@@ -56,9 +65,20 @@ vi.mock("@tabler/icons-react", () => ({ IconCloudUpload: () => null }));
 vi.mock("../settings/deferred-builder-connect-popover.js", () => ({
   DeferredBuilderConnectPopover: ({
     children,
+    flow,
   }: {
     children: React.ReactNode;
-  }) => children,
+    flow: { cancel?: () => void; connecting: boolean };
+  }) => (
+    <div>
+      {children}
+      {flow.connecting ? (
+        <button type="button" onClick={flow.cancel}>
+          Cancel
+        </button>
+      ) : null}
+    </div>
+  ),
 }));
 
 vi.mock("../setup-connections/BuilderConnectCard.js", () => ({
@@ -66,11 +86,19 @@ vi.mock("../setup-connections/BuilderConnectCard.js", () => ({
     render,
   }: {
     render: (context: {
-      viewModel: { connectFlow: null; pending: false; error: null };
+      viewModel: {
+        connectFlow: typeof setupMocks.connectFlow;
+        pending: false;
+        error: null;
+      };
     }) => React.ReactNode;
   }) =>
     render({
-      viewModel: { connectFlow: null, pending: false, error: null },
+      viewModel: {
+        connectFlow: setupMocks.connectFlow,
+        pending: false,
+        error: null,
+      },
     }),
 }));
 
@@ -80,6 +108,7 @@ describe("FileStorageSetupPopover", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    setupMocks.connectFlow = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -122,8 +151,40 @@ describe("FileStorageSetupPopover", () => {
     expect(container.querySelector("h2")?.parentElement?.className).toBe(
       "grid gap-1",
     );
-    expect(container.querySelector("button")?.parentElement?.className).toBe(
-      "flex gap-2",
+    const choices = container.querySelector("button")?.parentElement;
+    expect(choices?.className).toBe("grid grid-cols-2 gap-2");
+    expect(choices?.querySelectorAll("button")).toHaveLength(2);
+    for (const button of choices?.querySelectorAll("button") ?? []) {
+      expect(button.className).toContain("whitespace-normal");
+    }
+  });
+
+  it("closes the storage popover immediately when Builder setup is canceled", () => {
+    const cancel = vi.fn();
+    setupMocks.connectFlow = {
+      connecting: true,
+      start: vi.fn(),
+      cancel,
+    };
+    const onOpenChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <FileStorageSetupPopover
+          open
+          onOpenChange={onOpenChange}
+          status="missing"
+        />,
+      );
+    });
+
+    const cancelButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Cancel",
     );
+    expect(cancelButton).toBeDefined();
+    act(() => cancelButton?.click());
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(false, "dismiss");
   });
 });

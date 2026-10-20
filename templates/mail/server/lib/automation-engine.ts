@@ -40,6 +40,7 @@ import {
   type AiPriorityEmail,
 } from "@shared/ai-priority.js";
 import { mailLabelsInclude } from "@shared/gmail-labels.js";
+import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
 import type { AutomationAction } from "@shared/types.js";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -899,7 +900,7 @@ async function fetchNewInboxMessages(
       from: getHeader("From"),
       to: getHeader("To"),
       subject: getHeader("Subject"),
-      snippet: msg.snippet || "",
+      snippet: decodeGmailSnippet(msg.snippet || ""),
       labelIds: msg.labelIds || [],
       date: getHeader("Date"),
       ...(Number.isFinite(Number(msg.internalDate))

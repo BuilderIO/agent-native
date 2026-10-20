@@ -41,4 +41,24 @@ describe("provider API staging errors", () => {
       });
     },
   );
+
+  it("gives no delete-older guidance when one dataset alone exceeds the cap", async () => {
+    const originalError = new Error(
+      "Staged dataset byte cap exceeded: this dataset alone is 60.0 MB (limit 50 MB per app, shared by all datasets). Stage fewer rows or columns.",
+    );
+    stagingExecuteRequest.mockRejectedValue(originalError);
+    const action = createProviderApiRequestAction(
+      { executeRequest: vi.fn() },
+      { appId: "analytics", getOwnerEmail: () => "ada@example.com" },
+    );
+
+    await expect(
+      action.run({
+        provider: "gong",
+        method: "POST",
+        path: "/calls/extensive",
+        stageAs: "gong_calls",
+      }),
+    ).rejects.toBe(originalError);
+  });
 });

@@ -242,7 +242,10 @@ Par défaut, chaque espace de travail peut joindre les applications propriétair
     "workspaceCore": "@my-company-platform/shared",
     "builtinAgents": {
       "mode": "selected",
-      "include": ["mail", "calendar"]
+      "include": ["mail", "calendar", "design"],
+      "urls": {
+        "design": "https://design.example.test"
+      }
     }
   }
 }
@@ -250,10 +253,11 @@ Par défaut, chaque espace de travail peut joindre les applications propriétair
 
 - `mode` : `"all"` (par défaut, toutes les applications propriétaires publiques), `"none"` (aucune) ou `"selected"` (uniquement `include`).
 - `include` : les applications intégrées proposées par cet espace de travail lorsque `mode` vaut `"selected"`. Les autres restent inconnues de l’espace de travail.
+- `urls` (facultatif) : associe des URL de base HTTPS aux applications intégrées proposées sans changer les agents proposés. Cette association remplace l’URL hébergée canonique, y compris dans un manifeste existant qui utilise encore cette valeur par défaut, tandis que les URL personnalisées des agents distants connectés et les superpositions d’applications du workspace restent prioritaires. Les identifiants inconnus et les URL invalides font échouer l’analyse. Chaque valeur doit être une URL HTTPS absolue, sans espaces superflus, identifiants, requête ni fragment. Le routage de développement local reste prioritaire et utilise des URL locales.
 
-Les identifiants inconnus génèrent un avertissement et sont ignorés. Une application autonome peut utiliser la même clé dans son propre `package.json`. `agent-native dev` et les déploiements d’espace de travail transmettent la valeur à chaque application via `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
+Les identifiants inconnus dans `include` génèrent un avertissement et sont ignorés. Une application autonome peut utiliser la même clé dans son propre `package.json`. `agent-native dev` et les déploiements d’espace de travail transmettent la valeur à chaque application via `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
 
-Cette configuration contrôle la liste des applications, la découverte des agents et les appels entre agents. Les applications montées dans le workspace et les agents distants connectés ne sont pas concernés, et l’accès des applications MCP reste une autorisation de routage distincte.
+Cette configuration contrôle la liste des applications, la découverte des agents et les appels entre agents. Les applications montées dans le workspace et les URL personnalisées des agents distants connectés restent prioritaires. L’accès des applications MCP reste une autorisation de routage distincte.
 
 ## Serveurs MCP partagés {#shared-mcp}
 

@@ -75,6 +75,7 @@ describe("DesignEditor Space source handler", () => {
       target?: "layer-row";
     }>,
     canEditDesign = true,
+    interact = false,
   ) {
     return page.evaluate(
       ({
@@ -82,6 +83,7 @@ describe("DesignEditor Space source handler", () => {
         helperSource,
         events,
         canEditDesign,
+        interact,
       }: {
         handlerSource: string;
         helperSource: string;
@@ -92,8 +94,10 @@ describe("DesignEditor Space source handler", () => {
           target?: "layer-row";
         }>;
         canEditDesign: boolean;
+        interact: boolean;
       }) => {
         const spaceForwardArmedRef = { current: false };
+        const interactOwnsSpaceRef = { current: interact };
         const activeEditorDragRef = { current: false };
         const canEditDesignRef = { current: canEditDesign };
         const spacePanStashedToolRef: { current: string | null } = {
@@ -130,6 +134,7 @@ describe("DesignEditor Space source handler", () => {
           "window",
           "resolveSpaceForwardTransition",
           "spaceForwardArmedRef",
+          "interactOwnsSpaceRef",
           "activeEditorDragRef",
           "canEditDesignRef",
           "spacePanStashedToolRef",
@@ -145,6 +150,7 @@ describe("DesignEditor Space source handler", () => {
           window,
           resolveSpaceForwardTransition,
           spaceForwardArmedRef,
+          interactOwnsSpaceRef,
           activeEditorDragRef,
           canEditDesignRef,
           spacePanStashedToolRef,
@@ -201,9 +207,30 @@ describe("DesignEditor Space source handler", () => {
         helperSource: transitionHelper.toString(),
         events,
         canEditDesign,
+        interact,
       },
     );
   }
+
+  it("leaves Space to the page in Interact: no Hand tool, no pan, no cancelled key", async () => {
+    const result = await run(
+      [{ type: "keydown" }, { type: "keyup" }],
+      true,
+      true,
+    );
+    expect(result.prevented).toEqual([false, false]);
+    expect(result.activeTool).toBe("move");
+    expect(result.stashedTool).toBeNull();
+    expect(result.spacePanActive).toBe(false);
+    expect(result.broadcasts).toEqual([]);
+  });
+
+  it("still pans on Space outside Interact", async () => {
+    const result = await run([{ type: "keydown" }], false);
+    expect(result.prevented).toEqual([true]);
+    expect(result.activeTool).toBe("hand");
+    expect(result.spacePanActive).toBe(true);
+  });
 
   it("keeps a forwarded hold through mouseup and a duplicate nonrepeat keydown", async () => {
     const result = await run([

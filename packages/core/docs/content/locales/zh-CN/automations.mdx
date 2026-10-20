@@ -229,13 +229,25 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ### 参数 {#web-request-params}
 
-| 参数         | 类型   | 默认  | 描述                                               |
-| ------------ | ------ | ----- | -------------------------------------------------- |
-| `url`        | 字符串 | —     | 完整的URL。可能包含 `${keys.NAME}` 引用。          |
-| `method`     | 字符串 | `GET` | HTTP 方法（GET、POST、PUT、PATCH、DELETE、HEAD）。 |
-| `headers`    | 字符串 | `{}`  | JSON 标头对象。可能包含 `${keys.NAME}`。           |
-| `body`       | 字符串 | —     | 请求正文。可能包含 `${keys.NAME}`。                |
-| `timeout_ms` | 数字   | 15000 | 超时（以毫秒为单位）（最大 30000）。               |
+| 参数           | 类型   | 默认          | 描述                                                                                                                                                          |
+| -------------- | ------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`          | 字符串 | —             | 完整的URL。可能包含 `${keys.NAME}` 引用。                                                                                                                     |
+| `method`       | 字符串 | `GET`         | HTTP 方法（GET、POST、PUT、PATCH、DELETE、HEAD）。                                                                                                            |
+| `headers`      | 字符串 | `{}`          | JSON 标头对象。可能包含 `${keys.NAME}`。                                                                                                                      |
+| `body`         | 字符串 | —             | 请求正文。可能包含 `${keys.NAME}`。                                                                                                                           |
+| `timeout_ms`   | 数字   | 15000         | 超时（以毫秒为单位）（最大 30000）。                                                                                                                          |
+| `maxChars`     | 数字   | 32000         | 返回到代理上下文中的响应正文字符上限，最大 200000。此限制针对正文字符，而非完整格式化的工具响应，因此可选元数据和链接可能增加字符数。此限制不影响保存的文件。 |
+| `responseMode` | 字符串 | `auto`        | 响应返回方式：`auto`（HTML 转为 Markdown，JSON/文本保持 raw）、`raw`、`text`、`markdown`、`links`、`metadata`，或与 `search` 搭配的 `matches`。               |
+| `extract`      | 字符串 | `readability` | HTML 提取策略：`readability`、`all-visible`（正文中所有可见文本）或 `none`（完整文档）。                                                                      |
+| `includeLinks` | 布尔值 | 视情况而定    | 是否在提取的 HTML 响应中包含精简的链接列表。内联响应默认是 `true`，使用 `saveToFile` 时默认是 `false`。                                                       |
+| `search`       | 对象   | —             | 获取后对提取内容执行的可选搜索：`{ query, queries, terms, regex, regexFlags, source, maxMatches, contextChars, caseSensitive }`。                             |
+| `saveToFile`   | 字符串 | —             | 用于保存完整响应的工作区文件路径，最大 20 MiB。搭配 `search` 时返回 `maxChars` 范围内的全部匹配项，否则返回 2000 字符预览。                                   |
+
+默认情况下，`maxChars` 只限制返回到代理上下文中的响应正文字符。它不限制完整格式化的工具响应，因此可选元数据和链接可能增加字符数。内联响应上限为 1 MiB，但提取模式下的 HTML 或 XHTML 响应可达 20 MiB。Raw HTML 和其他内联响应仍受 1 MiB 上限限制。
+
+`saveToFile` 可保存最大 20 MiB 的响应。使用非 `raw` 的 `responseMode` 保存 HTML 或 XHTML 时，文件内容为提取出的 Markdown 或文本。Raw 模式和非 HTML 响应会在不进行 HTML 提取的情况下，保存为解码后的响应正文文本。搭配 `search` 使用 `saveToFile` 时，工具会返回 `maxChars` 范围内的全部搜索匹配项。不使用 `search` 时会返回 2000 字符预览。`searchResultsTruncated` 表示格式化结果被 `maxChars` 截断。`searchSourceTruncated` 表示只扫描了所选搜索源的前 500,000 个字符。
+
+超出上限时，错误会说明检测到的大小、适用上限和恢复方法。对于不超过 20 MiB 的响应，请使用 `saveToFile`；如果响应更大，请请求较小的结果。
 
 ## 按键 {#keys}
 

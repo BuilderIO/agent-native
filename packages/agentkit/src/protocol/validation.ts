@@ -44,6 +44,7 @@ import {
   type AgentRequestContext,
   type AgentProtocolVersionOffer,
   type AgentRequestAttachment,
+  type AgentSubmissionPayload,
   type AgentQueuedMessage,
   type AgentReplayCheckpoint,
   type RunId,
@@ -90,6 +91,7 @@ export class AgentProtocolValidationError extends Error {
 export const MAX_AGENT_REQUEST_ATTACHMENTS = 20;
 export const MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS = 6_000_000;
 const MAX_AGENT_REQUEST_ATTACHMENT_DATA_URL_CHARS = 3_000_000;
+const MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE = 256;
 
 function record(value: unknown, path: string): UnknownRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -679,6 +681,9 @@ export function parseAgentQueuedMessage(
   optionalMetadata(message.metadata, `${path}.metadata`);
   if (message.options !== undefined) {
     parseAgentRunOptions(message.options, `${path}.options`);
+  }
+  if (message.interruptActiveRun !== undefined) {
+    boolean(message.interruptActiveRun, `${path}.interruptActiveRun`);
   }
   return value as AgentQueuedMessage;
 }
@@ -1423,6 +1428,10 @@ export function parseAgentThreadSnapshot(
           `must be contiguous within each run; expected ${expectedSequence}`,
         );
       }
+      const sequenceEnd = agentEventSequenceEnd(
+        parsed,
+        `${path}.events[${index}]`,
+      );
       if (eventIds.has(parsed.id)) {
         throw new AgentProtocolValidationError(
           `${path}.events[${index}].id`,
@@ -1430,7 +1439,7 @@ export function parseAgentThreadSnapshot(
         );
       }
       eventIds.add(parsed.id);
-      lastSequenceByRun.set(parsed.runId, parsed.sequence);
+      lastSequenceByRun.set(parsed.runId, sequenceEnd);
     });
   }
   const runIds = new Set<string>();
@@ -1717,6 +1726,22 @@ export function parseQueueMessageResult(
 ): QueueMessageResult {
   const result = record(value, path);
   parseAgentQueuedMessage(result.message, `${path}.message`);
+  if (result.alreadySubmitted === true) {
+    string(result.submittedRunId, `${path}.submittedRunId`);
+  } else if (
+    result.alreadySubmitted !== undefined &&
+    result.alreadySubmitted !== false
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.alreadySubmitted`,
+      "must be true when provided",
+    );
+  } else if (result.submittedRunId !== undefined) {
+    throw new AgentProtocolValidationError(
+      `${path}.submittedRunId`,
+      "requires alreadySubmitted to be true",
+    );
+  }
   return value as QueueMessageResult;
 }
 
@@ -2177,6 +2202,31 @@ export function parseAgentEvent(value: unknown, path = "event"): AgentEvent {
   return value as AgentEvent;
 }
 
+export function agentEventSequenceEnd(
+  event: AgentEvent,
+  path = "event",
+): number {
+  if (event.type !== "x-agent-native.persisted-event-omission-range") {
+    return event.sequence;
+  }
+  const payload = record(event.payload, `${path}.payload`);
+  const sequenceEnd = nonNegativeSafeInteger(
+    payload.lastSequence,
+    `${path}.payload.lastSequence`,
+  );
+  if (
+    sequenceEnd < event.sequence ||
+    sequenceEnd - event.sequence >=
+      MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.payload.lastSequence`,
+      `must cover at most ${MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE} event sequences`,
+    );
+  }
+  return sequenceEnd;
+}
+
 export interface ParseAgentEventSequenceOptions {
   afterSequence?: number;
   threadId?: ThreadId;
@@ -2624,6 +2674,100 @@ export function parseAgentRunOptions(
   return value as AgentRunOptions;
 }
 
+function parseAgentSubmissionPayload(
+  value: unknown,
+  path: string,
+): AgentSubmissionPayload {
+  const submission = record(value, path);
+  knownKeys(
+    submission,
+    [
+      "threadId",
+      "id",
+      "text",
+      "attachments",
+      "requestAttachments",
+      "metadata",
+      "options",
+      "interruptActiveRun",
+    ],
+    path,
+  );
+  parseThreadIdInput(submission, path);
+  string(submission.id, `${path}.id`);
+  if (typeof submission.text !== "string") {
+    throw new AgentProtocolValidationError(`${path}.text`, "expected a string");
+  }
+  if (submission.attachments !== undefined) {
+    array(submission.attachments, `${path}.attachments`).forEach(
+      (attachment, index) => {
+        const attachmentPath = `${path}.attachments[${index}]`;
+        const item = record(attachment, attachmentPath);
+        knownKeys(
+          item,
+          ["type", "name", "mediaType", "fingerprint"],
+          attachmentPath,
+        );
+        if (item.type !== "file") {
+          throw new AgentProtocolValidationError(
+            `${attachmentPath}.type`,
+            "expected file",
+          );
+        }
+        string(item.name, `${attachmentPath}.name`);
+        optionalString(item.mediaType, `${attachmentPath}.mediaType`);
+        if (
+          typeof item.fingerprint !== "string" ||
+          !/^[a-f0-9]{64}$/.test(item.fingerprint)
+        ) {
+          throw new AgentProtocolValidationError(
+            `${attachmentPath}.fingerprint`,
+            "expected a lowercase SHA-256 fingerprint",
+          );
+        }
+      },
+    );
+  }
+  if (submission.requestAttachments !== undefined) {
+    array(submission.requestAttachments, `${path}.requestAttachments`).forEach(
+      (attachment, index) => {
+        const attachmentPath = `${path}.requestAttachments[${index}]`;
+        const item = record(attachment, attachmentPath);
+        knownKeys(
+          item,
+          ["type", "name", "contentType", "fingerprint"],
+          attachmentPath,
+        );
+        if (item.type !== "image") {
+          throw new AgentProtocolValidationError(
+            `${attachmentPath}.type`,
+            "expected image",
+          );
+        }
+        string(item.name, `${attachmentPath}.name`);
+        optionalString(item.contentType, `${attachmentPath}.contentType`);
+        if (
+          typeof item.fingerprint !== "string" ||
+          !/^[a-f0-9]{64}$/.test(item.fingerprint)
+        ) {
+          throw new AgentProtocolValidationError(
+            `${attachmentPath}.fingerprint`,
+            "expected a lowercase SHA-256 fingerprint",
+          );
+        }
+      },
+    );
+  }
+  optionalMetadata(submission.metadata, `${path}.metadata`);
+  if (submission.options !== undefined) {
+    parseAgentRunOptions(submission.options, `${path}.options`);
+  }
+  if (submission.interruptActiveRun !== undefined) {
+    boolean(submission.interruptActiveRun, `${path}.interruptActiveRun`);
+  }
+  return value as AgentSubmissionPayload;
+}
+
 export function parseStartRunInput(
   value: unknown,
   path = "startRun",
@@ -2647,6 +2791,18 @@ export function parseStartRunInput(
     parseAgentResumeEntries(input.resume, `${path}.resume`);
   }
   optionalMetadata(input.metadata, `${path}.metadata`);
+  if (input.submissionPayload !== undefined) {
+    const submission = parseAgentSubmissionPayload(
+      input.submissionPayload,
+      `${path}.submissionPayload`,
+    );
+    if (submission.threadId !== input.threadId) {
+      throw new AgentProtocolValidationError(
+        `${path}.submissionPayload.threadId`,
+        "must match startRun.threadId",
+      );
+    }
+  }
   return value as StartRunInput;
 }
 
@@ -2849,6 +3005,25 @@ export function parseQueueMessageInput(
   optionalMetadata(input.metadata, `${path}.metadata`);
   if (input.options !== undefined) {
     parseAgentRunOptions(input.options, `${path}.options`);
+  }
+  if (input.interruptActiveRun !== undefined) {
+    boolean(input.interruptActiveRun, `${path}.interruptActiveRun`);
+  }
+  if (input.submissionPayload !== undefined) {
+    const submission = parseAgentSubmissionPayload(
+      input.submissionPayload,
+      `${path}.submissionPayload`,
+    );
+    if (
+      submission.threadId !== input.threadId ||
+      submission.text !== input.text ||
+      (input.id !== undefined && submission.id !== input.id)
+    ) {
+      throw new AgentProtocolValidationError(
+        `${path}.submissionPayload`,
+        "threadId, id, and text must match queueMessage",
+      );
+    }
   }
   return value as QueueMessageInput;
 }

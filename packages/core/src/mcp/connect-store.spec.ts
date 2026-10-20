@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+
 interface TokenRow {
   id: string;
   jti: string;
@@ -14,6 +16,8 @@ interface TokenRow {
   revoked_at: number | null;
 }
 interface DeviceRow {
+  client: string | null;
+  purpose: string | null;
   device_code: string;
   user_code: string;
   owner_email: string | null;
@@ -39,6 +43,8 @@ const executeDdlMock = vi.hoisted(() => vi.fn());
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   const sql = (typeof input === "string" ? input : input.sql).trim();
   const args = (typeof input === "string" ? [] : (input.args ?? [])) as any[];
+  const ledger = storeLedgerResult(sql);
+  if (ledger) return ledger;
 
   if (/^CREATE TABLE/i.test(sql)) {
     if (failNextCreateTable) {
@@ -184,6 +190,8 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       created_at: args[7],
       expires_at: args[8],
       consumed_at: args[9],
+      client: args[10],
+      purpose: args[11],
     });
     return { rows: [], rowsAffected: 1 };
   }
@@ -671,6 +679,30 @@ describe("connect-store", () => {
   });
 
   describe("device-code lifecycle", () => {
+    it("persists client attribution and credential-only purpose through device consumption", async () => {
+      const created = await store.createDeviceCode(null, {
+        client: "claude,cursor",
+        purpose: "credential",
+      });
+      await store.approveDeviceCode(
+        created.userCode,
+        "person@example.com",
+        null,
+      );
+      const consumed = await store.consumeDeviceCode(
+        created.deviceCode,
+        "test-jti",
+      );
+      expect(consumed).toMatchObject({
+        client: "claude,cursor",
+        purpose: "credential",
+      });
+      expect(await store.getDeviceCode(created.deviceCode)).toMatchObject({
+        client: "claude,cursor",
+        purpose: "credential",
+        status: "consumed",
+      });
+    });
     describe.each(["approve", "consume", "claim", "finish"] as const)(
       "%s mutation result",
       (operation) => {

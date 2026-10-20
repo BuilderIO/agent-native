@@ -49,12 +49,12 @@ import {
   UNRECLAIMED_URLS_KEY,
   unreclaimedUrls,
 } from "../server/lib/screenshot-edits.js";
-import { STORAGE_SETUP_REQUIRED_REASON } from "../server/lib/video-storage.js";
 import { redactedTitle } from "./burn-recording-redactions.js";
 import {
   decodeScreenshotDataUrl,
   MAX_SCREENSHOT_BYTES,
 } from "./lib/screenshot-image.js";
+import { failStorageSetupRequired } from "./lib/storage-setup-error.js";
 
 const redactionRect = z.object({
   x: z.coerce.number().int().min(0),
@@ -360,7 +360,7 @@ export default defineAction({
       recordAsset: false,
     });
     if (!uploaded?.url) {
-      throw new Error(STORAGE_SETUP_REQUIRED_REASON);
+      failStorageSetupRequired();
     }
 
     // The base is only re-uploaded when a blur was added, because that is the
@@ -380,7 +380,7 @@ export default defineAction({
         recordAsset: false,
       });
       if (!uploadedBase?.url) {
-        throw new Error(STORAGE_SETUP_REQUIRED_REASON);
+        failStorageSetupRequired();
       }
       previousBaseUrl = existing.baseImageUrl ?? previousUrl;
       baseUrl = uploadedBase.url;

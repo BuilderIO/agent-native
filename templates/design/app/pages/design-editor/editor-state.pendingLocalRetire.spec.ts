@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldRetirePendingLocalFileContent } from "./editor-state";
+import {
+  createPendingLocalFileContent,
+  shouldRetirePendingLocalFileContent,
+} from "./editor-state";
 
 /**
  * Board primitive vanishing until reload (draw-then-drag was impossible).
@@ -63,5 +66,61 @@ describe("shouldRetirePendingLocalFileContent", () => {
         updatedAt: "T1",
       }),
     ).toBe(false);
+  });
+});
+
+describe("deferred collaboration reconciliation", () => {
+  const file = { content: "<main>base</main>", updatedAt: "T1" };
+
+  it("clears deferral when an ordinary local edit supersedes an upload", () => {
+    const deferred = createPendingLocalFileContent({
+      file,
+      content: "<main>uploaded</main>",
+      deferCollabReconcile: true,
+    });
+    const ordinary = createPendingLocalFileContent({
+      current: deferred,
+      file,
+      content: "<main>ordinary edit</main>",
+    });
+
+    expect(deferred.deferCollabReconcile).toBe(true);
+    expect(ordinary.deferCollabReconcile).toBeUndefined();
+  });
+
+  it("marks a new uploaded image save as deferred after an ordinary edit", () => {
+    const ordinary = createPendingLocalFileContent({
+      file,
+      content: "<main>ordinary edit</main>",
+    });
+    const deferred = createPendingLocalFileContent({
+      current: ordinary,
+      file,
+      content: "<main>uploaded</main>",
+      deferCollabReconcile: true,
+    });
+
+    expect(deferred.deferCollabReconcile).toBe(true);
+  });
+
+  it("retires a deferred upload only after accepted server content advances", () => {
+    const deferred = createPendingLocalFileContent({
+      file,
+      content: "<main>uploaded</main>",
+      deferCollabReconcile: true,
+    });
+
+    expect(
+      shouldRetirePendingLocalFileContent(deferred, {
+        content: "<main>uploaded</main>",
+        updatedAt: "T1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetirePendingLocalFileContent(deferred, {
+        content: "<main>uploaded</main>",
+        updatedAt: "T2",
+      }),
+    ).toBe(true);
   });
 });

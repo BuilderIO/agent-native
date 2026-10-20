@@ -61,7 +61,6 @@ function makeArgs(overrides: {
     activeBreakpointWidthStateRef: { current: undefined },
     applyFileContentUpdate: vi.fn(),
     clearPendingOverviewLayerSelectionTimer: vi.fn(),
-    focusDesignInspectorForSelection: vi.fn(),
     getCodeLayerProjectionForScreen: () =>
       ({ nodes: overrides.nodes }) as unknown as CodeLayerProjection,
     getScreenContent: () => "",

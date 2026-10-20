@@ -90,6 +90,28 @@ interface PendingScrubTextCommit {
   baseline: string;
 }
 
+const activeScrubCancelCallbacks = new Set<() => void>();
+const mountedScrubInputs = new Set<() => ScrubInputDisplay>();
+
+export interface ScrubInputDisplay {
+  label: string;
+  shown: string;
+}
+
+/** What each mounted scrub input is showing right now. */
+export function readVisualScrubInputs(): ScrubInputDisplay[] {
+  return [...mountedScrubInputs].map((read) => read());
+}
+
+export function cancelActiveScrubInputs() {
+  for (const cancel of [...activeScrubCancelCallbacks]) cancel();
+}
+
+function registerActiveScrubInput(cancel: () => void) {
+  activeScrubCancelCallbacks.add(cancel);
+  return () => activeScrubCancelCallbacks.delete(cancel);
+}
+
 export function resolvePendingScrubCommit(
   pending: PendingScrubCommit | null,
   incomingValue: number,
@@ -158,7 +180,25 @@ export function VisualScrubInput({
   const pendingCommitRef = useRef<PendingScrubCommit | null>(null);
   const pendingTextCommitRef = useRef<PendingScrubTextCommit | null>(null);
   const rawDraftChangedRef = useRef(false);
+  const unregisterActiveScrubRef = useRef<(() => void) | null>(null);
+  const cancelActiveScrubRef = useRef<() => void>(() => {});
   const options = { unit, min, max, precision };
+
+  useEffect(
+    () => () => {
+      unregisterActiveScrubRef.current?.();
+      unregisterActiveScrubRef.current = null;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const read = () => ({ label: ariaLabel ?? label, shown: draftRef.current });
+    mountedScrubInputs.add(read);
+    return () => {
+      mountedScrubInputs.delete(read);
+    };
+  }, [ariaLabel, label]);
 
   useEffect(() => {
     if (mixed) {
@@ -379,6 +419,22 @@ export function VisualScrubInput({
   const handlePointerDown = (event: PointerEvent<HTMLElement>) => {
     if (disabled || event.button !== 0) return;
     const startedFromInput = event.target === inputRef.current;
+    const pendingCommit = pendingCommitRef.current;
+    const startValue =
+      pendingCommit &&
+      resolvePendingScrubCommit(pendingCommit, value, options) === "hold"
+        ? pendingCommit.value
+        : value;
+    const currentTextValue =
+      textValue ??
+      (mixed
+        ? resolvedMixedLabel
+        : formatScrubValue(value, { unit, precision }));
+    const pendingTextCommit = pendingTextCommitRef.current;
+    const startText =
+      pendingTextCommit && currentTextValue === pendingTextCommit.baseline
+        ? pendingTextCommit.value
+        : (textValue ?? formatScrubValue(startValue, { unit, precision }));
     event.preventDefault();
     dragRef.current = {
       pointerId: event.pointerId,
@@ -386,9 +442,13 @@ export function VisualScrubInput({
       startedFromInput,
       altKey: event.altKey,
     };
-    dragStartValueRef.current = value;
-    dragStartTextRef.current = textValue ?? formatScrubValue(value, options);
-    lastScrubValueRef.current = value;
+    unregisterActiveScrubRef.current?.();
+    unregisterActiveScrubRef.current = registerActiveScrubInput(() =>
+      cancelActiveScrubRef.current(),
+    );
+    dragStartValueRef.current = startValue;
+    dragStartTextRef.current = startText;
+    lastScrubValueRef.current = startValue;
     dragContainerRef.current?.setPointerCapture(event.pointerId);
     setDragging(true);
   };
@@ -426,6 +486,8 @@ export function VisualScrubInput({
     event.currentTarget.releasePointerCapture(event.pointerId);
     const wasDrag = dragRef.current.drag.hasDragged;
     dragRef.current.pointerId = -1;
+    unregisterActiveScrubRef.current?.();
+    unregisterActiveScrubRef.current = null;
     setDragging(false);
     if (wasDrag && !mixed) {
       pendingCommitRef.current = {
@@ -456,13 +518,17 @@ export function VisualScrubInput({
     }
   };
 
-  const cancelDrag = (event: PointerEvent<HTMLDivElement>) => {
-    if (dragRef.current.pointerId !== event.pointerId) return;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
+  const cancelActiveScrub = () => {
+    const pointerId = dragRef.current.pointerId;
+    if (pointerId === -1) return;
+    const container = dragContainerRef.current;
+    if (container?.hasPointerCapture?.(pointerId)) {
+      container.releasePointerCapture(pointerId);
     }
     const wasDrag = dragRef.current.drag.hasDragged;
     dragRef.current.pointerId = -1;
+    unregisterActiveScrubRef.current?.();
+    unregisterActiveScrubRef.current = null;
     setDragging(false);
     if (!wasDrag || mixed) return;
 
@@ -494,6 +560,12 @@ export function VisualScrubInput({
         phase: "cancel",
       });
     }
+  };
+  cancelActiveScrubRef.current = cancelActiveScrub;
+
+  const cancelDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current.pointerId !== event.pointerId) return;
+    cancelActiveScrub();
   };
 
   const stepperButton = (direction: number, stepperLabel: string) => (

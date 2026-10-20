@@ -83,6 +83,13 @@ type MeasurementTestWindow = Window & {
   __svgDescendantScanQueries?: number;
 };
 
+type PositionMeasurementWindow = Window & {
+  __positionMeasurements?: {
+    correlationId: string;
+    payload: ElementInfo | null;
+  }[];
+};
+
 async function startAltMeasurement(
   page: import("@playwright/test").Page,
 ): Promise<void> {
@@ -139,7 +146,239 @@ async function select(page: import("@playwright/test").Page, selector: string) {
   await page.waitForTimeout(50);
 }
 
+async function measurePositionContext(
+  page: import("@playwright/test").Page,
+  correlationId: string,
+): Promise<ElementInfo | null> {
+  await page.evaluate((id) => {
+    window.postMessage(
+      {
+        type: "agent-native:measure-selection",
+        screenId: "selection-chrome",
+        correlationId: id,
+        selector: "#offset-root",
+      },
+      "*",
+    );
+  }, correlationId);
+  await page.waitForFunction(
+    (id) =>
+      (window as PositionMeasurementWindow).__positionMeasurements?.some(
+        (measurement) => measurement.correlationId === id,
+      ),
+    correlationId,
+  );
+  return page.evaluate((id) => {
+    const measurements = (window as PositionMeasurementWindow)
+      .__positionMeasurements;
+    return (
+      measurements?.find((measurement) => measurement.correlationId === id)
+        ?.payload ?? null
+    );
+  }, correlationId);
+}
+
 describe("editor chrome selection overlays", () => {
+  it.each([
+    {
+      name: "image Layer",
+      suppression: "data-an-native-layer-suppressed",
+      tag: "img",
+      authoredOpacity: "0.65",
+      inlineOpacity: "0.65",
+    },
+    {
+      name: "SVG Backdrop",
+      suppression: "data-an-native-receiver-suppressed",
+      tag: "svg",
+      authoredOpacity: "0.65",
+      inlineOpacity: "0.65",
+    },
+    {
+      name: "default-opacity SVG Backdrop",
+      suppression: "data-an-native-receiver-suppressed",
+      tag: "svg",
+      authoredOpacity: "1",
+      inlineOpacity: "",
+    },
+  ])(
+    "reports authored $name opacity while native rendering suppresses its source",
+    async ({ suppression, tag, authoredOpacity, inlineOpacity }) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html><head><style>
+        [${suppression}] { opacity: 0 !important; }
+      </style></head><body>
+        <${tag} id="source-image" data-agent-native-node-id="source-image"
+          ${suppression} data-an-native-authored-opacity="${authoredOpacity}"
+          style="width:100px;height:80px;${inlineOpacity ? `opacity:${inlineOpacity}` : ""}">${tag === "svg" ? '<path d="M0 0h100v80H0z"/>' : ""}</${tag}>
+      </body></html>`);
+        await page.evaluate(() => {
+          const testWindow = window as Window & {
+            __nativeSelections?: ElementInfo[];
+            __nativeMeasurements?: ElementInfo[];
+          };
+          testWindow.__nativeSelections = [];
+          testWindow.__nativeMeasurements = [];
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "element-select")
+              testWindow.__nativeSelections?.push(event.data.payload);
+            if (event.data?.type === "agent-native:selection-measured")
+              testWindow.__nativeMeasurements?.push(event.data.payload);
+          });
+        });
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        expect(
+          await page
+            .locator("#source-image")
+            .evaluate((element) => getComputedStyle(element).opacity),
+        ).toBe("0");
+
+        const selectionCount = await page.evaluate(
+          () =>
+            (window as Window & { __nativeSelections?: ElementInfo[] })
+              .__nativeSelections?.length ?? 0,
+        );
+        await select(page, "#source-image");
+        await page.waitForFunction(
+          (count) =>
+            ((window as Window & { __nativeSelections?: ElementInfo[] })
+              .__nativeSelections?.length ?? 0) > count,
+          selectionCount,
+        );
+        const suppressed = await page.evaluate(() => {
+          const entries = (
+            window as Window & { __nativeSelections?: ElementInfo[] }
+          ).__nativeSelections;
+          return entries?.[entries.length - 1];
+        });
+        expect(suppressed?.computedStyles.opacity).toBe(authoredOpacity);
+        expect(
+          await page
+            .locator("#source-image")
+            .evaluate((element) => (element as HTMLElement).style.opacity),
+        ).toBe(inlineOpacity);
+        expect(
+          suppressed?.portableStyleSnapshot?.nodes[0]?.styles.opacity,
+        ).toBe(inlineOpacity || undefined);
+
+        await page.locator("#source-image").evaluate((element, attribute) => {
+          element.removeAttribute(attribute);
+          (element as HTMLElement).style.opacity = "0.4";
+        }, suppression);
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "agent-native:measure-selection",
+              screenId: "selection-chrome",
+              correlationId: "restored-opacity",
+              selector: "#source-image",
+            },
+            "*",
+          );
+        });
+        await page.waitForFunction(
+          () =>
+            (window as Window & { __nativeMeasurements?: ElementInfo[] })
+              .__nativeMeasurements?.length,
+        );
+        const restored = await page.evaluate(() => {
+          const entries = (
+            window as Window & { __nativeMeasurements?: ElementInfo[] }
+          ).__nativeMeasurements;
+          return entries?.[entries.length - 1];
+        });
+        expect(restored?.computedStyles.opacity).toBe("0.4");
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it("omits position context when the board content offset is unreadable", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(`<!doctype html><html><head></head><body style="margin:0">
+        <div id="offset-root" data-agent-native-node-id="offset-root" style="position:absolute;left:0;top:0;width:100px;height:60px"></div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const testWindow = window as PositionMeasurementWindow;
+        testWindow.__positionMeasurements = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:selection-measured") {
+            testWindow.__positionMeasurements?.push({
+              correlationId: event.data.correlationId,
+              payload: event.data.payload,
+            });
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      const absentMarker = await measurePositionContext(page, "offset-absent");
+      expect(absentMarker).toMatchObject({
+        boundingRect: { x: 0, y: 0, width: 100, height: 60 },
+        positionReferenceRect: { x: 0, y: 0, width: 800, height: 600 },
+        positionContainingBlockOrigin: { x: 0, y: 0 },
+        positionContainingBlockTransform: { a: 1, b: 0, c: 0, d: 1 },
+      });
+
+      await page.evaluate(() => {
+        const offsetStyle = document.createElement("style");
+        offsetStyle.setAttribute("data-agent-native-content-offset", "");
+        offsetStyle.setAttribute("data-agent-native-content-offset-x", "29");
+        offsetStyle.setAttribute("data-agent-native-content-offset-y", "17");
+        offsetStyle.textContent =
+          "body > [data-agent-native-node-id]{translate:29px 17px;}";
+        document.head.appendChild(offsetStyle);
+      });
+      const validMetadata = await measurePositionContext(page, "offset-valid");
+      expect(validMetadata).toMatchObject({
+        boundingRect: { x: 29, y: 17, width: 100, height: 60 },
+        positionReferenceRect: { x: 29, y: 17, width: 800, height: 600 },
+        positionContainingBlockOrigin: { x: 29, y: 17 },
+        positionContainingBlockTransform: { a: 1, b: 0, c: 0, d: 1 },
+      });
+
+      await page.evaluate(() => {
+        const offsetStyle = document.querySelector(
+          "style[data-agent-native-content-offset]",
+        )!;
+        offsetStyle.setAttribute(
+          "data-agent-native-content-offset-x",
+          "unreadable",
+        );
+        offsetStyle.textContent =
+          "body > [data-agent-native-node-id]{translate:calc(20px + 13px) 17px;}";
+      });
+      const unreadableMetadata = await measurePositionContext(
+        page,
+        "offset-unreadable",
+      );
+      expect(unreadableMetadata?.boundingRect).toEqual({
+        x: 33,
+        y: 17,
+        width: 100,
+        height: 60,
+      });
+      expect(unreadableMetadata).not.toHaveProperty("positionReferenceRect");
+      expect(unreadableMetadata).not.toHaveProperty(
+        "positionContainingBlockOrigin",
+      );
+      expect(unreadableMetadata).not.toHaveProperty(
+        "positionContainingBlockTransform",
+      );
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("publishes stylesheet-backed vector gradients on select and refresh", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

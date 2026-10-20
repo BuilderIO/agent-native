@@ -7,3 +7,8 @@ export function appMigratesAtRelease(): boolean {
     migration.betaSchemaOwner?.toLowerCase() === "production"
   );
 }
+
+/** Operator opt-out: never run schema setup from this runtime. */
+export function schemaEnsureSkipRequested(): boolean {
+  return getAppConfig().migration.skipEnsureTables;
+}

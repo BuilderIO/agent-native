@@ -64,7 +64,7 @@ registerShareableResource({
 Render the standard controls where users decide access:
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 
 <VisibilityBadge visibility={dashboard.visibility} />;
@@ -99,11 +99,11 @@ The most common low-level import is:
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 ```
 
-`<ShareButton>` and `<ShareDialog>` are core-owned rather than Toolkit-owned —
-they call sharing actions directly, so keep importing them from
-`@agent-native/core/client` as shown above. Those imports stay compatible:
-core wrappers keep doing the runtime work and pass data and callbacks into
-Toolkit-owned UI.
+`<ShareButton>` and `<ShareDialog>` are Toolkit UI exported from
+`@agent-native/toolkit/app/sharing`. They use Core client hooks and the shared
+sharing actions. When building custom sharing UI, import
+`useShareButtonController` and `useShareDialogController` from
+`@agent-native/core/client/sharing`.
 
 ### Toolkit vs Core {#toolkit-vs-core}
 

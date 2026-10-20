@@ -67,6 +67,7 @@ import {
   TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
+import { CellSelection, cellAround } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   useEditor,
@@ -85,7 +86,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
@@ -118,6 +118,7 @@ import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
+  type CommentHighlightOptions,
   setCommentHighlights,
   commentHighlightKey,
   type CommentHighlightSpec,
@@ -738,6 +739,25 @@ const NotionMarkdownShortcuts = Extension.create({
 });
 
 const CustomTable = BaseTable.extend({
+  addKeyboardShortcuts() {
+    return {
+      ...this.parent?.(),
+      // Escape leaves the editor (`contentEditorEscape`), and Tab can't leave a
+      // table, so from a cell's text the first Escape only selects the cell.
+      Escape: ({ editor }) => {
+        const { selection } = editor.state;
+        if (selection instanceof CellSelection) return false;
+        const $cell = cellAround(selection.$from);
+        if (!$cell) return false;
+        editor.view.dispatch(
+          editor.state.tr.setSelection(
+            CellSelection.create(editor.state.doc, $cell.pos),
+          ),
+        );
+        return true;
+      },
+    };
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -835,11 +855,19 @@ const NotionTableHeader = TableHeader.extend({
   addAttributes() {
     return { ...this.parent?.(), ...tableAlignmentAttribute };
   },
+  // Header cells render as <td>, so copying or pasting a table reads them back
+  // from their class. The higher priority puts this rule before tableCell's.
+  parseHTML() {
+    return [
+      { tag: "td.content-table-header-cell", priority: 60 },
+      ...(this.parent?.() ?? []),
+    ];
+  },
   renderHTML({ HTMLAttributes }) {
     return [
       "td",
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
-        class: "notion-table-header-cell",
+        class: "content-table-header-cell",
       }),
       0,
     ];
@@ -907,7 +935,39 @@ function normalizeTableHeaderCells(
     return rowChanged ? row.copy(Fragment.fromArray(normalizedCells)) : row;
   });
 
-  return changed ? table.copy(Fragment.fromArray(normalizedRows)) : table;
+  // Saved tables keep their headers only in these attributes, so update them
+  // whenever they no longer produce the header cells, e.g. after a header
+  // toggle or after deleting the header row.
+  const isHeaderAt = (
+    headerRow: boolean,
+    headerColumn: boolean,
+    rowIndex: number,
+    columnIndex: number,
+  ) => (headerRow && rowIndex === 0) || (headerColumn && columnIndex === 0);
+  const savedHeaderRow = table.attrs.headerRow === true;
+  const savedHeaderColumn = table.attrs.headerColumn === true;
+  const attrsMatchCells = rows.every((row, rowIndex) =>
+    getNodeChildren(row).every(
+      (_cell, columnIndex) =>
+        isHeaderAt(savedHeaderRow, savedHeaderColumn, rowIndex, columnIndex) ===
+        isHeaderAt(hasHeaderRow, hasHeaderColumn, rowIndex, columnIndex),
+    ),
+  );
+
+  if (!changed && attrsMatchCells) return table;
+
+  const content = changed ? Fragment.fromArray(normalizedRows) : table.content;
+  return attrsMatchCells
+    ? table.copy(content)
+    : table.type.create(
+        {
+          ...table.attrs,
+          headerRow: hasHeaderRow,
+          headerColumn: hasHeaderColumn,
+        },
+        content,
+        table.marks,
+      );
 }
 
 const normalizeTableHeadersPluginKey = new PluginKey("normalizeTableHeaders");
@@ -929,11 +989,20 @@ function buildNormalizeTableHeadersTransaction(state: CoreEditor["state"]) {
       tableHeaderType,
     );
     if (normalizedTable !== node) {
-      transaction = transaction.replaceWith(
-        pos,
-        pos + node.nodeSize,
-        normalizedTable,
-      );
+      // When only the header attributes change, keep the cells, and the
+      // selection inside them, in place.
+      transaction =
+        normalizedTable.content === node.content
+          ? transaction.setNodeMarkup(
+              transaction.mapping.map(pos),
+              undefined,
+              normalizedTable.attrs,
+            )
+          : transaction.replaceWith(
+              transaction.mapping.map(pos),
+              transaction.mapping.map(pos + node.nodeSize),
+              normalizedTable,
+            );
       changed = true;
     }
 
@@ -1594,8 +1663,6 @@ interface VisualEditorProps {
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
   directoryWidgetEditing?: boolean;
-  /** Where the widget's docked formatting toolbar renders, under the page toolbar. */
-  widgetFormattingSlot?: HTMLElement | null;
   suggesting?: boolean;
   widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
@@ -2033,6 +2100,7 @@ interface VisualEditorExtensionOptions {
     editor: CoreEditor,
     transaction: Transaction,
   ) => void;
+  findCommentQuote?: CommentHighlightOptions["findQuote"];
 }
 
 export function hasAncestorType(
@@ -2067,6 +2135,17 @@ export function runIfMediaCreationAllowed(
   if (suggesting) return false;
   action();
   return true;
+}
+
+// Everything that places a thread's highlight: a change to any of it resolves
+// the highlight again.
+function threadAnchor(thread: CommentThread) {
+  return {
+    quotedText: thread.quotedText,
+    prefix: thread.prefix ?? undefined,
+    suffix: thread.suffix ?? undefined,
+    startOffset: thread.startOffset ?? undefined,
+  };
 }
 
 function mediaSourceCounts(doc: ProseMirrorNode) {
@@ -2630,6 +2709,7 @@ export function createVisualEditorExtensions({
   referenceDepth = 0,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
   onMediaSourceCommitted,
+  findCommentQuote,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
     preset: "content",
@@ -2648,7 +2728,7 @@ export function createVisualEditorExtensions({
       paragraph: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
       horizontalRule: {},
-      dropcursor: { color: false, width: 3, class: "notion-dropcursor" },
+      dropcursor: { color: false, width: 3, class: "content-dropcursor" },
     },
     collab:
       ydoc || localAwareness ? { ydoc, awareness: localAwareness, user } : null,
@@ -2662,10 +2742,10 @@ export function createVisualEditorExtensions({
       }),
       Link.configure({
         openOnClick: false,
-        HTMLAttributes: { class: "notion-link" },
+        HTMLAttributes: { class: "content-link" },
       }),
       TaskList.configure({
-        HTMLAttributes: { class: "notion-task-list" },
+        HTMLAttributes: { class: "content-task-list" },
       }),
       TaskItem.configure({
         nested: true,
@@ -2675,20 +2755,20 @@ export function createVisualEditorExtensions({
         ? [BodyElementTiming.configure({ documentId })]
         : []),
       ImageNode.configure({
-        HTMLAttributes: { class: "notion-image" },
+        HTMLAttributes: { class: "content-image" },
         documentId,
         onImageComment,
         onImageFilePickerRequest,
         canMutateMedia,
       }),
       VideoNode.configure({
-        HTMLAttributes: { class: "notion-video" },
+        HTMLAttributes: { class: "content-video" },
         documentId,
         onVideoComment: onImageComment,
         canMutateMedia,
       }),
       AudioNode.configure({
-        HTMLAttributes: { class: "notion-audio" },
+        HTMLAttributes: { class: "content-audio" },
         documentId,
         onAudioComment: onImageComment,
         canMutateMedia,
@@ -2720,7 +2800,7 @@ export function createVisualEditorExtensions({
         referenceDepth,
       }),
       LocalMdxComponentNode,
-      CommentHighlight,
+      CommentHighlight.configure({ findQuote: findCommentQuote }),
       SuggestionHighlight,
       DragHandle,
       TypographyReplacements,
@@ -3046,7 +3126,6 @@ export function VisualEditor({
   user,
   editable = true,
   directoryWidgetEditing = false,
-  widgetFormattingSlot = null,
   suggesting = false,
   widgetLoadDiagnosticsActive = false,
   localFileMode = false,
@@ -3221,6 +3300,16 @@ export function VisualEditor({
     },
     [],
   );
+  const threadsRef = useRef(commentThreads);
+  threadsRef.current = commentThreads;
+  const findCommentQuote = useCallback(
+    (threadId: string, doc: ProseMirrorNode) => {
+      const thread = threadsRef.current?.find((t) => t.threadId === threadId);
+      if (!thread || thread.resolved) return null;
+      return resolveAnchor(doc, threadAnchor(thread));
+    },
+    [],
+  );
   const onImageFilePickerRequest = useCallback(
     (request: PendingImagePicker) => {
       runIfMediaCreationAllowed(suggestingRef.current, () => {
@@ -3277,7 +3366,7 @@ export function VisualEditor({
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
     return Boolean(
-      activeElement?.matches(".notion-toggle__summary") &&
+      activeElement?.matches(".content-toggle__summary") &&
       editor.view.dom.contains(activeElement),
     );
   }, []);
@@ -3327,10 +3416,13 @@ export function VisualEditor({
         referenceDepth,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
+        findCommentQuote,
       }),
       Extension.create({
         name: "contentEditorEscape",
-        priority: 0,
+        // Last, so editor Escape handlers such as the table's run first. Not 0:
+        // TipTap reads a priority of 0 as unset, which puts this first instead.
+        priority: 1,
         addProseMirrorPlugins() {
           return [
             new Plugin({
@@ -3370,11 +3462,18 @@ export function VisualEditor({
       referenceDepth,
       t,
       onMediaSourceCommitted,
+      findCommentQuote,
     ],
   );
 
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
   const draftEmissionGenerationRef = useRef(0);
+  const pendingDraftEmissionsRef = useRef<Array<() => void>>([]);
+  const drainPendingDraftEmissions = useCallback(() => {
+    const pending = pendingDraftEmissionsRef.current;
+    pendingDraftEmissionsRef.current = [];
+    for (const emit of pending) emit();
+  }, []);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
   const markUserEditIntent = useCallback(() => {
@@ -3417,10 +3516,11 @@ export function VisualEditor({
         if (options?.immediate) return "failed" as const;
         if (!guards.registerEmitted(normalized)) return "unchanged" as const;
         const generation = draftEmissionGenerationRef.current;
-        setTimeout(() => {
+        pendingDraftEmissionsRef.current.push(() => {
           if (generation === draftEmissionGenerationRef.current)
             onChangeRef.current(normalized);
-        }, 0);
+        });
+        setTimeout(drainPendingDraftEmissions, 0);
         return "scheduled" as const;
       } catch (err: any) {
         toast.error(
@@ -3430,7 +3530,24 @@ export function VisualEditor({
         return "failed" as const;
       }
     },
-    [content, localFileMode, scheduleLiveBodyParity, t],
+    [
+      content,
+      drainPendingDraftEmissions,
+      localFileMode,
+      scheduleLiveBodyParity,
+      t,
+    ],
+  );
+  // A remote snapshot is the whole live document, so it already holds local
+  // typing whose deferred report has not run. Reporting that typing first keeps
+  // it a local edit; otherwise the snapshot absorbs it and an older save's
+  // acknowledgment can clear the only journaled copy.
+  const reportRemoteSnapshot = useCallback(
+    (markdown: string) => {
+      drainPendingDraftEmissions();
+      onRemoteSnapshotChange?.(markdown);
+    },
+    [drainPendingDraftEmissions, onRemoteSnapshotChange],
   );
   onMediaSourceCommittedRef.current = async (editorToPersist, transaction) => {
     if (suggestingRef.current) return;
@@ -3451,9 +3568,6 @@ export function VisualEditor({
   };
 
   const historyEditorRef = useRef<CoreEditor | null>(null);
-  const historyControllerRef = useRef<VisualEditorHistoryController | null>(
-    null,
-  );
   const acknowledgedRestoreRef = useRef<{
     documentId: string | null;
     content: string;
@@ -3480,7 +3594,7 @@ export function VisualEditor({
     content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
       attributes: {
-        class: "notion-editor",
+        class: "content-editor",
       },
       handleDrop(view, event) {
         const droppedFiles = Array.from(event.dataTransfer?.files ?? []);
@@ -3784,11 +3898,10 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
-      historyControllerRef.current = null;
       onHistoryControllerChange?.(null);
       return;
     }
-    const historyController: VisualEditorHistoryController = {
+    onHistoryControllerChange?.({
       undo: () => runPersistableHistoryCommand(editor, "undo"),
       redo: () => runPersistableHistoryCommand(editor, "redo"),
       replaceWithAuthoritativeContent: (snapshot) => {
@@ -3822,19 +3935,14 @@ export function VisualEditor({
         }
         return applied;
       },
-    };
-    historyControllerRef.current = historyController;
-    onHistoryControllerChange?.(historyController);
+    });
     const initialHistoryState = {
       canUndo: editor.can().undo(),
       canRedo: editor.can().redo(),
     };
     deliveredHistoryStateRef.current = initialHistoryState;
     onHistoryStateChange?.(initialHistoryState);
-    return () => {
-      historyControllerRef.current = null;
-      onHistoryControllerChange?.(null);
-    };
+    return () => onHistoryControllerChange?.(null);
   }, [
     editor,
     documentId,
@@ -4176,7 +4284,9 @@ export function VisualEditor({
       : collabContentRevision,
     requestCollabSync,
     onBaseAwareReconcile,
-    onRemoteSnapshotChange,
+    onRemoteSnapshotChange: onRemoteSnapshotChange
+      ? reportRemoteSnapshot
+      : undefined,
     isEditorClean,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
@@ -4277,91 +4387,101 @@ export function VisualEditor({
     }
   }, [editor, editable, referenceDepth, documentId]);
 
-  const threadsRef = useRef(commentThreads);
-  threadsRef.current = commentThreads;
   const threadsSignature = useMemo(
     () =>
       (commentThreads ?? [])
-        .map((t) => `${t.threadId}:${t.resolved ? 1 : 0}:${t.quotedText ?? ""}`)
+        .map(
+          (t) =>
+            `${t.threadId}:${t.resolved ? 1 : 0}:${JSON.stringify(threadAnchor(t))}`,
+        )
         .join("|"),
     [commentThreads],
   );
   const pendingKey = pendingHighlight
     ? `${pendingHighlight.from}-${pendingHighlight.to}`
     : "";
+  const resolvedQuotesRef = useRef(new Map<string, string>());
 
-  const applyHighlights = useCallback(
-    (force: boolean) => {
-      if (!editor || editor.isDestroyed) return;
-      const view = editor.view;
-      const current = commentHighlightKey.getState(view.state);
-      const mapped = force
-        ? new Map<string, CommentHighlightSpec>()
-        : new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
-      const specs: CommentHighlightSpec[] = [];
-      if (!showCommentIndicators) {
-        setCommentHighlights(view, {
-          specs,
-          pending: pendingHighlight ?? null,
-          activeId: activeThreadId ?? null,
-          hoveredId: hoveredThreadId ?? null,
-        });
-        return;
-      }
-      for (const thread of threadsRef.current ?? []) {
-        if (thread.resolved) continue;
-        const existing = mapped.get(thread.threadId);
-        if (existing) {
-          specs.push(existing);
-          continue;
-        }
-        const range = resolveAnchor(view.state.doc, {
-          quotedText: thread.quotedText,
-          prefix: thread.prefix ?? undefined,
-          suffix: thread.suffix ?? undefined,
-          startOffset: thread.startOffset ?? undefined,
-        });
-        if (range) {
-          specs.push({
-            threadId: thread.threadId,
-            from: range.from,
-            to: range.to,
-          });
-        }
-      }
+  const applyHighlights = useCallback(() => {
+    if (!editor || editor.isDestroyed) return;
+    const view = editor.view;
+    const current = commentHighlightKey.getState(view.state);
+    const mapped = new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
+    const specs: CommentHighlightSpec[] = [];
+    if (!showCommentIndicators) {
       setCommentHighlights(view, {
         specs,
         pending: pendingHighlight ?? null,
         activeId: activeThreadId ?? null,
         hoveredId: hoveredThreadId ?? null,
       });
-    },
-    [
-      activeThreadId,
-      editor,
-      hoveredThreadId,
-      pendingHighlight,
-      showCommentIndicators,
-    ],
-  );
+      return;
+    }
+    for (const thread of threadsRef.current ?? []) {
+      if (thread.resolved) continue;
+      const existing = mapped.get(thread.threadId);
+      // A highlight stands for the quote it was resolved from, so only a
+      // thread's own new quote, such as the one an accepted edit re-anchors
+      // to, replaces it. Re-resolving an unchanged quote can pick another
+      // copy of its text once edits leave its stored context behind; the
+      // highlight plugin follows the text through edits and swaps instead.
+      const anchor = threadAnchor(thread);
+      const quote = JSON.stringify(anchor);
+      if (
+        existing &&
+        resolvedQuotesRef.current.get(thread.threadId) === quote
+      ) {
+        specs.push(existing);
+        continue;
+      }
+      const range = resolveAnchor(view.state.doc, anchor);
+      if (range) {
+        resolvedQuotesRef.current.set(thread.threadId, quote);
+        specs.push({
+          threadId: thread.threadId,
+          from: range.from,
+          to: range.to,
+        });
+      } else if (existing) {
+        // An edit to the quoted text, such as an accepted suggestion, can
+        // reach the editor before the thread's re-anchored quote does.
+        specs.push(existing);
+      }
+    }
+    setCommentHighlights(view, {
+      specs,
+      pending: pendingHighlight ?? null,
+      activeId: activeThreadId ?? null,
+      hoveredId: hoveredThreadId ?? null,
+    });
+  }, [
+    activeThreadId,
+    editor,
+    hoveredThreadId,
+    pendingHighlight,
+    showCommentIndicators,
+  ]);
 
   const applyRef = useRef(applyHighlights);
   applyRef.current = applyHighlights;
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const scheduleApply = useCallback((force: boolean) => {
+  const scheduleApply = useCallback(() => {
     clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => applyRef.current(force), 0);
+    timerRef.current = setTimeout(() => applyRef.current(), 0);
   }, []);
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  useEffect(() => {
+  // Before paint: a thread's card can render under a new id, as an optimistic
+  // thread is saved, and anything that finds the card's highlight by that id
+  // misses it until this runs.
+  useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
     let stopped = false;
     let attempts = 0;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
       if (stopped || editor.isDestroyed) return;
-      applyRef.current(false);
+      applyRef.current();
       attempts += 1;
       const present = new Set(
         (commentHighlightKey.getState(editor.view.state)?.specs ?? []).map(
@@ -4373,27 +4493,26 @@ export function VisualEditor({
         .every((t) => present.has(t.threadId));
       if (!allPresent && attempts < 25) timer = setTimeout(tick, 150);
     };
-    timer = setTimeout(tick, 0);
+    tick();
     return () => {
       stopped = true;
       clearTimeout(timer);
     };
   }, [editor, threadsSignature]);
 
+  // Loaded content can bring a quote that was not in the document before.
   useEffect(() => {
-    scheduleApply(false);
+    scheduleApply();
   }, [
     activeThreadId,
+    content,
+    contentUpdatedAt,
     editor,
     hoveredThreadId,
     pendingKey,
     scheduleApply,
     showCommentIndicators,
   ]);
-
-  useEffect(() => {
-    scheduleApply(true);
-  }, [editor, scheduleApply, content, contentUpdatedAt]);
 
   const suggestionsSignature = useMemo(
     () =>
@@ -4659,15 +4778,6 @@ export function VisualEditor({
     );
   }
 
-  const widgetFormattingToolbar = (
-    <BubbleToolbar
-      docked
-      editor={editor}
-      onUndo={() => historyControllerRef.current?.undo()}
-      onRedo={() => historyControllerRef.current?.redo()}
-    />
-  );
-
   return (
     <div
       ref={wrapperRef}
@@ -4679,13 +4789,7 @@ export function VisualEditor({
         containerRef={wrapperRef}
         ttlMs={CONTENT_RECENT_EDIT_TTL_MS}
       />
-      {editable && directoryWidgetEditing ? (
-        widgetFormattingSlot ? (
-          createPortal(widgetFormattingToolbar, widgetFormattingSlot)
-        ) : (
-          <div className="sticky top-0 z-10">{widgetFormattingToolbar}</div>
-        )
-      ) : editable ? (
+      {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (

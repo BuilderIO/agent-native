@@ -188,6 +188,16 @@ describe("sendToAgentChat", () => {
     expect(parsed?.targetTabId).toBe("generation-tab");
   });
 
+  it("carries a queued submission expiry through the bridge", () => {
+    const submissionExpiresAt = Date.now() + 20_000;
+    sendToAgentChat({ message: "Create a deck", submissionExpiresAt });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+
+    expect(payload.data.submissionExpiresAt).toBe(submissionExpiresAt);
+    expect(parsed?.submissionExpiresAt).toBe(submissionExpiresAt);
+  });
+
   it("carries a bounded action scope through the postMessage payload", () => {
     sendToAgentChat({
       message: "Draft a reply",
@@ -271,6 +281,14 @@ describe("sendToAgentChat", () => {
         data: {
           type: "agentNative.submitChat",
           data: { message: "Draft a reply", actionScope: [] },
+        },
+      } as MessageEvent),
+    ).toBeNull();
+    expect(
+      parseSubmitChatMessage({
+        data: {
+          type: "agentNative.submitChat",
+          data: { message: "Create a deck", submissionExpiresAt: "soon" },
         },
       } as MessageEvent),
     ).toBeNull();

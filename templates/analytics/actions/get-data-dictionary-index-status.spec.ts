@@ -20,6 +20,20 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("../server/lib/source-index-store.js", () => ({
   readSourceIndex: mocks.readSourceIndex,
+  sourceIndexScanCoverage: (bundle: {
+    scanSummary?: {
+      unsafeEntriesOmitted?: number;
+      unsafeFieldsOmitted?: number;
+      truncatedFields?: number;
+      unresolvedTrackingCallSites?: number;
+    };
+  }) => ({
+    unsafeEntriesOmitted: bundle.scanSummary?.unsafeEntriesOmitted ?? null,
+    unsafeFieldsOmitted: bundle.scanSummary?.unsafeFieldsOmitted ?? null,
+    truncatedFields: bundle.scanSummary?.truncatedFields ?? null,
+    unresolvedTrackingCallSites:
+      bundle.scanSummary?.unresolvedTrackingCallSites ?? null,
+  }),
   sourceIndexFreshness: () => ({
     ageDays: 3,
     staleAfterDays: 90,
@@ -49,7 +63,12 @@ describe("get-data-dictionary-index-status", () => {
           { source: "dbt" },
           { source: "builder-internal" },
         ],
-        scanSummary: { unresolvedTrackingCallSites: 3 },
+        scanSummary: {
+          unsafeEntriesOmitted: 1,
+          unsafeFieldsOmitted: 2,
+          truncatedFields: 4,
+          unresolvedTrackingCallSites: 3,
+        },
       },
     });
 
@@ -57,6 +76,12 @@ describe("get-data-dictionary-index-status", () => {
       status: "available",
       generatedAt: "2026-10-06T00:00:00.000Z",
       entryCount: 3,
+      scanCoverage: {
+        unsafeEntriesOmitted: 1,
+        unsafeFieldsOmitted: 2,
+        truncatedFields: 4,
+        unresolvedTrackingCallSites: 3,
+      },
       unresolvedTrackingCallSites: 3,
       sources: [
         { id: "dbt", revision: "abcdef123456" },
@@ -81,7 +106,7 @@ describe("get-data-dictionary-index-status", () => {
     await expect(action.run()).resolves.toEqual({ status: "not-configured" });
   });
 
-  it("defaults missing legacy scan counts to zero", async () => {
+  it("reports missing legacy scan counts as unavailable", async () => {
     mocks.readSourceIndex.mockResolvedValueOnce({
       status: "available",
       bundle: {
@@ -93,7 +118,40 @@ describe("get-data-dictionary-index-status", () => {
 
     await expect(action.run()).resolves.toMatchObject({
       status: "available",
-      unresolvedTrackingCallSites: 0,
+      scanCoverage: {
+        unsafeEntriesOmitted: null,
+        unsafeFieldsOmitted: null,
+        truncatedFields: null,
+        unresolvedTrackingCallSites: null,
+      },
+      unresolvedTrackingCallSites: null,
+    });
+  });
+
+  it("preserves older partial scan summaries without inventing a zero", async () => {
+    mocks.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: {
+        generatedAt: "2026-10-06T00:00:00.000Z",
+        sources: [{ id: "dbt" }],
+        entries: [{ source: "dbt" }],
+        scanSummary: {
+          unsafeEntriesOmitted: 1,
+          unsafeFieldsOmitted: 2,
+          truncatedFields: 3,
+        },
+      },
+    });
+
+    await expect(action.run()).resolves.toMatchObject({
+      status: "available",
+      scanCoverage: {
+        unsafeEntriesOmitted: 1,
+        unsafeFieldsOmitted: 2,
+        truncatedFields: 3,
+        unresolvedTrackingCallSites: null,
+      },
+      unresolvedTrackingCallSites: null,
     });
   });
 

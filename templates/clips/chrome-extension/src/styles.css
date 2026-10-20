@@ -136,7 +136,9 @@ svg {
 
 .desktop-header {
   position: relative;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  column-gap: 8px;
   min-height: 36px;
   padding: 0 14px;
 }
@@ -151,8 +153,9 @@ svg {
 }
 
 .header-feedback {
-  position: absolute;
-  left: 14px;
+  grid-column: 1;
+  position: static;
+  justify-self: start;
   height: 28px;
   padding: 0 9px;
   font-size: 12px;
@@ -160,8 +163,9 @@ svg {
 }
 
 .header-close {
-  position: absolute;
-  right: 14px;
+  grid-column: 3;
+  position: static;
+  justify-self: end;
 }
 
 .icon-button {
@@ -190,7 +194,9 @@ svg {
 }
 
 .mode-toggle {
+  grid-column: 2;
   display: inline-flex;
+  justify-self: center;
   padding: 3px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
@@ -200,8 +206,8 @@ svg {
 .mode-option {
   position: relative;
   display: inline-flex;
-  width: 64px;
-  min-width: 64px;
+  width: 56px;
+  min-width: 56px;
   height: 28px;
   cursor: pointer;
   align-items: center;

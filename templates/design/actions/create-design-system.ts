@@ -3,13 +3,13 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
+import { trackDesign } from "../server/lib/design-tracking.js";
 import {
   DESIGN_SYSTEM_TEMPLATE_IDS,
   getProductionDesignSystemTemplate,
@@ -166,11 +166,9 @@ export default defineAction({
       updatedAt: now,
     });
 
-    track(
+    trackDesign(
       "design_system_saved",
       {
-        app_name: "design",
-        template_name: "design",
         output_id: id,
         output_type: "design_system",
         design_system_id: id,

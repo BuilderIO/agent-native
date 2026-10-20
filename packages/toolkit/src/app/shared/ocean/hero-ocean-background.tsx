@@ -13,6 +13,7 @@ export interface HeroOceanBackgroundProps {
   onReady: () => void;
   frameRate?: number;
   className?: string;
+  matchPageSurface?: boolean;
 }
 
 type PointerTarget = readonly [number, number, number];
@@ -22,6 +23,7 @@ export function HeroOceanBackground({
   onReady,
   frameRate = 30,
   className = "absolute inset-0 z-[-1]",
+  matchPageSurface = false,
 }: HeroOceanBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -157,7 +159,7 @@ export function HeroOceanBackground({
         if (cancelled || rendererFailed) return;
         renderer = createRenderer({
           canvas,
-          colors: readOceanColors(container),
+          colors: readOceanColors(container, { matchPageSurface }),
           fps: frameRate,
           onError: failRenderer,
         });
@@ -180,7 +182,7 @@ export function HeroOceanBackground({
           .catch(failRenderer);
 
         const themeObserver = new MutationObserver(() => {
-          renderer?.setColors(readOceanColors(container));
+          renderer?.setColors(readOceanColors(container, { matchPageSurface }));
         });
         themeObserver.observe(document.documentElement, {
           attributes: true,
@@ -204,7 +206,7 @@ export function HeroOceanBackground({
       for (const cleanup of cleanups) cleanup();
       renderer?.dispose();
     };
-  }, [frameRate]);
+  }, [frameRate, matchPageSurface]);
 
   const bottomFadeStartPercent = HERO_BOTTOM_FADE_START_PERCENT;
   const mask =

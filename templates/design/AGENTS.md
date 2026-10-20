@@ -14,7 +14,8 @@ Read `.agents/skills/<name>/SKILL.md` before deeper work:
 - `design-review-feedback` — persisted review comments.
 - `export-handoff` — exports and coding handoffs.
 - `full-app-build` — fusion-backed app builds.
-- `shader-fills` — GLSL fills/effects.
+- `shader-fills` — historical GLSL fills/effects.
+- `native-effects` — WebGPU fills/effects, source edits, and PNG.
 - `journey-storyboards` — onboarding-journey storyboards.
 
 Also read `.agents/skills/<name>/SKILL.md` for shared guides: `actions`,
@@ -37,6 +38,7 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `list-design-templates` / `list-designs` | Search paged templates/designs |
 | `generate-home-suggestions` | Suggest prompts |
 | `read-composer-source` | Read bounded Design/Slides/Figma sources |
+| `delete-file` | Delete a screen when requested |
 | `create-design-from-template` | Copy template; source screens stay locked |
 | `get-design-snapshot` / `get-design-template` | Inspect design or source template |
 | `open-visual-edit` | Open localhost screens |
@@ -49,10 +51,14 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
+| `get-motion-timeline` / `apply-motion-edit` / `remove-motion-timeline` | Read, source-sync, and remove editable motion timelines |
 | `create-design` / `generate-design` | Start empty design / generate a fresh screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
 | `get-view-settings` / `update-view-settings` | Read/update view toggles (grid, snap, rulers, cursors, hidden comments) |
+| `get-shader` / `edit-native-shader` | Inspect curated native effects; CAS-edit one inline scene |
+| `prepare-native-scene-export` | Pin scene for PNG |
+| `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Request foreground native PNG and inspect attachment |
 | `export-png` | Export PNG |
 | `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
 
@@ -71,7 +77,7 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 - `navigation`: current view, design/file id, and related UI state.
 - `visual-edit`: last project/connection; same-connection opens resume unless `newDesign` is true.
 - `navigate`: transient request to move the requesting tab; deleted after consumption.
-- `design-selection`: active screen/element, overview, inspector, zoom, screen list, and `layoutGrid`.
+- `design-selection`: active screen/element, overview, inspector, zoom, screen list, and `layoutGrid`; `motion` carries timeline id, ms playhead/duration, playback mode, auto-keyframe, and selected track/keyframe keys.
 - `design-generation-session:<designId>`, `show-questions`, `guided-questions`: generation planning and variant choice; see `design-generation`.
 - `design-reprompt-pending:<designId>:<fileId>` and `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` must be present and matched before `propose-node-rewrite`.
 

@@ -256,7 +256,10 @@ vi.mock("../server/db/index.js", () => {
 import { hasCollabState, applyText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 
-import { sourceContentHash } from "../shared/source-workspace.js";
+import {
+  sourceContentHash,
+  sourceContentPatch,
+} from "../shared/source-workspace.js";
 import updateFileAction from "./update-file.js";
 
 function buildDoc(bodyExtra = ""): string {
@@ -769,6 +772,88 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
 
     expect((rejection as Error)?.message).toMatch(/file not found/i);
     expect((rejection as { statusCode?: number })?.statusCode).toBe(404);
+  });
+});
+
+describe("update-file: contentPatch", () => {
+  it("applies a patch to the live content it names and writes the whole document", async () => {
+    await applyText(FILE_ID, buildDoc(" live-"), "content", "agent");
+    const next = buildDoc(" live-patched-");
+
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      contentPatch: sourceContentPatch(buildDoc(" live-"), next),
+      expectedVersionHash: sourceContentHash(buildDoc(" live-")),
+      operationSource: "tab-a",
+      operationRevision: 1,
+    } as never);
+
+    expect(result).toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(next),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(next);
+  });
+
+  it("rejects a patch whose base is no longer live with a 409 and writes nothing", async () => {
+    await applyText(FILE_ID, buildDoc(" someone-else-"), "content", "agent");
+
+    const rejection = await updateFileAction
+      .run({
+        id: FILE_ID,
+        contentPatch: sourceContentPatch(buildDoc(), buildDoc(" mine-")),
+        expectedVersionHash: sourceContentHash(buildDoc()),
+      } as never)
+      .catch((error: unknown) => error);
+
+    expect((rejection as { statusCode?: number }).statusCode).toBe(409);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(buildDoc());
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
+      buildDoc(" someone-else-"),
+    );
+  });
+
+  it("accepts a patch whose result is already live, as a full write of that content would", async () => {
+    await applyText(FILE_ID, buildDoc(" arrived-early-"), "content", "agent");
+
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      contentPatch: sourceContentPatch(buildDoc(), buildDoc(" arrived-early-")),
+      expectedVersionHash: sourceContentHash(buildDoc()),
+    } as never);
+
+    expect(result).toMatchObject({ updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      buildDoc(" arrived-early-"),
+    );
+  });
+
+  it("rejects a patch that also disables collaboration sync", () => {
+    const parsed = updateFileAction.schema.safeParse({
+      id: FILE_ID,
+      contentPatch: sourceContentPatch(buildDoc(), buildDoc(" mine-")),
+      expectedVersionHash: sourceContentHash(buildDoc()),
+      syncCollab: false,
+    });
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues).toEqual([
+      expect.objectContaining({ path: ["syncCollab"] }),
+    ]);
+  });
+
+  it("fails loud when the patch does not rebuild its result hash", async () => {
+    const patch = sourceContentPatch(buildDoc(), buildDoc(" mine-"));
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        contentPatch: { ...patch, text: `${patch.text}!` },
+        expectedVersionHash: sourceContentHash(buildDoc()),
+      } as never),
+    ).rejects.toThrow(/result hash/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(buildDoc());
   });
 });
 

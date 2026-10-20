@@ -309,6 +309,7 @@ export function legacyLifecycleEvent(
     name === "auth.signup_clicked" ||
     name === "auth.login_clicked" ||
     name === "builder connect clicked" ||
+    name === "builder_connect_clicked" ||
     name.startsWith("click ") ||
     name.startsWith("try ") ||
     name.startsWith("choose ") ||

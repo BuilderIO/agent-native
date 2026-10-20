@@ -55,6 +55,7 @@ import {
   isLocalRuntimeEngine,
   TiptapComposer,
   type ComposerAgentOption,
+  type ComposerTextReference,
   type ComposerTextSelection,
   type ComposerImageModelMenu,
   type ComposerSubmitIntent,
@@ -188,6 +189,8 @@ export interface PromptComposerProps {
   initialText?: string;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
   initialTextKey?: string | number;
+  /** Chips placed into `initialText`, as the composer handle's `setText` takes them. */
+  initialReferences?: readonly ComposerTextReference[];
   /** Optional host-owned control rendered directly after the "+" button. */
   modeControl?: ReactNode;
   /** Current agent execution mode shown in the shared composer toolbar. */
@@ -244,6 +247,9 @@ export interface PromptComposerProps {
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
   mentionItems?: MentionItem[];
+  /** Why some of `mentionItems` could not load, shown in the @ popover. */
+  mentionItemsError?: string;
+  onRetryMentionItems?: () => void;
   mentionPopoverDensity?: "default" | "stacked";
   includeDefaultMentionSearch?: boolean;
   onReferencesChange?: (references: Reference[]) => void;
@@ -657,6 +663,7 @@ function PromptComposerInner({
   extensionTools = false,
   initialText,
   initialTextKey,
+  initialReferences,
   modeControl,
   requireAgentEngine = false,
   execMode,
@@ -689,6 +696,8 @@ function PromptComposerInner({
   modelStatusChecksEnabled,
   onTextChange,
   mentionItems,
+  mentionItemsError,
+  onRetryMentionItems,
   mentionPopoverDensity,
   includeDefaultMentionSearch,
   onReferencesChange,
@@ -713,7 +722,26 @@ function PromptComposerInner({
   const modelsAdapter = adapters.models!;
   const BuilderSetupCard = modelsAdapter.BuilderSetupCard;
   const localRef = useRef<TiptapComposerHandle>(null);
-  const handleRef = composerRef ?? localRef;
+  // Keep our own copy of the handle so autofocus and held submits work when
+  // the caller passes a callback ref instead of a ref object.
+  const handleRef = useCallback(
+    (handle: TiptapComposerHandle | null) => {
+      localRef.current = handle;
+      if (typeof composerRef !== "function") {
+        if (composerRef) composerRef.current = handle;
+        return;
+      }
+      const cleanup = composerRef(handle);
+      // React runs a returned cleanup instead of calling the ref with null,
+      // so pass the caller's cleanup through.
+      if (typeof cleanup !== "function") return;
+      return () => {
+        localRef.current = null;
+        cleanup();
+      };
+    },
+    [composerRef],
+  );
   const attachments = useComposer((state) => state.attachments);
   const attachmentFiles = useMemo(
     () =>
@@ -845,15 +873,12 @@ function PromptComposerInner({
     const held = heldProviderDraftRef.current;
     if (engineState !== "configured" || !held) return;
     heldProviderDraftRef.current = null;
-    const target =
-      typeof handleRef === "object" && handleRef && "current" in handleRef
-        ? handleRef.current
-        : null;
+    const target = localRef.current;
     const current = target?.getDraftSnapshot?.();
     if (current && sameComposerDraft(held, current)) {
       void target?.submit?.();
     }
-  }, [engineState, handleRef, heldProviderDraftRevision]);
+  }, [engineState, heldProviderDraftRevision]);
   const useInlineMissingKeySetup = layoutVariant === "compact";
   const retryEngineStatus = useCallback(() => {
     if (typeof window !== "undefined") {
@@ -862,15 +887,9 @@ function PromptComposerInner({
   }, []);
   useEffect(() => {
     if (!autoFocus || composerDisabled) return;
-    const id = window.setTimeout(() => {
-      const target =
-        typeof handleRef === "object" && handleRef && "current" in handleRef
-          ? handleRef.current
-          : null;
-      target?.focus();
-    }, 50);
+    const id = window.setTimeout(() => localRef.current?.focus(), 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, composerDisabled, handleRef]);
+  }, [autoFocus, composerDisabled]);
 
   const handleSubmit = useCallback(
     async (
@@ -978,6 +997,7 @@ function PromptComposerInner({
           placeholder={placeholder}
           initialText={initialText}
           initialTextKey={initialTextKey}
+          initialReferences={initialReferences}
           onSubmit={handleSubmit}
           onEmptySubmit={onEmptySubmit}
           onBeforeSubmit={beforeSubmit}
@@ -1014,6 +1034,8 @@ function PromptComposerInner({
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}
           mentionItems={mentionItems}
+          mentionItemsError={mentionItemsError}
+          onRetryMentionItems={onRetryMentionItems}
           mentionPopoverDensity={mentionPopoverDensity}
           includeDefaultMentionSearch={includeDefaultMentionSearch}
           onReferencesChange={onReferencesChange}

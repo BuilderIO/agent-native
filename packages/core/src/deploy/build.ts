@@ -65,6 +65,10 @@ import {
 } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import {
+  CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+  getMissingCoreOptionalPeers,
+} from "../shared/optional-peer-ssr.js";
+import {
   CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
@@ -120,6 +124,12 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+
+function packageExternalPattern(packageName: string): RegExp {
+  const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}(?:/|$)`);
+}
+
 export const CLOUDFLARE_MODULE_PRESETS = [
   "cloudflare_module",
   "cloudflare-module",
@@ -1488,7 +1498,9 @@ export function generateWorkerEntry(
       `  const ${handlerName} = defineEventHandler(async (event) => {
     setResponseHeader(event, "Cache-Control", "no-" + "store");
     const actionIsUiOnly = ${a.uiOnly ? "true" : `${varName}.uiOnly === true`};
-    const uiActionContext = actionIsUiOnly
+    const actionDeclaresApproval =
+      ${varName}.needsApproval !== undefined && ${varName}.needsApproval !== false;
+    const uiActionContext = actionIsUiOnly || actionDeclaresApproval
       ? await getGeneratedUiActionContext(event)
       : undefined;
     if (actionIsUiOnly && !uiActionContext) {
@@ -1536,10 +1548,29 @@ export function generateWorkerEntry(
         actionName: ${JSON.stringify(a.name)},
         ...(actionContext ?? {}),
       };
-      const runAction = () => ${varName}.run(params, actionRunContext);
+      const runAction = async () => {
+        if (
+          actionDeclaresApproval &&
+          !(uiActionContext && caller === "frontend")
+        ) {
+          const refusal = await generatedActionApprovalRefusal(
+            ${varName},
+            params,
+            actionRunContext,
+          );
+          if (refusal) {
+            return new Response(
+              JSON.stringify({ error: refusal.message, errorCode: refusal.errorCode }),
+              { status: refusal.statusCode, headers: { "Content-Type": "application/json" } },
+            );
+          }
+        }
+        return ${varName}.run(params, actionRunContext);
+      };
       const result = actionContext
         ? await runWithGeneratedRequestContext(actionContext, runAction)
         : await runAction();
+      if (result instanceof Response) return result;
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
@@ -1570,7 +1601,7 @@ ${["post", "put", "delete"]
   getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  isSameOriginRequest as isGeneratedSameOriginRequest,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
+${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  isSameOriginRequest as isGeneratedSameOriginRequest,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -4381,14 +4412,6 @@ function hasBareYjsRuntimeImport(source: string): boolean {
   );
 }
 
-const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
-  "fast-xml-parser",
-  "jszip",
-  "officeparser",
-  "pdf-parse",
-  "pdfjs-dist",
-] as const;
-
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const quote = `["\'\\\`]`;
@@ -4868,7 +4891,7 @@ export function assertSingleTemplateNetlifyBuildOutput(
   const bareIngestionImports: string[] = [];
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
-    for (const dependency of NETLIFY_BUNDLED_INGESTION_DEPENDENCIES) {
+    for (const dependency of CORE_BUNDLED_INGESTION_OPTIONAL_PEERS) {
       if (hasBareRuntimeImport(source, dependency)) {
         bareIngestionImports.push(
           `${dependency} in ${path.relative(projectCwd, filePath)}`,
@@ -6080,6 +6103,15 @@ export default bundle;
   );
   const nitroServerCodeSplittingConfig =
     nitroServerCodeSplittingConfigForPreset(preset);
+  const nodeExternalPreset =
+    preset === "netlify" ||
+    preset === "vercel" ||
+    isAwsLambdaPreset(preset) ||
+    preset === "node" ||
+    preset === "node-server";
+  const optionalPeerExternals = nodeExternalPreset
+    ? getMissingCoreOptionalPeers(cwd).map(packageExternalPattern)
+    : [];
   const sentryServerSourceMapPlugins =
     await createSentryServerSourceMapUploadPlugins(nitroEnvironment);
   const nitroVirtual: Record<string, string | (() => string)> = {
@@ -6142,12 +6174,8 @@ export default bundle;
     ),
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
-      ...(preset === "netlify" ||
-      preset === "vercel" ||
-      isAwsLambdaPreset(preset) ||
-      preset === "node" ||
-      preset === "node-server"
-        ? { external: ["yjs"] }
+      ...(nodeExternalPreset
+        ? { external: ["yjs", ...optionalPeerExternals] }
         : {}),
       plugins: [
         ...(preset.startsWith("cloudflare")

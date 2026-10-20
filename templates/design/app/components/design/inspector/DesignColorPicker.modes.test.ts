@@ -1,6 +1,28 @@
+import {
+  gamutOf,
+  linearSrgbToDisplayP3,
+  parseWideColor,
+  type Vec3,
+} from "@shared/color-spaces";
 import { rgbaToHsl, hslToRgba, type RgbaColor } from "@shared/color-utils";
 import { describe, expect, it } from "vitest";
 
+import { computeScrubbedValue } from "./color-picker-controls";
+import {
+  hueTrackBackground,
+  linearFromWideSquare,
+  modeForValue,
+  modeNotation,
+  oklchCells,
+  p3Cells,
+  readWideColor,
+  rewriteAlpha,
+  wideHueColor,
+  wideSquareHsv,
+  withOklchCell,
+  withP3Cell,
+  writeColor,
+} from "./color-picker-model";
 import {
   expandHexShorthand,
   GRADIENT_PAINT_TYPES,
@@ -386,5 +408,174 @@ describe("RGB <-> HSV round-trip stability (DesignColorPicker internal hsv helpe
         expect(value.b).toBe(stabilizedAt.b);
       }
     }
+  });
+});
+
+// ─── Display P3 and OKLCH ─────────────────────────────────────────────────────
+//
+// Reference fallbacks (culori 4.0.2, CSS Color 4 gamut mapping):
+//   oklch(0.7 0.3 150) -> sRGB #00c248, Display P3 (0, 0.7814, 0.20099).
+
+const WIDE_GREEN = "oklch(0.7 0.3 150)";
+const wideGreen = (): Vec3 => {
+  const wide = readWideColor(WIDE_GREEN);
+  if (!wide) throw new Error("unreadable");
+  return wide.linear;
+};
+
+describe("color mode notation", () => {
+  it("names the notation each of the six modes writes", () => {
+    expect(
+      (["hex", "rgb", "hsl", "hsb", "p3", "oklch"] as const).map(modeNotation),
+    ).toEqual(["srgb", "srgb", "srgb", "srgb", "display-p3", "oklch"]);
+  });
+
+  it("opens a color in the notation it was written in", () => {
+    expect(modeForValue("oklch(0.7 0.3 150)", "hex")).toBe("oklch");
+    expect(modeForValue("color(display-p3 1 0 0)", "rgb")).toBe("p3");
+    // An sRGB color keeps the sRGB mode already chosen, and leaves a wide one.
+    expect(modeForValue("#0a6bd6", "hsl")).toBe("hsl");
+    expect(modeForValue("#0a6bd6", "oklch")).toBe("hex");
+    expect(modeForValue("rgba(0, 0, 0, 0.5)", "p3")).toBe("hex");
+    expect(modeForValue("color(srgb 1 0 0)", "hsb")).toBe("hsb");
+  });
+});
+
+describe("writeColor", () => {
+  it("writes sRGB modes as hex or rgba(), mapping a wider color into sRGB first", () => {
+    for (const mode of ["hex", "rgb", "hsl", "hsb"] as const) {
+      expect(writeColor(mode, wideGreen(), 1)).toBe("#00c248");
+    }
+    expect(writeColor("hex", wideGreen(), 0.5)).toBe("rgba(0, 194, 72, 0.5)");
+  });
+
+  it("writes oklch() as the color itself, past sRGB and past Display P3", () => {
+    expect(writeColor("oklch", wideGreen(), 1)).toBe("oklch(70% 0.3 150)");
+    expect(writeColor("oklch", wideGreen(), 0.5)).toBe(
+      "oklch(70% 0.3 150 / 50%)",
+    );
+    expect(gamutOf(wideGreen())).toBe("wide");
+  });
+
+  it("writes color(display-p3) inside Display P3, mapping a color past it", () => {
+    const written = writeColor("p3", wideGreen(), 1);
+    const parsed = parseWideColor(written);
+    if (parsed?.kind !== "ok" || parsed.color.notation !== "display-p3") {
+      throw new Error(`unreadable ${written}`);
+    }
+    const [r, g, b] = parsed.color.p3;
+    expect(r).toBeCloseTo(0, 2);
+    expect(g).toBeCloseTo(0.7814, 2);
+    expect(b).toBeCloseTo(0.201, 2);
+    expect(writeColor("p3", wideGreen(), 0.25)).toMatch(/ \/ 0\.25\)$/);
+  });
+
+  it("round-trips an sRGB color through every mode without drift", () => {
+    const parsed = readWideColor("color(srgb 0.0392 0.4196 0.8392)")!;
+    const hex = writeColor("hex", parsed.linear, 1);
+    expect(hex).toBe("#0a6bd6");
+    for (const mode of ["p3", "oklch"] as const) {
+      const wide = readWideColor(writeColor(mode, parsed.linear, 1))!;
+      expect(writeColor("hex", wide.linear, 1)).toBe(hex);
+    }
+  });
+});
+
+describe("rewriteAlpha", () => {
+  it("keeps authored digits when the color is already in the mode's notation", () => {
+    expect(rewriteAlpha("oklch", "oklch(70% 0.123456 150.5)", 0.4)).toBe(
+      "oklch(70% 0.123456 150.5 / 40%)",
+    );
+    expect(rewriteAlpha("p3", "color(display-p3 0.9175 0.2 0.1386)", 0.5)).toBe(
+      "color(display-p3 0.9175 0.2 0.1386 / 0.5)",
+    );
+    expect(rewriteAlpha("hex", "#336699", 0.5)).toBe("rgba(51, 102, 153, 0.5)");
+  });
+
+  it("converts a color that is in another notation than the mode", () => {
+    expect(rewriteAlpha("hex", WIDE_GREEN, 0.5)).toBe("rgba(0, 194, 72, 0.5)");
+    expect(rewriteAlpha("oklch", "#00c248", 1)).toMatch(/^oklch\(/);
+  });
+
+  it("returns null for a color it cannot read, not a default", () => {
+    expect(rewriteAlpha("oklch", "oklch(0.7)", 0.5)).toBeNull();
+    expect(rewriteAlpha("hex", "not a color", 0.5)).toBeNull();
+  });
+});
+
+describe("the wide modes' square and hue strip", () => {
+  it("puts the square over Display P3 and round-trips a point", () => {
+    const hsv = wideSquareHsv(wideGreen(), 0);
+    const back = linearFromWideSquare(hsv);
+    const [r, g, b] = linearSrgbToDisplayP3(back);
+    // wideGreen is mapped into P3 first, so the point is the P3 fallback.
+    expect(r).toBeCloseTo(0, 2);
+    expect(g).toBeCloseTo(0.7814, 2);
+    expect(b).toBeCloseTo(0.201, 2);
+  });
+
+  it("reaches a color sRGB cannot show", () => {
+    const p3Red = readWideColor("color(display-p3 1 0 0)")!.linear;
+    const hsv = wideSquareHsv(p3Red, 0);
+    expect(hsv.s).toBeCloseTo(1, 6);
+    expect(hsv.v).toBeCloseTo(1, 6);
+    expect(gamutOf(linearFromWideSquare(hsv))).toBe("p3");
+  });
+
+  it("keeps the hue hint for a gray", () => {
+    expect(wideSquareHsv([0.2, 0.2, 0.2], 123).h).toBe(123);
+  });
+
+  it("draws the hue strip in the mode's own space", () => {
+    expect(hueTrackBackground("hex")).toMatch(/^linear-gradient\(90deg, #/);
+    expect(hueTrackBackground("p3")).toMatch(/color\(display-p3 1 0 0\)/);
+    expect(hueTrackBackground("p3")).not.toMatch(/oklch|#/);
+    expect(hueTrackBackground("oklch")).toMatch(/oklch\(75% 0\.18 0\)/);
+    expect(hueTrackBackground("oklch")).toMatch(/oklch\(75% 0\.18 360\)/);
+    expect(wideHueColor(0)).toBe("color(display-p3 1 0 0)");
+  });
+});
+
+describe("value cells for the wide modes", () => {
+  it("lays out OKLCH as L (0-100), C and H with the precision each needs", () => {
+    const cells = oklchCells({ l: 0.724, c: 0.181, h: 153 });
+    expect(cells.map(({ label }) => label)).toEqual(["L", "C", "H"]);
+    expect(cells[0]!.value).toBeCloseTo(72.4, 9);
+    expect(cells[1]!.value).toBe(0.181);
+    expect(cells[2]!.value).toBe(153);
+    expect(cells.map(({ decimals }) => decimals)).toEqual([1, 3, 1]);
+  });
+
+  it("lays out Display P3 as three 0-1 channels at three decimals", () => {
+    const cells = p3Cells([0.1, 0.2, 0.3]);
+    expect(cells.map(({ label }) => label)).toEqual(["R", "G", "B"]);
+    expect(
+      cells.every(
+        ({ min, max, decimals }) => min === 0 && max === 1 && decimals === 3,
+      ),
+    ).toBe(true);
+  });
+
+  it("changes one cell and leaves every other number exactly as it was", () => {
+    const authored = { l: 0.7, c: 0.123456, h: 150.5 };
+    expect(withOklchCell(authored, "l", 80)).toEqual({ ...authored, l: 0.8 });
+    expect(withOklchCell(authored, "c", 0.2)).toEqual({ ...authored, c: 0.2 });
+    expect(withOklchCell(authored, "h", 10)).toEqual({ ...authored, h: 10 });
+    expect(withP3Cell([0.1, 0.2, 0.3], 1, 0.9)).toEqual([0.1, 0.9, 0.3]);
+  });
+});
+
+describe("computeScrubbedValue with a step", () => {
+  it("scrubs a fractional field by its step and keeps its precision", () => {
+    // 8px right is two ticks of 4px; Shift is ten times a tick.
+    expect(computeScrubbedValue(0.5, 8, 0, 1, false, 0.004, 3)).toBe(0.508);
+    expect(computeScrubbedValue(0.5, 8, 0, 1, true, 0.004, 3)).toBe(0.58);
+    expect(computeScrubbedValue(0.99, 40, 0, 1, false, 0.004, 3)).toBe(1);
+    expect(computeScrubbedValue(0.01, -40, 0, 1, false, 0.004, 3)).toBe(0);
+  });
+
+  it("still scrubs a whole-number field by one", () => {
+    expect(computeScrubbedValue(50, 8, 0, 100, false)).toBe(52);
+    expect(computeScrubbedValue(50, -400, 0, 100, false)).toBe(0);
   });
 });

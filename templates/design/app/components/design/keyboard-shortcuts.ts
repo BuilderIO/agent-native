@@ -563,6 +563,31 @@ const KEY_LABELS: Record<string, string> = {
   tab: "Tab",
 };
 
+const UNAVAILABLE_SHORTCUT_IDS = {
+  annotate: ["draw-tool"],
+} as const;
+
+const unavailableShortcutIdCache = new Map<string, readonly string[]>();
+
+/**
+ * Ids of the shortcuts the dialog should not list because their tool is not
+ * available: Draw without the Annotate lab. Equal inputs return the same array,
+ * so the dialog's memoized sections are not rebuilt on every editor render.
+ */
+export function getUnavailableShortcutIds({
+  annotateEnabled,
+}: {
+  annotateEnabled: boolean;
+}): readonly string[] {
+  const cacheKey = String(annotateEnabled);
+  let ids = unavailableShortcutIdCache.get(cacheKey);
+  if (!ids) {
+    ids = annotateEnabled ? [] : UNAVAILABLE_SHORTCUT_IDS.annotate;
+    unavailableShortcutIdCache.set(cacheKey, ids);
+  }
+  return ids;
+}
+
 export function formatShortcutKeycaps(
   binding: string,
   applePlatform: boolean,

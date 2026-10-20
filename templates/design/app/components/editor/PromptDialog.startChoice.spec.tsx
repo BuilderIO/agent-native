@@ -39,13 +39,6 @@ describe("New Design start choice", () => {
     expect(templateRow).toContain("onDesignSystemChange");
   });
 
-  it("drops the corner link when the choice is offered", () => {
-    expect(source).toContain(
-      "{onSkip && skipLabel && !inline && !offerStartChoice && (",
-    );
-    expect(source).not.toContain('t("promptDialog.skipPrompt")');
-  });
-
   it("returns to the choice when the popover is reopened", () => {
     expect(source).toContain("setShowStartChoice(offerStartChoice);");
   });

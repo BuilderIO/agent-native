@@ -67,6 +67,8 @@ interface Metrics {
   fixConcentration: number;
   persistence: number;
   primaryShare: number;
+  /** Days covered by the last weekly bucket (1 to 7). */
+  lastWeekDays: number;
   weekly: { start: string; commits: number; fixes: number }[];
 }
 
@@ -107,7 +109,11 @@ export interface Analysis {
   mode: "window" | "focus";
   label: { title: string; url: string | null } | null;
   focus: string[];
-  regressionCandidates: (CommitRef & { kind: string; files: string[] })[];
+  regressionCandidates: (CommitRef & {
+    kind: string;
+    files: string[];
+    broad: boolean;
+  })[];
   related: {
     keywords: string[];
     commits: (CommitRef & { systems: string[]; touchesFocus: boolean })[];
@@ -116,7 +122,6 @@ export interface Analysis {
   windowStart: string;
   windowEnd: string;
   lookbackStart: string;
-  prMetadata: Collected["prs"]["status"];
   baseline: {
     systems: number;
     repoFixRatio: number;
@@ -152,6 +157,12 @@ main((args) => {
   );
   const labelTitle = argString(args, "label");
   const focused = focus.length > 0;
+  const regressionSince = Date.parse(data.windowEnd) - regressionDays * DAY;
+  if (focused && regressionSince < Date.parse(data.lookbackStart)) {
+    throw new ScriptError(
+      `--regression-days ${regressionDays} reaches before the collected history (from ${data.lookbackStart}); re-run collect with --lookback-days ${regressionDays} or more`,
+    );
+  }
   assertFocusFiles(focus, data);
 
   const ignoredSubject = compile(config.ignoreSubjects);
@@ -188,7 +199,7 @@ main((args) => {
     }
     countedCommits++;
     if (isFix(commit)) fixCommits++;
-    const largest = Math.max(...[...bySystem.values()].map((f) => f.length));
+    const codeBySystem = new Map<string, Commit["files"]>();
     for (const [system, files] of bySystem) {
       const share = mechanicalShare.get(system) ?? { total: 0, mechanical: 0 };
       share.total++;
@@ -197,11 +208,16 @@ main((args) => {
       mechanicalShare.set(system, share);
       // A commit that only edits a system's tests says nothing about its code.
       const code = substantive.filter((f) => !TEST_FILE.test(f.path));
-      if (code.length)
-        touches.set(system, [
-          ...(touches.get(system) ?? []),
-          { commit, files: code, primary: files.length === largest },
-        ]);
+      if (code.length) codeBySystem.set(system, code);
+    }
+    // One primary per commit, picked from the same code files that are scored,
+    // even on a tie, so primaryShare isn't inflated or stolen by test churn.
+    const primarySystem = largestSystem(codeBySystem);
+    for (const [system, code] of codeBySystem) {
+      touches.set(system, [
+        ...(touches.get(system) ?? []),
+        { commit, files: code, primary: system === primarySystem },
+      ]);
     }
   }
 
@@ -270,12 +286,10 @@ main((args) => {
       : null,
     focus,
     regressionCandidates: focused
-      ? regressionCandidates(
-          focus,
-          data.commits,
-          Date.parse(data.windowEnd) - regressionDays * DAY,
-          { ignoredSubject, sweeps: sweepShas },
-        )
+      ? regressionCandidates(focus, data.commits, regressionSince, {
+          ignoredSubject,
+          sweeps: sweepShas,
+        })
       : [],
     related: keywords.length
       ? {
@@ -290,7 +304,6 @@ main((args) => {
     windowStart: data.windowStart,
     windowEnd: data.windowEnd,
     lookbackStart: data.lookbackStart,
-    prMetadata: data.prs.status,
     baseline: {
       systems: population.length,
       repoFixRatio: round(countedCommits ? fixCommits / countedCommits : 0),
@@ -314,7 +327,7 @@ main((args) => {
     );
     for (const c of analysis.regressionCandidates.slice(0, 12)) {
       console.log(
-        `    ${c.date} #${c.pr ?? "?"} [${c.kind}] ${c.subject.slice(0, 80)} — ${c.files.map((f) => path.basename(f)).join(", ")}`,
+        `    ${c.date} #${c.pr ?? "?"} [${c.kind}${c.broad ? ", broad" : ""}] ${c.subject.slice(0, 80)} — ${c.files.map((f) => path.basename(f)).join(", ")}`,
       );
     }
   }
@@ -328,6 +341,15 @@ main((args) => {
     );
   }
 });
+
+function largestSystem(bySystem: Map<string, unknown[]>): string | null {
+  let best: string | null = null;
+  let size = -1;
+  for (const [system, files] of bySystem) {
+    if (files.length > size) [best, size] = [system, files.length];
+  }
+  return best;
+}
 
 function toTarget(r: SystemReport): Target {
   return {
@@ -395,6 +417,8 @@ function focusFile(
 
 // Every kind of commit counts here, not only fixes: features and refactors
 // break things too, and "got busted" reports are usually a recent change.
+// Broad commits are kept and flagged: a wide shared-contract change that
+// touched the path is often the trigger, even though it's left out of scores.
 function regressionCandidates(
   focus: string[],
   commits: Commit[],
@@ -404,15 +428,13 @@ function regressionCandidates(
   const focusSet = new Set(focus);
   return commits
     .filter(
-      (c) =>
-        Date.parse(c.date) >= since &&
-        !filters.ignoredSubject(c.subject) &&
-        !filters.sweeps.has(c.sha),
+      (c) => Date.parse(c.date) >= since && !filters.ignoredSubject(c.subject),
     )
     .map((c) => ({
       ...commitRef(c),
       kind: c.kind,
       files: c.files.map((f) => f.path).filter((p) => focusSet.has(p)),
+      broad: filters.sweeps.has(c.sha),
     }))
     .filter((c) => c.files.length > 0);
 }
@@ -580,6 +602,10 @@ function measure(
       primaryShare: round(
         commits ? ordered.filter((t) => t.primary).length / commits : 0,
       ),
+      lastWeekDays: Math.min(
+        7,
+        Math.max(1, Math.ceil((end - start) / DAY - (totalWeeks - 1) * 7)),
+      ),
       weekly,
     },
     topFiles,
@@ -623,8 +649,14 @@ function judge(s: Measured, sorted: Record<string, number[]>): SystemReport {
   if (p.newFileShare >= 0.75)
     say("newFileShare", "new-file share", m.newFileShare);
 
-  const last = m.weekly.at(-1)?.fixes ?? 0;
-  const earlier = m.weekly.slice(0, -1);
+  // The last bucket can be shorter than a week; compare its weekly rate. A day
+  // or two is too short a sample to call a trend, so then the last full week
+  // is the one compared.
+  const short = m.lastWeekDays < 3;
+  const weeks = short ? m.weekly.slice(0, -1) : m.weekly;
+  const lastDays = short ? 7 : m.lastWeekDays;
+  const last = round((weeks.at(-1)?.fixes ?? 0) * (7 / lastDays));
+  const earlier = weeks.slice(0, -1);
   const earlierAvg = earlier.length
     ? earlier.reduce((sum, w) => sum + w.fixes, 0) / earlier.length
     : 0;
@@ -636,7 +668,7 @@ function judge(s: Measured, sorted: Record<string, number[]>): SystemReport {
     );
   if (falling)
     reasons.push(
-      `fixes fell from ~${earlierAvg.toFixed(1)}/wk to ${last} in the latest week`,
+      `fixes fell from ~${earlierAvg.toFixed(1)}/wk to ${last}/wk in the latest ${lastDays < 7 ? `${lastDays} days` : "full week"}`,
     );
 
   let verdict: Verdict;
@@ -692,13 +724,13 @@ function renderMarkdown(a: Analysis): string {
           ...(a.regressionCandidates.length
             ? a.regressionCandidates.map(
                 (c) =>
-                  `- ${c.date} #${c.pr ?? "?"} [${c.kind}] ${c.subject} — ${c.files.map((f) => `\`${f}\``).join(", ")}`,
+                  `- ${c.date} #${c.pr ?? "?"} [${c.kind}${c.broad ? `, broad: over ${SWEEP_SYSTEMS} systems` : ""}] ${c.subject} — ${c.files.map((f) => `\`${f}\``).join(", ")}`,
               )
             : ["- none in the regression window"]),
           "",
         ]
       : [
-          `Window ${a.windowStart} to ${a.windowEnd}. Lookback from ${a.lookbackStart}. Head \`${a.head.slice(0, 9)}\`. PR metadata: ${a.prMetadata}.`,
+          `Window ${a.windowStart} to ${a.windowEnd}. Lookback from ${a.lookbackStart}. Head \`${a.head.slice(0, 9)}\`.`,
         ];
   const lines = [
     `# Fragility triage ${a.runId}`,

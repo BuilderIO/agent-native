@@ -46,6 +46,26 @@ describe("normalizeSlidePadding", () => {
     expect(normalizeSlidePadding(html)).toBe(html);
   });
 
+  it("never adds a second style attribute to a styled wrapper", () => {
+    const multiline =
+      '<div\n  class="fmd-slide"\n  style="\n    background: #111;\n    color: #fff;\n  "\n><p>Hi</p></div>';
+    const withAngle = `<div class="fmd-slide" style="background: url('data:image/svg+xml,<svg></svg>'); color: #fff"><p>Hi</p></div>`;
+    const dataStyle =
+      '<div data-style="x" class="fmd-slide" style="color: #fff"></div>';
+    for (const html of [multiline, withAngle, dataStyle]) {
+      const out = normalizeSlidePadding(html);
+      expect(out.match(/\sstyle\s*=/g)).toHaveLength(1);
+      expect(out).toContain("padding: 64px 80px;");
+      expect(out).toContain("color: #fff");
+    }
+  });
+
+  it("preserves padding declared in a multi-line style", () => {
+    const html =
+      '<div class="fmd-slide" style="\n  padding: 40px;\n  color: #fff;\n"></div>';
+    expect(normalizeSlidePadding(html)).toBe(html);
+  });
+
   it("adds a style attribute when the canonical wrapper has no inline style", () => {
     const html = '<div class="fmd-slide"></div>';
     expect(normalizeSlidePadding(html)).toBe(

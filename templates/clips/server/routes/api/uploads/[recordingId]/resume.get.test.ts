@@ -63,6 +63,8 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(() => "eq"),
   isNull: vi.fn(() => "is-null"),
   lte: vi.fn(() => "lte"),
+  ne: vi.fn(() => "ne"),
+  or: vi.fn(() => "or"),
 }));
 
 vi.mock("h3", () => ({
@@ -118,10 +120,11 @@ vi.mock("../../../../lib/resumable-upload-cleanup.js", () => ({
     mockAbortResumableUploadSession(...args),
 }));
 
-vi.mock("../../../../lib/upload-lease.js", async (importOriginal) => ({
-  isParkedForStorage: (
-    await importOriginal<typeof import("../../../../lib/upload-lease.js")>()
-  ).isParkedForStorage,
+vi.mock("../../../../lib/upload-lease.js", () => ({
+  isParkedForStorage: (row: {
+    status?: string;
+    failureReason?: string | null;
+  }) => row.status === "uploading" && Boolean(row.failureReason),
   UPLOAD_LEASE_MS: 60 * 60 * 1000,
   renewUploadLease: (...args: unknown[]) => mockRenewUploadLease(...args),
   uploadLeaseExpiry: () => "2099-01-01T00:00:00.000Z",
@@ -162,6 +165,25 @@ describe("/api/uploads/:recordingId/resume route", () => {
     expect(mockDb.update).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
+
+  it.each([true, false])(
+    "does not resume a taken-down recording when recovery is %s",
+    async (recoveryEnabled) => {
+      mockIsFeatureFlagEnabled.mockResolvedValue(recoveryEnabled);
+      mockSelectRows.rows = [
+        { id: "rec-1", status: "failed", failureCode: "taken_down" },
+      ];
+
+      await expect(handler({} as any)).resolves.toEqual({
+        error: "Recording is no longer available.",
+        terminal: true,
+      });
+
+      expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns an existing fence when the flag is disabled", async () => {
     mockIsFeatureFlagEnabled.mockResolvedValue(false);

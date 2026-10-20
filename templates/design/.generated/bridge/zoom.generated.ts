@@ -7,8 +7,15 @@ export const zoomBridgeScript: string = `"use strict";
   // app/components/design/bridge/zoom.bridge.ts
   (function() {
     var target = document.documentElement || document.body || document;
+    var interactionMode = false;
+    window.addEventListener("message", function(e) {
+      if (e.source !== window.parent || !e.data) return;
+      if (e.data.type === "set-interaction-mode") {
+        interactionMode = e.data.interact === true;
+      }
+    });
     function onWheel(e) {
-      if (!(e.ctrlKey || e.metaKey)) return;
+      if (interactionMode || !(e.ctrlKey || e.metaKey)) return;
       if (e.cancelable) e.preventDefault();
       try {
         window.parent.postMessage(

@@ -1,3 +1,5 @@
+import { stripBoardSurfaceOffsetFromCoord } from "@shared/board-file";
+import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type {
   CodeLayerNode,
   CodeLayerProjection,
@@ -14,6 +16,7 @@ import { toast } from "sonner";
 
 import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { LayersPanelMoveIntent } from "@/components/design/LayersPanel";
+import { boardPointToScreenLocalPoint } from "@/components/design/multi-screen/coordinate-transforms";
 import type {
   ElementInfo,
   RuntimeStructureInsertRequest,
@@ -26,6 +29,7 @@ import {
   elementInfoFromCodeLayerNode,
   findMovedCodeLayerNodeInProjection,
 } from "@/pages/design-editor/code-layer-state";
+import { adaptAutoTextColorsForCrossScreenNodes } from "@/pages/design-editor/cross-screen-text-color";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   getLayerMoveSourceContent,
@@ -41,11 +45,14 @@ import {
   getContentHistoryChanges,
   stampContentHistorySelectionAfter,
 } from "@/pages/design-editor/history";
+import { getAbsolutePositioningForNodeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import {
+  getLivePreviewDocument,
   isFlowDisplay,
   readLiveLayerMoveLayout,
 } from "@/pages/design-editor/live-layer-move-layout";
 import { prepareLiveScreenLayerDrop } from "@/pages/design-editor/live-screen-layer-drop";
+import { resolveOverviewScreenFrameGeometry } from "@/pages/design-editor/selection-state";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -75,6 +82,7 @@ export interface LayerMoveToScreenArgs {
     },
   ) => ApplyFileContentUpdateResult;
   boardFileId: string | undefined;
+  canvasFrameGeometryById: CanvasFrameGeometryById;
   codeLayerOwnerByNodeId: ReadonlyMap<
     string,
     {
@@ -115,6 +123,7 @@ export function runLayerMoveToScreen(
     activeFile,
     applyFileContentUpdate,
     boardFileId,
+    canvasFrameGeometryById,
     codeLayerOwnerByNodeId,
     effectiveCodeLayerState,
     files,
@@ -137,6 +146,47 @@ export function runLayerMoveToScreen(
   intent: LayersPanelMoveIntent,
   targetFileId: string,
 ) {
+  const placeBoardLayerInScreen = (
+    destHtml: string,
+    movedNodeId: string,
+    boardPosition: { x: number; y: number } | null,
+  ): string | null => {
+    const screenIndex =
+      overviewScreens?.findIndex((screen) => screen.id === targetFileId) ?? -1;
+    const screen = overviewScreens?.[screenIndex];
+    if (!screen || !boardPosition) return null;
+    const frame = resolveOverviewScreenFrameGeometry({
+      screen,
+      screenIndex,
+      canvasFrameGeometryById,
+    });
+    const local = boardPointToScreenLocalPoint(
+      {
+        x: stripBoardSurfaceOffsetFromCoord(boardPosition.x),
+        y: stripBoardSurfaceOffsetFromCoord(boardPosition.y),
+      },
+      frame,
+      {
+        width: screen.width ?? frame.width,
+        height: screen.height ?? frame.height,
+      },
+    );
+    let placed = destHtml;
+    for (const [property, value] of [
+      ["left", local.x],
+      ["top", local.y],
+    ] as const) {
+      const patch = applyVisualEdit(placed, {
+        kind: "style",
+        target: { nodeId: movedNodeId },
+        property,
+        value: `${Math.round(value)}px`,
+      });
+      if (patch.result.status !== "applied") return null;
+      placed = patch.content;
+    }
+    return placed;
+  };
   const freshActiveContent = getFreshActiveContent();
   const destFile = files.find((file) => file.id === targetFileId);
   const destContent =
@@ -486,13 +536,51 @@ export function runLayerMoveToScreen(
       );
       continue;
     }
+    const movedNodeId = result.movedNodeId ?? nodeAttrId;
+    const destHtml =
+      sourceFileId === boardFileId && sourceIsOutOfFlow && !destinationIsFlow
+        ? placeBoardLayerInScreen(
+            result.destHtml,
+            movedNodeId,
+            getAbsolutePositioningForNodeInHtml(
+              currentSourceContent,
+              nodeAttrId,
+            ),
+          )
+        : result.destHtml;
+    if (!destHtml) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      continue;
+    }
     sourceContentMap.set(sourceFileId, result.sourceHtml);
-    nextDestContent = result.destHtml;
-    movedNodeIdByDraggedId.set(draggedId, result.movedNodeId ?? nodeAttrId);
+    nextDestContent = destHtml;
+    movedNodeIdByDraggedId.set(draggedId, movedNodeId);
     moved = true;
   }
 
   if (!moved) return;
+
+  const liveDestination = getLivePreviewDocument({
+    activeBreakpointWidthState,
+    activeFileId: activeFile?.id,
+    boardFileId,
+    fileId: targetFileId,
+    overviewScreens,
+  });
+  const movedNodeAttrIds = intent.draggedIds.flatMap((draggedId) => {
+    if (codeLayerOwnerByNodeId.get(draggedId)?.fileId === targetFileId) {
+      return [];
+    }
+    const nodeId = movedNodeIdByDraggedId.get(draggedId);
+    return nodeId ? [nodeId] : [];
+  });
+  nextDestContent = adaptAutoTextColorsForCrossScreenNodes(
+    nextDestContent,
+    movedNodeAttrIds,
+    liveDestination.status === "resolved" ? liveDestination.document : null,
+  );
 
   const finalDestProjection = buildCodeLayerProjection(nextDestContent, {
     source: { kind: "design-file", fileId: targetFileId },

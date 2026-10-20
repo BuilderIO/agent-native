@@ -11,8 +11,8 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: "org-qa", role: "owner" })),
 );
-const resolveOrgIdForEmailMock = vi.hoisted(() =>
-  vi.fn(async () => "org-owner"),
+const resolveOrgScopeForEmailMock = vi.hoisted(() =>
+  vi.fn(async () => ({ status: "organization", orgId: "org-owner" })),
 );
 const runWithRequestContextMock = vi.hoisted(() =>
   vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
@@ -113,7 +113,7 @@ vi.mock("../server/credential-provider.js", async () => {
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
-  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+  resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
 vi.mock("../server/request-context.js", () => ({
@@ -417,7 +417,10 @@ describe("integrations plugin routes", () => {
       owner: null,
     }));
     getOrgContextMock.mockResolvedValue({ orgId: "org-qa", role: "owner" });
-    resolveOrgIdForEmailMock.mockResolvedValue("org-owner");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-owner",
+    });
     runWithRequestContextMock.mockImplementation(
       (_ctx: unknown, fn: () => unknown) => fn(),
     );
@@ -687,11 +690,41 @@ describe("integrations plugin routes", () => {
     });
     expect(startGoogleDocsPollerMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        ownerEmail: "integration@google-docs",
+        ownerEmail: "owner@example.test",
         webhookUrl:
           "https://app.test/_agent-native/integrations/google-docs/webhook",
       }),
     );
+  });
+
+  it("keeps a queued personal task in personal request scope", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    task.id = "personal-task";
+    task.ownerEmail = "personal+qa@example.test";
+    task.orgId = null;
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce(undefined);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(200);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: task.ownerEmail,
+        orgScope: "personal",
+        isIntegrationCaller: true,
+      },
+      expect.any(Function),
+    );
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
   it("serializes concurrent Google Docs enable and disable transitions", async () => {
@@ -2478,7 +2511,10 @@ describe("integrations plugin routes", () => {
       configData: { enabled: true },
       owner: "owner+qa@example.com",
     });
-    resolveOrgIdForEmailMock.mockResolvedValueOnce("org-owner");
+    resolveOrgScopeForEmailMock.mockResolvedValueOnce({
+      status: "organization",
+      orgId: "org-owner",
+    });
     resourceGetByPathMock.mockImplementation(async (owner, path) => {
       if (owner === "shared" && path === "AGENTS.md") {
         return { content: "Shared Dispatch instruction" };
@@ -2537,7 +2573,7 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(200);
-    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith(
+    expect(resolveOrgScopeForEmailMock).toHaveBeenCalledWith(
       "owner+qa@example.com",
     );
     expect(runWithRequestContextMock).toHaveBeenCalledWith(

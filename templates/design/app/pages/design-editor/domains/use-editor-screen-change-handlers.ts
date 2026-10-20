@@ -5,6 +5,7 @@ import { useEffect, useCallback, useRef, useMemo } from "react";
 import { registerPendingTextHostCommit } from "@/components/design/design-canvas/pending-text-capture";
 import { type StyleChangeMeta } from "@/components/design/EditPanel";
 import {
+  sendBreakpointPreviewStyleChange,
   sendLinkedScreenPreviewInteractionStateStyle,
   sendLinkedScreenPreviewStyleChange,
 } from "@/components/design/multi-screen/linked-screen-preview";
@@ -85,6 +86,7 @@ export function useEditorScreenChangeHandlers({
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     undoManagerRef,
+    localContentUndoStackRef,
     captureCurrentSelection,
     prepareTextCreationFinalization,
   } = editorHistory;
@@ -471,6 +473,7 @@ export function useEditorScreenChangeHandlers({
           canEditLiveScreen: canEditActiveVisualScreen,
           remapMotionTracksForClone,
           getFreshActiveContent,
+          localContentUndoStackRef,
           selectedElement,
           selectedLayerIdsState,
           setSelectedElement,
@@ -494,6 +497,7 @@ export function useEditorScreenChangeHandlers({
       canEditActiveVisualScreen,
       componentCloneContextForFile,
       getFreshActiveContent,
+      localContentUndoStackRef,
       recordPendingLiveStructureEdit,
       selectedElement,
       selectedLayerIdsState,
@@ -513,6 +517,7 @@ export function useEditorScreenChangeHandlers({
         preserveSelection?: boolean;
         routePath?: string;
         runtimeApplied?: boolean;
+        requirePersistedSourceAcceptance?: boolean;
         relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
@@ -644,21 +649,45 @@ export function useEditorScreenChangeHandlers({
         );
         return;
       }
-      for (const [property, value] of Object.entries(styles)) {
-        sendLinkedScreenPreviewStyleChange(
-          screenId,
-          selector,
-          property,
-          value,
-          {
+      // A runtime style lands inline in every frame it reaches, so a
+      // breakpoint-scoped edit previews only its own frame and commits by
+      // replacing content, which carries the scoped @media rule.
+      const scopedBreakpointWidthPx =
+        activeBreakpointUpperBoundAtEvent() == null
+          ? null
+          : (activeBreakpointWidthStateRef.current ?? null);
+      if (!metadata?.requirePersistedSourceAcceptance) {
+        for (const [property, value] of Object.entries(styles)) {
+          const previewOptions = {
             selectorCandidates,
             nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId,
             relativeOperation: relativeOperationsForStyles(
               { [property]: value },
               metadata,
             )?.[property],
-          },
-        );
+          };
+          if (scopedBreakpointWidthPx == null) {
+            sendLinkedScreenPreviewStyleChange(
+              screenId,
+              selector,
+              property,
+              value,
+              previewOptions,
+            );
+          } else if (
+            metadata?.phase === "preview" ||
+            metadata?.phase === "cancel"
+          ) {
+            sendBreakpointPreviewStyleChange(
+              screenId,
+              scopedBreakpointWidthPx,
+              selector,
+              property,
+              value,
+              previewOptions,
+            );
+          }
+        }
       }
       if (
         metadata?.phase === "preview" ||
@@ -669,7 +698,11 @@ export function useEditorScreenChangeHandlers({
       const relativeOperations = relativeOperationsForStyles(styles, metadata);
       handleScreenVisualStyleChange(screenId, selector, styles, elementInfo, {
         phase: metadata?.phase === "commit" ? "commit" : undefined,
-        runtimeApplied: true,
+        runtimeApplied:
+          !metadata?.requirePersistedSourceAcceptance &&
+          scopedBreakpointWidthPx == null,
+        requirePersistedSourceAcceptance:
+          metadata?.requirePersistedSourceAcceptance,
         ...(relativeOperations ? { relativeOperations } : {}),
         routePath:
           metadata?.routePath ?? liveRoutePathsByScreenIdRef.current[screenId],
@@ -965,7 +998,7 @@ export function useEditorScreenChangeHandlers({
   >(
     (selector, value, info, details) => {
       if (!boardFileId) return;
-      handleScreenTextContentChange(
+      return handleScreenTextContentChange(
         boardFileId,
         selector,
         value,

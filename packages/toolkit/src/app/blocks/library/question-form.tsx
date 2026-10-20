@@ -16,6 +16,7 @@ import {
   type QuestionMode,
   type VisualQuestionsData,
 } from "@agent-native/core/blocks/server";
+import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { cn } from "@agent-native/toolkit/utils";
 import {
@@ -27,7 +28,9 @@ import {
   IconSend,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+import { BlockRenderErrorFallback } from "../BlockRenderErrorBoundary.js";
 
 type QuestionFormSubmitCtx = BlockRenderContext & {
   onQuestionFormSubmit?: (summary: string) => void;
@@ -440,8 +443,16 @@ function QuestionFormReadInner({
   blockId,
   title,
   ctx,
-}: BlockReadProps<QuestionFormData>) {
-  const questions = data.questions;
+  blockType,
+}: BlockReadProps<QuestionFormData> & { blockType: string }) {
+  const t = useT();
+  const parsedData = useMemo(() => {
+    if (data.questions === undefined) {
+      return { success: true as const, data: { ...data, questions: [] } };
+    }
+    return questionFormSchema.safeParse(data);
+  }, [data]);
+  const questions = parsedData.success ? parsedData.data.questions : [];
   const [answers, setAnswers] = useState<QuestionAnswers>(() =>
     defaultQuestionAnswers(questions),
   );
@@ -474,6 +485,17 @@ function QuestionFormReadInner({
     setHandoff({ mode, answered, total: questions.length });
     setShowQuestionsAfterHandoff(false);
   };
+
+  if (!parsedData.success) {
+    return (
+      <BlockRenderErrorFallback
+        blockId={blockId}
+        blockType={blockType}
+        message={t("agentChat.block.renderUnavailable")}
+        interactive
+      />
+    );
+  }
 
   return (
     <section
@@ -525,13 +547,13 @@ function QuestionFormReadInner({
 }
 
 export function QuestionFormRead(props: BlockReadProps<QuestionFormData>) {
-  return <QuestionFormReadInner {...props} />;
+  return <QuestionFormReadInner {...props} blockType="question-form" />;
 }
 
 export function VisualQuestionsRead(
   props: BlockReadProps<VisualQuestionsData>,
 ) {
-  return <QuestionFormReadInner {...props} />;
+  return <QuestionFormReadInner {...props} blockType="visual-questions" />;
 }
 
 const inlineInputClass =
@@ -550,23 +572,24 @@ export function QuestionFormEdit({
   onChange,
   editable,
 }: BlockEditProps<QuestionFormData>) {
+  const questions = data.questions === undefined ? [] : data.questions;
   const updateQuestion = (
     questionId: string,
     patch: Partial<QuestionFormQuestion>,
   ) =>
     onChange({
       ...data,
-      questions: data.questions.map((question) =>
+      questions: questions.map((question) =>
         question.id === questionId ? { ...question, ...patch } : question,
       ),
     });
 
   const addQuestion = () => {
-    if (data.questions.length >= 40) return;
+    if (questions.length >= 40) return;
     onChange({
       ...data,
       questions: [
-        ...data.questions,
+        ...questions,
         {
           id: newLocalId("question"),
           title: "New question",
@@ -578,12 +601,10 @@ export function QuestionFormEdit({
   };
 
   const removeQuestion = (questionId: string) => {
-    if (data.questions.length <= 1) return;
+    if (questions.length <= 1) return;
     onChange({
       ...data,
-      questions: data.questions.filter(
-        (question) => question.id !== questionId,
-      ),
+      questions: questions.filter((question) => question.id !== questionId),
     });
   };
 
@@ -611,7 +632,7 @@ export function QuestionFormEdit({
   ) =>
     onChange({
       ...data,
-      questions: data.questions.map((question) =>
+      questions: questions.map((question) =>
         question.id === questionId
           ? {
               ...question,
@@ -626,7 +647,7 @@ export function QuestionFormEdit({
   const addOption = (questionId: string) =>
     onChange({
       ...data,
-      questions: data.questions.map((question) =>
+      questions: questions.map((question) =>
         question.id === questionId && (question.options?.length ?? 0) < 40
           ? {
               ...question,
@@ -642,7 +663,7 @@ export function QuestionFormEdit({
   const removeOption = (questionId: string, optionId: string) =>
     onChange({
       ...data,
-      questions: data.questions.map((question) => {
+      questions: questions.map((question) => {
         if (question.id !== questionId) return question;
         const nextOptions = (question.options ?? []).filter(
           (option) => option.id !== optionId,
@@ -654,7 +675,7 @@ export function QuestionFormEdit({
   return (
     <div className="grid gap-6" data-plan-interactive>
       <div className="grid gap-4">
-        {data.questions.map((question, index) => {
+        {questions.map((question, index) => {
           const options = question.options ?? [];
           return (
             <article
@@ -663,7 +684,7 @@ export function QuestionFormEdit({
             >
               <div className="mb-4 flex items-center justify-between gap-3">
                 <span className={inlineLabelClass}>Question {index + 1}</span>
-                {data.questions.length > 1 && (
+                {questions.length > 1 && (
                   <button
                     type="button"
                     aria-label={`Delete question ${index + 1}`}
@@ -851,7 +872,7 @@ export function QuestionFormEdit({
       <button
         type="button"
         className="inline-flex h-9 w-fit items-center gap-1.5 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
-        disabled={!editable || data.questions.length >= 40}
+        disabled={!editable || questions.length >= 40}
         onClick={addQuestion}
       >
         <IconPlus className="size-4" />

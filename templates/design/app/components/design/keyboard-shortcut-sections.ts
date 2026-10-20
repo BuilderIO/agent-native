@@ -66,18 +66,24 @@ export function buildShortcutSections({
   categoryLabel,
   rowLabel,
   codeCommands,
+  unavailableIds = [],
 }: {
   query: string;
   applePlatform: boolean;
   categoryLabel: (category: DesignShortcutCategory) => string;
   rowLabel: (labelKey: string) => string;
   codeCommands: readonly CodeShortcutCommand[];
+  /** Design shortcut ids whose tool is not available right now (a lab that is off). */
+  unavailableIds?: readonly string[];
 }): ShortcutSection[] {
   const needle = normalizeQuery(query);
   return DESIGN_SHORTCUT_CATEGORIES.flatMap((category) => {
     const label = categoryLabel(category);
     const rows: ShortcutRow[] = [
-      ...DESIGN_SHORTCUTS.filter((item) => item.category === category).map(
+      ...DESIGN_SHORTCUTS.filter(
+        (item) =>
+          item.category === category && !unavailableIds.includes(item.id),
+      ).map(
         (item): ShortcutRow => ({
           id: item.id,
           source: "design",

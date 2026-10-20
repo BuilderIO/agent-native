@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   runQuery: vi.fn(),
-  getAccessToken: vi.fn(),
+  getBigQueryAccessToken: vi.fn(),
   getCredentialContext: vi.fn(),
   resolveCredential: vi.fn(),
   fetch: vi.fn(),
@@ -20,7 +20,7 @@ vi.mock("../server/lib/credentials", () => ({
   resolveCredential: mocks.resolveCredential,
 }));
 vi.mock("../server/lib/gcloud", () => ({
-  getAccessToken: mocks.getAccessToken,
+  getBigQueryAccessToken: mocks.getBigQueryAccessToken,
   raceWithAbort: (value: unknown) => Promise.resolve(value),
 }));
 // The real lib answers metadata and table-list requests through the mocked
@@ -66,10 +66,10 @@ const freshTable = () => `signups_${(tableSequence += 1)}`;
 beforeEach(() => {
   mocks.runQuery.mockReset();
   mocks.fetch.mockReset();
-  mocks.getAccessToken.mockReset();
+  mocks.getBigQueryAccessToken.mockReset();
   mocks.getCredentialContext.mockReset();
   mocks.resolveCredential.mockReset();
-  mocks.getAccessToken.mockResolvedValue("test-token");
+  mocks.getBigQueryAccessToken.mockResolvedValue("test-token");
   mocks.getCredentialContext.mockReturnValue({
     userEmail: "test@example.com",
     orgId: null,
@@ -352,7 +352,7 @@ describe("bigquery failed-query schema recovery", () => {
         mocks.runQuery.mockRejectedValue(failedQuery(detail));
         // A token cache miss: the exchange retries Google for far longer than
         // the lookup is allowed to take.
-        mocks.getAccessToken.mockImplementation(
+        mocks.getBigQueryAccessToken.mockImplementation(
           () =>
             new Promise((resolve) => {
               setTimeout(() => resolve("late-token"), 120_000);

@@ -3,10 +3,7 @@ import {
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useSession } from "@agent-native/core/client/hooks";
-import {
-  getBuilderParentOrigin,
-  isEmbedAuthActive,
-} from "@agent-native/core/client/host";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useIsMcpAppWidgetEmbed,
@@ -28,6 +25,7 @@ import {
 import { useParams, useLocation } from "react-router";
 import { toast } from "sonner";
 
+import type { PreviewThemeStatus } from "@/components/design/design-canvas/preview-theme";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import type {
   ElementInfo,
@@ -36,6 +34,7 @@ import type {
 } from "@/components/design/types";
 import { useDetectedFigmaComposerLink } from "@/components/editor/FigmaLinkComposerBubble";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
+import { getDesignHostChannel } from "@/host/design-host-channel";
 import {
   builderSelectionChip,
   sendBuilderSelectionContext,
@@ -149,10 +148,10 @@ export function useEditorCore() {
             height: Math.round(box.height),
           }
         : null;
-    window.parent.postMessage(
-      { type: HOST_CHAT_SLOT_MESSAGE, data: { rect } },
-      getBuilderParentOrigin() ?? "*",
-    );
+    getDesignHostChannel().send({
+      type: HOST_CHAT_SLOT_MESSAGE,
+      data: { rect },
+    });
   }, [hostEmbeddedEditor]);
   const attachHostChatSlot = useCallback(
     (node: HTMLDivElement | null) => {
@@ -173,10 +172,10 @@ export function useEditorCore() {
     window.addEventListener("resize", postHostChatSlotRect);
     return () => {
       window.removeEventListener("resize", postHostChatSlotRect);
-      window.parent.postMessage(
-        { type: HOST_CHAT_SLOT_MESSAGE, data: { rect: null } },
-        getBuilderParentOrigin() ?? "*",
-      );
+      getDesignHostChannel().send({
+        type: HOST_CHAT_SLOT_MESSAGE,
+        data: { rect: null },
+      });
     };
   }, [hostEmbeddedEditor, postHostChatSlotRect]);
 
@@ -421,6 +420,27 @@ export function useEditorCore() {
           ? current
           : { ...current, [screenId]: routePath },
       );
+    },
+    [],
+  );
+  const [previewThemeStatusByScreenId, setPreviewThemeStatusByScreenId] =
+    useState<Record<string, PreviewThemeStatus>>({});
+  const handlePreviewThemeStatus = useCallback(
+    (screenId: string | undefined, status: PreviewThemeStatus) => {
+      if (!screenId) return;
+      setPreviewThemeStatusByScreenId((current) => {
+        const previous = current[screenId];
+        if (
+          previous?.kind === status.kind &&
+          (status.kind === "unavailable" ||
+            (previous.kind === "ready" &&
+              previous.scheme === status.scheme &&
+              previous.darkStyles === status.darkStyles))
+        ) {
+          return current;
+        }
+        return { ...current, [screenId]: status };
+      });
     },
     [],
   );
@@ -789,6 +809,8 @@ export function useEditorCore() {
     setLiveRoutePathsByScreenId,
     liveRoutePathsByScreenIdRef,
     handleLiveRoutePathChange,
+    previewThemeStatusByScreenId,
+    handlePreviewThemeStatus,
     runtimeStructureVerificationRequest,
     setRuntimeStructureVerificationRequest,
     pendingStructureVerificationStatus,

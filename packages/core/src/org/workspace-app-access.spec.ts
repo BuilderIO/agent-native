@@ -27,9 +27,12 @@ vi.mock("./federation.js", () => ({
 }));
 
 import {
+  checkWorkspaceAppAccess,
   isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
 } from "./workspace-app-access.js";
+
+const CALLER = { email: "member@example.com", orgId: null } as const;
 
 describe("isWorkspaceAppAccessAllowed", () => {
   beforeEach(() => {
@@ -601,11 +604,15 @@ describe("isWorkspaceAppAccessAllowed", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      isWorkspaceAppAccessAllowed("analytics", {
+      checkWorkspaceAppAccess("analytics", {
         email: "member@example.com",
         orgId: "sender-local-org",
       }),
-    ).resolves.toBe(WORKSPACE_APP_ACCESS_UNAVAILABLE);
+    ).resolves.toMatchObject({
+      status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+      reason: "org-domain-missing",
+      audience: "https://dispatch.example.test",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -970,13 +977,17 @@ describe("isWorkspaceAppAccessAllowed", () => {
     vi.useFakeTimers();
 
     try {
-      const access = isWorkspaceAppAccessAllowed("analytics", {
+      const access = checkWorkspaceAppAccess("analytics", {
         email: "member@example.com",
         orgId: null,
       });
       await fetchStarted;
       await vi.advanceTimersByTimeAsync(10_000);
-      await expect(access).resolves.toBe(WORKSPACE_APP_ACCESS_UNAVAILABLE);
+      await expect(access).resolves.toMatchObject({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "registry-timeout",
+        audience: "https://dispatch.example.test",
+      });
       expect(fetchMock).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
@@ -1070,5 +1081,208 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     ).resolves.toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe("unavailable outcome names its cause", () => {
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function stubDirectory(origin: string) {
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", origin);
+    }
+
+    it("reports a missing deploy secret without calling the registry", async () => {
+      vi.stubEnv("A2A_SECRET", "");
+      vi.stubEnv(
+        "AGENT_NATIVE_ORG_DIRECTORY_URL",
+        "https://no-secret.example.test/dispatch",
+      );
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", CALLER),
+      ).resolves.toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "a2a-secret-missing",
+        audience: "https://no-secret.example.test/dispatch",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("reports the registry status, audience, and refusal text when Dispatch refuses the token", async () => {
+      stubDirectory("https://refused.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", CALLER),
+      ).resolves.toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "registry-http-error",
+        upstreamStatus: 401,
+        audience: "https://refused.example.test/dispatch",
+        detail: "Unauthorized",
+      });
+    });
+
+    it("keeps the status when the registry error body is not JSON", async () => {
+      stubDirectory("https://html-error.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response("<html>Bad gateway</html>", {
+            status: 502,
+            headers: { "content-type": "text/html" },
+          }),
+        ),
+      );
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", CALLER),
+      ).resolves.toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "registry-http-error",
+        upstreamStatus: 502,
+        audience: "https://html-error.example.test/dispatch",
+      });
+    });
+
+    it("reports a registry reply that is not a list of apps", async () => {
+      stubDirectory("https://malformed.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ apps: "none" }), {
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", CALLER),
+      ).resolves.toMatchObject({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "registry-malformed-response",
+        upstreamStatus: 200,
+      });
+    });
+
+    it("names the error class and code of a network failure without echoing its message", async () => {
+      stubDirectory("https://unreachable.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(
+          Object.assign(new TypeError("fetch failed: db.internal:5432"), {
+            cause: { code: "ECONNREFUSED" },
+          }),
+        ),
+      );
+
+      const outcome = await checkWorkspaceAppAccess("analytics", CALLER);
+
+      expect(outcome).toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "registry-fetch-failed",
+        audience: "https://unreachable.example.test/dispatch",
+        detail: "TypeError:ECONNREFUSED",
+      });
+      expect(JSON.stringify(outcome)).not.toContain("db.internal");
+    });
+
+    it("reports a refused claim with the claim status", async () => {
+      stubDirectory("https://claim.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify([{ id: "other-app" }]), {
+              headers: { "content-type": "application/json" },
+            }),
+          )
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify({ error: "Unauthorized" }), {
+              status: 401,
+              headers: { "content-type": "application/json" },
+            }),
+          ),
+      );
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", CALLER),
+      ).resolves.toMatchObject({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "claim-http-error",
+        upstreamStatus: 401,
+        detail: "Unauthorized",
+      });
+    });
+
+    it("keeps the legacy contract: isWorkspaceAppAccessAllowed still answers with the bare sentinel", async () => {
+      stubDirectory("https://legacy.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(
+        isWorkspaceAppAccessAllowed("analytics", CALLER),
+      ).resolves.toBe(WORKSPACE_APP_ACCESS_UNAVAILABLE);
+    });
+
+    it("logs one cause once per instance even when the upstream detail changes every request", async () => {
+      stubDirectory("https://repeat.example.test/dispatch");
+      let requestNumber = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation(
+          async () =>
+            new Response(
+              JSON.stringify({ error: `Unauthorized req-${++requestNumber}` }),
+              {
+                status: 401,
+                headers: { "content-type": "application/json" },
+              },
+            ),
+        ),
+      );
+
+      await checkWorkspaceAppAccess("analytics", CALLER);
+      await checkWorkspaceAppAccess("analytics", CALLER);
+      await checkWorkspaceAppAccess("analytics", CALLER);
+
+      const reports = vi
+        .mocked(console.error)
+        .mock.calls.filter(
+          ([message, detail]) =>
+            message === "[workspace-app-access] unavailable" &&
+            (detail as { audience?: string }).audience ===
+              "https://repeat.example.test/dispatch",
+        );
+      expect(reports).toHaveLength(1);
+      expect(reports[0]?.[1]).toMatchObject({
+        reason: "registry-http-error",
+        upstreamStatus: 401,
+      });
+    });
   });
 });

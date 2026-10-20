@@ -3,8 +3,19 @@ import {
   agentNativePath,
 } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
+import {
+  FIGMA_FILE_URL_TOKEN_VALIDATION_CODE,
+  isFigmaFileUrl,
+} from "@shared/figma-url";
 
 export const FIGMA_ACCESS_TOKEN_SECRET_KEY = "FIGMA_ACCESS_TOKEN";
+
+export class FigmaFileUrlUsedAsTokenError extends Error {
+  constructor() {
+    super("Paste a Figma access token, not a Figma file URL.");
+    this.name = "FigmaFileUrlUsedAsTokenError";
+  }
+}
 
 interface RegisteredSecretStatus {
   key: string;
@@ -131,6 +142,7 @@ export async function saveFigmaAccessToken(
 ): Promise<FigmaConnectionStatus> {
   const token = value.trim();
   if (!token) throw new Error("Enter a Figma access token.");
+  if (isFigmaFileUrl(token)) throw new FigmaFileUrlUsedAsTokenError();
 
   const endpoint = `${secretsEndpoint()}/${FIGMA_ACCESS_TOKEN_SECRET_KEY}`;
   let response: Response;
@@ -149,7 +161,28 @@ export async function saveFigmaAccessToken(
     throw new Error(redactSubmittedSecret(message, token));
   }
   if (!response.ok) {
-    const message = await responseError(response, "Could not connect Figma");
+    let payload: { error?: unknown; validationCode?: unknown } | null;
+    try {
+      payload = (await response.json()) as {
+        error?: unknown;
+        validationCode?: unknown;
+      } | null;
+    } catch (cause) {
+      if (!(cause instanceof SyntaxError)) throw cause;
+      throw new Error(
+        redactSubmittedSecret(
+          `Could not connect Figma (${response.status})`,
+          token,
+        ),
+      );
+    }
+    if (payload?.validationCode === FIGMA_FILE_URL_TOKEN_VALIDATION_CODE) {
+      throw new FigmaFileUrlUsedAsTokenError();
+    }
+    const message =
+      typeof payload?.error === "string" && payload.error.trim()
+        ? payload.error
+        : `Could not connect Figma (${response.status})`;
     throw new Error(redactSubmittedSecret(message, token));
   }
 

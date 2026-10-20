@@ -24,6 +24,7 @@ vi.mock("../../lib/public-agent-context.js", () => ({
   applyAgentJsonHeaders: vi.fn(),
   buildPublicAgentContext: (...args: unknown[]) =>
     mockBuildPublicAgentContext(...args),
+  canReadAppActivityEvents: async () => false,
   describeAgentAccessFailure: (failure: unknown) => failure,
   loadAgentBugReport: (...args: unknown[]) => mockLoadAgentBugReport(...args),
   loadAgentBrowserDiagnostics: (...args: unknown[]) =>

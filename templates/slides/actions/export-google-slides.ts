@@ -1,7 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { getExportUrl } from "./_app-url.js";
 import exportPptxAction from "./export-pptx.js";
 
 export default defineAction({
@@ -20,9 +19,7 @@ export default defineAction({
     const result = ctx
       ? await exportPptxAction.run({ deckId, includeNotes }, ctx)
       : await exportPptxAction.run({ deckId, includeNotes });
-    const { filename, slideCount } = result;
-
-    const downloadUrl = getExportUrl(filename);
+    const { slideCount, downloadUrl } = result;
 
     const googleSlidesImportDialogUrl =
       "https://docs.google.com/presentation/u/0/?usp=import";

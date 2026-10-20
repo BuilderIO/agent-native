@@ -42,6 +42,7 @@ import {
   findMovedCodeLayerNodeInProjection,
   removeEmptyGeneratedGroupWrappers,
 } from "@/pages/design-editor/code-layer-state";
+import { adaptAutoTextColorsForCrossScreenNodes } from "@/pages/design-editor/cross-screen-text-color";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   getLayerMoveIterationOrder,
@@ -58,11 +59,13 @@ import {
   stampContentHistorySelectionAfter,
 } from "@/pages/design-editor/history";
 import {
+  authoredAbsoluteChildOriginForNode,
   getAbsolutePositioningForNodeInHtml,
   setAbsolutePositioningForNodeInHtml,
 } from "@/pages/design-editor/html-layer-positioning";
 import {
   isFlowDisplay,
+  getLivePreviewDocument,
   readLiveLayerMoveLayout,
 } from "@/pages/design-editor/live-layer-move-layout";
 import { resolveRuntimeStructureMoveExecutionMode } from "@/pages/design-editor/react-semantic-handoff";
@@ -247,6 +250,24 @@ function isNodeParentFlow(
     : undefined;
   if (parent) return isFlowContainerNode(parent);
   return isFlowDisplay(node.layout.parentDisplay);
+}
+
+function authoredReparentedChildPosition(
+  content: string,
+  nodeAttrId: string,
+  newParentAttrId: string,
+): { x: number; y: number } | null {
+  const sourcePosition = getAbsolutePositioningForNodeInHtml(
+    content,
+    nodeAttrId,
+  );
+  const childOrigin = authoredAbsoluteChildOriginForNode(
+    content,
+    newParentAttrId,
+  );
+  return sourcePosition && childOrigin
+    ? computeReparentedChildPosition(sourcePosition, childOrigin)
+    : null;
 }
 
 function tryDuplicateOnPanelDrop(
@@ -876,9 +897,12 @@ export function runLayerMove(
         continue;
       }
       nextDestContent = patch.content;
+      const flowsIntoEmptyParent =
+        !sourceIsOutOfFlow && newParentOwnerNode?.children.length === 0;
       if (
         isCrossParent &&
         newParentId &&
+        !flowsIntoEmptyParent &&
         (!destinationIsAutoLayout || sourceWasIgnoredInAutoLayout)
       ) {
         const movedNodeAttrId =
@@ -894,19 +918,20 @@ export function runLayerMove(
             : (codeLayerOwnerByNodeId.get(newParentId)?.node.dataAttributes[
                 "data-agent-native-node-id"
               ] ?? newParentId);
-        const sourcePosition = getAbsolutePositioningForNodeInHtml(
-          prevContentForRebase,
-          draggedAttrId,
-        );
-        const targetPosition = getAbsolutePositioningForNodeInHtml(
-          prevContentForRebase,
-          newParentAttrId,
-        );
-        if (sourcePosition && targetPosition) {
+        const childPosition =
+          liveLayout.status === "resolved" &&
+          liveLayout.sourceAbsoluteOffsetInDestination
+            ? liveLayout.sourceAbsoluteOffsetInDestination
+            : authoredReparentedChildPosition(
+                prevContentForRebase,
+                draggedAttrId,
+                newParentAttrId,
+              );
+        if (childPosition) {
           nextDestContent = setAbsolutePositioningForNodeInHtml(
             nextDestContent,
             movedNodeAttrId,
-            computeReparentedChildPosition(sourcePosition, targetPosition),
+            childPosition,
           );
         }
       }
@@ -1044,6 +1069,30 @@ export function runLayerMove(
         ),
       );
     }
+  }
+
+  if (sourceContentMap.size > 0) {
+    const liveDestination = getLivePreviewDocument({
+      activeBreakpointWidthState,
+      activeFileId: activeFile?.id,
+      boardFileId,
+      fileId: targetOwner.fileId,
+      overviewScreens,
+    });
+    const movedNodeAttrIds = movedIdOrder.flatMap((draggedId) => {
+      if (
+        codeLayerOwnerByNodeId.get(draggedId)?.fileId === targetOwner.fileId
+      ) {
+        return [];
+      }
+      const nodeId = movedNodeIdByDraggedId.get(draggedId);
+      return nodeId ? [nodeId] : [];
+    });
+    nextDestContent = adaptAutoTextColorsForCrossScreenNodes(
+      nextDestContent,
+      movedNodeAttrIds,
+      liveDestination.status === "resolved" ? liveDestination.document : null,
+    );
   }
 
   const finalDestProjection =

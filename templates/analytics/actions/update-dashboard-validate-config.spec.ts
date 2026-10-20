@@ -34,8 +34,16 @@ vi.mock("../server/lib/bigquery", () => ({
   dryRunQuery: vi.fn(async () => null),
 }));
 
-const { assertValidDashboardConfig, isAgentCaller, validateDashboardConfig } =
-  await import("./update-dashboard");
+const {
+  assertValidDashboardConfig,
+  changedPanelIdsForSqlValidation,
+  changedPanelIdsForTimeScopeValidation,
+  isAgentCaller,
+  validateDashboardConfig,
+  validateChangedPanelTimeScopes,
+} = await import("./update-dashboard");
+const { applyDashboardMutationOperations, parseDashboardMutationScript } =
+  await import("./dashboard-mutation-api");
 
 function panel(id: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -110,6 +118,31 @@ describe("validateDashboardConfig ratchet", () => {
     expect(message).toContain('panel[3] ("No id") id is missing');
     expect(message).toContain('panel "fresh" ("fresh title") width is missing');
     expect(message).not.toContain("viral-by-app");
+  });
+
+  it("rejects section height added through a generic set patch", () => {
+    const baseline: Record<string, unknown> = {
+      name: "Activity",
+      panels: [
+        {
+          id: "activity-section",
+          title: "Activity",
+          chartType: "section",
+          width: 2,
+        },
+      ],
+    };
+    const next = clone(baseline);
+    const operations = parseDashboardMutationScript(
+      next,
+      'dashboard.section("activity-section").set({"height":2});',
+    );
+
+    applyDashboardMutationOperations(next, operations);
+
+    expect(validateDashboardConfig(next, { baseline })).toBe(
+      'panel "activity-section" ("Activity") height is 2; section panels do not support height; remove height.',
+    );
   });
 
   it("does not trust a baseline that is the config itself", () => {
@@ -270,11 +303,16 @@ describe("validateDashboardConfig multi-select options", () => {
     expect(validateDashboardConfig(type)).toContain("type must be one of");
   });
 
-  it("rejects more than 100 options, which the read path would refuse", () => {
+  it("accepts up to 500 options and rejects larger lists", () => {
+    expect(
+      validateDashboardConfig(
+        withOptions(Array.from({ length: 500 }, (_, i) => `option_${i}`)),
+      ),
+    ).toBeNull();
     const config = withOptions(
-      Array.from({ length: 101 }, (_, i) => `option_${i}`),
+      Array.from({ length: 501 }, (_, i) => `option_${i}`),
     );
-    expect(validateDashboardConfig(config)).toContain("at most 100 entries");
+    expect(validateDashboardConfig(config)).toContain("at most 500 entries");
   });
 
   it("rejects a non-empty default when the filter has no options", () => {
@@ -313,6 +351,246 @@ describe("validateDashboardConfig multi-select options", () => {
   it("rejects the reserved empty marker as an option value", () => {
     expect(validateDashboardConfig(withOptions(["__empty__"]))).toContain(
       "__empty__",
+    );
+  });
+
+  describe("customRange", () => {
+    const withCustomRange = (customRange: unknown, type = "select") => ({
+      name: "Period",
+      filters: [
+        {
+          id: "quarter",
+          label: "Period",
+          type,
+          default: "this",
+          customRange,
+          options: [
+            { value: "this", label: "This quarter" },
+            { value: "custom", label: "Custom date range" },
+          ],
+        },
+      ],
+      panels: [],
+    });
+
+    it("accepts customRange on a select filter", () => {
+      expect(validateDashboardConfig(withCustomRange(true))).toBeNull();
+    });
+
+    it("rejects a non-boolean customRange or one on another filter type", () => {
+      expect(validateDashboardConfig(withCustomRange("yes"))).toContain(
+        "customRange must be a boolean",
+      );
+      expect(
+        validateDashboardConfig(withCustomRange(true, "multi-select")),
+      ).toContain("only select filters take it");
+    });
+  });
+
+  describe("presets", () => {
+    const withPresets = (presets: unknown, type = "multi-select") => {
+      const base = withOptions(["clips", "slides", "design", "mail"]);
+      return { ...base, filters: [{ ...base.filters[0], type, presets }] };
+    };
+
+    it("accepts presets made of configured options", () => {
+      expect(
+        validateDashboardConfig(
+          withPresets([
+            { label: "Launch apps", values: ["clips", "slides", "design"] },
+            { label: "Mail", values: ["mail"] },
+          ]),
+        ),
+      ).toBeNull();
+    });
+
+    it("rejects presets on a filter that is not a multi-select", () => {
+      expect(
+        validateDashboardConfig(
+          withPresets([{ label: "Mail", values: ["mail"] }], "select"),
+        ),
+      ).toContain("only multi-select filters take presets");
+    });
+
+    it("rejects presets that are not an array", () => {
+      expect(
+        validateDashboardConfig(
+          withPresets({ label: "Mail", values: ["mail"] }),
+        ),
+      ).toContain("must be an array");
+    });
+
+    it("rejects a preset without a label or values, which the dropdown cannot show or apply", () => {
+      for (const preset of [
+        null,
+        { values: ["mail"] },
+        { label: " ", values: ["mail"] },
+        { label: "Mail" },
+        { label: "Mail", values: [] },
+        { label: "Mail", values: [1] },
+      ]) {
+        expect(validateDashboardConfig(withPresets([preset]))).toContain(
+          "presets[0] must be an object with a non-empty label",
+        );
+      }
+    });
+
+    it("rejects a repeated preset label", () => {
+      expect(
+        validateDashboardConfig(
+          withPresets([
+            { label: "Mail", values: ["mail"] },
+            { label: "Mail", values: ["clips"] },
+          ]),
+        ),
+      ).toContain("repeats an earlier preset");
+    });
+
+    it("rejects a preset value that is not one of the configured options", () => {
+      expect(
+        validateDashboardConfig(
+          withPresets([{ label: "Launch apps", values: ["clips", "forms"] }]),
+        ),
+      ).toContain('"forms"');
+    });
+
+    it("bounds how many presets a filter has and how many values each names", () => {
+      const many = Array.from({ length: 21 }, (_, n) => ({
+        label: `Group ${n}`,
+        values: ["mail"],
+      }));
+      expect(
+        validateDashboardConfig(withPresets(many.slice(0, 20))),
+      ).toBeNull();
+      expect(validateDashboardConfig(withPresets(many))).toContain(
+        "presets[20] is past the limit of 20 presets",
+      );
+      expect(
+        validateDashboardConfig(
+          withPresets([{ label: "Mail", values: Array(101).fill("mail") }]),
+        ),
+      ).toContain("has more than 100 values");
+    });
+  });
+});
+
+describe("validateDashboardConfig annotations", () => {
+  const config = (annotations: unknown) => ({
+    name: "Onboarding",
+    panels: [panel("a")],
+    annotations,
+  });
+
+  it("accepts the key-date sets and data notes a dashboard hides", () => {
+    expect(
+      validateDashboardConfig(
+        config({
+          hiddenKeyDateSets: ["launches"],
+          hiddenDataNotes: [{ noteId: "note-1", panelId: "a" }],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects malformed annotations instead of saving them", () => {
+    expect(validateDashboardConfig(config("launches"))).toMatch(
+      /config\.annotations must be an object/,
+    );
+    expect(
+      validateDashboardConfig(config({ hiddenKeyDateSets: "launches" })),
+    ).toMatch(/hiddenKeyDateSets must be an array/);
+    expect(
+      validateDashboardConfig(config({ hiddenDataNotes: ["note-1"] })),
+    ).toMatch(/hiddenDataNotes must be/);
+  });
+});
+
+describe("dashboard SQL validation scope", () => {
+  const baseline = {
+    name: "Usage",
+    filters: [] as unknown[],
+    variables: {} as Record<string, string>,
+    panels: [panel("a"), panel("b")],
+  };
+
+  it("skips SQL validation when only panel layout changes", () => {
+    const next = clone(baseline);
+    next.panels[0].width = 2;
+    next.panels[0].height = 3;
+
+    expect(changedPanelIdsForSqlValidation(next, baseline)).toEqual(new Set());
+  });
+
+  it("validates the panels whose query inputs changed", () => {
+    const next = clone(baseline);
+    next.panels[1].sql = "SELECT 2 AS value";
+    next.panels[0].config = { timeScope: "all-time" };
+
+    expect(changedPanelIdsForSqlValidation(next, baseline)).toEqual(
+      new Set(["a", "b"]),
+    );
+  });
+
+  it("validates all panels when dashboard filters or variables change", () => {
+    const withFilter = clone(baseline);
+    withFilter.filters = [{ id: "timeRange", label: "Time", type: "date" }];
+    const withVariable = clone(baseline);
+    withVariable.variables = { timeRange: "30d" };
+
+    expect(
+      changedPanelIdsForSqlValidation(withFilter, baseline),
+    ).toBeUndefined();
+    expect(
+      changedPanelIdsForSqlValidation(withVariable, baseline),
+    ).toBeUndefined();
+  });
+
+  it("validates newly added panels and every panel without a baseline", () => {
+    const next = clone(baseline);
+    next.panels.push(panel("new"));
+
+    expect(changedPanelIdsForSqlValidation(next, baseline)).toEqual(
+      new Set(["new"]),
+    );
+    expect(changedPanelIdsForSqlValidation(next, null)).toBeUndefined();
+  });
+});
+
+describe("dashboard time-scope validation scope", () => {
+  const baseline = {
+    name: "Usage",
+    filters: [] as unknown[],
+    variables: {} as Record<string, string>,
+    panels: [
+      panel("a", {
+        title: "Lifetime signups",
+        config: { timeScope: "all-time" },
+      }),
+    ],
+  };
+
+  it("rechecks an all-time panel when its title loses the lifetime label", () => {
+    const next = clone(baseline);
+    next.panels[0].title = "Signups";
+
+    expect(changedPanelIdsForTimeScopeValidation(next, baseline)).toEqual(
+      new Set(["a"]),
+    );
+    expect(validateChangedPanelTimeScopes(next, baseline)).toMatch(
+      /description or title.*lifetime/,
+    );
+  });
+
+  it("rechecks an all-time panel when its description loses the lifetime label", () => {
+    const labeledBaseline = clone(baseline);
+    labeledBaseline.panels[0].title = "All signups";
+    (labeledBaseline.panels[0].config as Record<string, unknown>).description =
+      "Lifetime signups across the full history.";
+    const next = clone(labeledBaseline);
+    (next.panels[0].config as Record<string, unknown>).description = "Signups";
+
+    expect(validateChangedPanelTimeScopes(next, labeledBaseline)).toMatch(
+      /description or title.*lifetime/,
     );
   });
 });

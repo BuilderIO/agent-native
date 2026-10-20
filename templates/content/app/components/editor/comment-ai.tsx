@@ -1320,6 +1320,19 @@ export function CommentAiConversation({
           <CommentRow
             key={turn.turnId}
             avatar={<AgentAvatar model={request.model} />}
+            identity={{
+              kind: "agent",
+              model: request.model,
+              engine: request.engine,
+              // Follow-up turns keep no effort or time of their own; only
+              // the requester can load this conversation, so they can open it.
+              run: {
+                effort: null,
+                ranAt: null,
+                threadId: request.agentThreadId,
+                canOpen: true,
+              },
+            }}
             name={
               <>
                 <span className="sr-only">

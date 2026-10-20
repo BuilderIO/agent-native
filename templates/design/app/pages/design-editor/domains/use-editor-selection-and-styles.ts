@@ -137,6 +137,7 @@ export function useEditorSelectionAndStyles({
     selectedElement,
     setSelectedElement,
     selectedElementRef,
+    activeFileIdRef,
     liveRoutePathsByScreenIdRef,
     pendingStructureRedoReplayTimerRef,
     cancelPendingStructureVerification,
@@ -169,10 +170,10 @@ export function useEditorSelectionAndStyles({
     setShaderFillPreview,
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
-    focusDesignInspectorForSelection,
     undoManagerRef,
     linkedComponentMutationQueueRef,
     contentUndoStackRef,
+    localContentUndoStackRef,
     selectedLayerIdsStateRef,
     explicitOverviewScreenSelectionRef,
     recordContentHistoryEntry,
@@ -227,6 +228,7 @@ export function useEditorSelectionAndStyles({
     setHoveredElementScreenId,
     recordPendingHistoryEntry,
     ydoc,
+    currentYDocRef,
     isSynced,
     setCollabContent,
     setCollabContentFileId,
@@ -509,7 +511,6 @@ export function useEditorSelectionAndStyles({
             applyFileContentUpdate,
             clearPendingOverviewLayerSelectionTimer,
             createdOverviewLayerSelection,
-            focusDesignInspectorForSelection,
             getCodeLayerProjectionForScreen,
             getScreenContent,
             handleBreakpointBarSelect,
@@ -554,7 +555,6 @@ export function useEditorSelectionAndStyles({
       clearPendingOverviewLayerSelectionTimer,
       createdOverviewLayerSelection,
       recordSelectionHistoryAroundChange,
-      focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
       getScreenContent,
       handleBreakpointBarSelect,
@@ -587,13 +587,11 @@ export function useEditorSelectionAndStyles({
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds([]);
       }
-      focusDesignInspectorForSelection();
     },
     [
       activeCodeLayerProjection,
       activeFile?.id,
       activeFileId,
-      focusDesignInspectorForSelection,
       handleScreenElementSelect,
     ],
   );
@@ -621,12 +619,10 @@ export function useEditorSelectionAndStyles({
         setOverviewSelectedScreenIds([]);
       }
       setMode("edit");
-      focusDesignInspectorForSelection();
     },
     [
       clearPendingOverviewLayerSelectionTimer,
       createdOverviewLayerSelection,
-      focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
     ],
   );
@@ -745,7 +741,6 @@ export function useEditorSelectionAndStyles({
           boardFileId,
           canvasContainerRef,
           canvasContextMenuRef,
-          focusDesignInspectorForSelection,
           getCodeLayerProjectionForScreen,
           handleScreenElementSelect,
           overviewCanvasZoom,
@@ -759,7 +754,6 @@ export function useEditorSelectionAndStyles({
       activeFile?.id,
       activeFileId,
       boardFileId,
-      focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
       handleScreenElementSelect,
       overviewCanvasZoom,
@@ -776,14 +770,8 @@ export function useEditorSelectionAndStyles({
         persistPendingNodeId: false,
         breakpointWidthPx: candidate.breakpointWidthPx,
       });
-      focusDesignInspectorForSelection();
     },
-    [
-      activeFile?.id,
-      activeFileId,
-      focusDesignInspectorForSelection,
-      handleScreenElementSelect,
-    ],
+    [activeFile?.id, activeFileId, handleScreenElementSelect],
   );
 
   const handleRepromptDraftConsumed = useCallback((nonce: number) => {
@@ -856,6 +844,7 @@ export function useEditorSelectionAndStyles({
         preserveSelection?: boolean;
         routePath?: string;
         pendingUndoGestureId?: string;
+        requirePersistedSourceAcceptance?: boolean;
       } = {},
     ) => {
       const routePath =
@@ -870,6 +859,8 @@ export function useEditorSelectionAndStyles({
           activeCanvasSourceType,
           activeCodeLayerProjection,
           activeFile,
+          activeFileIdRef,
+          currentYDocRef,
           activeProjectionContent,
           applyLinkedComponentEdit,
           canApplyContentEdit,
@@ -1662,6 +1653,7 @@ export function useEditorSelectionAndStyles({
         canEditDesign,
         contentHistorySelectionAfterRef,
         contentUndoStackRef,
+        localContentUndoStackRef,
         files,
         getFreshActiveContent,
         overviewSelectedScreenIds,
@@ -1680,6 +1672,7 @@ export function useEditorSelectionAndStyles({
       canEditDesign,
       files,
       getFreshActiveContent,
+      localContentUndoStackRef,
       overviewSelectedScreenIds,
       selectedLayerIdsState,
       t,

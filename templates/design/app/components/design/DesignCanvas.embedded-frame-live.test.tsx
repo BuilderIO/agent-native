@@ -675,8 +675,13 @@ describe("DesignCanvas live embedded-frame offset", () => {
         { interactMode: false, editMode: true, readOnly: true },
       ]) {
         await act(async () => root.render(render(mode)));
-        iframe!.focus();
-        expect(document.activeElement).toBe(iframe);
+        // Entering or leaving Interact loads a new document, so look the frame
+        // up again rather than holding the one Edit rendered.
+        const current = container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        current!.focus();
+        expect(document.activeElement).toBe(current);
         await act(async () =>
           window.dispatchEvent(
             new MessageEvent("message", {
@@ -685,11 +690,11 @@ describe("DesignCanvas live embedded-frame offset", () => {
                 focusSafe: true,
               },
               origin: window.location.origin,
-              source: iframe!.contentWindow,
+              source: current!.contentWindow,
             }),
           ),
         );
-        expect(document.activeElement).toBe(iframe);
+        expect(document.activeElement).toBe(current);
         expect(document.activeElement).not.toBe(scrollSurface);
       }
     } finally {
@@ -1208,7 +1213,7 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
-  it("keeps the live iframe and switches interaction ownership in place", async () => {
+  it("loads the page afresh when interaction ownership changes, so no editor bridge carries into Interact", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -1227,31 +1232,26 @@ describe("DesignCanvas live embedded-frame offset", () => {
         tweakValues={{}}
       />
     );
+    const frame = () =>
+      container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
 
     try {
       await act(async () => root.render(render(false)));
-      const iframe = container.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
-      );
-      expect(iframe?.contentWindow).toBeTruthy();
-      const contentWindow = iframe!.contentWindow;
-      let loadCount = 0;
-      iframe!.addEventListener("load", () => {
-        loadCount += 1;
-      });
-      const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
+      const edit = frame();
+      expect(edit?.getAttribute("src")).toBe(content);
 
       await act(async () => root.render(render(true)));
+      const interact = frame();
+      expect(interact).not.toBe(edit);
+      expect(edit?.isConnected).toBe(false);
+      expect(interact?.getAttribute("src")).toBe(content);
 
-      expect(
-        container.querySelector("iframe[data-design-preview-iframe]"),
-      ).toBe(iframe);
-      expect(iframe!.contentWindow).toBe(contentWindow);
-      expect(loadCount).toBe(0);
-      expect(postMessage).toHaveBeenCalledWith(
-        { type: "set-interaction-mode", interact: true },
-        "*",
-      );
+      await act(async () => root.render(render(false)));
+      const back = frame();
+      expect(back).not.toBe(interact);
+      expect(back?.getAttribute("src")).toBe(content);
     } finally {
       await act(async () => root.unmount());
       container.remove();

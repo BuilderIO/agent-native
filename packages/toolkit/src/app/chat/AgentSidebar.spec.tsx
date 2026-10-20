@@ -21,7 +21,9 @@ const mockPanelOwnership = vi.hoisted(() => ({ hosted: false }));
 const mockHostedHarness = vi.hoisted(() => ({
   configured: false,
   enabled: false,
+  queryEnabled: undefined as boolean | undefined,
 }));
+const mockAgentNativeDesktop = vi.hoisted(() => ({ enabled: false }));
 
 const mockPanel = vi.hoisted(() => {
   let resolveImport!: () => void;
@@ -36,6 +38,10 @@ const mockPanel = vi.hoisted(() => {
       | undefined,
     onNavigationChange:
       undefined as MultiTabAssistantChatProps["onNavigationChange"],
+    mcpSuggestionExcludedIntegrationIds: undefined as
+      | readonly string[]
+      | undefined,
+    hostedHarness: undefined as boolean | undefined,
     composer: undefined as React.ReactNode,
     importGate: new Promise<void>((resolve) => {
       resolveImport = resolve;
@@ -52,11 +58,18 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       onReadyChange,
       onReferenceTargetChange,
       onNavigationChange,
+      mcpSuggestionExcludedIntegrationIds,
+      hostedHarness,
     }: {
       onReadyChange?: (ready: boolean) => void;
       onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
       onNavigationChange?: MultiTabAssistantChatProps["onNavigationChange"];
+      mcpSuggestionExcludedIntegrationIds?: readonly string[];
+      hostedHarness?: boolean;
     }) => {
+      mockPanel.mcpSuggestionExcludedIntegrationIds =
+        mcpSuggestionExcludedIntegrationIds;
+      mockPanel.hostedHarness = hostedHarness;
       React.useEffect(() => {
         mockPanel.onNavigationChange = onNavigationChange;
         const record = (event: Event) => {
@@ -116,6 +129,19 @@ vi.mock("@agent-native/core/client/app-config", () => ({
     harness: mockHostedHarness.configured ? {} : undefined,
   }),
 }));
+vi.mock(
+  "@agent-native/core/client/auth/auth-page-helpers",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@agent-native/core/client/auth/auth-page-helpers")
+      >();
+    return {
+      ...actual,
+      isAgentNativeDesktop: () => mockAgentNativeDesktop.enabled,
+    };
+  },
+);
 vi.mock("@agent-native/core/client/host", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/client/host")>();
@@ -132,8 +158,11 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
     await importOriginal<
       typeof import("@agent-native/core/client/agent-chat")
     >();
+  const sidebarState =
+    await import("../../../../core/src/client/agent-sidebar-state.js");
   return {
     ...actual,
+    ...sidebarState,
     AGENT_CHAT_VIEW_TRANSITION_CLASS: "",
     getAgentChatViewTransitionStyle: (style: React.CSSProperties) => style,
     startAgentChatViewTransition: () => undefined,
@@ -159,12 +188,21 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
     }),
     isPerAppChatStorageKey: () => false,
     requestPerAppChatCommand: vi.fn(),
-    useActionQuery: (action: string) => ({
-      data:
-        action === "get-hosted-harness-config" && mockHostedHarness.enabled
-          ? { enabled: true, runtimes: [] }
-          : undefined,
-    }),
+    useActionQuery: (
+      action: string,
+      _input: unknown,
+      options?: { enabled?: boolean },
+    ) => {
+      if (action === "get-hosted-harness-config") {
+        mockHostedHarness.queryEnabled = options?.enabled;
+      }
+      return {
+        data:
+          action === "get-hosted-harness-config" && mockHostedHarness.enabled
+            ? { enabled: true, runtimes: [] }
+            : undefined,
+      };
+    },
     usePerAppChatState: () => ({
       hosted: mockPanelOwnership.hosted,
       open: false,
@@ -189,23 +227,33 @@ function renderSidebar(
   screenRefreshEnabled = true,
   forceOverlay = false,
   openOnChatRunning = false,
+  storageKey?: string,
+  strictMode = false,
+  mcpSuggestionExcludedIntegrationIds?: readonly string[],
 ) {
   const render = (nextEnabled: boolean) => {
     flushSync(() => {
-      root?.render(
+      const sidebar = (
         <MemoryRouter>
           <AgentSidebar
             defaultOpen={defaultOpen}
             disableChatShortcut={disableChatShortcut}
             enabled={nextEnabled}
             forceOverlay={forceOverlay}
+            mcpSuggestionExcludedIntegrationIds={
+              mcpSuggestionExcludedIntegrationIds
+            }
             openOnChatRunning={openOnChatRunning}
             position={position}
             screenRefreshEnabled={screenRefreshEnabled}
+            storageKey={storageKey}
           >
             <div data-testid="app-content">App content</div>
           </AgentSidebar>
-        </MemoryRouter>,
+        </MemoryRouter>
+      );
+      root?.render(
+        strictMode ? <React.StrictMode>{sidebar}</React.StrictMode> : sidebar,
       );
     });
   };
@@ -214,6 +262,17 @@ function renderSidebar(
   root = createRoot(container);
   render(enabled);
   return render;
+}
+
+async function unmountSidebar() {
+  const mountedRoot = root;
+  const mountedContainer = container;
+  await act(async () => {
+    mountedRoot?.unmount();
+  });
+  mountedContainer?.remove();
+  root = undefined;
+  container = undefined;
 }
 
 afterEach(() => {
@@ -228,12 +287,17 @@ beforeEach(() => {
   mockPanel.onEvent = undefined;
   mockPanel.onReady = undefined;
   mockPanel.composer = undefined;
+  mockPanel.mcpSuggestionExcludedIntegrationIds = undefined;
   mockTrust.frame = true;
   mockTrust.builder = false;
   mockPanelOwnership.hosted = false;
   window.history.replaceState({}, "", "/");
   mockHostedHarness.configured = false;
   mockHostedHarness.enabled = false;
+  mockHostedHarness.queryEnabled = undefined;
+  mockPanel.hostedHarness = undefined;
+  mockAgentNativeDesktop.enabled = false;
+  window.sessionStorage.clear();
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     clear: () => values.clear(),
@@ -419,6 +483,27 @@ describe("AgentSidebar panel", () => {
       type: "agentNative:insert-composer-reference",
       detail: { type: "file", path: "/custom-event.md" },
     });
+  });
+
+  it("forwards MCP suggestion exclusions to the panel", async () => {
+    mockPanel.resolveImport();
+    renderSidebar(
+      true,
+      undefined,
+      false,
+      true,
+      true,
+      false,
+      false,
+      undefined,
+      false,
+      ["gong"],
+    );
+    await act(async () => {
+      await mockPanel.importGate;
+    });
+
+    expect(mockPanel.mcpSuggestionExcludedIntegrationIds).toEqual(["gong"]);
   });
 
   it("binds a cold reference before a second selection commits in the same turn", async () => {
@@ -1834,6 +1919,322 @@ describe("AgentSidebar panel", () => {
     },
   );
 
+  it("keeps a consumed explicit open hint across an enabled sidebar remount", async () => {
+    await act(async () => {
+      mockPanel.resolveImport();
+      await mockPanel.importGate;
+    });
+    window.history.replaceState({}, "", "/overview?agentSidebar=open");
+    const renderDispatchSidebar = (enabled = true) =>
+      renderSidebar(
+        false,
+        undefined,
+        false,
+        enabled,
+        true,
+        false,
+        false,
+        "dispatch",
+      );
+    let setEnabled!: (nextEnabled: boolean) => void;
+    await act(async () => {
+      setEnabled = renderDispatchSidebar(false);
+    });
+    await act(async () => {});
+
+    expect(window.location.search).toBe("?agentSidebar=open");
+    await act(async () => {
+      setEnabled(true);
+    });
+    expect(window.location.search).toBe("");
+    expect(localStorage.getItem("agent-native.dispatch.sidebar-open")).toBe(
+      "true",
+    );
+    expect(
+      container?.querySelector("[data-agent-sidebar-state='open']"),
+    ).toBeTruthy();
+    expect(container?.querySelector("textarea")).toBeTruthy();
+
+    await unmountSidebar();
+
+    await act(async () => {
+      renderDispatchSidebar();
+    });
+    const remountedRoot = root;
+    const remountedContainer = container;
+    try {
+      await act(async () => {});
+
+      expect(
+        container?.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+      expect(container?.querySelector("textarea")).toBeTruthy();
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+    } finally {
+      await unmountSidebar();
+    }
+
+    await act(async () => {
+      renderDispatchSidebar();
+    });
+    try {
+      await act(async () => {});
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+      expect(container?.querySelector("textarea")).toBeNull();
+    } finally {
+      await unmountSidebar();
+    }
+  });
+
+  it("keeps a manual close after a failed explicit-open storage write", async () => {
+    await act(async () => {
+      mockPanel.resolveImport();
+      await mockPanel.importGate;
+    });
+    window.history.replaceState(
+      {},
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    const failedWrite = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("local storage write denied");
+      });
+    const renderDispatchSidebar = () =>
+      renderSidebar(
+        false,
+        undefined,
+        false,
+        true,
+        true,
+        false,
+        false,
+        "dispatch",
+      );
+
+    try {
+      await act(async () => {
+        renderDispatchSidebar();
+      });
+      await act(async () => {});
+      expect(failedWrite).toHaveBeenCalled();
+      expect(window.location.search).toBe("?keep=1&agentSidebar=open");
+      expect(
+        container?.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+
+      failedWrite.mockRestore();
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+      expect(window.location.search).toBe("?keep=1");
+      expect(window.location.hash).toBe("#section");
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+
+      await act(async () => {
+        window.history.pushState({}, "", window.location.href);
+      });
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+
+      await unmountSidebar();
+      await act(async () => {
+        renderDispatchSidebar();
+      });
+      try {
+        await act(async () => {});
+        expect(
+          container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+        ).toBeTruthy();
+        expect(container?.querySelector("textarea")).toBeNull();
+      } finally {
+        await unmountSidebar();
+      }
+    } finally {
+      failedWrite.mockRestore();
+    }
+  });
+
+  it("keeps a manual close after consumed open intent cannot be cleared", async () => {
+    await act(async () => {
+      mockPanel.resolveImport();
+      await mockPanel.importGate;
+    });
+    window.history.replaceState(
+      {},
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    const renderDispatchSidebar = () =>
+      renderSidebar(
+        false,
+        undefined,
+        false,
+        true,
+        true,
+        false,
+        false,
+        "dispatch",
+      );
+    await act(async () => {
+      renderDispatchSidebar();
+    });
+    expect(window.location.search).toBe("?keep=1");
+    expect(
+      container?.querySelector('[data-agent-sidebar-main-state="open"]'),
+    ).toBeTruthy();
+    const deniedClear = vi
+      .spyOn(window.sessionStorage, "removeItem")
+      .mockImplementation(() => {
+        throw new Error("session storage write denied");
+      });
+    const deniedPreference = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("local storage write denied");
+      });
+    try {
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+      expect(window.location.search).toBe("?keep=1&agentSidebar=closed");
+      expect(window.location.hash).toBe("#section");
+      await unmountSidebar();
+      await act(async () => {
+        renderDispatchSidebar();
+      });
+      await act(async () => {});
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+      expect(container?.querySelector("textarea")).toBeNull();
+    } finally {
+      deniedClear.mockRestore();
+      deniedPreference.mockRestore();
+      await unmountSidebar();
+    }
+  });
+
+  it("lets a user reopen after a denied close leaves a closed URL hint", async () => {
+    await act(async () => {
+      mockPanel.resolveImport();
+      await mockPanel.importGate;
+    });
+    window.history.replaceState(
+      {},
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    const failedWrite = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("local storage write denied");
+      });
+    const renderDispatchSidebar = () =>
+      renderSidebar(
+        false,
+        undefined,
+        false,
+        true,
+        true,
+        false,
+        false,
+        "dispatch",
+      );
+
+    try {
+      await act(async () => {
+        renderDispatchSidebar();
+      });
+      await act(async () => {});
+      expect(window.location.search).toBe("?keep=1&agentSidebar=open");
+      expect(
+        container?.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+      expect(window.location.search).toBe("?keep=1&agentSidebar=closed");
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+
+      failedWrite.mockRestore();
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:open"));
+      });
+      expect(window.location.search).toBe("?keep=1");
+      expect(window.location.hash).toBe("#section");
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="open"]'),
+      ).toBeTruthy();
+      expect(localStorage.getItem("agent-native.dispatch.sidebar-open")).toBe(
+        "true",
+      );
+
+      await unmountSidebar();
+      await act(async () => {
+        renderDispatchSidebar();
+      });
+      await act(async () => {});
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="open"]'),
+      ).toBeTruthy();
+    } finally {
+      failedWrite.mockRestore();
+      await unmountSidebar();
+    }
+  });
+
+  it("persists consecutive toggles once each under StrictMode", async () => {
+    const renderStrictDispatchSidebar = () =>
+      renderSidebar(
+        false,
+        undefined,
+        false,
+        true,
+        true,
+        false,
+        false,
+        "dispatch",
+        true,
+      );
+    await act(async () => {
+      renderStrictDispatchSidebar();
+    });
+    const writePreference = vi.spyOn(window.localStorage, "setItem");
+
+    try {
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:toggle"));
+        window.dispatchEvent(new CustomEvent("agent-panel:toggle"));
+      });
+
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+      expect(localStorage.getItem("agent-native.dispatch.sidebar-open")).toBe(
+        "false",
+      );
+      expect(writePreference).toHaveBeenCalledTimes(2);
+    } finally {
+      writePreference.mockRestore();
+      await unmountSidebar();
+    }
+  });
+
   it("keeps an explicit URL close ahead of a thread link", async () => {
     window.history.replaceState(
       {},
@@ -1901,6 +2302,7 @@ describe("AgentSidebar panel", () => {
   });
 
   it("defaults hosted-harness chat to the right and respects a closed preference", async () => {
+    mockAgentNativeDesktop.enabled = true;
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
     renderSidebar(false);
@@ -1924,6 +2326,7 @@ describe("AgentSidebar panel", () => {
   });
 
   it("respects an explicit position in hosted-harness UI", async () => {
+    mockAgentNativeDesktop.enabled = true;
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
     renderSidebar(false, "left");
@@ -1939,6 +2342,7 @@ describe("AgentSidebar panel", () => {
   });
 
   it("respects a saved closed state when hosted harness would otherwise open", async () => {
+    mockAgentNativeDesktop.enabled = true;
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
     localStorage.setItem("agent-native-sidebar-open", "false");
@@ -1949,6 +2353,22 @@ describe("AgentSidebar panel", () => {
     expect(
       container?.querySelector("[data-agent-sidebar-main-state='closed']"),
     ).toBeTruthy();
+  });
+
+  it("does not render hosted-harness UI in a browser", async () => {
+    mockHostedHarness.configured = true;
+    mockHostedHarness.enabled = true;
+    renderSidebar(true);
+
+    await act(async () => {});
+
+    const sidebar = container?.querySelector(".agent-sidebar-shell");
+    expect(sidebar).toBeTruthy();
+    expect(mockHostedHarness.queryEnabled).toBe(false);
+    expect(mockPanel.hostedHarness).toBe(false);
+    expect(
+      sidebar?.getAttribute("data-agent-native-hosted-harness-ui"),
+    ).toBeNull();
   });
 
   it("keeps URL synchronization mounted while the panel is closed", () => {

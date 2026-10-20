@@ -391,6 +391,7 @@ describe("secrets routes", () => {
       validator: vi.fn(async () => ({
         ok: false,
         error: "API rejected shh-secret-value",
+        validationCode: "figma_file_url_as_token",
       })),
     });
 
@@ -405,6 +406,7 @@ describe("secrets routes", () => {
     expect(result).toEqual({
       error: "API rejected [redacted]",
       errorCode: "secret_rejected",
+      validationCode: "figma_file_url_as_token",
       retryable: false,
     });
     expect(JSON.stringify(result)).not.toContain("shh-secret-value");

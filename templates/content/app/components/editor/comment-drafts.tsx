@@ -1,4 +1,9 @@
 import {
+  serializeStoredCommentMentions,
+  type CommentAgentMention,
+  type CommentMention,
+} from "@shared/comment-mentions";
+import {
   createContext,
   useCallback,
   useContext,
@@ -14,7 +19,32 @@ import {
 } from "react";
 
 import { useLocalStorage } from "../../hooks/use-local-storage";
-import type { CommentAiDraft, MentionEntry } from "./CommentComposer";
+import type { CommentAiDraft } from "./CommentComposer";
+
+/**
+ * One `@name` chip in a draft, in text order: the only record of which
+ * `@name` is whose when a person and an agent share a name. People keep the
+ * `{ email, name }` drafts have always stored.
+ */
+export type MentionEntry =
+  | { kind?: "person"; email: string; name: string }
+  | CommentAgentMention;
+
+export function draftMention(entry: MentionEntry): CommentMention {
+  return entry.kind === "agent"
+    ? entry
+    : { kind: "person", email: entry.email, name: entry.name };
+}
+
+export function sameMentions(
+  left: readonly MentionEntry[],
+  right: readonly MentionEntry[],
+): boolean {
+  return (
+    serializeStoredCommentMentions(left.map(draftMention)) ===
+    serializeStoredCommentMentions(right.map(draftMention))
+  );
+}
 
 export interface CommentDraft {
   text: string;
@@ -86,12 +116,7 @@ function draftsMatch(left: CommentDraft, right: CommentDraft) {
     left.aiDraft?.selection.model === right.aiDraft?.selection.model &&
     left.aiDraft?.selection.engine === right.aiDraft?.selection.engine &&
     left.aiDraft?.selection.provider === right.aiDraft?.selection.provider &&
-    left.mentions.length === right.mentions.length &&
-    left.mentions.every(
-      (mention, index) =>
-        mention.email === right.mentions[index]?.email &&
-        mention.name === right.mentions[index]?.name,
-    )
+    sameMentions(left.mentions, right.mentions)
   );
 }
 
@@ -107,8 +132,10 @@ function isCommentDraftRevision(value: unknown): value is CommentDraftRevision {
       (mention) =>
         mention &&
         typeof mention === "object" &&
-        typeof mention.email === "string" &&
-        typeof mention.name === "string",
+        typeof mention.name === "string" &&
+        (mention.kind === "agent"
+          ? typeof mention.model === "string"
+          : typeof mention.email === "string"),
     ) &&
     (draft.aiDraft === null ||
       (draft.aiDraft !== undefined &&

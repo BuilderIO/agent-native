@@ -1,7 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
-
-import { e2eBaseURL } from "./base-url";
-import { gotoEditor } from "./helpers";
+import { expect, test } from "./rails";
 
 const VIEWPORT_RELATIVE_HTML = `<!doctype html>
 <html>
@@ -11,57 +8,41 @@ const VIEWPORT_RELATIVE_HTML = `<!doctype html>
   </body>
 </html>`;
 
-async function postAction(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const baseUrl = e2eBaseURL();
-  const response = await request.post(
-    `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}`,
-    { data: input },
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
-}
-
 test("viewport-relative content does not grow its overview frame forever", async ({
-  page,
-  request,
+  app,
 }) => {
-  const created = await postAction(request, "create-design", {
-    title: `Frame height stability ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
+  const id = await app.seed(VIEWPORT_RELATIVE_HTML);
+  await app.open(id);
+  const screen = app.page.locator(
+    "iframe[data-design-preview-iframe][data-screen-iframe-id]",
+  );
+  const heights = () =>
+    screen.evaluate((iframe: HTMLIFrameElement) => ({
+      frame: iframe.clientHeight,
+      body: Math.round(
+        iframe.contentDocument!.body.getBoundingClientRect().height,
+      ),
+    }));
 
-  try {
-    await postAction(request, "create-file", {
-      designId,
-      filename: "index.html",
-      content: VIEWPORT_RELATIVE_HTML,
-      fileType: "html",
+  // 100vh resolves to the 900px desktop device height, not the 1024px frame, so the body is 900 + 2 * 24.
+  await expect.poll(heights).toEqual({ frame: 1024, body: 948 });
+  for (let sample = 0; sample < 3; sample++) {
+    await app.page.waitForTimeout(700);
+    expect(await heights(), `sample ${sample + 1}`).toEqual({
+      frame: 1024,
+      body: 948,
     });
-    await gotoEditor(page, designId);
-
-    const iframe = page.locator(
-      "iframe[data-design-preview-iframe][data-screen-iframe-id]",
-    );
-    await expect(iframe).toBeVisible();
-    await page.waitForTimeout(1_200);
-    const settledHeight = await iframe.evaluate((node) => node.clientHeight);
-    await page.waitForTimeout(2_500);
-    const laterHeight = await iframe.evaluate((node) => node.clientHeight);
-
-    expect(laterHeight).toBe(settledHeight);
-  } finally {
-    await postAction(request, "delete-design", { id: designId }).catch(
-      () => {},
-    );
   }
+
+  await app.settled();
+  const record = await app.savedRecord(id);
+  const screenFile = record.files.find(
+    (file) => file.filename === "index.html",
+  );
+  const { canvasFrames } = record.data as {
+    canvasFrames: Record<string, unknown>;
+  };
+  expect(canvasFrames).toStrictEqual({
+    [screenFile!.id]: { x: 0, y: 736, width: 1440, height: 1024 },
+  });
 });

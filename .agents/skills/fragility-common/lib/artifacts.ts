@@ -62,6 +62,8 @@ export interface JiraResult {
   url: string;
   plan?: string;
   system?: string;
+  /** The bug report a sighting linked, when there was one. */
+  source?: string | null;
   at: string;
 }
 

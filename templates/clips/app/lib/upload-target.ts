@@ -7,6 +7,33 @@ export interface CreatedUploadTarget {
   abortUrl: string;
   resetChunksUrl?: string;
   uploadMode?: UploadMode;
+  clientLimits?: {
+    maxClipBytes: number;
+    maxClipDurationMs: number;
+  };
+}
+
+interface VideoStorageUploadStatus {
+  configured: boolean;
+  mode: "own" | "hosted" | "none";
+  hostedRemaining: number;
+  maxClipBytes: number;
+  maxClipDurationMs: number;
+}
+
+/**
+ * The status carries the hosted caps in every mode; only hosted uploads are
+ * bound by them, so own storage gets none.
+ */
+export function hostedUploadLimits(
+  status: VideoStorageUploadStatus | null,
+): NonNullable<CreatedUploadTarget["clientLimits"]> | null {
+  return status?.mode === "hosted"
+    ? {
+        maxClipBytes: status.maxClipBytes,
+        maxClipDurationMs: status.maxClipDurationMs,
+      }
+    : null;
 }
 
 /**
@@ -23,7 +50,7 @@ export async function openUploadTarget(options: {
   ownerEmail: string | null;
   newId: () => string;
   isStale: () => boolean;
-  fetchStatus: () => Promise<{ configured: boolean } | null>;
+  fetchStatus: () => Promise<VideoStorageUploadStatus | null>;
   create: (extra: {
     id?: string;
     expectedOwnerEmail?: string;
@@ -37,11 +64,21 @@ export async function openUploadTarget(options: {
 }): Promise<CreatedUploadTarget | null> {
   const { intake } = options;
   let serverId: string | undefined;
+  let uploadStatus: VideoStorageUploadStatus | null = null;
   if (!intake) {
     // An ownerless take is claimed explicitly after Stop, never streamed.
     if (!options.ownerEmail) return null;
-    const status = await options.fetchStatus();
-    if (options.isStale() || status?.configured !== true) return null;
+    uploadStatus = await options.fetchStatus();
+    const hasUploadStorage =
+      uploadStatus?.mode === "own" ||
+      (uploadStatus?.mode === "hosted" && uploadStatus.hostedRemaining > 0);
+    if (
+      options.isStale() ||
+      uploadStatus?.configured !== true ||
+      !hasUploadStorage
+    ) {
+      return null;
+    }
     serverId = options.newId();
   }
   let res: Response;
@@ -76,7 +113,8 @@ export async function openUploadTarget(options: {
       options.dropRow(info.id);
       return null;
     }
-    return info;
+    const clientLimits = hostedUploadLimits(uploadStatus);
+    return { ...info, ...(clientLimits ? { clientLimits } : {}) };
   }
   if (intake) {
     if (res.status === 401 || res.status === 403) {

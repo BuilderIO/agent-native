@@ -1,30 +1,23 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import {
+  IconBook2,
+  IconChevronDown,
+  IconChevronRight,
+} from "@tabler/icons-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useLocation } from "react-router";
 
 import { comparableDocsPath } from "./docs-locale";
 import { getDocsNavItems, getDocsNavSections } from "./docsNavItems";
+import {
+  ALWAYS_OPEN_SECTION_INDEX,
+  getActiveDocsNavGroupId,
+  getActiveDocsNavSectionId,
+  isDocsNavGroupItem,
+  isDocsNavItemActive,
+} from "./docsNavState";
 
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{
-        transition: "transform 200ms ease",
-        transform: open ? "rotate(180deg)" : "rotate(0deg)",
-      }}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
+const DESKTOP_NAV_QUERY = "(min-width: 1024px)";
 
 export default function MobileDocsNav() {
   const [open, setOpen] = useState(false);
@@ -34,6 +27,12 @@ export default function MobileDocsNav() {
   const t = useT();
   const navSections = useMemo(() => getDocsNavSections(locale, t), [locale, t]);
   const navItems = useMemo(() => getDocsNavItems(locale, t), [locale, t]);
+  const [openSectionId, setOpenSectionId] = useState<string | null>(() =>
+    getActiveDocsNavSectionId(navSections, location.pathname),
+  );
+  const [openGroupId, setOpenGroupId] = useState<string | null>(() =>
+    getActiveDocsNavGroupId(navSections, location.pathname),
+  );
 
   const currentPath = location.pathname;
   const norm = comparableDocsPath(currentPath.replace(/\/+$/, "") || "/");
@@ -41,6 +40,22 @@ export default function MobileDocsNav() {
   const currentItem =
     navItems.find((item) => norm === comparableDocsPath(item.to)) ??
     navItems[0];
+
+  useEffect(() => {
+    setOpenSectionId(getActiveDocsNavSectionId(navSections, location.pathname));
+    setOpenGroupId(getActiveDocsNavGroupId(navSections, location.pathname));
+  }, [location.pathname, navSections]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const query = window.matchMedia(DESKTOP_NAV_QUERY);
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setOpen(false);
+    };
+    query.addEventListener("change", handleChange);
+    return () => query.removeEventListener("change", handleChange);
+  }, [open]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -56,88 +71,182 @@ export default function MobileDocsNav() {
   }, [open]);
 
   return (
-    <div ref={navRef} className="mobile-docs-nav lg:hidden">
+    <div ref={navRef} className="mobile-docs-nav z-0 lg:hidden">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
         className="mobile-docs-nav-trigger"
         aria-expanded={open}
         aria-label={t("docs.navigateAria")}
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-        </svg>
+        <IconBook2 size={18} stroke={1.75} aria-hidden="true" />
         <span>{currentItem.label}</span>
-        <ChevronIcon open={open} />
+        <IconChevronDown
+          size={16}
+          stroke={1.75}
+          className={`mobile-docs-nav-chevron${open ? " is-open" : ""}`}
+          aria-hidden="true"
+        />
       </button>
 
       {open && (
         <nav className="mobile-docs-nav-dropdown">
           <ul className="mobile-docs-nav-list">
-            {navSections.map((section) => (
-              <li key={section.title}>
-                <p className="px-3 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--fg-secondary)] first:pt-1">
-                  {section.title}
-                </p>
-                <ul className="list-none p-0">
-                  {section.items.map((item) => {
-                    const isGroup = !item.to && Boolean(item.children?.length);
-                    const isActive =
-                      !isGroup &&
-                      comparableDocsPath(item.to!) ===
-                        comparableDocsPath(currentItem.to);
-                    return (
-                      <li key={item.to ?? item.label}>
-                        {isGroup ? (
-                          <p className="px-3 py-1.5 text-sm font-medium text-[var(--fg)]">
-                            {item.label}
-                          </p>
-                        ) : (
-                          <Link
-                            data-an-prefetch="viewport"
-                            to={item.to!}
-                            className={`mobile-docs-nav-link ${isActive ? "is-active" : ""}`}
-                            onClick={() => setOpen(false)}
-                          >
-                            {item.label}
-                          </Link>
-                        )}
-                        {item.children ? (
-                          <ul className="list-none p-0">
-                            {item.children.map((child) => {
-                              const childActive =
-                                comparableDocsPath(child.to!) ===
-                                comparableDocsPath(currentItem.to);
-                              return (
-                                <li key={child.to ?? child.label}>
-                                  <Link
-                                    data-an-prefetch="viewport"
-                                    to={child.to!}
-                                    className={`mobile-docs-nav-link mobile-docs-nav-sublink ${childActive ? "is-active" : ""}`}
-                                    onClick={() => setOpen(false)}
-                                  >
-                                    {child.label}
-                                  </Link>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </li>
-            ))}
+            {navSections.map((section, index) => {
+              const isAlwaysOpen = index === ALWAYS_OPEN_SECTION_INDEX;
+              const isOpen = isAlwaysOpen || openSectionId === section.id;
+              const sectionId = `mobile-docs-nav-section-${index}`;
+
+              return (
+                <li key={section.id} className="mobile-docs-nav-section">
+                  {isAlwaysOpen ? (
+                    <p className="docs-sidebar-section-label">
+                      {section.title}
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      className="docs-sidebar-section-trigger"
+                      aria-expanded={isOpen}
+                      aria-controls={sectionId}
+                      onClick={() =>
+                        setOpenSectionId((current) =>
+                          current === section.id ? null : section.id,
+                        )
+                      }
+                    >
+                      <span>{section.title}</span>
+                      <IconChevronRight
+                        size={16}
+                        stroke={1.75}
+                        className={`docs-sidebar-chevron rtl:-scale-x-100${isOpen ? " is-open" : ""}`}
+                        aria-hidden="true"
+                      />
+                    </button>
+                  )}
+
+                  <div
+                    id={sectionId}
+                    className="docs-sidebar-section-items-clip"
+                    data-state={isOpen ? "open" : "closed"}
+                    aria-hidden={isOpen ? undefined : true}
+                    inert={isOpen ? undefined : true}
+                  >
+                    <ul className="docs-sidebar-section-items mobile-docs-nav-section-items">
+                      {section.items.map((item) => {
+                        const isGroup = isDocsNavGroupItem(item);
+                        const active = item.to
+                          ? isDocsNavItemActive(item.to, location.pathname)
+                          : false;
+                        const groupOpen = !isGroup || openGroupId === item.id;
+                        const groupClipId = `mobile-docs-nav-group-${item.id}`;
+
+                        return (
+                          <li key={item.id}>
+                            {isGroup ? (
+                              <button
+                                type="button"
+                                className="sidebar-link sidebar-group-trigger mobile-docs-nav-group-trigger"
+                                aria-expanded={groupOpen}
+                                aria-controls={groupClipId}
+                                tabIndex={isOpen ? undefined : -1}
+                                onClick={() =>
+                                  setOpenGroupId((current) =>
+                                    current === item.id ? null : item.id,
+                                  )
+                                }
+                                style={
+                                  item.draft
+                                    ? { color: "var(--approaches-warn)" }
+                                    : undefined
+                                }
+                              >
+                                <span>{item.label}</span>
+                                <IconChevronRight
+                                  size={16}
+                                  stroke={1.75}
+                                  className={`docs-sidebar-chevron rtl:-scale-x-100${groupOpen ? " is-open" : ""}`}
+                                  aria-hidden="true"
+                                />
+                              </button>
+                            ) : item.to ? (
+                              <Link
+                                data-an-prefetch={
+                                  isOpen ? "viewport" : undefined
+                                }
+                                to={item.to}
+                                className={`mobile-docs-nav-link ${active ? "is-active" : ""}`}
+                                tabIndex={isOpen ? undefined : -1}
+                                style={
+                                  item.draft
+                                    ? { color: "var(--approaches-warn)" }
+                                    : undefined
+                                }
+                                onClick={() => setOpen(false)}
+                              >
+                                {item.label}
+                              </Link>
+                            ) : (
+                              <p className="px-3 py-1.5 text-sm font-medium text-[var(--fg)]">
+                                {item.label}
+                              </p>
+                            )}
+
+                            {item.children ? (
+                              <div
+                                id={groupClipId}
+                                className="docs-sidebar-section-items-clip"
+                                data-state={groupOpen ? "open" : "closed"}
+                                aria-hidden={groupOpen ? undefined : true}
+                                inert={groupOpen ? undefined : true}
+                              >
+                                <ul className="docs-sidebar-subitems">
+                                  {item.children.map((child) => {
+                                    const childActive = child.to
+                                      ? isDocsNavItemActive(
+                                          child.to,
+                                          location.pathname,
+                                        )
+                                      : false;
+                                    return (
+                                      <li key={child.id}>
+                                        <Link
+                                          data-an-prefetch={
+                                            isOpen && groupOpen
+                                              ? "viewport"
+                                              : undefined
+                                          }
+                                          to={child.to!}
+                                          className={`mobile-docs-nav-link mobile-docs-nav-sublink ${childActive ? "is-active" : ""}`}
+                                          tabIndex={
+                                            isOpen && groupOpen ? undefined : -1
+                                          }
+                                          style={
+                                            child.draft
+                                              ? {
+                                                  color:
+                                                    "var(--approaches-warn)",
+                                                }
+                                              : undefined
+                                          }
+                                          onClick={() => setOpen(false)}
+                                        >
+                                          {child.label}
+                                        </Link>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </div>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </nav>
       )}

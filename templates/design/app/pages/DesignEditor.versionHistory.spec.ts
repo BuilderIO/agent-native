@@ -10,9 +10,8 @@ describe("DesignEditor version history", () => {
   const eventsSource = readFileSync("app/lib/design-ui-events.ts", "utf8");
 
   it("exposes version history from the project menu", () => {
-    expect(editorSource).toContain('{"Version history" /* i18n-ignore */}');
+    expect(editorSource).toContain('t("designEditor.fileMenu.versionHistory")');
     expect(editorSource).toContain("setHistoryOpen(true)");
-    expect(editorSource).toContain("IconHistory");
     expect(editorSource).toContain("<HistoryPanel");
   });
 

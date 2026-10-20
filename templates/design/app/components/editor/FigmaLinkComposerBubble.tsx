@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
+  FigmaFileUrlUsedAsTokenError,
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
   type FigmaConnectionStatus,
@@ -162,9 +163,11 @@ export function FigmaLinkComposerBubble({
       // Do not retain a rejected credential in component state or the DOM.
       setToken("");
       setError(
-        reason instanceof Error
-          ? reason.message
-          : t("chat.figmaLink.connectFailed"),
+        reason instanceof FigmaFileUrlUsedAsTokenError
+          ? t("designEditor.import.errors.figmaTokenMustBeToken")
+          : reason instanceof Error
+            ? reason.message
+            : t("chat.figmaLink.connectFailed"),
       );
     } finally {
       setSaving(false);

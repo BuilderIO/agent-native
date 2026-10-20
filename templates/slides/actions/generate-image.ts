@@ -8,10 +8,8 @@ import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 
 import { parseArgs } from "@agent-native/core";
-import {
-  isBlockedExtensionUrlWithDns,
-  ssrfSafeFetch,
-} from "@agent-native/core/extensions/url-safety";
+import { fail } from "@agent-native/core/action";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import pLimit from "p-limit";
 
 import {
@@ -21,6 +19,7 @@ import {
   imagePreviewMarkdown,
   stripHtml,
 } from "../server/lib/assets-image-delegation.js";
+import { fetchReferenceImages } from "../server/lib/reference-image-fetch.js";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
 async function saveDelegatedImages(
@@ -115,6 +114,7 @@ Options:
   --model                 Provider: 'gemini', 'openai', or 'auto' (default: auto)
   --reference-image-urls  Comma-separated URLs of extra reference images
   --count                 Number of variations (default: 1)
+  --use-brand-library     Use Assets for a user-requested brand-library generation
   --output                Output file path prefix (files: {prefix}-v1.png, etc.)
   --help                  Show this help`);
     return;
@@ -129,7 +129,10 @@ Options:
   const count = parseInt(opts["count"] || "1", 10);
   const outputPrefix = opts["output"];
   const extraReferenceUrls = opts["reference-image-urls"]
-    ? opts["reference-image-urls"].split(",").map((u) => u.trim())
+    ? opts["reference-image-urls"]
+        .split(",")
+        .map((u) => u.trim())
+        .filter(Boolean)
     : [];
 
   let slideContent = opts["slide-content"];
@@ -144,54 +147,76 @@ Options:
     console.log(`Loaded deck context: ${deckCtx.deckText.length} chars`);
   }
 
-  const delegation = await delegateImageGenerationToAssets({
-    prompt,
-    count,
-    deckId: opts["deck-id"],
-    slideId: opts["slide-id"],
-    slideContent,
-    ...(extraReferenceUrls.length
-      ? { referenceImageUrls: extraReferenceUrls }
-      : {}),
-  });
-  if (delegation.status === "delegated") {
-    console.log(delegation.reply);
-    const previewUrl = extractAssetUrl(delegation.reply, {
-      baseUrl: delegation.target,
+  if (opts["use-brand-library"] === "true") {
+    const delegation = await delegateImageGenerationToAssets({
+      prompt,
+      count,
+      deckId: opts["deck-id"],
+      slideId: opts["slide-id"],
+      slideContent,
+      ...(extraReferenceUrls.length
+        ? { referenceImageUrls: extraReferenceUrls }
+        : {}),
     });
-    if (previewUrl) {
-      console.log(
-        `\nShow this to the user verbatim so the image renders inline:\n` +
-          imagePreviewMarkdown(prompt, previewUrl),
+    if (delegation.status === "delegated") {
+      console.log(delegation.reply);
+      const previewUrl = extractAssetUrl(delegation.reply, {
+        baseUrl: delegation.target,
+      });
+      if (previewUrl) {
+        console.log(
+          `\nShow this to the user verbatim so the image renders inline:\n` +
+            imagePreviewMarkdown(prompt, previewUrl),
+        );
+      }
+      if (outputPrefix) {
+        await saveDelegatedImages(
+          delegation.reply,
+          outputPrefix,
+          delegation.target,
+        );
+      }
+      return;
+    }
+    if (delegation.status === "pending") {
+      console.error(
+        `Assets is still generating (task ${delegation.taskId}, last state ` +
+          `"${delegation.lastState}"). It was not cancelled — check the Assets ` +
+          `app rather than generating a duplicate.`,
+      );
+      fail(
+        `Assets is still generating (task ${delegation.taskId}, state "${delegation.lastState}").`,
+        { errorCode: "assets_generation_pending", statusCode: 409 },
       );
     }
-    if (outputPrefix) {
-      await saveDelegatedImages(
-        delegation.reply,
-        outputPrefix,
-        delegation.target,
+    if (delegation.status === "rejected") {
+      console.error(
+        `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+      );
+      fail(
+        `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+        { errorCode: "assets_generation_rejected", statusCode: 424 },
       );
     }
-    return;
-  }
-  if (delegation.status === "pending") {
-    console.error(
-      `Assets is still generating (task ${delegation.taskId}, last state ` +
-        `"${delegation.lastState}"). It was not cancelled — check the Assets ` +
-        `app rather than generating a duplicate.`,
+    const unavailableReason = delegation.reason.trim();
+    if (!unavailableReason) {
+      console.error(
+        "Assets reported image generation unavailable without a reason; local fallback skipped.",
+      );
+      fail(
+        "Assets reported image generation unavailable without a reason; local fallback skipped.",
+        { errorCode: "assets_unavailability_reason_missing", statusCode: 424 },
+      );
+    }
+    console.warn(
+      `[slides/generate-image] Assets unavailable (${unavailableReason}); ` +
+        `using the local provider — output will not be brand-grounded.`,
     );
-    throw new Error("Script failed");
-  }
-  if (delegation.status === "rejected") {
-    console.error(
-      `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+  } else {
+    console.log(
+      "Using the local image provider. Pass --use-brand-library only when Assets' brand library or an Assets-exclusive capability is requested.",
     );
-    throw new Error("Script failed");
   }
-  console.warn(
-    `[slides/generate-image] Assets unavailable (${delegation.reason}); ` +
-      `using the local fallback provider — output will not be brand-grounded.`,
-  );
 
   const { getProvider } =
     await import("../server/handlers/image-providers/index.js");
@@ -199,11 +224,15 @@ Options:
   let provider: Awaited<ReturnType<typeof getProvider>>;
   try {
     provider = await getProvider(modelChoice);
-  } catch {
-    console.error(
-      "Error: No image generation provider configured. Save GOOGLE_GENERATIVE_AI_API_KEY or OPENAI_API_KEY in settings.",
-    );
-    throw new Error("Script failed");
+  } catch (error) {
+    if (error instanceof Error) {
+      const message = error.message.replace(
+        "set useBrandLibrary: true",
+        "pass --use-brand-library true",
+      );
+      console.error(`Error: ${message}`);
+    }
+    throw error;
   }
 
   const context =
@@ -214,49 +243,29 @@ Options:
     ...extraReferenceUrls,
   ];
 
-  const refFetchLimit = pLimit(4);
-  const refImages = (
-    await Promise.all(
-      referenceUrls.map((url) =>
-        refFetchLimit(async () => {
-          try {
-            console.log(`Loading reference image: ${url}`);
-            if (await isBlockedExtensionUrlWithDns(url)) {
-              console.warn(`Blocked private/internal reference image: ${url}`);
-              return null;
-            }
-            const res = await fetch(url, {
-              signal: AbortSignal.timeout(8000),
-              redirect: "manual",
-            });
-            if (res.status >= 300 && res.status < 400) {
-              console.warn(`Refusing redirected reference image: ${url}`);
-              return null;
-            }
-            if (!res.ok) {
-              console.warn(`Failed to load reference image: ${url}`);
-              return null;
-            }
-            const contentType = res.headers.get("content-type") || "image/png";
-            const buffer = Buffer.from(await res.arrayBuffer());
-            return {
-              data: buffer.toString("base64"),
-              mimeType: contentType.split(";")[0].trim(),
-            };
-          } catch (err: any) {
-            console.warn(
-              `Error loading reference image ${url}: ${err.message}`,
-            );
-            return null;
-          }
-        }),
-      ),
-    )
-  ).filter((r): r is { data: string; mimeType: string } => r !== null);
+  const referenceBatch = await fetchReferenceImages(referenceUrls, {
+    timeoutMs: 8_000,
+  });
+  const refImages = referenceBatch.images.map(({ data, mimeType }) => ({
+    data,
+    mimeType,
+  }));
+  for (const { index, reason } of referenceBatch.failures) {
+    console.warn(
+      `Reference image ${index} was not loaded (${JSON.stringify(reason)}).`,
+    );
+  }
+  for (const reason of referenceBatch.skippedReasons) {
+    console.warn(
+      reason.code === "reference_count_limit"
+        ? `Skipped ${reason.count} reference image(s) after the ${reason.maxReferences}-image limit.`
+        : `Skipped ${reason.count} reference image(s) after the ${Math.round(reason.maxBytes / (1024 * 1024))} MiB aggregate limit.`,
+    );
+  }
 
   console.log(`\nGenerating ${count} image(s) with prompt: "${prompt}"`);
   console.log(
-    `Using ${refImages.length} reference image(s) for style matching`,
+    `Loaded ${referenceBatch.loaded} of ${referenceBatch.requested} reference image(s) for style matching; ${referenceBatch.failed} failed, ${referenceBatch.skipped} skipped (${referenceBatch.totalBytes} bytes loaded).`,
   );
   if (context) {
     console.log(
@@ -282,6 +291,7 @@ Options:
   );
 
   const generatedFiles: string[] = [];
+  let successfulVariations = 0;
 
   for (const settled of variantResults) {
     if (settled.status === "rejected") {
@@ -292,6 +302,7 @@ Options:
       continue;
     }
     const { i, result } = settled.value;
+    successfulVariations++;
     if (outputPrefix) {
       const filePath = `${outputPrefix}-v${i + 1}.png`;
       writeFileSync(filePath, result.imageData);
@@ -315,6 +326,25 @@ Options:
     for (const f of generatedFiles) {
       console.log(`  ${f}`);
     }
+  }
+
+  if (successfulVariations === 0) {
+    console.error("No image variations were generated successfully.");
+    fail("No image variations were generated successfully.", {
+      errorCode: "image_generation_failed",
+      statusCode: 424,
+    });
+  }
+
+  if (successfulVariations < count) {
+    const message =
+      `Only ${successfulVariations} of ${count} requested image variations ` +
+      "were generated successfully.";
+    console.error(message);
+    fail(message, {
+      errorCode: "image_generation_partial_failure",
+      statusCode: 424,
+    });
   }
 
   console.log("\nDone!");

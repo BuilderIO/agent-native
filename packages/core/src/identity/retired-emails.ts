@@ -7,7 +7,7 @@
  */
 import type { DbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
 
 export const IDENTITY_RETIRED_EMAILS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS identity_retired_emails (
   -- guard:allow-identity-column — the retired address itself; rekey and offboarding never rewrite it
@@ -15,22 +15,23 @@ export const IDENTITY_RETIRED_EMAILS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS id
   retired_at BIGINT NOT NULL
 )`;
 
-let _initPromise: Promise<void> | undefined;
+export const identityRetiredEmailsStore = defineStore({
+  id: "identity_retired_emails",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(
+          "identity_retired_emails",
+          IDENTITY_RETIRED_EMAILS_CREATE_SQL,
+        );
+      },
+    },
+  ],
+});
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = ensureTableExists(
-      "identity_retired_emails",
-      IDENTITY_RETIRED_EMAILS_CREATE_SQL,
-    )
-      .then(() => undefined)
-      .catch((error) => {
-        _initPromise = undefined;
-        throw error;
-      });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return identityRetiredEmailsStore.ready();
 }
 
 /**

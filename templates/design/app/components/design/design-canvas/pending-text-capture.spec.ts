@@ -8,6 +8,7 @@ import {
   armPendingTextCapture,
   beginPendingTextDelivery,
   beginTextEditForOwner,
+  endPendingTextSession,
   failPendingTextCapture,
   HOST_COMMIT_RETRY_DELAYS_MS,
   isPendingTextCaptureBound,
@@ -128,13 +129,27 @@ describe("pending text capture", () => {
     expect(isPendingTextCaptureBound("board", "text-3")).toBe(false);
   });
 
-  it("stands down when the user clicks elsewhere in the host", () => {
+  it("commits the typed text when the user clicks elsewhere in the host", () => {
+    const commit = vi.fn(() => true);
+    unregisterAll.push(registerPendingTextHostCommit(commit));
     const capture = armPendingTextCapture({ owner: "board" });
     capture.bind("text-4");
-    type("Lost");
+    type("Kept");
     window.dispatchEvent(new PointerEvent("pointerdown"));
 
+    expect(commit).toHaveBeenCalledExactlyOnceWith("board", "text-4", "Kept");
     expect(takePendingTextCapture("board", "text-4")).toBeNull();
+  });
+
+  it("stands an untyped request down when the user clicks elsewhere in the host", () => {
+    const commit = vi.fn(() => true);
+    unregisterAll.push(registerPendingTextHostCommit(commit));
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-4b");
+    window.dispatchEvent(new PointerEvent("pointerdown"));
+
+    expect(commit).not.toHaveBeenCalled();
+    expect(isPendingTextRequestLive("board", "text-4b")).toBe(false);
   });
 
   it("stands the WHOLE request down on pointer-away, and only that request's", () => {
@@ -208,6 +223,28 @@ describe("pending text capture", () => {
     window.dispatchEvent(new PointerEvent("pointerdown"));
     expect(isPendingTextRequestLive("board", "text-15")).toBe(false);
     expect(teardown).toHaveBeenCalledOnce();
+  });
+
+  it("commits owed text instead of reopening the session when the session ends before the text lands", () => {
+    const begun = vi.fn(() => true);
+    register("board", begun);
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-escaped");
+    expect(
+      beginPendingTextDelivery("board", "text-escaped", "board text"),
+    ).toEqual({
+      text: "board text",
+      alreadyPosted: false,
+    });
+    begun.mockClear();
+
+    endPendingTextSession("board", "text-escaped");
+    acknowledgePendingTextInsert("board", "text-escaped", false);
+
+    expect(begun).toHaveBeenCalledExactlyOnceWith("text-escaped", {
+      commitImmediately: true,
+    });
+    expect(peekPendingTextCapture("board", "text-escaped")).toBe("board text");
   });
 
   it("delivers text typed before the cap to an owner that registers after it, and intercepts nothing after the cap", () => {

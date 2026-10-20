@@ -16,7 +16,14 @@ const SOURCE_INDEX_WARNING =
 const mocks = vi.hoisted(() => {
   const state = {
     entries: [] as DictionaryEntry[],
+    sources: [] as Array<{ id: string; label: string; status: string }>,
     sourceIndexStatus: "available" as SourceIndexStatus,
+    scanCoverage: {
+      unsafeEntriesOmitted: 1 as number | null,
+      unsafeFieldsOmitted: 2 as number | null,
+      truncatedFields: 3 as number | null,
+      unresolvedTrackingCallSites: 2 as number | null,
+    },
     canManageOrg: true,
     mutateAsync: vi.fn(async (_input: Record<string, unknown>) => ({
       success: true,
@@ -49,6 +56,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
             entryCount: mocks.entries.length,
             generatedAt: null,
           },
+          sources: mocks.sources,
         },
         isLoading: false,
       };
@@ -59,7 +67,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           status: "available",
           generatedAt: "2026-10-09T00:00:00.000Z",
           entryCount: mocks.entries.length,
-          unresolvedTrackingCallSites: 2,
+          scanCoverage: mocks.scanCoverage,
           sources: [{ id: "dbt" }],
           sourceCounts: [{ source: "dbt", entryCount: 1 }],
           ageDays: 1,
@@ -145,6 +153,13 @@ describe("SemanticLayer", () => {
 
   beforeEach(() => {
     mocks.sourceIndexStatus = "available";
+    mocks.sources = [];
+    mocks.scanCoverage = {
+      unsafeEntriesOmitted: 1,
+      unsafeFieldsOmitted: 2,
+      truncatedFields: 3,
+      unresolvedTrackingCallSites: 2,
+    };
     mocks.canManageOrg = true;
     mocks.entries = [
       {
@@ -240,10 +255,67 @@ describe("SemanticLayer", () => {
     expect(container.textContent).toContain(
       "indexPanel.unresolvedTrackingCallSites",
     );
+    expect(container.textContent).toContain("indexPanel.unsafeEntriesOmitted");
+    expect(container.textContent).toContain("indexPanel.unsafeFieldsOmitted");
+    expect(container.textContent).toContain("indexPanel.truncatedFields");
+    expect(container.textContent).toContain(
+      "indexPanel.sourceIndexCoverageCaveat",
+    );
     expect(container.textContent).toContain(
       "indexPanel.dynamicTrackingCoverageCaveat",
     );
     expect(container.textContent).toContain("2");
+  });
+
+  it("labels the dbt status toggle when its connection state is unknown", async () => {
+    mocks.sources = [{ id: "dbt", label: "dbt Cloud", status: "unknown" }];
+    await renderPage();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Manage semanticLayer.sourceIndex"]',
+        )
+        ?.click();
+    });
+
+    const manageDbtButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-expanded="false"]',
+    );
+    expect(manageDbtButton).toBeDefined();
+    expect(manageDbtButton?.textContent?.trim()).toBe("dataSources.manage");
+    expect(manageDbtButton?.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      manageDbtButton?.click();
+    });
+
+    expect(manageDbtButton?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("shows legacy unresolved tracking coverage as unavailable", async () => {
+    mocks.scanCoverage = {
+      unsafeEntriesOmitted: null,
+      unsafeFieldsOmitted: null,
+      truncatedFields: null,
+      unresolvedTrackingCallSites: null,
+    };
+    await renderPage();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Manage semanticLayer.sourceIndex"]',
+        )
+        ?.click();
+    });
+
+    expect(container.textContent).toContain(
+      "indexPanel.unresolvedTrackingCallSitesUnavailable",
+    );
+    expect(container.textContent).toContain("indexPanel.unsafeEntriesOmitted");
+    expect(container.textContent).toContain("indexPanel.unsafeFieldsOmitted");
+    expect(container.textContent).toContain("indexPanel.truncatedFields");
   });
 
   it.each(["unavailable", "invalid"] as const)(

@@ -29,8 +29,10 @@ const workflow = parse(
         "timeout-minutes"?: unknown;
         run?: unknown;
         if?: unknown;
+        env?: Record<string, unknown>;
         with?: {
           name?: unknown;
+          overwrite?: unknown;
           path?: unknown;
           "if-no-files-found"?: unknown;
           "retention-days"?: unknown;
@@ -84,14 +86,14 @@ assert.equal(
 assert.equal(workflow.concurrency?.["cancel-in-progress"], true);
 assert.equal(workflow.concurrency?.queue, undefined);
 const jobTimeout = workflow.jobs?.e2e?.["timeout-minutes"];
-assert.equal(jobTimeout, 55);
+assert.equal(jobTimeout, 90);
 assert.equal(
   workflow.jobs?.e2e?.name,
-  "${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/8', matrix.shard) }}",
+  "${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/16', matrix.shard) }}",
 );
 assert.equal(
   workflow.jobs?.e2e?.strategy?.matrix?.shard,
-  "${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8]') }}",
+  "${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]') }}",
 );
 assert.deepEqual(workflow.jobs?.e2e?.strategy?.matrix?.include, [
   { shard: "runtime-budget" },
@@ -105,38 +107,61 @@ assert.equal(
   shardStep?.run,
   [
     "mkdir -p .react-router/types",
+    'base_run_id="$E2E_RUN_ID"',
     'if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then',
-    "  pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts",
-    '  pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "modifier-held marquee"',
+    '  E2E_RUN_ID="${base_run_id}-exports" pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts',
+    '  E2E_RUN_ID="${base_run_id}-marquee" pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"',
     "else",
-    "  pnpm exec playwright test --shard=${{ matrix.shard }}/8",
+    '  E2E_RUN_ID="${base_run_id}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/16',
     "fi",
   ].join("\n") + "\n",
 );
+assert.equal(
+  shardStep?.env?.E2E_RUN_ID,
+  "design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+);
 const shardTimeout = shardStep?.["timeout-minutes"];
-assert.equal(shardTimeout, 37);
+assert.equal(shardTimeout, 52);
+const loopbackStep = steps.find(
+  (step) => step.name === "Run chat attachment and sizing loopback E2E",
+);
+const loopbackTimeout = loopbackStep?.["timeout-minutes"];
+assert.equal(loopbackTimeout, 21);
 assert.ok(
   typeof jobTimeout === "number" &&
     typeof shardTimeout === "number" &&
-    jobTimeout - shardTimeout >= 10,
-  "leave at least 10 minutes for setup and report upload after the shard timeout",
+    typeof loopbackTimeout === "number" &&
+    jobTimeout - shardTimeout - loopbackTimeout >= 10,
+  "leave at least 10 minutes for setup and report upload after the shard and loopback timeouts",
+);
+const retryArtifactIndex = steps.findIndex(
+  (step) => step.name === "Detect retried test failures",
 );
 const reportIndex = steps.findIndex(
-  (step) => step.name === "Upload report on failure",
+  (step) => step.name === "Upload Design E2E artifacts",
 );
 const reportStep = steps.find(
-  (step) => step.name === "Upload report on failure",
+  (step) => step.name === "Upload Design E2E artifacts",
 );
 assert.ok(shardIndex >= 0 && reportIndex > shardIndex);
+assert.ok(retryArtifactIndex > shardIndex && reportIndex > retryArtifactIndex);
 assert.equal(
   reportStep?.uses,
-  "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+  "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
 );
+assert.equal(reportStep?.with?.name, "design-e2e-report-${{ matrix.shard }}");
+assert.equal(reportStep?.with?.overwrite, true);
 assert.equal(
   reportStep?.if,
-  "${{ !cancelled() && matrix.shard != 'runtime-budget' && steps.run-shard.outcome != 'success' }}",
+  "${{ !cancelled() && matrix.shard != 'runtime-budget' && (failure() || steps.retry-artifacts.outputs.found == 'true') }}",
 );
-assert.equal(reportStep?.with?.path, "templates/design/test-results");
+assert.equal(
+  reportStep?.with?.path,
+  [
+    "templates/design/test-results/design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}-*/**",
+    "templates/design/test-results/design-ai-sidebar-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**",
+  ].join("\n") + "\n",
+);
 assert.equal(reportStep?.with?.["retention-days"], 7);
 assert.equal(reportStep?.with?.["if-no-files-found"], "warn");
 
@@ -169,9 +194,9 @@ assert.ok(
   typeof reportStepByName("Collect failed jobs and full logs")?.run ===
     "string" &&
     String(reportStepByName("Collect failed jobs and full logs")?.run).includes(
-      "gh run view --log-failed --job",
+      'gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/$job_id/logs"',
     ),
-  "the scheduled report must retain complete failed-job logs",
+  "the scheduled report must read completed job logs while its workflow run remains active",
 );
 const reportArtifact = reportStepByName(
   "Upload the complete Design E2E report",

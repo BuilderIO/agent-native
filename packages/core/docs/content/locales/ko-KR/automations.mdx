@@ -229,13 +229,25 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ### 매개변수 {#web-request-params}
 
-| 매개변수     | 유형   | 기본값 | 설명                                                         |
-| ------------ | ------ | ------ | ------------------------------------------------------------ |
-| `url`        | 문자열 | —      | 전체 URL. `${keys.NAME}` 참조가 포함될 수 있습니다.          |
-| `method`     | 문자열 | `GET`  | HTTP 방법(GET, POST, PUT, PATCH, DELETE, HEAD).              |
-| `headers`    | 문자열 | `{}`   | 헤더의 JSON 개체입니다. `${keys.NAME}`를 포함할 수 있습니다. |
-| `body`       | 문자열 | —      | 요청 본문. `${keys.NAME}`를 포함할 수 있습니다.              |
-| `timeout_ms` | 번호   | 15000  | 밀리초 단위의 시간 초과(최대 30000).                         |
+| 매개변수       | 유형   | 기본값        | 설명                                                                                                                                                                                                                                       |
+| -------------- | ------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `url`          | 문자열 | —             | 전체 URL. `${keys.NAME}` 참조가 포함될 수 있습니다.                                                                                                                                                                                        |
+| `method`       | 문자열 | `GET`         | HTTP 방법(GET, POST, PUT, PATCH, DELETE, HEAD).                                                                                                                                                                                            |
+| `headers`      | 문자열 | `{}`          | 헤더의 JSON 개체입니다. `${keys.NAME}`를 포함할 수 있습니다.                                                                                                                                                                               |
+| `body`         | 문자열 | —             | 요청 본문. `${keys.NAME}`를 포함할 수 있습니다.                                                                                                                                                                                            |
+| `timeout_ms`   | 번호   | 15000         | 밀리초 단위의 시간 초과(최대 30000).                                                                                                                                                                                                       |
+| `maxChars`     | 숫자   | 32000         | 에이전트 컨텍스트에 반환할 응답 본문 문자의 최대 수이며 최대 200000입니다. 이 제한은 전체 형식화된 도구 응답이 아니라 본문 문자에 적용되므로 선택적 메타데이터와 링크가 문자를 추가할 수 있습니다. 저장된 파일 내용에는 적용되지 않습니다. |
+| `responseMode` | 문자열 | `auto`        | 응답 반환 방식입니다. `auto`(HTML은 Markdown으로 변환하고 JSON/텍스트는 raw로 유지), `raw`, `text`, `markdown`, `links`, `metadata`, 또는 `search`와 함께 사용하는 `matches`입니다.                                                        |
+| `extract`      | 문자열 | `readability` | HTML 추출 전략입니다. `readability`, `all-visible`(본문의 모든 표시 텍스트), `none`(전체 문서)을 지원합니다.                                                                                                                               |
+| `includeLinks` | 불리언 | 조건부        | 추출된 HTML 응답에 간결한 링크 목록을 포함할지 여부입니다. 기본값은 인라인 응답에서 `true`, `saveToFile` 사용 시 `false`입니다.                                                                                                            |
+| `search`       | 객체   | —             | 가져온 뒤 추출된 콘텐츠에서 선택적으로 검색합니다: `{ query, queries, terms, regex, regexFlags, source, maxMatches, contextChars, caseSensitive }`.                                                                                        |
+| `saveToFile`   | 문자열 | —             | 전체 응답을 저장할 워크스페이스 파일 경로이며 최대 20 MiB입니다. `search`와 함께 쓰면 `maxChars`까지 전체 검색 일치 항목을 반환하고, 그렇지 않으면 2,000자 미리보기를 반환합니다.                                                          |
+
+기본적으로 `maxChars`는 에이전트 컨텍스트에 반환되는 응답 본문 문자만 제한합니다. 전체 형식화된 도구 응답에는 적용되지 않으므로 선택적 메타데이터와 링크가 문자를 추가할 수 있습니다. 인라인 응답은 1 MiB까지 허용됩니다. 추출된 HTML 또는 XHTML 응답은 20 MiB까지 허용됩니다. Raw HTML과 그 밖의 인라인 응답은 계속 1 MiB로 제한됩니다.
+
+`saveToFile`은 최대 20 MiB 응답을 저장할 수 있습니다. `responseMode`가 `raw`가 아닌 경우 저장되는 HTML 또는 XHTML은 추출된 Markdown이나 텍스트입니다. Raw 모드와 HTML이 아닌 응답은 HTML 추출 없이 디코딩된 응답 본문 텍스트로 저장됩니다. `saveToFile`과 `search`를 함께 사용하면 `maxChars` 범위 안에서 모든 검색 일치 항목을 반환합니다. `search`가 없으면 2,000자 미리보기를 반환합니다. `searchResultsTruncated`는 `maxChars`로 인해 형식화된 결과가 잘렸음을 뜻합니다. `searchSourceTruncated`는 선택한 검색 소스의 처음 500,000자만 스캔했음을 뜻합니다.
+
+크기 제한을 넘으면 오류에 확인된 크기, 적용되는 제한, 복구 방법이 표시됩니다. 20 MiB 이하 응답에는 `saveToFile`을 사용하고, 그보다 크면 더 작은 응답을 요청하세요.
 
 ## 키 {#keys}
 

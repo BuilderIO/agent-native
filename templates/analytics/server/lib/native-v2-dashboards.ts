@@ -2,16 +2,11 @@ import type {
   SqlDashboardConfig,
   SqlPanel,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import { NATIVE_V2_TEMPLATE_IDS } from "../../shared/builtin-dashboard-ids";
 
 export const NATIVE_V2_DASHBOARD_VERSION = "2026-07-30-v1";
 
-export const NATIVE_V2_DASHBOARD_IDS = [
-  "customer-roi-v2",
-  "account-engagement-v2",
-  "cross-sell-v2",
-  "win-loss-v2",
-  "on-demand-billing-v2",
-] as const;
+export const NATIVE_V2_DASHBOARD_IDS = NATIVE_V2_TEMPLATE_IDS;
 
 export type NativeV2DashboardId = (typeof NATIVE_V2_DASHBOARD_IDS)[number];
 

@@ -2,7 +2,7 @@
 // jira-refactor-findings (files it). Markdown with a flat frontmatter block.
 import { readFileSync, writeFileSync } from "node:fs";
 
-import { ScriptError } from "./cli.ts";
+import { assertRunId, ScriptError } from "./cli.ts";
 
 export interface PlanMeta {
   fingerprint: string;
@@ -77,6 +77,8 @@ export function readPlan(file: string): { meta: PlanMeta; body: string } {
     if (!meta[key])
       throw new ScriptError(`${file}: frontmatter is missing ${key}`);
   }
+  // Checked before any caller writes to Jira, not only where artifacts are written.
+  assertRunId(meta.runId);
   return { meta, body: match[2] };
 }
 

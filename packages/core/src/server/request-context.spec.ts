@@ -4,6 +4,7 @@ import {
   runWithRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
+  getRequestBuilderStorageCredentialOrgId,
   getRequestTimezone,
   getRequestContext,
   getCredentialContext,
@@ -74,6 +75,20 @@ describe("server/request-context", () => {
         expect(getRequestOrgId()).toBeUndefined();
       });
     });
+  });
+
+  it("keeps the Builder storage grant org separate from data org scope", () => {
+    runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        orgScope: "personal",
+        builderStorageCredentialOrgId: "storage-org",
+      },
+      () => {
+        expect(getRequestOrgId()).toBeUndefined();
+        expect(getRequestBuilderStorageCredentialOrgId()).toBe("storage-org");
+      },
+    );
   });
 
   it("keeps org-only credential scope separate from the authenticated user", () => {

@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-function hydratedEditorChromeBridgeScript(): string {
+function hydratedEditorChromeBridgeScript(
+  runtimeLayerSnapshotEnabled = false,
+): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
     .replace("__TEXT_EDITING_ENABLED__", "false")
@@ -13,7 +15,10 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
-    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+    .replace(
+      "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
+      runtimeLayerSnapshotEnabled ? "true" : "false",
+    )
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
@@ -184,7 +189,123 @@ async function portableStyleSnapshotWithIframeProbe(
   }
 }
 
+async function runtimeLayerSnapshotAfterPortableStyleProbe(
+  html: string,
+  selector: string,
+): Promise<{ html: string; nodeCount: number }> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({
+      viewport: { width: 800, height: 600 },
+    });
+    await page.setContent(html);
+    await page.evaluate(() => {
+      const realCreateElement = document.createElement.bind(document);
+      document.createElement = ((
+        tagName: string,
+        options?: ElementCreationOptions,
+      ) => {
+        if (tagName.toLowerCase() === "iframe") {
+          const iframe = realCreateElement(
+            tagName,
+            options,
+          ) as HTMLIFrameElement;
+          Object.defineProperty(iframe, "contentDocument", {
+            configurable: true,
+            get: () => null,
+          });
+          return iframe;
+        }
+        return realCreateElement(tagName, options);
+      }) as typeof document.createElement;
+
+      const target = window as Window & { __messages?: unknown[] };
+      target.__messages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        target.__messages!.push(event.data);
+      });
+    });
+    await page.addScriptTag({
+      content: hydratedEditorChromeBridgeScript(true),
+    });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate((sel) => {
+      window.postMessage(
+        { type: "select-element", selector: sel, selectorCandidates: [sel] },
+        "*",
+      );
+    }, selector);
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) => message.type === "element-select",
+      ),
+    );
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) =>
+          message.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request",
+      ),
+    );
+    const reservation = await page.evaluate(() =>
+      ((window as any).__messages ?? []).find(
+        (message: any) =>
+          message.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request",
+      ),
+    );
+    await page.evaluate((request) => {
+      window.postMessage(
+        {
+          type: "grant-runtime-layer-snapshot-reservation",
+          requestId: request.requestId,
+          documentId: request.documentId,
+        },
+        "*",
+      );
+    }, reservation);
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) =>
+          message.type === "agent-native:runtime-layer-snapshot",
+      ),
+    );
+    return await page.evaluate(() => {
+      const snapshot = ((window as any).__messages ?? []).find(
+        (message: any) =>
+          message.type === "agent-native:runtime-layer-snapshot",
+      )?.payload;
+      return { html: snapshot.html, nodeCount: snapshot.nodeCount };
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
 describe("portable style snapshot diff-vs-defaults probe", () => {
+  it(
+    "excludes the fallback style probe host from runtime layer snapshots",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <main data-agent-native-node-id="main">
+          <button data-agent-native-node-id="button">Continue</button>
+        </main>
+      </body></html>`;
+      const snapshot = await runtimeLayerSnapshotAfterPortableStyleProbe(
+        html,
+        '[data-agent-native-node-id="button"]',
+      );
+
+      expect(snapshot.html).not.toContain(
+        "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;",
+      );
+      expect(snapshot.nodeCount).toBe(2);
+      expect(snapshot.html).toContain('data-agent-native-node-id="main"');
+      expect(snapshot.html).toContain('data-agent-native-node-id="button"');
+    },
+  );
+
   it(
     "carries a bare tag's authored appearance from the source document's own stylesheet (not just classed elements)",
     { timeout: 30_000 },
@@ -547,6 +668,81 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
       );
       expect(styles?.borderTopWidth).toBe("2px");
       expect(styles?.borderTopColor).toBe("rgb(10, 20, 30)");
+    },
+  );
+
+  it(
+    "retains no extra document once a selection's styles are captured",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage({
+          viewport: { width: 800, height: 600 },
+        });
+        await page.setContent(`<!doctype html><html><head><style>button{background-color:teal}section{color:purple}</style></head><body style="margin:0">
+          <button data-agent-native-node-id="btn">Click</button>
+          <section data-agent-native-node-id="sec">Text</section>
+        </body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        const attachedDocuments = async () => {
+          await page.evaluate(
+            () => new Promise((resolve) => setTimeout(resolve, 50)),
+          );
+          return page.frames().length;
+        };
+        await page.evaluate(() => {
+          (window as any).__messages = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.data?.type === "element-select") {
+              (window as any).__messages.push(event.data);
+            }
+          });
+        });
+        const before = await attachedDocuments();
+        const captured: Record<string, string | undefined> = {};
+        for (const [id, property] of [
+          ["btn", "backgroundColor"],
+          ["sec", "color"],
+        ] as const) {
+          const selector = `[data-agent-native-node-id="${id}"]`;
+          const count = await page.evaluate(
+            () => (window as any).__messages.length as number,
+          );
+          await page.evaluate((sel) => {
+            window.postMessage(
+              {
+                type: "select-element",
+                selector: sel,
+                selectorCandidates: [sel],
+              },
+              "*",
+            );
+          }, selector);
+          await page.waitForFunction(
+            (after) => (window as any).__messages.length > after,
+            count,
+          );
+          captured[id] = await page.evaluate(
+            (key) =>
+              (window as any).__messages.at(-1)?.payload?.portableStyleSnapshot
+                ?.nodes?.[0]?.styles?.[key],
+            property,
+          );
+          expect(await attachedDocuments(), `after selecting ${id}`).toBe(
+            before,
+          );
+        }
+        expect(captured).toEqual({
+          btn: "rgb(0, 128, 128)",
+          sec: "rgb(128, 0, 128)",
+        });
+      } finally {
+        await browser.close();
+      }
     },
   );
 });

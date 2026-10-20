@@ -39,6 +39,7 @@ export interface LocalPlanReadResult {
   suggestedRepoPath: string;
   mdx: PlanMdxFolder;
   content: PlanContent;
+  hasSalvagedInvalidBlocks: boolean;
 }
 
 export interface LocalPlanLocationInput {
@@ -539,6 +540,24 @@ export async function readPlanLocalFolder(
     // assets/ directory absent or unreadable — skip.
   }
 
+  let content: PlanContent;
+  let hasSalvagedInvalidBlocks = false;
+  try {
+    content = await parsePlanMdxFolder(mdx, {
+      allowStoredLegacyDefaults: true,
+    });
+  } catch (error) {
+    try {
+      content = await parsePlanMdxFolder(mdx, {
+        allowStoredLegacyDefaults: true,
+        salvageInvalidBlocks: true,
+      });
+      hasSalvagedInvalidBlocks = true;
+    } catch {
+      throw error;
+    }
+  }
+
   return {
     slug: location.slug,
     folder,
@@ -547,7 +566,8 @@ export async function readPlanLocalFolder(
     url: localPlanRoutePath(location.slug, location.repoPath),
     suggestedRepoPath: await defaultLocalPlanRepoPath(location.slug),
     mdx,
-    content: await parsePlanMdxFolder(mdx, { salvageInvalidBlocks: true }),
+    content,
+    hasSalvagedInvalidBlocks,
   };
 }
 

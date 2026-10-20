@@ -343,3 +343,23 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
     expect(applyOpToDeck(before, op)).toBe(before);
   });
 });
+
+describe("deriveDeckDiffOps transition speed", () => {
+  it("saves a speed-only change as a patch-slide", () => {
+    const before = deck([slide("a", { transition: "fade" })]);
+    const after = deck([
+      slide("a", { transition: "fade", transitionSpeed: 30 }),
+    ]);
+    expect(deriveDeckDiffOps(before, after)).toEqual([
+      { op: "patch-slide", slideId: "a", fields: { transitionSpeed: 30 } },
+    ]);
+  });
+
+  it("clears the stored speed with null when it is removed", () => {
+    const before = deck([slide("a", { transitionSpeed: 30 })]);
+    const after = deck([slide("a")]);
+    expect(deriveDeckDiffOps(before, after)).toEqual([
+      { op: "patch-slide", slideId: "a", fields: { transitionSpeed: null } },
+    ]);
+  });
+});

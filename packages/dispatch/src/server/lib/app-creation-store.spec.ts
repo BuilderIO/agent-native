@@ -472,6 +472,79 @@ describe("listWorkspaceApps", () => {
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
   });
 
+  it("binds hosted registry tokens to the mounted Dispatch path", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify([
+          {
+            id: "atlas",
+            name: "Atlas",
+            path: "/atlas",
+          },
+        ]),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("APP_BASE_PATH", "/dispatch");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    await runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+      listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    const authorization = fetchMock.mock.calls[0]?.[1]?.headers
+      ?.Authorization as string;
+    const tokenPayload = JSON.parse(
+      Buffer.from(
+        authorization.slice("Bearer ".length).split(".")[1]!,
+        "base64url",
+      ).toString(),
+    ) as { aud?: string };
+    expect(tokenPayload.aud).toBe(
+      "https://agent-workspace.builder.io/dispatch",
+    );
+  });
+
+  it("preserves a path-prefixed gateway audience when Dispatch is unmounted", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify([
+          {
+            id: "atlas",
+            name: "Atlas",
+            path: "/atlas",
+          },
+        ]),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv(
+      "WORKSPACE_GATEWAY_URL",
+      "https://agent-workspace.builder.io/workspace",
+    );
+
+    await runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+      listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    const authorization = fetchMock.mock.calls[0]?.[1]?.headers
+      ?.Authorization as string;
+    const tokenPayload = JSON.parse(
+      Buffer.from(
+        authorization.slice("Bearer ".length).split(".")[1]!,
+        "base64url",
+      ).toString(),
+    ) as { aud?: string };
+    expect(tokenPayload.aud).toBe(
+      "https://agent-workspace.builder.io/workspace",
+    );
+  });
+
   it.each([401, 403])(
     "does not expose manifest apps without ACL rows when the hosted registry denies the read (%i)",
     async (status) => {
@@ -2133,7 +2206,6 @@ describe("startWorkspaceAppCreation", () => {
               name: "notes.txt",
               dataUrl: "",
               text: "Requirements",
-              size: Buffer.byteLength("Requirements", "utf8"),
               id: "file-notes",
             },
           ],
@@ -2151,6 +2223,74 @@ describe("startWorkspaceAppCreation", () => {
         ],
       }),
     );
+  });
+
+  it("rejects an invalid attachment before reserving the app or calling Builder", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.runBuilderAgent.mockClear();
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () =>
+          startWorkspaceAppCreation({
+            prompt: "Build an app",
+            appId: "onboarding",
+            attachments: [
+              {
+                type: "upload",
+                contentType: "text/plain",
+                name: "notes.md",
+                dataUrl: "",
+                id: "file-notes",
+              },
+            ],
+          }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "invalid_attachment" });
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  it("logs why Builder could not start the branch", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockRejectedValue(
+      new Error("Builder agent run failed (500)", {
+        cause: new Error("socket hang up"),
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = (await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        startWorkspaceAppCreation({
+          prompt: "Build an app",
+          appId: "onboarding",
+        }),
+    )) as any;
+
+    expect(result).toMatchObject({
+      mode: "builder-unavailable",
+      reason: "builder-error",
+    });
+    const logged = warn.mock.calls.find(
+      ([message]) =>
+        message === "[dispatch] workspace app creation unavailable",
+    );
+    expect(logged?.[1]).toMatchObject({
+      appId: "onboarding",
+      reason: "builder-error",
+      error: expect.stringContaining("socket hang up"),
+    });
   });
 
   it("does not let an organization member persist an auto-provisioned project", async () => {

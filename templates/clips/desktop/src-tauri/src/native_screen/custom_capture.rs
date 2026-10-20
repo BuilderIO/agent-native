@@ -1,4 +1,3 @@
-
 use super::*;
 use screencapturekit::error::SCError;
 use screencapturekit::stream::delegate_trait::SCStreamDelegateTrait;
@@ -111,7 +110,6 @@ impl CaptureWatch {
         self.paused.load(Ordering::SeqCst)
     }
 }
-
 
 const AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION: isize = 1;
 const AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE: isize = 2;
@@ -2046,7 +2044,6 @@ impl CustomScreenCaptureWriter {
     }
 }
 
-
 const MIX_CHUNK_FRAMES: i64 = 4096;
 const MIX_STALL_TIMEOUT: Duration = Duration::from_millis(250);
 const MIX_SOURCE_GRACE: Duration = Duration::from_millis(2000);
@@ -3282,21 +3279,64 @@ unsafe fn av_string_suffix(obj: *mut objc2::runtime::AnyObject) -> String {
 
 #[derive(Clone)]
 struct RestartParams {
+    recording_id: Option<String>,
     include_audio: bool,
     capture_system_audio: bool,
+    include_camera_overlay: bool,
     emit_recorder_stop: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     target_display_id: Option<u32>,
     target_window_id: Option<u32>,
     target_window_dimensions: Option<(u32, u32)>,
+    alignment_generation: u64,
     capture_region: Option<NativeCaptureRegion>,
     width: u32,
     height: u32,
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WatchdogInstallDecision {
+    Install,
+    Retry,
+    Finalize,
+    Exit,
+}
+
+#[cfg(target_os = "macos")]
+fn watchdog_install_decision(
+    shutting_down: bool,
+    appends_closed: bool,
+    paused: bool,
+    user_stopped: bool,
+    handler_is_current: bool,
+) -> WatchdogInstallDecision {
+    if shutting_down {
+        WatchdogInstallDecision::Exit
+    } else if appends_closed {
+        WatchdogInstallDecision::Finalize
+    } else if paused || user_stopped || !handler_is_current {
+        WatchdogInstallDecision::Retry
+    } else {
+        WatchdogInstallDecision::Install
+    }
+}
+
+fn emit_capture_recorder_stop(app: &AppHandle, recording_id: Option<&str>) {
+    if let Some(recording_id) = recording_id {
+        let _ = app.emit(
+            "clips:recorder-stop",
+            serde_json::json!({ "recordingId": recording_id }),
+        );
+    } else {
+        let _ = app.emit("clips:recorder-stop", ());
+    }
+}
+
 pub(crate) struct CustomCaptureResume {
     stream: Arc<Mutex<SCStream>>,
+    configuration: Arc<Mutex<SCStreamConfiguration>>,
     handler: CustomScreenCaptureOutputHandler,
     watch: Arc<CaptureWatch>,
     params: RestartParams,
@@ -3304,15 +3344,19 @@ pub(crate) struct CustomCaptureResume {
 
 impl CustomCaptureResume {
     pub(crate) fn pause(&self) -> Result<(), String> {
-        let guard = self
-            .stream
-            .lock()
-            .map_err(|error| format!("capture pause stream lock failed: {error}"))?;
-        guard
-            .stop_capture()
-            .map_err(|error| format!("capture pause stop_capture failed: {error:?}"))?;
-        drop(guard);
         self.watch.set_paused(true);
+        let guard = match self.stream.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                self.watch.set_paused(false);
+                return Err(format!("capture pause stream lock failed: {error}"));
+            }
+        };
+        if let Err(error) = guard.stop_capture() {
+            self.watch.set_paused(false);
+            return Err(format!("capture pause stop_capture failed: {error:?}"));
+        }
+        drop(guard);
         self.handler.invalidate_stream();
         eprintln!("[mixer] capture paused; source stream stopped, writer/file kept open");
         Ok(())
@@ -3323,7 +3367,7 @@ impl CustomCaptureResume {
         let prev_offset = writer.pause_offset();
 
         let replacement_handler = self.handler.replacement_stream();
-        let new_stream =
+        let (new_stream, new_configuration) =
             build_custom_scstream(&self.params, &replacement_handler, &self.watch, None)?;
 
         writer.set_pause_offset(prev_offset + paused_for.as_secs_f64());
@@ -3332,12 +3376,25 @@ impl CustomCaptureResume {
             return Err(format!("resume start_capture failed: {err:?}"));
         }
 
-        if let Ok(guard) = self.stream.lock() {
-            let _ = guard.stop_capture();
-        }
-        if let Ok(mut guard) = self.stream.lock() {
-            *guard = new_stream;
-        }
+        let mut stream = match self.stream.lock() {
+            Ok(stream) => stream,
+            Err(error) => {
+                let _ = new_stream.stop_capture();
+                writer.set_pause_offset(prev_offset);
+                return Err(format!("capture resume stream lock failed: {error}"));
+            }
+        };
+        let mut configuration = match self.configuration.lock() {
+            Ok(configuration) => configuration,
+            Err(error) => {
+                let _ = new_stream.stop_capture();
+                writer.set_pause_offset(prev_offset);
+                return Err(format!("capture resume configuration lock failed: {error}"));
+            }
+        };
+        let _ = stream.stop_capture();
+        *stream = new_stream;
+        *configuration = new_configuration;
         let _ = self.watch.take_stream_stopped();
         self.watch.note_activity();
         self.watch.set_paused(false);
@@ -3380,7 +3437,7 @@ fn build_custom_scstream(
     handler: &CustomScreenCaptureOutputHandler,
     watch: &Arc<CaptureWatch>,
     prefetched_content: Option<SCShareableContent>,
-) -> Result<SCStream, String> {
+) -> Result<(SCStream, SCStreamConfiguration), String> {
     let content = match prefetched_content {
         Some(content) => content,
         None => SCShareableContent::get()
@@ -3426,17 +3483,17 @@ fn build_custom_scstream(
     } else {
         region_source_rect(params.capture_region, source_width, source_height)?
     };
-    let filter = if let Some(window) = window.as_ref() {
-        SCContentFilter::create().with_window(window).build()
+    let (filter, window_source_rect) = if let Some(window) = window.as_ref() {
+        super::selected_window_capture_filter(&content, window, params.include_camera_overlay)?
     } else {
         let display = display.expect("display is present when no window is selected");
         let filter_builder = SCContentFilter::create()
             .with_display(display)
             .with_excluding_windows(&[]);
         if let Some((rect, _, _)) = region_rect {
-            filter_builder.with_content_rect(rect).build()
+            (filter_builder.with_content_rect(rect).build(), None)
         } else {
-            filter_builder.build()
+            (filter_builder.build(), None)
         }
     };
 
@@ -3449,9 +3506,7 @@ fn build_custom_scstream(
         None
     };
 
-    let mut config = SCStreamConfiguration::new()
-        .with_width(params.width)
-        .with_height(params.height)
+    let mut config = fixed_output_stream_configuration(params.width, params.height)
         .with_fps(NATIVE_CAPTURE_FPS)
         .with_queue_depth(8)
         .with_shows_cursor(true)
@@ -3461,7 +3516,10 @@ fn build_custom_scstream(
         .with_sample_rate(48000)
         .with_channel_count(2);
     config.set_pixel_format(screencapturekit::stream::configuration::PixelFormat::YCbCr_420v);
-    if let Some((rect, _, _)) = region_rect {
+    if let Some(rect) = window_source_rect
+        .map(|geometry| geometry.source_rect)
+        .or_else(|| region_rect.map(|(rect, _, _)| rect))
+    {
         config.set_source_rect(rect);
     }
     if let Some(device) = selected_mic.as_ref() {
@@ -3484,7 +3542,7 @@ fn build_custom_scstream(
     if params.include_audio {
         stream.add_output_handler(handler.clone(), SCStreamOutputType::Microphone);
     }
-    Ok(stream)
+    Ok((stream, config))
 }
 
 fn await_segmented_capture_readiness(
@@ -3564,11 +3622,16 @@ fn spawn_capture_watchdog(
     watch: Arc<CaptureWatch>,
     recording_enabled: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
+    configuration: Arc<Mutex<SCStreamConfiguration>>,
     params: RestartParams,
 ) {
     std::thread::spawn(move || {
         let mut restart_streak: u32 = 0;
         let mut cooldown_until: Option<Instant> = None;
+        let mut geometry_error: Option<String> = None;
+        let mut consecutive_geometry_errors = 0;
+        let mut last_geometry = None;
+        let mut watchdog_fatal_error: Option<String> = None;
 
         loop {
             std::thread::sleep(CAPTURE_WATCHDOG_POLL);
@@ -3579,29 +3642,58 @@ fn spawn_capture_watchdog(
                 if shutdown.load(Ordering::SeqCst) {
                     return;
                 }
-                eprintln!(
-                    "[mixer] appends closed without a stop request; treating as fatal capture failure and finalizing partial recording"
-                );
                 let writer_error = writer
                     .failure()
                     .unwrap_or_else(|| "unknown writer failure".to_string());
+                let failure = watchdog_fatal_error
+                    .take()
+                    .map(|error| format!("{error}; writer: {writer_error}"))
+                    .unwrap_or(writer_error);
+                eprintln!(
+                    "[mixer] capture failed without a stop request ({failure}); finalizing partial recording"
+                );
                 crate::logfile::diagnostic(&format!(
-                    "[capture-health] writer closed unexpectedly; finalizing partial recording: {writer_error}"
+                    "[capture-health] capture closed unexpectedly; finalizing partial recording: {failure}"
                 ));
                 crate::logfile::diagnostic(&format!(
                     "[capture-health] append stats at failure — {}",
                     writer.append_stats_summary()
                 ));
-                if let Ok(guard) = stream.lock() {
+                {
+                    let guard = stream.lock().unwrap_or_else(|error| {
+                        eprintln!(
+                            "[mixer] capture watchdog stream lock failed during finalization: {error}"
+                        );
+                        error.into_inner()
+                    });
                     let _ = guard.stop_capture();
                 }
                 if params.emit_recorder_stop {
-                    let _ = app.emit("clips:recorder-stop", ());
+                    emit_capture_recorder_stop(&app, params.recording_id.as_deref());
                 }
                 return;
             }
             if !recording_enabled.load(Ordering::SeqCst) || !writer.started.load(Ordering::SeqCst) {
                 continue;
+            }
+
+            if watch.user_stopped() {
+                {
+                    let guard = stream.lock().unwrap_or_else(|error| {
+                        eprintln!(
+                            "[mixer] capture watchdog stream lock failed after user stop: {error}"
+                        );
+                        error.into_inner()
+                    });
+                    let _ = guard.stop_capture();
+                }
+                if params.emit_recorder_stop {
+                    eprintln!("[mixer] user stopped capture via macOS; emitting recorder stop");
+                    emit_capture_recorder_stop(&app, params.recording_id.as_deref());
+                } else {
+                    eprintln!("[mixer] user stopped Screen Memory capture via macOS");
+                }
+                return;
             }
 
             if watch.is_paused() {
@@ -3610,14 +3702,50 @@ fn spawn_capture_watchdog(
                 continue;
             }
 
-            if watch.user_stopped() {
-                if params.emit_recorder_stop {
-                    eprintln!("[mixer] user stopped capture via macOS; emitting recorder stop");
-                    let _ = app.emit("clips:recorder-stop", ());
-                } else {
-                    eprintln!("[mixer] user stopped Screen Memory capture via macOS");
+            if params.include_camera_overlay {
+                if let Some(target_window_id) = params.target_window_id {
+                    match super::refresh_selected_window_camera_capture(
+                        &app,
+                        &stream,
+                        &configuration,
+                        target_window_id,
+                        params.alignment_generation,
+                        || {
+                            !shutdown.load(Ordering::SeqCst)
+                                && !watch.is_paused()
+                                && !watch.user_stopped()
+                        },
+                        &mut last_geometry,
+                    ) {
+                        Ok(true) => {
+                            geometry_error = None;
+                            consecutive_geometry_errors = 0;
+                        }
+                        Ok(false) => continue,
+                        Err(error) => {
+                            if shutdown.load(Ordering::SeqCst) {
+                                return;
+                            }
+                            if watch.is_paused() || watch.user_stopped() {
+                                continue;
+                            }
+                            if geometry_error.as_ref() != Some(&error) {
+                                eprintln!(
+                                    "[mixer] selected-window camera geometry refresh failed: {error}"
+                                );
+                                geometry_error = Some(error);
+                            }
+                            consecutive_geometry_errors += 1;
+                            if consecutive_geometry_errors >= 5 {
+                                eprintln!(
+                                    "[mixer] selected-window camera geometry did not recover after {consecutive_geometry_errors} attempts; finalizing the partial recording"
+                                );
+                                writer.appends_closed.store(true, Ordering::SeqCst);
+                                continue;
+                            }
+                        }
+                    }
                 }
-                return;
             }
 
             if let Some(until) = cooldown_until {
@@ -3650,11 +3778,17 @@ fn spawn_capture_watchdog(
                     "[mixer] capture interrupted ({reason}) and did not recover after {CAPTURE_MAX_RESTARTS} restarts; finalizing partial recording"
                 );
                 writer.appends_closed.store(true, Ordering::SeqCst);
-                if let Ok(guard) = stream.lock() {
+                {
+                    let guard = stream.lock().unwrap_or_else(|error| {
+                        eprintln!(
+                            "[mixer] capture watchdog stream lock failed after restart limit: {error}"
+                        );
+                        error.into_inner()
+                    });
                     let _ = guard.stop_capture();
                 }
                 if params.emit_recorder_stop {
-                    let _ = app.emit("clips:recorder-stop", ());
+                    emit_capture_recorder_stop(&app, params.recording_id.as_deref());
                 }
                 return;
             }
@@ -3664,41 +3798,100 @@ fn spawn_capture_watchdog(
             );
 
             let replacement_handler = handler.replacement_stream();
-            if let Ok(guard) = stream.lock() {
+            {
+                let guard = stream.lock().unwrap_or_else(|error| {
+                    eprintln!(
+                        "[mixer] capture watchdog stream lock failed before rebuild: {error}"
+                    );
+                    error.into_inner()
+                });
                 let _ = guard.stop_capture();
             }
-            if shutdown.load(Ordering::SeqCst) || writer.appends_closed.load(Ordering::SeqCst) {
+            if shutdown.load(Ordering::SeqCst) {
                 return;
             }
+            if writer.appends_closed.load(Ordering::SeqCst) {
+                continue;
+            }
 
-            match build_custom_scstream(&params, &replacement_handler, &watch, None).and_then(|s| {
-                s.start_capture()
-                    .map(|()| s)
-                    .map_err(|e| format!("start_capture failed: {e:?}"))
+            let alignment_result = if params.include_camera_overlay {
+                params.target_window_id.map_or(Ok(()), |target_window_id| {
+                    let state = app.state::<super::NativeFullscreenRecordingState>();
+                    super::align_camera_bubble_to_selected_window_while(
+                        &app,
+                        &state,
+                        target_window_id,
+                        params.alignment_generation,
+                        super::RestoreRetryBehavior::Preserve,
+                        || {
+                            !shutdown.load(Ordering::SeqCst)
+                                && !watch.is_paused()
+                                && !watch.user_stopped()
+                        },
+                    )
+                })
+            } else {
+                Ok(())
+            };
+            match alignment_result.and_then(|()| {
+                if shutdown.load(Ordering::SeqCst) || watch.is_paused() || watch.user_stopped() {
+                    return Err("Recording stopped while rebuilding the capture stream.".into());
+                }
+                build_custom_scstream(&params, &replacement_handler, &watch, None).and_then(
+                    |(stream, configuration)| {
+                        stream
+                            .start_capture()
+                            .map(|()| (stream, configuration))
+                            .map_err(|e| format!("start_capture failed: {e:?}"))
+                    },
+                )
             }) {
-                Ok(new_stream) => {
+                Ok((new_stream, new_configuration)) => {
                     let mut pending_stream = Some(new_stream);
-                    let install = if let Ok(mut guard) = stream.lock() {
-                        if shutdown.load(Ordering::SeqCst)
-                            || writer.appends_closed.load(Ordering::SeqCst)
-                            || watch.is_paused()
-                            || !replacement_handler.is_current()
-                        {
-                            false
-                        } else {
-                            *guard = pending_stream
-                                .take()
-                                .expect("pending watchdog stream is available");
-                            true
+                    let decision = match stream.lock() {
+                        Ok(mut guard) => match configuration.lock() {
+                            Ok(mut configuration_guard) => {
+                                let decision = watchdog_install_decision(
+                                    shutdown.load(Ordering::SeqCst),
+                                    writer.appends_closed.load(Ordering::SeqCst),
+                                    watch.is_paused(),
+                                    watch.user_stopped(),
+                                    replacement_handler.is_current(),
+                                );
+                                if decision == WatchdogInstallDecision::Install {
+                                    *guard = pending_stream
+                                        .take()
+                                        .expect("pending watchdog stream is available");
+                                    *configuration_guard = new_configuration;
+                                }
+                                decision
+                            }
+                            Err(error) => {
+                                watchdog_fatal_error = Some(format!(
+                                    "capture watchdog configuration lock failed: {error}"
+                                ));
+                                WatchdogInstallDecision::Finalize
+                            }
+                        },
+                        Err(error) => {
+                            watchdog_fatal_error =
+                                Some(format!("capture watchdog stream lock failed: {error}"));
+                            WatchdogInstallDecision::Finalize
                         }
-                    } else {
-                        false
                     };
-                    if !install {
+                    if decision != WatchdogInstallDecision::Install {
                         if let Some(stream) = pending_stream {
                             let _ = stream.stop_capture();
                         }
-                        return;
+                        match decision {
+                            WatchdogInstallDecision::Retry => continue,
+                            WatchdogInstallDecision::Finalize => {
+                                writer.appends_closed.store(true, Ordering::SeqCst);
+                                continue;
+                            }
+                            WatchdogInstallDecision::Exit => return,
+                            WatchdogInstallDecision::Install => unreachable!(),
+                        }
                     }
                     let _ = watch.take_stream_stopped();
                     cooldown_until = Some(Instant::now() + CAPTURE_STALL_TIMEOUT);
@@ -3718,6 +3911,9 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     output_path: &Path,
     include_audio: bool,
     capture_system_audio: bool,
+    recording_id: Option<&str>,
+    include_camera_overlay: bool,
+    alignment_generation: u64,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
@@ -3782,14 +3978,17 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     let (width, height) = native_capture_dimensions(capture_width, capture_height);
 
     let params = RestartParams {
+        recording_id: recording_id.map(str::to_string),
         include_audio,
         capture_system_audio,
+        include_camera_overlay,
         emit_recorder_stop,
         mic_device_id: mic_device_id.map(str::to_string),
         mic_device_label: mic_device_label.map(str::to_string),
         target_display_id,
         target_window_id,
         target_window_dimensions,
+        alignment_generation,
         capture_region,
         width,
         height,
@@ -3838,7 +4037,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         watch: Arc::clone(&watch),
     };
 
-    let stream = build_custom_scstream(&params, &handler, &watch, Some(content))?;
+    let (stream, configuration) = build_custom_scstream(&params, &handler, &watch, Some(content))?;
     if let Err(err) = stream.start_capture() {
         let _ = std::fs::remove_file(output_path);
         return Err(format!("custom capture start failed: {err:?}"));
@@ -3868,9 +4067,11 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     );
 
     let stream = Arc::new(Mutex::new(stream));
+    let configuration = Arc::new(Mutex::new(configuration));
     let watchdog_shutdown = Arc::new(AtomicBool::new(false));
     let resume = CustomCaptureResume {
         stream: Arc::clone(&stream),
+        configuration: Arc::clone(&configuration),
         handler: handler.clone(),
         watch: Arc::clone(&watch),
         params: params.clone(),
@@ -3883,6 +4084,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         Arc::clone(&watch),
         Arc::clone(&recording_enabled),
         Arc::clone(&watchdog_shutdown),
+        Arc::clone(&configuration),
         params,
     );
 
@@ -3919,6 +4121,36 @@ mod fragment_fence_tests {
         for path in paths {
             let _ = std::fs::remove_file(path);
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn watchdog_retries_transient_install_rejections() {
+        assert_eq!(
+            watchdog_install_decision(false, false, false, false, false),
+            WatchdogInstallDecision::Retry,
+            "a stale replacement handler must leave the watchdog alive"
+        );
+        assert_eq!(
+            watchdog_install_decision(false, false, true, false, true),
+            WatchdogInstallDecision::Retry
+        );
+        assert_eq!(
+            watchdog_install_decision(false, false, false, true, true),
+            WatchdogInstallDecision::Retry
+        );
+        assert_eq!(
+            watchdog_install_decision(true, false, false, false, true),
+            WatchdogInstallDecision::Exit
+        );
+        assert_eq!(
+            watchdog_install_decision(false, true, false, false, true),
+            WatchdogInstallDecision::Finalize
+        );
+        assert_eq!(
+            watchdog_install_decision(false, false, false, false, true),
+            WatchdogInstallDecision::Install
+        );
     }
 
     #[test]

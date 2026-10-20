@@ -2,6 +2,12 @@
 
 All notable user-facing changes to this app are documented here.
 
+## 2026-10-10
+
+### Fixed
+
+- Large prompts with full context remain available to retry when sending fails.
+
 ## 2026-09-30
 
 ### Improved

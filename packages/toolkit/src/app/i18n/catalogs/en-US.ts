@@ -1,4 +1,6 @@
 const messages = {
+  "block.renderUnavailable": "This block is temporarily unavailable.",
+  "block.loading": "Loading block.",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl": "Enter a valid HTTP or HTTPS URL.",
   "composer.contextAttach": "Attach",
@@ -129,7 +131,7 @@ const messages = {
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
-  "onboarding.builderCreateAccount": "Create a Builder.io account",
+  "onboarding.builderCreateAccount": "Use Builder.io",
   "onboarding.builderSignInWithAccount": "Sign in with a Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
@@ -151,17 +153,48 @@ const messages = {
   "onboarding.builderAccountExistsTitle":
     "You already have a Builder.io account",
   "onboarding.builderAccountExistsDescription": "Log in to use your account.",
+  "onboarding.builderActivationChecking":
+    "Checking whether new account activation is available.",
+  "onboarding.builderActivationUnavailable":
+    "Create a Builder.io account or sign in to connect.",
+  "onboarding.builderActivationUnavailableInMode":
+    "Create a Builder.io account or sign in to connect.",
+  "onboarding.builderActivationCheckFailed":
+    "Couldn't check whether this app can create new accounts.",
+
   "onboarding.builderActivationDescription":
-    "Create or connect a Builder.io account in one click to get free credits.",
+    "Create a new account to activate free credits, or continue with an existing account.",
   "onboarding.builderOrgActivationDescription":
     "We'll create your Builder.io account in one click so your organization can use it.",
   "onboarding.builderCreateAndActivate": "Create and activate",
+  "onboarding.builderConnect": "Connect Builder.io",
   "onboarding.builderConsentPrefix":
     "By creating a Builder.io account, you agree to our",
   "onboarding.builderTerms": "Terms of Service",
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
-  "onboarding.builderExistingAccount": "Use Builder.io",
+  "onboarding.builderExistingAccount": "I have a Builder.io account",
+  "onboarding.creditsTitle": "Try it with 60 free Agent Credits a month",
+  "onboarding.creditsTitleClips":
+    "Try it with free video storage and 60 Agent Credits a month",
+  "onboarding.creditsActivate": "Activate free credits",
+  "onboarding.creditsFinePrint":
+    "This will create a free Builder.io account. By continuing, you agree to our",
+  "onboarding.creditsMoreInfo": "More info",
+  "onboarding.creditsSubtitle":
+    "Get free credits for LLMs, Jev, storage, and more for this app in one click from Builder.io.",
+  "onboarding.creditsLearnMore": "Learn more",
+  "onboarding.creditsSkip": "Skip",
+  "onboarding.creditsSkipConfirmTitle": "Are you sure?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native apps need an LLM connected to use most features. Most functionality won't work without one.",
+  "onboarding.creditsSkipGoBack": "Go back",
+  "onboarding.creditsSkipAnyway": "Skip anyway",
+  "onboarding.creditsUseCustomKeys": "Use custom keys",
+  "onboarding.creditsAboutLabel": "About free credits",
+  "onboarding.creditsActivating": "Activating free credits",
+  "onboarding.creditsActivatingTooltip":
+    "Builder provides free credits for LLMs, Jev, storage, and more, so you can use this app’s AI features without bringing your own keys.",
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
@@ -196,6 +229,10 @@ const messages = {
   "onboarding.capability.embeddings.keySummary": "Embeddings",
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
+  "onboarding.capability.webSearch.label": "Web search",
+  "onboarding.capability.webSearch.keySummary": "Web search",
+  "onboarding.capability.webSearch.why":
+    "Search current public web sources. Builder-managed search uses included Builder AI credits, so no separate search API key is needed.",
   "onboarding.capability.systemOne.why":
     "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
@@ -662,6 +699,10 @@ const messages = {
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
   "errorMessages.requestTooLarge":
     "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
+  "errorMessages.capabilityUnavailable":
+    "We couldn't send your message right now. Please try again shortly.",
+  "errorMessages.capabilityUnsupported":
+    "This app can't safely retry your saved prompt yet. Update the app, then try again.",
   "errorMessages.runInterrupted": "The agent stopped before finishing.",
   "errorMessages.runFailed": "The agent run failed.",
   "errorMessages.runUnverified":
@@ -957,7 +998,25 @@ const messages = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, contacts, companies, deals, tickets, customer analytics",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+    "Each person connects their own HubSpot account after a workspace owner configures the HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "Set up HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "A workspace owner configures HubSpot MCP once. Each member then connects their own account.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "Workspace setup required",
+  "mcpIntegrations.hubspot.setupChecking": "Checking workspace setup…",
+  "mcpIntegrations.hubspot.setupUnavailable": "Setup status unavailable",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "Couldn't check the workspace OAuth settings. Try again.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Create a HubSpot MCP Auth App, then add its client ID and secret in Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Ask a workspace owner to create a HubSpot MCP Auth App and add its client ID and secret in Agent-Native settings → API keys. You can connect your own HubSpot account after setup.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Join a workspace before connecting HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Add workspace credentials",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Check again",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Retry",
   "mcpIntegrations.catalog.pylon.description":
     "Search and update Pylon support data.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1168,6 +1227,12 @@ const messages = {
     "This run can't be continued anymore. Send a message to keep going.",
   "errorMessages.invalidAttachmentNamed":
     "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
+  "recovery.resendVerificationEmail": "Resend verification email",
+  "recovery.sendingVerificationEmail": "Sending...",
+  "recovery.verificationEmailRequested":
+    "Verification email requested. Check your inbox and spam folder.",
+  "recovery.verificationEmailFailed":
+    "Couldn't request the verification email. Please try again.",
   "recovery.retryWithoutAttachment": "Retry without attachment",
   "recovery.retryAttachmentUnavailable":
     "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
@@ -1211,6 +1276,8 @@ const messages = {
   "secrets.emptyHint": "Add a key to use your own accounts.",
   "secrets.emptyMore": "and {{count}} more under New, or add any custom key",
   "secrets.emptyTitle": "No keys yet.",
+  "secrets.figmaTokenMustBeToken":
+    "Paste a Figma access token, not a Figma file URL.",
   "secrets.fromEnvironment": "Provided by the deployment environment.",
   "secrets.managedInVault":
     "Managed in the workspace Vault. Every app in this workspace uses this value.",
@@ -1240,6 +1307,12 @@ const messages = {
   "selection.attached_other":
     "{{formattedCount}} characters of selection attached",
   "selection.clear": "Clear selection context",
+  "setup.addKeyInSettings": "Add a key in Settings",
+  "setup.addKeyInSettingsDescription": "For your account or organization.",
+  "setup.setEnvironmentVariable": "Set an environment variable",
+  "setup.setEnvironmentVariableDescription":
+    "One provider key for everyone in this app.",
+
   "setup.addOwnKeys": "Add your own keys",
   "setup.builderCredits":
     "Builder.io includes free credits, or use your own API key.",
@@ -1822,6 +1895,11 @@ const messages = {
   "settings.audit.agentVia": "Agent via {{protocol}}",
   "settings.audit.allApps": "All apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Approval",
+  "settings.audit.approvalAgentChat": "Approved in agent chat",
+  "settings.audit.approvalA2AReview":
+    "Approved on the agent action review page",
+  "settings.audit.approvalMcpClient": "Accepted by the MCP client (unverified)",
   "settings.audit.changedBy": "Changed by",
   "settings.audit.close": "Close",
   "settings.audit.empty": "No changes in this period.",
@@ -1835,9 +1913,11 @@ const messages = {
   "settings.audit.last90Days": "Last 90 days",
   "settings.audit.loadFailed": "Could not load the audit log.",
   "settings.audit.loading": "Loading audit log",
+  "settings.audit.oauthClient": "OAuth client",
   "settings.audit.onBehalfOf": "On behalf of",
   "settings.audit.range": "Time range",
   "settings.audit.refused": "Refused",
+  "settings.audit.reportedClient": "Self-reported client",
   "settings.audit.result": "Result",
   "settings.audit.showMore": "Show {{count}} more",
   "settings.audit.succeeded": "Succeeded",
@@ -2621,6 +2701,7 @@ const messages = {
   "settingsShell.search.appDefaultModel": "App default model",
   "settingsShell.search.backgroundAgents": "Background agents",
   "settingsShell.search.browserAutomation": "Browser automation",
+  "settingsShell.search.webSearch": "Web search",
   "settingsShell.search.connectedAgents": "Connected agents",
   "settingsShell.search.database": "Database",
   "settingsShell.search.defaultModel": "Default model",
@@ -2754,6 +2835,8 @@ const messages = {
     "Keeps generated slides and designs on brand.",
   "settingsInfra.whyBackground": "Makes code changes from production.",
   "settingsInfra.whyBrowser": "Lets the agent use a browser in production.",
+  "settingsInfra.whyWebSearch":
+    "Finds current public information and official documentation.",
   "settingsInfra.provider": "Provider",
   "settingsInfra.keyOrg": "Uses the organization {{provider}} key.",
   "settingsInfra.manageKey": "Manage key",
@@ -2912,6 +2995,10 @@ const messages = {
     "Disconnected here. Access may remain active in ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Use ChatGPT plan access from a personal account. In local development, set access.autoCreateDefaultOrg to false before signing in.",
+  "settingsModel.chatgptScopeUnresolved":
+    "The app couldn't confirm your account scope. Finish local setup, then reload settings.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnect and allow direct model access to use this ChatGPT account.",
   "settingsModel.chatgptReconnect": "Reconnect",
@@ -3083,6 +3170,18 @@ const messages = {
   "settingsSubAgents.close": "Close",
   "observability.insights.rawTrace":
     "Raw trace (every span, with inputs and outputs)",
+  "reportProblem.menuItem": "Report a problem",
+  "reportProblem.title_one":
+    "Attach what the app did in the last {{count}} second?",
+  "reportProblem.title_other":
+    "Attach what the app did in the last {{count}} seconds?",
+  "reportProblem.noEvents": "Nothing recorded yet.",
+  "reportProblem.send": "Send to agent",
+  "reportProblem.copy": "Copy problem report",
+  "reportProblem.attaching": "Attaching…",
+  "reportProblem.notAttached": "The report was not attached.",
+  "reportProblem.agentMessage":
+    "Something went wrong in the app. Use the attached problem report to explain what happened.",
 } as const;
 
 export default messages;

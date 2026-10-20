@@ -17,10 +17,12 @@
  *     *.key, id_rsa*, anything under .git/) regardless of this grant.
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
 import {
   fetchLocalhostBridge,
   localhostBridgeRequestError,
@@ -29,7 +31,21 @@ import {
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
 import {
+  LOCALHOST_BRIDGE_RELAY_MARKER,
+  type LocalhostBridgeRelay,
+} from "../shared/visual-edit-bridge-relay.js";
+import {
+  MotionLocalSourceError,
+  resolveMotionLocalSourceLocation,
+  resolveMotionLocalSourceRoute,
+} from "./_motion-local-source.js";
+import {
+  localhostBridgeRelayStep,
+  verifyLocalhostBridgeReceipt,
+} from "./motion-localhost-relay.js";
+import {
   createLocalhostBridgeRelay,
+  issueLocalhostBridgeChallenge,
   isLocalhostBridgeRelayRequest,
 } from "./visual-edit-browser-request.js";
 
@@ -83,11 +99,20 @@ export default defineAction({
     path: z
       .string()
       .describe("Path to the file relative to the connection rootPath."),
+    motionScreenId: z
+      .string()
+      .optional()
+      .describe(
+        "Internal Motion provenance check rooted at this saved screen.",
+      ),
   }),
   readOnly: true,
   capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
-  run: async ({ designId, connectionId, path: relPath }, ctx) => {
+  run: async (
+    { designId, connectionId, path: relPath, motionScreenId },
+    ctx,
+  ) => {
     await assertAccess("design", designId, "editor");
 
     const scope = await resolveLocalhostConnectionScope({ designId });
@@ -101,12 +126,146 @@ export default defineAction({
     );
 
     const bridgeUrl = normalizeBridgeUrl(connection.bridgeUrl);
-    if (isLocalhostBridgeRelayRequest(ctx)) {
-      return createLocalhostBridgeRelay({
-        operation: "read-file",
+    if (motionScreenId !== undefined) {
+      const [design] = await getDb()
+        .select({ data: schema.designs.data })
+        .from(schema.designs)
+        .where(eq(schema.designs.id, designId))
+        .limit(1);
+      if (!design) {
+        fail("The selected localhost screen is not part of this Design.", {
+          errorCode: "motion_local_source_screen_not_found",
+          statusCode: 404,
+        });
+      }
+
+      let route: ReturnType<typeof resolveMotionLocalSourceRoute>;
+      try {
+        const location = resolveMotionLocalSourceLocation({
+          designData: design.data,
+          screenId: motionScreenId,
+          declaration: { connectionId, filePath: relPath },
+        });
+        route = resolveMotionLocalSourceRoute({
+          designData: design.data,
+          screenId: motionScreenId,
+          declarationConnectionId: connectionId,
+        });
+        if (location.filePath !== relPath) {
+          throw new MotionLocalSourceError(
+            "source-metadata-mismatch",
+            "The requested React source does not match the selected screen.",
+          );
+        }
+      } catch (error) {
+        if (error instanceof MotionLocalSourceError) {
+          fail(error.message, {
+            errorCode: `motion_local_source_${error.code.replace(/-/g, "_")}`,
+            statusCode: 422,
+          });
+        }
+        throw error;
+      }
+
+      const step = localhostBridgeRelayStep(ctx) ?? "source-provenance";
+      if (isLocalhostBridgeRelayRequest(ctx)) {
+        return createLocalhostBridgeRelay({
+          relay: {
+            operation: "verify-module-provenance",
+            designId,
+            connectionId,
+            step,
+            path: route.sourceFile,
+            relPath,
+          },
+          context: ctx,
+          bridgeToken,
+          rootPath: connection.rootPath,
+          bridgeRequest: {
+            routePath: route.sourceFile,
+            modulePath: relPath,
+          },
+        });
+      }
+
+      const relay: LocalhostBridgeRelay = {
+        __agentNativeLocalhostBridge: LOCALHOST_BRIDGE_RELAY_MARKER,
+        operation: "verify-module-provenance" as const,
         designId,
         connectionId,
-        path: relPath,
+        step,
+        path: route.sourceFile,
+        relPath,
+      };
+      const challenge = issueLocalhostBridgeChallenge(relay);
+      relay.challenge = challenge;
+      const res = await fetchLocalhostBridge({
+        bridgeUrl,
+        operation: "verify-module-provenance",
+        bridgeToken,
+        body: {
+          routePath: route.sourceFile,
+          modulePath: relPath,
+          motionRelayChallenge: challenge,
+        },
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => res.statusText);
+        throw localhostBridgeRequestError(
+          "verify-module-provenance",
+          res.status,
+          errText,
+        );
+      }
+      const body = (await res.json().catch(() => undefined)) as
+        | Record<string, unknown>
+        | undefined;
+      if (
+        !body ||
+        body.routePath !== route.sourceFile ||
+        body.modulePath !== relPath ||
+        typeof body.reachable !== "boolean" ||
+        !(await verifyLocalhostBridgeReceipt(relay, {
+          ...body,
+          designId,
+          connectionId,
+        }))
+      ) {
+        fail("The localhost bridge could not authenticate source provenance.", {
+          errorCode: "motion_local_source_provenance_unverified",
+          statusCode: 502,
+        });
+      }
+      if (!body.reachable) {
+        fail("The requested module is not imported by the selected screen.", {
+          errorCode: "motion_local_source_module_not_imported",
+          statusCode: 422,
+        });
+      }
+      return {
+        designId,
+        connectionId,
+        routePath: route.sourceFile,
+        modulePath: relPath,
+        reachable: body.reachable,
+        operationReceipt: body.operationReceipt,
+      };
+    }
+
+    if (isLocalhostBridgeRelayRequest(ctx)) {
+      const step = localhostBridgeRelayStep(ctx);
+      return createLocalhostBridgeRelay({
+        relay: {
+          operation: "read-file",
+          designId,
+          connectionId,
+          path: relPath,
+          ...(step ? { step } : {}),
+        },
+        context: ctx,
+        bridgeToken,
+        rootPath: connection.rootPath,
+        bridgeRequest: { relPath },
       });
     }
 
@@ -120,16 +279,26 @@ export default defineAction({
       const errText = await res.text().catch(() => res.statusText);
       throw localhostBridgeRequestError("read-file", res.status, errText);
     }
-    const body = (await res.json()) as {
-      content?: string;
-      versionHash?: string;
-    };
+    const body = (await res.json().catch(() => undefined)) as
+      | { content?: unknown; versionHash?: unknown }
+      | undefined;
+    if (
+      !body ||
+      typeof body.content !== "string" ||
+      typeof body.versionHash !== "string"
+    ) {
+      throw localhostBridgeRequestError(
+        "read-file",
+        502,
+        "invalid response; expected string content and versionHash",
+      );
+    }
 
     return {
       designId,
       connectionId,
       path: relPath,
-      content: body.content ?? "",
+      content: body.content,
       versionHash: body.versionHash,
       readonly: false,
     };

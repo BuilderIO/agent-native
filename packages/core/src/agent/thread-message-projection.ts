@@ -1,9 +1,38 @@
+import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-started.js";
+
 const REPOSITORY_PART_MEDIA_TYPE = "application/x-agent-native-repository-part";
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+export function failedRunIdsWithError(runs: unknown): Set<string> {
+  return new Set(
+    (Array.isArray(runs) ? runs : []).flatMap((value) => {
+      const run = record(value);
+      return run?.status === "failed" &&
+        record(run.error) &&
+        typeof run.id === "string"
+        ? [run.id]
+        : [];
+    }),
+  );
+}
+
+export function isRenderedRunNotStartedNotice(
+  value: unknown,
+  failedRunIds: ReadonlySet<string>,
+): boolean {
+  const entry = message(value);
+  const metadata = record(entry?.metadata);
+  return (
+    entry?.role === "assistant" &&
+    record(metadata?.custom)?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
+    typeof metadata?.runId === "string" &&
+    failedRunIds.has(metadata.runId)
+  );
 }
 
 function message(value: unknown): Record<string, unknown> | undefined {
@@ -42,6 +71,18 @@ function parts(value: Record<string, unknown>): Record<string, unknown>[] {
 function explicitRunId(value: Record<string, unknown>): string | undefined {
   const runId = record(value.metadata)?.runId;
   return typeof runId === "string" ? runId : undefined;
+}
+
+function isTerminalAssistant(value: Record<string, unknown>): boolean {
+  const status = value.status;
+  const type = record(status)?.type;
+  return (
+    status === "complete" ||
+    status === "error" ||
+    type === "complete" ||
+    type === "error" ||
+    type === "incomplete"
+  );
 }
 
 function foldedRunIds(value: Record<string, unknown>): string[] {
@@ -151,6 +192,30 @@ function isPrefixCompatible(left: string, right: string): boolean {
   return left.startsWith(right) || right.startsWith(left);
 }
 
+function isRepeatedAnswerSnapshot(
+  answer: string,
+  candidateText: string,
+): boolean {
+  if (!answer || !candidateText.startsWith(answer)) return false;
+  let offset = answer.length;
+  let repeatedAnswers = 0;
+  while (offset < candidateText.length) {
+    while (
+      offset < candidateText.length &&
+      /\s/u.test(candidateText[offset]!)
+    ) {
+      offset += 1;
+    }
+    if (offset === candidateText.length) return repeatedAnswers > 0;
+    if (!candidateText.startsWith(answer, offset)) {
+      return false;
+    }
+    offset += answer.length;
+    repeatedAnswers += 1;
+  }
+  return repeatedAnswers > 0;
+}
+
 function rootToolCalls(
   value: Record<string, unknown>,
 ): Record<string, unknown>[] {
@@ -161,6 +226,68 @@ function rootToolCalls(
     const data = record(part.data);
     return data?.type === "tool-call" ? [data] : [];
   });
+}
+
+function sameToolCallIdentity(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  const id = (call: Record<string, unknown>) =>
+    typeof call.toolCallId === "string" ? call.toolCallId : call.id;
+  const name = (call: Record<string, unknown>) =>
+    typeof call.toolName === "string" ? call.toolName : call.name;
+  const args = (call: Record<string, unknown>) =>
+    Object.prototype.hasOwnProperty.call(call, "args") ? call.args : call.input;
+  const hasArgs = (call: Record<string, unknown>) =>
+    Object.prototype.hasOwnProperty.call(call, "args") ||
+    Object.prototype.hasOwnProperty.call(call, "input");
+  return (
+    typeof id(left) === "string" &&
+    id(left) === id(right) &&
+    typeof name(left) === "string" &&
+    name(left) === name(right) &&
+    hasArgs(left) &&
+    hasArgs(right) &&
+    sameValue(args(left), args(right))
+  );
+}
+
+function snapshotAdditionalContentIsRepresented(
+  root: Record<string, unknown>,
+  candidate: Record<string, unknown>,
+): boolean {
+  const candidateReasoning = reasoning(candidate);
+  if (candidateReasoning && candidateReasoning !== reasoning(root)) {
+    return false;
+  }
+  const rootCalls = rootToolCalls(root);
+  return rootToolCalls(candidate).every((candidateCall) =>
+    rootCalls.some((rootCall) => sameToolCallIdentity(rootCall, candidateCall)),
+  );
+}
+
+function snapshotRepresentsRootContent(
+  root: Record<string, unknown>,
+  candidate: Record<string, unknown>,
+  toolMessageIds: Set<string> | undefined,
+): boolean {
+  const rootCalls = rootToolCalls(root);
+  const candidateCalls = rootToolCalls(candidate);
+  if (
+    rootCalls.every((rootCall) =>
+      candidateCalls.some((candidateCall) =>
+        sameToolCallIdentity(rootCall, candidateCall),
+      ),
+    )
+  ) {
+    return true;
+  }
+  return (
+    rootCalls.length > 0 &&
+    typeof candidate.id === "string" &&
+    toolMessageIds?.size === 1 &&
+    toolMessageIds.has(candidate.id)
+  );
 }
 
 function sameValue(left: unknown, right: unknown): boolean {
@@ -309,6 +436,7 @@ export function projectRootAssistantMessages(input: {
   representedRootMessageIds: Set<string>;
   snapshotMessageIdsByRootMessageId: Map<string, string>;
   snapshotRunIdsByMessageId: Map<string, string>;
+  supersededSnapshotMessageIds: Set<string>;
 } {
   const rootMessages = Array.isArray(input.rootMessages)
     ? input.rootMessages.flatMap((value) => {
@@ -385,9 +513,19 @@ export function projectRootAssistantMessages(input: {
   }
   const represented = new Set<string>();
   const directMatches = new Map<string, string>();
+  const rootAssistantCountsByRun = new Map<string, number>();
+  for (const root of rootMessages) {
+    const runId = assistantRunId(root, runIdsByMessageId);
+    if (!runId) continue;
+    rootAssistantCountsByRun.set(
+      runId,
+      (rootAssistantCountsByRun.get(runId) ?? 0) + 1,
+    );
+  }
+  const supersededSnapshotMessageIds = new Set<string>();
   for (const root of rootMessages) {
     if (root.role !== "assistant" || typeof root.id !== "string") continue;
-    const runId = explicitRunId(root);
+    const runId = assistantRunId(root, runIdsByMessageId);
     if (!runId) continue;
     const toolMessageIds = representedToolCallMessageIds(root, input.toolCalls);
     const sameRunCandidates = (snapshotMessagesByRunId.get(runId) ?? []).filter(
@@ -397,7 +535,70 @@ export function projectRootAssistantMessages(input: {
       contentMatches(root, candidate, toolMessageIds),
     );
     const rootText = text(root);
-    const matchingCandidate = sameRunMatches[0];
+    const exactTextMatches = sameRunMatches.filter(
+      (candidate) => rootText !== undefined && text(candidate) === rootText,
+    );
+    const duplicateCandidates =
+      rootText && isTerminalAssistant(root)
+        ? sameRunCandidates.filter((candidate) => {
+            const candidateText = text(candidate);
+            return (
+              candidateText === rootText ||
+              Boolean(
+                candidateText &&
+                isRepeatedAnswerSnapshot(rootText, candidateText),
+              )
+            );
+          })
+        : [];
+    if (
+      rootText &&
+      isTerminalAssistant(root) &&
+      rootAssistantCountsByRun.get(runId) === 1 &&
+      duplicateCandidates.length > 0
+    ) {
+      const matchingCandidate = exactTextMatches.find(
+        (candidate) =>
+          snapshotRepresentsRootContent(root, candidate, toolMessageIds) &&
+          snapshotAdditionalContentIsRepresented(root, candidate),
+      );
+      if (matchingCandidate && typeof matchingCandidate.id === "string") {
+        represented.add(root.id);
+        directMatches.set(root.id, matchingCandidate.id);
+      }
+      for (const candidate of duplicateCandidates) {
+        if (matchingCandidate && candidate.id === matchingCandidate.id) {
+          continue;
+        }
+        const candidateText = text(candidate);
+        if (
+          candidateText &&
+          snapshotAdditionalContentIsRepresented(root, candidate) &&
+          typeof candidate.id === "string"
+        ) {
+          supersededSnapshotMessageIds.add(candidate.id);
+        }
+      }
+      continue;
+    }
+    const matchingCandidates =
+      rootText && isTerminalAssistant(root)
+        ? sameRunMatches.filter((candidate) => {
+            const candidateText = text(candidate);
+            return (
+              !candidateText ||
+              !isRepeatedAnswerSnapshot(rootText, candidateText)
+            );
+          })
+        : sameRunMatches;
+    const fallbackExactMatches = matchingCandidates.filter(
+      (candidate) => rootText !== undefined && text(candidate) === rootText,
+    );
+    const candidateMatches =
+      fallbackExactMatches.length > 0
+        ? fallbackExactMatches
+        : matchingCandidates;
+    const matchingCandidate = candidateMatches[0];
     const exactTextMatch =
       matchingCandidate !== undefined &&
       rootText !== undefined &&
@@ -410,7 +611,7 @@ export function projectRootAssistantMessages(input: {
             (runIdsByMessageId.get(matchingCandidate.id)?.size === 1 &&
               messageIdsByRun.get(runId)?.size === 1))));
     if (
-      sameRunMatches.length === 1 &&
+      candidateMatches.length === 1 &&
       (exactTextMatch ||
         (sameRunCandidates.length === 1 && clientCanMatchPartial))
     ) {
@@ -451,6 +652,7 @@ export function projectRootAssistantMessages(input: {
     representedRootMessageIds: represented,
     snapshotMessageIdsByRootMessageId,
     snapshotRunIdsByMessageId,
+    supersededSnapshotMessageIds,
   };
 }
 

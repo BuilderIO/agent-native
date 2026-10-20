@@ -5,6 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getObservabilityConfigMock = vi.hoisted(() => vi.fn());
 const instrumentAgentLoopMock = vi.hoisted(() => vi.fn());
+const runLifecycleStore = vi.hoisted(() => ({
+  runs: new Map<
+    string,
+    { threadId: string; turnId: string; status: string; abortReason?: string }
+  >(),
+  events: [] as Array<{
+    runId: string;
+    seq: number;
+    eventData: string;
+    eventAt?: number;
+  }>,
+}));
 const a2aReceiver = vi.hoisted(() => ({
   config: undefined as
     | {
@@ -41,16 +53,125 @@ vi.mock("../a2a/server.js", async (importOriginal) => ({
   },
 }));
 
-vi.mock("../agent/run-store.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../agent/run-store.js")>()),
-  listUnclaimedBackgroundRunRows: vi.fn(async () => []),
-  reapAllStaleRuns: vi.fn(async () => ({
-    scanned: 0,
-    reaped: 0,
-    failed: 0,
-    truncated: false,
-  })),
-}));
+vi.mock("../agent/run-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../agent/run-store.js")>();
+  const persistEvent = (
+    runId: string,
+    seq: number,
+    eventData: string,
+    eventAt?: number,
+  ) => {
+    if (
+      !runLifecycleStore.events.some(
+        (event) => event.runId === runId && event.seq === seq,
+      )
+    ) {
+      runLifecycleStore.events.push({ runId, seq, eventData, eventAt });
+    }
+  };
+  return {
+    ...actual,
+    insertRun: vi.fn(
+      async (runId: string, threadId: string, turnId?: string) => {
+        runLifecycleStore.runs.set(runId, {
+          threadId,
+          turnId: turnId ?? runId,
+          status: "running",
+        });
+      },
+    ),
+    claimTurnExecutionLease: vi.fn(
+      async (threadId: string, turnId: string, runId: string) => ({
+        threadId,
+        turnId,
+        runId,
+        generation: "1",
+      }),
+    ),
+    renewTurnExecutionLease: vi.fn(async () => {}),
+    releaseTurnExecutionLease: vi.fn(async () => true),
+    insertRunEvent: vi.fn(
+      async (runId: string, seq: number, eventData: string) => {
+        persistEvent(runId, seq, eventData);
+      },
+    ),
+    insertRunEvents: vi.fn(
+      async (
+        runId: string,
+        events: Array<{ seq: number; eventData: string; eventAt?: number }>,
+      ) => {
+        for (const event of events) {
+          persistEvent(runId, event.seq, event.eventData, event.eventAt);
+        }
+      },
+    ),
+    updateRunStatusIfRunning: vi.fn(async (runId: string, status: string) => {
+      const run = runLifecycleStore.runs.get(runId);
+      if (!run || run.status !== "running") return false;
+      run.status = status;
+      return true;
+    }),
+    getRunStatus: vi.fn(
+      async (runId: string) =>
+        runLifecycleStore.runs.get(runId)?.status ?? null,
+    ),
+    getRunAbortState: vi.fn(async (runId: string) => {
+      const run = runLifecycleStore.runs.get(runId);
+      return run?.status === "aborted"
+        ? { aborted: true, reason: run.abortReason }
+        : { aborted: false };
+    }),
+    markRunAborted: vi.fn(async (runId: string, reason?: string) => {
+      const run = runLifecycleStore.runs.get(runId);
+      if (!run || run.status !== "running") return;
+      run.status = "aborted";
+      run.abortReason = reason;
+      const seq =
+        Math.max(
+          -1,
+          ...runLifecycleStore.events
+            .filter((event) => event.runId === runId)
+            .map((event) => event.seq),
+        ) + 1;
+      persistEvent(
+        runId,
+        seq,
+        JSON.stringify(actual.terminalEventForAbortReason(reason)),
+      );
+    }),
+    getCurrentTurnRunEventsForThread: vi.fn(
+      async (threadId: string, turnId?: string) =>
+        runLifecycleStore.events
+          .filter((event) => {
+            const run = runLifecycleStore.runs.get(event.runId);
+            return (
+              run?.threadId === threadId &&
+              (turnId === undefined || run.turnId === turnId)
+            );
+          })
+          .sort((a, b) => a.seq - b.seq)
+          .map((event) => ({
+            runId: event.runId,
+            seq: event.seq,
+            event: JSON.parse(event.eventData),
+          })),
+    ),
+    updateRunHeartbeat: vi.fn(async () => {}),
+    bumpRunProgress: vi.fn(async () => true),
+    setRunInFlightMarker: vi.fn(async () => {}),
+    setRunTerminalReason: vi.fn(async () => {}),
+    setRunError: vi.fn(async () => {}),
+    reconcileTerminalRunFromEvents: vi.fn(async () => false),
+    cleanupOldRuns: vi.fn(async () => {}),
+    listUnclaimedBackgroundRunRows: vi.fn(async () => []),
+    reapAllStaleRuns: vi.fn(async () => ({
+      scanned: 0,
+      reaped: 0,
+      failed: 0,
+      truncated: false,
+    })),
+  };
+});
 
 vi.mock("../mcp-client/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../mcp-client/index.js")>()),
@@ -76,6 +197,9 @@ vi.mock("./social-og-image.js", () => ({
 
 import { extractA2APersistedMutationReceipts } from "../a2a/artifact-response.js";
 import { EngineError } from "../agent/engine/types.js";
+import * as runManagerModule from "../agent/run-manager.js";
+import { replayCompletedTurn } from "../agent/run-manager.js";
+import { markRunAborted } from "../agent/run-store.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   assembleA2AFinalResponse,
@@ -91,6 +215,7 @@ import {
   resolveA2ARecoverableArtifactSecret,
   runMCPAgentLoop,
   runA2AAgentLoop,
+  runA2AAgentLoopWithRunManager,
 } from "./agent-chat-plugin.js";
 import { unverifiedA2AUserError } from "./agent-chat/action-filters-a2a.js";
 
@@ -204,6 +329,324 @@ describe("delegated A2A recoverable artifact checkpoints", () => {
     expect(writeStatus).toHaveBeenCalledTimes(3);
     expect(onError).toHaveBeenCalledOnce();
     expect(onError).toHaveBeenCalledWith(writeError);
+  });
+});
+
+describe("A2A shared run lifecycle", () => {
+  beforeEach(() => {
+    runLifecycleStore.runs.clear();
+    runLifecycleStore.events.splice(0);
+  });
+
+  const usage = {
+    inputTokens: 1,
+    outputTokens: 2,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    model: "test-model",
+  };
+
+  function runOptions(
+    taskId: string,
+    send: (event: any) => void | Promise<void> = () => {},
+  ) {
+    return {
+      engine: { name: "test-engine" } as any,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [],
+      actions: {},
+      runId: taskId,
+      threadId: taskId,
+      turnId: taskId,
+      send,
+      signal: new AbortController().signal,
+    };
+  }
+
+  it("persists events before writes and replays the completed task journal", async () => {
+    const delivered: any[] = [];
+    let eventsAtWrite: Array<{ type: string }> = [];
+    const runner = vi.fn(async (options: any) => {
+      options.send({
+        type: "tool_start",
+        tool: "create-report",
+        input: { title: "Quarterly report" },
+      });
+      await options.beforeWrite();
+      eventsAtWrite = runLifecycleStore.events
+        .filter((event) => event.runId === "task-journal-replay")
+        .map((event) => JSON.parse(event.eventData));
+      options.send({
+        type: "tool_done",
+        tool: "create-report",
+        result: "Created",
+      });
+      options.send({ type: "text", text: "The report is ready." });
+      options.send({ type: "done" });
+      return usage;
+    });
+
+    await runA2AAgentLoopWithRunManager(
+      runOptions("task-journal-replay", (event) => delivered.push(event)),
+      {},
+      { backgroundFunction: false },
+      { runner: runner as any },
+    );
+
+    expect(runner.mock.calls[0]?.[0]).toMatchObject({
+      recoverCompletedExecutionSteps: true,
+    });
+    expect(eventsAtWrite.map((event) => event.type)).toContain("tool_start");
+    expect(runLifecycleStore.runs.get("task-journal-replay")?.status).toBe(
+      "completed",
+    );
+    expect(delivered.map((event) => event.type)).toEqual([
+      "tool_start",
+      "tool_done",
+      "text",
+      "done",
+    ]);
+
+    const replay = await replayCompletedTurn(
+      "task-journal-replay",
+      "task-journal-replay",
+    );
+    expect(replay).not.toBeNull();
+    const reader = replay!.getReader();
+    const chunks: string[] = [];
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(new TextDecoder().decode(next.value));
+    }
+    const replayed = chunks
+      .join("")
+      .split("\n")
+      .filter((line) => line.startsWith("data: "))
+      .map((line) => JSON.parse(line.slice(6)));
+    expect(replayed.map((event) => event.type)).toEqual([
+      "tool_start",
+      "tool_done",
+      "text",
+      "done",
+    ]);
+  });
+
+  it("durably aborts the shared run when the A2A task signal is canceled", async () => {
+    const taskController = new AbortController();
+    let runnerSignal: AbortSignal | undefined;
+    const runner = vi.fn(
+      (options: any) =>
+        new Promise<typeof usage>((resolve) => {
+          runnerSignal = options.signal;
+          options.signal.addEventListener("abort", () => resolve(usage), {
+            once: true,
+          });
+        }),
+    );
+
+    const pending = runA2AAgentLoopWithRunManager(
+      runOptions("task-cancel", () => {}),
+      {},
+      { backgroundFunction: false },
+      { runner: runner as any },
+      taskController.signal,
+    );
+    await vi.waitFor(() => expect(runner).toHaveBeenCalledOnce());
+    taskController.abort("canceled-by-task-claim");
+
+    await expect(pending).rejects.toThrow("canceled-by-task-claim");
+    expect(runnerSignal?.aborted).toBe(true);
+    expect(runLifecycleStore.runs.get("task-cancel")?.status).toBe("aborted");
+    expect(
+      runLifecycleStore.events.some(
+        (event) =>
+          event.runId === "task-cancel" &&
+          JSON.parse(event.eventData).errorCode ===
+            "aborted_canceled-by-task-claim",
+      ),
+    ).toBe(true);
+  });
+
+  it("handles durable abort rejection before the A2A run finalizes", async () => {
+    const taskController = new AbortController();
+    const persistenceError = new Error("abort persistence unavailable");
+    let releaseRunner!: () => void;
+    let finishRun!: () => void;
+    const finalizationBarrier = new Promise<void>((resolve) => {
+      finishRun = resolve;
+    });
+    const runner = vi.fn(async (options: any) => {
+      await new Promise<void>((resolve) => {
+        releaseRunner = resolve;
+        options.signal.addEventListener("abort", resolve, { once: true });
+      });
+      await finalizationBarrier;
+      return usage;
+    });
+    vi.mocked(markRunAborted).mockRejectedValueOnce(persistenceError);
+    const unhandled: unknown[] = [];
+    const recordUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", recordUnhandled);
+
+    const pending = runA2AAgentLoopWithRunManager(
+      runOptions("task-cancel-persistence-failure", () => {}),
+      {},
+      { backgroundFunction: false },
+      { runner: runner as any },
+      taskController.signal,
+    );
+    try {
+      await vi.waitFor(() => expect(runner).toHaveBeenCalledOnce());
+      taskController.abort("canceled-by-task-claim");
+      await vi.waitFor(() => expect(markRunAborted).toHaveBeenCalledOnce());
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+
+      finishRun();
+      await expect(pending).rejects.toBe(persistenceError);
+    } finally {
+      finishRun();
+      releaseRunner?.();
+      process.off("unhandledRejection", recordUnhandled);
+    }
+  });
+
+  it("reports run finalization and durable abort failures together", async () => {
+    const taskController = new AbortController();
+    const finalizationError = new Error("run finalization unavailable");
+    const persistenceError = new Error("abort persistence unavailable");
+    vi.mocked(markRunAborted).mockRejectedValueOnce(persistenceError);
+    const startRun = vi.spyOn(runManagerModule, "startRun").mockReturnValue({
+      runId: "task-cancel-dual-failure",
+      threadId: "task-cancel-dual-failure",
+      turnId: "task-cancel-dual-failure",
+      events: [],
+      status: "running",
+      abort: new AbortController(),
+      finalized: Promise.reject(finalizationError),
+    } as any);
+    taskController.abort("canceled-by-task-claim");
+
+    try {
+      let thrown: unknown;
+      try {
+        await runA2AAgentLoopWithRunManager(
+          runOptions("task-cancel-dual-failure"),
+          {},
+          { backgroundFunction: false },
+          { runner: vi.fn() as any },
+          taskController.signal,
+        );
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(AggregateError);
+      expect((thrown as AggregateError).errors).toEqual([
+        finalizationError,
+        persistenceError,
+      ]);
+    } finally {
+      startRun.mockRestore();
+    }
+  });
+
+  it("does not durably abort a replacement run after losing the task lease", async () => {
+    vi.mocked(markRunAborted).mockClear();
+    const taskController = new AbortController();
+    let runnerSignal: AbortSignal | undefined;
+    const runner = vi.fn(
+      (options: any) =>
+        new Promise<typeof usage>((resolve) => {
+          runnerSignal = options.signal;
+          options.signal.addEventListener("abort", () => resolve(usage), {
+            once: true,
+          });
+        }),
+    );
+    const claimLost = Object.assign(new Error("A2A task claim was lost"), {
+      code: "a2a_task_claim_lost",
+    });
+
+    const pending = runA2AAgentLoopWithRunManager(
+      runOptions("task-replacement-lease-loss", () => {}),
+      {},
+      { backgroundFunction: false },
+      { runner: runner as any },
+      taskController.signal,
+    );
+    await vi.waitFor(() => expect(runner).toHaveBeenCalledOnce());
+    taskController.abort(claimLost);
+
+    await expect(pending).rejects.toBe(claimLost);
+    expect(runnerSignal?.aborted).toBe(true);
+    expect(markRunAborted).not.toHaveBeenCalled();
+  });
+
+  it("propagates the persisted terminal error code back to the A2A task", async () => {
+    const runner = vi.fn(async (options: any) => {
+      throw new EngineError("No LLM provider is connected.", {
+        errorCode: "missing_credentials",
+      });
+    });
+
+    await expect(
+      runA2AAgentLoopWithRunManager(
+        runOptions("task-terminal-error", () => {}),
+        {},
+        { backgroundFunction: false },
+        { runner: runner as any },
+      ),
+    ).rejects.toMatchObject({
+      message: "No LLM provider is connected.",
+      agentNativeErrorCode: "missing_credentials",
+    });
+    expect(runLifecycleStore.runs.get("task-terminal-error")?.status).toBe(
+      "errored",
+    );
+    expect(
+      runLifecycleStore.events.some(
+        (event) =>
+          event.runId === "task-terminal-error" &&
+          JSON.parse(event.eventData).errorCode === "missing_credentials",
+      ),
+    ).toBe(true);
+  });
+
+  it("leaves terminal agent events available for A2A partial-result handling", async () => {
+    const delivered: any[] = [];
+    const runner = vi.fn(async (options: any) => {
+      options.send({ type: "text", text: "A verified result was created." });
+      options.send({
+        type: "error",
+        error: "A later step failed.",
+        errorCode: "provider_network_error",
+      });
+      return usage;
+    });
+
+    await expect(
+      runA2AAgentLoopWithRunManager(
+        runOptions("task-partial-terminal", (event) => delivered.push(event)),
+        {},
+        { backgroundFunction: false },
+        { runner: runner as any },
+      ),
+    ).resolves.toEqual(usage);
+    expect(runLifecycleStore.runs.get("task-partial-terminal")?.status).toBe(
+      "errored",
+    );
+    expect(delivered.map((event) => event.type)).toEqual(["text", "error"]);
+    expect(
+      runLifecycleStore.events.some(
+        (event) =>
+          event.runId === "task-partial-terminal" &&
+          JSON.parse(event.eventData).errorCode === "provider_network_error",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -531,7 +974,7 @@ describe("delegated A2A tool surface", () => {
   it("keeps framework automation tools on the delegated first request", () => {
     const source = readFileSync("src/server/agent-chat-plugin.ts", "utf8");
     const a2aActionsStart = source.indexOf(
-      "const a2aActions = attachToolSearch(",
+      "const a2aRegisteredActions = devActive",
     );
     const a2aToolSurfaceStart = source.indexOf(
       "const a2aToolSurface = createA2AEngineToolSurface(",

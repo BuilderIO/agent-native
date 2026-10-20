@@ -568,6 +568,26 @@ describe("action discovery", () => {
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
 
+  it(
+    "merges invite-organization-member as an approval-gated agent and MCP tool",
+    async () => {
+      const registry: Record<string, any> = {};
+      await mergeCoreSharingActions(registry);
+
+      const invite = registry["invite-organization-member"];
+      expect(invite).toBeDefined();
+      expect(invite.needsApproval).toBe(true);
+      expect(invite.allowPersistentApproval).toBe(false);
+      expect(invite.toolCallable).toBe(false);
+      expect(invite.agentTool).not.toBe(false);
+      expect(invite.mcpTool).not.toBe(false);
+      expect(registry["list-organization-members"].http).toEqual({
+        method: "GET",
+      });
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
   it("preserves WebMCP capability scopes in the action registry", () => {
     const registry = loadActionsFromStaticRegistry({
       "visual-edit": {

@@ -2,6 +2,7 @@
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { CommentAiRequest } from "@shared/comment-ai";
+import { serializeStoredCommentMentions } from "@shared/comment-mentions";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -182,6 +183,7 @@ function SidebarOwner({
     activeSuggestionId?: string;
     unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
     alignToAnchors?: boolean;
+    scrollContainer?: HTMLDivElement;
     onDecideSuggestionProposal?: (
       proposalId: string,
       decision: "accepted" | "rejected",
@@ -217,6 +219,11 @@ function SidebarOwner({
       canResolve
       canDecideSuggestions
       alignToAnchors={options.alignToAnchors ?? !!options.suggestions}
+      scrollContainerRef={
+        options.scrollContainer
+          ? { current: options.scrollContainer }
+          : undefined
+      }
       onDecideSuggestionProposal={options.onDecideSuggestionProposal}
       forceVisible
       presentation={presentation}
@@ -269,6 +276,7 @@ describe("comment review interactions", () => {
       activeSuggestionId?: string;
       unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
       alignToAnchors?: boolean;
+      scrollContainer?: HTMLDivElement;
       onDecideSuggestionProposal?: (
         proposalId: string,
         decision: "accepted" | "rejected",
@@ -481,15 +489,8 @@ describe("comment review interactions", () => {
     expect(dismissResolution).toHaveBeenCalledWith("one");
   });
 
-  const sendAiReply = async (
-    start: CommentAiController["start"],
-    { removeFails = false } = {},
-  ) => {
-    actions.modelsReady = true;
-    actions.create.mockResolvedValue({ id: "reply-1", threadId: "one" });
-    if (removeFails) actions.remove.mockRejectedValue(new Error("lost"));
-    else actions.remove.mockResolvedValue(undefined);
-    const commentAi = {
+  const commentAiWith = (start: CommentAiController["start"]) =>
+    ({
       requests: [],
       startingThreadIds: new Set<string>(),
       stoppingRequestIds: new Set<string>(),
@@ -504,8 +505,25 @@ describe("comment review interactions", () => {
       undo: vi.fn(),
       freshResolutions: new Map(),
       dismissResolution: vi.fn(),
-    } satisfies CommentAiController;
-    render("one", undefined, "inline", { commentAi });
+    }) satisfies CommentAiController;
+  const clickAiSend = () =>
+    act(async () =>
+      (
+        container.querySelector(
+          '[aria-label="comments.aiSend"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+
+  const sendAiReply = async (
+    start: CommentAiController["start"],
+    { removeFails = false } = {},
+  ) => {
+    actions.modelsReady = true;
+    actions.create.mockResolvedValue({ id: "reply-1", threadId: "one" });
+    if (removeFails) actions.remove.mockRejectedValue(new Error("lost"));
+    else actions.remove.mockResolvedValue(undefined);
+    render("one", undefined, "inline", { commentAi: commentAiWith(start) });
     await type("actually, make it Thursday");
     act(() =>
       replyDraft.setAiDraft({
@@ -517,13 +535,7 @@ describe("comment review interactions", () => {
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     const sent = replyDraft.draft.text;
     expect(sent).toContain("actually, make it Thursday");
-    await act(async () =>
-      (
-        container.querySelector(
-          '[aria-label="comments.aiSend"]',
-        ) as HTMLButtonElement
-      ).click(),
-    );
+    await clickAiSend();
     expect(actions.create).toHaveBeenCalledOnce();
     expect(start).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -533,6 +545,34 @@ describe("comment review interactions", () => {
     );
     return sent;
   };
+
+  it("stores an AI reply's mentions in text order when a person shares the agent's name", async () => {
+    const selection = { model: "Ada", engine: "engine", provider: "provider" };
+    const agent = { kind: "agent" as const, ...selection, name: "Ada" };
+    const person = { email: "ada@example.test", name: "Ada" };
+    actions.modelsReady = true;
+    actions.create.mockResolvedValue({ id: "reply-1", threadId: "one" });
+    render("one", undefined, "inline", {
+      commentAi: commentAiWith(vi.fn().mockResolvedValue("confirmed-start")),
+    });
+    act(() => {
+      replyDraft.setText("@Ada asked @Ada");
+      replyDraft.setMentions([agent, person]);
+      replyDraft.setAiDraft({ mode: "suggest", selection });
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    await clickAiSend();
+
+    expect(actions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "@Ada asked @Ada",
+        mentions: serializeStoredCommentMentions([
+          agent,
+          { kind: "person", ...person },
+        ]),
+      }),
+    );
+  });
 
   it("takes back an AI reply and restores its draft when AI is already busy", async () => {
     const sent = await sendAiReply(vi.fn().mockResolvedValue("busy"));
@@ -833,5 +873,54 @@ describe("comment review interactions", () => {
     render(null, [thread("one", true), thread("two", true)]);
     expect(container.querySelector('[data-thread-card="one"]')).toBeNull();
     expect(panel.historyStatus).toBe("open");
+  });
+
+  it("moves an earlier thread above the new-comment composer instead of under it", () => {
+    const scroll = document.createElement("div");
+    scroll.innerHTML =
+      '<div class="ProseMirror"><p><mark data-comment-thread="one">first</mark></p><p><mark class="comment-highlight--pending">second</mark></p></div>';
+    document.body.append(scroll);
+    const box = (top: number, height: number) =>
+      ({
+        top,
+        bottom: top + height,
+        height,
+        left: 0,
+        right: 100,
+        width: 100,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.matches('[data-comment-thread="one"]')) return box(100, 20);
+        if (this.matches(".comment-highlight--pending")) return box(140, 20);
+        if (this.matches('[data-thread-card="one"]')) return box(0, 100);
+        if (this.matches("[data-comment-pending]")) return box(0, 120);
+        return box(0, 0);
+      });
+    try {
+      render(null, [thread("one")], "inline", {
+        pending: true,
+        alignToAnchors: true,
+        scrollContainer: scroll,
+      });
+      const composer = container.querySelector<HTMLElement>(
+        "[data-comment-pending]",
+      )!;
+      const earlier = container.querySelector<HTMLElement>(
+        '[data-comment-layout-thread="one"]',
+      )!;
+      // The thread rests at its anchor (100) and lifts to end 12px above the
+      // composer, which keeps its own anchor (140).
+      expect(composer.style.top).toBe("140px");
+      expect(earlier.style.marginTop).toBe("100px");
+      expect(earlier.style.transform).toBe("translateY(-72px)");
+    } finally {
+      rects.mockRestore();
+      scroll.remove();
+    }
   });
 });

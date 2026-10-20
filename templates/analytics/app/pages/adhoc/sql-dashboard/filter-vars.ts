@@ -1,4 +1,4 @@
-import type { DashboardFilter, FilterType } from "./types";
+import type { DashboardFilter, FilterPreset, FilterType } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
@@ -36,9 +36,26 @@ function daysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Filter values come straight from the URL. An "Nd" value past this bound is
+// not a range (a huge count makes an invalid Date that throws in
+// toISOString), so callers treat it like any other unrecognized value.
+const MAX_DAY_COUNT = 36_500;
+
+function parseDayCount(value: string): number | null {
+  const match = /^(\d+)d$/.exec(value);
+  if (!match) return null;
+  const days = Number(match[1]);
+  return days <= MAX_DAY_COUNT ? days : null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+export const MAX_FILTER_OPTIONS = 500;
+export const MAX_FILTER_PRESET_VALUES = 100;
+// Each preset is a button in the dropdown, so a filter offers a short list.
+export const MAX_FILTER_PRESETS = 20;
 
 export function isDashboardFilter(value: unknown): value is DashboardFilter {
   if (
@@ -52,20 +69,88 @@ export function isDashboardFilter(value: unknown): value is DashboardFilter {
     return false;
   }
   return (
-    value.options === undefined ||
-    (Array.isArray(value.options) &&
-      value.options.length <= 100 &&
-      value.options.every(
-        (option) =>
-          isRecord(option) &&
-          typeof option.value === "string" &&
-          typeof option.label === "string",
-      ))
+    (value.options === undefined ||
+      (Array.isArray(value.options) &&
+        value.options.length <= MAX_FILTER_OPTIONS &&
+        value.options.every(
+          (option) =>
+            isRecord(option) &&
+            typeof option.value === "string" &&
+            typeof option.label === "string",
+        ))) &&
+    (value.presets === undefined ||
+      (Array.isArray(value.presets) && value.presets.every(isFilterPreset))) &&
+    (value.customRange === undefined || typeof value.customRange === "boolean")
+  );
+}
+
+export function isFilterPreset(value: unknown): value is FilterPreset {
+  return (
+    isRecord(value) &&
+    typeof value.label === "string" &&
+    Array.isArray(value.values) &&
+    value.values.every((v) => typeof v === "string")
+  );
+}
+
+// The one usability check for presets, aligned with the input: null for a
+// usable preset, else why not. Saves reject the first issue. The filter bar
+// skips each unusable preset, because a config edited through the shared
+// document reaches it unchecked and isDashboardFilter stays structural so it
+// never drops the whole filter set.
+export function filterPresetIssues(
+  presets: readonly unknown[],
+  optionValues: ReadonlySet<string>,
+): (string | null)[] {
+  const labels = new Set<string>();
+  return presets.map((preset, index) => {
+    if (index >= MAX_FILTER_PRESETS) {
+      return `is past the limit of ${MAX_FILTER_PRESETS} presets`;
+    }
+    // Before isFilterPreset walks the values, so an oversized list costs nothing.
+    if (
+      isRecord(preset) &&
+      Array.isArray(preset.values) &&
+      preset.values.length > MAX_FILTER_PRESET_VALUES
+    ) {
+      return `has more than ${MAX_FILTER_PRESET_VALUES} values`;
+    }
+    if (
+      !isFilterPreset(preset) ||
+      preset.label.trim() === "" ||
+      preset.values.length === 0
+    ) {
+      return "must be an object with a non-empty label and a non-empty values array";
+    }
+    if (labels.has(preset.label)) {
+      return `label "${preset.label}" repeats an earlier preset`;
+    }
+    // A value with no checkbox would be applied to SQL unseen, as with the default.
+    const unknown = preset.values.find((value) => !optionValues.has(value));
+    if (unknown !== undefined) {
+      return `names "${unknown}", which is not one of its options`;
+    }
+    labels.add(preset.label);
+    return null;
+  });
+}
+
+export function usableFilterPresets(
+  presets: unknown,
+  optionValues: ReadonlySet<string>,
+): FilterPreset[] {
+  if (!Array.isArray(presets)) return [];
+  const bounded = presets.slice(0, MAX_FILTER_PRESETS);
+  const issues = filterPresetIssues(bounded, optionValues);
+  return bounded.filter(
+    (preset, index): preset is FilterPreset => issues[index] === null,
   );
 }
 
 export function isDateRangePresetFilter(filter: DashboardFilter): boolean {
-  if (filter.type !== "select" || !filter.options?.length) return false;
+  if (filter.type !== "select") return false;
+  if (filter.customRange === true) return true;
+  if (!filter.options?.length) return false;
   const isRange = (value: string) => /^\d+d$/.test(value);
   return (
     filter.options.some((option) => isRange(option.value)) &&
@@ -111,8 +196,8 @@ export function resolveDefault(
 ): string {
   if (!raw) return "";
   if (DATE_FILTER_TYPES.has(type)) {
-    const match = /^(\d+)d$/.exec(raw);
-    if (match) return daysAgo(parseInt(match[1], 10));
+    const days = parseDayCount(raw);
+    if (days !== null) return daysAgo(days);
     if (raw === "today") return daysAgo(0);
   }
   return raw;
@@ -146,8 +231,8 @@ function resolveDateParam(
 }
 
 function dateRangeStart(range: string): string {
-  const days = /^(\d+)d$/.exec(range);
-  return days ? daysAgo(Number(days[1])) : daysAgo(30);
+  if (range === "all") return ALL_TIME_START;
+  return daysAgo(parseDayCount(range) ?? 30);
 }
 
 export function resolveDefaultFilterVars(
@@ -180,22 +265,40 @@ export function resolveFilterVars(
           ? resolveDateValue(getParam(filter.id), ALL_TIME_START)
           : getParam(filter.id);
     } else if (isDateRangePresetFilter(filter)) {
+      const requested = getParam(filter.id);
+      // A customRange select only takes a value it offers ("custom" always
+      // is), so a URL can't pick a period or range the dashboard doesn't have.
+      const offered =
+        filter.customRange !== true ||
+        requested === "custom" ||
+        !!filter.options?.some((option) => option.value === requested);
       const value =
-        getParam(filter.id) || resolveDefault(filter.default, filter.type);
+        (offered && requested) || resolveDefault(filter.default, filter.type);
       const startKey = filter.id + "Start";
       const endKey = filter.id + "End";
       const defaultRange = value === "custom" ? filter.default || "30d" : value;
-      const fallbackStart =
-        value === "custom" ? "" : dateRangeStart(defaultRange);
-      const fallbackEnd = value === "custom" ? "" : daysAgo(0);
+      // On a customRange select only "30d"-style and "all" options imply
+      // bounds; an option such as "this" (quarter) leaves the range empty for
+      // the SQL to resolve.
+      const impliesBounds =
+        value !== "custom" &&
+        (filter.customRange !== true ||
+          parseDayCount(value) !== null ||
+          value === "all");
+      const fallbackStart = impliesBounds ? dateRangeStart(defaultRange) : "";
+      const fallbackEnd = impliesBounds ? daysAgo(0) : "";
+      // A customRange select only takes bounds from the URL while "custom" is
+      // picked, so a stale range in a shared link can't hide behind a period
+      // label.
+      const urlBounds = filter.customRange !== true || value === "custom";
       out[filter.id] = value;
       out[startKey] = resolveDateParam(
-        getParam(startKey),
+        urlBounds ? getParam(startKey) : "",
         fallbackStart,
         fallbackStart,
       );
       out[endKey] = resolveDateParam(
-        getParam(endKey),
+        urlBounds ? getParam(endKey) : "",
         fallbackEnd,
         fallbackEnd,
       );

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   findCanvasIframeForScreen,
   frameCommandTargetIds,
+  readCanvasPreviewMeasurementContext,
   shouldRenderBoardSelectionBox,
 } from "./iframe-targeting";
 
@@ -124,5 +125,80 @@ describe("shouldRenderBoardSelectionBox", () => {
         boardSurfaceRenderGeometry: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("findCanvasIframeForScreen breakpoint measurement", () => {
+  it("uses the active breakpoint preview instead of the primary layout", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<iframe data-screen-iframe-id="screen-a"></iframe><iframe data-screen-iframe-id="screen-a::bp-480"></iframe>';
+    const breakpoint = root.querySelector<HTMLIFrameElement>(
+      '[data-screen-iframe-id="screen-a::bp-480"]',
+    );
+    expect(findCanvasIframeForScreen(root, "screen-a", undefined, 480)).toBe(
+      breakpoint,
+    );
+  });
+
+  it("does not measure the primary layout when the selected breakpoint is absent", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<iframe data-screen-iframe-id="screen-a"></iframe>';
+    expect(
+      findCanvasIframeForScreen(root, "screen-a", undefined, 480),
+    ).toBeNull();
+  });
+
+  it("keeps board geometry in its board preview when a breakpoint is selected", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      "<div data-board-surface-layer><iframe data-design-preview-iframe></iframe></div>";
+    expect(findCanvasIframeForScreen(root, "board-a", "board-a", 480)).toBe(
+      root.querySelector("iframe"),
+    );
+  });
+});
+
+describe("readCanvasPreviewMeasurementContext", () => {
+  it("distinguishes a missing required breakpoint preview from optional absence", () => {
+    expect(readCanvasPreviewMeasurementContext(null, true)).toBeNull();
+    expect(readCanvasPreviewMeasurementContext(null, false)).toBeUndefined();
+  });
+
+  it("treats an active preview without an accessible window or document as unavailable", () => {
+    const missingWindow = document.createElement("iframe");
+    Object.defineProperty(missingWindow, "contentWindow", { value: null });
+    expect(readCanvasPreviewMeasurementContext(missingWindow, true)).toBeNull();
+
+    const missingDocument = document.createElement("iframe");
+    Object.defineProperty(missingDocument, "contentDocument", { value: null });
+    expect(
+      readCanvasPreviewMeasurementContext(missingDocument, true),
+    ).toBeNull();
+  });
+
+  it("keeps cross-origin access optional only when no breakpoint preview is expected", () => {
+    const frame = document.createElement("iframe");
+    Object.defineProperty(frame, "contentDocument", {
+      get() {
+        throw new DOMException("cross-origin frame", "SecurityError");
+      },
+    });
+
+    expect(readCanvasPreviewMeasurementContext(frame, true)).toBeNull();
+    expect(readCanvasPreviewMeasurementContext(frame, false)).toBeUndefined();
+  });
+
+  it("does not turn unexpected frame access errors into optional absence", () => {
+    const frame = document.createElement("iframe");
+    Object.defineProperty(frame, "contentWindow", {
+      get() {
+        throw new Error("unexpected access failure");
+      },
+    });
+
+    expect(() => readCanvasPreviewMeasurementContext(frame, false)).toThrow(
+      "unexpected access failure",
+    );
   });
 });

@@ -10,6 +10,7 @@ import {
   getHubStatus,
   McpClientManager,
   McpConfigUnreadableError,
+  type McpToolAuthorizationResolver,
 } from "../../mcp-client/index.js";
 import {
   normalizeMcpPrincipal,
@@ -32,6 +33,17 @@ interface McpManagerEntry {
 }
 
 const managers = new Map<string, McpManagerEntry>();
+let toolAuthorizationResolver: McpToolAuthorizationResolver | undefined;
+
+/** Install the app-owned MCP tool authorization on every principal manager. */
+export function setMcpToolAuthorizationResolver(
+  resolver?: McpToolAuthorizationResolver,
+): void {
+  toolAuthorizationResolver = resolver;
+  for (const entry of managers.values()) {
+    entry.manager.setToolAuthorizationResolver(resolver);
+  }
+}
 
 function principalKey(principal: McpPrincipal): string {
   return JSON.stringify([principal.userEmail, principal.orgId]);
@@ -96,8 +108,10 @@ export async function getMcpManagerForPrincipal(
         throw new Error("MCP manager capacity is busy hydrating");
       }
     }
+    const manager = new McpClientManager(null);
+    manager.setToolAuthorizationResolver(toolAuthorizationResolver);
     entry = {
-      manager: new McpClientManager(null),
+      manager,
       principal,
       lastAccessedAt: now,
       configuredAt: 0,
@@ -185,6 +199,7 @@ export async function stopAllMcpManagers(): Promise<void> {
 }
 
 export function _resetMcpManagerRegistryForTests(): Promise<void> {
+  toolAuthorizationResolver = undefined;
   return stopAllMcpManagers();
 }
 

@@ -10,6 +10,7 @@ import { SaveTemplateDialog } from "@/components/design/editor/SaveTemplateDialo
 import PromptPopover, {
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
+import { getDesignHostChannel } from "@/host/design-host-channel";
 import { patchPendingGeneration } from "@/lib/pending-generation";
 
 import { designPrecedentDirectives } from "../creative-context-precedent";
@@ -61,7 +62,7 @@ export function renderPromptPopovers({
   design: DesignData;
 }) {
   const { isSignedIn, t, queryClient } = editorCore;
-  const { isBuilderDesignEmbed, parentOriginRef } = editorHistory;
+  const { isBuilderDesignEmbed } = editorHistory;
   const {
     canEditDesign,
     creativeContextLab,
@@ -74,7 +75,6 @@ export function renderPromptPopovers({
     setGenerationChatTabId,
     generating,
     promptAnchorRef,
-    tweaksEnabled,
     migrateMutation,
     saveDesignAsTemplateMutation,
   } = editorGenerationAndAccess;
@@ -126,13 +126,10 @@ export function renderPromptPopovers({
           const images = imageAttachmentsFromUploadedFiles(files);
           if (isBuilderDesignEmbed) {
             const data = builderDesignEmbedSubmitData(prompt, images);
-            window.parent.postMessage(
-              {
-                type: "agentNative.submitChat",
-                data,
-              },
-              parentOriginRef.current ?? window.location.origin,
-            );
+            getDesignHostChannel().send({
+              type: "agentNative.submitChat",
+              data,
+            });
             handlePromptOpenChange(false);
             return;
           }
@@ -281,7 +278,7 @@ export function renderPromptPopovers({
       />
       <PromptPopover
         scopeDraftsToOrg={isSignedIn}
-        open={showTweakPrompt && tweaksEnabled}
+        open={showTweakPrompt}
         onOpenChange={handleTweakPromptOpenChange}
         requireAgentEngine
         title={t("designEditor.tweaksPromptTitle")}

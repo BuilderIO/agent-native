@@ -22,12 +22,14 @@ vi.mock("../analytics.js", () => ({
 
 import { SessionPreloadContext } from "../use-session.js";
 import {
+  __resetOnboardingExperimentMemoryForTests,
   __resetOnboardingEventDedupeForTests,
   __resetOnboardingSummaryReadsForTests,
   createOnboardingCorrelationId,
   requestCustomKeyOnboardingAbandonment,
   setCustomKeyOnboardingAttempt,
   setCustomKeyOnboardingSetupKind,
+  setOnboardingExperiment,
   trackCustomKeyOnboardingOutcome,
   trackOnboardingEvent,
   useCustomKeyOnboardingAttemptLifecycle,
@@ -267,6 +269,7 @@ describe("useOnboarding — summary timeout", () => {
 
     expect(latest?.loading).toBe(false);
     expect(latest?.error).toBe("onboarding summary timed out");
+    expect(latest?.summaryKnown).toBe(false);
     expect(summarySignal?.aborted).toBe(true);
   });
 
@@ -302,6 +305,7 @@ describe("useOnboarding — summary timeout", () => {
     });
     expect(latest?.loading).toBe(false);
     expect(latest?.error).toBeNull();
+    expect(latest?.summaryKnown).toBe(true);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15_000);
@@ -373,6 +377,84 @@ describe("useOnboarding — hinted session preload", () => {
 });
 
 describe("trackOnboardingEvent", () => {
+  afterEach(() => setOnboardingExperiment(null));
+
+  it("tags only first-run events with the exposed experiment arm", () => {
+    setOnboardingExperiment({
+      id: "first_run_builder_credits",
+      variant: "credits",
+    });
+    trackEventMock.mockClear();
+    trackOnboardingEvent("onboarding_method_clicked", {
+      flow: "first_run",
+      step_id: "choice",
+    });
+    trackOnboardingEvent("onboarding_step_viewed", {
+      flow: "checklist",
+      step_id: "choice",
+    });
+    expect(trackEventMock).toHaveBeenNthCalledWith(
+      1,
+      "onboarding_method_clicked",
+      expect.objectContaining({
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+    );
+    expect(trackEventMock.mock.calls[1]?.[1]).toEqual({
+      flow: "checklist",
+      step_id: "choice",
+    });
+  });
+
+  it("restores the exposed arm from storage after a page reload", () => {
+    const originalStorage = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    const values = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+    });
+
+    try {
+      setOnboardingExperiment({
+        id: "first_run_builder_credits",
+        variant: "credits",
+      });
+      __resetOnboardingExperimentMemoryForTests();
+      trackEventMock.mockClear();
+
+      trackOnboardingEvent("onboarding_method_outcome", {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+        outcome: "settings_opened",
+      });
+
+      expect(trackEventMock).toHaveBeenCalledWith(
+        "onboarding_method_outcome",
+        expect.objectContaining({
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "credits",
+          outcome: "settings_opened",
+        }),
+      );
+    } finally {
+      __resetOnboardingExperimentMemoryForTests();
+      if (originalStorage) {
+        Object.defineProperty(window, "localStorage", originalStorage);
+      } else {
+        Reflect.deleteProperty(window, "localStorage");
+      }
+    }
+  });
+
   beforeEach(() => {
     trackEventMock.mockReset();
     analyticsSessionIdMock.mockReturnValue("browser-session-42");
@@ -1294,6 +1376,7 @@ describe("useOnboarding — focus during the deferral window", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    document.cookie = "agent-native-first-run=; Max-Age=0; path=/";
     vi.unstubAllGlobals();
   });
 
@@ -1394,6 +1477,7 @@ describe("useOnboarding — degraded summary tolerance", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    document.cookie = "agent-native-first-run=; Max-Age=0; path=/";
     vi.unstubAllGlobals();
   });
 
@@ -1416,6 +1500,145 @@ describe("useOnboarding — degraded summary tolerance", () => {
       capabilities: [],
     });
     expect(latest?.dismissed).toBe(false);
+    expect(latest?.summaryKnown).toBe(true);
+  });
+
+  it("retains known active onboarding when a refresh fails", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/onboarding/summary")) {
+        if (fetchMock.mock.calls.length > 1) {
+          return jsonResponse({}, false, 503);
+        }
+        return jsonResponse({
+          steps: [
+            {
+              id: "llm",
+              title: "Connect an AI engine",
+              description: "Pick an engine to power the agent.",
+              order: 10,
+              required: true,
+              complete: false,
+              methods: [],
+            },
+          ],
+          dismissed: false,
+          profile: { appId: "app", appName: "App", capabilities: [] },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(latest?.summaryKnown).toBe(true);
+    expect(latest?.steps).toHaveLength(1);
+
+    await act(async () => {
+      await latest!.refresh();
+    });
+
+    expect(latest?.summaryKnown).toBe(true);
+    expect(latest?.steps).toHaveLength(1);
+    expect(latest?.error).toBe("summary: 503");
+  });
+
+  it("retains completed local state when the summary refresh fails", async () => {
+    let summaryCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/onboarding/summary")) {
+        summaryCalls += 1;
+        if (summaryCalls > 1) return jsonResponse({}, false, 503);
+        return jsonResponse({
+          steps: [
+            {
+              id: "llm",
+              title: "Connect an AI engine",
+              description: "Pick an engine to power the agent.",
+              order: 10,
+              required: true,
+              complete: false,
+              methods: [],
+            },
+          ],
+          dismissed: false,
+          profile: { appId: "app", appName: "App", capabilities: [] },
+        });
+      }
+      if (url.includes("/steps/llm/complete"))
+        return jsonResponse({ ok: true });
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(latest?.steps[0]?.complete).toBe(false);
+
+    await act(async () => {
+      await latest!.complete("llm");
+    });
+
+    expect(latest?.summaryKnown).toBe(true);
+    expect(latest?.steps[0]?.complete).toBe(true);
+    expect(latest?.allComplete).toBe(true);
+    expect(latest?.error).toBe("summary: 503");
+  });
+
+  it("applies a successful summary even when first-run status fails", async () => {
+    document.cookie = "agent-native-first-run=1; path=/";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/onboarding/summary")) {
+          return jsonResponse({
+            steps: [
+              {
+                id: "llm",
+                title: "Connect an AI engine",
+                description: "Pick an engine to power the agent.",
+                order: 10,
+                required: true,
+                complete: false,
+                methods: [],
+              },
+            ],
+            dismissed: false,
+            profile: { appId: "app", appName: "App", capabilities: [] },
+          });
+        }
+        if (url.includes("/onboarding/first-run/status")) {
+          return jsonResponse({}, false, 503);
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    function FirstRunHarness() {
+      latest = useOnboarding({ firstRunSurface: true });
+      return null;
+    }
+
+    await act(async () => root.render(<FirstRunHarness />));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(latest?.summaryKnown).toBe(true);
+    expect(latest?.steps).toHaveLength(1);
+    expect(latest?.error).toBe("first-run status: 503");
   });
 });
 

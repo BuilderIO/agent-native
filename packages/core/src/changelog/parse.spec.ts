@@ -115,6 +115,14 @@ describe("parsePendingEntry", () => {
 });
 
 describe("renderReleaseBody", () => {
+  it("keeps paragraph separators empty while indenting continuation text", () => {
+    const body = renderReleaseBody([
+      { type: "fixed", text: "First paragraph.\n\nSecond paragraph." },
+    ]);
+    expect(body).toBe("### Fixed\n\n- First paragraph.\n\n  Second paragraph.");
+    expect(body.split("\n").some((line) => /^ +$/.test(line))).toBe(false);
+  });
+
   it("groups bullets by type in canonical order", () => {
     const body = renderReleaseBody([
       { type: "fixed", text: "Fixed B" },

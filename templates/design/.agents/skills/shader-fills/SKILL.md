@@ -70,13 +70,26 @@ Element references can coexist on the same element:
      data-an-shader-effect-uniforms='{"u_intensity":0.2}'>…</div>
 ```
 
-The runtime must be embedded once per document as
-`<script data-agent-native-shader-runtime data-runtime-version="1">…` —
-`ensureShaderRuntime()` / `applyShaderToHtml()` handle this.
+The framework embeds its runtime once per document as
+`<script data-agent-native-shader-runtime data-runtime-version="1">…`
+(`ensureShaderRuntime()` / `applyShaderToHtml()` do it). **Never write that
+script yourself.** The editor renders the framework's runtime in place of any
+other under that marker, and a private runtime's canvas would paint over the
+one the Fill pane's knobs drive, so Drift, Speed, Glow and the colors would stop
+responding.
 
-## Applying a shader (preferred path)
+## Applying a shader
 
-Use the pure helpers + the source-edit actions. From `templates/design/`:
+**From chat you cannot run code.** Write the two pieces by hand: the definition
+block above, and the `data-an-shader-fill` / `data-an-shader-uniforms`
+attributes on the target element (`data-an-shader-uniforms` may be single- or
+double-quoted). Use `read-source-file` → `apply-source-edit`
+(`edit: { kind: "full-replace", content }`, pass `expectedVersionHash`), or
+`edit-design`. Leave out the runtime: the editor supplies it, and applying the
+shader from the picker embeds it for shared and exported files.
+
+**With a shell** (a code checkout), prefer the pure helpers: they validate the
+shader and embed the runtime. From `templates/design/`:
 
 ```ts
 // script: apply-shader.ts — run with: pnpm exec tsx apply-shader.ts
@@ -100,8 +113,6 @@ if (result.errors.length) throw new Error(result.errors.join("; "));
 // versionHash you got from read-source-file.
 ```
 
-Action flow: `read-source-file` → transform → `apply-source-edit`
-(`edit: { kind: "full-replace", content }`, pass `expectedVersionHash`).
 For a small hand-edit (e.g. tweaking one uniform value in the manifest),
 `edit-design` search/replace on the exact block text is also fine.
 
@@ -110,16 +121,21 @@ annotation and garbage-collects unreferenced definition blocks.
 
 ## Handling "Create a custom shader fill." from the picker
 
-The fill picker's **Create new (AI)** tile prefills this prompt with hidden
+The fill picker's **Create with AI** card (Shader pane, under "Created by you") prefills this prompt with hidden
 context lines (`designId`, `fileId`, `target nodeId`, `mode`). Then:
 
 1. Ask what look they want only if the user gave no description at all.
 2. Write ORIGINAL GLSL for the request (do not just re-apply a preset), with
    2–5 well-chosen uniforms exposed as knobs. Name the knobs the way the
    user described the controls.
-3. Apply it via the helper flow above, targeting the provided nodeId.
+3. Apply it as above, targeting the provided nodeId.
 4. Report the shader name, its knobs, and that the GLSL is editable in the
    Code panel.
+
+The picker lists the design's own shaders under "Created by you", by
+`data-shader-name`: every fill definition in the screen's HTML that is not a
+built-in preset exactly as shipped (a preset whose code was edited counts as
+yours). Give a custom shader a name that says what it looks like.
 
 ## GLSL rules (WebGL1 / GLSL ES 1.00)
 
@@ -131,7 +147,11 @@ context lines (`designId`, `fileId`, `target nodeId`, `mode`). Then:
   `float` → `uniform float`, `vec2` → `uniform vec2`, `color` → `uniform
   vec3` (colors arrive normalized 0–1 RGB). Validation rejects unused knobs.
 - Uniform names match `u_[A-Za-z0-9_]+`; ≤ 16 uniforms; float knobs need
-  `min`/`max`/`step`; color values are `#rrggbb` hex.
+  `min`/`max`/`step` (the slider's range; without them the pane guesses);
+  color values are `#rrggbb` hex.
+- Every manifest uniform becomes one control in the Fill pane, shown under its
+  `label` (≤ 40 chars). Label each knob with the word the user would use, such
+  as "Drift speed" or "Glow"; without one the pane reads the uniform name.
 - Loop bounds must be compile-time constant (`for (int i = 0; i < 5; i++)`).
 - Effects are composited over content: output premultiplication is off, so
   `gl_FragColor = vec4(color, alpha)` with alpha < 1 overlays cleanly.

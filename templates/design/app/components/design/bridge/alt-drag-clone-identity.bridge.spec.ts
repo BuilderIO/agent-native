@@ -374,6 +374,9 @@ describe("Alt-drag clone identity handoff", () => {
         );
       }, duplicate.requestId);
 
+      await page
+        .locator(`[data-agent-native-node-id="${cloneId}"]`)
+        .waitFor({ state: "detached" });
       expect(
         await page.locator(`[data-agent-native-node-id="${cloneId}"]`).count(),
       ).toBe(0);

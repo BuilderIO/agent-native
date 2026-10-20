@@ -61,13 +61,20 @@ function renderToolbar(snapshot: SlideStyleSnapshot, onToggleList = vi.fn()) {
   return onToggleList;
 }
 
-describe("contextual toolbar list toggles", () => {
+function openListMenu() {
+  const trigger = screen.getByRole("button", { name: "List style" });
+  fireEvent.pointerDown(trigger, { button: 0 });
+  fireEvent.pointerUp(trigger, { button: 0 });
+}
+
+describe("contextual toolbar list style menu", () => {
   afterEach(cleanup);
 
   it("asks for a bulleted list", () => {
     const onToggleList = renderToolbar(textSnapshot());
 
-    fireEvent.click(screen.getByRole("button", { name: "Bullet list" }));
+    openListMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Bullet list" }));
 
     expect(onToggleList).toHaveBeenCalledWith("bullet");
   });
@@ -75,7 +82,8 @@ describe("contextual toolbar list toggles", () => {
   it("asks for a numbered list", () => {
     const onToggleList = renderToolbar(textSnapshot());
 
-    fireEvent.click(screen.getByRole("button", { name: "Numbered list" }));
+    openListMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Numbered list" }));
 
     expect(onToggleList).toHaveBeenCalledWith("ordered");
   });
@@ -83,26 +91,27 @@ describe("contextual toolbar list toggles", () => {
   it("shows which kind the object already is", () => {
     renderToolbar(textSnapshot({ listKind: "ordered" }));
 
+    openListMenu();
+
     expect(
       screen
-        .getByRole("button", { name: "Numbered list" })
-        .getAttribute("aria-pressed"),
+        .getByRole("menuitem", { name: "Numbered list" })
+        .getAttribute("aria-current"),
     ).toBe("true");
     expect(
       screen
-        .getByRole("button", { name: "Bullet list" })
-        .getAttribute("aria-pressed"),
+        .getByRole("menuitem", { name: "Bullet list" })
+        .getAttribute("aria-current"),
     ).toBe("false");
   });
 
-  it("offers no list toggles for a non-text object", () => {
+  it("offers no list menu for a non-text object", () => {
     renderToolbar(textSnapshot({ isText: false, isImage: true }));
 
-    expect(screen.queryByRole("button", { name: "Bullet list" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Numbered list" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "List style" })).toBeNull();
   });
 
-  it("hides the toggles when the host cannot convert lists", () => {
+  it("hides the menu when the host cannot convert lists", () => {
     render(
       <TooltipProvider>
         <SlideContextToolbar
@@ -114,6 +123,6 @@ describe("contextual toolbar list toggles", () => {
       </TooltipProvider>,
     );
 
-    expect(screen.queryByRole("button", { name: "Bullet list" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "List style" })).toBeNull();
   });
 });

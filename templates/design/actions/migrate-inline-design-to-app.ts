@@ -48,13 +48,11 @@ import {
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
-import "../server/db/index.js";
+import { createDesignVersionSnapshotWithSourceMutationLock } from "../server/lib/design-versions.js";
 import {
   resolveBuilderStatus,
   buildMigrationSeed,
@@ -89,50 +87,11 @@ async function snapshotDesign(
   designId: string,
   label: string,
 ): Promise<string> {
-  const db = getDb();
-  const versionId = nanoid();
-  const now = new Date().toISOString();
-
-  const files = await db
-    .select({
-      filename: schema.designFiles.filename,
-      content: schema.designFiles.content,
-      fileType: schema.designFiles.fileType,
-    })
-    .from(schema.designFiles)
-    .where(eq(schema.designFiles.designId, designId));
-
-  // Also capture the design data blob (tweaks, source type, etc.).
-  // guard:allow-unscoped — the action's run() resolves and asserts editor
-  // access on the design (resolveAccess + assertAccess "design", designId)
-  // before this snapshot helper runs; reads only the addressed design row by id.
-  const [design] = await db
-    .select({ data: schema.designs.data, title: schema.designs.title })
-    .from(schema.designs)
-    .where(eq(schema.designs.id, designId))
-    .limit(1);
-
-  const snapshot = JSON.stringify({
+  const version = await createDesignVersionSnapshotWithSourceMutationLock(
     designId,
-    label,
-    capturedAt: now,
-    designData: design?.data ?? "{}",
-    files: files.map((f) => ({
-      filename: f.filename,
-      fileType: f.fileType,
-      content: f.content,
-    })),
-  });
-
-  await db.insert(schema.designVersions).values({
-    id: versionId,
-    designId,
-    label,
-    snapshot,
-    createdAt: now,
-  });
-
-  return versionId;
+    { label },
+  );
+  return version.id;
 }
 
 export default defineAction({

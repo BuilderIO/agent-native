@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 
+import type { KeyboardShortcutsInitialFocus } from "@/components/design/KeyboardShortcutsDialog";
 import { isShowKeyboardShortcutsHotkey } from "@/hooks/useDesignHotkeys";
 
 import {
@@ -26,12 +27,19 @@ import {
 } from "../commands/enter-single-screen";
 import { runEscapeHotkey } from "../commands/escape-hotkey";
 import { runModeChange } from "../commands/mode-change";
+import { runRequestDarkStyles } from "../commands/request-dark-styles";
 import {
   clearOverviewInteractTarget,
   getFocusedScreenNavigationPlan,
 } from "../created-screen-navigation";
+import { isUrlBackedScreen } from "../derive/url-screen";
 import { isRadixOverlayOpen } from "../dom-guards";
 import { OVERVIEW_ZOOM_THRESHOLD } from "../editor-constants";
+import {
+  INTERACT_ZOOM_FIT,
+  resolveInteractZoom,
+  type InteractZoomChoice,
+} from "../interact-zoom";
 import {
   getAllScreenFrameEntries,
   getScreenFrameOriginCanvas,
@@ -39,7 +47,13 @@ import {
 } from "../overview-camera";
 import { computeInteractZoomToFit } from "../responsive-interact";
 import { hasSelectableCodeLayerParent } from "../selection-state";
-import { shouldAutoEnableDrawOverlay } from "../tool-state";
+import {
+  commentModeReturnOptions,
+  resolveCommentModeExit,
+  resolveDrawStateWithoutLab,
+  resolveModeForAnnotateLab,
+  shouldAutoEnableDrawOverlay,
+} from "../tool-state";
 import { type EditorMode } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
@@ -52,6 +66,7 @@ import type { EditorHistory } from "./use-editor-history";
 import type { EditorLayoutAndStructure } from "./use-editor-layout-and-structure";
 import type { EditorLiveEditsAndPresence } from "./use-editor-live-edits-and-presence";
 import type { EditorToolsAndVectors } from "./use-editor-tools-and-vectors";
+import { useInteractControls } from "./use-interact-controls";
 
 export function useEditorModes({
   editorCore,
@@ -80,6 +95,7 @@ export function useEditorModes({
 }) {
   const {
     t,
+    id,
     embedded,
     mode,
     setMode,
@@ -92,6 +108,7 @@ export function useEditorModes({
     setViewMode,
     viewModeRef,
     selectedElement,
+    selectedElementRef,
     setSelectedElement,
     setPendingVisualEditRecoveryVisible,
     clearPendingEditSessionRecoveryRef,
@@ -100,6 +117,7 @@ export function useEditorModes({
     setHoveredElement,
     activeFileId,
     setActiveFileId,
+    previewThemeStatusByScreenId,
   } = editorCore;
   const {
     pendingVisualStyleEdits,
@@ -107,14 +125,16 @@ export function useEditorModes({
     pendingVisualStyleEditsRef,
     pendingLiveNonStyleEditsRef,
     clearPendingLiveEditState,
-    setActiveInspectorTab,
+    setActiveLeftPanel,
     setMinimalUi,
     setExpandedLayerIds,
     selectedLayerIdsState,
     setSelectedLayerIdsState,
     codeLayerOwnerByNodeIdRef,
     overviewSelectedScreenIds,
+    overviewSelectedScreenIdsRef,
     setOverviewSelectedScreenIds,
+    hiddenLayerIds,
     setCreatedOverviewLayerSelection,
     pendingOverviewScreenSelectionRef,
     pendingOverviewLayerSelectionRef,
@@ -135,8 +155,10 @@ export function useEditorModes({
     pinMode,
     setPinMode,
     focusedAnnotationSending,
+    annotateLab,
     canEditDesign,
     canCommentDesign,
+    design,
   } = editorGenerationAndAccess;
   const {
     files,
@@ -145,6 +167,7 @@ export function useEditorModes({
     boardFileId,
     overviewScreens,
     remoteVisualEditPending,
+    designSourceType,
   } = editorFilesAndSaving;
   const {
     setScreenZoom,
@@ -154,6 +177,8 @@ export function useEditorModes({
     setInteractDeviceName,
     interactDeviceSize,
     setInteractDeviceSize,
+    interactTheme,
+    setInteractTheme,
     exportCanvasFrameGeometryById,
     activeFile,
     handleBreakpointBarSelect,
@@ -177,8 +202,13 @@ export function useEditorModes({
   const { showComments } = editorLayoutAndStructure;
   const { runCurrentUndo, runCurrentRedo } = editorEditCommands;
 
-  const [interactZoom, setInteractZoom] = useState(100);
+  const [interactFitZoom, setInteractFitZoom] = useState(100);
+  const [interactZoomChoice, setInteractZoomChoice] =
+    useState<InteractZoomChoice>(INTERACT_ZOOM_FIT);
+  const interactZoom = resolveInteractZoom(interactZoomChoice, interactFitZoom);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
+  const [keyboardShortcutsInitialFocus, setKeyboardShortcutsInitialFocus] =
+    useState<KeyboardShortcutsInitialFocus>("search");
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const suppressProjectMenuReturnFocusRef = useRef(false);
@@ -355,19 +385,22 @@ export function useEditorModes({
   );
 
   const enterOverviewFromZoom = useCallback(
-    (nextMode?: EditorMode) => {
+    (requestedMode?: EditorMode) => {
       if (viewModeRef.current === "overview") return;
+      const nextMode =
+        requestedMode && resolveModeForAnnotateLab(requestedMode, annotateLab);
       viewModeRef.current = "overview";
-      clearOverviewInteractTarget({
-        setOverviewInteractScreenId,
-        overviewInteractScreenIdRef,
-      });
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
       setCreatedOverviewLayerSelection(null);
       const restoredOverviewSelection = getRestoredOverviewSelection();
+      // Cleared with the view switch: alone, it unmounts the canvas for a frame and resets its camera.
       runEditorViewTransition(() => {
+        clearOverviewInteractTarget({
+          setOverviewInteractScreenId,
+          overviewInteractScreenIdRef,
+        });
         setDrawMode(nextMode === "annotate");
         setPinMode(false);
         setMode(
@@ -383,6 +416,7 @@ export function useEditorModes({
       });
     },
     [
+      annotateLab,
       clearPendingOverviewLayerSelectionTimer,
       getRestoredOverviewSelection,
       overviewInteractScreenIdRef,
@@ -434,6 +468,16 @@ export function useEditorModes({
 
   const lastSettledSingleZoomRef = useRef<number | null>(null);
   const suppressOverviewPopForExplicitZoomRef = useRef(false);
+  const commentReturnOptionsRef =
+    useRef<ReturnType<typeof commentModeReturnOptions>>(null);
+  useEffect(() => {
+    if (mode === "annotate") return;
+    commentReturnOptionsRef.current = commentModeReturnOptions(
+      mode,
+      activeFile?.id,
+    );
+  }, [activeFile?.id, mode]);
+
   useEffect(() => {
     if (!activeFile || viewMode !== "single" || mode !== "edit") {
       lastSettledSingleZoomRef.current = null;
@@ -462,11 +506,13 @@ export function useEditorModes({
         discardPendingLiveEdits?: boolean;
         pendingLiveEditsAlreadyHandled?: boolean;
         targetFileId?: string;
+        keepInteractDevice?: boolean;
       },
     ) =>
       runModeChange(
         {
           activeFile,
+          annotateLab,
           canEditDesign,
           onPendingVisualEditsBlocked: () =>
             setPendingVisualEditRecoveryVisible(true),
@@ -489,6 +535,13 @@ export function useEditorModes({
           setPinMode,
           setSelectedElement,
           rememberOverviewScreenSelection,
+          overviewScreens,
+          // Read at click time: selection changes far more often than this callback should.
+          overviewSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+          hiddenScreenIds: hiddenLayerIds,
+          selectionScreenId: selectedElementRef.current
+            ? (activeFile?.id ?? null)
+            : null,
           overviewInteractScreenId,
           setOverviewInteractScreenId,
           t,
@@ -499,6 +552,7 @@ export function useEditorModes({
       ),
     [
       activeFile,
+      annotateLab,
       canEditDesign,
       setPendingVisualEditRecoveryVisible,
       remoteVisualEditPending,
@@ -512,6 +566,8 @@ export function useEditorModes({
       rememberOverviewScreenSelection,
       t,
       files,
+      overviewScreens,
+      hiddenLayerIds,
       overviewInteractScreenId,
     ],
   );
@@ -519,6 +575,37 @@ export function useEditorModes({
     setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
     handleModeChange("edit");
   }, [handleModeChange]);
+  const navigateInteractToScreen = useCallback(
+    (screenId: string) =>
+      handleModeChange("interact", {
+        targetFileId: screenId,
+        keepInteractDevice: true,
+      }),
+    [handleModeChange],
+  );
+  const requestDarkStyles = useCallback(() => {
+    runRequestDarkStyles({
+      designId: id,
+      designTitle: design?.title,
+      activeFile,
+    });
+  }, [activeFile, design?.title, id]);
+  const interactControls = useInteractControls({
+    active: responsiveInteractActive,
+    activeScreenId: activeFile?.id ?? null,
+    screens: overviewScreens,
+    interactTheme,
+    setInteractTheme,
+    requestDarkStyles,
+    activeThemeStatus: activeFile
+      ? previewThemeStatusByScreenId[activeFile.id]
+      : undefined,
+    activeScreenUrlBacked: isUrlBackedScreen(
+      overviewScreens.find((screen) => screen.id === activeFile?.id),
+      designSourceType,
+    ),
+    navigateToScreen: navigateInteractToScreen,
+  });
   const handleOverviewFrameAction = useCallback(
     (screenId: string) => focusOverviewScreen(screenId),
     [focusOverviewScreen],
@@ -532,12 +619,16 @@ export function useEditorModes({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [responsiveInteractActive, handleExitResponsiveInteract]);
+  // The zoom chosen in Interact lasts until Interact is left, then Fit again.
+  useEffect(() => {
+    if (!responsiveInteractActive) setInteractZoomChoice(INTERACT_ZOOM_FIT);
+  }, [responsiveInteractActive]);
   useEffect(() => {
     if (!responsiveInteractActive) return;
     const container = canvasContainerRef.current;
     if (!container) return;
     const updateZoomToFit = () => {
-      setInteractZoom(
+      setInteractFitZoom(
         computeInteractZoomToFit({
           availableWidth: Math.max(1, container.clientWidth - 48),
           availableHeight: Math.max(1, container.clientHeight - 48),
@@ -567,13 +658,39 @@ export function useEditorModes({
     if (
       embedded ||
       !activeFile ||
+      annotateLab !== "on" ||
       !shouldAutoEnableDrawOverlay({ mode, activeTool, pinMode })
     ) {
       return;
     }
     if (!canEditDesign) return;
     setDrawMode(true);
-  }, [activeFile?.id, activeTool, canEditDesign, embedded, mode, pinMode]);
+  }, [
+    activeFile?.id,
+    activeTool,
+    annotateLab,
+    canEditDesign,
+    embedded,
+    mode,
+    pinMode,
+  ]);
+
+  // The lab can turn off under an open editor (another tab, Settings). Drop the
+  // drawing state it owned so the canvas and the agent's context agree.
+  useEffect(() => {
+    const leftover = resolveDrawStateWithoutLab({
+      annotateLab,
+      activeTool,
+      drawMode,
+      pinMode,
+    });
+    if (!leftover) return;
+    setActiveTool("move");
+    setDrawMode(false);
+    if (leftover.dropAnnotateMode) {
+      setMode((current) => (current === "annotate" ? "edit" : current));
+    }
+  }, [activeTool, annotateLab, drawMode, pinMode]);
 
   const handleViewModeToggle = useCallback(() => {
     if (viewModeRef.current === "overview") {
@@ -676,12 +793,21 @@ export function useEditorModes({
   ]);
 
   const handleExitReviewCommentMode = useCallback(() => {
+    const exit = resolveCommentModeExit(
+      commentReturnOptionsRef.current,
+      new Set(overviewScreens.map((screen) => screen.id)),
+      new Set(files.map((file) => file.id)),
+    );
+    if (exit.mode === "interact" && !handleModeChange("interact", exit.options))
+      return;
+
+    commentReturnOptionsRef.current = null;
     setPinMode(false);
     setOverviewCommentPinRequest(null);
     setDrawMode(false);
     setActiveTool("move");
-    setMode("edit");
-  }, []);
+    if (exit.mode === "edit") setMode("edit");
+  }, [files, handleModeChange, overviewScreens]);
 
   const handleOverviewCommentPin = useCallback(
     (canvasPoint: { x: number; y: number }) => {
@@ -701,7 +827,7 @@ export function useEditorModes({
       return;
     }
     showComments();
-    setActiveInspectorTab("comments");
+    setActiveLeftPanel("threads");
     if (viewMode !== "overview") {
       enterOverviewFromZoom("annotate");
     }
@@ -718,13 +844,17 @@ export function useEditorModes({
     viewMode,
   ]);
 
-  const handleShowKeyboardShortcutsFromMenu = useCallback(() => {
-    keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
-    suppressProjectMenuReturnFocusRef.current = true;
-    setMinimalUi(false);
-    setUiHidden(false);
-    setKeyboardShortcutsOpen(true);
-  }, []);
+  const handleShowKeyboardShortcutsFromMenu = useCallback(
+    (initialFocus: KeyboardShortcutsInitialFocus) => {
+      keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
+      suppressProjectMenuReturnFocusRef.current = true;
+      setMinimalUi(false);
+      setUiHidden(false);
+      setKeyboardShortcutsInitialFocus(initialFocus);
+      setKeyboardShortcutsOpen(true);
+    },
+    [],
+  );
 
   const handleCloseKeyboardShortcuts = useCallback(() => {
     setKeyboardShortcutsOpen(false);
@@ -747,6 +877,7 @@ export function useEditorModes({
       activeElement instanceof HTMLElement ? activeElement : null;
     setMinimalUi(false);
     setUiHidden(false);
+    setKeyboardShortcutsInitialFocus("search");
     setKeyboardShortcutsOpen(true);
   }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen]);
 
@@ -773,6 +904,11 @@ export function useEditorModes({
         activeBreakpointWidthStateRef,
         activeTool,
         cancelActiveEditorDrag,
+        clearPendingOverviewLayerSelection: () => {
+          pendingOverviewLayerSelectionRef.current = null;
+          clearPendingOverviewLayerSelectionTimer();
+          setCreatedOverviewLayerSelection(null);
+        },
         drawMode,
         enterOverviewFromZoom,
         focusedAnnotationSending,
@@ -785,7 +921,9 @@ export function useEditorModes({
         overviewAnnotationSending,
         pinMode,
         selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
         setActiveTool,
+        setCreatedOverviewLayerSelection,
         setDrawMode,
         setHoveredElement,
         setMode,
@@ -800,6 +938,7 @@ export function useEditorModes({
   }, [
     activeTool,
     cancelActiveEditorDrag,
+    clearPendingOverviewLayerSelectionTimer,
     drawMode,
     enterOverviewFromZoom,
     focusedAnnotationSending,
@@ -813,7 +952,10 @@ export function useEditorModes({
     pinMode,
     recordSelectionHistoryAroundChange,
     selectedElement,
+    selectedLayerIdsState,
+    setCreatedOverviewLayerSelection,
     viewMode,
+    pendingOverviewLayerSelectionRef,
   ]);
 
   const SINGLE_MODE_TEXT_TAGS = useMemo(
@@ -924,6 +1066,7 @@ export function useEditorModes({
           path: editable.path,
           selectedAnchorIndex: null,
           sourceOffset: editable.sourceOffset,
+          sourceMapping: editable.sourceMapping,
           primitiveSource: null,
         });
         return true;
@@ -945,6 +1088,7 @@ export function useEditorModes({
         path: source.path,
         selectedAnchorIndex: null,
         sourceOffset: { x: 0, y: 0 },
+        sourceMapping: null,
         primitiveSource: { geometry: source.geometry, fill: source.fill },
       });
       return true;
@@ -1106,7 +1250,10 @@ export function useEditorModes({
 
   return {
     interactZoom,
+    interactZoomChoice,
+    handleInteractZoomChange: setInteractZoomChoice,
     keyboardShortcutsOpen,
+    keyboardShortcutsInitialFocus,
     projectMenuTriggerRef,
     suppressProjectMenuReturnFocusRef,
     overviewCommentPinRequest,
@@ -1134,6 +1281,7 @@ export function useEditorModes({
     handleSelectParentLayer,
     handleAbortPendingVisualStyles,
     handleOverviewEditBreakpoint,
+    ...interactControls,
   };
 }
 

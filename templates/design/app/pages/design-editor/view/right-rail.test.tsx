@@ -7,7 +7,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { EditorContentAndComponents } from "../domains/use-editor-content-and-components";
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
-import type { EditorModes } from "../domains/use-editor-modes";
 import { renderRightRail } from "./right-rail";
 
 vi.mock("@/components/design/EditPanel", () => ({
@@ -23,6 +22,7 @@ function railArgs(overrides: {
   widgetEmbed: boolean;
   rightSidebarVisible: boolean;
   minimalUi?: boolean;
+  interactFloatingBar?: ReactElement | null;
 }): RailArgs {
   return {
     editorCore: {
@@ -40,13 +40,12 @@ function railArgs(overrides: {
     editorContentAndComponents: {
       uiHidden: false,
     } as unknown as EditorContentAndComponents,
-    editorModes: { responsiveInteractActive: false } as unknown as EditorModes,
     projectTitleControl: <button data-slot="title">Product Launch</button>,
     minimalUiToggle: <button data-slot="minimal-toggle" />,
     localPreviewRow: null,
     rightSidebarActions: <div data-slot="actions">Share</div>,
     topBarVisible: false,
-    renderResponsiveInteractBar: () => <div />,
+    interactFloatingBar: overrides.interactFloatingBar ?? null,
     rightSidebarVisible: overrides.rightSidebarVisible,
     editPanelProps: {} as RailArgs["editPanelProps"],
   };
@@ -114,6 +113,53 @@ describe.each([
     expect(panel?.style.width).toBe("240px");
     expect(panel?.querySelector('[data-slot="edit-panel"]')).not.toBeNull();
     expect(panel?.querySelector('[data-slot="actions"]')).not.toBeNull();
+    await unmount();
+  });
+});
+
+describe("Interact floating bar in the right rail", () => {
+  const interactBar = <div data-slot="interact-bar" />;
+
+  it("sits in the minimal-UI bar's centre", async () => {
+    const { host, unmount } = await mount(
+      <>
+        {renderRightRail(
+          railArgs({
+            widgetEmbed: false,
+            rightSidebarVisible: false,
+            interactFloatingBar: interactBar,
+          }),
+        )}
+      </>,
+    );
+    expect(
+      host.querySelector(
+        '[data-design-minimal-bar="interact"] [data-slot="interact-bar"]',
+      ),
+    ).not.toBeNull();
+    expect(host.querySelector("[data-design-interact-floating]")).toBeNull();
+    await unmount();
+  });
+
+  it("floats over the canvas where the docked editor has no top bar", async () => {
+    const { host, unmount } = await mount(
+      <>
+        {renderRightRail(
+          railArgs({
+            widgetEmbed: false,
+            rightSidebarVisible: false,
+            minimalUi: false,
+            interactFloatingBar: interactBar,
+          }),
+        )}
+      </>,
+    );
+    expect(
+      host.querySelector(
+        '[data-design-interact-floating] [data-slot="interact-bar"]',
+      ),
+    ).not.toBeNull();
+    expect(host.querySelector("[data-design-minimal-ui]")).toBeNull();
     await unmount();
   });
 });

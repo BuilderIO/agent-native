@@ -3,27 +3,32 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => {
   const programsByAppOwnerName = new Map<string, any>();
   const programsById = new Map<string, any>();
-  const dashboards = new Map<string, any>();
+  const settings = new Map<string, Record<string, unknown>>();
   let programSeq = 0;
 
-  const keyFor = (
-    email: string,
-    orgId: string | null | undefined,
-    dashboardId: string,
-  ) => `${email}:${orgId ?? ""}:${dashboardId}`;
+  const mutate =
+    (scope: string) =>
+    async (
+      id: string,
+      key: string,
+      update: (current: Record<string, unknown> | null) => any,
+    ) => {
+      const next = await update(settings.get(`${scope}:${id}:${key}`) ?? null);
+      settings.set(`${scope}:${id}:${key}`, next);
+      return next;
+    };
   const programKey = (appId: string, ownerEmail: string, name: string) =>
     `${appId}:${ownerEmail}:${name}`;
 
   return {
     programsByAppOwnerName,
     programsById,
-    dashboards,
-    keyFor,
+    settings,
     programKey,
     reset() {
       programsByAppOwnerName.clear();
       programsById.clear();
-      dashboards.clear();
+      settings.clear();
       programSeq = 0;
     },
     upsertDataProgram: vi.fn(async (input: any) => {
@@ -68,32 +73,16 @@ const mocks = vi.hoisted(() => {
       programsById.set(id, row);
       return row;
     }),
-    getDashboard: vi.fn(
-      async (
-        dashboardId: string,
-        ctx: { email: string; orgId: string | null },
-      ) => dashboards.get(keyFor(ctx.email, ctx.orgId, dashboardId)) ?? null,
+    getUserSetting: vi.fn(
+      async (email: string, key: string) =>
+        settings.get(`u:${email}:${key}`) ?? null,
     ),
-    upsertDashboard: vi.fn(
-      async (
-        dashboardId: string,
-        kind: string,
-        config: Record<string, unknown>,
-        ctx: { email: string; orgId: string | null },
-      ) => {
-        const row = {
-          id: dashboardId,
-          kind,
-          title: String((config as any).name ?? dashboardId),
-          config,
-          archivedAt: null,
-          orgId: ctx.orgId,
-          ownerEmail: ctx.email,
-        };
-        dashboards.set(keyFor(ctx.email, ctx.orgId, dashboardId), row);
-        return row;
-      },
+    getOrgSetting: vi.fn(
+      async (orgId: string, key: string) =>
+        settings.get(`o:${orgId}:${key}`) ?? null,
     ),
+    mutateUserSetting: vi.fn(mutate("u")),
+    mutateOrgSetting: vi.fn(mutate("o")),
   };
 });
 
@@ -125,13 +114,22 @@ vi.mock("@agent-native/core/data-programs", () => ({
   upsertDataProgram: mocks.upsertDataProgram,
 }));
 
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: mocks.getUserSetting,
+  getOrgSetting: mocks.getOrgSetting,
+  mutateUserSetting: mocks.mutateUserSetting,
+  mutateOrgSetting: mocks.mutateOrgSetting,
+  putUserSetting: vi.fn(),
+}));
+
 vi.mock("../server/lib/dashboards-store", () => ({
-  getDashboard: mocks.getDashboard,
-  upsertDashboard: mocks.upsertDashboard,
+  getDashboard: vi.fn(async () => null),
 }));
 
 const { ensureRiskMeetingDashboard } =
   await import("./ensure-risk-meeting-dashboard");
+const { loadBuiltinDashboard } =
+  await import("../server/lib/builtin-dashboards");
 
 const CTX = { email: "alice@example.com", orgId: null as string | null };
 
@@ -139,14 +137,12 @@ describe("ensureRiskMeetingDashboard", () => {
   beforeEach(() => {
     mocks.reset();
     mocks.upsertDataProgram.mockClear();
-    mocks.getDashboard.mockClear();
-    mocks.upsertDashboard.mockClear();
   });
 
-  it("creates both data programs and a two-panel Risk Meeting dashboard on first run", async () => {
+  it("creates both data programs and installs the two-panel built-in on first run", async () => {
     const result = await ensureRiskMeetingDashboard(CTX);
 
-    expect(result.dashboardId).toBe("risk-meeting");
+    expect(result.dashboardId).toBe("builtin-risk-meeting");
     expect(result.created).toBe(true);
     expect(Object.keys(result.programIds).sort()).toEqual(
       ["risk-meeting-cohort", "risk-meeting-pylon-early-warning"].sort(),
@@ -174,15 +170,11 @@ describe("ensureRiskMeetingDashboard", () => {
       expect(input.code).toMatch(/emit\(/);
     }
 
-    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
-    const [dashboardId, kind, config] = mocks.upsertDashboard.mock.calls[0] as [
-      string,
-      string,
-      { panels: { source: string; chartType: string; sql: string }[] },
-      { email: string; orgId: string | null },
-    ];
-    expect(dashboardId).toBe("risk-meeting");
-    expect(kind).toBe("sql");
+    const builtin = await loadBuiltinDashboard("builtin-risk-meeting", CTX);
+    const config = builtin!.config as {
+      panels: { source: string; chartType: string; sql: string }[];
+    };
+    expect(builtin!.title).toBe("Risk Meeting");
     expect(config.panels).toHaveLength(2);
     for (const panel of config.panels) {
       expect(panel.source).toBe("program");
@@ -203,10 +195,9 @@ describe("ensureRiskMeetingDashboard", () => {
     );
   });
 
-  it("is idempotent: a second call updates the same programs and dashboard instead of duplicating them", async () => {
+  it("is idempotent: a second call updates the same programs and install instead of duplicating them", async () => {
     const first = await ensureRiskMeetingDashboard(CTX);
     mocks.upsertDataProgram.mockClear();
-    mocks.upsertDashboard.mockClear();
 
     const second = await ensureRiskMeetingDashboard(CTX);
 
@@ -215,12 +206,11 @@ describe("ensureRiskMeetingDashboard", () => {
     expect(second.programIds).toEqual(first.programIds);
 
     expect(mocks.upsertDataProgram).toHaveBeenCalledTimes(2);
-    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
-    expect(mocks.dashboards.size).toBe(1);
+    expect(mocks.settings.size).toBe(1);
     expect(mocks.programsByAppOwnerName.size).toBe(2);
   });
 
-  it("scopes programs and the dashboard to the caller's ownership (not a shared/global owner)", async () => {
+  it("installs for the caller personally, since it runs programs they own", async () => {
     const bobCtx = { email: "bob@example.com", orgId: "org_42" };
     await ensureRiskMeetingDashboard(CTX);
     await ensureRiskMeetingDashboard(bobCtx);
@@ -232,7 +222,16 @@ describe("ensureRiskMeetingDashboard", () => {
         expect(input.orgId).toBe("org_42");
       }
     }
-    expect(mocks.dashboards.size).toBe(2);
+    expect([...mocks.settings.keys()].sort()).toEqual([
+      "u:alice@example.com:analytics-builtin-dashboards",
+      "u:bob@example.com:analytics-builtin-dashboards",
+    ]);
+    expect(
+      await loadBuiltinDashboard("builtin-risk-meeting", {
+        email: "carol@example.com",
+        orgId: "org_42",
+      }),
+    ).toBeNull();
   });
 
   it("throws when there is no authenticated user", async () => {
@@ -240,6 +239,6 @@ describe("ensureRiskMeetingDashboard", () => {
       ensureRiskMeetingDashboard({ email: "", orgId: null }),
     ).rejects.toThrow(/no authenticated user/i);
     expect(mocks.upsertDataProgram).not.toHaveBeenCalled();
-    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    expect(mocks.settings.size).toBe(0);
   });
 });

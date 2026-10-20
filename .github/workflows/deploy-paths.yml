@@ -1,0 +1,124 @@
+name: Deploy paths
+
+# Proves each documented standalone deploy path that needs no cloud account
+# (the Node.js and Docker guides) end to end: scaffold, install, migrate a real
+# Postgres, build, run, sign up, call the `hello` action, and confirm the
+# account lives in Postgres and survives a restart. The `presets` target also
+# builds the Netlify and Vercel output and checks the files each host's deploy
+# command looks for. scripts/qa-deploy-paths.ts is the check; this file only
+# gives it a runner and a Postgres service.
+#
+# Deploying to a real host needs credentials and lives in deploy-hosts.yml.
+#
+# `source: local` installs the packages from this checkout, so a break fails
+# before anything is published. `source: npm` runs the guides' own
+# `npx @agent-native/core@<tag> create`, so it proves what readers get from npm.
+#
+# The job needs no credentials: Postgres is a service container, and the check
+# creates one throwaway database in it and drops it on every exit.
+
+on:
+  workflow_call:
+    inputs:
+      source:
+        description: "local installs this checkout's packages; npm follows the guides' own npx create"
+        type: string
+        required: false
+        default: local
+      npm_tag:
+        description: "npm dist-tag the npm source installs"
+        type: string
+        required: false
+        default: latest
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "local installs this checkout's packages; npm follows the guides' own npx create"
+        type: choice
+        options:
+          - local
+          - npm
+        default: local
+      npm_tag:
+        description: "npm dist-tag the npm source installs"
+        type: string
+        required: false
+        default: latest
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy-path:
+    name: ${{ matrix.target }} (${{ inputs.source == 'npm' && format('npm@{0}', inputs.npm_tag) || 'local' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [node, docker, presets]
+    services:
+      postgres:
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Check the inputs
+        id: inputs
+        env:
+          input_source: ${{ inputs.source }}
+          input_npm_tag: ${{ inputs.npm_tag }}
+        run: |
+          set -euo pipefail
+          case "$input_source" in
+            local | npm) ;;
+            *)
+              echo "::error::source must be local or npm (got '$input_source')"
+              exit 1
+              ;;
+          esac
+          if ! [[ "$input_npm_tag" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::npm_tag must be a plain dist-tag (got '$input_npm_tag')"
+            exit 1
+          fi
+          echo "source=$input_source" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=$input_npm_tag" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/free-disk
+
+      # The local source packs this checkout's packages, so it needs their
+      # built output. The npm source needs only the check's own tooling.
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: ${{ steps.inputs.outputs.source == 'local' && 'full' || 'no-scripts' }}
+          restore-dist-cache: ${{ steps.inputs.outputs.source == 'local' && 'true' || 'false' }}
+
+      - name: Prove the ${{ matrix.target }} path
+        run: >-
+          pnpm qa:deploy-paths
+          --target ${{ matrix.target }}
+          --source ${{ steps.inputs.outputs.source }}
+          --npm-tag ${{ steps.inputs.outputs.npm_tag }}
+          --admin-database-url postgres://postgres@127.0.0.1:5432/postgres
+
+      - name: Upload the step timings and result
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-paths-${{ matrix.target }}-${{ steps.inputs.outputs.source }}-${{ steps.inputs.outputs.npm_tag }}-${{ github.run_attempt }}
+          path: .tmp/deploy-paths/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -2,6 +2,7 @@ import {
   removeAgentChatContextItem,
   setAgentChatContextItem,
 } from "@agent-native/core/client/agent-chat";
+import { stripInlineBytes } from "@agent-native/core/shared";
 import type { CodeLayerNode } from "@shared/code-layer";
 import type { RefObject } from "react";
 
@@ -50,14 +51,17 @@ export function runMirrorSelectionToAgentChat({
 
   const selectionId = `${activeFile?.id ?? ""}::${selectedElement.sourceId ?? selectedElement.selector}`;
   const selectedNodeSpan = selectedCodeLayerNode?.source;
-  const outerHtmlExcerpt = selectedNodeSpan
-    ? nodeRepromptSubtreeExcerpt(
-        activeProjectionContent.slice(
-          selectedNodeSpan.start,
-          selectedNodeSpan.end,
-        ),
-      )
-    : "";
+  const outerHtmlExcerpt = stripInlineBytes(
+    selectedNodeSpan
+      ? nodeRepromptSubtreeExcerpt(
+          activeProjectionContent.slice(
+            selectedNodeSpan.start,
+            selectedNodeSpan.end,
+          ),
+        )
+      : "",
+    "placeholder",
+  );
 
   if (selectionId !== mirroredSelectionIdRef.current) {
     sentSelectionIdRef.current = null;
@@ -112,12 +116,17 @@ export function runMirrorSelectionToAgentChat({
       : "",
   ].filter(Boolean);
 
-  setAgentChatContextItem({
-    key,
-    title: shortLabel,
-    context: contextLines.join("\n"),
-    openSidebar: false,
-    focus: false,
-  });
+  setAgentChatContextItem(
+    stripInlineBytes(
+      {
+        key,
+        title: shortLabel,
+        context: contextLines.join("\n"),
+        openSidebar: false,
+        focus: false,
+      },
+      "placeholder",
+    ),
+  );
   composerContextHasOurKeyRef.current = true;
 }

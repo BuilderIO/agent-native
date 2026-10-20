@@ -5,6 +5,7 @@ const mockTransaction = vi.fn(
   async (fn: (tx: { execute: typeof mockExecute }) => unknown) =>
     fn({ execute: mockExecute }),
 );
+const mockVerifyA2AToken = vi.hoisted(() => vi.fn());
 const mockGetOrgContext = vi.fn();
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockAddFederatedOrganizationMember = vi.hoisted(() => vi.fn());
@@ -43,10 +44,20 @@ vi.mock("../icon-assets/workspace-transport.js", () => ({
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  getRequestHeader: (event: any, key: string) =>
+    event._headers?.[key.toLowerCase()],
   getRouterParam: (event: any, key: string) => event._params?.[key],
   getRequestURL: (event: any) => new URL(event._url),
   createError: ({ statusCode, message }: any) =>
     Object.assign(new Error(message), { statusCode }),
+}));
+
+vi.mock("jose", () => ({
+  decodeJwt: () => ({ org_domain: "example.test" }),
+}));
+
+vi.mock("../a2a/server.js", () => ({
+  verifyA2AToken: (...args: unknown[]) => mockVerifyA2AToken(...args),
 }));
 
 vi.mock("../db/client.js", () => ({
@@ -136,6 +147,7 @@ vi.mock("./track-invite-accepted.js", () => ({
   },
 }));
 
+import { markVerifiedMcpCredentialForEvent } from "../server/request-context.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { createOrganization } from "./context.js";
 import {
@@ -150,6 +162,7 @@ import {
   updateOrgHandler,
   setOrgVisualIdentityHandler,
   setDomainHandler,
+  receiveA2ASecretHandler,
   setWorkspaceAppDefaultVisibilityHandler,
   createOrgHandler,
   switchOrgHandler,
@@ -632,6 +645,54 @@ describe("org handlers", () => {
     expect(inserts).toHaveLength(1);
     expect(inserts[0][0].args[5]).toBe("member");
   });
+
+  it.each([
+    ["from the UI as the person over http", undefined, { caller: "http" }],
+    [
+      "under a verified MCP credential as the agent with its OAuth client",
+      "example-oauth-client",
+      {
+        caller: "mcp",
+        mcpClient: { oauthClientId: "example-oauth-client" },
+      },
+    ],
+  ])(
+    "records each sent invitation in the organization audit log %s",
+    async (_label, oauthClientId, source) => {
+      mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+      const event = makeEvent("/_agent-native/org/invitations", {
+        invites: [
+          { email: "First@example.test", role: "member" },
+          { email: "second@example.test", role: "admin" },
+        ],
+      });
+      if (oauthClientId) {
+        markVerifiedMcpCredentialForEvent(event, {
+          userEmail: "owner@example.test",
+          oauthClientId,
+        });
+      }
+
+      await createInvitationHandler(event);
+
+      expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledTimes(2);
+      expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledWith({
+        action: "invite-organization-member",
+        targetType: "org-invitation",
+        targetId: "first@example.test",
+        summary: "Invited first@example.test as member",
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        args: { email: "first@example.test", role: "member" },
+        attribution: expect.objectContaining({
+          mcpClient: undefined,
+          ...source,
+          mcpClientAccepted: undefined,
+          approvedToolCallKey: undefined,
+        }),
+      });
+    },
+  );
 
   it("lets the owner invite an admin", async () => {
     mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
@@ -1282,6 +1343,29 @@ describe("org handlers", () => {
           args: ["example.test", "org-1"],
         }),
       );
+      expect(mockExecute.mock.calls[0][0]).toEqual({
+        sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+        args: ["agent-native:org-domain:example.test"],
+      });
+      expect(mockTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects a domain already assigned to another organization inside the lock", async () => {
+      mockExecute
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [{ id: "org-2" }], rowsAffected: 0 });
+
+      await expect(
+        setDomainHandler(
+          makeEvent("/_agent-native/org/domain", { domain: "example.test" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 409 });
+
+      expect(mockExecute).toHaveBeenCalledTimes(2);
+      expect(mockExecute.mock.calls[0][0].sql).toContain(
+        "pg_advisory_xact_lock",
+      );
+      expect(mockTransaction).toHaveBeenCalledTimes(1);
     });
 
     it("rejects a member", async () => {
@@ -1298,6 +1382,29 @@ describe("org handlers", () => {
         ),
       ).rejects.toMatchObject({ statusCode: 403 });
       expect(mockExecute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("receiveA2ASecretHandler", () => {
+    it("rejects ambiguous organization domains before verifying or updating a secret", async () => {
+      mockExecute.mockResolvedValueOnce({
+        rows: [{ id: "org-1" }, { id: "org-2" }],
+        rowsAffected: 0,
+      });
+      const event = {
+        _url: "https://app.example.test/_agent-native/org/a2a-secret/receive",
+        _headers: { authorization: "Bearer token" },
+        _body: { secret: "new-secret", orgDomain: "example.test" },
+      } as any;
+
+      await expect(receiveA2ASecretHandler(event)).rejects.toMatchObject({
+        statusCode: 409,
+        message: "Multiple local organizations match that domain",
+      });
+
+      expect(mockExecute.mock.calls[0][0].sql).toContain("LIMIT 2");
+      expect(mockVerifyA2AToken).not.toHaveBeenCalled();
+      expect(mockExecute).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1375,6 +1482,12 @@ describe("org handlers", () => {
           previousRole: "member",
           role: "admin",
         },
+        attribution: expect.objectContaining({
+          caller: "http",
+          mcpClient: undefined,
+          mcpClientAccepted: undefined,
+          approvedToolCallKey: undefined,
+        }),
       });
     });
 

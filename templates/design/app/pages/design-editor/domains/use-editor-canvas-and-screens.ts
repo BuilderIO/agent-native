@@ -65,7 +65,7 @@ import {
   getFreshActiveFileContent,
   getFreshScreenContent,
 } from "../editor-state";
-import { MAX_DESIGN_UNDO_STACK } from "../history";
+import { insertAtFileOrderIndex, MAX_DESIGN_UNDO_STACK } from "../history";
 import {
   autoHeightScreenIds,
   getAllScreenFrameEntries,
@@ -165,6 +165,9 @@ export function useEditorCanvasAndScreens({
     duplicateRecoveryRef,
     historyOrderRef,
     redoOrderRef,
+    selectionUndoStackRef,
+    selectionPushedAtRef,
+    dragStartSelectionRef,
     clearRedoStacks,
     historySourceReaderRef,
     syncUndoRedoState,
@@ -335,19 +338,27 @@ export function useEditorCanvasAndScreens({
       filename: string;
       fileType: DesignFile["fileType"];
       content: string;
+      createdAt?: string | null;
+      fileOrderIndex?: number;
       result?: Record<string, unknown> | null;
     }) => {
       if (!id) return;
       const now = new Date().toISOString();
+      const createdAt =
+        args.createdAt === undefined ? args.result?.createdAt : args.createdAt;
+      if (
+        createdAt !== undefined &&
+        createdAt !== null &&
+        typeof createdAt !== "string"
+      ) {
+        throw new Error("Invalid file creation timestamp");
+      }
       const optimisticFile: DesignFile = {
         id: args.fileId,
         filename: args.filename,
         fileType: args.fileType,
         content: annotateScreenHtmlForPersist(args.content, args.fileType),
-        createdAt:
-          typeof args.result?.createdAt === "string"
-            ? args.result.createdAt
-            : now,
+        createdAt: createdAt === undefined ? now : createdAt,
         updatedAt:
           typeof args.result?.updatedAt === "string"
             ? args.result.updatedAt
@@ -359,7 +370,11 @@ export function useEditorCanvasAndScreens({
         ? historyFilesRef.current.map((file) =>
             file.id === args.fileId ? optimisticFile : file,
           )
-        : [...historyFilesRef.current, optimisticFile];
+        : insertAtFileOrderIndex(
+            historyFilesRef.current,
+            optimisticFile,
+            args.fileOrderIndex,
+          );
       void queryClient.cancelQueries({
         queryKey: ["action", "get-design", { id }],
         exact: true,
@@ -374,7 +389,11 @@ export function useEditorCanvasAndScreens({
             ? old.files.map((file: DesignFile) =>
                 file.id === args.fileId ? optimisticFile : file,
               )
-            : [...old.files, optimisticFile],
+            : insertAtFileOrderIndex(
+                old.files,
+                optimisticFile,
+                args.fileOrderIndex,
+              ),
         };
       });
     },
@@ -419,13 +438,12 @@ export function useEditorCanvasAndScreens({
           };
         });
       }
-      if (!options?.preserveCamera) {
-        cameraCommandNonceRef.current += 1;
-        setCameraCommand({
-          ...plan.camera,
-          nonce: cameraCommandNonceRef.current,
-        });
-      }
+      cameraCommandNonceRef.current += 1;
+      setCameraCommand({
+        ...plan.camera,
+        ...(options?.preserveCamera ? { revealOnly: true } : {}),
+        nonce: cameraCommandNonceRef.current,
+      });
     },
     [clearPendingOverviewLayerSelectionTimer, overviewScreens.length],
   );
@@ -610,6 +628,8 @@ export function useEditorCanvasAndScreens({
       requestSource: TAB_ID,
       user: currentUser,
     });
+  const currentYDocRef = useRef(ydoc);
+  currentYDocRef.current = ydoc;
 
   const overviewPresenceFileId =
     viewMode === "overview"
@@ -664,7 +684,11 @@ export function useEditorCanvasAndScreens({
       )
         continue;
       const pending = pendingLocalFileContentsRef.current.get(file.id);
-      if (pending && pending.identityMigrationSourceContent === undefined)
+      if (
+        pending &&
+        pending.identityMigrationSourceContent === undefined &&
+        !pending.deferCollabReconcile
+      )
         continue;
       if (
         pending?.identityMigrationSourceContent !== undefined &&
@@ -826,6 +850,16 @@ export function useEditorCanvasAndScreens({
           return next;
         });
         return;
+      }
+      if (state.active && !activeEditorDragRef.current) {
+        // The pointerdown that starts a drag selects just before the drag reports.
+        dragStartSelectionRef.current =
+          historyOrderRef.current[historyOrderRef.current.length - 1] ===
+            "selection" && Date.now() - selectionPushedAtRef.current < 1500
+            ? (selectionUndoStackRef.current[
+                selectionUndoStackRef.current.length - 1
+              ] ?? null)
+            : null;
       }
       activeEditorDragRef.current = state.active;
       activeEditorDragScreenIdRef.current = state.active
@@ -1051,9 +1085,12 @@ export function useEditorCanvasAndScreens({
 
   const activeCollabFileReady =
     viewMode === "single" && activeFileId === prevActiveFileIdRef.current;
-  const pendingActiveFileContent = activeFile?.id
-    ? pendingLocalFileContentsSnapshot.get(activeFile.id)?.content
+  const pendingActiveFile = activeFile?.id
+    ? pendingLocalFileContentsSnapshot.get(activeFile.id)
     : undefined;
+  const pendingActiveFileContent = pendingActiveFile?.deferCollabReconcile
+    ? undefined
+    : pendingActiveFile?.content;
   const activeContentSource =
     pendingActiveFileContent ??
     (activeCollabFileReady &&
@@ -1092,17 +1129,29 @@ export function useEditorCanvasAndScreens({
           freshActiveContent: getFreshActiveFileContent({
             activeContent,
             pendingContent: activeFile?.id
-              ? (latestFileSaveForUnloadRef.current[activeFile.id]?.content ??
-                pendingLocalFileContentsRef.current.get(activeFile.id)?.content)
+              ? (() => {
+                  const latest =
+                    latestFileSaveForUnloadRef.current[activeFile.id];
+                  const local = pendingLocalFileContentsRef.current.get(
+                    activeFile.id,
+                  );
+                  return latest?.deferCollabReconcile ||
+                    local?.deferCollabReconcile
+                    ? null
+                    : (latest?.content ?? local?.content ?? null);
+                })()
               : null,
             latestContent: latestActiveContentRef.current,
             lastLocalContent: lastLocalContentRef.current,
           }),
           fileContentById,
-          pendingContent:
-            latestFileSaveForUnloadRef.current[screenId]?.content ??
-            pendingLocalFileContentsRef.current.get(screenId)?.content ??
-            null,
+          pendingContent: (() => {
+            const latest = latestFileSaveForUnloadRef.current[screenId];
+            const local = pendingLocalFileContentsRef.current.get(screenId);
+            return latest?.deferCollabReconcile || local?.deferCollabReconcile
+              ? null
+              : (latest?.content ?? local?.content ?? null);
+          })(),
         }),
         {
           fileId: screenId,
@@ -1577,6 +1626,7 @@ export function useEditorCanvasAndScreens({
     handleCreateScreenFrame,
     handleCreateScreenFromPreset,
     ydoc,
+    currentYDocRef,
     awareness,
     isSynced,
     activeUsers,

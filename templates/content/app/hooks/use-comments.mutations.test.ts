@@ -688,7 +688,7 @@ describe("optimistic comment mutations", () => {
 
   it("preserves mentions when an edit omits metadata and clears them explicitly", async () => {
     const original = comment({
-      mentions: [{ email: "sam@example.com", name: "Sam" }],
+      mentions: [{ kind: "person", email: "sam@example.com", name: "Sam" }],
     });
     const client = queryClient([original]);
     useQueryClient.mockReturnValue(client);

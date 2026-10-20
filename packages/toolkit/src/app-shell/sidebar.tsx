@@ -652,30 +652,38 @@ export const AppSidebarFooter = forwardRef<
       );
 
     return (
-      <div
-        ref={ref}
-        data-sidebar-footer
-        className={cn(
-          "shrink-0 border-t border-border p-2",
-          collapsed ? "space-y-1" : "space-y-1.5",
-          className,
-        )}
-        {...props}
-      >
-        {resolvedFeedback}
+      <>
+        {resolvedFeedback ? (
+          <div
+            data-sidebar-footer-feedback-row
+            className={cn(
+              "shrink-0 px-2 pb-1",
+              collapsed && "flex justify-center",
+            )}
+          >
+            {resolvedFeedback}
+          </div>
+        ) : null}
         <div
-          data-sidebar-footer-utilities
-          className={cn(
-            collapsed
-              ? "flex flex-col items-center gap-1"
-              : "flex items-center gap-0.5",
-          )}
+          ref={ref}
+          data-sidebar-footer
+          className={cn("shrink-0 border-t border-border p-2", className)}
+          {...props}
         >
-          {orgSwitcher}
-          {footerExtras}
-          {collapseButton}
+          <div
+            data-sidebar-footer-utilities
+            className={cn(
+              collapsed
+                ? "flex flex-col items-center gap-1"
+                : "flex items-center gap-0.5",
+            )}
+          >
+            {orgSwitcher}
+            {footerExtras}
+            {collapseButton}
+          </div>
         </div>
-      </div>
+      </>
     );
   },
 );

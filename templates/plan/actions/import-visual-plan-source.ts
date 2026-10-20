@@ -36,6 +36,35 @@ import {
   planStatusSchema,
   writeEvent,
 } from "../server/plans.js";
+import { type PlanContent } from "../shared/plan-content.js";
+import type { PlanKind } from "../shared/types.js";
+
+const salvagedBlockPrefix = "\u200b__unknown_block__:";
+
+function containsSalvagedBlock(
+  blocks: PlanContent["blocks"] | undefined,
+): boolean {
+  return (
+    blocks?.some((block) => {
+      if (
+        block.type === "callout" &&
+        block.data.tone === "warning" &&
+        block.data.body.startsWith(salvagedBlockPrefix)
+      ) {
+        return true;
+      }
+      if (block.type === "tabs") {
+        return block.data.tabs.some((tab) => containsSalvagedBlock(tab.blocks));
+      }
+      if (block.type === "columns") {
+        return block.data.columns.some((column) =>
+          containsSalvagedBlock(column.blocks),
+        );
+      }
+      return false;
+    }) ?? false
+  );
+}
 
 export default defineAction({
   description:
@@ -95,12 +124,24 @@ export default defineAction({
     }),
   },
   run: async (args) => {
+    let previousContent: PlanContent | null | undefined;
+    let previousKind: PlanKind | undefined;
+    if (args.planId) {
+      await assertPlanEditor(args.planId);
+      const existing = await loadPlanBundle(args.planId);
+      previousContent = existing.plan.content;
+      previousKind = existing.plan.kind;
+    }
+    const effectiveKind = args.kind ?? previousKind ?? "plan";
+
     let content: Awaited<ReturnType<typeof parsePlanMdxFolder>>;
     try {
       content = await parsePlanMdxFolder(args.mdx, {
-        salvageInvalidBlocks: args.kind === "recap",
+        allowStoredLegacyDefaults: previousContent != null,
+        salvageInvalidBlocks: effectiveKind === "recap",
+        validateAuthoringChangesAgainst: previousContent ?? null,
       });
-      if (args.kind === "recap") {
+      if (effectiveKind === "recap") {
         assertRecapWireframesHaveContent(content);
       }
     } catch (err) {
@@ -115,8 +156,6 @@ export default defineAction({
     const db = getDb();
 
     if (args.planId) {
-      await assertPlanEditor(args.planId);
-
       const incomingAssets = args.mdx["assets/"];
       if (incomingAssets && Object.keys(incomingAssets).length > 0) {
         const srcByFilename = await importPlanAssets(
@@ -177,15 +216,17 @@ export default defineAction({
       });
 
       const bundle = await loadPlanBundle(args.planId);
-      const local = isLocalPlanRuntime()
-        ? await writePlanLocalFiles({
-            planId: bundle.plan.id,
-            title: bundle.plan.title,
-            brief: bundle.plan.brief,
-            content: bundle.plan.content,
-            url: planPath(bundle.plan.id, bundle.plan.kind),
-          })
-        : null;
+      const local =
+        isLocalPlanRuntime() &&
+        !containsSalvagedBlock(bundle.plan.content?.blocks)
+          ? await writePlanLocalFiles({
+              planId: bundle.plan.id,
+              title: bundle.plan.title,
+              brief: bundle.plan.brief,
+              content: bundle.plan.content,
+              url: planPath(bundle.plan.id, bundle.plan.kind),
+            })
+          : null;
       return {
         ...bundle,
         planId: bundle.plan.id,
@@ -258,15 +299,17 @@ export default defineAction({
       blockCount: bundle.plan.content?.blocks.length ?? 0,
       ownerEmail: bundle.access.ownerEmail,
     });
-    const local = isLocalPlanRuntime()
-      ? await writePlanLocalFiles({
-          planId: bundle.plan.id,
-          title: bundle.plan.title,
-          brief: bundle.plan.brief,
-          content: bundle.plan.content,
-          url: planPath(bundle.plan.id, bundle.plan.kind),
-        })
-      : null;
+    const local =
+      isLocalPlanRuntime() &&
+      !containsSalvagedBlock(bundle.plan.content?.blocks)
+        ? await writePlanLocalFiles({
+            planId: bundle.plan.id,
+            title: bundle.plan.title,
+            brief: bundle.plan.brief,
+            content: bundle.plan.content,
+            url: planPath(bundle.plan.id, bundle.plan.kind),
+          })
+        : null;
     return {
       ...bundle,
       planId: id,

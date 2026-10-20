@@ -222,15 +222,6 @@ for (const target of targets) {
       );
     });
 
-    if (target.app === "chat") {
-      await test.step("wait for Chat to finish its first-run thread handoff", async () => {
-        await verificationPage.waitForURL(
-          (url) => /^\/chat\/[^/]+\/?$/.test(url.pathname),
-          { waitUntil: "domcontentloaded" },
-        );
-      });
-    }
-
     if (target.app === "design" && target.environment === "beta") {
       await test.step("capture fresh-user first-run readiness", async () => {
         await expect(
@@ -261,6 +252,14 @@ for (const target of targets) {
           type: "design-first-run-ready-ms",
           description: String(elapsedMs),
         });
+      });
+    }
+
+    if (target.app === "chat" && target.environment === "beta") {
+      await test.step("confirm Chat's Get started landing", async () => {
+        await expect
+          .poll(() => new URL(verificationPage.url()).pathname)
+          .toBe("/home");
       });
     }
 

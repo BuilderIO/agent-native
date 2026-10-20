@@ -24,6 +24,7 @@ import { designTemplateRetryKey } from "../shared/design-template-retry.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
+import { trackDesignCreated } from "./_design-tracking.js";
 import getDesignSystem from "./get-design-system.js";
 
 type DesignTransaction = Parameters<
@@ -196,15 +197,18 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
-  run: async ({
-    templateId,
-    title,
-    prompt,
-    designSystemId,
-    targetDesignId,
-    newId,
-    retryKey,
-  }) => {
+  run: async (
+    {
+      templateId,
+      title,
+      prompt,
+      designSystemId,
+      targetDesignId,
+      newId,
+      retryKey,
+    },
+    ctx,
+  ) => {
     const preset = getDesignTemplatePreset(templateId);
     const db = getDb();
 
@@ -446,6 +450,16 @@ export default defineAction({
         if (existing) return existing;
         return templateCopyConflict();
       }
+      trackDesignCreated(
+        designId,
+        {
+          creationMethod: "template",
+          projectType: "prototype",
+          designSystemId: linkedDesignSystemId,
+          templateId,
+        },
+        ctx,
+      );
     }
 
     return {

@@ -77,6 +77,8 @@ export interface AgentChatMessage {
    * {@link AGENT_CHAT_SUBMIT_RESULT_EVENT}. Auto-generated if omitted.
    */
   submitMessageId?: string;
+  /** Drop a queued submit instead of handing it to chat after this time. */
+  submissionExpiresAt?: number;
   usageLabel?: string;
   approvedToolCalls?: string[];
 }
@@ -162,7 +164,7 @@ export interface AgentChatContextRemoveOptions extends AgentChatContextMutationO
 }
 
 const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
-const AGENT_CHAT_CONTEXT_STATE_KEY = "agent-chat-context";
+export const AGENT_CHAT_CONTEXT_STATE_KEY = "agent-chat-context";
 const AGENT_CHAT_EXEC_MODE_KEY = "agent-native-exec-mode";
 export const AGENT_CHAT_CONTEXT_CHANGED_EVENT =
   "agentNative.chatContextChanged";
@@ -1044,6 +1046,7 @@ export interface ParsedSubmitChat {
   attachments?: AgentChatAttachment[];
   requestMode?: AgentChatRequestMode;
   submitMessageId?: string;
+  submissionExpiresAt?: number;
   usageLabel?: string;
   approvedToolCalls?: string[];
 }
@@ -1142,10 +1145,21 @@ export function parseSubmitChatMessage(
     raw,
     "actionScope",
   );
+  const hasSubmissionExpiresAt = Object.prototype.hasOwnProperty.call(
+    raw,
+    "submissionExpiresAt",
+  );
   const actionScope = hasActionScope
     ? tryNormalizeAgentActionScope(raw.actionScope)
     : undefined;
   if (hasActionScope && !actionScope) return null;
+  if (
+    hasSubmissionExpiresAt &&
+    (typeof raw.submissionExpiresAt !== "number" ||
+      !Number.isFinite(raw.submissionExpiresAt))
+  ) {
+    return null;
+  }
   return {
     message,
     context: typeof raw.context === "string" ? raw.context : undefined,
@@ -1169,6 +1183,9 @@ export function parseSubmitChatMessage(
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
+    ...(hasSubmissionExpiresAt
+      ? { submissionExpiresAt: raw.submissionExpiresAt as number }
+      : {}),
     usageLabel: nonEmptyString(raw.usageLabel),
     approvedToolCalls: parseSubmitChatApprovedToolCalls(raw.approvedToolCalls),
   };

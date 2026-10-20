@@ -1189,6 +1189,7 @@
   }
 
   .agent-builder-setup-card__key-button {
+    justify-content: center;
     flex: 0 0 auto;
     min-width: 0;
     width: 100%;

@@ -1,8 +1,11 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
-import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
 import takeDesignScreenshot, {
   getScreenshotPngData,
 } from "./take-design-screenshot.js";
@@ -17,13 +20,24 @@ function suggestedPngFilename(filename: string): string {
   return `${base || "screen"}.png`;
 }
 
+const trackPngExportFailures = withDesignExportFailureTracking<{
+  designId?: string;
+  fileId?: string;
+  filename: string;
+  width?: number;
+  height?: number;
+}>("png");
+
 export default defineAction({
   description:
     "Export one Design screen as a PNG image. Pass fileId, or pass designId " +
     "and filename, to choose the screen. Returns a durable image URL; MCP " +
     "callers also receive an inline PNG preview when it fits the image limit. " +
-    "The screen is rendered " +
-    "at 1440px wide by default and full-page height.",
+    "Screens with enabled native WebGPU effects require the foreground " +
+    "request-native-local-export action in an open editor tab; this " +
+    "headless action fails typed for those screens rather than returning " +
+    "pixels without the effect. Other screens render at 1440px wide " +
+    "by default and full-page height.",
   schema: z
     .object({
       designId: z
@@ -66,7 +80,8 @@ export default defineAction({
     }),
   readOnly: false,
   http: { method: "POST" },
-  run: async ({ designId, fileId, filename, width, height }, ctx) => {
+  run: trackPngExportFailures(async (args, ctx, facts) => {
+    const { designId, fileId, filename, width, height } = args;
     const result = await takeDesignScreenshot.run(
       {
         ...(designId ? { designId } : {}),
@@ -78,7 +93,23 @@ export default defineAction({
       ctx,
     );
 
-    if (result.ok !== true) return result;
+    if (result.ok !== true) {
+      // The screenshot only reports an unavailable renderer after it found the
+      // file through the caller's access filter. That lookup goes by fileId
+      // when one is given, so a design id is verified only without one.
+      trackDesignExported(
+        {
+          ...(designId && !fileId ? { designId } : {}),
+          exportFormat: "png",
+          status: "failed",
+          errorType: "chromium_unavailable",
+        },
+        ctx,
+      );
+      return result;
+    }
+    facts.designId = result.designId;
+    facts.fileId = result.fileId;
 
     const screenshot = result.screenshots?.[0];
     if (!screenshot) {
@@ -129,16 +160,8 @@ export default defineAction({
         ? "The PNG exceeds the inline image limit; use its durable URL to view it."
         : undefined;
 
-    track(
-      "design_exported",
-      {
-        app_name: "design",
-        template_name: "design",
-        output_id: result.designId,
-        output_type: "design",
-        export_format: "png",
-        file_id: result.fileId,
-      },
+    trackDesignExported(
+      { ...facts, exportFormat: "png", status: "completed" },
       ctx,
     );
 
@@ -157,5 +180,5 @@ export default defineAction({
       diagnostics: screenshot.diagnostics,
       capturedAt: result.capturedAt,
     };
-  },
+  }),
 });

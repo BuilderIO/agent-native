@@ -28,6 +28,7 @@ type AnalyticsPanelSourceRequest = PanelSourceRequest<DashboardPanelSource> & {
   timeoutMs?: number;
   forceRefresh?: boolean;
   signal?: AbortSignal;
+  maxBytesBilled?: number;
 };
 
 function createResolver(
@@ -40,6 +41,8 @@ function createResolver(
       const forceRefresh = (request as AnalyticsPanelSourceRequest)
         .forceRefresh;
       const signal = (request as AnalyticsPanelSourceRequest).signal;
+      const maxBytesBilled = (request as AnalyticsPanelSourceRequest)
+        .maxBytesBilled;
       return (await runDashboardPanelQuery({
         source: request.source,
         query: request.query,
@@ -47,6 +50,7 @@ function createResolver(
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
         ...(forceRefresh ? { forceRefresh: true } : {}),
         ...(signal ? { signal } : {}),
+        ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
       })) as DashboardPanelQueryResult | AnalyticsPanelSourceFailure;
     },
   };

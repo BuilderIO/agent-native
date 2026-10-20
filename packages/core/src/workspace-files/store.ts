@@ -13,12 +13,13 @@ import {
   type ResourceVisibility,
 } from "../resources/store.js";
 import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  MAX_FILE_BYTES,
+  MAX_SCOPE_BYTES,
+  SAVE_TO_FILE_MAX_BYTES,
+} from "./constants.js";
 
-export const MAX_FILE_BYTES = 2 * 1024 * 1024;
-
-export const MAX_SCOPE_BYTES = 200 * 1024 * 1024;
-
-export const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024;
+export { MAX_FILE_BYTES, MAX_SCOPE_BYTES, SAVE_TO_FILE_MAX_BYTES };
 
 export interface WorkspaceFilesScope {
   scope: "user" | "org";

@@ -1,5 +1,6 @@
 const FIGMA_FILE_KEY_RE = /^[A-Za-z0-9_-]{8,}$/;
 const FILE_PATH_SEGMENTS = ["design", "file", "proto"] as const;
+export const FIGMA_FILE_URL_TOKEN_VALIDATION_CODE = "figma_file_url_as_token";
 
 function isFigmaHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/\.$/, "");
@@ -46,6 +47,12 @@ export function parseFigmaFileKey(input: string | undefined): string | null {
   }
 
   return null;
+}
+
+export function isFigmaFileUrl(input: string | undefined): boolean {
+  return /^(?:https?:\/\/)?(?:www\.)?figma\.com\/(?:design|file|proto)\/[A-Za-z0-9_-]{8,}(?:[/?#]|$)/i.test(
+    input?.trim() ?? "",
+  );
 }
 
 export function isFigmaBranchUrl(input: string | undefined): boolean {

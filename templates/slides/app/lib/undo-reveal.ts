@@ -1,13 +1,33 @@
 import {
   getPersistedChildren,
   getPersistedElementPath,
+  storedOrdinalAtPath,
 } from "./slide-animation-elements";
+import { SOURCE_STAMP_ATTR } from "./slide-source-map";
 
 /** Where the editor finds an object a history step changed. */
 export interface UndoRevealTarget {
   objectId: string | null;
-  /** Persisted child-index path from the `.fmd-slide` root. */
+  /**
+   * Persisted child-index path from the `.fmd-slide` root in the stored HTML,
+   * the same path space as Play and save. See renderedElementForStoredPath.
+   */
   path: number[];
+}
+
+/**
+ * The rendered copy of the stored element at `path`. The canvas drops some
+ * stored elements (svg, for one), so its child indices differ from the stored
+ * HTML. The stamp names the stored ordinal, so the copy is found by that.
+ */
+export function renderedElementForStoredPath(
+  canvas: Element,
+  stored: string,
+  path: readonly number[],
+): Element | null {
+  const ordinal = storedOrdinalAtPath(stored, path);
+  if (ordinal === null) return null;
+  return canvas.querySelector(`[${SOURCE_STAMP_ATTR}$=":${ordinal}"]`);
 }
 
 export type UndoDirection = "undo" | "redo";

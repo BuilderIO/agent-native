@@ -11,6 +11,7 @@ import {
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
 import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { useEagerFileUploads } from "@agent-native/toolkit/composer/use-eager-file-uploads";
@@ -20,7 +21,6 @@ import {
   IconBrain,
   IconPalette,
   IconPlus,
-  IconSparkles,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -177,6 +177,7 @@ interface PromptPopoverProps {
   placeholder?: string;
   onSkip?: () => void | boolean | Promise<void | boolean>;
   skipLabel?: string;
+  showInlineSkip?: boolean;
   offerStartChoice?: boolean;
   onSubmit: (
     prompt: string,
@@ -273,6 +274,7 @@ export default function PromptPopover({
   placeholder,
   onSkip,
   skipLabel,
+  showInlineSkip = false,
   offerStartChoice = false,
   onSubmit,
   onBeforeSubmit,
@@ -693,7 +695,12 @@ export default function PromptPopover({
       attachmentAdapter={attachmentAdapter}
       inlineTextAttachments={false}
       maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
-      disabled={disabled || loading || submitting}
+      disabled={
+        disabled ||
+        loading ||
+        submitting ||
+        (inline && scopeDraftsToOrg && orgPending)
+      }
       submissionDisabled={submissionDisabled}
       submitting={submitting}
       layoutVariant={inline ? "hero" : undefined}
@@ -766,7 +773,7 @@ export default function PromptPopover({
             }}
             className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-transparent bg-[var(--design-editor-accent-color)] px-3 py-3 text-left text-[color:var(--design-editor-accent-contrast-color)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <IconSparkles className="size-5 shrink-0" />
+            <AgentMark className="size-5 shrink-0" />
             <span className="text-sm font-medium">
               {t("promptDialog.startWithAi")}
             </span>
@@ -940,32 +947,40 @@ export default function PromptPopover({
 
       {/* The chooser already offers the blank path as a peer, so the corner
             link would be a second, quieter way to do the same thing. */}
-      {onSkip && skipLabel && !inline && !offerStartChoice && (
-        <div className="flex justify-end border-t border-border px-3.5 py-2">
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            disabled={loading || skipInFlight}
-            onClick={() => {
-              if (loading || skipInFlightRef.current) return;
-              skipInFlightRef.current = true;
-              setSkipInFlight(true);
-              void (async () => {
-                try {
-                  const shouldClose = await onSkip();
-                  if (shouldClose !== false) onOpenChange(false);
-                } catch {
-                  skipInFlightRef.current = false;
-                  setSkipInFlight(false);
-                }
-              })();
-            }}
+      {onSkip &&
+        skipLabel &&
+        (!inline || showInlineSkip) &&
+        !offerStartChoice && (
+          <div
+            className={cn(
+              "flex justify-end px-3.5 py-2",
+              !inline && "border-t border-border",
+            )}
           >
-            {skipLabel}
-          </Button>
-        </div>
-      )}
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              disabled={loading || skipInFlight}
+              onClick={() => {
+                if (loading || skipInFlightRef.current) return;
+                skipInFlightRef.current = true;
+                setSkipInFlight(true);
+                void (async () => {
+                  try {
+                    const shouldClose = await onSkip();
+                    if (shouldClose !== false) onOpenChange(false);
+                  } catch {
+                    skipInFlightRef.current = false;
+                    setSkipInFlight(false);
+                  }
+                })();
+              }}
+            >
+              {skipLabel}
+            </Button>
+          </div>
+        )}
     </>
   );
 

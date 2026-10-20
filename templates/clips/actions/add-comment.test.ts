@@ -82,6 +82,18 @@ describe("add-comment access", () => {
     );
   });
 
+  it("stores the exact frame time it is given", async () => {
+    await addComment.run({
+      recordingId: "recording-1",
+      content: "This frame",
+      videoTimestampMs: 12_542,
+    });
+
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ videoTimestampMs: 12_542 }),
+    );
+  });
+
   it("rejects replies whose parent is outside the recording thread", async () => {
     const recordingLookup = {
       from: vi.fn(() => ({

@@ -242,7 +242,10 @@ Por padrão, todo workspace pode acessar os apps próprios hospedados (Mail, Cal
     "workspaceCore": "@my-company-platform/shared",
     "builtinAgents": {
       "mode": "selected",
-      "include": ["mail", "calendar"]
+      "include": ["mail", "calendar", "design"],
+      "urls": {
+        "design": "https://design.example.test"
+      }
     }
   }
 }
@@ -250,10 +253,11 @@ Por padrão, todo workspace pode acessar os apps próprios hospedados (Mail, Cal
 
 - `mode`: `"all"` (padrão, todos os apps próprios públicos), `"none"` (nenhum) ou `"selected"` (somente `include`).
 - `include`: os apps integrados que este workspace oferece quando `mode` é `"selected"`. Os demais continuam desconhecidos para o workspace.
+- `urls` (opcional): associa URLs base HTTPS aos apps integrados oferecidos sem alterar quais agentes são oferecidos. A associação substitui a URL hospedada canônica, inclusive em um manifesto existente que ainda usa esse padrão, enquanto URLs personalizadas de agentes remotos conectados e sobreposições de apps do workspace mantêm a prioridade. IDs desconhecidos e URLs inválidas fazem a análise falhar. Cada valor deve ser uma URL HTTPS absoluta, sem espaços externos, credenciais, consulta ou fragmento. O roteamento de desenvolvimento local continua prioritário e usa URLs locais.
 
-IDs desconhecidos geram um aviso e são ignorados. Um app independente pode usar a mesma chave no próprio `package.json`. `agent-native dev` e os deploys do workspace repassam o valor a cada app como `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
+IDs desconhecidos em `include` geram um aviso e são ignorados. Um app independente pode usar a mesma chave no próprio `package.json`. `agent-native dev` e os deploys do workspace repassam o valor a cada app como `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
 
-Essa configuração controla a lista de apps, a descoberta de agentes e as chamadas entre agentes. Apps montados no workspace e agentes remotos conectados não são afetados, e o acesso de apps MCP continua sendo uma permissão de roteamento separada.
+Essa configuração controla a lista de apps, a descoberta de agentes e as chamadas entre agentes. Apps montados no workspace e URLs personalizadas de agentes remotos conectados mantêm a prioridade. O acesso de apps MCP continua sendo uma permissão de roteamento separada.
 
 ## Servidores MCP compartilhados {#shared-mcp}
 

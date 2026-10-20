@@ -8,7 +8,7 @@ import {
 
 export default defineAction({
   description:
-    "List the Gong native semantic operations (ask_account, ask_deal, generate_brief) connected in this request scope, with their input schemas. This never calls Gong AI or consumes Gong credits. To send one paid qualitative synthesis request, call run-gong-native-insight with the chosen operation. For transcripts, quotes, counts, source records, or absence/exhaustive claims use gong-calls or the provider corpus evidence path instead.",
+    "List the Gong native semantic operations (ask_account, ask_deal, generate_brief) connected in this request scope, with their input schemas. This never calls Gong AI or consumes Gong credits. Call run-gong-native-insight with the chosen operation to answer a question about an account, deal, or topic. For verbatim quotes, exact counts, or absence/exhaustive claims use gong-calls or the provider corpus evidence path instead.",
   // Paid execution moved to run-gong-native-insight. Reject its arguments here
   // instead of silently returning a listing to an older caller.
   schema: z.strictObject(

@@ -51,6 +51,7 @@ describe("external design authoring catalog", () => {
       "create-design-from-template",
       "edit-design",
       "generate-design",
+      "delete-file",
     ]) {
       expect(agentChatSource).toContain(`\"${name}\"`);
     }
@@ -65,6 +66,7 @@ describe("external design authoring catalog", () => {
       agentChatSource.indexOf("const INITIAL_TOOL_NAMES = ["),
     );
     expect(connectorCatalog).toContain('"get-visual-edit-pending"');
+    expect(connectorCatalog).toContain('"delete-file"');
     expect(agentChatSource).toContain(
       'externalAgents: { writes: "allowlisted" }',
     );

@@ -42,6 +42,7 @@ export const providerApiOverrides: ProviderApiConfig[] = [
   provider("gong"),
   provider("google_calendar"),
   provider("google_drive"),
+  provider("google_sheets"),
   provider("google_slides"),
   provider("granola"),
   provider("grafana"),

@@ -58,3 +58,13 @@ export interface IframeNodeHtmlPreviewAppliedPayload {
   type: "agent-native:node-html-preview-applied";
   proposalId: string;
 }
+
+export interface IframeNodeHtmlPreviewFailedPayload {
+  type: "agent-native:node-html-preview-failed";
+  proposalId: string;
+  reason:
+    | "target-unresolved"
+    | "preview-invalid"
+    | "preview-replacement-failed"
+    | "unknown";
+}

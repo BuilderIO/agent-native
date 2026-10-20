@@ -367,11 +367,19 @@ describe("comment drafts", () => {
     expect(currentPanel!.historyStatus).toBe("all");
   });
 
-  it("restores text, mentions, and the structured AI recipient after reload", () => {
+  it("restores text, mentions including the AI chip, and the structured AI recipient after reload", () => {
+    const recipient = {
+      kind: "agent" as const,
+      model: "openai/gpt-5.6-sol",
+      engine: "openai",
+      provider: "openai",
+      name: "GPT-5.6 Sol",
+    };
     render({});
     act(() => {
       currentDraft!.setText("Persist this AI request");
       currentDraft!.setMentions([
+        recipient,
         { email: "reviewer@example.com", name: "Reviewer" },
       ]);
       currentDraft!.setAiDraft({
@@ -389,7 +397,10 @@ describe("comment drafts", () => {
 
     expect(currentDraft!.draft).toMatchObject({
       text: "Persist this AI request",
-      mentions: [{ email: "reviewer@example.com", name: "Reviewer" }],
+      mentions: [
+        recipient,
+        { email: "reviewer@example.com", name: "Reviewer" },
+      ],
       aiDraft: {
         selection: {
           model: "openai/gpt-5.6-sol",

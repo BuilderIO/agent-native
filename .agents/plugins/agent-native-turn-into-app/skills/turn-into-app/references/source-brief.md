@@ -20,7 +20,7 @@ heading; write `n/a` where a heading does not apply.
 Source and provenance: type (thread, skill, Project, spreadsheet, export), file names, ids, what was read and what was not
 Project goal: the user and the repeatable job, in one sentence
 Configuration and constraints: audience, rules, output standards, approved tools
-Knowledge sources: reference files the app ships with, by name or id
+Knowledge sources: reference files the app ships with, by name
 Repeatable workflow: the job's trigger, steps, and outcome, in the source's own words
 Inputs and outputs: what comes in, what the user gets back, fixed output shapes
 Judgment and review points: 1-3 agent moments, each tied to the object it acts on; what the user confirms
@@ -38,7 +38,7 @@ App design: archetype, direction, first-viewport sketch, sample-data plan
 
 - Name the latest successful, repeatable job. A walkthrough of one example is
   evidence for the job, not the job.
-- Keep references bounded: a file name, URL, resource id, or short summary
+- Keep references bounded: a file name, URL, or short summary
   instead of a pasted document. No secrets, credentials, or customer data.
 - Corrections the user made in the source are product rules. Record each one
   as an invariant.

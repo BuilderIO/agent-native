@@ -17,6 +17,8 @@ export default defineAction({
       .describe("Organization id (defaults to the caller's active org)"),
     email: z.string().email().describe("Member email"),
   }),
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => {
     const db = getDb();
     const { organizationId } = await requireOrganizationAccess(

@@ -3,6 +3,7 @@ import {
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
 
+import { getInteractFrameCornerClass } from "@/components/design/interact-frame-corners";
 import { shouldRenderOverviewReviewCanvas } from "@/components/design/multi-screen/board-surface-html";
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { ReviewCanvasPins } from "@/components/visual-editor";
@@ -28,6 +29,7 @@ import type { EditorScreenRendering } from "../domains/use-editor-screen-renderi
 import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-and-styles";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 import type { EditorToolsAndVectors } from "../domains/use-editor-tools-and-vectors";
+import { findInteractDevicePreset } from "../responsive-interact";
 import { findDesignFileByScreenTarget } from "../screen-command-utils";
 import type { DesignData } from "../types";
 
@@ -143,6 +145,7 @@ export function renderOverviewCanvas({
     setExplicitOverviewCanvasZoom,
     cameraCommand,
     explicitOverviewCanvasZoom,
+    interactDeviceName,
     interactDeviceSize,
     deviceFrame,
     queueFrameGeometrySave,
@@ -178,8 +181,9 @@ export function renderOverviewCanvas({
     handleOverviewActiveToolChange,
     handleOverviewScreenSelectionChange,
     vectorEditOverlayState,
-    handleCreatePrimitive,
-    handlePrimitiveCreated,
+    handleOverviewCreatePrimitive,
+    handleOverviewPrimitiveCreated,
+    handleOverviewPrimitivesCreated,
     handleUpdatePenPath,
     handleBoardDrawPrimitive,
     handleOverviewScreenPick,
@@ -200,7 +204,7 @@ export function renderOverviewCanvas({
     handleCanvasImagePaste,
   } = editorClipboard;
   const {
-    commentsHidden,
+    commentPinsHidden,
     viewSettings: { pixelGrid, snapToPixelGrid, rulers },
     handleCrossScreenElementDrop,
     boardFrameGeometry,
@@ -235,7 +239,6 @@ export function renderOverviewCanvas({
   } = editorLayerModels;
   const { canvasBackground } = editorScreenInspector;
   const {
-    fullViewScreenIds,
     editableLiveScreenIds,
     gradientEditTarget,
     handleBoardElementMarqueeSelect,
@@ -309,7 +312,6 @@ export function renderOverviewCanvas({
         exportPreviewScreenId={exportPreviewScreenId}
         hiddenScreenIds={hiddenLayerIds}
         lockedScreenIds={lockedLayerIds}
-        fullViewScreenIds={fullViewScreenIds}
         pixelGridEnabled={pixelGrid}
         snapToPixelGrid={snapToPixelGrid}
         showRulers={rulers}
@@ -318,7 +320,7 @@ export function renderOverviewCanvas({
           onReviewPendingScreen: handleReviewPendingScreen,
           reviewResourceId: id,
           reviewPinMode: pinMode,
-          reviewCommentsHidden: commentsHidden,
+          reviewCommentsHidden: commentPinsHidden,
           reviewCanPost: canCommentDesign,
           reviewCanResolve: canEditDesign,
           reviewTargetId: null,
@@ -340,6 +342,15 @@ export function renderOverviewCanvas({
             ? interactDeviceSize
             : null
         }
+        focusedInteractCornerClass={
+          responsiveInteractActive && overviewInteractScreenId
+            ? getInteractFrameCornerClass({
+                category:
+                  findInteractDevicePreset(interactDeviceName)?.category,
+                width: interactDeviceSize.width,
+              })
+            : null
+        }
         readOnly={!canEditDesign}
         editableScreenIds={editableLiveScreenIds}
         previewDeviceFrame={deviceFrame}
@@ -348,8 +359,9 @@ export function renderOverviewCanvas({
           onActiveToolChange: handleOverviewActiveToolChange,
           gradientEditTarget,
           vectorEdit: vectorEditOverlayState,
-          onCreatePrimitive: handleCreatePrimitive,
-          onPrimitiveCreated: handlePrimitiveCreated,
+          onCreatePrimitive: handleOverviewCreatePrimitive,
+          onPrimitiveCreated: handleOverviewPrimitiveCreated,
+          onPrimitivesCreated: handleOverviewPrimitivesCreated,
           onUpdatePenPath: canEditDesign ? handleUpdatePenPath : undefined,
           onPrimitiveReparent: handleOverviewPrimitiveReparent,
           onCreateScreenFrame: handleCreateScreenFrame,
@@ -496,7 +508,7 @@ export function renderOverviewCanvas({
       }) ? (
         <ReviewCanvasPins
           active={pinMode}
-          hidden={commentsHidden}
+          hidden={commentPinsHidden}
           onClose={handleExitReviewCommentMode}
           canvasSelector="[data-multi-screen-canvas-surface]"
           showPlacementPlane={false}

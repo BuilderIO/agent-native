@@ -16,6 +16,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - Answers must cite or summarize source evidence and separate facts from inference. Never fabricate source content, dates, people, permissions, or connector health. Copy evidence quotes exactly from `get-capture`.
 - Capture durable, useful knowledge only; do not save secrets, transient noise, or unsupported personal data.
 - Supported source providers are exactly `manual`, `generic`, `clips`, `slack`, `granola`, `github`, and `zoom`; `create-source` rejects others. Use `generic` for approved FAQs/docs/handbooks; see `ingestion-and-connectors` for policy and deletion semantics.
+- Gong is queried on demand through provider API actions using organization-scoped credentials; it is not an indexed Brain source, and callers do not need personal Gong seats when the shared keys are configured.
 - Reuse workspace integration grants (`list-connection-providers`) instead of copying provider tokens. Sync actions are convenience readers; use `provider-api-catalog`, `provider-api-docs`, and `provider-api-request` for unmodeled endpoints or filters.
 
 ## Application state

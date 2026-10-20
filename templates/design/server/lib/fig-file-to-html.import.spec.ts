@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { parseComputedDropShadowFilter } from "../../shared/figma-svg-scene.js";
 import { renderHtmlTemplates } from "./fig-file-to-html.js";
 
 function makeDocument(
@@ -91,6 +92,59 @@ describe("imported layer names", () => {
       'data-agent-native-layer-name="Component / Instance"',
     );
     expect(html).not.toContain(' layer-name="');
+  });
+});
+
+describe("TEXT_PATH and shadow import", () => {
+  it("does not paint a TEXT_PATH fill as a solid box and reports its approximation", () => {
+    const doc = makeDocument([{ name: "Root" }]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 20, {
+        type: "TEXT_PATH",
+        name: "Curved label",
+        fillPaints: [
+          { type: "SOLID", visible: true, color: { r: 1, g: 0, b: 0, a: 1 } },
+        ],
+      }),
+    );
+
+    const result = renderHtmlTemplates(doc);
+    const markup = result.frames[0]?.html ?? "";
+    const layer = /data-figma-node-id="1:20"[^>]*style="([^"]*)"/.exec(markup);
+
+    expect(layer?.[1]).not.toMatch(/background(?:-color|-image)?\s*:/);
+    expect(result.approximatedNodes).toContainEqual(
+      expect.objectContaining({ nodeId: "1:20", nodeType: "TEXT_PATH" }),
+    );
+  });
+
+  it("uses a drop-shadow sigma that reconstructs the imported blur radius", () => {
+    const doc = makeDocument([
+      {
+        name: "Shadow",
+        effects: [
+          {
+            type: "DROP_SHADOW",
+            visible: true,
+            radius: 12,
+            offset: { x: 2, y: 4 },
+            color: { r: 0, g: 0, b: 0, a: 0.5 },
+          },
+        ],
+      },
+    ]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 20, { stackPositioning: "ABSOLUTE" }),
+    );
+
+    const markup = renderHtmlTemplates(doc).frames[0]?.html ?? "";
+    const filter = /data-figma-node-id="1:10"[^>]*style="([^"]*)"/
+      .exec(markup)?.[1]
+      ?.match(/filter:\s*([^;]+)/)?.[1];
+    const shadows = parseComputedDropShadowFilter(filter);
+
+    expect(filter).toMatch(/drop-shadow\(2px 4px 6px/);
+    expect(shadows[0]?.blur).toBe(12);
   });
 });
 

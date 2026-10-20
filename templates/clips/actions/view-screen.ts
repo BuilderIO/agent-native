@@ -28,7 +28,12 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
+import { getAgentClipReadiness } from "../shared/agent-context.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
+import {
+  isEmbedBackedRecording,
+  recordingEmbedProvider,
+} from "../shared/embed-provider.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
 interface NavigationState {
@@ -54,7 +59,13 @@ function mapRecording(r: any) {
     visibility: r.visibility,
     ownerEmail: r.ownerEmail,
     sourceAppName: r.sourceAppName,
-    sourceProvider: r.sourceAppName === "Loom" ? "loom" : null,
+    sourceProvider:
+      recordingEmbedProvider(r) ?? (r.sourceAppName === "Loom" ? "loom" : null),
+    // Embed-backed clips play in another service's player; Clips has no
+    // frames for them. A hosted clip has none until it is ready.
+    framesAvailable:
+      !isEmbedBackedRecording(r) &&
+      getAgentClipReadiness(r.status).state === "ready",
     folderId: r.folderId,
     spaceIds: parseSpaceIds(r.spaceIds),
     hasAudio: Boolean(r.hasAudio),
@@ -106,6 +117,7 @@ async function fetchTranscript(recordingId: string) {
     recordingId: t.recordingId,
     language: t.language,
     status: t.status,
+    source: t.source,
     fullText: t.fullText,
     segments,
   };
@@ -499,6 +511,7 @@ async function addRecordingContext(
       recordingId: transcript.recordingId,
       language: transcript.language,
       status: transcript.status,
+      source: transcript.source,
       fullText: transcript.fullText,
       segments: transcript.segments,
     });

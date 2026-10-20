@@ -295,7 +295,7 @@ function ProviderDialogContent(
   const failed = listing.isError || models.isError;
   return (
     <DialogContent
-      className="flex max-w-lg flex-col"
+      className="flex max-w-lg flex-col bg-card"
       closeLabel={t("agentChat.settingsInfra.close")}
       aria-describedby={undefined}
     >
@@ -697,7 +697,7 @@ function ProviderDialogForm({
   if (restricted) {
     return (
       <DialogContent
-        className="flex max-w-lg flex-col"
+        className="flex max-w-lg flex-col bg-card"
         closeLabel={t("agentChat.settingsInfra.close")}
         aria-describedby={undefined}
       >
@@ -734,7 +734,7 @@ function ProviderDialogForm({
 
   return (
     <DialogContent
-      className="flex max-w-lg flex-col overflow-hidden"
+      className="flex max-w-lg flex-col overflow-hidden bg-card"
       closeLabel={t("agentChat.settingsInfra.close")}
       aria-describedby={undefined}
     >

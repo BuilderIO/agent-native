@@ -21,6 +21,7 @@ type NavItemConfig = {
   id: string;
   labelKey: keyof typeof enUS.nav;
   slug?: string;
+  anchor?: string;
   draft?: boolean;
   children?: NavItemConfig[];
 };
@@ -40,6 +41,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "getting-started",
         labelKey: "gettingStarted",
         slug: "getting-started",
+      },
+      {
+        id: "create-with-an-agent",
+        labelKey: "createWithAgent",
+        slug: "create-with-an-agent",
       },
       {
         id: "what-is-agent-native",
@@ -218,9 +224,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-chat",
           },
           {
-            id: "template-chat-first-edits",
-            labelKey: "chatFirstEdits",
-            slug: "template-chat-first-edits",
+            id: "template-chat-features",
+            labelKey: "chatFeatures",
+            slug: "template-chat-features",
+          },
+          {
+            id: "template-chat-agent",
+            labelKey: "chatAgent",
+            slug: "template-chat-agent",
+          },
+          {
+            id: "template-chat-integrations",
+            labelKey: "chatIntegrations",
+            slug: "template-chat-integrations",
           },
           {
             id: "template-chat-developers",
@@ -775,6 +791,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "doctor",
       },
       { id: "observability", labelKey: "observability", slug: "observability" },
+      { id: "recorder", labelKey: "recorder", slug: "recorder" },
       {
         id: "observational-memory",
         labelKey: "observationalMemory",
@@ -958,21 +975,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "agent-native-toolkit",
       },
       {
-        id: "toolkit-ui",
-        labelKey: "toolkitUiPrimitives",
-        slug: "toolkit-ui",
-      },
-      {
-        id: "toolkit-editors-canvases",
-        labelKey: "toolkitEditorsCanvases",
-        slug: "toolkit-editors-canvases",
-      },
-      {
-        id: "toolkit-context-knowledge",
-        labelKey: "toolkitContextKnowledge",
-        slug: "toolkit-context-knowledge",
-      },
-      {
         id: "toolkit-feature-kits",
         labelKey: "featureKits",
         children: [
@@ -1000,6 +1002,12 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "toolkit-observability",
             labelKey: "toolkitObservability",
             slug: "toolkit-observability",
+          },
+          {
+            id: "toolkit-dashboard",
+            labelKey: "toolkitDashboard",
+            slug: "agent-native-toolkit",
+            anchor: "dashboard-kit",
           },
         ],
       },
@@ -1037,6 +1045,23 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "toolkitAgentUx",
             slug: "toolkit-agent-ux",
           },
+          {
+            id: "toolkit-chat-history",
+            labelKey: "toolkitChatHistory",
+            slug: "toolkit-agent-ux",
+            anchor: "chat-history",
+          },
+          {
+            id: "toolkit-agent-page",
+            labelKey: "toolkitAgentPage",
+            slug: "agent-surfaces",
+            anchor: "agent-page",
+          },
+          {
+            id: "toolkit-notifications",
+            labelKey: "toolkitNotifications",
+            slug: "notifications",
+          },
         ],
       },
       {
@@ -1057,6 +1082,27 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "versioning-and-stability",
             labelKey: "versioningAndStability",
             slug: "versioning-and-stability",
+          },
+        ],
+      },
+      {
+        id: "toolkit-foundations",
+        labelKey: "toolkitFoundations",
+        children: [
+          {
+            id: "toolkit-ui",
+            labelKey: "toolkitUiPrimitives",
+            slug: "toolkit-ui",
+          },
+          {
+            id: "toolkit-editors-canvases",
+            labelKey: "toolkitEditorsCanvases",
+            slug: "toolkit-editors-canvases",
+          },
+          {
+            id: "toolkit-context-knowledge",
+            labelKey: "toolkitContextKnowledge",
+            slug: "toolkit-context-knowledge",
           },
         ],
       },
@@ -1154,7 +1200,10 @@ function toNavItem(
   return {
     id: config.id,
     label: navLabel(t, config.labelKey),
-    to: slug ? docsPathForSlug(slug, locale) : undefined,
+    to: slug
+      ? docsPathForSlug(slug, locale) +
+        (config.anchor ? "#" + config.anchor : "")
+      : undefined,
     draft: config.draft || undefined,
     children,
   };

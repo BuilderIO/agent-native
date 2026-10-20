@@ -319,6 +319,18 @@ export function guidKey(g: Guid | undefined): string {
   return g ? `${g.sessionID}:${g.localID}` : "";
 }
 
+function isUnsetGuid(guid: Guid | undefined): boolean {
+  if (!guid) return false;
+  const isAllOnes = (value: number) => value === -1 || value === 0xffffffff;
+  return isAllOnes(guid.sessionID) && isAllOnes(guid.localID);
+}
+
+function overrideGuid(node: FigNode): Guid | undefined {
+  return isUnsetGuid(node.overrideKey)
+    ? node.guid
+    : (node.overrideKey ?? node.guid);
+}
+
 function collectRawProps(
   node: FigNode,
   componentSymbol: FigNode | null,
@@ -509,7 +521,7 @@ function applyOverrideLayers(
   instancePath: string[],
 ): FigNode {
   if (layers.length === 0) return node;
-  const nodeKey = guidKey(node.overrideKey ?? node.guid);
+  const nodeKey = guidKey(overrideGuid(node));
   if (!nodeKey) return node;
   const matches: OverrideEntry[] = [];
   for (const layer of layers) {
@@ -1653,7 +1665,7 @@ function effectStyles(
       const c = colorToCss(e.color) ?? "rgba(0, 0, 0, 0.25)";
       if (shadowAsFilter) {
         filters.push(
-          `drop-shadow(${num(e.offset?.x ?? 0)}px ${num(e.offset?.y ?? 0)}px ${num(e.radius ?? 0)}px ${c})`,
+          `drop-shadow(${num(e.offset?.x ?? 0)}px ${num(e.offset?.y ?? 0)}px ${num((e.radius ?? 0) / 2)}px ${c})`,
         );
       } else {
         shadows.push(
@@ -2294,7 +2306,20 @@ function buildCss(
     );
   }
 
-  if (node.type !== "TEXT" && !vectorLike && !geometrylessVector) {
+  if (node.type === "TEXT_PATH") {
+    recordApproximation(
+      node,
+      ctx,
+      "Text-on-path placement is omitted; its characters are not converted to glyph outlines.",
+    );
+  }
+
+  if (
+    node.type !== "TEXT" &&
+    node.type !== "TEXT_PATH" &&
+    !vectorLike &&
+    !geometrylessVector
+  ) {
     Object.assign(css, backgroundShorthand(node, ctx, overlays));
   }
 
@@ -2407,6 +2432,38 @@ interface Ctx {
   svgDefSeq: number;
   approximatedNodes: RenderHtmlFidelityEntry[];
   approximationByNode: Map<string, RenderHtmlFidelityEntry>;
+  skipCounts: FigImportSkipCounts;
+}
+
+const MAX_IMPORT_SKIP_COUNT = 250_000;
+
+function boundedIncrement(value: number): number {
+  return Math.min(value + 1, MAX_IMPORT_SKIP_COUNT);
+}
+
+function countUnresolvedOverrides(nodes: FigNode[]): number {
+  const identities = new Set<string>();
+  for (const node of nodes) {
+    const key = guidKey(node.guid);
+    if (key) identities.add(key);
+    if (node.overrideKey && !isUnsetGuid(node.overrideKey)) {
+      identities.add(guidKey(node.overrideKey));
+    }
+  }
+
+  let count = 0;
+  for (const node of nodes) {
+    if (count >= MAX_IMPORT_SKIP_COUNT) break;
+    if (node.type !== "INSTANCE") continue;
+    for (const override of node.symbolData?.symbolOverrides ?? []) {
+      const path = override.guidPath?.guids ?? [];
+      const target = path[path.length - 1];
+      if (target && !identities.has(guidKey(target))) {
+        count = boundedIncrement(count);
+      }
+    }
+  }
+  return count;
 }
 
 function decodePathCommands(bytes: Uint8Array | undefined): string {
@@ -3284,6 +3341,16 @@ function emitNode(
   if (resolved === null) return;
   node = resolved;
 
+  if (
+    node.type === "INSTANCE" &&
+    guidKey(node.symbolData?.symbolID) &&
+    !ctx.symbolByGuid.has(guidKey(node.symbolData?.symbolID))
+  ) {
+    ctx.skipCounts.missingComponentCount = boundedIncrement(
+      ctx.skipCounts.missingComponentCount,
+    );
+  }
+
   const indent = "  ".repeat(depth);
 
   let inlinedSymbol: FigNode | null = null;
@@ -3300,7 +3367,7 @@ function emitNode(
     node.type === "INSTANCE" ? buildPropEnv(node, propEnv) : propEnv;
   let childInstancePath =
     node.type === "INSTANCE" && inlinedSymbol
-      ? [...instancePath, guidKey(node.overrideKey ?? node.guid)]
+      ? [...instancePath, guidKey(overrideGuid(node))]
       : instancePath;
   let childOverrideLayers = overrideLayers;
   if (node.type === "INSTANCE") {
@@ -3663,6 +3730,13 @@ function emitFrameTemplate(frame: FigNode, ctx: Ctx, pageName: string): string {
   return lines.join("\n");
 }
 
+export class FrameOutputBudgetError extends Error {
+  constructor() {
+    super(".fig frame exceeded its render output budget.");
+    this.name = "FrameOutputBudgetError";
+  }
+}
+
 class BudgetedLines extends Array<string> {
   private bytes = 0;
 
@@ -3673,9 +3747,7 @@ class BudgetedLines extends Array<string> {
   override push(...items: string[]): number {
     for (const item of items) {
       this.bytes += utf8ByteLength(item) + 1;
-      if (this.bytes > this.maxBytes) {
-        throw new Error(".fig frame exceeded its render output budget.");
-      }
+      if (this.bytes > this.maxBytes) throw new FrameOutputBudgetError();
     }
     return super.push(...items);
   }
@@ -3702,12 +3774,26 @@ export interface RenderHtmlFidelityEntry {
   notes: string[];
 }
 
+export interface SkippedRenderFrame {
+  pageName: string;
+  frameName: string;
+}
+
 export interface RenderHtmlResult {
   pageCount: number;
   frameCount: number;
   frames: RenderedFrame[];
+  skippedFrames: SkippedRenderFrame[];
   unresolvedImageRefs?: Set<string>;
   approximatedNodes: RenderHtmlFidelityEntry[];
+  skipCounts: FigImportSkipCounts;
+}
+
+export interface FigImportSkipCounts {
+  unresolvedOverrideCount: number;
+  unresolvedVariableAliasCount: number;
+  missingComponentCount: number;
+  skippedNodeTypeCount: number;
 }
 
 export interface RenderHtmlOptions {
@@ -3722,6 +3808,8 @@ export interface RenderHtmlOptions {
   maxTreeDepth?: number;
   maxFrameOutputBytes?: number;
   maxTotalOutputBytes?: number;
+  /** Report frames over `maxFrameOutputBytes` in `skippedFrames` instead of failing the render. */
+  skipOversizedFrames?: boolean;
 }
 
 const DEFAULT_MAX_RENDER_FRAMES = 300;
@@ -3731,6 +3819,34 @@ const DEFAULT_MAX_FRAME_OUTPUT_BYTES = 4 * 1024 * 1024;
 const DEFAULT_MAX_TOTAL_OUTPUT_BYTES = 24 * 1024 * 1024;
 
 const TOP_LEVEL_RENDERABLE_TYPES = new Set(["FRAME", "SYMBOL", "INSTANCE"]);
+
+function countSkippedCanvasNodeTypes(
+  pages: FigNode[],
+  childrenOf: Map<string, FigNode[]>,
+): number {
+  const stack = pages.flatMap(
+    (page) => childrenOf.get(guidKey(page.guid)) ?? [],
+  );
+  let count = 0;
+  let visited = 0;
+  const visitedSections = new Set<string>();
+  while (stack.length > 0 && visited < MAX_IMPORT_SKIP_COUNT) {
+    const node = stack.pop()!;
+    visited += 1;
+    if (!node.type || node.visible === false) continue;
+    if (node.type === "SECTION") {
+      const key = guidKey(node.guid);
+      if (visitedSections.has(key)) continue;
+      visitedSections.add(key);
+      stack.push(...(childrenOf.get(guidKey(node.guid)) ?? []));
+      continue;
+    }
+    if (!TOP_LEVEL_RENDERABLE_TYPES.has(node.type)) {
+      count = boundedIncrement(count);
+    }
+  }
+  return count;
+}
 
 export function collectTopLevelFrames(
   parent: FigNode,
@@ -3883,7 +3999,8 @@ function resolveVariableBindings(
   nodes: FigNode[],
   byGuid: Map<string, FigNode>,
   byKey: Map<string, FigNode>,
-): void {
+): number {
+  let unresolvedAliasCount = 0;
   const publishedByName = new Map<string, FigNode | null>();
   for (const n of nodes) {
     if (n.type !== "VARIABLE" || !n.key || !n.name) continue;
@@ -3939,9 +4056,15 @@ function resolveVariableBindings(
     if (value == null) return { value: null, confident: true };
     if (value.alias) {
       const v = lookupVar(value.alias);
-      if (!v) return { value: null, confident: true };
+      if (!v) {
+        unresolvedAliasCount = boundedIncrement(unresolvedAliasCount);
+        return { value: null, confident: true };
+      }
       const id = guidKey(v.guid);
-      if (seen.has(id)) return { value: null, confident: true };
+      if (seen.has(id)) {
+        unresolvedAliasCount = boundedIncrement(unresolvedAliasCount);
+        return { value: null, confident: true };
+      }
       seen.add(id);
       const setId = setIdOf(v.variableSetID);
       const entries = v.variableDataValues?.entries ?? [];
@@ -3989,6 +4112,7 @@ function resolveVariableBindings(
       }
     }
   }
+  return unresolvedAliasCount;
 }
 
 export function renderHtmlTemplates(
@@ -4037,7 +4161,12 @@ export function renderHtmlTemplates(
     arr.push(n);
   }
 
-  resolveVariableBindings(nodes, byGuid, byKey);
+  const skipCounts: FigImportSkipCounts = {
+    unresolvedOverrideCount: countUnresolvedOverrides(nodes),
+    unresolvedVariableAliasCount: resolveVariableBindings(nodes, byGuid, byKey),
+    missingComponentCount: 0,
+    skippedNodeTypeCount: 0,
+  };
 
   const ctx: Ctx = {
     byGuid,
@@ -4063,6 +4192,7 @@ export function renderHtmlTemplates(
     svgDefSeq: 0,
     approximatedNodes: [],
     approximationByNode: new Map(),
+    skipCounts,
     renderedNodeCount: 0,
     maxRenderedNodes: options.maxRenderedNodes ?? DEFAULT_MAX_RENDERED_NODES,
     maxTreeDepth: options.maxTreeDepth ?? DEFAULT_MAX_TREE_DEPTH,
@@ -4074,8 +4204,16 @@ export function renderHtmlTemplates(
   };
 
   const documentNode = nodes.find((n) => n.type === "DOCUMENT");
-  if (!documentNode)
-    return { pageCount: 0, frameCount: 0, frames: [], approximatedNodes: [] };
+  if (!documentNode) {
+    return {
+      pageCount: 0,
+      frameCount: 0,
+      frames: [],
+      skippedFrames: [],
+      approximatedNodes: [],
+      skipCounts,
+    };
+  }
 
   const allPages = (childrenOf.get(guidKey(documentNode.guid)) ?? []).filter(
     (n) => n.type === "CANVAS" && !n.internalOnly,
@@ -4095,8 +4233,13 @@ export function renderHtmlTemplates(
         ).some((frame) => selection.has(guidKey(frame.guid)));
       })
     : allPages;
+  skipCounts.skippedNodeTypeCount = countSkippedCanvasNodeTypes(
+    pages,
+    childrenOf,
+  );
 
   const frames: RenderedFrame[] = [];
+  const skippedFrames: SkippedRenderFrame[] = [];
   for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
     const page = pages[pageIdx]!;
     const pageDirName = sanitizeFilename(page.name, `page-${pageIdx + 1}`);
@@ -4124,15 +4267,39 @@ export function renderHtmlTemplates(
       const fileName =
         dupeIdx === 0 ? `${baseFile}.html` : `${baseFile}-${dupeIdx + 1}.html`;
       const pageName = page.name ?? `page-${pageIdx + 1}`;
-      const html = emitFrameTemplate(frame, ctx, pageName);
+      const frameName = frame.name ?? `frame-${frameIdx + 1}`;
+      const approximatedBefore = ctx.approximatedNodes.length;
+      const unresolvedBefore = ctx.unresolvedImageRefs?.size ?? 0;
+      const missingComponentsBefore = ctx.skipCounts.missingComponentCount;
+      let html: string;
+      try {
+        html = emitFrameTemplate(frame, ctx, pageName);
+      } catch (error) {
+        if (!options.skipOversizedFrames) throw error;
+        if (!(error instanceof FrameOutputBudgetError)) throw error;
+        // renderedNodeCount is deliberately kept: it bounds total work, not output.
+        for (const entry of ctx.approximatedNodes.splice(approximatedBefore)) {
+          ctx.approximationByNode.delete(entry.nodeId);
+        }
+        if (ctx.unresolvedImageRefs) {
+          [...ctx.unresolvedImageRefs]
+            .slice(unresolvedBefore)
+            .forEach((hash) => ctx.unresolvedImageRefs!.delete(hash));
+        }
+        ctx.skipCounts.missingComponentCount = missingComponentsBefore;
+        skippedFrames.push({ pageName, frameName });
+        continue;
+      }
       ctx.totalOutputBytes += utf8ByteLength(html);
       if (ctx.totalOutputBytes > ctx.maxTotalOutputBytes) {
-        throw new Error(".fig render exceeded its total output budget.");
+        throw new Error(
+          `.fig import generated too much editable HTML (max ${Math.round(ctx.maxTotalOutputBytes / 1024 / 1024)} MB).`,
+        );
       }
       frames.push({
         pageName,
         pageDirName,
-        frameName: frame.name ?? `frame-${frameIdx + 1}`,
+        frameName,
         fileName,
         relativePath: `${pageDirName}/${fileName}`,
         html,
@@ -4149,7 +4316,9 @@ export function renderHtmlTemplates(
     pageCount: pages.length,
     frameCount: frames.length,
     frames,
+    skippedFrames,
     approximatedNodes: ctx.approximatedNodes,
+    skipCounts: ctx.skipCounts,
     ...(ctx.unresolvedImageRefs !== undefined
       ? { unresolvedImageRefs: ctx.unresolvedImageRefs }
       : {}),

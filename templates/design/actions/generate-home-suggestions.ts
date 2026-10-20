@@ -1,8 +1,9 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
-import { track } from "@agent-native/core/tracking";
 import { getUserProfile } from "@agent-native/core/user-profile/server";
 import { z } from "zod";
+
+import { trackDesign } from "../server/lib/design-tracking.js";
 
 const suggestionSchema = z.object({
   label: z.string().trim().min(1).max(48),
@@ -233,11 +234,9 @@ export default defineAction({
     } catch (error) {
       const reason = unavailableReason(error);
       if (!reason) throw error;
-      track(
+      trackDesign(
         "home_suggestions_unavailable",
         {
-          app_name: "design",
-          template_name: "design",
           failure_code: reason,
         },
         ctx,

@@ -681,4 +681,14 @@ describe("document body intent merge", () => {
       ),
     ).toBe(true);
   });
+
+  it("compares a held body against a saved body stored as blank-line Markdown", () => {
+    const base = "Alpha.\n\nBravo.";
+    const accepted = "Alpha.\n\nBravo. accepted";
+
+    expect(bodyHoldsChanges(base, "Alpha.\nBravo. accepted", accepted)).toBe(
+      true,
+    );
+    expect(bodyHoldsChanges(base, "Alpha.\nBravo.", accepted)).toBe(false);
+  });
 });

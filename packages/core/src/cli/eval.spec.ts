@@ -2,15 +2,37 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const fsMock = vi.hoisted(() => ({
-  mkdir: vi.fn(async () => undefined),
-  writeFile: vi.fn(async () => undefined),
-  rename: vi.fn(async () => undefined),
-  rm: vi.fn(async () => undefined),
-  readFile: vi.fn(async (..._args: unknown[]): Promise<string> => {
+const fsMock = vi.hoisted(() => {
+  const readFile = vi.fn(async (..._args: unknown[]): Promise<string> => {
     throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-  }),
-}));
+  });
+  return {
+    mkdir: vi.fn(async () => undefined),
+    writeFile: vi.fn(async () => undefined),
+    rename: vi.fn(async () => undefined),
+    rm: vi.fn(async () => undefined),
+    readFile,
+    open: vi.fn(async (filePath: unknown) => {
+      const contents = Buffer.from(await readFile(filePath, "utf8"), "utf8");
+      return {
+        stat: vi.fn(async () => ({ size: contents.byteLength })),
+        read: vi.fn(
+          async (
+            target: Buffer,
+            targetOffset: number,
+            length: number,
+            position: number,
+          ) => {
+            const chunk = contents.subarray(position, position + length);
+            chunk.copy(target, targetOffset);
+            return { bytesRead: chunk.length };
+          },
+        ),
+        close: vi.fn(async () => undefined),
+      };
+    }),
+  };
+});
 const promotion = vi.hoisted(() => ({
   loadTraceEvalPromotion: vi.fn(),
   persistPromotedEvalDataset: vi.fn(),
@@ -27,6 +49,7 @@ vi.mock("node:fs/promises", () => ({
   rename: fsMock.rename,
   rm: fsMock.rm,
   readFile: fsMock.readFile,
+  open: fsMock.open,
 }));
 vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "alice@example.com",
@@ -435,6 +458,30 @@ describe("runPromote", () => {
     expect(console.log).not.toHaveBeenCalledWith(
       expect.stringContaining("show active users daily"),
     );
+  });
+
+  it("checks the reviewed file size before reading its contents", async () => {
+    const read = vi.fn(async () => ({ bytesRead: 0 }));
+    const close = vi.fn(async () => undefined);
+    fsMock.open.mockResolvedValueOnce({
+      stat: vi.fn(async () => ({ size: 64 * 1024 + 1 })),
+      read,
+      close,
+    } as never);
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt-file",
+        "oversized-prompt.txt",
+      ]),
+    ).rejects.toThrow("process.exit(1)");
+
+    expect(read).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+    expect(promotion.loadTraceEvalPromotion).not.toHaveBeenCalled();
+    expect(promotion.persistPromotedEvalDataset).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed reviewed history file before promotion", async () => {

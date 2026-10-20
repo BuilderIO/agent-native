@@ -51,7 +51,7 @@ RUN=<YYYY-MM-DD>   # defaults to today's UTC date
    `targets.json`, with the hot systems, their scores, and triage verdicts.
 4. **Dedup early**: `$J/jira-match.ts --run $RUN`. For each hot system
    matched to an open or declined ticket, run
-   `$J/jira-sighting.ts --run $RUN --key <KEY> --system <system> --apply`
+   `$J/jira-upsert.ts --run $RUN --key <KEY> --system <system> --apply`
    and don't re-plan it. The exceptions:
    - The ticket was resolved as fixed. That's a recurrence: plan it and
      upsert it, which opens a linked ticket.
@@ -74,6 +74,9 @@ RUN=<YYYY-MM-DD>   # defaults to today's UTC date
 7. **Record decisions**: give every hot system you didn't plan or sight a
    one-line reason in `<dataDir>/$RUN/decisions.json`.
 8. **File**: `$J/jira-upsert.ts --plan <file>` (a dry run), then add `--apply`.
+   If it reports overlapping tickets, read their diffs: pass `--key KEY` when
+   the plan is that ticket's problem, or `--distinct-from KEY,...` when it
+   isn't.
 9. **Summarize**: `$S/summarize.ts --run $RUN`. Exit 1 means some hot system
    is still undecided, so go back to step 7.
 

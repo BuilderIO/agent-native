@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { withMigrationRuntime } from "@agent-native/core/db";
 import {
   runFrameworkReleaseMigrations,
   runWithRequestContext,
@@ -68,7 +69,7 @@ beforeAll(async () => {
   persistBlocksFieldIdentity = (await import("./_blocks-field-identity.js"))
     .persistBlocksFieldIdentity;
   if (TEST_DATABASE_URL.startsWith("postgres")) {
-    await runFrameworkReleaseMigrations(undefined);
+    await withMigrationRuntime(() => runFrameworkReleaseMigrations(undefined));
   }
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);

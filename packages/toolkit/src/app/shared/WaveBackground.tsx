@@ -7,9 +7,13 @@ type Background = "probing" | "ocean-loading" | "ocean" | "empty";
 
 export interface WaveBackgroundProps {
   className?: string;
+  matchPageSurface?: boolean;
 }
 
-export function WaveBackground({ className = "" }: WaveBackgroundProps) {
+export function WaveBackground({
+  className = "",
+  matchPageSurface = false,
+}: WaveBackgroundProps) {
   const [background, setBackground] = useState<Background>("probing");
 
   useEffect(() => {
@@ -71,6 +75,7 @@ export function WaveBackground({ className = "" }: WaveBackgroundProps) {
   return (
     <HeroOceanBackground
       className={className}
+      matchPageSurface={matchPageSurface}
       onError={handleOceanError}
       onReady={handleOceanReady}
     />

@@ -3,6 +3,7 @@ import {
   getDbExec,
   getDatabaseUrl,
   getRuntimeDatabaseUrl,
+  withMigrationExecutionRuntime,
 } from "@agent-native/core/db";
 import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -188,13 +189,17 @@ export function connectionPoolRegressionSuite(postgresUrl: string) {
       labKey: CONTENT_CREATIVE_CONTEXT.key,
     });
     registerLabs([CONTENT_CREATIVE_CONTEXT]);
-    await getDbExec().execute(`
+    // This suite simulates a hosted function; test-owned DDL needs the same
+    // migration context a release step would hold.
+    await withMigrationExecutionRuntime(() =>
+      getDbExec().execute(`
       CREATE TABLE IF NOT EXISTS org_members (
         id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
         role TEXT NOT NULL, joined_at BIGINT NOT NULL,
         federation_removal_pending_at BIGINT
       )
-    `);
+    `),
+    );
     await getDbExec().execute({
       sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING",
       args: ["pool-regression-member", ORG, WRITER, "member", 0],

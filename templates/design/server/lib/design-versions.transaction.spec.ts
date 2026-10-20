@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   designVersionSelects: 0,
   designSelects: 0,
   failFinalDesignConfirmation: false,
+  failCommitAfterCallback: false,
   currentSnapshot: {
     designId: "design-1",
     files: [
@@ -92,6 +93,7 @@ function queryChain(tableHolder: { table: unknown }): Record<string, unknown> {
     },
     where: () => chain,
     orderBy: () => chain,
+    for: () => chain,
     limit: async () => selectRows(tableHolder.table),
     then: (
       resolve: (value: unknown) => unknown,
@@ -112,6 +114,20 @@ vi.mock("@agent-native/core/collab", () => ({
   hasCollabState: state.hasCollabState,
   loadAwarenessRowsStrict: vi.fn(async () => []),
   seedFromText: state.seedFromText,
+  withPreparedYDocMutation: async (
+    _fileId: string,
+    _source: string | undefined,
+    callback: (lease: unknown) => Promise<unknown>,
+  ) =>
+    callback({
+      baseVersion: 1,
+      doc: {
+        getText: () => ({
+          toString: () => state.currentSnapshot.files[0]?.content ?? "",
+        }),
+      },
+      persist: vi.fn(),
+    }),
 }));
 
 vi.mock("@agent-native/core/private-blob", () => ({
@@ -148,12 +164,51 @@ vi.mock("../source-workspace.js", () => ({
     typeof result?.rowCount === "number" ? result.rowCount : undefined,
   designSourceMutationLockKey: (designId: string) =>
     `agent-native:design-source:${designId}`,
+  getDesignSourceMutationExec: () => ({
+    execute: vi.fn(async () => ({ rows: [] })),
+  }),
+  lockPreparedSourceCollaboration: vi.fn(async () => ({
+    hasState: true,
+    needsSeed: false,
+  })),
   lockDesignSourceMutation: vi.fn(async () => {
     state.events.push("advisory");
   }),
   lockDesignFilesTable: vi.fn(async () => {
     state.events.push("table");
   }),
+  readPreparedSourceText: (lease: {
+    doc: { getText: () => { toString: () => string } };
+  }) => lease.doc.getText().toString(),
+  withDesignSourceMutationTransaction: async (
+    _designId: string,
+    callback: (tx: Record<string, unknown>) => Promise<unknown>,
+    outcome?: { callbackCompleted: boolean; rollbackConfirmed: boolean },
+  ) => {
+    state.events.push("advisory");
+    let callbackError: unknown;
+    let callbackThrew = false;
+    try {
+      return await (state.db as any).transaction(
+        async (tx: Record<string, unknown>) => {
+          try {
+            const result = await callback(tx);
+            if (outcome) outcome.callbackCompleted = true;
+            return result;
+          } catch (error) {
+            callbackThrew = true;
+            callbackError = error;
+            throw error;
+          }
+        },
+      );
+    } catch (error) {
+      if (outcome && callbackThrew && callbackError === error) {
+        outcome.rollbackConfirmed = true;
+      }
+      throw error;
+    }
+  },
   withSourceFileWriteLock: async (
     _fileId: string,
     work: () => Promise<unknown>,
@@ -178,6 +233,7 @@ vi.mock("../db/index.js", () => {
           return query;
         },
         onConflictDoNothing: () => {
+          state.events.push("checkpoint");
           state.checkpoints.push({ ...values });
           return query;
         },
@@ -211,7 +267,12 @@ vi.mock("../db/index.js", () => {
         ...checkpoint,
       }));
       try {
-        return await callback(db);
+        const result = await callback(db);
+        if (state.failCommitAfterCallback) {
+          state.failCommitAfterCallback = false;
+          throw new Error("commit outcome unknown");
+        }
+        return result;
       } catch (error) {
         state.files = files;
         state.design = design;
@@ -276,10 +337,11 @@ beforeEach(() => {
   state.designVersionSelects = 0;
   state.designSelects = 0;
   state.failFinalDesignConfirmation = false;
+  state.failCommitAfterCallback = false;
   state.assertAccess.mockResolvedValue({ resource: { ...state.design } });
-  state.hasCollabState.mockResolvedValue(false);
+  state.hasCollabState.mockResolvedValue(true);
   state.buildDesignSnapshot.mockImplementation(async (...args: unknown[]) => {
-    if (args.length === 4) state.events.push("snapshot");
+    state.events.push("snapshot");
     return state.currentSnapshot;
   });
 });
@@ -294,18 +356,98 @@ describe("restoreDesignVersion transaction boundary", () => {
     expect(result.restoredFileCount).toBe(1);
     expect(state.files[0]?.content).toBe("<main>restored</main>");
     expect(state.checkpoints).toHaveLength(1);
-    expect(state.events.indexOf("table")).toBeLessThan(
-      state.events.indexOf("snapshot"),
-    );
     expect(state.events.indexOf("snapshot")).toBeLessThan(
+      state.events.indexOf("transaction"),
+    );
+    expect(state.events.indexOf("advisory")).toBeLessThan(
+      state.events.indexOf("table"),
+    );
+    expect(state.events.indexOf("table")).toBeLessThan(
+      state.events.indexOf("checkpoint"),
+    );
+    expect(state.events.indexOf("checkpoint")).toBeLessThan(
       state.events.indexOf("file-update"),
     );
     expect(state.buildDesignSnapshot).toHaveBeenCalledWith(
       "design-1",
       expect.any(String),
-      undefined,
-      state.db,
+      {
+        preparedFiles: [
+          expect.objectContaining({ id: "file-1", source: "collab" }),
+        ],
+      },
     );
+  });
+
+  it("preserves a staged blob when the database commit outcome is unknown", async () => {
+    const blob = {
+      id: "staged-blob",
+      provider: "test",
+      opaque: true as const,
+      encrypted: true,
+    };
+    state.currentSnapshot = {
+      ...state.currentSnapshot,
+      files: [
+        {
+          ...state.currentSnapshot.files[0]!,
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+    state.failCommitAfterCallback = true;
+    const privateBlob = await import("@agent-native/core/private-blob");
+    vi.mocked(privateBlob.putPrivateBlob).mockResolvedValue(blob);
+    vi.mocked(privateBlob.deletePrivateBlob).mockResolvedValue({
+      deleted: true,
+      provider: "test",
+    });
+
+    await expect(
+      restoreDesignVersion({
+        designId: "design-1",
+        versionId: "version-1",
+      }),
+    ).rejects.toThrow("commit outcome unknown");
+
+    expect(state.checkpoints).toEqual([]);
+    expect(state.files[0]?.content).toBe("<main>current</main>");
+    expect(privateBlob.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("deletes the staged blob after a confirmed callback rollback", async () => {
+    const blob = {
+      id: "staged-blob",
+      provider: "test",
+      opaque: true as const,
+      encrypted: true,
+    };
+    state.currentSnapshot = {
+      ...state.currentSnapshot,
+      files: [
+        {
+          ...state.currentSnapshot.files[0]!,
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+    state.failFinalDesignConfirmation = true;
+    const privateBlob = await import("@agent-native/core/private-blob");
+    vi.mocked(privateBlob.putPrivateBlob).mockResolvedValue(blob);
+    vi.mocked(privateBlob.deletePrivateBlob).mockResolvedValue({
+      deleted: true,
+      provider: "test",
+    });
+
+    await expect(
+      restoreDesignVersion({
+        designId: "design-1",
+        versionId: "version-1",
+      }),
+    ).rejects.toThrow(/Design changed while history was being restored/i);
+
+    expect(state.checkpoints).toEqual([]);
+    expect(privateBlob.deletePrivateBlob).toHaveBeenCalledWith(blob);
   });
 
   it("rolls back the checkpoint and file rewrite when the design CAS fails", async () => {

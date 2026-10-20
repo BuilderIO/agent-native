@@ -364,6 +364,8 @@ export default defineAppConfig({
 
 在指标中，`gen_ai.tool.name` 是框架操作的名称或 `other`；只有当引擎将某个模型 ID 列为受支持时，`gen_ai.request.model` 才是该模型 ID，否则为 `_OTHER`。因此，应用自定义的工具和调用方传入的模型 ID 不会产生无限增长的序列；span 中保留确切的值。
 
+在 `gen_ai.client.operation.duration` 上，失败模型调用的 `error.type` 在调用返回 4xx 或 5xx 时为提供方的 HTTP 状态（`http_429`、`http_529`）；否则当引擎的错误代码对应其中之一时为 `rate_limit`、`context_overflow`、`provider_error` 或 `no_model_connected`；其余情况为 `_OTHER`。每次重试都是一次独立的调用，拥有各自的 `error.type`，因此一次多次重试被限流请求的运行即使最终成功，也会记录多个 `http_429` 调用。
+
 每个请求都会设置 `http.route`，其值来自一个封闭集合：框架端点的路由模板（`/_agent-native/auth/session`、`/_agent-native/agent-chat/runs/:runId/events`）、操作声明的模板、应用自身的 Nitro 文件路由（`/api/clips/:id`），或一个分桶。分桶包括：这些命名空间中未列出的路径对应的 `/_agent-native/*`、`/mcp/*` 和 `/.well-known/*`，其他 API 路径对应的 `/api/*`，文件请求对应的 `static`，其他 `GET` 或 `HEAD` 请求对应的 `page`，以及 `other`。原始请求路径永远不会被记录。`http.server` span 携带相同的值。
 
 ## 连接 OpenTelemetry 后端 {#otel-provider}

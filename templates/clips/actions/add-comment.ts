@@ -33,7 +33,9 @@ export default defineAction({
       .int()
       .min(0)
       .default(0)
-      .describe("Video time (ms) the comment is attached to"),
+      .describe(
+        "Video time (ms) of the frame the comment is about, stored as given",
+      ),
     threadId: z
       .string()
       .trim()
@@ -126,8 +128,6 @@ export default defineAction({
       rec.organizationId,
     );
 
-    const videoTimestampMs = Math.floor(args.videoTimestampMs / 1000) * 1000;
-
     await db.insert(schema.recordingComments).values({
       id,
       recordingId: args.recordingId,
@@ -138,7 +138,7 @@ export default defineAction({
       authorName,
       content: args.content,
       mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
-      videoTimestampMs,
+      videoTimestampMs: args.videoTimestampMs,
       createdAt: now,
       updatedAt: now,
     });
@@ -157,7 +157,7 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(
-      `Added comment to recording ${args.recordingId} @ ${videoTimestampMs}ms (thread: ${threadId})`,
+      `Added comment to recording ${args.recordingId} @ ${args.videoTimestampMs}ms (thread: ${threadId})`,
     );
 
     return { id, threadId, notified };

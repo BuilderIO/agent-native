@@ -6,8 +6,14 @@ const SOURCE_INDEX_FIELDS = [
   "sourceIndex",
   "sourcePath",
   "sourceRevision",
+  "sqlProjectedColumns",
+  "inferredMembershipKeys",
+  "inferredMembershipKeyRoles",
   "sourceIndexGeneratedAt",
   "sourceIndexSources",
+  "sourceIndexStale",
+  "sourceIndexAgeDays",
+  "sourceIndexStaleAfterDays",
 ] as const;
 
 function hasOverlayValue(value: unknown): boolean {

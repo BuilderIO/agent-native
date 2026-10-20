@@ -107,7 +107,7 @@ jobs:
           jobs_to_read="$(jq -r '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | .id' "$REPORT_DIR/jobs.json" | head -n 30)"
           for job_id in $jobs_to_read; do
             raw="$(mktemp)"
-            if gh api "repos/$REPO/actions/jobs/$job_id/logs" > "$raw" 2> "$raw.err"; then
+            if gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$job_id/logs" > "$raw" 2> "$raw.err"; then
               { grep -F '[beta-e2e]' "$raw" | tail -n 60 || true; tail -n 300 "$raw"; } > "$REPORT_DIR/logs/$job_id.log"
             else
               note "Could not read the log of job $job_id: $(head -c 200 "$raw.err")"

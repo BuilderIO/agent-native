@@ -1,6 +1,6 @@
 import {
-  isWorkspaceAppAccessAllowed,
-  type WorkspaceAppAccessOutcome,
+  checkWorkspaceAppAccess,
+  type WorkspaceAppAccessCheck,
 } from "./workspace-app-access.js";
 import { resolveWorkspaceAccessAppId } from "./workspace-app-identity.js";
 
@@ -24,13 +24,13 @@ function isWorkspaceAccessRecoveryPath(path: string, method: string): boolean {
 
 export async function checkWorkspaceAppAccessForRequest(
   request: WorkspaceAppAccessRequest,
-): Promise<WorkspaceAppAccessOutcome | null> {
+): Promise<WorkspaceAppAccessCheck | null> {
   const appId = resolveWorkspaceAccessAppId();
   if (!appId || isWorkspaceAccessRecoveryPath(request.path, request.method)) {
     return null;
   }
 
-  return isWorkspaceAppAccessAllowed(appId, {
+  return checkWorkspaceAppAccess(appId, {
     email: request.email,
     orgId: request.orgId,
   });

@@ -1,5 +1,6 @@
 import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-bridge";
 
+import type { ActionRunContext } from "../action.js";
 import { getMcpManagerForPrincipal } from "../server/agent-chat/mcp-glue.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
@@ -39,6 +40,8 @@ export interface ListVisibleMcpToolsOptions {
 export interface CallMcpToolOptions {
   /** Refuse the call unless the server's URL belongs to this provider. */
   providerId?: string;
+  /** Caller identity and invocation source forwarded to MCP authorization. */
+  context?: ActionRunContext;
 }
 
 export class McpAppApiError extends Error {
@@ -92,7 +95,14 @@ export async function callMcpTool(
     );
   }
 
-  return manager.callTool(buildMcpToolName(serverId, originalToolName), args);
+  return manager.callTool(buildMcpToolName(serverId, originalToolName), args, {
+    context: {
+      ...options.context,
+      caller: options.context?.caller ?? "frontend",
+      userEmail: context.userEmail,
+      orgId: context.orgId ?? null,
+    },
+  });
 }
 
 function requireAuthenticatedRequest() {

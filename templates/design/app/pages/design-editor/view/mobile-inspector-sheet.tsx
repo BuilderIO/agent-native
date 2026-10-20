@@ -36,7 +36,7 @@ export function renderMobileInspectorSheet({
   >;
 }) {
   const { hostOwnsChrome, mode, t } = editorCore;
-  const { minimalUi } = editorHistory;
+  const { minimalUi, motionDockOpen } = editorHistory;
   const { initialGenerationChromeLimited } = editorLiveEditsAndPresence;
   const { uiHidden } = editorContentAndComponents;
 
@@ -46,8 +46,9 @@ export function renderMobileInspectorSheet({
       !minimalUi &&
       !uiHidden &&
       !initialGenerationChromeLimited &&
-      mode === "edit" ? (
-        <Sheet>
+      mode === "edit" &&
+      !editPanelProps.readOnly ? (
+        <Sheet modal={!motionDockOpen}>
           <SheetTrigger asChild>
             <Button
               type="button"
@@ -61,12 +62,28 @@ export function renderMobileInspectorSheet({
           </SheetTrigger>
           <SheetContent
             side="right"
-            className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"
+            onInteractOutside={(event) => {
+              if (motionDockOpen) event.preventDefault();
+            }}
+            className={
+              motionDockOpen
+                ? "w-[min(max(240px,48vw),360px)] overflow-hidden p-0 md:hidden"
+                : "w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"
+            }
+            showOverlay={!motionDockOpen}
+            style={
+              motionDockOpen
+                ? {
+                    bottom: "var(--design-motion-dock-height, 0px)",
+                    height: "auto",
+                  }
+                : undefined
+            }
           >
             <SheetHeader className="sr-only">
               <SheetTitle>{t("editPanel.properties")}</SheetTitle>
             </SheetHeader>
-            <div className="h-full min-h-0 pt-8">
+            <div className="h-full min-h-0 pt-8 [&>.design-sidebar]:!w-full">
               <EditPanel {...editPanelProps} width={320} />
             </div>
           </SheetContent>

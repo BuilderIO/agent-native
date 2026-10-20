@@ -16,7 +16,7 @@ import {
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
-import { decodeCommonHtmlEntities } from "@shared/markdown.js";
+import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
 
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import { hasGmailScope } from "./gmail-scope.js";
@@ -2963,7 +2963,7 @@ export function gmailToEmailMessage(
     to,
     cc: cc.length > 0 ? cc : undefined,
     subject,
-    snippet: decodeCommonHtmlEntities(msg.snippet || ""),
+    snippet: decodeGmailSnippet(msg.snippet || ""),
     body: getBody(payload),
     bodyHtml,
     date: new Date(date).toISOString(),

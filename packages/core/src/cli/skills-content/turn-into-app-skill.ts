@@ -329,14 +329,19 @@ On a browser host the host is an orchestrator, not the build environment:
    (archetype, direction, first viewport, sample-data plan, agent moments).
 2. Call \`start-workspace-app-creation\` on the Agent-Native Dispatch MCP
    connector (\`agent-native-dispatch\`). Put the brief and the design decisions
-   in \`prompt\`; pass an \`appId\`, a short \`description\`, the \`template\`, the
-   selected \`resourceIds\`, and source files as \`attachments\`
-   ([attachments.md](attachments.md)). The tool's schema describes each
-   argument. Reference resources by id; never paste whole knowledge files or
-   binary data into \`prompt\`, and do not assume an attachment becomes a file in
-   the generated workspace. A workbook cannot be attached (attachments take
-   images, PDF, text, and JSON): pass a bounded CSV rendering as text, or a
-   public URL, and say what was left out.
+   in \`prompt\`; pass an \`appId\`, a short \`description\`, and the \`template\`.
+   The tool's schema describes each argument. Send the Project's own text as
+   \`attachments\` ([attachments.md](attachments.md)), never as a summary: the
+   Project instructions as \`project-instructions.md\` and every knowledge file,
+   each verbatim as \`text/plain\`. Never paste whole knowledge files or binary
+   data into \`prompt\`. Attachments are model context
+   and are not copied into the generated workspace, so tell the Builder agent in
+   \`prompt\` to persist what the app needs: knowledge files as app resources, the
+   instructions as the in-app agent's instructions. If a file cannot be
+   reproduced verbatim (not in context, too large), say so in the brief and the
+   report; never swap in a digest silently. A workbook cannot be attached
+   (attachments take images, PDF, text, and JSON): pass a bounded CSV rendering
+   as text, or a public URL, and say what was left out.
 3. Report what Dispatch actually returned: the branch, the path, and the status.
    The browser host cannot run or inspect the app, and a returned path can 404
    until the branch merges and deploys, so the report ends at pending or
@@ -1185,7 +1190,7 @@ heading; write \`n/a\` where a heading does not apply.
 Source and provenance: type (thread, skill, Project, spreadsheet, export), file names, ids, what was read and what was not
 Project goal: the user and the repeatable job, in one sentence
 Configuration and constraints: audience, rules, output standards, approved tools
-Knowledge sources: reference files the app ships with, by name or id
+Knowledge sources: reference files the app ships with, by name
 Repeatable workflow: the job's trigger, steps, and outcome, in the source's own words
 Inputs and outputs: what comes in, what the user gets back, fixed output shapes
 Judgment and review points: 1-3 agent moments, each tied to the object it acts on; what the user confirms
@@ -1203,7 +1208,7 @@ App design: archetype, direction, first-viewport sketch, sample-data plan
 
 - Name the latest successful, repeatable job. A walkthrough of one example is
   evidence for the job, not the job.
-- Keep references bounded: a file name, URL, resource id, or short summary
+- Keep references bounded: a file name, URL, or short summary
   instead of a pasted document. No secrets, credentials, or customer data.
 - Corrections the user made in the source are product rules. Record each one
   as an invariant.

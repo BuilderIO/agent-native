@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FigmaFileUrlUsedAsTokenError } from "@/lib/figma-connection";
 import { extractFigmaLink } from "@/lib/figma-url";
 
 import { FigmaLinkComposerBubble } from "./FigmaLinkComposerBubble";
@@ -21,7 +22,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       options ? `${key}:${JSON.stringify(options)}` : key,
 }));
 
-vi.mock("@/lib/figma-connection", () => ({
+vi.mock("@/lib/figma-connection", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/figma-connection")>(
+    "@/lib/figma-connection",
+  )),
   getFigmaConnectionStatus: (...args: unknown[]) =>
     connectionMocks.get(...args),
   saveFigmaAccessToken: (...args: unknown[]) => connectionMocks.save(...args),
@@ -208,6 +212,46 @@ describe("FigmaLinkComposerBubble", () => {
 
     expect(container!.textContent).toContain("chat.figmaLink.importFrame");
     expect(container!.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it("localizes a Figma file URL pasted into the token field", async () => {
+    connectionMocks.get.mockResolvedValue({
+      connected: false,
+      status: "unset",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+    });
+    connectionMocks.save.mockRejectedValue(new FigmaFileUrlUsedAsTokenError());
+    await renderBubble("design-1");
+
+    const input = container!.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(
+        input,
+        "https://www.figma.com/design/FileKey1/Checkout?node-id=1-2",
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      button("chat.figmaLink.connect").click();
+      await Promise.resolve();
+    });
+
+    expect(container!.textContent).toContain(
+      "designEditor.import.errors.figmaTokenMustBeToken",
+    );
+    expect(container!.textContent).not.toContain(
+      "FigmaFileUrlUsedAsTokenError",
+    );
+    expect(
+      container!.querySelector<HTMLInputElement>('input[type="password"]')
+        ?.value,
+    ).toBe("");
   });
 
   it("does not ask for a token when connection status is unknown", async () => {

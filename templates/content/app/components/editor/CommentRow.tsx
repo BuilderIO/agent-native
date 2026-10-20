@@ -1,18 +1,12 @@
-import { emailToColor } from "@agent-native/core/client/collab";
-import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import {
-  InlineMarkdown,
-  type InlineMarkdownProtectedSpan,
-} from "@agent-native/toolkit/app/review";
+  findCommentMentions,
+  type CommentMention,
+} from "@shared/comment-mentions";
 import { forwardRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
-import {
-  Avatar as UserAvatar,
-  AvatarFallback as UserAvatarFallback,
-  AvatarImage as UserAvatarImage,
-} from "@/components/ui/avatar";
 import {
   Tooltip,
   TooltipContent,
@@ -20,42 +14,53 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import {
+  CommentIdentityHoverCard,
+  CommentMentionPill,
+  type CommentIdentity,
+} from "./CommentIdentity";
+
+export { CommentAvatar } from "./CommentAvatar";
+
 /**
  * Shared building blocks for every comment surface — margin cards, the
  * anchored popover, and the comments panel — and for both comments and
  * suggested edits. Style a comment here once rather than per surface.
  */
 
-export interface CommentMentionLike {
-  name?: string | null;
-}
-
-function commentMentionSpans(
-  mentions: CommentMentionLike[],
-): InlineMarkdownProtectedSpan[] {
-  const labels = Array.from(
-    new Set(mentions.map((m) => m.name).filter((n): n is string => !!n)),
-  ).sort((a, b) => b.length - a.length);
-  return labels.map((label) => ({
-    source: `@${label}`,
-    label: `@${label}`,
-    className: "comment-mention",
-  }));
-}
-
 /**
- * Render a comment body, styling any `@mention` tokens that match the
- * comment's stored mentions. Raw HTML is never interpreted.
+ * Render a comment body. Each `@name` that matches one of the comment's
+ * stored mentions becomes a pill for that person or agent; text that only
+ * looks like a mention stays text. Raw HTML is never interpreted.
  */
 export function renderCommentBody(
   content: string,
-  mentions: CommentMentionLike[],
+  mentions: readonly CommentMention[],
 ) {
+  const mentionAt = new Map(
+    findCommentMentions(content, mentions).map(({ start, mention }) => [
+      start,
+      mention,
+    ]),
+  );
   return (
     <InlineMarkdown
       content={content}
       inline
-      protectedSpans={commentMentionSpans(mentions)}
+      protectedSpans={[...mentionAt].map(([at, mention]) => ({
+        source: `@${mention.name}`,
+        label: `@${mention.name}`,
+        at,
+      }))}
+      renderProtectedSpan={(span, children) => {
+        const mention =
+          span.at === undefined ? undefined : mentionAt.get(span.at);
+        return mention ? (
+          <CommentMentionPill mention={mention} />
+        ) : (
+          <span>{children}</span>
+        );
+      }}
       renderLink={(href, children, className) =>
         href.startsWith("/page/") ? (
           <Link to={href} className={className}>
@@ -73,34 +78,6 @@ export function renderCommentBody(
         )
       }
     />
-  );
-}
-
-function emailToInitial(email: string) {
-  return (email.split("@")[0]?.[0] ?? "?").toUpperCase();
-}
-
-export function CommentAvatar({
-  email,
-  name,
-  className,
-}: {
-  email?: string | null;
-  name?: string | null;
-  className?: string;
-}) {
-  const avatarUrl = useAvatarUrl(email);
-  const label = name ?? email ?? "";
-  return (
-    <UserAvatar className={cn("size-7 shrink-0", className)} title={label}>
-      {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
-      <UserAvatarFallback
-        className="text-xs font-medium text-primary-foreground"
-        style={{ backgroundColor: emailToColor(email ?? "user") }}
-      >
-        {emailToInitial(label)}
-      </UserAvatarFallback>
-    </UserAvatar>
   );
 }
 
@@ -235,6 +212,7 @@ export const CommentIconButton = forwardRef<
 export function CommentRow({
   avatar,
   name,
+  identity,
   badge,
   timestamp,
   status,
@@ -248,6 +226,8 @@ export function CommentRow({
 }: {
   avatar: ReactNode;
   name: ReactNode;
+  /** Who the avatar and name stand for; hovering either opens their card. */
+  identity?: CommentIdentity;
   badge?: ReactNode;
   timestamp?: { label: string; title: string; dateTime?: string };
   status?: ReactNode;
@@ -260,7 +240,21 @@ export function CommentRow({
 } & Omit<React.HTMLAttributes<HTMLDivElement>, "children">) {
   return (
     <div className={cn("group/comment flex gap-2.5", className)} {...rest}>
-      <div className="flex h-7 w-7 shrink-0 items-center">{avatar}</div>
+      <div className="flex h-7 w-7 shrink-0 items-center">
+        {identity ? (
+          <CommentIdentityHoverCard identity={identity}>
+            <span
+              tabIndex={-1}
+              className="inline-flex rounded-full"
+              data-comment-author-avatar
+            >
+              {avatar}
+            </span>
+          </CommentIdentityHoverCard>
+        ) : (
+          avatar
+        )}
+      </div>
       <div className="min-w-0 flex-1">
         <div
           className={cn(
@@ -272,9 +266,21 @@ export function CommentRow({
             className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 py-1"
             data-comment-row-identity
           >
-            <span className="min-w-0 max-w-full truncate text-sm font-semibold text-foreground">
-              {name}
-            </span>
+            {identity ? (
+              <CommentIdentityHoverCard identity={identity}>
+                <span
+                  tabIndex={0}
+                  className="min-w-0 max-w-full truncate rounded-sm text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  data-comment-author-name
+                >
+                  {name}
+                </span>
+              </CommentIdentityHoverCard>
+            ) : (
+              <span className="min-w-0 max-w-full truncate text-sm font-semibold text-foreground">
+                {name}
+              </span>
+            )}
             {badge}
             {timestamp?.label ? (
               <time

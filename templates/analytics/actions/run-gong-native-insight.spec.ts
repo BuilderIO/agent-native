@@ -46,33 +46,29 @@ describe("run-gong-native-insight", () => {
     });
   });
 
-  it("requires approval before an explicitly authorized paid request", () => {
-    expect(typeof action.needsApproval).toBe("function");
-    if (typeof action.needsApproval !== "function") return;
+  it("sends by default without a per-call approval or credit flag", async () => {
+    expect(action.needsApproval).toBeUndefined();
+    callMcpToolMock.mockResolvedValue({ answer: "ok" });
 
-    expect(
-      action.needsApproval({
-        operation: "ask_account",
-        allowCreditRequest: true,
-      }),
-    ).toBe(true);
-    expect(
-      action.needsApproval({
-        operation: "ask_account",
-        allowCreditRequest: false,
-      }),
-    ).toBe(false);
+    await expect(
+      action.run({ operation: "ask_account", arguments: { account: "Acme" } }),
+    ).resolves.toMatchObject({ creditRequests: 1 });
+    expect(callMcpToolMock).toHaveBeenCalledOnce();
   });
 
   it("passes one consolidated request to the connected Gong operation", async () => {
     callMcpToolMock.mockResolvedValue({ answer: "Renewal risk is pricing." });
 
+    const context = { caller: "automation" as const };
     await expect(
-      action.run({
-        operation: "ask_account",
-        allowCreditRequest: true,
-        arguments: { account: "Acme", question: "Summarize renewal risk" },
-      }),
+      action.run(
+        {
+          operation: "ask_account",
+          allowCreditRequest: true,
+          arguments: { account: "Acme", question: "Summarize renewal risk" },
+        },
+        context,
+      ),
     ).resolves.toMatchObject({
       source: "gong-native-mcp",
       operation: "ask_account",
@@ -87,8 +83,28 @@ describe("run-gong-native-insight", () => {
       "org_gong",
       "ask_account",
       { account: "Acme", question: "Summarize renewal risk" },
-      { providerId: "gong" },
+      { providerId: "gong", context },
     );
+  });
+
+  it("reports a Gong tool error as an error, not as synthesis", async () => {
+    callMcpToolMock.mockResolvedValue({
+      isError: true,
+      content: [{ type: "text", text: "Rate limit exceeded" }],
+    });
+
+    const result = (await action.run({
+      operation: "ask_account",
+      allowCreditRequest: true,
+      arguments: { account: "Acme" },
+    })) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      error: "Rate limit exceeded",
+      evidenceFallbackAction: "gong-calls",
+    });
+    expect(result).not.toHaveProperty("result");
+    expect(result).not.toHaveProperty("synthesisOnly");
   });
 
   it("does not spend a request when the operation is ambiguous across Gong servers", async () => {

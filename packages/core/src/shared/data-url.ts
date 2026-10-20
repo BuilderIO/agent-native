@@ -101,3 +101,16 @@ export function parseBase64DataUrl(value: string): ParsedBase64DataUrl | null {
     ? { mediaType: parsed.mediaType, data: parsed.data }
     : null;
 }
+
+export function isBase64(data: string): boolean {
+  const unpadded = data.replace(/={1,2}$/, "");
+  if (!/^[A-Za-z0-9+/]*$/.test(unpadded)) return false;
+  return unpadded.length === data.length
+    ? data.length % 4 !== 1
+    : data.length % 4 === 0;
+}
+
+export function base64ByteLength(data: string): number {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - padding;
+}

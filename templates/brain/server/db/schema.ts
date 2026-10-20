@@ -279,6 +279,29 @@ export const brainSensitivityEvents = table("brain_sensitivity_events", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+// Who changed a Zoom allowlist and what each sync allowed or denied. Never
+// holds transcript or summary text.
+export const brainZoomAuditEvents = table("brain_zoom_audit_events", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id"),
+  sourceId: text("source_id").notNull(),
+  actorEmail: text("actor_email"),
+  event: text("event", {
+    enum: [
+      "allowlist-changed",
+      "occurrence-allowed",
+      "occurrence-denied",
+      "sync-refused",
+      "sync-finished",
+    ],
+  }).notNull(),
+  decision: text("decision", { enum: ["allow", "deny"] }),
+  meetingId: text("meeting_id"),
+  meetingUuid: text("meeting_uuid"),
+  detailJson: text("detail_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
 export const brainSearchArtifacts = table("brain_search_artifacts", {
   id: text("id").primaryKey(),
   captureId: text("capture_id").notNull(),

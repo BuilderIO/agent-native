@@ -41,6 +41,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
+import { useDesignVariantPickTracking } from "@/lib/design-funnel-tracking";
 import { shouldInvalidateDesignQueryForSync } from "@/lib/design-sync-invalidation";
 import {
   requestDesignHistoryOpen,
@@ -184,7 +185,7 @@ function DesignCommandMenu({
         location.pathname.startsWith("/templates") ||
         location.pathname.startsWith("/design-systems") ? (
           <CommandMenu.Item onSelect={() => navigate("/home")}>
-            {t("navigation.designs")}
+            {t("navigation.home")}
           </CommandMenu.Item>
         ) : null}
         {location.pathname === "/home" ? (
@@ -239,6 +240,7 @@ function PrivateRootContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
+  useDesignVariantPickTracking();
   // The home prompt composer takes focus on load, and without this the shortcut
   // is swallowed whenever a contenteditable has focus.
   useCommandMenuShortcut(

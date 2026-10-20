@@ -7,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const labels = vi.hoisted(() => ({
@@ -202,6 +203,64 @@ function renderWithTypedSlash(prefix: string, query = "") {
     fireInput(result.editingEl, "insertText", query);
   }
   return result;
+}
+
+function renderWithImmediateEscape(prefix: string) {
+  const editingEl = document.createElement("div");
+  editingEl.setAttribute("contenteditable", "true");
+  const block = document.createElement("p");
+  const textNode = document.createTextNode(prefix);
+  block.append(textNode);
+  editingEl.append(block);
+  document.body.append(editingEl);
+  setCaret(textNode, prefix.length);
+  editingEl.focus();
+
+  const applyAuthoringCommand = vi.fn();
+  const textSession = {
+    isActive: true,
+    commands: { applyAuthoringCommand },
+  } as never;
+  const probe = { notifySlash: () => {}, escapePrevented: false };
+
+  function EscapeOnCommit({ open }: { open: boolean }) {
+    const dispatched = useRef(false);
+
+    useLayoutEffect(() => {
+      if (!open || dispatched.current) return;
+      dispatched.current = true;
+      const escape = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "Escape",
+      });
+      editingEl.dispatchEvent(escape);
+      probe.escapePrevented = escape.defaultPrevented;
+    }, [open]);
+
+    return null;
+  }
+
+  function Harness() {
+    const [slashTyped, setSlashTyped] = useState(false);
+    probe.notifySlash = () => setSlashTyped(true);
+
+    return (
+      <>
+        <SlideSlashCommandMenu
+          editingEl={editingEl}
+          textSession={textSession}
+        />
+        <EscapeOnCommit open={slashTyped} />
+      </>
+    );
+  }
+
+  const view = render(<Harness />);
+  editingEl.addEventListener("input", () => probe.notifySlash());
+
+  typeSlash(editingEl, textNode, prefix.length);
+  return { ...view, editingEl, textNode, applyAuthoringCommand, probe };
 }
 
 function setCaret(textNode: Text, offset: number) {
@@ -718,6 +777,91 @@ describe("slide slash command menu", () => {
     expect(document.activeElement).toBe(editingEl);
   });
 
+  it("keeps repeated keyboard navigation on the active command", () => {
+    const { editingEl, applyAuthoringCommand } = renderWithTypedSlash("");
+
+    keyDown(editingEl, "ArrowDown");
+    keyDown(editingEl, "ArrowDown");
+    keyDown(editingEl, "ArrowDown");
+
+    const heading3 = screen.getByRole("option", { name: /Heading 3/ });
+    expect(heading3.getAttribute("aria-selected")).toBe("true");
+    expectActiveOption(editingEl, heading3);
+
+    keyDown(editingEl, "Enter");
+
+    expect(applyAuthoringCommand).toHaveBeenCalledWith(
+      "heading3" satisfies InPlaceTextAuthoringCommand,
+      expect.any(Range),
+    );
+  });
+
+  it("reopens at the first command before keyboard navigation", () => {
+    const { editingEl, textNode } = renderWithTypedSlash("");
+
+    keyDown(editingEl, "ArrowDown");
+    keyDown(editingEl, "ArrowDown");
+    expect(
+      screen
+        .getByRole("option", { name: /Heading 2/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+
+    keyDown(editingEl, "Escape");
+    textNode.deleteData(0, 1);
+    setCaret(textNode, 0);
+    fireInput(editingEl, "deleteContentBackward", null);
+    typeSlash(editingEl, textNode, 0);
+
+    expect(
+      screen
+        .getByRole("option", { name: /Texto/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    keyDown(editingEl, "ArrowDown");
+    expect(
+      screen
+        .getByRole("option", { name: /Heading 1/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("keeps keyboard selection independent from pointer hover", () => {
+    const { editingEl } = renderWithTypedSlash("");
+    const paragraph = screen.getByRole("option", { name: /Plain paragraph/ });
+    const heading1 = screen.getByRole("option", { name: /Heading 1/ });
+    const heading3 = screen.getByRole("option", { name: /Heading 3/ });
+
+    expect(heading3.className).toContain("hover:bg-foreground/20");
+    expect(heading3.className).toContain("hover:text-foreground");
+    expect(heading3.className).not.toContain("hover:bg-accent");
+    expect(heading3.className).not.toContain("hover:text-accent-foreground");
+
+    fireEvent.pointerMove(heading3, { pointerType: "mouse" });
+    expect(paragraph.getAttribute("aria-selected")).toBe("true");
+
+    keyDown(editingEl, "ArrowDown");
+    expect(heading1.getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.pointerMove(heading3, { pointerType: "mouse" });
+    expect(heading1.getAttribute("aria-selected")).toBe("true");
+    expectActiveOption(editingEl, heading1);
+  });
+
+  it("applies a pointer-selected command without moving focus", () => {
+    const { editingEl, applyAuthoringCommand } = renderWithTypedSlash("");
+    const heading2 = screen.getByRole("option", { name: /Heading 2/ });
+
+    fireEvent.mouseDown(heading2);
+    fireEvent.click(heading2);
+
+    expect(applyAuthoringCommand).toHaveBeenCalledWith(
+      "heading2" satisfies InPlaceTextAuthoringCommand,
+      expect.any(Range),
+    );
+    expect(document.activeElement).toBe(editingEl);
+  });
+
   it("uses the translated Blocks label as the listbox accessible name", () => {
     const originalLabel = labels["slideSlashMenu.blocks"];
     labels["slideSlashMenu.blocks"] = "Bloques";
@@ -838,6 +982,16 @@ describe("slide slash command menu", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(keyDown(editingEl, "Enter")).toBe(true);
     expect(applyAuthoringCommand).not.toHaveBeenCalled();
+  });
+
+  it("closes on Escape before passive effects after a URL-like prefix", () => {
+    const prefix = "and/or https:/example.com ";
+    const { editingEl, textNode, probe } = renderWithImmediateEscape(prefix);
+
+    expect(probe.escapePrevented).toBe(true);
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(textNode.data).toBe(`${prefix}/`);
+    expect(document.activeElement).toBe(editingEl);
   });
 
   it("restores authored accessibility attributes when the menu closes", () => {

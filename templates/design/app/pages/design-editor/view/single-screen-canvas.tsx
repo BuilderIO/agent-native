@@ -94,6 +94,7 @@ export function renderSingleScreenCanvas({
     runtimeStructureVerificationRequest,
     liveRoutePathsByScreenIdRef,
     handleLiveRoutePathChange,
+    handlePreviewThemeStatus,
     mode,
     activeTool,
     setActiveTool,
@@ -118,6 +119,7 @@ export function renderSingleScreenCanvas({
     reserveVisualEditSnapshot,
     handleComponentSourceJump,
     drawMode,
+    annotateLab,
     handleFocusedAnnotationSendingChange,
     pinMode,
     canCommentDesign,
@@ -163,6 +165,10 @@ export function renderSingleScreenCanvas({
     handleActiveRuntimeVerificationSnapshot,
     designFusionUrl,
     motionTracksWire,
+    motionPathTargetNodeId,
+    motionPathTrackId,
+    motionSelectedTarget,
+    motionOriginEditing,
     motionDefaultEase,
     motionDurationMs,
     selectedCanvasSelector,
@@ -173,8 +179,10 @@ export function renderSingleScreenCanvas({
     recentEditsForOverlays,
     othersWithAgentCursor,
   } = editorLiveEditsAndPresence;
+  const { motionDockOpen } = editorHistory;
   const { hoveredCanvasSelector, hoveredCanvasSelectorCandidates } =
     editorContentAndComponents;
+  const { handleMotionCanvasPathTracksChange } = editorContentAndComponents;
   const {
     spacePanActive,
     handleSingleScreenCreatePrimitive,
@@ -212,7 +220,7 @@ export function renderSingleScreenCanvas({
     handleRuntimeStructureInsertApplied,
     handleRuntimeStructureDeleteApplied,
     handleRuntimeStructureDeleteRejected,
-    commentsHidden,
+    commentPinsHidden,
     viewSettings: { pixelGrid, multiplayerCursors },
   } = editorLayoutAndStructure;
   const {
@@ -224,6 +232,8 @@ export function renderSingleScreenCanvas({
   const {
     responsiveInteractActive,
     interactZoom,
+    previewColorScheme,
+    screenReloadNonces,
     handleExitReviewCommentMode,
     handleModeChange,
     handleSidebarScreenSelect,
@@ -374,6 +384,9 @@ export function renderSingleScreenCanvas({
           activeScreenSnapshotOnly ? undefined : handleLiveRoutePathChange
         }
         onRuntimeReload={handleActiveScreenRuntimeReload}
+        previewColorScheme={previewColorScheme}
+        previewReloadNonce={screenReloadNonces[activeFile.id] ?? 0}
+        onPreviewThemeStatus={handlePreviewThemeStatus}
         publicVisualEdit={!activeScreenSnapshotOnly && publicVisualEdit}
         externalSnapshotHtml={
           activeScreenSnapshotOnly
@@ -428,6 +441,18 @@ export function renderSingleScreenCanvas({
         motionTracks={motionTracksWire}
         motionDefaultEase={motionDefaultEase}
         motionDurationMs={motionDurationMs}
+        motionPathEditingEnabled={motionDockOpen && canEditActiveVisualScreen}
+        motionPathTargetNodeId={motionPathTargetNodeId}
+        motionPathTrackId={motionPathTrackId}
+        motionOriginEditingEnabled={
+          motionDockOpen && motionOriginEditing && canEditActiveVisualScreen
+        }
+        motionOriginTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+        onMotionPathTracksChange={
+          canEditActiveVisualScreen
+            ? handleMotionCanvasPathTracksChange
+            : undefined
+        }
         gradientEditTarget={inScreenGradientEditTarget}
         onGradientEditChange={handleInScreenGradientEditChange}
         statePreviewTarget={statePreviewTarget}
@@ -495,7 +520,7 @@ export function renderSingleScreenCanvas({
         }
         onElementDblClickText={handleElementDblClickText}
         tweakValues={cssVarValues}
-        drawMode={drawMode}
+        drawMode={drawMode && annotateLab === "on"}
         onExitDrawMode={() => {
           handleExitFocusedDrawMode();
         }}
@@ -503,7 +528,7 @@ export function renderSingleScreenCanvas({
         retainDrawOverlayWhenHidden
         onAnnotationSendingChange={handleFocusedAnnotationSendingChange}
         pinMode={pinMode}
-        commentPinsHidden={commentsHidden}
+        commentPinsHidden={commentPinsHidden}
         onExitPinMode={handleExitReviewCommentMode}
         designId={id}
         reviewCanPost={canCommentDesign}
@@ -539,7 +564,10 @@ export function renderSingleScreenCanvas({
           const match = files.find((f) => norm(f.filename) === target);
           if (match) {
             if (mode === "interact") {
-              handleModeChange("interact", { targetFileId: match.id });
+              handleModeChange("interact", {
+                targetFileId: match.id,
+                keepInteractDevice: true,
+              });
             } else {
               handleSidebarScreenSelect(match.id);
             }

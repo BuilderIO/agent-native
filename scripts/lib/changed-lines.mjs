@@ -88,12 +88,14 @@ export function parseUnifiedDiff(diff, cwd, pathApi = path) {
     }
     if (raw.startsWith("+++ ")) {
       const target = raw.slice(4).trim();
+      const path = target.replace(/^b\//, "");
       // Keys are native absolute paths so a guard can look one up with a
       // path.join/path.resolve result; a "/"-joined key never matches on Windows.
+      // Prototypes are throwaway design artifacts, not shipped code, so the diff-scoped guards don't police them.
       file =
-        target === "/dev/null"
+        target === "/dev/null" || path.startsWith("prototypes/")
           ? null
-          : pathApi.resolve(cwd, target.replace(/^b\//, ""));
+          : pathApi.resolve(cwd, path);
       continue;
     }
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(raw);

@@ -29,6 +29,7 @@ import {
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
 import { verifyWriteGrant } from "../server/lib/verify-write-grant.js";
+import { localhostBridgeRelayStep } from "./motion-localhost-relay.js";
 import {
   createLocalhostBridgeRelay,
   isLocalhostBridgeRelayRequest,
@@ -263,11 +264,55 @@ export default defineAction({
     const bridgeToken = connection.bridgeToken || grant.bridgeToken;
 
     if (isLocalhostBridgeRelayRequest(ctx)) {
+      const step = localhostBridgeRelayStep(ctx);
+      const operation = content !== undefined ? "write-file" : "apply-edit";
+      const expectedVersionFields = {
+        ...(expectedVersionHash === undefined ? {} : { expectedVersionHash }),
+        ...(requireExpectedVersionHash === undefined
+          ? {}
+          : { requireExpectedVersionHash }),
+      };
+      const bridgeRequest =
+        content !== undefined
+          ? {
+              relPath,
+              content,
+              ...expectedVersionFields,
+            }
+          : {
+              relPath,
+              search: patch!.search,
+              replace: patch!.replace,
+              ...expectedVersionFields,
+            };
       return createLocalhostBridgeRelay({
-        operation: content !== undefined ? "write-file" : "apply-edit",
-        designId,
-        connectionId,
-        relPath,
+        relay: {
+          operation,
+          designId,
+          connectionId,
+          relPath,
+          ...(step
+            ? {
+                step,
+                payload:
+                  content !== undefined
+                    ? {
+                        relPath,
+                        content,
+                        ...expectedVersionFields,
+                      }
+                    : {
+                        relPath,
+                        patch,
+                        ...expectedVersionFields,
+                      },
+              }
+            : {}),
+        },
+        context: ctx,
+        bridgeToken,
+        rootPath: connection.rootPath,
+        bridgeRequest,
       });
     }
 

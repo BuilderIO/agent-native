@@ -123,7 +123,8 @@ vi.mock("./dashboard-catalog", () => ({
   },
 }));
 
-vi.mock("./source-index-store", () => ({
+vi.mock("./source-index-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./source-index-store")>()),
   readSourceIndex: state.readSourceIndex,
   sourceIndexDictionaryEntries: state.sourceIndexDictionaryEntries,
 }));
@@ -134,7 +135,7 @@ vi.mock("./dashboards-store", () => ({
   searchDashboardReferencesPage: state.searchDashboardReferencesPage,
 }));
 
-const { searchAnalyticsQueryCatalog } =
+const { searchAnalyticsDictionaryCatalog, searchAnalyticsQueryCatalog } =
   await import("./analytics-query-catalog.js");
 
 function savedRevenueSummary() {
@@ -259,6 +260,138 @@ describe("searchAnalyticsQueryCatalog", () => {
       "favorites",
     );
     expect(state.listOrgSettings).not.toHaveBeenCalled();
+  });
+
+  it("uses positive intent for dashboard discovery and hydration relevance", async () => {
+    const query =
+      "workspace users, do not report live counts but show the monthly trend";
+    state.summaries = Array.from({ length: 26 }, (_, index) => {
+      const relevant = index === 0;
+      const name = relevant
+        ? "Workspace users monthly trend"
+        : `Live counts dashboard ${index + 1}`;
+      return {
+        ...savedRevenueSummary(),
+        id: `dashboard-${String(index + 1).padStart(2, "0")}`,
+        name,
+        configName: name,
+        description: relevant
+          ? "Monthly trend in workspace users"
+          : "Live counts for unrelated records",
+      };
+    });
+    state.dashboardConfigs.set("dashboard-01", {
+      panels: [
+        {
+          id: "workspace-user-trend",
+          title: "Workspace users monthly trend",
+          source: "bigquery",
+          sql: "SELECT month, user_count FROM synthetic_workspace_user_trend",
+        },
+      ],
+    });
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: query,
+      email: "alice@example.com",
+      orgId: null,
+      limit: 6,
+    });
+
+    expect(state.searchDashboardReferencesPage).toHaveBeenCalledWith(
+      { email: "alice@example.com", orgId: null },
+      "workspace users but show the monthly trend",
+      24,
+    );
+    expect(state.loadCalls[0]).toContain("dashboard-01");
+    expect(result.dashboardDetailHydrationTruncated).toBe(false);
+  });
+
+  it("searches dictionary metadata with pagination and no dashboard reads", async () => {
+    state.userSettings = [
+      {
+        key: "data-dict-builder-users",
+        value: {
+          id: "builder-users",
+          metric: "Builder user membership",
+          definition: "The user dimension.",
+          source: "dbt",
+          table: "dim_users_core",
+        },
+      },
+      {
+        key: "data-dict-builder-user-organizations",
+        value: {
+          id: "builder-user-organizations",
+          metric: "Builder organization membership",
+          definition: "The user and organization membership relation.",
+          source: "dbt",
+          table: "user_organization_role",
+        },
+      },
+    ];
+
+    const firstPage = await searchAnalyticsDictionaryCatalog({
+      search: "membership",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 1,
+    });
+    const secondPage = await searchAnalyticsDictionaryCatalog({
+      search: "membership",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 1,
+      nextPage: firstPage.nextPage ?? undefined,
+    });
+
+    expect(firstPage).toMatchObject({
+      searched: 2,
+      of: 2,
+      truncated: true,
+      dictionarySearchStatus: "available",
+      sourceIndexStatus: "not-configured",
+    });
+    expect(firstPage.nextPage).toBeTruthy();
+    expect(secondPage.candidates).toHaveLength(1);
+    expect(secondPage.candidates[0]).not.toEqual(firstPage.candidates[0]);
+    expect(state.listSettingsByPrefix).toHaveBeenCalledWith(
+      "u:alice@example.com:data-dict-",
+      { limit: 201 },
+    );
+    expect(state.readSourceIndex).toHaveBeenCalledWith(null);
+    expect(state.listDashboardSummaries).not.toHaveBeenCalled();
+    expect(state.searchDashboardReferencesPage).not.toHaveBeenCalled();
+    expect(state.loadDashboardCatalogDashboards).not.toHaveBeenCalled();
+    expect(state.getUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("reports a dictionary source cap even when no cursor can recover omitted entries", async () => {
+    state.userSettings = Array.from({ length: 201 }, (_, index) => ({
+      key: `data-dict-builder-user-${index}`,
+      value: {
+        id: `builder-user-${index}`,
+        metric: `Builder user ${index}`,
+        definition: "Builder user metadata.",
+        table: "dim_users_core",
+      },
+    }));
+
+    const result = await searchAnalyticsDictionaryCatalog({
+      search: "Builder user",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 200,
+    });
+
+    expect(result).toMatchObject({
+      searched: 200,
+      of: 200,
+      truncated: true,
+      nextPage: null,
+      dictionarySearchTruncated: true,
+    });
+    expect(state.listDashboardSummaries).not.toHaveBeenCalled();
   });
 
   it("reports and logs when dashboard summary search reaches its cap", async () => {
@@ -537,7 +670,16 @@ describe("searchAnalyticsQueryCatalog", () => {
     });
     state.readSourceIndex.mockResolvedValueOnce({
       status: "available",
-      bundle: {} as never,
+      bundle: {
+        generatedAt: "2026-10-13T00:00:00.000Z",
+        sources: [
+          {
+            id: "dbt",
+            revision: "abcdef123456",
+            generatedAt: "2026-10-13T00:00:00.000Z",
+          },
+        ],
+      } as never,
     });
     state.sourceIndexDictionaryEntries.mockReturnValueOnce([
       {
@@ -589,7 +731,16 @@ describe("searchAnalyticsQueryCatalog", () => {
     ];
     state.readSourceIndex.mockResolvedValueOnce({
       status: "available",
-      bundle: {} as never,
+      bundle: {
+        generatedAt: "2026-10-13T00:00:00.000Z",
+        sources: [
+          {
+            id: "dbt",
+            revision: "abcdef123456",
+            generatedAt: "2026-10-13T00:00:00.000Z",
+          },
+        ],
+      } as never,
     });
     state.sourceIndexDictionaryEntries.mockReturnValueOnce([
       {

@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CommentComposer } from "./CommentComposer";
 
+vi.mock("@/hooks/use-mention-members", () => ({
+  useMentionMembers: () => ({ data: [], isError: false, refetch: vi.fn() }),
+}));
+
 describe("CommentComposer", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
@@ -27,8 +31,8 @@ describe("CommentComposer", () => {
           value: "A durable draft",
           onChange: vi.fn(),
           onSubmit: vi.fn(),
-          onMentionAdd: vi.fn(),
-          members: [],
+          mentions: [],
+          onMentionsChange: vi.fn(),
           disabled,
         }),
       );
@@ -49,5 +53,42 @@ describe("CommentComposer", () => {
     expect(editor.getAttribute("contenteditable")).toBe("true");
     expect(editor.className).toContain("agent-composer-prosemirror");
     expect(editor.className).toContain("max-h-[10rem]");
+  });
+
+  it("keeps Cancel on one line beside the Send to AI control", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(CommentComposer, {
+          value: "Make this more specific",
+          onChange: vi.fn(),
+          onSubmit: vi.fn(),
+          mentions: [],
+          onMentionsChange: vi.fn(),
+          onCancel: vi.fn(),
+          aiDraft: {
+            selection: {
+              model: "claude-sonnet-5-5",
+              engine: "anthropic",
+              provider: "Anthropic",
+            },
+            mode: "auto",
+          },
+        }),
+      );
+    });
+    const cancel = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Cancel",
+    )!;
+    const actions = cancel.parentElement!;
+
+    expect(actions.querySelector("[data-comment-ai-send-control]")).not.toBe(
+      null,
+    );
+    expect(cancel.classList).toContain("whitespace-nowrap");
+    expect(cancel.classList).toContain("shrink-0");
+    expect(actions.classList).toContain("shrink-0");
   });
 });

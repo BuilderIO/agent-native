@@ -26,7 +26,10 @@ import {
   readConfiguredWorkspaceAppHomePath,
 } from "../workspace-app-config.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
-import { readBuiltinAgentsConfig } from "./builtin-agents.js";
+import {
+  readBuiltinAgentsConfig,
+  type BuiltinAgentsConfig,
+} from "./builtin-agents.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -333,18 +336,26 @@ export function shouldIncludeRemoteAgentManifest(
 }
 
 function builtinAgentsFor(
-  ids: readonly string[],
+  config: BuiltinAgentsConfig,
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
 ): DiscoveredAgent[] {
   const normalizedSelfAppId = selfAppId ? normalizeAgentId(selfAppId) : "";
+  const useLocalUrls =
+    options?.preferLocalUrls === true || shouldUseLocalAgentUrls();
   return BUILTIN_AGENT_CATALOG.filter(
-    (app) => ids.includes(app.id) && app.id !== normalizedSelfAppId && app.url,
+    (app) =>
+      config.include.includes(app.id) &&
+      app.id !== normalizedSelfAppId &&
+      app.url,
   ).map((app) => ({
     id: app.id,
     name: app.name,
     description: app.description,
-    url: resolveAgentUrl(app, options?.preferLocalUrls),
+    url:
+      !useLocalUrls && config.urls?.[app.id]
+        ? config.urls[app.id]
+        : resolveAgentUrl(app, options?.preferLocalUrls),
     color: app.color,
   }));
 }
@@ -354,11 +365,7 @@ export function getBuiltinAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
 ): DiscoveredAgent[] {
-  return builtinAgentsFor(
-    readBuiltinAgentsConfig().include,
-    selfAppId,
-    options,
-  );
+  return builtinAgentsFor(readBuiltinAgentsConfig(), selfAppId, options);
 }
 
 function isUnofferedBuiltinManifest(
@@ -368,6 +375,53 @@ function isUnofferedBuiltinManifest(
   return (
     isBuiltinAgentCatalogId(manifestId) && !offeredBuiltinIds.has(manifestId)
   );
+}
+
+function resolveRemoteAgentManifestUrl(
+  manifestId: string,
+  rawManifestId: string,
+  manifestUrl: string,
+  builtin: DiscoveredAgent | undefined,
+  options?: { preferLocalUrls?: boolean },
+): { url: string; isLegacyAliasManifest: boolean } | undefined {
+  const catalogBuiltin = BUILTIN_AGENT_CATALOG.find(
+    (candidate) => candidate.id === manifestId,
+  );
+  const hosted = isHostedRuntime();
+  let url = manifestUrl;
+
+  if (hosted && isLoopbackUrl(url)) {
+    if (builtin?.url) url = builtin.url;
+    else return undefined;
+  }
+
+  if (catalogBuiltin && builtin && manifestUrl === catalogBuiltin.url) {
+    url = builtin.url;
+  }
+
+  if (options?.preferLocalUrls && builtin && catalogBuiltin) {
+    url = builtin.url;
+  }
+
+  const isLegacyAliasManifest =
+    rawManifestId.trim().toLowerCase() !== manifestId;
+  if (isLegacyAliasManifest && builtin?.url) {
+    try {
+      const hostname = new URL(url).hostname;
+      const legacyHost =
+        rawManifestId.trim().toLowerCase() === "videos" &&
+        manifestId === "clips"
+          ? "videos.agent-native.com"
+          : "images.agent-native.com";
+      if (hostname === legacyHost) {
+        url = builtin.url;
+      }
+    } catch {
+      url = builtin.url;
+    }
+  }
+
+  return { url, isLegacyAliasManifest };
 }
 
 export async function discoverAgents(
@@ -440,37 +494,21 @@ export async function discoverAgents(
         const manifestId = normalizeAgentId(manifest.id);
         if (isUnofferedBuiltinManifest(manifestId, offeredBuiltinIds)) continue;
 
-        let url = manifest.url;
-        const isHosted = isHostedRuntime();
-        if (isHosted && typeof url === "string" && isLoopbackUrl(url)) {
-          const builtin = agentsById.get(manifestId);
-          if (builtin?.url) url = builtin.url;
-          else continue;
-        }
-
         const builtin = agentsById.get(manifestId);
-        if (options?.preferLocalUrls && builtin) {
-          const isBuiltinAgent = BUILTIN_AGENT_CATALOG.some(
-            (candidate) => candidate.id === manifestId,
-          );
-          if (isBuiltinAgent) url = builtin.url;
-        }
-        const isLegacyAssetsManifest =
-          manifest.id.trim().toLowerCase() !== manifestId;
-        if (isLegacyAssetsManifest && builtin?.url) {
-          try {
-            if (new URL(url).hostname === "images.agent-native.com") {
-              url = builtin.url;
-            }
-          } catch {
-            url = builtin.url;
-          }
-        }
+        const resolved = resolveRemoteAgentManifestUrl(
+          manifestId,
+          manifest.id,
+          manifest.url,
+          builtin,
+          options,
+        );
+        if (!resolved) continue;
+        const { url, isLegacyAliasManifest } = resolved;
 
         agentsById.set(manifestId, {
           id: manifestId,
           name:
-            isLegacyAssetsManifest && builtin?.name
+            isLegacyAliasManifest && builtin?.name
               ? builtin.name
               : manifest.name,
           description: manifest.description || "",
@@ -616,34 +654,20 @@ async function overlayRemoteAgentResources(
     if (!shouldIncludeRemoteAgentManifest(manifest, selfAppId)) continue;
     const manifestId = normalizeAgentId(manifest.id);
     if (isUnofferedBuiltinManifest(manifestId, offeredBuiltinIds)) continue;
-    let url = manifest.url;
     const builtin = agentsById.get(manifestId);
-    if (isHostedRuntime() && isLoopbackUrl(url)) {
-      if (builtin?.url) url = builtin.url;
-      else continue;
-    }
-    if (
-      options?.preferLocalUrls &&
-      builtin &&
-      BUILTIN_AGENT_CATALOG.some((candidate) => candidate.id === manifestId)
-    ) {
-      url = builtin.url;
-    }
-    const isLegacyAssetsManifest =
-      manifest.id.trim().toLowerCase() !== manifestId;
-    if (isLegacyAssetsManifest && builtin?.url) {
-      try {
-        if (new URL(url).hostname === "images.agent-native.com") {
-          url = builtin.url;
-        }
-      } catch {
-        url = builtin.url;
-      }
-    }
+    const resolved = resolveRemoteAgentManifestUrl(
+      manifestId,
+      manifest.id,
+      manifest.url,
+      builtin,
+      options,
+    );
+    if (!resolved) continue;
+    const { url, isLegacyAliasManifest } = resolved;
     agentsById.set(manifestId, {
       id: manifestId,
       name:
-        isLegacyAssetsManifest && builtin?.name ? builtin.name : manifest.name,
+        isLegacyAliasManifest && builtin?.name ? builtin.name : manifest.name,
       description: manifest.description || "",
       url,
       // guard:allow-raw-color — agent manifests require a portable color value, not a UI theme token.

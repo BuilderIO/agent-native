@@ -1,16 +1,37 @@
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedExtension,
   ExtensionSlot,
 } from "@agent-native/toolkit/app/extensions";
-import type { DashboardFunnelRows } from "@shared/dashboard-funnel";
+import { InlineMarkdown } from "@agent-native/toolkit/app/review";
+import {
+  isCategoryAxis,
+  planCategoryAxis,
+  trimToWidth,
+  type CategoryAxisPlan,
+} from "@shared/chart-axis-labels";
+import {
+  funnelOutcomeShare,
+  type DashboardFunnelItem,
+  type DashboardFunnelOutcomes,
+  type DashboardFunnelOutcomeSummary,
+  type DashboardFunnelRows,
+} from "@shared/dashboard-funnel";
+import { formatDollars } from "@shared/format-dollars";
 import {
   isNumericLikeValue,
   limitChartRows,
   planPanelRender,
+  resolveSeriesColors,
+  type ChartPointLimit,
   type HeatmapKeys,
 } from "@shared/panel-render-contract";
+import {
+  FUNNEL_OUTCOME_FILLS,
+  FUNNEL_OUTCOME_SEGMENTS,
+  type FunnelOutcomeSegment,
+} from "@shared/tokens/funnel-outcome-colors";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -18,13 +39,16 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconAlertTriangle,
+  IconEye,
   IconInfoCircle,
+  IconPencil,
   IconRefresh,
   IconTrendingUp,
   IconTrendingDown,
 } from "@tabler/icons-react";
 import {
   createContext,
+  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -32,6 +56,9 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -51,12 +78,33 @@ import {
   PieChart,
   ResponsiveContainer,
   Tooltip,
+  usePlotArea,
   XAxis,
   YAxis,
 } from "recharts";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverAnchor,
@@ -69,12 +117,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip as HoverTooltip,
+  TooltipContent as HoverTooltipContent,
+  TooltipProvider as HoverTooltipProvider,
+  TooltipTrigger as HoverTooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
+import { csvCell } from "@/lib/csv";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const EMPTY_DRILLDOWN_SERIES: string[] = [];
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery, type SqlQueryResult } from "@/lib/sql-query";
+import { cn } from "@/lib/utils";
 import {
   resolveDualAxis,
   type ChartAxisSide,
@@ -89,7 +146,40 @@ import type {
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
 
+import {
+  DashboardPanelDescription,
+  renderDashboardMarkdownLink,
+  safeDashboardLinkHref,
+} from "./DashboardPanelDescription";
+
+export {
+  DashboardPanelDescription,
+  renderDashboardMarkdownLink,
+  safeDashboardLinkHref,
+} from "./DashboardPanelDescription";
+
+import {
+  usePanelDataNotes,
+  usePanelEvents,
+} from "./dashboard-annotations-context";
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
+import {
+  DataNoteLines,
+  renderDataNoteBands,
+  useDataNoteChartMargin,
+  useDataNoteLayout,
+} from "./data-note-bands";
+import {
+  renderEventMarkers,
+  useEventMarkerAxisPadding,
+  useEventMarkerGroups,
+} from "./event-markers";
+import {
+  useIsStaleResult,
+  useRefreshConfirmation,
+  type PanelFreshness,
+} from "./panel-freshness";
+import { PanelFreshnessClock } from "./PanelFreshnessClock";
 
 export { limitChartRows };
 
@@ -194,7 +284,7 @@ function formatYValue(
   value: number,
   formatter?: "number" | "currency" | "percent",
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
@@ -517,13 +607,6 @@ function formatSeriesLabel(value: string): string {
   return truncateLabel(metric || value);
 }
 
-function csvEscape(value: string): string {
-  if (/[",\n\r]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
-
 function usesPrometheusPresentation(panel: SqlPanel): boolean {
   return panel.source === "prometheus" || panel.source === "demo";
 }
@@ -598,16 +681,22 @@ function tooltipItemName(item: {
   return String(item.name ?? item.dataKey ?? "");
 }
 
+/** Sorts by value, or by `order` (series names) first when given. */
 export function sortTooltipPayloadItems<
   T extends {
     dataKey?: string | number;
     name?: string | number;
     value?: unknown;
   },
->(items: T[]): T[] {
+>(items: T[], order?: readonly string[]): T[] {
+  const rank = new Map(order?.map((name, index) => [name, index]));
   const sorted = items
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
+      const ranked =
+        (rank.get(tooltipItemName(a.item)) ?? rank.size) -
+        (rank.get(tooltipItemName(b.item)) ?? rank.size);
+      if (ranked !== 0) return ranked;
       const diff =
         numericTooltipValue(b.item.value) - numericTooltipValue(a.item.value);
       return diff !== 0 ? diff : a.index - b.index;
@@ -873,6 +962,9 @@ function ChartFrame({
   onToggleLegendKey,
   onFilterLegendKey,
   showCustomLegend = false,
+  footer,
+  drilldownItems,
+  onDatumClick,
   children,
 }: {
   panel: SqlPanel;
@@ -882,6 +974,9 @@ function ChartFrame({
   onToggleLegendKey?: (key: string) => void;
   onFilterLegendKey?: (key: string) => void;
   showCustomLegend?: boolean;
+  footer?: ReactNode;
+  drilldownItems?: (offset: number, limit: number) => AccessibleDrilldownPage;
+  onDatumClick?: DatumClickHandler;
   children: ReactNode;
 }) {
   const fill = useContext(ChartFillHeightContext);
@@ -891,7 +986,16 @@ function ChartFrame({
 
   if (!renderLegend) {
     return (
-      <div className={`${chartHeight} w-full overflow-visible`}>{children}</div>
+      <>
+        <div className={`${chartHeight} w-full overflow-visible`}>
+          {children}
+        </div>
+        <ChartDrilldownList
+          getItems={drilldownItems}
+          onDatumClick={onDatumClick}
+        />
+        {footer}
+      </>
     );
   }
 
@@ -904,6 +1008,10 @@ function ChartFrame({
       >
         {children}
       </div>
+      <ChartDrilldownList
+        getItems={drilldownItems}
+        onDatumClick={onDatumClick}
+      />
       <SeriesLegend
         keys={legendKeys}
         colors={colors}
@@ -912,6 +1020,7 @@ function ChartFrame({
         onToggleKey={onToggleLegendKey}
         onFilterKey={onFilterLegendKey}
       />
+      {footer}
     </div>
   );
 }
@@ -1034,6 +1143,7 @@ export function ChartTooltip({
   seriesNameFormatter,
   valueFormatter,
   stacked,
+  seriesOrder,
 }: {
   active?: boolean;
   payload?: Array<{
@@ -1048,14 +1158,17 @@ export function ChartTooltip({
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number, name?: string | number) => string;
   stacked?: boolean;
+  /** Series names in draw order; a stacked chart lists them this way. */
+  seriesOrder?: readonly string[];
 }) {
   const items = useMemo(
     () =>
       sortTooltipPayloadItems(
         payload?.filter((item) => item.value != null && item.value !== "") ??
           [],
+        stacked ? seriesOrder : undefined,
       ),
-    [payload],
+    [payload, seriesOrder, stacked],
   );
   const isVisible = Boolean(active) && items.length > 0;
   const { anchorRef, boxRef } = useChartTooltipPortalPosition(
@@ -1090,7 +1203,7 @@ export function ChartTooltip({
         <div className="mb-1.5 font-semibold text-foreground">{totalValue}</div>
       )}
       {labelText && (
-        <div className="mb-1.5 truncate font-medium text-foreground">
+        <div className="mb-1.5 break-words font-medium text-foreground">
           {labelText}
         </div>
       )}
@@ -1140,22 +1253,390 @@ function ConfigWarning({ keys }: { keys: string[] }) {
   );
 }
 
+function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
+  const t = useT();
+  const formatters = useFormatters();
+  return (
+    <p
+      data-chart-point-limit
+      className="mt-1 text-[11px] leading-4 text-muted-foreground"
+    >
+      {t(
+        limit.keeps === "newest"
+          ? "sqlDashboard.chartPointLimitNewest"
+          : limit.keeps === "last"
+            ? "sqlDashboard.chartPointLimitLast"
+            : "sqlDashboard.chartPointLimitFirst",
+        {
+          shown: formatters.formatNumber(limit.shown),
+          total: formatters.formatNumber(limit.total),
+        },
+      )}
+    </p>
+  );
+}
+
+export interface ChartDatum {
+  x: string;
+  series?: string;
+  value?: unknown;
+}
+
+type DatumClickHandler = (datum: ChartDatum) => void;
+
+interface AccessibleDrilldownItem {
+  datum: ChartDatum;
+  label: string;
+  valueLabel?: string;
+}
+
+interface AccessibleDrilldownPage {
+  items: AccessibleDrilldownItem[];
+  total: number;
+}
+
+const DRILLDOWN_PAGE_SIZE = 100;
+
+function chartDrilldownItems(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  seriesKeys: string[],
+  valueKeys: string[],
+  formatXLabel: (value: unknown) => string,
+  formatSeriesLabel: (key: string) => string,
+  formatValue: (value: unknown, key?: string) => string,
+  formatList: (values: string[]) => string,
+  offset: number,
+  limit: number,
+): AccessibleDrilldownPage {
+  const seriesPerRow = Math.max(seriesKeys.length, 1);
+  const total = rows.length * seriesPerRow;
+  const end = Math.min(offset + limit, total);
+  const items: AccessibleDrilldownItem[] = [];
+
+  for (let index = offset; index < end; index += 1) {
+    const row = rows[Math.floor(index / seriesPerRow)];
+    const series =
+      seriesKeys.length > 0 ? seriesKeys[index % seriesPerRow] : null;
+    const x = stringifyValue(row[xKey]);
+    const label = formatXLabel(row[xKey]);
+    items.push(
+      series !== null
+        ? {
+            datum: { x, series, value: row[series] },
+            label: `${label} · ${formatSeriesLabel(series)}`,
+            valueLabel: formatValue(row[series], series),
+          }
+        : {
+            datum: {
+              x,
+              value: valueKeys.length === 1 ? row[valueKeys[0]] : undefined,
+            },
+            label:
+              valueKeys.length > 1
+                ? `${label} · ${formatList(
+                    valueKeys.map(
+                      (key) =>
+                        `${formatSeriesLabel(key)}: ${formatValue(row[key], key)}`,
+                    ),
+                  )}`
+                : label,
+            valueLabel:
+              valueKeys.length === 1
+                ? formatValue(row[valueKeys[0]], valueKeys[0])
+                : undefined,
+          },
+    );
+  }
+
+  return { items, total };
+}
+
+function useChartDrilldownItems(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  seriesKeys: string[],
+  formatXLabel: (value: unknown) => string,
+  formatSeriesLabel: (key: string) => string,
+  valueKeys: string[],
+  valueFormatter: (value: number, name?: string | number) => string,
+) {
+  const formatters = useFormatters();
+  const formatAccessibleXLabel = useCallback(
+    (value: unknown) => {
+      const text = stringifyValue(value);
+      const dateKey =
+        /^\d{8}$/.test(text) || /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(text);
+      const date = dateKey ? parseCalendarDate(text) : null;
+      if (!date) return formatXLabel(value);
+      return formatters.formatDate(date, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        ...(isDailyChartKey(xKey) ? { weekday: "long" } : {}),
+      });
+    },
+    [formatXLabel, formatters, xKey],
+  );
+  const formatValue = useCallback(
+    (value: unknown, key?: string) => {
+      if (value == null || (typeof value === "string" && !value.trim())) {
+        return stringifyValue(value);
+      }
+      const numeric = typeof value === "number" ? value : Number(value);
+      return Number.isFinite(numeric)
+        ? valueFormatter(numeric, key)
+        : stringifyValue(value);
+    },
+    [valueFormatter],
+  );
+  return useCallback(
+    (offset: number, limit: number) =>
+      chartDrilldownItems(
+        rows,
+        xKey,
+        seriesKeys,
+        valueKeys,
+        formatAccessibleXLabel,
+        formatSeriesLabel,
+        formatValue,
+        formatters.formatList,
+        offset,
+        limit,
+      ),
+    [
+      rows,
+      xKey,
+      seriesKeys,
+      formatAccessibleXLabel,
+      formatSeriesLabel,
+      valueKeys,
+      formatValue,
+      formatters.formatList,
+    ],
+  );
+}
+
+function ChartDrilldownList({
+  getItems,
+  onDatumClick,
+}: {
+  getItems?: (offset: number, limit: number) => AccessibleDrilldownPage;
+  onDatumClick?: DatumClickHandler;
+}) {
+  const t = useT();
+  const formatters = useFormatters();
+  const [open, setOpen] = useState(false);
+  const [pagination, setPagination] = useState({ getItems, page: 0 });
+  const page = pagination.getItems === getItems ? pagination.page : 0;
+  const result = useMemo(
+    () =>
+      open
+        ? (getItems?.(page * DRILLDOWN_PAGE_SIZE, DRILLDOWN_PAGE_SIZE) ?? {
+            items: [],
+            total: 0,
+          })
+        : null,
+    [getItems, open, page],
+  );
+  if (!onDatumClick || !getItems) return null;
+
+  const actionLabel = t("sqlDashboard.drilldownChartPoints");
+  const total = result?.total ?? 0;
+  const start = page * DRILLDOWN_PAGE_SIZE;
+  const end = Math.min(start + DRILLDOWN_PAGE_SIZE, total);
+  const updatePage = (update: (current: number) => number) =>
+    setPagination((current) => ({
+      getItems,
+      page: update(current.getItems === getItems ? current.page : 0),
+    }));
+  return (
+    <details
+      className="px-1 text-xs"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="w-fit cursor-pointer rounded px-1 py-1 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        {actionLabel}
+      </summary>
+      {open && (
+        <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto rounded-sm border border-border/50 p-1">
+          {result?.items.map(({ datum, label, valueLabel }, index) => {
+            const formattedValue = valueLabel ? ` · ${valueLabel}` : "";
+            const pointLabel = `${label}${formattedValue}`;
+            return (
+              <li key={`${datum.x}:${datum.series ?? ""}:${index}`}>
+                <button
+                  type="button"
+                  aria-label={`${actionLabel}: ${pointLabel}`}
+                  className="w-full rounded px-2 py-1 text-left text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => onDatumClick(datum)}
+                >
+                  {pointLabel}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {open && total > DRILLDOWN_PAGE_SIZE && (
+        <div className="flex items-center justify-end gap-2 pt-1 text-xs text-muted-foreground">
+          <span aria-live="polite">
+            {t("sqlDashboard.drilldownPageRange", {
+              start: formatters.formatNumber(start + 1),
+              end: formatters.formatNumber(end),
+              total: formatters.formatNumber(total),
+            })}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 aria-disabled:opacity-50"
+            aria-label={t("sqlDashboard.drilldownPreviousPage")}
+            aria-disabled={page === 0}
+            onClick={() => {
+              if (page > 0) updatePage((current) => current - 1);
+            }}
+          >
+            <IconChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 aria-disabled:opacity-50"
+            aria-label={t("sqlDashboard.drilldownNextPage")}
+            aria-disabled={end >= total}
+            onClick={() => {
+              if (end < total) updatePage((current) => current + 1);
+            }}
+          >
+            <IconChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+    </details>
+  );
+}
+
+function rowDatum(
+  rows: Record<string, unknown>[],
+  index: unknown,
+  xKey: string,
+  series?: string,
+  valueKey?: string,
+): ChartDatum | null {
+  const row = rows[Number(index)];
+  if (!row) return null;
+  return {
+    x: stringifyValue(row[xKey]),
+    series,
+    value: valueKey ? row[valueKey] : undefined,
+  };
+}
+
+function chartClickProps(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  onDatumClick: DatumClickHandler | undefined,
+) {
+  if (!onDatumClick) return {};
+  return {
+    style: { cursor: "pointer" } as CSSProperties,
+    onClick: (state: {
+      activeIndex?: unknown;
+      activeTooltipIndex?: unknown;
+    }) => {
+      const datum = rowDatum(
+        rows,
+        state?.activeIndex ?? state?.activeTooltipIndex,
+        xKey,
+      );
+      if (datum) onDatumClick(datum);
+    },
+  };
+}
+
+function chartSeriesClickProps(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  series: string | undefined,
+  valueKey: string,
+  onDatumClick: DatumClickHandler | undefined,
+) {
+  if (!onDatumClick) return {};
+  return {
+    style: { cursor: "pointer" } as CSSProperties,
+    onClick: (
+      _data: unknown,
+      index: unknown,
+      event?: { stopPropagation?: () => void },
+    ) => {
+      event?.stopPropagation?.();
+      const datum = rowDatum(rows, index, xKey, series, valueKey);
+      if (datum) onDatumClick(datum);
+    },
+  };
+}
+
 interface SqlChartProps {
   panel: SqlPanel;
+  onDatumClick?: DatumClickHandler;
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
   resultOverride?: SqlQueryResult;
   showLoadingWhenDisabled?: boolean;
+  /**
+   * `loadData: false` means the panel is only offscreen, so its last result
+   * stays on screen, marked as the previous filters when its SQL has changed,
+   * instead of the skeleton.
+   */
+  retainWhileOffscreen?: boolean;
   timeRange?: number;
   reportScreenshot?: boolean;
   refreshToken?: number;
   onRefreshRequested?: () => void;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  /**
+   * The freshness of the result on screen, for a host that shows it outside
+   * the chart; null when no result is shown, and again when the chart unmounts.
+   */
+  onFreshnessChange?: (freshness: PanelFreshness | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
+  /** Passing this makes a table's columns editable; omit it for read-only tables. */
+  onSaveColumns?: (columns: TableColumnConfig[]) => void;
+  /** One viewer's own column widths, drawn over the panel's saved ones. */
+  columnWidths?: Record<string, number>;
+  /**
+   * Passing this lets a viewer drag column widths for themselves; the drag
+   * calls this instead of `onSaveColumns`, and null resets the column.
+   */
+  onColumnWidthChange?: (columnKey: string, width: number | null) => void;
+  /** Passing this makes a table's rows clickable; it gets the row and the rows in shown order. */
+  onTableRowClick?: TableRowClickHandler;
+  isTableRowActive?: (row: Record<string, unknown>) => boolean;
   dashboardId?: string;
   extensionContext?: Record<string, unknown> | null;
 }
+
+/**
+ * `rows` are the table's rows in display order; `resultRows` are every row
+ * the query returned, before `config.limit`, and `resultTruncated` says the
+ * query itself returned only part of its rows.
+ */
+export type TableRowClickHandler = (
+  row: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+  resultRows: Record<string, unknown>[],
+  resultTruncated: boolean,
+) => void;
+
+type TableRendererRowClick = (
+  row: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+  resultRows: Record<string, unknown>[],
+) => void;
 
 export function SqlChart({
   panel,
@@ -1163,14 +1644,22 @@ export function SqlChart({
   loadData = true,
   resultOverride,
   showLoadingWhenDisabled = true,
+  retainWhileOffscreen = false,
   timeRange,
   reportScreenshot = false,
   refreshToken = 0,
   onRefreshRequested,
   onExportCsvChange,
+  onFreshnessChange,
   onCopyTableChange,
+  onSaveColumns,
+  columnWidths,
+  onColumnWidthChange,
+  onTableRowClick,
+  isTableRowActive,
   dashboardId,
   extensionContext,
+  onDatumClick,
 }: SqlChartProps) {
   const t = useT();
   const { enabled: demoModeEnabled } = useDemoModeStatus();
@@ -1179,11 +1668,35 @@ export function SqlChart({
   const shouldQuery = !isSection && !isExtension && loadData && !resultOverride;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
   const [localRefreshToken, setLocalRefreshToken] = useState(0);
+  // Only a pivot reads the time range, so only a pivot's rows depend on it.
+  const pivotTimeRange = panel.config?.pivot ? (timeRange ?? null) : null;
+  const retainPreviousScope = useMemo(
+    () =>
+      JSON.stringify([
+        dashboardId ?? null,
+        panel.id,
+        panel.source,
+        panel.chartType,
+        panel.config ?? null,
+        pivotTimeRange,
+      ]),
+    [
+      dashboardId,
+      panel.id,
+      panel.source,
+      panel.chartType,
+      panel.config,
+      pivotTimeRange,
+    ],
+  );
   const {
     data: queryResult,
     isLoading: queryIsLoading,
     isFetching: queryIsFetching,
+    isPlaceholderData: queryIsPlaceholderData,
     error: queryError,
+    freshness: queryFreshness,
+    completedManualRefreshToken,
   } = useSqlQuery(
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
@@ -1192,20 +1705,40 @@ export function SqlChart({
       enabled: shouldQuery,
       reportScreenshot,
       refreshToken: refreshToken + localRefreshToken,
+      retainPreviousScope,
+      retainWhilePaused: retainWhileOffscreen,
+      reuseCompletedOnEnable: retainWhileOffscreen,
+      snapshots: !isSection && !isExtension && !resultOverride,
     },
   );
 
   const result = resultOverride ?? queryResult;
   const isLoading = resultOverride ? false : queryIsLoading;
-  const isFetching = resultOverride ? false : queryIsFetching;
   const rawRows = result?.rows ?? [];
+  // The last completed result, including a result with no rows, stays on
+  // screen while the next query runs. Only a first load, or a retry of a
+  // failure with nothing to show, has no result to keep and shows the skeleton.
+  const isUpdating =
+    !resultOverride &&
+    queryIsFetching &&
+    queryResult !== undefined &&
+    (rawRows.length > 0 || !queryError);
+  const isShowingPreviousFilters =
+    !resultOverride && queryResult !== undefined && queryIsPlaceholderData;
+  const isPausedOnPreviousFilters =
+    !resultOverride &&
+    retainWhileOffscreen &&
+    !loadData &&
+    queryResult !== undefined &&
+    queryIsPlaceholderData;
+  const isFetching = resultOverride ? false : queryIsFetching && !isUpdating;
   const error =
     rawRows.length === 0
       ? (result?.error ??
         (queryError ? formatSqlChartError(queryError) : undefined))
       : undefined;
   const refreshError =
-    shouldQuery && rawRows.length > 0 && queryError
+    shouldQuery && rawRows.length > 0 && queryError && !isUpdating
       ? formatSqlChartError(queryError)
       : undefined;
   const requestRefresh = () => {
@@ -1237,18 +1770,70 @@ export function SqlChart({
         ? "area"
         : panel.chartType;
   const chartRows = useMemo(
-    () => limitChartRows(rows, chartType),
-    [chartType, rows],
+    () => limitChartRows(rows, chartType, xKey),
+    [chartType, rows, xKey],
   );
+
+  const showsRetainedResult = retainWhileOffscreen && queryResult !== undefined;
+  const showsSkeleton =
+    isLoading ||
+    isFetching ||
+    (!loadData && showLoadingWhenDisabled && !showsRetainedResult);
+  // A result handed in by the caller was not fetched by this panel's query.
+  const shownFreshness = resultOverride ? undefined : queryFreshness;
+  const isStale = useIsStaleResult(shownFreshness?.fetchedAt);
+  const refreshConfirmed = useRefreshConfirmation({
+    requestToken: refreshToken + localRefreshToken,
+    scopeKey: JSON.stringify([
+      dashboardId ?? null,
+      panel.id,
+      panel.source,
+      sql,
+    ]),
+    completedToken: completedManualRefreshToken,
+  });
+  const canReportFreshness =
+    !isSection && !isExtension && !resultOverride && !error && !showsSkeleton;
+  const reportedCache = shownFreshness?.cache;
+  const reportedFetchedAt = shownFreshness?.fetchedAt;
+  const reportedStatus: PanelFreshness["status"] = isUpdating
+    ? isShowingPreviousFilters
+      ? "previous-filters-updating"
+      : "updating"
+    : isPausedOnPreviousFilters
+      ? "previous-filters"
+      : refreshConfirmed
+        ? "refreshed"
+        : isStale
+          ? "stale"
+          : undefined;
+  useEffect(() => {
+    if (!onFreshnessChange) return;
+    onFreshnessChange(
+      canReportFreshness && (reportedCache || reportedStatus)
+        ? {
+            fetchedAt: reportedFetchedAt,
+            cache: reportedCache ?? "unknown",
+            ...(reportedStatus ? { status: reportedStatus } : {}),
+          }
+        : null,
+    );
+    return () => onFreshnessChange(null);
+  }, [
+    onFreshnessChange,
+    canReportFreshness,
+    reportedCache,
+    reportedFetchedAt,
+    reportedStatus,
+  ]);
 
   if (isSection) {
     return (
       <div className="px-1 py-2">
-        {panel.config?.description && (
-          <p className="text-sm text-muted-foreground">
-            {panel.config.description}
-          </p>
-        )}
+        <DashboardPanelDescription
+          description={panel.config?.description}
+          className="text-sm text-muted-foreground"
+        />
       </div>
     );
   }
@@ -1274,7 +1859,15 @@ export function SqlChart({
       />
     );
   }
-  const colors = panel.config?.colors || DEFAULT_COLORS;
+  const colors = panel.config?.colors?.length
+    ? panel.config.colors
+    : DEFAULT_COLORS;
+  const seriesColors = resolveSeriesColors(
+    plan.yKeys,
+    plan.colorSlots,
+    panel,
+    colors,
+  );
   const yFormatter = panel.config?.yFormatter;
 
   const isMetric = panel.chartType === "metric";
@@ -1286,7 +1879,7 @@ export function SqlChart({
       : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  if (isLoading || isFetching || (!loadData && showLoadingWhenDisabled)) {
+  if (showsSkeleton) {
     return <SqlChartLoadingSkeleton panel={panel} />;
   }
 
@@ -1315,15 +1908,22 @@ export function SqlChart({
   }
 
   const missingConfigKeys = plan.missingKeys;
-  const withConfigWarning = (node: ReactNode) => {
+  const withConfigBanners = (node: ReactNode) => {
+    let content = node;
     if (refreshError) {
-      return (
+      content = (
         <div className="flex h-full min-h-0 flex-col gap-2">
           <div
             className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
             role="alert"
           >
             <p className="min-w-0 break-words text-xs text-destructive">
+              {isShowingPreviousFilters ? (
+                <span className="font-medium">
+                  {t("sqlDashboard.previousFilters")}
+                  {" · "}
+                </span>
+              ) : null}
               {refreshError}
             </p>
             <Button
@@ -1336,27 +1936,87 @@ export function SqlChart({
               {t("sqlDashboard.refresh")}
             </Button>
           </div>
-          {missingConfigKeys.length > 0 && (
+          {missingConfigKeys.length > 0 ? (
             <ConfigWarning keys={missingConfigKeys} />
-          )}
+          ) : null}
           <div className="min-h-0 flex-1">{node}</div>
         </div>
       );
+    } else if (missingConfigKeys.length > 0) {
+      content = (
+        <div className="space-y-2">
+          <ConfigWarning keys={missingConfigKeys} />
+          {node}
+        </div>
+      );
     }
-    return missingConfigKeys.length > 0 ? (
-      <div className="space-y-2">
-        <ConfigWarning keys={missingConfigKeys} />
+
+    if (
+      typeof panel.config?.description !== "string" ||
+      !panel.config.description
+    ) {
+      return content;
+    }
+
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        <DashboardPanelDescription
+          description={panel.config.description}
+          className="text-sm text-muted-foreground"
+        />
+        <div className="min-h-0 flex-1">{content}</div>
+      </div>
+    );
+  };
+
+  const showStandaloneStatus =
+    !onFreshnessChange &&
+    (shownFreshness !== undefined || reportedStatus !== undefined);
+  const withNotice = (node: ReactNode) => (
+    <div
+      className={
+        showStandaloneStatus
+          ? "grid h-full min-h-0 grid-cols-[minmax(0,1fr)_1.5rem] items-start gap-x-1"
+          : "flex h-full min-h-0 flex-col"
+      }
+    >
+      <div data-dashboard-report-chart-body className="h-full min-h-0 min-w-0">
         {node}
+      </div>
+      {showStandaloneStatus ? (
+        <div data-dashboard-report-standalone-status className="min-w-0">
+          <HoverTooltipProvider>
+            <PanelFreshnessClock
+              freshness={{
+                cache: "unknown",
+                ...shownFreshness,
+                status: reportedStatus,
+              }}
+              className="h-6 w-6 p-1"
+            />
+          </HoverTooltipProvider>
+        </div>
+      ) : null}
+    </div>
+  );
+  const withConfigWarning = (node: ReactNode) =>
+    withNotice(withConfigBanners(node));
+
+  const pointLimit = plan.pointLimit;
+  const withPointLimit = (node: ReactNode) =>
+    pointLimit ? (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1">{node}</div>
+        <ChartPointLimitNote limit={pointLimit} />
       </div>
     ) : (
       node
     );
-  };
 
   if (plan.empty) {
     const noData = (
       <div
-        className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
+        className={`flex h-full flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
       >
         <p className="text-sm text-muted-foreground text-center">
           {t("common.noData")}
@@ -1366,7 +2026,9 @@ export function SqlChart({
     // A funnel or heatmap with rows that draws nothing keeps the warning and
     // refresh banner that say why; a result with no rows to plot is a bare
     // "No data".
-    return plan.rows.length === 0 ? noData : withConfigWarning(noData);
+    return plan.rows.length === 0
+      ? withNotice(noData)
+      : withConfigWarning(noData);
   }
 
   if (chartType === "metric") {
@@ -1380,64 +2042,101 @@ export function SqlChart({
         panel={panel}
         onExportCsvChange={onExportCsvChange}
         onCopyTableChange={onCopyTableChange}
+        onSaveColumns={onSaveColumns}
+        columnWidths={columnWidths}
+        onColumnWidthChange={onColumnWidthChange}
+        // Rows kept from the previous filters while new ones load belong to
+        // no current scope, so they open nothing.
+        onRowClick={
+          onTableRowClick && !isShowingPreviousFilters
+            ? (row, displayRows, resultRows) =>
+                onTableRowClick(
+                  row,
+                  displayRows,
+                  resultRows,
+                  result?.truncated === true,
+                )
+            : undefined
+        }
+        isRowActive={isTableRowActive}
       />,
     );
   }
 
   if (chartType === "pie") {
     return withConfigWarning(
-      <PieRenderer
-        rows={chartRows}
-        xKey={xKey}
-        yKey={yKeys[0]}
-        colors={colors}
-        panel={panel}
-      />,
+      withPointLimit(
+        <PieRenderer
+          rows={chartRows}
+          xKey={xKey}
+          yKey={yKeys[0]}
+          colors={colors}
+          panel={panel}
+          onDatumClick={onDatumClick}
+        />,
+      ),
     );
   }
 
   if (chartType === "bar") {
     return withConfigWarning(
-      <BarRenderer
-        rows={chartRows}
-        xKey={xKey}
-        yKeys={yKeys}
-        colors={colors}
-        yFormatter={yFormatter}
-        stacked={panel.config?.stacked === true}
-        panel={panel}
-      />,
+      withPointLimit(
+        <BarRenderer
+          rows={chartRows}
+          xKey={xKey}
+          yKeys={yKeys}
+          colors={seriesColors}
+          yFormatter={yFormatter}
+          stacked={panel.config?.stacked === true}
+          panel={panel}
+          onDatumClick={onDatumClick}
+        />,
+      ),
     );
   }
 
   if (chartType === "combo") {
     return withConfigWarning(
-      <ComboRenderer
-        rows={chartRows}
-        xKey={xKey}
-        yKeys={yKeys}
-        colors={colors}
-        yFormatter={yFormatter}
-        barKeys={panel.config?.barKeys ?? []}
-        panel={panel}
-      />,
+      withPointLimit(
+        <ComboRenderer
+          rows={chartRows}
+          xKey={xKey}
+          yKeys={yKeys}
+          colors={seriesColors}
+          yFormatter={yFormatter}
+          barKeys={panel.config?.barKeys ?? []}
+          panel={panel}
+          onDatumClick={onDatumClick}
+        />,
+      ),
     );
   }
 
   if (chartType === "funnel" && plan.funnel) {
     return withConfigWarning(
-      <FunnelRenderer funnel={plan.funnel} panel={panel} colors={colors} />,
+      withPointLimit(
+        <FunnelRenderer
+          funnel={plan.funnel}
+          panel={panel}
+          colors={colors}
+          onDatumClick={onDatumClick}
+        />,
+      ),
     );
   }
 
   if (chartType === "heatmap" && plan.heatmap) {
     return withConfigWarning(
-      <HeatmapRenderer rows={chartRows} panel={panel} keys={plan.heatmap} />,
+      withPointLimit(
+        <HeatmapRenderer rows={chartRows} panel={panel} keys={plan.heatmap} />,
+      ),
     );
   }
 
   if (chartType === "callout") {
-    return withConfigWarning(<CalloutRenderer rows={chartRows} />);
+    return withConfigWarning(
+      withPointLimit(<CalloutRenderer rows={chartRows} />),
+    );
   }
 
   if (chartType !== "line" && chartType !== "area") {
@@ -1445,16 +2144,19 @@ export function SqlChart({
   }
 
   return withConfigWarning(
-    <TimeSeriesRenderer
-      rows={chartRows}
-      xKey={xKey}
-      yKeys={yKeys}
-      colors={colors}
-      yFormatter={yFormatter}
-      chartType={chartType}
-      stacked={panel.config?.stacked === true}
-      panel={panel}
-    />,
+    withPointLimit(
+      <TimeSeriesRenderer
+        rows={chartRows}
+        xKey={xKey}
+        yKeys={yKeys}
+        colors={seriesColors}
+        yFormatter={yFormatter}
+        chartType={chartType}
+        stacked={panel.config?.stacked === true}
+        panel={panel}
+        onDatumClick={onDatumClick}
+      />,
+    ),
   );
 }
 
@@ -1560,11 +2262,6 @@ function MetricRenderer({
   return (
     <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
       <div className="text-3xl font-bold">{value}</div>
-      {panel.config?.description && (
-        <p className="text-xs text-muted-foreground mt-1">
-          {panel.config.description}
-        </p>
-      )}
     </div>
   );
 }
@@ -1620,6 +2317,38 @@ export function sortTableRows(
     .map(({ row }) => row);
 }
 
+/**
+ * Moves `fromKey` to the position `toKey` holds among the visible columns.
+ * Hidden entries keep their slots in the persisted list, so reordering never
+ * shifts a column the user hid.
+ */
+export function reorderColumnConfigs(
+  configs: TableColumnConfig[],
+  visibleKeys: string[],
+  fromKey: string,
+  toKey: string,
+): TableColumnConfig[] {
+  const from = visibleKeys.indexOf(fromKey);
+  const to = visibleKeys.indexOf(toKey);
+  if (from < 0 || to < 0 || from === to) return configs;
+
+  const nextVisible = [...visibleKeys];
+  nextVisible.splice(from, 1);
+  nextVisible.splice(to, 0, fromKey);
+
+  const visibleSet = new Set(visibleKeys);
+  const configByKey = new Map(configs.map((config) => [config.key, config]));
+  const next = [...configs];
+  let visibleIndex = 0;
+  configs.forEach((config, index) => {
+    if (!visibleSet.has(config.key)) return;
+    const entry = configByKey.get(nextVisible[visibleIndex]);
+    if (entry) next[index] = entry;
+    visibleIndex += 1;
+  });
+  return next;
+}
+
 export function formatCell(
   value: unknown,
   format: ColumnFormat | undefined,
@@ -1630,7 +2359,7 @@ export function formatCell(
     return numeric.toLocaleString();
   }
   if (format === "currency" && numeric !== null) {
-    return `$${numeric.toLocaleString()}`;
+    return formatDollars(numeric);
   }
   if (format === "percent" && numeric !== null) {
     const pct = numeric <= 1 && numeric >= -1 ? numeric * 100 : numeric;
@@ -1668,24 +2397,6 @@ export function buildTableClipboardText(
     ),
   ];
   return tableRows.map((row) => row.map(clipboardCell).join("\t")).join("\n");
-}
-
-export function safeDashboardLinkHref(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const href = value.trim();
-  if (!href) return null;
-  if (href.startsWith("//")) return null;
-
-  try {
-    const parsed = href.startsWith("/")
-      ? new URL(href, "https://agent-native.local")
-      : new URL(href);
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? href
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 function renderDeltaCell(value: unknown): ReactNode {
@@ -1748,23 +2459,85 @@ function isSessionColumn(key: string): boolean {
   return key === "session_id" || key === "sessionId";
 }
 
+export function isNumericColumnFormat(
+  format: ColumnFormat | undefined,
+): boolean {
+  return (
+    format === "number" ||
+    format === "currency" ||
+    format === "percent" ||
+    format === "delta"
+  );
+}
+
+/**
+ * Text columns that give way first in a narrow card, so numbers and dates
+ * stay whole; a capped cell ends in an ellipsis and keeps its full value in a
+ * hover title.
+ */
+export function truncatedTableColumns(
+  columns: TableColumnConfig[],
+  rows: Record<string, unknown>[],
+): Set<string> {
+  return new Set(
+    columns
+      .filter((col) => {
+        if (isNumericColumnFormat(col.format) || col.format === "date") {
+          return false;
+        }
+        if (col.format) return true;
+        const values = rows
+          .map((row) => row[col.key])
+          .filter((value) => value != null && value !== "");
+        return !values.length || isCategoryAxis(values);
+      })
+      .map((col) => col.key),
+  );
+}
+
+const MIN_TABLE_COLUMN_WIDTH = 48;
+const COLUMN_DRAG_MIME = "application/x-analytics-table-column";
+
+// A set width must also be the cell's max-width: with max-width 0 Chrome
+// resolves the preferred width to 0 and the column collapses to its padding.
+function sizedColumnClass(col: TableColumnConfig): string {
+  return col.width ? " overflow-hidden text-ellipsis" : "";
+}
+
+function sizedColumnStyle(width: number | undefined) {
+  return width ? { width, maxWidth: width } : undefined;
+}
+
 function TableRenderer({
   rows,
   panel,
   onExportCsvChange,
   onCopyTableChange,
+  onSaveColumns,
+  columnWidths,
+  onColumnWidthChange,
+  onRowClick,
+  isRowActive,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
+  onSaveColumns?: (columns: TableColumnConfig[]) => void;
+  columnWidths?: Record<string, number>;
+  onColumnWidthChange?: (columnKey: string, width: number | null) => void;
+  onRowClick?: TableRendererRowClick;
+  isRowActive?: (row: Record<string, unknown>) => boolean;
 }) {
   const t = useT();
   const config = panel.config;
   const sortable = config?.sortable !== false;
+  const editable = onSaveColumns !== undefined;
+  const personalResize = onColumnWidthChange !== undefined;
+  const resizable = editable || personalResize;
+  const rowKeys = useMemo(() => new Set(Object.keys(rows[0] ?? {})), [rows]);
 
-  const columns = useMemo<TableColumnConfig[]>(() => {
-    const rowKeys = new Set(Object.keys(rows[0] ?? {}));
+  const savedColumns = useMemo<TableColumnConfig[]>(() => {
     if (config?.columns?.length) {
       const configured = config.columns.filter(
         (c) => !c.hidden && rowKeys.has(c.key),
@@ -1772,7 +2545,314 @@ function TableRenderer({
       if (configured.length > 0) return configured;
     }
     return Object.keys(rows[0]).map((key) => ({ key }));
-  }, [config?.columns, rows]);
+  }, [config?.columns, rows, rowKeys]);
+
+  // A viewer's own widths are drawn over the saved ones but never saved:
+  // edits start from `editableColumns`, which reads the panel config.
+  const columns = useMemo<TableColumnConfig[]>(
+    () =>
+      columnWidths
+        ? savedColumns.map((c) =>
+            columnWidths[c.key] ? { ...c, width: columnWidths[c.key] } : c,
+          )
+        : savedColumns,
+    [savedColumns, columnWidths],
+  );
+
+  // Edits start from the persisted list, hidden entries included, so a change
+  // never drops a key the agent configured. Visible keys missing from it (the
+  // all-keys fallback above) are appended so every visible column is editable.
+  const editableColumns = useMemo<TableColumnConfig[]>(() => {
+    const base: TableColumnConfig[] = config?.columns?.length
+      ? config.columns
+      : Object.keys(rows[0] ?? {}).map((key) => ({ key }));
+    const listed = new Set(base.map((c) => c.key));
+    return [
+      ...base,
+      ...columns.filter((c) => !listed.has(c.key)).map((c) => ({ key: c.key })),
+    ];
+  }, [config?.columns, rows, columns]);
+
+  const hiddenColumns = editable
+    ? editableColumns.filter((c) => c.hidden && rowKeys.has(c.key))
+    : [];
+
+  const updateColumn = (key: string, patch: Partial<TableColumnConfig>) => {
+    onSaveColumns?.(
+      editableColumns.map((c) => (c.key === key ? { ...c, ...patch } : c)),
+    );
+  };
+
+  const moveColumn = (fromKey: string, toKey: string) => {
+    const next = reorderColumnConfigs(
+      editableColumns,
+      columns.map((c) => c.key),
+      fromKey,
+      toKey,
+    );
+    if (next !== editableColumns) onSaveColumns?.(next);
+  };
+
+  // While dragging, the live width stays local; the save happens on release.
+  const [resize, setResize] = useState<{
+    key: string;
+    startX: number;
+    startWidth: number;
+    width: number;
+  } | null>(null);
+
+  const renameKeyRef = useRef<string | null>(null);
+  const [renamingKey, setRenamingKey] = useState<string | null>(null);
+
+  const startRename = (key: string) => {
+    renameKeyRef.current = key;
+    setRenamingKey(key);
+  };
+
+  // A rename ends on blur or Escape; the ref makes the second call a no-op,
+  // since Escape unmounts the input and some browsers blur it on removal.
+  const finishRename = (key: string, draft: string | null) => {
+    if (renameKeyRef.current !== key) return;
+    renameKeyRef.current = null;
+    setRenamingKey(null);
+    if (draft === null) return;
+    const label = draft.trim();
+    const current = editableColumns.find((c) => c.key === key);
+    if (label === (current?.label ?? key)) return;
+    updateColumn(key, { label: label || undefined });
+  };
+
+  // The last column fills the table's remaining width, so widening it has no
+  // visible effect and its handle is not rendered.
+  const handleResizeStart = (
+    key: string,
+    event: ReactPointerEvent<HTMLSpanElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const header = event.currentTarget.closest("th");
+    if (!header) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startWidth = Math.round(header.getBoundingClientRect().width);
+    setResize({ key, startX: event.clientX, startWidth, width: startWidth });
+  };
+
+  const handleResizeMove = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    const { clientX } = event;
+    setResize(
+      (current) =>
+        current && {
+          ...current,
+          width: Math.max(
+            MIN_TABLE_COLUMN_WIDTH,
+            Math.round(current.startWidth + clientX - current.startX),
+          ),
+        },
+    );
+  };
+
+  // The width is recomputed from the release point rather than read from state,
+  // so a release that lands before React renders the last move still saves it.
+  const handleResizeEnd = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    if (resize === null) return;
+    setResize(null);
+    const width = Math.max(
+      MIN_TABLE_COLUMN_WIDTH,
+      Math.round(resize.startWidth + event.clientX - resize.startX),
+    );
+    if (width === resize.startWidth) return;
+    if (personalResize) onColumnWidthChange(resize.key, width);
+    else updateColumn(resize.key, { width });
+  };
+
+  const renderHeaderCell = (col: TableColumnConfig) => {
+    const label = col.label ?? col.key;
+    const sort = sortColumns.find((item) => item.key === col.key);
+    const isSorted = sort !== undefined;
+    const isRenaming = renamingKey === col.key;
+    const width = resize?.key === col.key ? resize.width : col.width;
+    const cell = (
+      <th
+        aria-sort={
+          sort
+            ? sort.direction === "asc"
+              ? "ascending"
+              : "descending"
+            : "none"
+        }
+        style={
+          sizedColumnStyle(width) ??
+          (truncatedColumns.has(col.key) ? truncatedHeaderStyle : undefined)
+        }
+        draggable={editable && !isRenaming && resize === null}
+        onDragStart={
+          editable
+            ? (event) => {
+                event.dataTransfer.setData(COLUMN_DRAG_MIME, col.key);
+                event.dataTransfer.effectAllowed = "move";
+              }
+            : undefined
+        }
+        onDragOver={
+          editable
+            ? (event) => {
+                if (event.dataTransfer.types.includes(COLUMN_DRAG_MIME)) {
+                  event.preventDefault();
+                }
+              }
+            : undefined
+        }
+        onDrop={
+          editable
+            ? (event) => {
+                const fromKey = event.dataTransfer.getData(COLUMN_DRAG_MIME);
+                if (!fromKey) return;
+                event.preventDefault();
+                moveColumn(fromKey, col.key);
+              }
+            : undefined
+        }
+        className={`text-left align-bottom py-1.5 px-2 font-medium text-muted-foreground ${
+          sortable ? "cursor-pointer select-none hover:text-foreground" : ""
+        } ${resizable ? "relative" : ""} ${width ? "overflow-hidden text-ellipsis whitespace-nowrap" : ""}`}
+        onClick={(event) => {
+          // The second click of a double-click renames the column and must not
+          // toggle the sort a second time.
+          if (event.detail > 1) return;
+          handleHeaderClick(col.key, event.shiftKey);
+        }}
+        title={sortable ? t("sqlDashboard.multiColumnSortHelp") : undefined}
+      >
+        <span className="inline-flex items-center gap-1">
+          {isRenaming ? (
+            <Input
+              autoFocus
+              defaultValue={label}
+              aria-label={t("sqlDashboard.columnName")}
+              className="h-6 w-32 px-1.5 py-0 text-sm font-medium"
+              onClick={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") finishRename(col.key, null);
+              }}
+              onBlur={(event) =>
+                finishRename(col.key, event.currentTarget.value)
+              }
+            />
+          ) : (
+            <>
+              <span
+                onDoubleClick={
+                  editable
+                    ? (event) => {
+                        event.stopPropagation();
+                        startRename(col.key);
+                      }
+                    : undefined
+                }
+              >
+                {label}
+              </span>
+              {sortable &&
+                (isSorted ? (
+                  sort?.direction === "asc" ? (
+                    <IconSortAscending className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <IconSortDescending className="h-3 w-3 shrink-0" />
+                  )
+                ) : (
+                  <IconArrowsSort className="h-3 w-3 shrink-0 opacity-30" />
+                ))}
+            </>
+          )}
+        </span>
+        {resizable &&
+        !isRenaming &&
+        col.key !== columns[columns.length - 1]?.key ? (
+          <span
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("sqlDashboard.columnResize")}
+            title={
+              personalResize
+                ? t("dashboardMode.columnResizePersonal")
+                : t("dashboardMode.columnResizeShared")
+            }
+            className="absolute inset-y-0 end-0 w-1.5 cursor-col-resize hover:bg-border"
+            onPointerDown={(event) => handleResizeStart(col.key, event)}
+            onPointerMove={handleResizeMove}
+            onPointerUp={handleResizeEnd}
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={
+              personalResize
+                ? (event) => {
+                    event.stopPropagation();
+                    onColumnWidthChange(col.key, null);
+                  }
+                : undefined
+            }
+          />
+        ) : null}
+      </th>
+    );
+    if (!editable) return <Fragment key={col.key}>{cell}</Fragment>;
+    return (
+      <ContextMenu key={col.key}>
+        <ContextMenuTrigger asChild>{cell}</ContextMenuTrigger>
+        <ContextMenuContent
+          onCloseAutoFocus={(event) => {
+            // Rename moves focus into the input after the menu closes; letting
+            // the menu return focus to the header would blur the input at once.
+            if (renameKeyRef.current !== null) event.preventDefault();
+          }}
+        >
+          <ContextMenuItem onSelect={() => startRename(col.key)}>
+            <IconPencil className="me-2 h-3.5 w-3.5" />
+            {t("sqlDashboard.columnRename")}
+          </ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              {t("sqlDashboard.columnFormat")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {/* Delta and link stay out of this menu: delta needs a sign
+                  convention and link needs a linkKey source. */}
+              <ContextMenuRadioGroup
+                value={col.format ?? "text"}
+                onValueChange={(value) =>
+                  updateColumn(col.key, { format: value as ColumnFormat })
+                }
+              >
+                <ContextMenuRadioItem value="text">
+                  {t("sqlDashboard.columnFormatText")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="number">
+                  {t("sqlDashboard.columnFormatNumber")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="currency">
+                  {t("sqlDashboard.columnFormatCurrency")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="percent">
+                  {t("sqlDashboard.columnFormatPercent")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="date">
+                  {t("sqlDashboard.columnFormatDate")}
+                </ContextMenuRadioItem>
+              </ContextMenuRadioGroup>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={columns.length <= 1}
+            onSelect={() => updateColumn(col.key, { hidden: true })}
+          >
+            {t("sqlDashboard.columnHide")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
 
   const limitedRows = useMemo(() => {
     const limit = config?.limit;
@@ -1789,6 +2869,23 @@ function TableRenderer({
 
   const pageCount = Math.ceil(sortedRows.length / pageSize);
   const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
+
+  const truncatedColumns = useMemo(
+    () => truncatedTableColumns(columns, limitedRows),
+    [columns, limitedRows],
+  );
+  // A max-width of 0 drops a text cell's content from its column's minimum
+  // width, so in a narrow panel text gives way and numbers keep their width.
+  // A column the user sized keeps that width instead.
+  const flexibleTextColumns = columns.filter(
+    (col) => !col.width && truncatedColumns.has(col.key),
+  ).length;
+  const truncatedHeaderStyle: CSSProperties = {
+    width: `${Math.floor(60 / Math.max(flexibleTextColumns, 1))}%`,
+  };
+  const bodyCellStyle = (col: TableColumnConfig): CSSProperties | undefined =>
+    sizedColumnStyle(col.width) ??
+    (truncatedColumns.has(col.key) ? { maxWidth: 0 } : undefined);
 
   const handleHeaderClick = (key: string, shiftKey: boolean) => {
     if (!sortable) return;
@@ -1819,10 +2916,14 @@ function TableRenderer({
   const handleExportCsv = useCallback(() => {
     const headers = columns.map((col) => col.label ?? col.key);
     const rowsCsv = sortedRows.map((row) =>
-      columns.map((col) => formatCell(row[col.key], col.format)).map(csvEscape),
+      columns.map((col) =>
+        csvCell(row[col.key], {
+          displayValue: formatCell(row[col.key], col.format),
+        }),
+      ),
     );
     const csv = [
-      headers.map(csvEscape).join(","),
+      headers.map((header) => csvCell(header)).join(","),
       ...rowsCsv.map((r) => r.join(",")),
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -1861,57 +2962,93 @@ function TableRenderer({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              {columns.map((col) => {
-                const label = col.label ?? col.key;
-                const sort = sortColumns.find((item) => item.key === col.key);
-                const isSorted = sort !== undefined;
-                return (
-                  <th
-                    key={col.key}
-                    aria-sort={
-                      sort
-                        ? sort.direction === "asc"
-                          ? "ascending"
-                          : "descending"
-                        : "none"
-                    }
-                    className={`text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap ${
-                      sortable
-                        ? "cursor-pointer select-none hover:text-foreground"
-                        : ""
-                    }`}
-                    onClick={(event) =>
-                      handleHeaderClick(col.key, event.shiftKey)
-                    }
-                    title={
-                      sortable
-                        ? t("sqlDashboard.multiColumnSortHelp")
-                        : undefined
-                    }
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {label}
-                      {sortable &&
-                        (isSorted ? (
-                          sort?.direction === "asc" ? (
-                            <IconSortAscending className="h-3 w-3" />
-                          ) : (
-                            <IconSortDescending className="h-3 w-3" />
-                          )
-                        ) : (
-                          <IconArrowsSort className="h-3 w-3 opacity-30" />
-                        ))}
-                    </span>
-                  </th>
-                );
-              })}
+              {columns.map((col) => renderHeaderCell(col))}
+              {hiddenColumns.length > 0 ? (
+                <th className="w-8 py-1.5 px-1">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="p-0.5 rounded text-muted-foreground hover:text-foreground"
+                        aria-label={t("sqlDashboard.columnShowHidden")}
+                      >
+                        <IconEye className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {hiddenColumns.map((col) => (
+                        <DropdownMenuItem
+                          key={col.key}
+                          onSelect={() =>
+                            updateColumn(col.key, { hidden: false })
+                          }
+                        >
+                          {t("sqlDashboard.columnShow", {
+                            name: col.label ?? col.key,
+                          })}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
             {displayRows.map((row, i) => (
-              <tr key={i} className="border-b border-border/50">
+              <tr
+                key={i}
+                className={cn(
+                  "border-b border-border/50",
+                  onRowClick && "cursor-pointer focus-visible:outline-none",
+                  isRowActive?.(row)
+                    ? "bg-foreground/10"
+                    : onRowClick &&
+                        "hover:bg-accent/60 focus-visible:bg-accent/60",
+                )}
+                {...(onRowClick
+                  ? {
+                      tabIndex: 0,
+                      "data-no-panel-chat-select": "",
+                      onClick: (event: ReactMouseEvent<HTMLElement>) => {
+                        if (
+                          event.target instanceof Element &&
+                          event.target.closest("a, button")
+                        ) {
+                          return;
+                        }
+                        onRowClick(row, sortedRows, rows);
+                      },
+                      onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+                        // Keys on a link or button inside the row are theirs.
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onRowClick(row, sortedRows, rows);
+                          return;
+                        }
+                        if (
+                          event.key !== "ArrowDown" &&
+                          event.key !== "ArrowUp"
+                        )
+                          return;
+                        const offset = event.key === "ArrowDown" ? 1 : -1;
+                        const next = displayRows[i + offset];
+                        const sibling =
+                          offset === 1
+                            ? event.currentTarget.nextElementSibling
+                            : event.currentTarget.previousElementSibling;
+                        if (!next || !(sibling instanceof HTMLElement)) return;
+                        event.preventDefault();
+                        sibling.focus();
+                        if (isRowActive?.(row))
+                          onRowClick(next, sortedRows, rows);
+                      },
+                    }
+                  : {})}
+              >
                 {columns.map((col) => {
                   const raw = row[col.key];
+                  const truncated = truncatedColumns.has(col.key);
                   if (col.format === "link") {
                     const formatted = formatCell(raw, col.format);
                     const href = col.linkKey
@@ -1921,32 +3058,39 @@ function TableRenderer({
                     return (
                       <td
                         key={col.key}
-                        className="py-1.5 px-2 whitespace-nowrap"
+                        className={`py-1.5 px-2 whitespace-nowrap${sizedColumnClass(col)}`}
+                        style={bodyCellStyle(col)}
                       >
                         {safeHref ? (
                           <a
                             href={safeHref}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-primary hover:underline"
+                            className="block truncate text-primary hover:underline"
+                            title={formatted}
                           >
                             {formatted}
                           </a>
                         ) : (
-                          formatted
+                          <span className="block truncate" title={formatted}>
+                            {formatted}
+                          </span>
                         )}
                       </td>
                     );
                   }
-                  const numeric =
-                    col.format === "number" ||
-                    col.format === "currency" ||
-                    col.format === "percent" ||
-                    col.format === "delta";
+                  const numeric = isNumericColumnFormat(col.format);
+                  const formatted = formatCell(raw, col.format);
                   const content: ReactNode =
-                    col.format === "delta"
-                      ? renderDeltaCell(raw)
-                      : formatCell(raw, col.format);
+                    col.format === "delta" ? (
+                      renderDeltaCell(raw)
+                    ) : truncated ? (
+                      <span className="block truncate" title={formatted}>
+                        {formatted}
+                      </span>
+                    ) : (
+                      formatted
+                    );
                   const replayHref = isSessionColumn(col.key)
                     ? sessionReplayHref(row)
                     : null;
@@ -1955,10 +3099,11 @@ function TableRenderer({
                       key={col.key}
                       className={`py-1.5 px-2 whitespace-nowrap ${
                         numeric ? "text-right tabular-nums" : ""
-                      }`}
+                      }${sizedColumnClass(col)}`}
+                      style={bodyCellStyle(col)}
                     >
                       {replayHref ? (
-                        <span className="inline-flex flex-col gap-0.5">
+                        <span className="inline-flex max-w-full flex-col gap-0.5">
                           <span>{content}</span>
                           <Link
                             to={replayHref}
@@ -1973,6 +3118,7 @@ function TableRenderer({
                     </td>
                   );
                 })}
+                {hiddenColumns.length > 0 ? <td /> : null}
               </tr>
             ))}
           </tbody>
@@ -2038,19 +3184,46 @@ function PieRenderer({
   yKey,
   colors,
   panel,
+  onDatumClick,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
   yKey: string;
   colors: string[];
   panel: SqlPanel;
+  onDatumClick?: DatumClickHandler;
 }) {
-  const seriesNameFormatter = (name: string) =>
-    formatSeriesLabelForPanel(panel, name);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
+  const xLabelFormatter = useCallback(
+    (value: unknown) => seriesNameFormatter(stringifyValue(value)),
+    [seriesNameFormatter],
+  );
+  const valueFormatter = useCallback(
+    (value: number) => formatYValue(value, panel.config?.yFormatter),
+    [panel.config?.yFormatter],
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    EMPTY_DRILLDOWN_SERIES,
+    xLabelFormatter,
+    seriesNameFormatter,
+    [yKey],
+    valueFormatter,
+  );
   const legendKeys = rows.map((row) => stringifyValue(row[xKey]));
 
   return (
-    <ChartFrame panel={panel} legendKeys={legendKeys} colors={colors}>
+    <ChartFrame
+      panel={panel}
+      legendKeys={legendKeys}
+      colors={colors}
+      drilldownItems={rows.length > 0 ? drilldownItems : undefined}
+      onDatumClick={onDatumClick}
+    >
       <ChartResponsiveContainer>
         <PieChart>
           <Pie
@@ -2065,6 +3238,11 @@ function PieRenderer({
             }
             labelLine={false}
             isAnimationActive={false}
+            style={onDatumClick ? { cursor: "pointer" } : undefined}
+            onClick={(_, index) => {
+              const datum = rowDatum(rows, index, xKey, undefined, yKey);
+              if (datum) onDatumClick?.(datum);
+            }}
           >
             {rows.map((_, i) => (
               <Cell key={i} fill={colors[i % colors.length]} />
@@ -2091,6 +3269,121 @@ function PieRenderer({
   );
 }
 
+const CATEGORY_TICK_FONT_SIZE = 12;
+
+const LEVEL_CATEGORY_AXIS: CategoryAxisPlan = {
+  angle: 0,
+  interval: 0,
+  height: 30,
+  labelWidth: Number.POSITIVE_INFINITY,
+};
+
+/** Formatted x labels when the axis holds named categories, else null. */
+function useCategoryAxisLabels(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  formatLabel: (value: unknown) => string,
+): string[] | null {
+  return useMemo(() => {
+    const values = rows.map((row) => row[xKey]);
+    return isCategoryAxis(values) ? values.map(formatLabel) : null;
+  }, [rows, xKey, formatLabel]);
+}
+
+function CategoryAxisTick({
+  x,
+  y,
+  payload,
+  fill,
+  plan,
+  formatLabel,
+}: {
+  x: number | string;
+  y: number | string;
+  payload: { value?: unknown };
+  fill: string | undefined;
+  plan: CategoryAxisPlan;
+  formatLabel: (value: unknown) => string;
+}) {
+  const full = formatLabel(payload.value);
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{full}</title>
+      <text
+        textAnchor={plan.angle ? "end" : "middle"}
+        transform={plan.angle ? `rotate(${plan.angle})` : undefined}
+        dy={plan.angle ? "0.35em" : "0.71em"}
+        fontSize={CATEGORY_TICK_FONT_SIZE}
+        fill={fill}
+      >
+        {trimToWidth(full, CATEGORY_TICK_FONT_SIZE, plan.labelWidth, "…")}
+      </text>
+    </g>
+  );
+}
+
+/**
+ * X axis for named categories: every name is drawn, angled and cut with an
+ * ellipsis when the plot is too narrow, since a skipped tick hides a bar's name.
+ */
+function CategoryXAxis({
+  dataKey,
+  labels,
+  formatLabel,
+}: {
+  dataKey: string;
+  labels: string[];
+  formatLabel: (value: unknown) => string;
+}) {
+  const plotArea = usePlotArea();
+  const plotWidth = plotArea?.width ?? 0;
+  const leftInset = plotArea?.x ?? 0;
+  const plan = useMemo(
+    () =>
+      plotWidth > 0
+        ? planCategoryAxis(
+            labels,
+            plotWidth,
+            leftInset,
+            CATEGORY_TICK_FONT_SIZE,
+          )
+        : LEVEL_CATEGORY_AXIS,
+    [labels, plotWidth, leftInset],
+  );
+  // A new tick function re-registers the axis with the chart store, which
+  // re-renders this component; it must only change with the plan.
+  const renderTick = useCallback(
+    (props: {
+      x: number | string;
+      y: number | string;
+      payload: { value?: unknown };
+      fill: string | undefined;
+    }) => (
+      <CategoryAxisTick
+        x={props.x}
+        y={props.y}
+        payload={props.payload}
+        fill={props.fill}
+        plan={plan}
+        formatLabel={formatLabel}
+      />
+    ),
+    [plan, formatLabel],
+  );
+  return (
+    <XAxis
+      dataKey={dataKey}
+      stroke="hsl(var(--muted-foreground))"
+      fontSize={CATEGORY_TICK_FONT_SIZE}
+      tickLine={false}
+      axisLine={false}
+      interval={plan.interval}
+      height={plan.height}
+      tick={renderTick}
+    />
+  );
+}
+
 function BarRenderer({
   rows,
   xKey,
@@ -2099,6 +3392,7 @@ function BarRenderer({
   yFormatter,
   stacked,
   panel,
+  onDatumClick,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -2107,20 +3401,59 @@ function BarRenderer({
   yFormatter?: "number" | "currency" | "percent";
   stacked?: boolean;
   panel: SqlPanel;
+  onDatumClick?: DatumClickHandler;
 }) {
-  const xLabelFormatter = (value: any) =>
-    formatXLabel(String(value ?? ""), panel);
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
+  const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
-  const seriesNameFormatter = (name: string) =>
-    formatSeriesLabelForPanel(panel, name);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
+  const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
+  const dataNoteLayout = useDataNoteLayout(
+    usePanelDataNotes(panel),
+    rows,
+    xKey,
+  );
+  const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
-  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
-  const valueFormatter = seriesValueFormatter(
-    yKeys,
-    dualAxis,
+  const drilldownSeriesKeys = useMemo(
+    () =>
+      panel.config?.pivot
+        ? yKeys.filter((key) => !hiddenKeys.has(key))
+        : EMPTY_DRILLDOWN_SERIES,
+    [panel.config?.pivot, yKeys, hiddenKeys],
+  );
+  const drilldownValueKeys = useMemo(
+    () =>
+      panel.config?.pivot ? [] : yKeys.filter((key) => !hiddenKeys.has(key)),
+    [panel.config?.pivot, yKeys, hiddenKeys],
+  );
+  const dualAxis = useMemo(
+    () => resolveDualAxis(yKeys, panel.config, seriesNameFormatter),
+    [yKeys, panel.config, seriesNameFormatter],
+  );
+  const valueFormatter = useMemo(
+    () =>
+      seriesValueFormatter(yKeys, dualAxis, seriesNameFormatter, yFormatter),
+    [yKeys, dualAxis, seriesNameFormatter, yFormatter],
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
     seriesNameFormatter,
-    yFormatter,
+    drilldownValueKeys,
+    valueFormatter,
   );
 
   return (
@@ -2132,24 +3465,51 @@ function BarRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      drilldownItems={rows.length > 0 ? drilldownItems : undefined}
+      onDatumClick={onDatumClick}
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
-        <BarChart data={rows}>
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
+        <BarChart
+          key={JSON.stringify(yKeys)}
+          data={rows}
+          margin={chartMargin.margin}
+        >
+          {categoryLabels ? (
+            <CategoryXAxis
+              dataKey={xKey}
+              labels={categoryLabels}
+              formatLabel={xLabelFormatter}
+            />
+          ) : (
+            <XAxis
+              dataKey={xKey}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={xLabelFormatter}
+              padding={xPadding}
+            />
+          )}
           {renderChartYAxes(dualAxis, yFormatter)}
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="hsl(var(--border))"
             vertical={false}
           />
+          {renderDataNoteBands(dataNoteLayout.shaded, {
+            rows,
+            xKey,
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
+          })}
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xTooltipLabelFormatter}
@@ -2159,6 +3519,7 @@ function BarRenderer({
                 seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={valueFormatter}
                 stacked={stacked}
+                seriesOrder={yKeys.map(seriesNameFormatter)}
               />
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2176,8 +3537,20 @@ function BarRenderer({
               stackId={stacked ? "stack" : undefined}
               hide={hiddenKeys.has(key)}
               isAnimationActive={false}
+              {...chartSeriesClickProps(
+                rows,
+                xKey,
+                panel.config?.pivot ? key : undefined,
+                key,
+                onDatumClick,
+              )}
             />
           ))}
+          {renderEventMarkers(
+            eventGroups,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
         </BarChart>
       </ChartResponsiveContainer>
     </ChartFrame>
@@ -2192,6 +3565,7 @@ function ComboRenderer({
   yFormatter,
   barKeys,
   panel,
+  onDatumClick,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -2200,20 +3574,59 @@ function ComboRenderer({
   yFormatter?: "number" | "currency" | "percent";
   barKeys: string[];
   panel: SqlPanel;
+  onDatumClick?: DatumClickHandler;
 }) {
-  const xLabelFormatter = (value: any) =>
-    formatXLabel(String(value ?? ""), panel);
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
+  const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
-  const seriesNameFormatter = (name: string) =>
-    formatSeriesLabelForPanel(panel, name);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
+  const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
+  const dataNoteLayout = useDataNoteLayout(
+    usePanelDataNotes(panel),
+    rows,
+    xKey,
+  );
+  const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
-  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
-  const valueFormatter = seriesValueFormatter(
-    yKeys,
-    dualAxis,
+  const drilldownSeriesKeys = useMemo(
+    () =>
+      panel.config?.pivot
+        ? yKeys.filter((key) => !hiddenKeys.has(key))
+        : EMPTY_DRILLDOWN_SERIES,
+    [panel.config?.pivot, yKeys, hiddenKeys],
+  );
+  const drilldownValueKeys = useMemo(
+    () =>
+      panel.config?.pivot ? [] : yKeys.filter((key) => !hiddenKeys.has(key)),
+    [panel.config?.pivot, yKeys, hiddenKeys],
+  );
+  const dualAxis = useMemo(
+    () => resolveDualAxis(yKeys, panel.config, seriesNameFormatter),
+    [yKeys, panel.config, seriesNameFormatter],
+  );
+  const valueFormatter = useMemo(
+    () =>
+      seriesValueFormatter(yKeys, dualAxis, seriesNameFormatter, yFormatter),
+    [yKeys, dualAxis, seriesNameFormatter, yFormatter],
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
     seriesNameFormatter,
-    yFormatter,
+    drilldownValueKeys,
+    valueFormatter,
   );
   const barKeySet = new Set(barKeys);
 
@@ -2226,24 +3639,51 @@ function ComboRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      drilldownItems={rows.length > 0 ? drilldownItems : undefined}
+      onDatumClick={onDatumClick}
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
-        <ComposedChart data={rows}>
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
+        <ComposedChart
+          data={rows}
+          margin={chartMargin.margin}
+          {...chartClickProps(rows, xKey, onDatumClick)}
+        >
+          {categoryLabels ? (
+            <CategoryXAxis
+              dataKey={xKey}
+              labels={categoryLabels}
+              formatLabel={xLabelFormatter}
+            />
+          ) : (
+            <XAxis
+              dataKey={xKey}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={xLabelFormatter}
+              padding={xPadding}
+            />
+          )}
           {renderChartYAxes(dualAxis, yFormatter)}
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="hsl(var(--border))"
             vertical={false}
           />
+          {renderDataNoteBands(dataNoteLayout.shaded, {
+            rows,
+            xKey,
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
+          })}
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xTooltipLabelFormatter}
@@ -2267,6 +3707,13 @@ function ComboRenderer({
                 radius={[4, 4, 0, 0]}
                 hide={hiddenKeys.has(key)}
                 isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  rows,
+                  xKey,
+                  panel.config?.pivot ? key : undefined,
+                  key,
+                  onDatumClick,
+                )}
               />
             ) : (
               <Line
@@ -2280,8 +3727,20 @@ function ComboRenderer({
                 dot={false}
                 hide={hiddenKeys.has(key)}
                 isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  rows,
+                  xKey,
+                  panel.config?.pivot ? key : undefined,
+                  key,
+                  onDatumClick,
+                )}
               />
             ),
+          )}
+          {renderEventMarkers(
+            eventGroups,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
           )}
         </ComposedChart>
       </ChartResponsiveContainer>
@@ -2298,6 +3757,7 @@ function TimeSeriesRenderer({
   chartType,
   stacked,
   panel,
+  onDatumClick,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -2307,21 +3767,39 @@ function TimeSeriesRenderer({
   chartType: "line" | "area";
   stacked?: boolean;
   panel: SqlPanel;
+  onDatumClick?: DatumClickHandler;
 }) {
-  const xLabelFormatter = (value: any) =>
-    formatXLabel(String(value ?? ""), panel);
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
-  const seriesNameFormatter = (name: string) =>
-    formatSeriesLabelForPanel(panel, name);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
+  const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
+  const dataNotes = usePanelDataNotes(panel);
   const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
     useSeriesVisibility(yKeys);
-  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
-  const valueFormatter = seriesValueFormatter(
-    yKeys,
-    dualAxis,
-    seriesNameFormatter,
-    yFormatter,
+  const drilldownSeriesKeys = useMemo(
+    () => (panel.config?.pivot ? visibleKeys : EMPTY_DRILLDOWN_SERIES),
+    [panel.config?.pivot, visibleKeys],
+  );
+  const drilldownValueKeys = useMemo(
+    () => (panel.config?.pivot ? [] : visibleKeys),
+    [panel.config?.pivot, visibleKeys],
+  );
+  const dualAxis = useMemo(
+    () => resolveDualAxis(yKeys, panel.config, seriesNameFormatter),
+    [yKeys, panel.config, seriesNameFormatter],
+  );
+  const valueFormatter = useMemo(
+    () =>
+      seriesValueFormatter(yKeys, dualAxis, seriesNameFormatter, yFormatter),
+    [yKeys, dualAxis, seriesNameFormatter, yFormatter],
   );
   const splitPartialDay = shouldSplitCurrentDayTimeSeries(panel, xKey);
   const { rows: chartRows, series } = useMemo(
@@ -2338,6 +3816,19 @@ function TimeSeriesRenderer({
           },
     [rows, xKey, yKeys, splitPartialDay],
   );
+  const drilldownItems = useChartDrilldownItems(
+    chartRows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
+    seriesNameFormatter,
+    drilldownValueKeys,
+    valueFormatter,
+  );
+  const dataNoteLayout = useDataNoteLayout(dataNotes, chartRows, xKey);
+  const eventGroups = useEventMarkerGroups(panelEvents, chartRows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, chartRows, xKey);
 
   if (chartType === "line") {
     return (
@@ -2349,9 +3840,18 @@ function TimeSeriesRenderer({
         onToggleLegendKey={toggleSeries}
         onFilterLegendKey={filterSeries}
         showCustomLegend
+        drilldownItems={chartRows.length > 0 ? drilldownItems : undefined}
+        onDatumClick={onDatumClick}
+        footer={
+          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+        }
       >
         <ChartResponsiveContainer>
-          <LineChart data={chartRows}>
+          <LineChart
+            data={chartRows}
+            margin={chartMargin.margin}
+            {...chartClickProps(chartRows, xKey, onDatumClick)}
+          >
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -2359,6 +3859,7 @@ function TimeSeriesRenderer({
               tickLine={false}
               axisLine={false}
               tickFormatter={xLabelFormatter}
+              padding={xPadding}
             />
             {renderChartYAxes(dualAxis, yFormatter)}
             <CartesianGrid
@@ -2366,7 +3867,16 @@ function TimeSeriesRenderer({
               stroke="hsl(var(--border))"
               vertical={false}
             />
+            {renderDataNoteBands(dataNoteLayout.shaded, {
+              rows: chartRows,
+              xKey,
+              yAxisId: dualAxis.enabled ? "left" : undefined,
+              panelId: panel.id,
+              onHoverChange: setEventHovered,
+              onLabelRows: chartMargin.onLabelRows,
+            })}
             <Tooltip
+              active={eventHovered ? false : undefined}
               {...CHART_TOOLTIP_PROPS}
               labelFormatter={xTooltipLabelFormatter}
               content={
@@ -2391,6 +3901,13 @@ function TimeSeriesRenderer({
                 dot={false}
                 hide={hiddenKeys.has(item.key)}
                 isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  chartRows,
+                  xKey,
+                  panel.config?.pivot ? item.key : undefined,
+                  item.solidKey,
+                  onDatumClick,
+                )}
               />
             ))}
             {series.map((item, i) =>
@@ -2407,8 +3924,20 @@ function TimeSeriesRenderer({
                   dot={false}
                   hide={hiddenKeys.has(item.key)}
                   isAnimationActive={false}
+                  {...chartSeriesClickProps(
+                    chartRows,
+                    xKey,
+                    panel.config?.pivot ? item.key : undefined,
+                    item.partialKey,
+                    onDatumClick,
+                  )}
                 />
               ) : null,
+            )}
+            {renderEventMarkers(
+              eventGroups,
+              dualAxis.enabled ? "left" : undefined,
+              setEventHovered,
             )}
           </LineChart>
         </ChartResponsiveContainer>
@@ -2427,9 +3956,19 @@ function TimeSeriesRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      drilldownItems={chartRows.length > 0 ? drilldownItems : undefined}
+      onDatumClick={onDatumClick}
+      footer={
+        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+      }
     >
       <ChartResponsiveContainer>
-        <AreaChart data={chartRows}>
+        <AreaChart
+          key={JSON.stringify(yKeys)}
+          data={chartRows}
+          margin={chartMargin.margin}
+          {...chartClickProps(chartRows, xKey, onDatumClick)}
+        >
           {showFill && (
             <defs>
               {yKeys.map((key, i) => (
@@ -2462,6 +4001,7 @@ function TimeSeriesRenderer({
             tickLine={false}
             axisLine={false}
             tickFormatter={xLabelFormatter}
+            padding={xPadding}
           />
           {renderChartYAxes(dualAxis, yFormatter)}
           <CartesianGrid
@@ -2469,7 +4009,16 @@ function TimeSeriesRenderer({
             stroke="hsl(var(--border))"
             vertical={false}
           />
+          {renderDataNoteBands(dataNoteLayout.shaded, {
+            rows: chartRows,
+            xKey,
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
+          })}
           <Tooltip
+            active={eventHovered ? false : undefined}
             {...CHART_TOOLTIP_PROPS}
             labelFormatter={xTooltipLabelFormatter}
             content={
@@ -2478,6 +4027,7 @@ function TimeSeriesRenderer({
                 seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={valueFormatter}
                 stacked={stacked}
+                seriesOrder={yKeys.map(seriesNameFormatter)}
               />
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2496,6 +4046,13 @@ function TimeSeriesRenderer({
               stackId={stacked ? "stack" : undefined}
               hide={hiddenKeys.has(item.key)}
               isAnimationActive={false}
+              {...chartSeriesClickProps(
+                chartRows,
+                xKey,
+                panel.config?.pivot ? item.key : undefined,
+                item.solidKey,
+                onDatumClick,
+              )}
             />
           ))}
           {series.map((item, i) =>
@@ -2514,8 +4071,20 @@ function TimeSeriesRenderer({
                 stackId={stacked ? "partial-stack" : undefined}
                 hide={hiddenKeys.has(item.key)}
                 isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  chartRows,
+                  xKey,
+                  panel.config?.pivot ? item.key : undefined,
+                  item.partialKey,
+                  onDatumClick,
+                )}
               />
             ) : null,
+          )}
+          {renderEventMarkers(
+            eventGroups,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
           )}
         </AreaChart>
       </ChartResponsiveContainer>
@@ -2527,19 +4096,33 @@ function FunnelRenderer({
   funnel,
   panel,
   colors,
+  onDatumClick,
 }: {
   funnel: DashboardFunnelRows;
   panel: SqlPanel;
   colors: string[];
+  onDatumClick?: DatumClickHandler;
 }) {
   const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
   const formatter = panel.config?.yFormatter;
   const funnelColors = colors.length > 0 ? colors : DEFAULT_COLORS;
 
+  if (funnel.outcomes) {
+    return (
+      <OutcomeFunnelRenderer
+        funnel={funnel}
+        outcomes={funnel.outcomes}
+        panel={panel}
+        colors={funnelColors}
+        onDatumClick={onDatumClick}
+      />
+    );
+  }
+
   return (
     <div
       className="space-y-3 py-2"
-      role="img"
+      role={onDatumClick ? "group" : "img"}
       aria-label={panel.title}
       data-dashboard-funnel="true"
     >
@@ -2551,7 +4134,28 @@ function FunnelRenderer({
             ? null
             : `${item.dropOffPercent < 0 ? "↑" : "↓"} ${Math.abs(item.dropOffPercent).toFixed(1)}%`;
         return (
-          <div key={`${item.label}-${index}`} className="space-y-1">
+          <div
+            key={`${item.label}-${index}`}
+            className={cn(
+              "space-y-1",
+              onDatumClick &&
+                "cursor-pointer rounded-sm hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
+            )}
+            {...(onDatumClick
+              ? {
+                  role: "button",
+                  tabIndex: 0,
+                  onClick: () =>
+                    onDatumClick({ x: item.label, value: item.value }),
+                  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onDatumClick({ x: item.label, value: item.value });
+                    }
+                  },
+                }
+              : {})}
+          >
             <div className="flex items-baseline justify-between gap-3 text-xs">
               <span className="min-w-0 truncate font-medium text-foreground">
                 {item.label}
@@ -2575,6 +4179,253 @@ function FunnelRenderer({
         );
       })}
     </div>
+  );
+}
+
+const FUNNEL_OUTCOME_LABEL_KEYS: Record<FunnelOutcomeSegment, string> = {
+  completed: "sqlDashboard.funnelCompleted",
+  skipped: "sqlDashboard.funnelSkipped",
+  movedOn: "sqlDashboard.funnelMovedOn",
+  left: "sqlDashboard.funnelLeft",
+};
+
+function formatShare(part: number, shown: number): string {
+  return `${funnelOutcomeShare(part, shown).toFixed(1)}%`;
+}
+
+function OutcomeFunnelRenderer({
+  funnel,
+  outcomes,
+  panel,
+  colors,
+  onDatumClick,
+}: {
+  funnel: DashboardFunnelRows;
+  outcomes: DashboardFunnelOutcomeSummary;
+  panel: SqlPanel;
+  colors: string[];
+  onDatumClick?: DatumClickHandler;
+}) {
+  const t = useT();
+  const formatter = panel.config?.yFormatter;
+  const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
+  const segments = FUNNEL_OUTCOME_SEGMENTS.filter(
+    (segment) => segment !== "skipped" || !!outcomes.keys.skippedKey,
+  );
+
+  return (
+    <HoverTooltipProvider delayDuration={100}>
+      <div
+        className="py-2"
+        role="group"
+        aria-label={panel.title}
+        data-dashboard-funnel="true"
+        data-funnel-outcomes="true"
+      >
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          {segments.map((segment) => (
+            <span key={segment} className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                style={{ background: FUNNEL_OUTCOME_FILLS[segment] }}
+              />
+              {t(FUNNEL_OUTCOME_LABEL_KEYS[segment])}
+            </span>
+          ))}
+          <span className="ml-auto">{t("sqlDashboard.funnelLeftHere")}</span>
+        </div>
+        <div className="space-y-3">
+          {funnel.items.map((item, index) => {
+            const shown = t("sqlDashboard.funnelShown", {
+              count: formatYValue(item.value, formatter),
+            });
+            if (!item.outcomes) {
+              const width =
+                item.value > 0 ? Math.max(2, (item.value / maxValue) * 100) : 0;
+              return (
+                <div
+                  key={`${item.label}-${index}`}
+                  className={cn(
+                    "space-y-1",
+                    onDatumClick &&
+                      "cursor-pointer rounded-sm hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
+                  )}
+                  {...(onDatumClick
+                    ? {
+                        role: "button",
+                        tabIndex: 0,
+                        onClick: () =>
+                          onDatumClick({ x: item.label, value: item.value }),
+                        onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onDatumClick({ x: item.label, value: item.value });
+                          }
+                        },
+                      }
+                    : {})}
+                >
+                  <div className="flex items-baseline gap-2 text-xs">
+                    <span className="min-w-0 truncate font-medium text-foreground">
+                      {item.label}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {shown}
+                    </span>
+                  </div>
+                  <div className="h-[18px] overflow-hidden rounded-sm bg-muted/60">
+                    <div
+                      className="h-full rounded-sm"
+                      style={{
+                        width: `${width}%`,
+                        backgroundColor: colors[index % colors.length],
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <OutcomeFunnelStage
+                key={`${item.label}-${index}`}
+                item={item}
+                outcomes={item.outcomes}
+                segments={segments}
+                shown={shown}
+                formatter={formatter}
+                onDatumClick={onDatumClick}
+              />
+            );
+          })}
+        </div>
+      </div>
+    </HoverTooltipProvider>
+  );
+}
+
+function OutcomeFunnelStage({
+  item,
+  outcomes,
+  segments,
+  shown,
+  formatter,
+  onDatumClick,
+}: {
+  item: DashboardFunnelItem;
+  outcomes: DashboardFunnelOutcomes;
+  segments: FunnelOutcomeSegment[];
+  shown: string;
+  formatter?: "number" | "currency" | "percent";
+  onDatumClick?: DatumClickHandler;
+}) {
+  const t = useT();
+  const optionalTag = outcomes.optional ? (
+    <Badge
+      variant="outline"
+      className="shrink-0 px-1.5 py-0 text-[10px] font-medium leading-4"
+    >
+      {t("sqlDashboard.funnelOptional")}
+    </Badge>
+  ) : null;
+
+  return (
+    <HoverTooltip>
+      <HoverTooltipTrigger asChild>
+        <div
+          tabIndex={0}
+          role={onDatumClick ? "button" : undefined}
+          className={cn(
+            "space-y-1 rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            onDatumClick && "cursor-pointer hover:bg-muted/40",
+          )}
+          onClick={
+            onDatumClick
+              ? () => onDatumClick({ x: item.label, value: item.value })
+              : undefined
+          }
+          onKeyDown={
+            onDatumClick
+              ? (event: KeyboardEvent<HTMLDivElement>) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onDatumClick({ x: item.label, value: item.value });
+                  }
+                }
+              : undefined
+          }
+          data-funnel-stage={item.label}
+        >
+          <div className="flex items-baseline gap-2 text-xs">
+            <span className="min-w-0 truncate font-medium text-foreground">
+              {item.label}
+            </span>
+            {optionalTag}
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {shown}
+            </span>
+            <span
+              className="ml-auto shrink-0 text-sm font-semibold tabular-nums text-foreground"
+              data-funnel-left-share
+            >
+              {formatShare(outcomes.left, item.value)}
+            </span>
+          </div>
+          <div className="flex h-[18px] overflow-hidden rounded-sm bg-muted/60">
+            {segments.map((segment) =>
+              outcomes[segment] > 0 ? (
+                <div
+                  key={segment}
+                  className="h-full"
+                  data-funnel-segment={segment}
+                  style={{
+                    width: `${funnelOutcomeShare(outcomes[segment], item.value)}%`,
+                    background: FUNNEL_OUTCOME_FILLS[segment],
+                  }}
+                />
+              ) : null,
+            )}
+          </div>
+        </div>
+      </HoverTooltipTrigger>
+      <HoverTooltipContent
+        side="bottom"
+        align="start"
+        className="w-72 space-y-1 p-3 text-xs"
+      >
+        <div className="mb-2 flex items-center gap-2 font-medium">
+          <span className="min-w-0 truncate">{item.label}</span>
+          {optionalTag}
+        </div>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <span>{t("sqlDashboard.funnelShownLabel")}</span>
+          <span className="ml-auto tabular-nums text-foreground">
+            {formatYValue(item.value, formatter)}
+          </span>
+        </div>
+        {segments.map((segment) => (
+          <div
+            key={segment}
+            className={`flex items-center gap-2 ${segment === "left" ? "font-semibold" : ""}`}
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-sm"
+              style={{ background: FUNNEL_OUTCOME_FILLS[segment] }}
+            />
+            <span>
+              {t(
+                segment === "left"
+                  ? "sqlDashboard.funnelLeftHere"
+                  : FUNNEL_OUTCOME_LABEL_KEYS[segment],
+              )}
+            </span>
+            <span className="ml-auto tabular-nums">
+              {formatYValue(outcomes[segment], formatter)} ·{" "}
+              {formatShare(outcomes[segment], item.value)}
+            </span>
+          </div>
+        ))}
+      </HoverTooltipContent>
+    </HoverTooltip>
   );
 }
 
@@ -2729,7 +4580,13 @@ function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
             className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${wrapper}`}
           >
             <Icon className="h-4 w-4 mt-0.5 shrink-0" />
-            <span className="break-words">{message}</span>
+            <InlineMarkdown
+              inline
+              content={message}
+              className="min-w-0 flex-1 break-words"
+              linkClassName="text-current underline underline-offset-2 hover:opacity-80"
+              renderLink={renderDashboardMarkdownLink}
+            />
           </div>
         );
       })}

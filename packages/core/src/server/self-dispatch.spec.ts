@@ -9,6 +9,7 @@ import {
   fireInternalDispatch,
   resolveDeploymentBaseUrl,
   resolveSelfDispatchBaseUrl,
+  SelfDispatchHttpError,
 } from "./self-dispatch.js";
 
 describe("fireInternalDispatch", () => {
@@ -311,6 +312,80 @@ describe("fireInternalDispatch", () => {
         "Self-dispatch to /_agent-native/agent-chat/_process-run returned HTTP 500 Internal Server Error",
       );
       errorSpy.mockRestore();
+    });
+
+    describe("typed HTTP errors", () => {
+      function throttledResponse(headers: Record<string, string>) {
+        return {
+          ok: false,
+          status: 429,
+          statusText: "Too Many Requests",
+          headers: new Headers(headers),
+          text: async () => "slow down",
+        };
+      }
+
+      async function dispatchAndCatch(): Promise<unknown> {
+        try {
+          await fireInternalDispatch({
+            baseUrl: "https://slides.example.test",
+            path: "/_agent-native/agent-chat/_process-run",
+            taskId: "task-await-429",
+            awaitResponse: true,
+          });
+        } catch (err) {
+          return err;
+        }
+        throw new Error("fireInternalDispatch resolved");
+      }
+
+      it("carries httpStatus and a Retry-After in seconds, keeping the message", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        globalThis.fetch = vi.fn(async () =>
+          throttledResponse({ "Retry-After": "7" }),
+        ) as unknown as typeof fetch;
+
+        const err = await dispatchAndCatch();
+
+        expect(err).toBeInstanceOf(SelfDispatchHttpError);
+        expect(err).toMatchObject({ httpStatus: 429, retryAfterMs: 7_000 });
+        expect((err as Error).message).toBe(
+          "Self-dispatch to /_agent-native/agent-chat/_process-run returned HTTP 429 Too Many Requests: slow down",
+        );
+      });
+
+      it("parses a Retry-After HTTP-date relative to now", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.useFakeTimers({
+          now: Date.UTC(2026, 9, 14, 12, 0, 0),
+          toFake: ["Date"],
+        });
+        globalThis.fetch = vi.fn(async () =>
+          throttledResponse({ "Retry-After": "Wed, 14 Oct 2026 12:00:30 GMT" }),
+        ) as unknown as typeof fetch;
+
+        try {
+          const err = await dispatchAndCatch();
+          expect(err).toMatchObject({ httpStatus: 429, retryAfterMs: 30_000 });
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("leaves retryAfterMs undefined when the header is absent or unparsable", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        for (const headers of [{}, { "Retry-After": "soon" }]) {
+          globalThis.fetch = vi.fn(async () =>
+            throttledResponse(headers),
+          ) as unknown as typeof fetch;
+
+          const err = await dispatchAndCatch();
+
+          expect(err).toBeInstanceOf(SelfDispatchHttpError);
+          expect((err as SelfDispatchHttpError).httpStatus).toBe(429);
+          expect((err as SelfDispatchHttpError).retryAfterMs).toBeUndefined();
+        }
+      });
     });
 
     it("throws when the fetch itself rejects (network error)", async () => {

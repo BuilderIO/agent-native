@@ -39,7 +39,7 @@ gitignored). A skill writes only its own files:
 | `analysis.json`, `analysis.md` | system-history `analyze` | refactor-plan, the orchestrators |
 | `targets.json` | system-history `analyze` | jira-refactor-findings |
 | `jira-findings.json`, `jira-matches.json` | jira `jira-match` | the orchestrators |
-| `jira-results.json` | jira `jira-upsert`, `jira-sighting` | the orchestrators |
+| `jira-results.json` | jira `jira-upsert` | the orchestrators |
 | `decisions.json` | identify-fragile-systems (by hand) | its summarize |
 | `verdict.json` | investigate-bug `bug-verdict` | its summarize |
 

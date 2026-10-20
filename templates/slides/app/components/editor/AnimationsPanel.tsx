@@ -26,6 +26,11 @@ import {
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { getRenderedSlideSource } from "@/components/deck/SlideRenderer";
+import {
+  buildClickCount,
+  setBuildState,
+} from "@/components/presentation/slide-build-steps";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -35,19 +40,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type {
+  AnimationTrigger,
   AnimationType,
   Slide,
   SlideAnimation,
 } from "@/context/DeckContext";
 import {
   animationElementKey,
-  expandByParagraphAnimations,
-  getElementAnimationValue,
-  getSlideAnimationTargetKey,
+  NO_ANIMATION_TARGETS,
+  getElementPreview,
+  getSlideAnimationTargetKeys,
   getSlideAnimationTargetPreview,
-  resolveSlideAnimationTargets,
+  resolveRevealSteps,
+  revealOutcomeClicks,
+  revealStepClicks,
+  revealStepsOf,
+  storedOrdinalAtPath,
+  type RevealUnresolvedReason,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
+import {
+  introducedUnresolvedReason,
+  REVEAL_REASON_LABEL_KEY,
+} from "@/lib/slide-animation-quick-pick";
+
+// How long each reveal stays on screen in Play before the next one starts.
+const PREVIEW_STEP_MS = 450;
 
 const ANIM_TYPES: { value: AnimationType; labelKey: string }[] = [
   { value: "appear", labelKey: "animations.appear" },
@@ -56,12 +74,24 @@ const ANIM_TYPES: { value: AnimationType; labelKey: string }[] = [
   { value: "zoom", labelKey: "animations.zoom" },
 ];
 
+const ANIM_TRIGGERS: { value: AnimationTrigger; labelKey: string }[] = [
+  { value: "on-click", labelKey: "animations.onClick" },
+  { value: "with-previous", labelKey: "animations.withPrevious" },
+];
+
 interface SortableItemProps {
   anim: SlideAnimation;
   expanded: boolean;
   preview: string;
+  /** Why this reveal does not resolve in the slide, or null. */
+  issue: RevealUnresolvedReason | null;
+  /** The paragraphs a "By paragraph" reveal steps through, in order. */
+  paragraphs: string[];
   stepNumber: number;
+  /** The first reveal has nothing to play with, so it always waits for a click. */
+  isFirst: boolean;
   onChangeType: (id: string, type: AnimationType) => void;
+  onChangeTrigger: (id: string, trigger: AnimationTrigger) => void;
   onChangeByParagraph: (id: string, byParagraph: boolean) => void;
   onRemove: (id: string) => void;
   onToggleExpanded: (id: string) => void;
@@ -71,13 +101,18 @@ function SortableAnimationItem({
   anim,
   expanded,
   preview,
+  issue,
+  paragraphs,
   stepNumber,
+  isFirst,
   onChangeType,
+  onChangeTrigger,
   onChangeByParagraph,
   onRemove,
   onToggleExpanded,
 }: SortableItemProps) {
   const t = useT();
+  const trigger = isFirst ? "on-click" : (anim.trigger ?? "on-click");
   const {
     attributes,
     listeners,
@@ -113,7 +148,7 @@ function SortableAnimationItem({
           )}
         </button>
         <span className="w-4 shrink-0 text-xs text-muted-foreground/60">
-          {stepNumber}
+          {trigger === "with-previous" ? "" : stepNumber}
         </span>
         <button
           type="button"
@@ -130,7 +165,10 @@ function SortableAnimationItem({
                 "animations.appear",
             )}
             <span className="text-muted-foreground">
-              {` (${t("animations.onClick")})`}
+              {` (${t(
+                ANIM_TRIGGERS.find((option) => option.value === trigger)
+                  ?.labelKey ?? "animations.onClick",
+              )})`}
             </span>
           </span>
           <span className="block truncate text-xs text-muted-foreground">
@@ -139,6 +177,11 @@ function SortableAnimationItem({
                 index: anim.elementIndex + 1,
               })}
           </span>
+          {issue && (
+            <span className="block text-xs text-destructive">
+              {t(REVEAL_REASON_LABEL_KEY[issue])}
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -182,7 +225,12 @@ function SortableAnimationItem({
             </SelectContent>
           </Select>
 
-          <Select value="on-click" onValueChange={() => {}}>
+          <Select
+            value={trigger}
+            onValueChange={(value) =>
+              onChangeTrigger(anim.id, value as AnimationTrigger)
+            }
+          >
             <SelectTrigger
               className="h-12 w-full rounded-lg border-border bg-background px-3 text-base"
               aria-label={t("animations.trigger")}
@@ -190,9 +238,15 @@ function SortableAnimationItem({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="on-click">
-                {t("animations.onClick")}
-              </SelectItem>
+              {ANIM_TRIGGERS.map((trigger) => (
+                <SelectItem
+                  key={trigger.value}
+                  value={trigger.value}
+                  disabled={isFirst && trigger.value === "with-previous"}
+                >
+                  {t(trigger.labelKey)}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -207,6 +261,16 @@ function SortableAnimationItem({
             />
             {t("animations.byParagraph")}
           </label>
+
+          {anim.byParagraph && paragraphs.length > 0 && (
+            <ol className="space-y-1 pl-7 text-sm text-muted-foreground">
+              {paragraphs.map((paragraph, index) => (
+                <li key={index} className="truncate">
+                  {index + 1}. {paragraph}
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
       )}
     </div>
@@ -215,14 +279,14 @@ function SortableAnimationItem({
 
 interface AnimationsPanelProps {
   slide: Slide;
-  selectedTarget?: SelectedAnimationTarget | null;
+  selectedTargets?: SelectedAnimationTarget[];
   onUpdateSlide: (updates: Partial<Omit<Slide, "id">>) => void;
   onClose: () => void;
 }
 
 export function AnimationsPanel({
   slide,
-  selectedTarget = null,
+  selectedTargets = NO_ANIMATION_TARGETS,
   onUpdateSlide,
   onClose,
 }: AnimationsPanelProps) {
@@ -234,26 +298,105 @@ export function AnimationsPanel({
   const [expandedAnimationId, setExpandedAnimationId] = useState<string | null>(
     null,
   );
+  // Why the last change was refused. The change was not applied, so this is
+  // not a fault in the stored reveals. Cleared when a change saves.
+  const [refusedChange, setRefusedChange] =
+    useState<RevealUnresolvedReason | null>(null);
+  // Why Play did not start while the stored reveals resolve. Cleared when Play starts.
+  const [playRefusal, setPlayRefusal] = useState<RevealUnresolvedReason | null>(
+    null,
+  );
   const previewCleanupRef = useRef<(() => void) | null>(null);
 
-  const selectedTargetKey = selectedTarget
-    ? animationElementKey(selectedTarget.elementPath)
-    : null;
-  const selectedAnimation = useMemo(
+  // Reveals resolve against the stored HTML, the same HTML playback uses.
+  const storedRoot = useMemo(
     () =>
-      selectedTargetKey
-        ? (animations.find(
-            (animation) =>
-              getSlideAnimationTargetKey(slide.content, animation) ===
-              selectedTargetKey,
-          ) ?? null)
-        : null,
-    [animations, selectedTargetKey, slide.content],
+      new DOMParser()
+        .parseFromString(slide.content, "text/html")
+        .querySelector(".fmd-slide"),
+    [slide.content],
+  );
+  const outcomes = useMemo(
+    () => resolveRevealSteps(storedRoot, animations),
+    [animations, storedRoot],
+  );
+  const unresolvedReason =
+    outcomes.flatMap((outcome) => (outcome.ok ? [] : [outcome.reason]))[0] ??
+    null;
+  const shownPlayReason = unresolvedReason ?? playRefusal;
+
+  const issueByAnimationId = useMemo(() => {
+    const issues: Record<string, RevealUnresolvedReason> = {};
+    outcomes.forEach((outcome, index) => {
+      const animation = animations[index];
+      if (!outcome.ok && animation) issues[animation.id] = outcome.reason;
+    });
+    return issues;
+  }, [animations, outcomes]);
+
+  // The paragraph list is the same steps playback runs.
+  const paragraphsByAnimationId = useMemo(() => {
+    const paragraphs: Record<string, string[]> = {};
+    outcomes.forEach((outcome, index) => {
+      const animation = animations[index];
+      if (!outcome.ok || !animation) return;
+      paragraphs[animation.id] = outcome.steps.map((step, stepIndex) =>
+        getElementPreview(step.element, `Element ${stepIndex + 1}`),
+      );
+    });
+    return paragraphs;
+  }, [animations, outcomes]);
+
+  // The same clicks playback runs, so a with-previous reveal shows its
+  // neighbor's number.
+  const clickNumberByIndex = useMemo(
+    () => revealOutcomeClicks(outcomes),
+    [outcomes],
   );
 
+  // Which selected objects already have an animation. Adding covers the rest.
+  const animationKeys = useMemo(
+    () => getSlideAnimationTargetKeys(slide.content, animations),
+    [animations, slide.content],
+  );
+  const newTargets = useMemo(() => {
+    const animated = new Set(animationKeys);
+    return selectedTargets.filter(
+      (target) => !animated.has(animationElementKey(target.elementPath)),
+    );
+  }, [animationKeys, selectedTargets]);
+  const firstSelectedAnimationId = useMemo(() => {
+    const selected = new Set(
+      selectedTargets.map((target) => animationElementKey(target.elementPath)),
+    );
+    const index = animationKeys.findIndex((key) => key && selected.has(key));
+    return animations[index]?.id ?? null;
+  }, [animationKeys, animations, selectedTargets]);
+
   useEffect(() => {
-    if (selectedAnimation) setExpandedAnimationId(selectedAnimation.id);
-  }, [selectedAnimation]);
+    if (firstSelectedAnimationId) {
+      setExpandedAnimationId(firstSelectedAnimationId);
+    }
+  }, [firstSelectedAnimationId]);
+
+  // A list is refused only when it introduces a reveal that does not resolve. A
+  // reveal the stored list already had unresolved may stay or leave, so a partial
+  // repair saves. A refused change is not applied; the reason shows until a save
+  // goes through.
+  const commitAnimations = useCallback(
+    (next: SlideAnimation[]): boolean => {
+      const failed = introducedUnresolvedReason(storedRoot, animations, next);
+      if (failed) {
+        setRefusedChange(failed);
+        return false;
+      }
+      setRefusedChange(null);
+      setPlayRefusal(null);
+      onUpdateSlide({ animations: next });
+      return true;
+    },
+    [animations, onUpdateSlide, storedRoot],
+  );
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -266,53 +409,65 @@ export function AnimationsPanel({
         (animation) => animation.id === over.id,
       );
       if (oldIndex === -1 || newIndex === -1) return;
-      onUpdateSlide({ animations: arrayMove(animations, oldIndex, newIndex) });
+      commitAnimations(arrayMove(animations, oldIndex, newIndex));
     },
-    [animations, onUpdateSlide],
+    [animations, commitAnimations],
   );
 
-  const addAnimation = useCallback(() => {
-    if (!selectedTarget || selectedAnimation) return;
-    const animation: SlideAnimation = {
+  // The first new object waits for a click; the rest play with it.
+  const addAnimations = useCallback(() => {
+    if (newTargets.length === 0) return;
+    const added: SlideAnimation[] = newTargets.map((target, index) => ({
       id: nanoid(6),
-      elementIndex: selectedTarget.elementIndex,
-      elementPath: selectedTarget.elementPath,
+      elementIndex: target.elementIndex,
+      elementPath: target.elementPath,
+      ...(index > 0 ? { trigger: "with-previous" as const } : {}),
       type: "appear",
-    };
-    onUpdateSlide({ animations: [...animations, animation] });
-    setExpandedAnimationId(animation.id);
-  }, [animations, onUpdateSlide, selectedAnimation, selectedTarget]);
+    }));
+    if (commitAnimations([...animations, ...added])) {
+      setExpandedAnimationId(added[0]!.id);
+    }
+  }, [animations, commitAnimations, newTargets]);
 
   const removeAnimation = useCallback(
     (id: string) => {
-      onUpdateSlide({
-        animations: animations.filter((animation) => animation.id !== id),
-      });
+      commitAnimations(animations.filter((animation) => animation.id !== id));
       setExpandedAnimationId((current) => (current === id ? null : current));
     },
-    [animations, onUpdateSlide],
+    [animations, commitAnimations],
   );
 
   const changeType = useCallback(
     (id: string, type: AnimationType) => {
-      onUpdateSlide({
-        animations: animations.map((animation) =>
+      commitAnimations(
+        animations.map((animation) =>
           animation.id === id ? { ...animation, type } : animation,
         ),
-      });
+      );
     },
-    [animations, onUpdateSlide],
+    [animations, commitAnimations],
+  );
+
+  const changeTrigger = useCallback(
+    (id: string, trigger: AnimationTrigger) => {
+      commitAnimations(
+        animations.map((animation) =>
+          animation.id === id ? { ...animation, trigger } : animation,
+        ),
+      );
+    },
+    [animations, commitAnimations],
   );
 
   const changeByParagraph = useCallback(
     (id: string, byParagraph: boolean) => {
-      onUpdateSlide({
-        animations: animations.map((animation) =>
+      commitAnimations(
+        animations.map((animation) =>
           animation.id === id ? { ...animation, byParagraph } : animation,
         ),
-      });
+      );
     },
-    [animations, onUpdateSlide],
+    [animations, commitAnimations],
   );
 
   const previewByAnimationId = useMemo(() => {
@@ -331,78 +486,95 @@ export function AnimationsPanel({
     previewCleanupRef.current = null;
   }, []);
 
+  // Play runs on a copy of the slide laid over the canvas. The canvas and the
+  // stored content are never touched, so a save during Play stores no preview.
+  // Each step is found in the copy by its source stamp, the link from the
+  // stored HTML to the rendered DOM.
   const playAnimations = useCallback(() => {
     stopPreview();
-    const root = document.querySelector<HTMLElement>(
+    if (unresolvedReason) {
+      // The alert already shows the stored reveal's reason, so a refused change
+      // no longer describes the state the viewer is looking at.
+      setRefusedChange(null);
+      return;
+    }
+    // The list plays, so an earlier refusal no longer describes it.
+    setRefusedChange(null);
+    setPlayRefusal(null);
+    const canvas = document.querySelector<HTMLElement>(
       "[data-main-slide-canvas] .fmd-slide",
     );
-    const expanded = root
-      ? expandByParagraphAnimations(root, animations)
-      : null;
-    const resolved =
-      root && expanded ? resolveSlideAnimationTargets(root, expanded) : null;
-    if (!resolved) return;
+    const scope = canvas?.closest<HTMLElement>("[data-slide-content-scope]");
+    const slideBox = scope?.parentElement;
+    if (!canvas || !scope || !slideBox || !getRenderedSlideSource(scope)) {
+      return;
+    }
+    const width = slideBox.offsetWidth;
+    const height = slideBox.offsetHeight;
+    if (!width || !height) return;
 
-    const originals = resolved.flatMap(({ element, target }) => {
-      if (!(element instanceof HTMLElement || element instanceof SVGElement)) {
-        return [];
-      }
-      return [
-        {
-          element,
-          opacity: element.style.opacity,
-          pointerEvents: element.style.pointerEvents,
-          transition: element.style.transition,
-          animation: element.style.animation,
-          type: target.type,
-        },
-      ];
+    const steps = revealStepsOf(outcomes);
+    const copy = slideBox.cloneNode(true) as HTMLElement;
+    const elements = steps.map((step) => {
+      const ordinal = storedOrdinalAtPath(slide.content, step.path);
+      return ordinal === null
+        ? null
+        : copy.querySelector(`[data-src-i$=":${ordinal}"]`);
     });
-    if (originals.length !== resolved.length) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let index = 0;
-    const restore = () => {
-      if (timer) clearTimeout(timer);
-      for (const original of originals) {
-        original.element.style.opacity = original.opacity;
-        original.element.style.pointerEvents = original.pointerEvents;
-        original.element.style.transition = original.transition;
-        original.element.style.animation = original.animation;
-      }
-    };
-    const cleanup = () => {
-      restore();
-      if (previewCleanupRef.current === cleanup) {
-        previewCleanupRef.current = null;
-      }
-    };
-    previewCleanupRef.current = cleanup;
+    if (elements.some((element) => element === null)) {
+      setPlayRefusal("missing-element");
+      return;
+    }
+    const targets = elements as Element[];
+    const clicks = revealStepClicks(steps);
+    const reveals = steps.map((step, index) => ({
+      ...step.animation,
+      click: clicks[index]!,
+    }));
+    const clickCount = buildClickCount(reveals);
 
-    for (const { element } of originals) {
-      element.style.opacity = "0";
-      element.style.pointerEvents = "none";
+    const rect = slideBox.getBoundingClientRect();
+    const overlay = document.createElement("div");
+    overlay.setAttribute("data-slide-play-preview", "");
+    overlay.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${width}px;height:${height}px;transform:scale(${rect.width / width});transform-origin:0 0;z-index:2147483000;`;
+    overlay.appendChild(copy);
+    document.body.appendChild(overlay);
+
+    let shown = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    function stop() {
+      if (timer) clearTimeout(timer);
+      overlay.remove();
+      document.removeEventListener("keydown", onKeyDown);
+      if (previewCleanupRef.current === stop) previewCleanupRef.current = null;
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") stop();
+    }
+    function revealNext() {
+      if (shown < clickCount) {
+        setBuildState(targets, reveals, shown + 1, shown);
+        shown += 1;
+      }
+      timer = setTimeout(
+        shown < clickCount ? revealNext : stop,
+        PREVIEW_STEP_MS,
+      );
     }
 
-    const revealNext = () => {
-      const target = originals[index];
-      if (!target) {
-        cleanup();
-        return;
-      }
-      target.element.style.animation = getElementAnimationValue(target.type);
-      target.element.style.opacity = "1";
-      target.element.style.pointerEvents = "auto";
-      index += 1;
-      timer = setTimeout(revealNext, 450);
-    };
+    setBuildState(targets, reveals, 0, null);
+    overlay.addEventListener("click", stop);
+    document.addEventListener("keydown", onKeyDown);
+    previewCleanupRef.current = stop;
     revealNext();
-  }, [animations, stopPreview]);
+  }, [outcomes, slide.content, stopPreview, unresolvedReason]);
 
   useEffect(() => stopPreview, [stopPreview]);
 
-  const addButtonLabel = selectedTarget
-    ? t("animations.addTransition")
-    : t("animations.selectObject");
+  const addButtonLabel =
+    selectedTargets.length > 0
+      ? t("animations.addTransition")
+      : t("animations.selectObject");
 
   return (
     <div className="flex h-full w-72 min-w-0 flex-col bg-background">
@@ -426,8 +598,8 @@ export function AnimationsPanel({
             type="button"
             variant="outline"
             className="h-10 w-full justify-start gap-2"
-            disabled={!selectedTarget || Boolean(selectedAnimation)}
-            onClick={addAnimation}
+            disabled={newTargets.length === 0}
+            onClick={addAnimations}
           >
             <IconPlus className="size-4 text-primary" />
             {addButtonLabel}
@@ -454,8 +626,12 @@ export function AnimationsPanel({
                   anim={animation}
                   expanded={expandedAnimationId === animation.id}
                   preview={previewByAnimationId[animation.id] ?? ""}
-                  stepNumber={index + 1}
+                  issue={issueByAnimationId[animation.id] ?? null}
+                  paragraphs={paragraphsByAnimationId[animation.id] ?? []}
+                  stepNumber={clickNumberByIndex[index] || index + 1}
+                  isFirst={index === 0}
                   onChangeType={changeType}
+                  onChangeTrigger={changeTrigger}
                   onChangeByParagraph={changeByParagraph}
                   onRemove={removeAnimation}
                   onToggleExpanded={(id) =>
@@ -470,10 +646,23 @@ export function AnimationsPanel({
         )}
       </div>
 
-      <div className="shrink-0 border-t border-border p-4">
+      <div className="shrink-0 space-y-2 border-t border-border p-4">
+        {refusedChange ? (
+          <p role="alert" className="text-sm text-destructive">
+            {t(REVEAL_REASON_LABEL_KEY[refusedChange])}{" "}
+            {t("animations.changeNotApplied")}
+          </p>
+        ) : (
+          shownPlayReason && (
+            <p role="alert" className="text-sm text-destructive">
+              {t(REVEAL_REASON_LABEL_KEY[shownPlayReason])}{" "}
+              {t("animations.blocked")}
+            </p>
+          )
+        )}
         <Button
           type="button"
-          className="h-10 gap-2"
+          className="h-10 w-full gap-2"
           disabled={animations.length === 0}
           onClick={playAnimations}
         >

@@ -62,6 +62,7 @@ import {
   readLiteralJsxPropsAtAnchor,
   type LocalJsxSourceAnchor,
 } from "../shared/local-jsx-visual-edit.js";
+import { pruneDeletedNativeEffects } from "../shared/native-effect-pruning.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import {
@@ -764,6 +765,15 @@ async function persistLinkedComponentEdit(args: {
     };
   }
 
+  if (args.edit.kind === "structure") {
+    transformed = {
+      ...transformed,
+      changes: transformed.changes.map((change) => ({
+        ...change,
+        after: pruneDeletedNativeEffects(change.before, change.after),
+      })),
+    };
+  }
   const updated = new Map(
     transformed.changes.map((change) => [change.fileId, change.after]),
   );
@@ -1017,6 +1027,15 @@ export default defineAction({
           connectionId: localSource.connectionId,
           path: localSource.path,
         });
+        if (typeof live.content !== "string") {
+          fail(
+            "The localhost bridge did not return source content; no component prop edit was applied.",
+            {
+              errorCode: "localhost_source_content_unavailable",
+              statusCode: 502,
+            },
+          );
+        }
         if (
           localSource.expectedVersionHash &&
           live.versionHash !== localSource.expectedVersionHash

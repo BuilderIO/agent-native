@@ -30,26 +30,25 @@ import {
   resolveSourceCredential,
 } from "./source-credentials.js";
 import {
+  isBrainAdmin,
+  recordZoomAuditEvent,
+  type ZoomAuditEvent,
+} from "./zoom-governance.js";
+import {
   ZoomHttpError,
   downloadZoomTranscript,
   getZoomMeetingRecordings,
   isReadyZoomTranscript,
   fetchZoomAccessToken,
-  getZoomMeetingSummary,
   listZoomRecordings,
   hasProcessingTranscript,
   listZoomAccountRecordings,
-  listZoomMeetingSummaries,
   nextZoomCursorFrom,
-  normalizeZoomMeetingSummary,
   normalizeZoomRecording,
+  isApprovedZoomMeeting,
+  zoomApprovedMeetingIds,
+  zoomApprovedMeetingsKey,
   zoomExternalId,
-  zoomMeetingFilterFromConfig,
-  zoomMeetingFilterKey,
-  zoomMeetingMatchesFilter,
-  zoomSummaryExternalId,
-  zoomSummaryMatchesUsers,
-  type ZoomMeetingSummary,
 } from "./zoom.js";
 
 export interface ConnectorSyncResult {
@@ -211,7 +210,6 @@ interface ZoomSyncCursor {
   from?: string;
   filterKey?: string | null;
   lookbackDays?: number;
-  includeSummaries?: boolean;
   retry?: RetryCursor;
   transientRetryAt?: string;
   lastRunAt?: string;
@@ -3130,21 +3128,19 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const dayMs = 24 * 60 * 60 * 1000;
   const to = utcDate(runStartedAt);
   const earliest = utcDate(runStartedAt - ZOOM_MAX_LOOKBACK_DAYS * dayMs);
-  const meetingFilter = zoomMeetingFilterFromConfig(objectValue(config.zoom));
-  const filterKey = zoomMeetingFilterKey(meetingFilter);
-  // A changed filter or a longer lookback can include meetings the cursor has
-  // already moved past.
+  const approvedMeetingIds = zoomApprovedMeetingIds(objectValue(config.zoom));
+  const filterKey = zoomApprovedMeetingsKey(approvedMeetingIds);
+  // A changed allowlist or a longer lookback can include meetings the cursor
+  // has already moved past.
   const filterChanged = (cursor.filterKey ?? null) !== filterKey;
   const lookbackIncreased =
     lookbackDays > (cursor.lookbackDays ?? ZOOM_DEFAULT_LOOKBACK_DAYS);
-  const includeSummaries = objectValue(config.zoom).includeSummaries === true;
-  const summariesEnabled = includeSummaries && cursor.includeSummaries !== true;
   const lookbackFrom = utcDate(runStartedAt - lookbackDays * dayMs);
   const cursorFrom =
     cursor.from && ZOOM_DATE.test(cursor.from) ? cursor.from : null;
   // A rewind must not start after the cursor: the cursor may be held back for
   // a transcript still processing beyond the lookback window.
-  const rewind = filterChanged || lookbackIncreased || summariesEnabled;
+  const rewind = filterChanged || lookbackIncreased;
   const requestedFrom = !cursorFrom
     ? lookbackFrom
     : rewind && lookbackFrom < cursorFrom
@@ -3157,6 +3153,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     from,
     to,
     recordingListsScanned: 0,
+    approvedMeetingSeries: approvedMeetingIds.size,
     meetingsSeen: 0,
     meetingsSkippedByFilter: 0,
     transcriptsWithoutDownloadUrl: 0,
@@ -3166,21 +3163,11 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     alreadyImported: 0,
     pendingTranscripts: 0,
     sensitivityBlocked: 0,
-    includeSummaries,
-    summariesListed: 0,
-    summariesSkippedByFilter: 0,
-    summariesAlreadyImported: 0,
-    summariesFetched: 0,
-    emptySummaries: 0,
-    summaryCapturesCreated: 0,
     capturesCreated: 0,
     rateLimited: false,
   };
   const pendingMeetingStarts: string[] = [];
-  const summaryFailures: Array<{ meetingId: string; error: string }> = [];
-  stats.summaryFetchFailures = summaryFailures;
-  // Meeting IDs and file types (titles only for matched meetings) show why a
-  // meeting did or did not import.
+  // Only approved meetings are described; unapproved ones are just counted.
   const matchedMeetings: Array<{
     id: string;
     topic: string | null;
@@ -3188,11 +3175,45 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     files: string[];
     filesOmitted?: number;
   }> = [];
-  const skippedMeetings: Array<{ id: string; start: string }> = [];
   stats.matchedMeetings = matchedMeetings;
-  stats.skippedMeetings = skippedMeetings;
+  // Unapproved meetings are only counted (meetingsSkippedByFilter); their IDs
+  // are never written to the audit trail.
+  const audit = (event: Omit<ZoomAuditEvent, "orgId" | "sourceId">) =>
+    recordZoomAuditEvent({
+      ...event,
+      orgId: source.orgId,
+      sourceId: source.id,
+    });
+  // The run row already holds the outcome, so a failed completion audit must
+  // not turn a committed sync into an error.
+  const auditSyncFinished = (detail: Record<string, unknown>) =>
+    audit({ event: "sync-finished", detail }).catch((error) =>
+      console.warn("[brain] Could not record Zoom sync-finished audit", error),
+    );
+  let refused = false;
+  const refuse = async (reason: string, message: string): Promise<never> => {
+    refused = true;
+    await audit({
+      event: "sync-refused",
+      decision: "deny",
+      detail: { reason },
+    });
+    throw new Error(message);
+  };
 
   try {
+    if (approvedMeetingIds.size === 0) {
+      await refuse(
+        "no-approved-series",
+        "Zoom source has no approved meeting series. Add the recurring meeting IDs whose owners opted in; Brain reads nothing from Zoom until then.",
+      );
+    }
+    if (!(await isBrainAdmin(source.ownerEmail, source.orgId))) {
+      await refuse(
+        "owner-not-brain-admin",
+        "Zoom source owner is not a Brain admin (an organization owner or admin), so Brain reads nothing from Zoom. Make the owner an org admin or have an admin recreate the source.",
+      );
+    }
     const accountId = await requireConnectorCredential(
       "ZOOM_ACCOUNT_ID",
       "Zoom",
@@ -3234,19 +3255,10 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       stats.recordingListsScanned = Number(stats.recordingListsScanned) + 1;
       stats.meetingsSeen = Number(stats.meetingsSeen) + listed.length;
       const meetings = listed.filter((meeting) =>
-        zoomMeetingMatchesFilter(meeting, meetingFilter),
+        isApprovedZoomMeeting(meeting.id, approvedMeetingIds),
       );
       stats.meetingsSkippedByFilter =
         Number(stats.meetingsSkippedByFilter) + listed.length - meetings.length;
-      for (const meeting of listed) {
-        if (skippedMeetings.length >= ZOOM_DIAGNOSTIC_LIMIT) break;
-        if (!zoomMeetingMatchesFilter(meeting, meetingFilter)) {
-          skippedMeetings.push({
-            id: String(meeting.id),
-            start: meeting.start_time,
-          });
-        }
-      }
       const imported = await importedZoomExternalIds(
         source.id,
         meetings.map(zoomExternalId),
@@ -3281,6 +3293,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           continue;
         }
         let recordingFiles = meeting.recording_files ?? [];
+        let fetchedDetail = false;
         const readyTranscripts = recordingFiles.filter(isReadyZoomTranscript);
         if (
           readyTranscripts.length > 0 &&
@@ -3291,6 +3304,20 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
             "/meetings/{meetingUuid}/recordings",
             () => getZoomMeetingRecordings(token, meeting.uuid),
           );
+          if (!isApprovedZoomMeeting(detail.id, approvedMeetingIds)) {
+            await audit({
+              event: "occurrence-denied",
+              decision: "deny",
+              meetingId: String(meeting.id),
+              meetingUuid: meeting.uuid,
+              detail: {
+                content: "transcript",
+                reason: "detail-names-unapproved-meeting",
+              },
+            });
+            continue;
+          }
+          fetchedDetail = true;
           recordingFiles = detail.recording_files ?? [];
         }
         const transcripts = recordingFiles.filter(
@@ -3302,15 +3329,23 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           recordingFiles.filter(
             (file) => isReadyZoomTranscript(file) && !file.download_url,
           ).length;
+        const outcome = {
+          downloaded: 0,
+          captured: 0,
+          quarantined: 0,
+          empty: 0,
+        };
         for (const file of transcripts) {
           await renewRunLease(run);
           const vtt = await zoomCall("recording transcript download", () =>
             downloadZoomTranscript(token, file.download_url),
           );
           stats.transcriptsDownloaded = Number(stats.transcriptsDownloaded) + 1;
+          outcome.downloaded += 1;
           const normalized = normalizeZoomRecording(meeting, vtt);
           if (!normalized) {
             stats.emptyTranscripts = Number(stats.emptyTranscripts) + 1;
+            outcome.empty += 1;
             continue;
           }
           const captureResult = await createConnectorCapture({
@@ -3325,97 +3360,23 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           });
           if (captureResult.capture) {
             captures.push(serializeCapture(captureResult.capture));
+            outcome.captured += 1;
           }
           if (captureResult.blocked) {
             stats.sensitivityBlocked = Number(stats.sensitivityBlocked) + 1;
+            outcome.quarantined += 1;
           }
         }
-        await renewRunLease(run);
-      }
-    }
-
-    if (includeSummaries) {
-      const listed = await zoomCall("/meetings/meeting_summaries", () =>
-        listZoomMeetingSummaries(token, from, to, renewLease),
-      );
-      await renewRunLease(run);
-      stats.summariesListed = listed.length;
-      const summaries = listed.filter(
-        (summary) =>
-          zoomSummaryMatchesUsers(summary, configuredUserIds) &&
-          zoomMeetingMatchesFilter(
-            { id: summary.meeting_id, topic: summary.meeting_topic },
-            meetingFilter,
-          ),
-      );
-      stats.summariesSkippedByFilter = listed.length - summaries.length;
-      const imported = await importedZoomExternalIds(
-        source.id,
-        summaries.map(zoomSummaryExternalId),
-      );
-      for (const listedSummary of summaries) {
-        if (imported.has(zoomSummaryExternalId(listedSummary))) {
-          stats.summariesAlreadyImported =
-            Number(stats.summariesAlreadyImported) + 1;
-          continue;
-        }
-        await renewRunLease(run);
-        let summary: ZoomMeetingSummary;
-        try {
-          summary = await zoomCall(
-            "/meetings/{meetingUuid}/meeting_summary",
-            () => getZoomMeetingSummary(token, listedSummary.meeting_uuid),
-          );
-        } catch (error) {
-          // One summary Zoom refuses (trashed, deleted) must not block the
-          // rest. Auth, missing-scope, timeout, and server errors are not
-          // about that summary, so they stay run-level and keep the cursor;
-          // skipping them would advance past a summary Zoom can still return.
-          if (
-            !(error instanceof ZoomHttpError) ||
-            error.status === 401 ||
-            error.status === 408 ||
-            error.status >= 500 ||
-            error.zoomCode === "4711"
-          ) {
-            throw error;
-          }
-          summaryFailures.push({
-            meetingId: String(listedSummary.meeting_id),
-            error: error.message,
+        if (fetchedDetail || outcome.downloaded > 0) {
+          await audit({
+            event: "occurrence-allowed",
+            decision: "allow",
+            meetingId: String(meeting.id),
+            meetingUuid: meeting.uuid,
+            detail: { content: "transcript", ...outcome },
           });
-          continue;
         }
-        stats.summariesFetched = Number(stats.summariesFetched) + 1;
-        const normalized = normalizeZoomMeetingSummary({
-          ...listedSummary,
-          ...summary,
-        });
-        if (!normalized) {
-          stats.emptySummaries = Number(stats.emptySummaries) + 1;
-          continue;
-        }
-        const captureResult = await createConnectorCapture({
-          sourceId: source.id,
-          externalId: normalized.externalId,
-          title: normalized.title,
-          kind: "note",
-          content: normalized.content,
-          capturedAt: normalized.capturedAt,
-          metadata: { ...normalized.metadata, syncRunId: runId },
-          audience: {
-            kind: "org",
-            upstreamRefHash: listedSummary.meeting_uuid,
-          },
-        });
-        if (captureResult.capture) {
-          captures.push(serializeCapture(captureResult.capture));
-          stats.summaryCapturesCreated =
-            Number(stats.summaryCapturesCreated) + 1;
-        }
-        if (captureResult.blocked) {
-          stats.sensitivityBlocked = Number(stats.sensitivityBlocked) + 1;
-        }
+        await renewRunLease(run);
       }
     }
 
@@ -3427,31 +3388,19 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       }),
       filterKey,
       lookbackDays,
-      includeSummaries,
       retry: undefined,
       lastRunAt: nowIso(),
     };
 
     stats.capturesCreated = captures.length;
-    const summaryError = summaryFailures.length
-      ? "Zoom did not return " +
-        summaryFailures.length +
-        (summaryFailures.length === 1
-          ? " AI Companion summary"
-          : " AI Companion summaries") +
-        "; first: meeting " +
-        summaryFailures[0].meetingId +
-        ": " +
-        summaryFailures[0].error
-      : null;
     await renewRunLease(run);
     await db
       .update(schema.brainSources)
       .set({
         cursorJson: stableJson(nextCursor),
         lastSyncedAt: nowIso(),
-        lastError: summaryError,
-        status: summaryError ? "error" : "active",
+        lastError: null,
+        status: "active",
         updatedAt: nowIso(),
       })
       .where(
@@ -3460,27 +3409,24 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           eq(schema.brainSources.id, source.id),
         ),
       );
-    await finishRun(
-      run,
-      summaryError ? "error" : "success",
-      stats,
-      summaryError,
-    );
+    await finishRun(run, "success", stats);
+    await auditSyncFinished({
+      runId,
+      status: "success",
+      capturesCreated: captures.length,
+      meetingsSkippedByFilter: stats.meetingsSkippedByFilter ?? 0,
+    });
     return {
       runId,
       sourceId: source.id,
       provider: "zoom",
-      status: summaryError ? "error" : "success",
+      status: "success",
       capturesCreated: captures.length,
       captures,
       stats,
-      message: summaryError
-        ? summaryError
-        : captures.length
-          ? `Imported ${captures.length} Zoom ${includeSummaries ? "transcripts and summaries" : "transcripts"}`
-          : includeSummaries
-            ? "Zoom sync completed with no new transcripts or summaries"
-            : "Zoom sync completed with no new transcripts",
+      message: captures.length
+        ? `Imported ${captures.length} Zoom transcripts`
+        : "Zoom sync completed with no new transcripts",
     };
   } catch (err) {
     const message = connectorErrorMessage(err);
@@ -3509,6 +3455,14 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         ),
       );
     await finishRun(run, "error", stats, message);
+    if (!refused) {
+      await auditSyncFinished({
+        runId,
+        status: "error",
+        capturesCreated: captures.length,
+        rateLimited: isRateLimit,
+      });
+    }
     return {
       runId,
       sourceId: source.id,

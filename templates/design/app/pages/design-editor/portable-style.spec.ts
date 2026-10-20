@@ -81,6 +81,35 @@ describe("applyPortableStyleSnapshotToHtml", () => {
     expect(dropped.style.top).toBe("8px");
   });
 
+  it("leaves the dropped root's flex sizing to its new parent but carries a descendant's", () => {
+    const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<section style="display:flex"><div data-agent-native-node-id="dropped" style="flex: 0 0 auto;width:180px"><span></span></div></section>
+</body></html>`;
+    const flexSizing = {
+      flex: "0 0 56px",
+      flexBasis: "56px",
+      flexGrow: "0",
+      flexShrink: "0",
+    };
+    const result = applyPortableStyleSnapshotToHtml(html, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        { sourceId: "dropped", path: [], styles: flexSizing },
+        { sourceId: "label", path: [0], styles: flexSizing },
+      ],
+    });
+    const doc = new DOMParser().parseFromString(result, "text/html");
+    const dropped = doc.querySelector(
+      '[data-agent-native-node-id="dropped"]',
+    ) as HTMLElement;
+    expect(dropped.style.flexBasis).toBe("auto");
+    expect((dropped.firstElementChild as HTMLElement).style.flexBasis).toBe(
+      "56px",
+    );
+  });
+
   it("is a no-op when the snapshot has nothing left after filtering", () => {
     const result = applyPortableStyleSnapshotToHtml(
       DEST_BARE_SCREEN,
@@ -258,6 +287,105 @@ describe("portable-style source capture and rendered Chromium behavior", () => {
     );
   }
 
+  it("applies portable styles to HTML and SVG elements in an iframe realm", async () => {
+    const result = await page.evaluate(
+      ({ portableStyleSource }: { portableStyleSource: string }) => {
+        const moduleObject: {
+          exports: Record<string, (...args: any[]) => any>;
+        } = { exports: {} };
+        new Function("module", "exports", portableStyleSource)(
+          moduleObject,
+          moduleObject.exports,
+        );
+
+        const frame = document.createElement("iframe");
+        document.body.appendChild(frame);
+        try {
+          const frameDocument = frame.contentDocument;
+          if (!frameDocument) throw new Error("iframe document is unavailable");
+          const htmlElement = frameDocument.createElement("div");
+          const svgElement = frameDocument.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "svg",
+          );
+          moduleObject.exports.applyPortableStyles(htmlElement, {
+            color: "rgb(1, 2, 3)",
+          });
+          moduleObject.exports.applyPortableStyles(svgElement, {
+            fill: "rgb(4, 5, 6)",
+          });
+
+          return {
+            htmlIsForeign: !(htmlElement instanceof HTMLElement),
+            svgIsForeign: !(svgElement instanceof SVGElement),
+            htmlHostMatches:
+              moduleObject.exports.styleHost(htmlElement) === htmlElement,
+            svgHostMatches:
+              moduleObject.exports.styleHost(svgElement) === svgElement,
+            htmlColor: htmlElement.style.color,
+            svgFill: svgElement.style.fill,
+          };
+        } finally {
+          frame.remove();
+        }
+      },
+      { portableStyleSource },
+    );
+
+    expect(result).toEqual({
+      htmlIsForeign: true,
+      svgIsForeign: true,
+      htmlHostMatches: true,
+      svgHostMatches: true,
+      htmlColor: "rgb(1, 2, 3)",
+      svgFill: "rgb(4, 5, 6)",
+    });
+  });
+
+  it("uses the current realm when a parsed HTML document has no defaultView", async () => {
+    const result = await page.evaluate(
+      ({ portableStyleSource }: { portableStyleSource: string }) => {
+        const moduleObject: {
+          exports: Record<string, (...args: any[]) => any>;
+        } = { exports: {} };
+        new Function("module", "exports", portableStyleSource)(
+          moduleObject,
+          moduleObject.exports,
+        );
+
+        const parsed = new DOMParser().parseFromString(
+          "<!doctype html><html><body><div></div></body></html>",
+          "text/html",
+        );
+        const htmlElement = parsed.body.firstElementChild!;
+        const foreignElement = document.implementation.createDocument(
+          "urn:portable-style-test",
+          "element",
+        ).documentElement;
+        moduleObject.exports.applyPortableStyles(htmlElement, {
+          color: "rgb(7, 8, 9)",
+        });
+
+        return {
+          parsedDefaultViewIsNull: parsed.defaultView === null,
+          htmlHostMatches:
+            moduleObject.exports.styleHost(htmlElement) === htmlElement,
+          htmlColor: (htmlElement as HTMLElement).style.color,
+          nonHtmlHostIsNull:
+            moduleObject.exports.styleHost(foreignElement) === null,
+        };
+      },
+      { portableStyleSource },
+    );
+
+    expect(result).toEqual({
+      parsedDefaultViewIsNull: true,
+      htmlHostMatches: true,
+      htmlColor: "rgb(7, 8, 9)",
+      nonHtmlHostIsNull: true,
+    });
+  });
+
   it("carries inherited appearance when matching head markup has different body context", async () => {
     const head = `<head><style>.dark .card { color: white; }</style></head>`;
     const sourceHtml = `<!doctype html><html>${head}<body class="dark"><div class="card" data-agent-native-node-id="dropped"></div></body></html>`;
@@ -276,6 +404,112 @@ describe("portable-style source capture and rendered Chromium behavior", () => {
         .locator('[data-agent-native-node-id="dropped"]')
         .evaluate((el: Element) => (el as HTMLElement).style.position),
     ).toBe("absolute");
+  });
+
+  it("keeps a layer's own declarations over the snapshot's computed values, except ones that read a var()", async () => {
+    const destHtml = `<!doctype html><html><body><div data-agent-native-node-id="dropped" style="position:absolute;left:12px;top:8px;display:flex;align-items:center;padding:0 24px;background:#fef3c7;border-color:var(--edge)"></div></body></html>`;
+    const applied = await apply(destHtml, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        {
+          sourceId: "dropped",
+          path: [],
+          styles: {
+            background:
+              "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+            backgroundColor: "rgba(0, 0, 0, 0)",
+            alignItems: "normal",
+            placeItems: "normal normal",
+            justifyItems: "start",
+            padding: "0px",
+            borderColor: "rgb(1, 2, 3)",
+            color: "rgb(17, 24, 39)",
+          },
+        },
+      ],
+    });
+    await page.setContent(applied);
+    const style = await page
+      .locator('[data-agent-native-node-id="dropped"]')
+      .evaluate((el: HTMLElement) => ({
+        background: getComputedStyle(el).backgroundColor,
+        alignItems: el.style.alignItems,
+        justifyItems: el.style.justifyItems,
+        padding: el.style.padding,
+        borderColor: el.style.borderColor,
+        color: el.style.color,
+      }));
+    expect(style).toEqual({
+      background: "rgb(254, 243, 199)",
+      alignItems: "center",
+      justifyItems: "start",
+      padding: "0px 24px",
+      borderColor: "rgb(1, 2, 3)",
+      color: "rgb(17, 24, 39)",
+    });
+  });
+
+  it("carries a partly authored font's inherited family and size, but no other partly authored shorthand", async () => {
+    const destHtml = `<!doctype html><html><body><div data-agent-native-node-id="dropped" style="position:absolute;display:flex;align-items:center;font-weight:700"></div></body></html>`;
+    const applied = await apply(destHtml, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        {
+          sourceId: "dropped",
+          path: [],
+          styles: {
+            placeItems: "center normal",
+            font: "700 16px system-ui, sans-serif",
+          },
+        },
+      ],
+    });
+    await page.setContent(applied);
+    const style = await page
+      .locator('[data-agent-native-node-id="dropped"]')
+      .evaluate((el: HTMLElement) => ({
+        alignItems: el.style.alignItems,
+        justifyItems: el.style.justifyItems,
+        font: el.style.font,
+      }));
+    expect(style).toEqual({
+      alignItems: "center",
+      justifyItems: "",
+      font: "700 16px system-ui, sans-serif",
+    });
+  });
+
+  it("carries the other sides of a partly authored margin through their longhand entries", async () => {
+    const destHtml = `<!doctype html><html><body><div data-agent-native-node-id="dropped" style="position:absolute;margin-top:4px"></div></body></html>`;
+    const applied = await apply(destHtml, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        {
+          sourceId: "dropped",
+          path: [],
+          styles: {
+            margin: "8px 10px 6px 12px",
+            marginTop: "8px",
+            marginRight: "10px",
+            marginBottom: "6px",
+            marginLeft: "12px",
+          },
+        },
+      ],
+    });
+    await page.setContent(applied);
+    const margin = await page
+      .locator('[data-agent-native-node-id="dropped"]')
+      .evaluate((el: HTMLElement) => [
+        el.style.marginTop,
+        el.style.marginRight,
+        el.style.marginBottom,
+        el.style.marginLeft,
+      ]);
+    expect(margin).toEqual(["4px", "10px", "6px", "12px"]);
   });
 
   it("keeps auto, percent, and calc responsive to a breakpoint-driven containing block; rem is canonical px", async () => {
