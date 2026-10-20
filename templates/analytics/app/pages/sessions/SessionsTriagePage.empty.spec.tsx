@@ -740,7 +740,7 @@ describe("Sessions empty states", () => {
   async function renderSessions(path = "/sessions") {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={[path]}>
+        <MemoryRouter key={path} initialEntries={[path]}>
           <SessionsTriagePage />
         </MemoryRouter>,
       );
