@@ -69,3 +69,12 @@ describe("searchConsolePropertyProblem", () => {
     );
   });
 });
+
+it("normalizes case-only Domain edits to the saved property", () => {
+  expect(normalizeSearchConsoleProperty(" SC-DOMAIN:Example.test ")).toBe(
+    "sc-domain:example.test",
+  );
+  expect(normalizeSearchConsoleProperty(" https://Example.test/Blog/ ")).toBe(
+    "https://Example.test/Blog/",
+  );
+});

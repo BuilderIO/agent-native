@@ -58,7 +58,9 @@ beforeEach(() => {
 
 describe("get-first-party-analytics-backend", () => {
   it("reports Postgres for every table when the scope has no backend setting", async () => {
-    await expect(action.run({})).resolves.toEqual({
+    const result = await action.run({});
+    expect(action.outputSchema!.parse(result)).toEqual(result);
+    expect(result).toEqual({
       sink: "postgres",
       setting: "absent",
       tables: {

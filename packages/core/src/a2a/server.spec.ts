@@ -1658,6 +1658,40 @@ describe("verifyA2AToken (exported)", () => {
     });
   });
 
+  it("uses the configured Vite base path when validating a mounted receiver", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example";
+    delete process.env.APP_BASE_PATH;
+    process.env.VITE_APP_BASE_PATH = "/dispatch";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/dispatch",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+    });
+  });
+
+  it("preserves the app URL path when no receiver base path is configured", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example/workspace";
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/workspace",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+    });
+  });
+
   it("preserves an explicit receiver base path ending in /a2a", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     process.env.APP_URL = "https://workspace.example";

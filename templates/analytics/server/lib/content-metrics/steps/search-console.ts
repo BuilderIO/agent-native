@@ -167,9 +167,8 @@ export const searchConsoleStep: ContentStep = {
       outcome: {
         rowCount: snapshots.size,
         windowStart: window.startDate,
-        // Query coverage advances even when no rows exist. Data dates remain
-        // on the snapshots, and omitted values still have no snapshot.
-        windowEnd: window.endDate,
+        // An empty result must not forfeit backfill after a property correction.
+        windowEnd: snapshots.size > 0 ? window.endDate : null,
       },
     };
   },

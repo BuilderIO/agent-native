@@ -67,3 +67,14 @@ describe("getGoogleServiceAccountToken", () => {
     });
   });
 });
+
+it.each([null, [], 42, "text"])(
+  "rejects a non-object credential %s",
+  async (value) => {
+    credential.value = JSON.stringify(value);
+    await expect(getGoogleServiceAccountToken()).rejects.toMatchObject({
+      errorCode: "google_credentials_unreadable",
+      statusCode: 422,
+    });
+  },
+);
