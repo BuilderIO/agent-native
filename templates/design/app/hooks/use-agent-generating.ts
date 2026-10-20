@@ -250,8 +250,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
         deferredRunId: deferredRunIdRef.current,
       });
       const continuationCorrelationRequired =
-        waitingForContinuationRef.current ||
-        (currentRunIdRef.current !== null && currentTurnIdRef.current !== null);
+        waitingForContinuationRef.current || currentRunIdRef.current !== null;
       if (
         activeTabIdRef.current !== tabId ||
         (previousRunIdRef.current !== null &&
@@ -268,8 +267,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           runId !== continuationSourceRunIdRef.current &&
           !correlatedContinuationRun) ||
         (requireActiveRunRef.current &&
-          (!hasRunId ||
-            (!active && !isKnownCurrentRun && !correlatedContinuationRun)))
+          (!hasRunId || (!isKnownCurrentRun && !correlatedContinuationRun)))
       ) {
         return false;
       }

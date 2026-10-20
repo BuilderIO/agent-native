@@ -641,7 +641,7 @@ describe("useAgentGenerating", () => {
     });
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(18_000);
+      await vi.advanceTimersByTimeAsync(28_000);
     });
     expect(latest!.generating).toBe(false);
     expect(onStale).toHaveBeenCalledTimes(1);
@@ -872,6 +872,134 @@ describe("useAgentGenerating", () => {
     });
     expect(latest!.generating).toBe(false);
     expect(onComplete).toHaveBeenCalledWith("design_tab");
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("ignores unrelated active activity when an unverified continuation has no run baseline", async () => {
+    const onComplete = vi.fn();
+    const onFailed = vi.fn();
+    const state = (runId: string, extra: Record<string, unknown> = {}) => ({
+      ok: true,
+      json: async () => ({ active: true, status: "running", runId, ...extra }),
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(state("unrelated-run"))
+      .mockResolvedValueOnce(
+        state("successor-run", {
+          successorOfRunId: "previous-run",
+        }),
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          active: false,
+          status: "completed",
+          runId: "successor-run",
+          successorOfRunId: "previous-run",
+          terminalReason: "done",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ active: false, status: "idle" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onFailed={onFailed}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        ignorePreviousRun: true,
+        previousRunId: "previous-run",
+        previousRunBaselineVerified: false,
+      });
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(onFailed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onComplete).toHaveBeenCalledWith("design_tab");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("requires provenance for a different run when the tracked continuation turn is missing", async () => {
+    const onComplete = vi.fn();
+    const onFailed = vi.fn();
+    const state = (
+      active: boolean,
+      status: string,
+      runId: string,
+      extra: Record<string, unknown> = {},
+    ) => ({
+      ok: true,
+      json: async () => ({ active, status, runId, ...extra }),
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(state(false, "truncated", "source-run"))
+      .mockResolvedValueOnce(state(true, "running", "unrelated-run"))
+      .mockResolvedValueOnce(
+        state(true, "running", "successor-run", {
+          successorOfRunId: "source-run",
+        }),
+      )
+      .mockResolvedValueOnce(
+        state(false, "completed", "successor-run", {
+          terminalReason: "done",
+        }),
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ active: false, status: "idle" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onFailed={onFailed}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        ignorePreviousRun: true,
+        previousRunId: "previous-run",
+        previousRunBaselineVerified: false,
+        currentRunId: "source-run",
+      });
+      await vi.advanceTimersByTimeAsync(28_000);
+    });
+
+    expect(latest!.generating).toBe(false);
+    expect(onComplete).toHaveBeenCalledWith("design_tab");
+    expect(onFailed).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(5);
 
     await act(async () => root.unmount());

@@ -2947,6 +2947,33 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   }
   const sqlRun = await getRunByThread(threadId, { includeTerminal: true });
   if (!sqlRun) return null;
+  if (
+    sqlRun.status === "aborted" &&
+    sqlRun.terminalReason === "aborted:duplicate_submission"
+  ) {
+    // A foreground duplicate request has its own synthetic aborted row, but
+    // the accepted run remains the thread's actual work. Another isolate has
+    // no in-memory run map to disambiguate those rows, so prefer the live row.
+    const liveRun = await getRunByThread(threadId);
+    if (!liveRun) return null;
+    return {
+      runId: liveRun.id,
+      threadId: liveRun.threadId,
+      turnId: liveRun.turnId ?? liveRun.id,
+      status: legacyWireRunStatus(liveRun.status),
+      inFlight: liveRun.status === "running",
+      heartbeatAt:
+        liveRun.status === "running"
+          ? Date.now()
+          : (liveRun.heartbeatAt ?? liveRun.startedAt),
+      lastProgressAt: liveRun.lastProgressAt,
+      dispatchMode: liveRun.dispatchMode,
+      terminalReason: liveRun.terminalReason,
+      diagStage: liveRun.diagStage,
+      awaitingRedispatch: false,
+      hasInFlightWork: liveRun.inFlightSince != null,
+    };
+  }
   if (sqlRun.status === "running") {
     // FALLBACK HARDENING: a background-dispatched run that is still UNCLAIMED
     // (dispatch_mode === 'background', never flipped to 'background-processing')

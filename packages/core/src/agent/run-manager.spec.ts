@@ -5184,7 +5184,7 @@ describe("run manager soft timeout", () => {
     });
   });
 
-  it("returns recent aborted SQL runs with their abort reason", async () => {
+  it("returns recent user-aborted SQL runs with their abort reason", async () => {
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-recent-aborted",
       threadId: "thread-aborted",
@@ -5193,7 +5193,7 @@ describe("run manager soft timeout", () => {
       heartbeatAt: Date.now() - 1_000,
       completedAt: Date.now() - 500,
       lastProgressAt: Date.now() - 800,
-      terminalReason: "aborted:duplicate_submission",
+      terminalReason: "aborted:user",
     });
 
     const result = await getActiveRunForThreadAsync("thread-aborted");
@@ -5201,9 +5201,59 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-recent-aborted",
       status: "aborted",
-      terminalReason: "aborted:duplicate_submission",
+      terminalReason: "aborted:user",
       inFlight: false,
     });
+  });
+
+  it("resolves a duplicate-submission marker to the live accepted SQL run", async () => {
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: "run-duplicate-request",
+        threadId: "thread-duplicate",
+        status: "aborted",
+        startedAt: Date.now(),
+        heartbeatAt: Date.now(),
+        completedAt: Date.now(),
+        lastProgressAt: null,
+        terminalReason: "aborted:duplicate_submission",
+      })
+      .mockResolvedValueOnce({
+        id: "run-accepted-live",
+        threadId: "thread-duplicate",
+        status: "running",
+        startedAt: Date.now() - 1_000,
+        heartbeatAt: Date.now(),
+        completedAt: null,
+        lastProgressAt: Date.now(),
+      });
+
+    const result = await getActiveRunForThreadAsync("thread-duplicate");
+
+    expect(result).toMatchObject({
+      runId: "run-accepted-live",
+      status: "running",
+      inFlight: true,
+    });
+  });
+
+  it("skips a duplicate-submission marker when no accepted run is live", async () => {
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: "run-duplicate-request-terminal",
+        threadId: "thread-duplicate-terminal",
+        status: "aborted",
+        startedAt: Date.now(),
+        heartbeatAt: Date.now(),
+        completedAt: Date.now(),
+        lastProgressAt: null,
+        terminalReason: "aborted:duplicate_submission",
+      })
+      .mockResolvedValueOnce(null);
+
+    await expect(
+      getActiveRunForThreadAsync("thread-duplicate-terminal"),
+    ).resolves.toBeNull();
   });
 
   it("surfaces a truncated SQL run on /runs/active, reported with the legacy wire status", async () => {
