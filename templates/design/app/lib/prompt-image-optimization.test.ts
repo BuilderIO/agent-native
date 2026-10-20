@@ -51,6 +51,29 @@ function pngFile(
   return new File([bytes], name, { type: "image/png" });
 }
 
+function jpegFile(
+  name: string,
+  width: number,
+  height: number,
+  size = 64,
+): File {
+  const bytes = new Uint8Array(size);
+  bytes.set([
+    0xff,
+    0xd8,
+    0xff,
+    0xc0,
+    0x00,
+    0x11,
+    0x08,
+    height >> 8,
+    height & 0xff,
+    width >> 8,
+    width & 0xff,
+  ]);
+  return new File([bytes], name, { type: "image/jpeg" });
+}
+
 function pngWithManyMetadataChunksFile(chunkCount: number): File {
   const chunk = (type: string, dataLength: number) => {
     const bytes = new Uint8Array(dataLength + 12);
@@ -391,7 +414,7 @@ describe("preparePromptImageAttachment", () => {
     });
 
     const preparation = preparePromptImageAttachment(
-      pngFile("huge.png", { width: 10_000, height: 5_000, size: 2_048 }),
+      pngFile("huge.png", { width: 10_000, height: 10_000, size: 2_048 }),
       2_000,
     );
     await expect(preparation).rejects.toBeInstanceOf(
@@ -404,6 +427,60 @@ describe("preparePromptImageAttachment", () => {
     expect(createObjectURL).not.toHaveBeenCalled();
   });
 
+  it("downscales high-resolution references within the decode safety limit", async () => {
+    const createObjectURL = vi.fn(() => "blob:source-image");
+    const revokeObjectURL = vi.fn();
+    const toBlob = vi.fn((callback: BlobCallback, type?: string) =>
+      callback(new Blob([new Uint8Array(512)], { type })),
+    );
+    const drawImage = vi.fn();
+
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+    Object.defineProperty(HTMLCanvasElement.prototype, "toBlob", {
+      configurable: true,
+      value: toBlob,
+    });
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true,
+      value: () => ({ drawImage }),
+    });
+    vi.stubGlobal(
+      "Image",
+      class {
+        naturalWidth = 3200;
+        naturalHeight = 16384;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+
+    const file = jpegFile("long-reference.jpg", 3200, 16384, 2_048);
+    const prepared = await preparePromptImageAttachment(file, 2_000);
+
+    expect(prepared?.file).not.toBe(file);
+    expect(prepared?.file.type).toBe("image/webp");
+    expect(prepared?.dataUrl).toMatch(/^data:image\/webp;base64,/);
+    expect(toBlob).toHaveBeenCalledWith(
+      expect.any(Function),
+      "image/webp",
+      0.76,
+    );
+    expect(drawImage).toHaveBeenCalledOnce();
+    expect(createObjectURL).toHaveBeenCalledWith(file);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:source-image");
+  });
+
   it("checks dimensions before keeping a small image inline", async () => {
     const createObjectURL = vi.fn(() => "blob:source-image");
     Object.defineProperty(URL, "createObjectURL", {
@@ -414,7 +491,7 @@ describe("preparePromptImageAttachment", () => {
     const preparation = preparePromptImageAttachment(
       pngFile("tiny-huge.png", {
         width: 10_000,
-        height: 5_000,
+        height: 10_000,
         size: 64,
       }),
       1_000,

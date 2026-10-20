@@ -32,6 +32,7 @@ import {
   recordServicePrincipalDenial,
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
@@ -202,7 +203,7 @@ function expectedJwtAudience(
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  const receiverBasePath = process.env.APP_BASE_PATH;
+  const receiverBasePath = getConfiguredAppBasePath() || undefined;
   if (fromEnv) {
     return audienceForRoute(
       canonicalA2AAudience(String(fromEnv), receiverBasePath),

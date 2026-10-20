@@ -174,11 +174,26 @@ const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "analytics_event_daily_rollups",
   "analytics_user_days",
   "session_recordings",
+  "analytics_content_items",
+  "analytics_content_metric_snapshots",
+  "analytics_content_collection_runs",
 ] as const;
 const FIRST_PARTY_QUERY_TABLES = new Set<string>(FIRST_PARTY_QUERY_TABLE_NAMES);
 const FIRST_PARTY_ROLLUP_TABLES = new Set([
   "analytics_event_daily_rollups",
   "analytics_user_days",
+]);
+// The Content view's daily snapshots. They live only in the Analytics SQL
+// store, so a query that reads them never routes to BigQuery, even for an
+// organization whose events sink is BigQuery.
+const FIRST_PARTY_CONTENT_TABLES = new Set([
+  "analytics_content_items",
+  "analytics_content_metric_snapshots",
+  "analytics_content_collection_runs",
+]);
+const FIRST_PARTY_SQL_STORE_ONLY_TABLES = new Set([
+  "session_recordings",
+  ...FIRST_PARTY_CONTENT_TABLES,
 ]);
 const FIRST_PARTY_QUERY_TABLE_LIST = FIRST_PARTY_QUERY_TABLE_NAMES.join(", ");
 
@@ -1150,6 +1165,17 @@ const TEST_IDENTITY_COLUMNS: Record<string, string> = {
   session_recordings: "user_id",
 };
 
+/** Tenant keys a scope may read in the tenant-keyed tables. */
+function scopeTenantKeys(scope: AnalyticsScope): string[] {
+  if (scope.orgId) {
+    return [
+      `org:${scope.orgId}`,
+      ...(scope.credentialScope === "org" ? [] : [`user:${scope.userEmail}`]),
+    ];
+  }
+  return scope.credentialScope === "org" ? [] : [`user:${scope.userEmail}`];
+}
+
 const SCOPED_ANALYTICS_EVENTS_CTE = "agent_native_scoped_analytics_events";
 const SCOPED_ANALYTICS_EVENT_SOURCE_CTE_PREFIX =
   "agent_native_scoped_analytics_event_source_";
@@ -1176,23 +1202,28 @@ function scopedTableSource(
     tableName === "analytics_events" && eventPushdownPredicates.length > 0
       ? ` AND (${eventPushdownPredicates.map((predicate) => `(${predicate})`).join(" OR ")})`
       : "";
+  if (FIRST_PARTY_CONTENT_TABLES.has(tableName)) {
+    const tenantKeys = scopeTenantKeys(scope);
+    if (tenantKeys.length === 0) {
+      return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
+    }
+    const branches = tenantKeys.map(
+      (_, index) =>
+        `SELECT * FROM ${tableName} WHERE tenant_key = $${parameterOffset + index + 1}`,
+    );
+    return {
+      sql: `(${branches.join(" UNION ALL ")})`,
+      args: tenantKeys,
+    };
+  }
   if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
-    if (scope.credentialScope === "org" && !scope.orgId) {
+    const tenantKeys = scopeTenantKeys(scope);
+    if (tenantKeys.length === 0) {
       return {
         sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`,
         args: [],
       };
     }
-    const tenantKeys = scope.orgId
-      ? [
-          `org:${scope.orgId}`,
-          ...(scope.credentialScope === "org"
-            ? []
-            : [`user:${scope.userEmail}`]),
-        ]
-      : scope.credentialScope === "org"
-        ? []
-        : [`user:${scope.userEmail}`];
     const branches = tenantKeys.map((_, index) => {
       const tenantKeyParameter = parameterOffset + index * 2 + 1;
       return `SELECT * FROM ${tableName} WHERE tenant_key = $${tenantKeyParameter} AND event_date <= $${tenantKeyParameter + 1}${testIdentityFilter}`;
@@ -1549,7 +1580,7 @@ function firstPartyAnalyticsTableBackend(
   table: string,
   sink: FirstPartyAnalyticsSink,
 ): FirstPartyAnalyticsQueryBackend {
-  return sink === "bigquery" && table !== "session_recordings"
+  return sink === "bigquery" && !FIRST_PARTY_SQL_STORE_ONLY_TABLES.has(table)
     ? "bigquery"
     : "postgres";
 }
@@ -1598,7 +1629,7 @@ function firstPartyAnalyticsQueryTarget(
   if (backends.size > 1) {
     throw new FirstPartyAnalyticsValidationError(
       "cross_backend_join",
-      "Cross-backend joins are not supported; query first-party event tables in BigQuery and session_recordings in the Analytics SQL store separately.",
+      "Cross-backend joins are not supported; query first-party event tables in BigQuery and session_recordings or the analytics_content_* tables in the Analytics SQL store separately.",
     );
   }
   return backends.has("bigquery") ? "bigquery" : "postgres";

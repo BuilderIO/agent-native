@@ -1541,6 +1541,24 @@ const messages = {
       "Complete provider setup before connecting your account.",
     continueToConnect: "Connect my account",
     setupTitle: "Connect {{name}}",
+    hubspot: {
+      setupTitle: "Set up HubSpot MCP",
+      dialogDescription:
+        "A workspace owner configures HubSpot MCP once. Each member then connects their own account.",
+      workspaceSetupStatus: "Workspace setup required",
+      setupChecking: "Checking workspace setup…",
+      setupUnavailable: "Setup status unavailable",
+      setupUnavailableDescription:
+        "Couldn't check the workspace OAuth settings. Try again.",
+      ownerSetupDescription:
+        "Create a HubSpot MCP Auth App, then add its client ID and secret in Agent-Native settings → API keys.",
+      memberSetupDescription:
+        "Ask a workspace owner to create a HubSpot MCP Auth App and add its client ID and secret in Agent-Native settings → API keys. You can connect your own HubSpot account after setup.",
+      noWorkspaceDescription: "Join a workspace before connecting HubSpot MCP.",
+      configureWorkspaceCredentials: "Add workspace credentials",
+      refreshSetupStatus: "Check again",
+      retrySetupStatus: "Retry",
+    },
     personal: "Personal",
     personalConnection: "Personal connection",
     organization: "Organization",
@@ -1748,7 +1766,7 @@ const messages = {
           "Search and update HubSpot CRM records through its integration.",
         useCase: "CRM, contacts, companies, deals, tickets, customer analytics",
         setupNote:
-          "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+          "Each person connects their own HubSpot account after a workspace owner configures the HubSpot MCP Auth App.",
       },
       pylon: {
         description: "Search and update Pylon support data.",

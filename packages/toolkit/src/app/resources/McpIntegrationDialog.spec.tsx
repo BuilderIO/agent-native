@@ -11,6 +11,14 @@ import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 const mocks = vi.hoisted(() => ({
   navigateToMcpOAuthStart: vi.fn(),
   customIntegrationEnabled: vi.fn(() => false),
+  settings: vi.fn(),
+  hubspotOAuthReadinessQuery: {
+    data: { hubspot: "configured" as "configured" | "missing" },
+    isSuccess: true,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn().mockResolvedValue(undefined),
+  },
   mcpServersQuery: {
     data: {
       user: [],
@@ -31,6 +39,15 @@ const mocks = vi.hoisted(() => ({
     isFetching: false,
     refetch: vi.fn().mockResolvedValue(undefined),
   },
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: () => mocks.hubspotOAuthReadinessQuery,
+}));
+
+vi.mock("../shared/index.js", async (original) => ({
+  ...(await original<typeof import("../shared/index.js")>()),
+  openAgentSettings: mocks.settings,
 }));
 
 vi.mock(
@@ -68,6 +85,14 @@ describe("McpIntegrationDialog", () => {
       orgId: "org-builder",
       role: "owner",
     };
+    mocks.settings.mockReset();
+    mocks.hubspotOAuthReadinessQuery.data = { hubspot: "configured" };
+    mocks.hubspotOAuthReadinessQuery.isSuccess = true;
+    mocks.hubspotOAuthReadinessQuery.isError = false;
+    mocks.hubspotOAuthReadinessQuery.isFetching = false;
+    mocks.hubspotOAuthReadinessQuery.refetch
+      .mockReset()
+      .mockResolvedValue(undefined);
     mocks.mcpServersQuery.isSuccess = true;
     mocks.mcpServersQuery.isError = false;
     mocks.mcpServersQuery.error = null;
@@ -1251,7 +1276,7 @@ describe("McpIntegrationDialog", () => {
     expect(document.body.textContent).toContain("Provider setup required");
   });
 
-  it("offers personal OAuth for a managed setup-gated integration", () => {
+  it("offers personal HubSpot OAuth when the workspace client is configured", () => {
     const hubspot = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "hubspot",
     )!;
@@ -1287,5 +1312,114 @@ describe("McpIntegrationDialog", () => {
     expect(
       new URL(url, "https://analytics.example.com").searchParams.get("scope"),
     ).toBe("user");
+  });
+
+  it("shows workspace setup instead of starting HubSpot OAuth when credentials are missing", () => {
+    mocks.hubspotOAuthReadinessQuery.data = { hubspot: "missing" };
+
+    const hubspot = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "hubspot",
+    )!;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="hubspot"
+            defaultScope="org"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[hubspot]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("workspace owner");
+    expect(document.body.textContent).toContain("HubSpot MCP Auth App");
+    expect(document.body.textContent).not.toContain("Connect my account");
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+
+    const configure = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Add workspace credentials",
+    );
+    expect(configure).toBeTruthy();
+    act(() => configure?.click());
+    expect(mocks.settings).toHaveBeenCalledExactlyOnceWith(
+      "secrets:HUBSPOT_MCP_CLIENT_ID",
+    );
+  });
+
+  it("opens HubSpot setup when the catalog row is clicked before OAuth readiness", () => {
+    mocks.hubspotOAuthReadinessQuery.data = { hubspot: "missing" };
+
+    const hubspot = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "hubspot",
+    )!;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[hubspot]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const connect = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open setup guide HubSpot"]',
+    );
+    expect(connect).toBeTruthy();
+
+    act(() => connect?.click());
+
+    expect(document.body.textContent).toContain("workspace owner");
+    expect(document.body.textContent).toContain("HubSpot MCP Auth App");
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+  });
+
+  it("keeps HubSpot connect blocked when readiness cannot be checked and offers retry", () => {
+    mocks.hubspotOAuthReadinessQuery.data = undefined as never;
+    mocks.hubspotOAuthReadinessQuery.isSuccess = false;
+    mocks.hubspotOAuthReadinessQuery.isError = true;
+
+    const hubspot = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "hubspot",
+    )!;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="hubspot"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[hubspot]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain(
+      "Couldn't check the workspace OAuth settings",
+    );
+    expect(document.body.querySelector('button[type="submit"]')).toBeNull();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    const retry = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Retry",
+    );
+    act(() => retry?.click());
+    expect(mocks.hubspotOAuthReadinessQuery.refetch).toHaveBeenCalledOnce();
   });
 });
