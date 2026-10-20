@@ -10,6 +10,7 @@ import {
   isPendingGenerationStale,
   PENDING_GENERATION_STALE_MS,
   readPendingGeneration,
+  resolvePreviousRunBaseline,
   shouldSkipPendingGenerationResume,
   writePendingGeneration,
 } from "./pending-generation";
@@ -98,6 +99,34 @@ describe("pending generation freshness", () => {
         startedAt + PENDING_GENERATION_STALE_MS + 1,
       ),
     ).toBe(true);
+  });
+});
+
+describe("continuation run baseline", () => {
+  it("keeps a fresh verified idle baseline ahead of stale stored run ids", () => {
+    expect(
+      resolvePreviousRunBaseline(
+        { runId: null, verified: true },
+        {
+          currentRunId: "stale-current-run",
+          previousRunId: "old-run",
+          previousRunBaselineVerified: true,
+        },
+      ),
+    ).toEqual({ runId: null, verified: true });
+  });
+
+  it("fails closed when refreshing a missing baseline fails", () => {
+    expect(
+      resolvePreviousRunBaseline(
+        { runId: null, verified: false },
+        {
+          currentRunId: "stale-current-run",
+          previousRunId: "old-run",
+          previousRunBaselineVerified: true,
+        },
+      ),
+    ).toEqual({ runId: null, verified: false });
   });
 });
 

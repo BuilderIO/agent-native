@@ -10,6 +10,11 @@ export type AgentRunStatusRead =
     }
   | { ok: false };
 
+export interface PreviousRunBaseline {
+  runId: string | null;
+  verified: boolean;
+}
+
 /**
  * The run state the editor already polls while a generation is active. A
  * failed or malformed read is `{ ok: false }`, never a status, so a caller
@@ -48,4 +53,16 @@ export async function readAgentRunStatus(
     // coercion-ok: an unreadable run state is reported as unreadable, never as a status.
     return { ok: false };
   }
+}
+
+export async function readPreviousRunBaseline(
+  threadId: string,
+): Promise<PreviousRunBaseline> {
+  const run = await readAgentRunStatus(threadId);
+  if (!run.ok) return { runId: null, verified: false };
+  if (run.runId) return { runId: run.runId, verified: true };
+  return {
+    runId: null,
+    verified: !run.active && run.status === "idle",
+  };
 }

@@ -71,6 +71,7 @@ export {
   type AgentComposerReferenceInsertOptions,
   type AgentComposerReferenceInsertPayload,
 } from "../agent-chat.js";
+export { isContinuationTerminalReason } from "../../agent/types.js";
 export {
   fetchProviderModels,
   saveAgentEngineApiKey,

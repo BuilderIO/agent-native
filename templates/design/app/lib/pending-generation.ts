@@ -25,7 +25,36 @@ export interface PendingGeneration {
   createdAt?: number;
   startedAt?: number;
   runTabId?: string;
+  previousRunId?: string;
+  previousRunBaselineVerified?: boolean;
+  currentRunId?: string;
   templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
+}
+
+export interface PreviousRunBaseline {
+  runId: string | null;
+  verified: boolean;
+}
+
+export function resolvePreviousRunBaseline(
+  baseline: PreviousRunBaseline | null | undefined,
+  pending: Pick<
+    PendingGeneration,
+    "currentRunId" | "previousRunId" | "previousRunBaselineVerified"
+  > | null,
+): PreviousRunBaseline {
+  if (baseline) {
+    return {
+      runId: baseline.runId,
+      verified: baseline.verified || Boolean(baseline.runId),
+    };
+  }
+
+  const runId = pending?.currentRunId ?? pending?.previousRunId ?? null;
+  return {
+    runId,
+    verified: Boolean(runId) || pending?.previousRunBaselineVerified === true,
+  };
 }
 
 function isGenerationOutputFile(file: {

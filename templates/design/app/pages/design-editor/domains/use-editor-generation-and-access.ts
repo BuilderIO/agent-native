@@ -43,6 +43,7 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useAnnotateLab } from "@/hooks/use-annotate-lab";
 import { designEditorCommandKey } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
+import { readPreviousRunBaseline } from "@/lib/agent-run-status";
 import {
   publishClipboardContentMutation,
   type ClipboardContentMutationOrigin,
@@ -58,6 +59,7 @@ import {
   patchPendingGeneration,
   PENDING_GENERATION_STALE_MS,
   readPendingGeneration,
+  resolvePreviousRunBaseline,
 } from "@/lib/pending-generation";
 import { buildShellDesign } from "@/lib/shell-design";
 import {
@@ -323,7 +325,7 @@ export function useEditorGenerationAndAccess({
     setGenerationIssue(t("designEditor.generationMayHaveStopped"));
     if (!staleToastShownRef.current) {
       staleToastShownRef.current = true;
-      toast.info(t("designEditor.generationMayHaveStoppedToast"));
+      toast.error(t("designEditor.generationMayHaveStoppedToast"));
     }
   }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
   const handleGenerationComplete = useCallback(() => {
@@ -368,6 +370,88 @@ export function useEditorGenerationAndAccess({
     clearStoredRunLivenessTimer,
     id,
   ]);
+  const handleGenerationFailed = useCallback(() => {
+    clearGenerationCompleteTimer();
+    clearAutoRetryTimer();
+    clearStoredRunLivenessTimer();
+    if (generationOutputReadyRef.current) {
+      clearPendingGeneration(id);
+      setHasPendingGeneration(false);
+      setGenerationIssue(null);
+      return;
+    }
+    const preservedForRetry = rememberPendingGenerationForRetry();
+    clearPendingGeneration(id);
+    setHasPendingGeneration(false);
+    setGenerationIssue(
+      preservedForRetry
+        ? t("designEditor.generationStoppedRetry")
+        : t("designEditor.generationStoppedCheckAgent"),
+    );
+    staleToastShownRef.current = false;
+  }, [
+    clearAutoRetryTimer,
+    clearGenerationCompleteTimer,
+    clearStoredRunLivenessTimer,
+    id,
+    rememberPendingGenerationForRetry,
+    t,
+  ]);
+  const getKnownPreviousRunBaseline = useCallback(
+    (runTabId: string) => {
+      const pending = readPendingGeneration(id, { allowUntimestamped: true });
+      if (pending?.runTabId && pending.runTabId !== runTabId) {
+        return { runId: null, verified: false };
+      }
+      const runId = pending?.currentRunId ?? pending?.previousRunId ?? null;
+      return {
+        runId,
+        verified:
+          Boolean(runId) || pending?.previousRunBaselineVerified === true,
+      };
+    },
+    [id],
+  );
+  const getQuestionFlowPreviousRunBaseline = useCallback(
+    async (runTabId: string | null | undefined) => {
+      if (!runTabId) return { runId: null, verified: false };
+      const pending = readPendingGeneration(id, { allowUntimestamped: true });
+      if (pending?.runTabId && pending.runTabId !== runTabId) {
+        return { runId: null, verified: false };
+      }
+      return readPreviousRunBaseline(runTabId);
+    },
+    [id],
+  );
+  const {
+    generating,
+    submit: agentSubmit,
+    reset: resetAgentGenerating,
+    track: trackAgentGeneration,
+  } = useAgentGenerating({
+    onComplete: handleGenerationComplete,
+    onFailed: handleGenerationFailed,
+    onStopped: handleGenerationStopped,
+    onStale: markGenerationStale,
+    shouldAdoptRunningTab: () =>
+      Boolean(id) &&
+      !generationOutputReadyRef.current &&
+      hasFreshPendingGeneration(id),
+    onAdoptRunningTab: (tabId) => {
+      setGenerationChatTabId(tabId);
+      setHasPendingGeneration(true);
+    },
+    getPreviousRunBaseline: getKnownPreviousRunBaseline,
+    onRunConfirmed: (tabId, runId) => {
+      generationRunConfirmedRef.current = true;
+      clearStoredRunLivenessTimer();
+      if (!tabId || !runId) return;
+      const pending = readPendingGeneration(id, { allowUntimestamped: true });
+      if (pending && (!pending.runTabId || pending.runTabId === tabId)) {
+        patchPendingGeneration(id, { currentRunId: runId });
+      }
+    },
+  });
   const scheduleStoredRunLivenessCheck = useCallback(
     (runTabId: string) => {
       clearStoredRunLivenessTimer();
@@ -380,6 +464,7 @@ export function useEditorGenerationAndAccess({
         }
         const pending = readPendingGeneration(id);
         if (!pending || pending.runTabId !== runTabId) return;
+        resetAgentGenerating();
         if (generationOutputReadyRef.current) {
           clearPendingGeneration(id);
           setHasPendingGeneration(false);
@@ -392,40 +477,29 @@ export function useEditorGenerationAndAccess({
         setGenerationIssue(t("designEditor.generationStoppedRetry"));
       }, STORED_RUN_LIVENESS_GRACE_MS);
     },
-    [clearStoredRunLivenessTimer, id, rememberPendingGenerationForRetry, t],
+    [
+      clearStoredRunLivenessTimer,
+      id,
+      rememberPendingGenerationForRetry,
+      resetAgentGenerating,
+      t,
+    ],
   );
-  const {
-    generating,
-    submit: agentSubmit,
-    reset: resetAgentGenerating,
-    track: trackAgentGeneration,
-  } = useAgentGenerating({
-    onComplete: handleGenerationComplete,
-    onStopped: handleGenerationStopped,
-    onStale: markGenerationStale,
-    shouldAdoptRunningTab: () =>
-      Boolean(id) &&
-      !generationOutputReadyRef.current &&
-      hasFreshPendingGeneration(id),
-    onAdoptRunningTab: (tabId) => {
-      generationRunConfirmedRef.current = true;
-      setGenerationChatTabId(tabId);
-      setHasPendingGeneration(true);
-    },
-    onRunning: () => {
-      generationRunConfirmedRef.current = true;
-      clearStoredRunLivenessTimer();
-    },
-  });
   const { generating: reviewFeedbackApplying, submit: submitReviewFeedback } =
     useAgentGenerating();
   const handleQuestionFlowContinue = useCallback(
-    (runTabId: string) => {
+    (
+      runTabId: string,
+      previousRunBaseline?: { runId: string | null; verified: boolean } | null,
+    ) => {
       clearGenerationCompleteTimer();
       setGenerationIssue(null);
       setRetryablePrompt(null);
       setGenerationChatTabId(runTabId);
       const pending = readPendingGeneration(id, { allowUntimestamped: true });
+      const baseline = resolvePreviousRunBaseline(previousRunBaseline, pending);
+      const previousRunId = baseline.runId ?? undefined;
+      const previousRunBaselineVerified = baseline.verified;
       patchPendingGeneration(id, {
         prompt: pending?.prompt ?? "Continue from answered design questions.",
         files: pending?.files ?? [],
@@ -436,11 +510,18 @@ export function useEditorGenerationAndAccess({
         effort: pending?.effort,
         contextItems: pending?.contextItems,
         runTabId,
+        previousRunId,
+        previousRunBaselineVerified,
+        currentRunId: undefined,
         attempt: pending?.attempt ?? 1,
         startedAt: Date.now(),
       });
       setHasPendingGeneration(true);
-      trackAgentGeneration(runTabId);
+      trackAgentGeneration(runTabId, {
+        ignorePreviousRun: true,
+        previousRunId,
+        previousRunBaselineVerified,
+      });
     },
     [clearGenerationCompleteTimer, id, trackAgentGeneration],
   );
@@ -495,6 +576,7 @@ export function useEditorGenerationAndAccess({
     enabled: isSignedIn,
     continuationTabId: generationChatTabId,
     onContinue: handleQuestionFlowContinue,
+    getPreviousRunBaseline: getQuestionFlowPreviousRunBaseline,
     getModelSelection: getQuestionFlowModelSelection,
     getGenerationBrief: getQuestionFlowGenerationBrief,
   });
@@ -542,8 +624,24 @@ export function useEditorGenerationAndAccess({
     setHasPendingGeneration(true);
     if (pending.runTabId) {
       setGenerationChatTabId(pending.runTabId);
-      trackAgentGeneration(pending.runTabId);
-      scheduleStoredRunLivenessCheck(pending.runTabId);
+      const ignorePreviousRun = Boolean(
+        pending.previousRunId ||
+        pending.previousRunBaselineVerified === true ||
+        !pending.currentRunId,
+      );
+      trackAgentGeneration(pending.runTabId, {
+        ...(ignorePreviousRun
+          ? {
+              ignorePreviousRun: true,
+              previousRunId: pending.previousRunId,
+              previousRunBaselineVerified:
+                pending.previousRunBaselineVerified === true,
+            }
+          : {}),
+      });
+      if (!ignorePreviousRun) {
+        scheduleStoredRunLivenessCheck(pending.runTabId);
+      }
     }
   }, [
     id,

@@ -32,7 +32,10 @@ export function GenerationStatusCard({
           </>
         ) : (
           <>
-            <p className="mb-3 text-sm font-medium text-foreground/85">
+            <p
+              role="alert"
+              className="mb-3 text-sm font-medium text-destructive"
+            >
               {issue}
             </p>
             {retryablePrompt ? (

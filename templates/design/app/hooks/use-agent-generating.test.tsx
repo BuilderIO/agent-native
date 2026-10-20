@@ -16,12 +16,24 @@ let latest: ReturnType<typeof useAgentGenerating> | null = null;
 
 function Probe({
   onComplete,
+  onFailed = () => {},
+  onStale = () => {},
   onStopped,
+  onRunConfirmed = () => {},
 }: {
   onComplete: () => void;
+  onFailed?: () => void;
+  onStale?: () => void;
   onStopped: () => void;
+  onRunConfirmed?: () => void;
 }) {
-  latest = useAgentGenerating({ onComplete, onStopped });
+  latest = useAgentGenerating({
+    onComplete,
+    onFailed,
+    onStale,
+    onStopped,
+    onRunConfirmed,
+  });
   return null;
 }
 
@@ -80,7 +92,11 @@ describe("useAgentGenerating", () => {
       .mockResolvedValueOnce({ ok: false })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ active: true, status: "running" }),
+        json: async () => ({
+          active: true,
+          status: "running",
+          runId: "design-run",
+        }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -131,59 +147,34 @@ describe("useAgentGenerating", () => {
     container.remove();
   });
 
-  it.each(["completed", "errored", "aborted", "truncated"])(
-    "recovers after two terminal %s snapshots without an active snapshot",
-    async (status) => {
-      const onComplete = vi.fn();
-      const onStopped = vi.fn();
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ active: true, status }),
-      });
-      vi.stubGlobal("fetch", fetchMock);
-
-      const container = document.createElement("div");
-      document.body.appendChild(container);
-      const root = createRoot(container);
-      await act(async () => {
-        root.render(<Probe onComplete={onComplete} onStopped={onStopped} />);
-      });
-      await act(async () => {
-        latest!.submit("Make a landing page", "Design id: design-1");
-      });
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(3_000);
-      });
-      expect(latest!.generating).toBe(true);
-      expect(onComplete).not.toHaveBeenCalled();
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5_000);
-      });
-      expect(latest!.generating).toBe(false);
-      expect(onComplete).toHaveBeenCalledWith("design-tab");
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-
-      await act(async () => root.unmount());
-      container.remove();
-    },
-  );
-
-  it("recovers after two idle snapshots before observing an active run", async () => {
+  it("waits through initial idle snapshots until it observes the submitted run", async () => {
     const onComplete = vi.fn();
+    const onRunConfirmed = vi.fn();
     const onStopped = vi.fn();
-    const fetchMock = vi.fn().mockResolvedValue({
+    const state = (active: boolean, status: string, runId?: string) => ({
       ok: true,
-      json: async () => ({ active: false, status: "idle" }),
+      json: async () => ({ active, status, ...(runId ? { runId } : {}) }),
     });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(state(false, "idle"))
+      .mockResolvedValueOnce(state(false, "idle"))
+      .mockResolvedValueOnce(state(true, "running", "design-run"))
+      .mockResolvedValueOnce(state(false, "idle"))
+      .mockResolvedValueOnce(state(false, "idle"));
     vi.stubGlobal("fetch", fetchMock);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<Probe onComplete={onComplete} onStopped={onStopped} />);
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onRunConfirmed={onRunConfirmed}
+          onStopped={onStopped}
+        />,
+      );
     });
     await act(async () => {
       latest!.submit("Make a landing page", "Design id: design-1");
@@ -198,9 +189,400 @@ describe("useAgentGenerating", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(onRunConfirmed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(onRunConfirmed).toHaveBeenCalledWith("design-tab", "design-run");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
     expect(latest!.generating).toBe(false);
     expect(onComplete).toHaveBeenCalledWith("design-tab");
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("waits across a continuation handoff and idle gap", async () => {
+    const onComplete = vi.fn();
+    const onStopped = vi.fn();
+    const state = (
+      active: boolean,
+      status: string,
+      runId?: string,
+      terminalReason?: string,
+    ) => ({
+      ok: true,
+      json: async () => ({
+        active,
+        status,
+        ...(runId ? { runId } : {}),
+        ...(terminalReason ? { terminalReason } : {}),
+      }),
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        state(false, "completed", "design-run-1", "stream_ended"),
+      )
+      .mockResolvedValueOnce(state(false, "idle"))
+      .mockResolvedValueOnce(state(true, "running", "design-run-2"))
+      .mockResolvedValueOnce(state(false, "completed", "design-run-2", "done"))
+      .mockResolvedValueOnce(state(false, "idle"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<Probe onComplete={onComplete} onStopped={onStopped} />);
+    });
+    await act(async () => {
+      latest!.submit("Make a landing page", "Design id: design-1");
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "design-tab",
+            runId: "design-run-1",
+            reason: "run.completed",
+          },
+        }),
+      );
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onComplete).toHaveBeenCalledWith("design-tab");
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("ignores the previous completed run when a continuation reuses its thread", async () => {
+    const onComplete = vi.fn();
+    const onFailed = vi.fn();
+    const state = (
+      active: boolean,
+      status: string,
+      runId?: string,
+      terminalReason?: string,
+    ) => ({
+      ok: true,
+      json: async () => ({
+        active,
+        status,
+        ...(runId ? { runId } : {}),
+        ...(terminalReason ? { terminalReason } : {}),
+      }),
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(state(false, "completed", "design-run-1", "done"))
+      .mockResolvedValueOnce(state(false, "completed", "design-run-1", "done"))
+      .mockResolvedValueOnce(state(true, "running", "design-run-2"))
+      .mockResolvedValueOnce(state(false, "completed", "design-run-2", "done"))
+      .mockResolvedValueOnce(state(false, "idle"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onFailed={onFailed}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        ignorePreviousRun: true,
+        previousRunId: "design-run-1",
+      });
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "design_tab",
+            runId: "design-run-1",
+            reason: "run.failed",
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(onFailed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onComplete).toHaveBeenCalledWith("design_tab");
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("waits for an active successor when a continuation baseline is unverified", async () => {
+    const onComplete = vi.fn();
+    const state = (
+      active: boolean,
+      status: string,
+      runId?: string,
+      terminalReason?: string,
+    ) => ({
+      ok: true,
+      json: async () => ({
+        active,
+        status,
+        ...(runId ? { runId } : {}),
+        ...(terminalReason ? { terminalReason } : {}),
+      }),
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        state(false, "completed", "intermediate-run", "done"),
+      )
+      .mockResolvedValueOnce(state(false, "idle"))
+      .mockResolvedValueOnce(state(true, "running", "new-run"))
+      .mockResolvedValueOnce(state(false, "completed", "new-run", "done"))
+      .mockResolvedValueOnce(state(false, "idle"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<Probe onComplete={onComplete} onStopped={vi.fn()} />);
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        ignorePreviousRun: true,
+        previousRunId: "old-run",
+        previousRunBaselineVerified: false,
+      });
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onComplete).toHaveBeenCalledWith("design_tab");
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("accepts a terminal successor after a verified idle baseline", async () => {
+    const onComplete = vi.fn();
+    const state = (
+      active: boolean,
+      status: string,
+      runId?: string,
+      terminalReason?: string,
+    ) => ({
+      ok: true,
+      json: async () => ({
+        active,
+        status,
+        ...(runId ? { runId } : {}),
+        ...(terminalReason ? { terminalReason } : {}),
+      }),
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(state(false, "completed", "new-run", "done"))
+      .mockResolvedValueOnce(state(false, "idle"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<Probe onComplete={onComplete} onStopped={vi.fn()} />);
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        ignorePreviousRun: true,
+        previousRunBaselineVerified: true,
+      });
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onComplete).toHaveBeenCalledWith("design_tab");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("clears an unconfirmed generation after the start timeout", async () => {
+    const onComplete = vi.fn();
+    const onStale = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ active: false, status: "idle" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe onComplete={onComplete} onStale={onStale} onStopped={vi.fn()} />,
+      );
+    });
+    await act(async () => {
+      latest!.submit("Make a landing page", "Design id: design-1");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onStale).toHaveBeenCalledWith("design-tab");
+    expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("surfaces an errored run instead of reporting successful completion", async () => {
+    const onComplete = vi.fn();
+    const onFailed = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        active: false,
+        status: "errored",
+        runId: "design-run",
+        terminalReason: "error:runtime_error",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onFailed={onFailed}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.submit("Make a landing page", "Design id: design-1");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onFailed).toHaveBeenCalledWith("design-tab");
+    expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("uses a run.failed chat event to check the authoritative run status", async () => {
+    const onComplete = vi.fn();
+    const onFailed = vi.fn();
+    const onStopped = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          active: false,
+          status: "errored",
+          runId: "design-run",
+          terminalReason: "error:runtime_error",
+        }),
+      }),
+    );
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onFailed={onFailed}
+          onStopped={onStopped}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.submit("Make a landing page", "Design id: design-1");
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "design-tab",
+            runId: "design-run",
+            reason: "run.failed",
+          },
+        }),
+      );
+    });
+
+    expect(latest!.generating).toBe(true);
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(onStopped).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onFailed).toHaveBeenCalledWith("design-tab");
 
     await act(async () => root.unmount());
     container.remove();
@@ -220,7 +602,11 @@ describe("useAgentGenerating", () => {
       .mockReturnValueOnce(firstFetch)
       .mockResolvedValue({
         ok: true,
-        json: async () => ({ active: true, status: "running" }),
+        json: async () => ({
+          active: true,
+          status: "running",
+          runId: "design-run",
+        }),
       });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -246,7 +632,11 @@ describe("useAgentGenerating", () => {
       );
       resolveFirstFetch({
         ok: true,
-        json: async () => ({ active: true, status: "running" }),
+        json: async () => ({
+          active: true,
+          status: "running",
+          runId: "design-run",
+        }),
       });
       await vi.advanceTimersByTimeAsync(0);
     });
