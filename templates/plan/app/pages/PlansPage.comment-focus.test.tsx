@@ -102,7 +102,13 @@ function annotation(id: string): RuntimeAnnotation {
   };
 }
 
-function renderPopover(thread: RuntimeAnnotation) {
+function renderPopover(
+  thread: RuntimeAnnotation,
+  onReply: (
+    threadRootId: string,
+    message: string,
+  ) => Promise<void> = async () => {},
+) {
   act(() =>
     root.render(
       <AnnotationPopover
@@ -119,7 +125,7 @@ function renderPopover(thread: RuntimeAnnotation) {
         canComment
         canEditRootComment={false}
         onSave={() => {}}
-        onReply={async () => {}}
+        onReply={onReply}
         canResolve={false}
         onStatusChange={() => {}}
         canDelete={false}
@@ -129,6 +135,16 @@ function renderPopover(thread: RuntimeAnnotation) {
       />,
     ),
   );
+}
+
+function sendReply() {
+  return act(async () => {
+    container
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="plansPage.comments.sendReply"]',
+      )!
+      .click();
+  });
 }
 
 function typeReply(text: string) {
@@ -160,18 +176,45 @@ describe("thread popover reply", () => {
     renderPopover(annotation("a"));
     await settle();
     typeReply("Reply for A");
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="plansPage.comments.sendReply"]',
-        )!
-        .click();
-    });
+    await sendReply();
 
     renderPopover(annotation("b"));
     await settle();
     renderPopover(annotation("a"));
     await settle();
     expect(editor().textContent).toBe("");
+  });
+
+  it("doesn't offer a reply again while it is still sending", async () => {
+    let finishSending = () => {};
+    const onReply = () =>
+      new Promise<void>((resolve) => {
+        finishSending = resolve;
+      });
+    renderPopover(annotation("a"), onReply);
+    await settle();
+    typeReply("Reply for A");
+    await sendReply();
+
+    renderPopover(annotation("b"), onReply);
+    await settle();
+    renderPopover(annotation("a"), onReply);
+    await settle();
+    expect(editor().textContent).toBe("");
+    await act(async () => finishSending());
+  });
+
+  it("brings a reply back to its thread when sending fails", async () => {
+    const onReply = () => Promise.reject(new Error("offline"));
+    renderPopover(annotation("a"), onReply);
+    await settle();
+    typeReply("Reply for A");
+    await sendReply();
+
+    renderPopover(annotation("b"), onReply);
+    await settle();
+    renderPopover(annotation("a"), onReply);
+    await settle();
+    expect(editor().textContent).toBe("Reply for A");
   });
 });

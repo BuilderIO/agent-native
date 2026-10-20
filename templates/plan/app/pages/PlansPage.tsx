@@ -9446,6 +9446,8 @@ function ReplyComposer({
     mentions: [],
   });
   const [restoredMessage, setRestoredMessage] = useState(initialMessage);
+  const latestMessageRef = useRef("");
+  const submittingRef = useRef(false);
   const [submitError, setSubmitError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resetKey, setResetKey] = useState(0);
@@ -9456,15 +9458,20 @@ function ReplyComposer({
     if (!canSubmit) return;
     setSubmitError(false);
     setIsSubmitting(true);
+    // A reply that is being sent is no longer a draft, so reopening the
+    // thread mid-send doesn't offer it again. It comes back if sending fails.
+    submittingRef.current = true;
+    onDraftChange?.("");
     try {
       await onSubmit(draft.message.trim());
       setDraft({ message: "", mentions: [] });
       setRestoredMessage(undefined);
-      onDraftChange?.("");
       setResetKey((key) => key + 1);
     } catch {
       setSubmitError(true);
+      onDraftChange?.(latestMessageRef.current);
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -9484,7 +9491,8 @@ function ReplyComposer({
             className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
             onChange={(next) => {
               setDraft(next);
-              onDraftChange?.(next.message);
+              latestMessageRef.current = next.message;
+              if (!submittingRef.current) onDraftChange?.(next.message);
             }}
             onSubmitShortcut={() => void submit()}
           />
