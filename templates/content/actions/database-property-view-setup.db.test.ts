@@ -636,5 +636,25 @@ describe("ordinary property and table-view setup", () => {
       ...kept,
       titleWeight: "medium",
     });
+
+    // The same goes for a property hidden in this view only.
+    await legacySave((view) => ({
+      ...view,
+      hiddenPropertyIds: [propertyIds.Done],
+    }));
+    await expect(
+      update("view-hidden-leading", "ideas", {
+        itemLayout: {
+          leading: { kind: "checkbox", propertyId: propertyIds.Done },
+        },
+      }),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+    const whileViewHidden = await update("weight-while-view-hidden", "ideas", {
+      itemLayout: { titleWeight: "bold" },
+    });
+    expect(whileViewHidden.value.itemLayout).toEqual({
+      ...kept,
+      titleWeight: "bold",
+    });
   });
 });

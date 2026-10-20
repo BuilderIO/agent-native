@@ -37,6 +37,7 @@ import { DatabaseLayoutListRow, type ListItemRowLayout } from "./ListItemRow";
 export function DatabaseListView({
   properties,
   groupableProperties,
+  layoutProperties,
   items,
   databaseId,
   databaseDocumentId,
@@ -64,6 +65,8 @@ export function DatabaseListView({
 }: {
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
+  /** What custom rows can show: properties not hidden in this view. */
+  layoutProperties: DocumentProperty[];
   items: ContentDatabaseItem[];
   databaseId: string;
   databaseDocumentId: string;
@@ -105,8 +108,8 @@ export function DatabaseListView({
   const layoutRow: ListItemRowLayout | null = layout
     ? {
         layout,
-        resolved: resolveContentDatabaseItemLayout(layout, groupableProperties),
-        properties: groupableProperties,
+        resolved: resolveContentDatabaseItemLayout(layout, layoutProperties),
+        properties: layoutProperties,
         editing,
         onLayoutChange: onItemLayoutChange,
         onToggleCheckbox: (item, property) => {
@@ -166,7 +169,7 @@ export function DatabaseListView({
         <div className="flex flex-wrap items-center gap-2 border-t border-dashed border-database-blue/40 bg-database-blue/5 px-2 py-2 text-xs text-muted-foreground">
           <ListItemLayoutPresets
             layout={itemLayout}
-            properties={groupableProperties}
+            properties={layoutProperties}
             onChange={onItemLayoutChange}
           />
           <span>{dbText("listRowsEditHint")}</span>

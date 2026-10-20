@@ -393,7 +393,12 @@ function nextListItemLayout(
     );
   }
   if (itemLayout === null) return null;
-  const properties = itemLayoutProperties(definitions);
+  const allProperties = itemLayoutProperties(definitions);
+  // Properties hidden in this view can't be put in a slot, as in the UI.
+  const hidden = new Set(view.hiddenPropertyIds ?? []);
+  const properties = allProperties.filter(
+    (property) => !hidden.has(property.definition.id),
+  );
   let base = view.itemLayout ?? null;
   if (itemLayoutPreset !== undefined) {
     const preset = contentDatabaseItemLayoutPresets(properties).find(
@@ -410,7 +415,8 @@ function nextListItemLayout(
   }
   if (!itemLayout) {
     return (
-      base && dropDeletedContentDatabaseItemLayoutReferences(base, properties)
+      base &&
+      dropDeletedContentDatabaseItemLayoutReferences(base, allProperties)
     );
   }
   base ??= startingContentDatabaseItemLayout(
@@ -452,7 +458,7 @@ function nextListItemLayout(
   if (error) setupError("INVALID_VIEW_REFERENCE", error, 400);
   return dropDeletedContentDatabaseItemLayoutReferences(
     withPatch(base),
-    properties,
+    allProperties,
   );
 }
 

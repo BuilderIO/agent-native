@@ -3562,6 +3562,10 @@ function DatabaseTable({
         <DatabaseListView
           properties={tableProperties}
           groupableProperties={orderedProperties}
+          layoutProperties={databaseListLayoutProperties(
+            orderedProperties,
+            activeView,
+          )}
           items={visibleItems}
           databaseId={databaseId}
           databaseDocumentId={document.id}
@@ -11180,7 +11184,7 @@ function DatabaseSettingsLayoutPanel({
       {activeView.type === "list" ? (
         <DatabaseListRowsSetting
           itemLayout={activeView.itemLayout ?? null}
-          properties={properties}
+          properties={databaseListLayoutProperties(properties, activeView)}
           visibleProperties={properties.filter((property) =>
             isDatabasePropertyVisibleInView(property, items, activeView),
           )}
@@ -14525,6 +14529,18 @@ export function isDatabasePropertyVisibleInView(
     isTablePropertyVisible(property, items) &&
     !(view.hiddenPropertyIds ?? []).includes(property.definition.id)
   );
+}
+
+/**
+ * The properties a list's custom rows can show: all but those hidden in this
+ * view. Always-hidden properties are left out by the row layout itself.
+ */
+function databaseListLayoutProperties(
+  properties: DocumentProperty[],
+  view: Pick<ContentDatabaseView, "hiddenPropertyIds">,
+) {
+  const hidden = new Set(view.hiddenPropertyIds ?? []);
+  return properties.filter((property) => !hidden.has(property.definition.id));
 }
 
 export function setDatabaseViewHiddenPropertyIds(
