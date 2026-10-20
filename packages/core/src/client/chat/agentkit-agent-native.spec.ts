@@ -4471,7 +4471,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("keeps restored continuation text after snapshot tool parts", async () => {
+  it("keeps restored continuation text in order around snapshot tool parts", async () => {
     const toolPart = {
       type: "data",
       mediaType: "application/x-agent-native-repository-part",
@@ -4482,12 +4482,22 @@ describe("createAgentNativeAgentKitTransport", () => {
         args: { query: "release" },
       },
     };
+    const nextToolPart = {
+      type: "data",
+      mediaType: "application/x-agent-native-repository-part",
+      data: {
+        type: "tool-call",
+        toolCallId: "tool-2",
+        toolName: "search",
+        args: { query: "launch" },
+      },
+    };
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>
         String(input).includes("/runs/active")
           ? json({ active: false, status: "complete" })
           : json({
-              id: "thread-tool-before-continuation",
+              id: "thread-tool-interleaved-continuation",
               threadData: JSON.stringify({
                 messages: [
                   {
@@ -4504,6 +4514,13 @@ describe("createAgentNativeAgentKitTransport", () => {
                           toolName: "lookup",
                           args: { query: "release" },
                         },
+                        { type: "text", text: " mid" },
+                        {
+                          type: "tool-call",
+                          toolCallId: "tool-2",
+                          toolName: "search",
+                          args: { query: "launch" },
+                        },
                         { type: "text", text: " after" },
                       ],
                     },
@@ -4515,7 +4532,11 @@ describe("createAgentNativeAgentKitTransport", () => {
                       id: "assistant-1",
                       role: "assistant",
                       status: "complete",
-                      parts: [{ type: "text", text: "Before" }, toolPart],
+                      parts: [
+                        { type: "text", text: "Before" },
+                        toolPart,
+                        nextToolPart,
+                      ],
                       metadata: { runId: "run-tool-before-continuation" },
                     },
                   ],
@@ -4526,7 +4547,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     });
 
     const snapshot = await transport.getThreadSnapshot?.({
-      threadId: "thread-tool-before-continuation",
+      threadId: "thread-tool-interleaved-continuation",
     });
 
     expect(snapshot?.messages).toMatchObject([
@@ -4535,6 +4556,8 @@ describe("createAgentNativeAgentKitTransport", () => {
         parts: [
           { type: "text", text: "Before" },
           toolPart,
+          { type: "text", text: " mid" },
+          nextToolPart,
           { type: "text", text: " after" },
         ],
       },

@@ -189,21 +189,77 @@ function mergeStoredAssistantTextParts(
     storedText.startsWith(messageText) &&
     storedText.length > messageText.length
   ) {
-    let lastTextIndex = -1;
-    for (const [index, part] of messageParts.entries()) {
-      if (part.type === "text") lastTextIndex = index;
+    const snapshotPartByStoredIndex = new Map<number, AgentMessagePart>();
+    let nextSnapshotPartIndex = 0;
+    for (const [storedIndex, storedPart] of storedParts.entries()) {
+      const storedData =
+        storedPart.type === "data" ? asRecord(storedPart.data) : null;
+      const toolCallId = storedData?.toolCallId;
+      if (typeof toolCallId !== "string") continue;
+      const storedDataType = storedData?.type;
+      const snapshotIndex = messageParts.findIndex((part, index) => {
+        if (index < nextSnapshotPartIndex || part.type !== "data") return false;
+        const data = asRecord(part.data);
+        return data?.toolCallId === toolCallId && data?.type === storedDataType;
+      });
+      if (snapshotIndex < 0) continue;
+      snapshotPartByStoredIndex.set(storedIndex, messageParts[snapshotIndex]!);
+      nextSnapshotPartIndex = snapshotIndex + 1;
     }
-    const suffix = storedText.slice(messageText.length);
-    if (
-      messageParts.slice(lastTextIndex + 1).some((part) => part.type !== "text")
-    ) {
-      messageParts = [...messageParts, { type: "text", text: suffix }];
-    } else {
-      messageParts = messageParts.map((part, index) =>
-        index === lastTextIndex && part.type === "text"
-          ? { ...part, text: `${part.text}${suffix}` }
-          : part,
+
+    let storedTextOffset = 0;
+    const missingTextParts = storedParts.flatMap((part, index) => {
+      if (part.type !== "text") return [];
+      const visibleTextLength = Math.max(
+        0,
+        messageText.length - storedTextOffset,
       );
+      storedTextOffset += part.text.length;
+      if (part.text.length <= visibleTextLength) return [];
+      return [
+        { index, part: { ...part, text: part.text.slice(visibleTextLength) } },
+      ];
+    });
+
+    for (const { index, part } of missingTextParts) {
+      const priorAnchor = [...snapshotPartByStoredIndex.entries()]
+        .filter(([storedIndex]) => storedIndex < index)
+        .at(-1)?.[1];
+      const nextAnchor = [...snapshotPartByStoredIndex.entries()].find(
+        ([storedIndex]) => storedIndex > index,
+      )?.[1];
+      const nextAnchorIndex = nextAnchor
+        ? messageParts.indexOf(nextAnchor)
+        : -1;
+      const priorAnchorIndex = priorAnchor
+        ? messageParts.indexOf(priorAnchor)
+        : -1;
+      let insertionIndex: number;
+      if (nextAnchorIndex >= 0) {
+        insertionIndex = nextAnchorIndex;
+      } else if (priorAnchorIndex >= 0) {
+        insertionIndex = priorAnchorIndex + 1;
+      } else {
+        let lastTextIndex = -1;
+        for (const [candidateIndex, candidate] of messageParts.entries()) {
+          if (candidate.type === "text") lastTextIndex = candidateIndex;
+        }
+        insertionIndex = lastTextIndex + 1;
+      }
+      const precedingPart = messageParts[insertionIndex - 1];
+      if (precedingPart?.type === "text") {
+        messageParts = messageParts.map((candidate, candidateIndex) =>
+          candidateIndex === insertionIndex - 1
+            ? { ...precedingPart, text: `${precedingPart.text}${part.text}` }
+            : candidate,
+        );
+      } else {
+        messageParts = [
+          ...messageParts.slice(0, insertionIndex),
+          part,
+          ...messageParts.slice(insertionIndex),
+        ];
+      }
     }
   }
   return mergeStoredReasoningParts(messageParts, storedParts);
