@@ -10,6 +10,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  archiveWorkspaceApp,
   generateWorkspaceAppDescription,
   getAppCreationSettings,
   listAvailableWorkspaceTemplates,
@@ -1851,6 +1852,62 @@ describe("listWorkspaceApps", () => {
         }),
       },
     });
+  });
+
+  it("does not overwrite app profile metadata when its settings are unreadable", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      {
+        id: "todo",
+        name: "Todo",
+        description: "Original description",
+        path: "/todo",
+      },
+    ]);
+    const key = "workspace-app-metadata:org:org-123";
+    const existing = { apps: { other: { name: "Preserve me" } } };
+    mocks.settings.set(key, existing);
+    let metadataReads = 0;
+    mocks.getSetting.mockImplementation(async (settingKey: string) => {
+      if (settingKey === key && ++metadataReads === 2) {
+        throw new Error("metadata settings unavailable");
+      }
+      return mocks.settings.get(settingKey) ?? null;
+    });
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => updateWorkspaceAppMetadata({ appId: "todo", name: "Updated" }),
+      ),
+    ).rejects.toThrow("metadata settings unavailable");
+
+    expect(metadataReads).toBe(2);
+    expect(mocks.putSetting).not.toHaveBeenCalled();
+    expect(mocks.settings.get(key)).toEqual(existing);
+  });
+
+  it("does not overwrite workspace settings when archiving after a read failure", async () => {
+    const key = "dispatch-app-creation-settings:org:org-123";
+    const existing = {
+      builderProjectId: "project-123",
+      pendingCommunityReservations: ["community-qr"],
+      archivedAppIds: [],
+    };
+    mocks.settings.set(key, existing);
+    mocks.getSetting.mockRejectedValueOnce(
+      new Error("workspace settings unavailable"),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => archiveWorkspaceApp({ appId: "todo" }),
+      ),
+    ).rejects.toThrow("workspace settings unavailable");
+
+    expect(mocks.putSetting).not.toHaveBeenCalled();
+    expect(mocks.settings.get(key)).toEqual(existing);
   });
 
   it("preserves generated name and description when only examples change", async () => {

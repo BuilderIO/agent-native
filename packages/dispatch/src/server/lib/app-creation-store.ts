@@ -410,7 +410,7 @@ function pendingWorkspaceAppContext(): { id: string; label: string } | null {
 }
 
 async function readSettingsRecord(): Promise<Record<string, any>> {
-  const raw = await getSetting(scopedSettingsKey()).catch(() => null);
+  const raw = await getSetting(scopedSettingsKey());
   return raw && typeof raw === "object" && !Array.isArray(raw)
     ? (raw as Record<string, any>)
     : {};
@@ -486,9 +486,7 @@ function parseWorkspaceAppMetadataSettings(
 }
 
 async function readWorkspaceAppMetadataSettings(): Promise<WorkspaceAppMetadataSettings> {
-  const raw = await getSetting(workspaceAppMetadataSettingsKey()).catch(
-    () => null,
-  );
+  const raw = await getSetting(workspaceAppMetadataSettingsKey());
   return parseWorkspaceAppMetadataSettings(raw);
 }
 
@@ -505,9 +503,7 @@ async function writeWorkspaceAppMetadataOverride(input: {
   communitySourceId?: string | null;
 }): Promise<WorkspaceAppMetadataSettings> {
   const key = workspaceAppMetadataSettingsKey();
-  const current = parseWorkspaceAppMetadataSettings(
-    await getSetting(key).catch(() => null),
-  );
+  const current = parseWorkspaceAppMetadataSettings(await getSetting(key));
   const appId = input.appId.trim();
   const existing = current.apps[appId] ?? {};
   const next: WorkspaceAppMetadataOverride = {
