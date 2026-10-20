@@ -133,6 +133,7 @@ import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import {
   abandonUploadTarget,
+  dropUploadTargetRowBestEffort,
   hostedUploadLimits,
   openUploadTarget,
   prepareCaptureAfterUploadTarget,
@@ -1852,12 +1853,10 @@ export default function RecordRoute() {
           recordingPlatform: browserRecorderPlatform(),
         });
         const dropRow = (id: string) =>
-          void callAction(
+          callAction(
             "trash-recording" as any,
             { id, skipIfReady: true } as any,
-          ).catch(() => {
-            // coercion-ok: no row, or one already marked failed.
-          });
+          );
         // The account signed in now, at capture start, owns the upload row.
         const ownerAtCapture = authSessionEmailRef.current;
         const resolveTarget = () =>
@@ -1963,7 +1962,7 @@ export default function RecordRoute() {
             },
           );
           if (isStale()) {
-            if (info) dropRow(info.id);
+            if (info) dropUploadTargetRowBestEffort(info.id, dropRow);
             await engine.cancel("recording_interrupted").catch(() => {});
             return;
           }

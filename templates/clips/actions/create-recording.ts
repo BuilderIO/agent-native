@@ -3,6 +3,7 @@ import {
   fail,
   isActionContractError,
 } from "@agent-native/core/action";
+import { AppConfigurationError } from "@agent-native/core/app-config";
 import { writeAppState } from "@agent-native/core/application-state";
 import { captureError } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
@@ -226,6 +227,17 @@ export default defineAction({
       requestHeaders: actionContext?.requestHeaders,
     }).catch((error: unknown) => {
       if (isActionContractError(error)) throw error;
+      if (error instanceof AppConfigurationError) {
+        console.error(
+          "[create-recording] storage configuration is invalid",
+          error,
+        );
+        fail("Video storage configuration is invalid. Contact support.", {
+          errorCode: "storage_configuration_invalid",
+          statusCode: 503,
+          details: { retryable: false, cleanupConfirmed: true },
+        });
+      }
       console.warn("[create-recording] storage resolution failed:", error);
       fail("Video storage could not be checked. Refresh and try again.", {
         errorCode: "storage_status_unavailable",
@@ -309,24 +321,6 @@ export default defineAction({
           "[create-recording] hosted allowance could not be released after row creation failed",
           releaseError,
         );
-      }
-      if (!recordingAbsentConfirmed) {
-        try {
-          await db
-            .update(schema.recordings)
-            .set({
-              status: "failed",
-              failureCode: "recording_create_failed",
-              failureReason: "Recording creation could not be confirmed.",
-              updatedAt: new Date().toISOString(),
-            })
-            .where(eq(schema.recordings.id, id));
-        } catch (updateError) {
-          console.error(
-            "[create-recording] failed row could not be marked after insert failure",
-            updateError,
-          );
-        }
       }
       const cleanupConfirmed =
         recordingAbsentConfirmed && reservationCleanupConfirmed;

@@ -5,6 +5,7 @@ import {
   hostedUploadLimits,
   openUploadTarget,
   prepareCaptureAfterUploadTarget,
+  retryDropUploadTargetRow,
   UploadTargetError,
 } from "./upload-target";
 
@@ -24,8 +25,8 @@ describe("openUploadTarget", () => {
     onCreateFailed?: NonNullable<
       Parameters<typeof openUploadTarget>[0]["onCreateFailed"]
     >,
+    dropRow = vi.fn(async () => {}),
   ) {
-    const dropRow = vi.fn();
     const result = openUploadTarget({
       intake: false,
       ownerEmail,
@@ -46,7 +47,7 @@ describe("openUploadTarget", () => {
   }
 
   function openIntake(create: () => Promise<Response>) {
-    const dropRow = vi.fn();
+    const dropRow = vi.fn(async () => {});
     const result = openUploadTarget({
       intake: true,
       ownerEmail: null,
@@ -85,7 +86,7 @@ describe("openUploadTarget", () => {
         maxClipDurationMs: 10 * 60 * 1000,
       }),
       create: async () => Response.json({ result: target }),
-      dropRow: vi.fn(),
+      dropRow: vi.fn(async () => {}),
     });
 
     await expect(result).resolves.toEqual(target);
@@ -107,7 +108,7 @@ describe("openUploadTarget", () => {
 
   it("stops when storage rejects upload creation", async () => {
     const onCreateFailed = vi.fn();
-    const dropRow = vi.fn();
+    const dropRow = vi.fn(async () => {});
     const result = openUploadTarget({
       intake: false,
       ownerEmail: "me@example.com",
@@ -270,14 +271,49 @@ describe("openUploadTarget", () => {
   });
 
   it("drops the row a lost response may have left, then stops", async () => {
-    const { result, dropRow } = open(async () => {
-      throw new TypeError("Failed to fetch");
-    });
+    vi.useFakeTimers();
+    try {
+      const dropRow = vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValueOnce(new Error("recording not found"))
+        .mockResolvedValueOnce();
+      const { result } = open(
+        async () => {
+          throw new TypeError("Failed to fetch");
+        },
+        "me@example.com",
+        undefined,
+        dropRow,
+      );
 
-    await expect(result).rejects.toMatchObject({
-      code: "upload_target_unavailable",
-    });
-    expect(dropRow).toHaveBeenCalledWith("srv-1");
+      await expect(result).rejects.toMatchObject({
+        code: "upload_target_unavailable",
+      });
+      expect(dropRow).toHaveBeenCalledTimes(1);
+      expect(dropRow).toHaveBeenCalledWith("srv-1");
+      await vi.advanceTimersByTimeAsync(500);
+      expect(dropRow).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops retrying upload-row cleanup after it succeeds", async () => {
+    vi.useFakeTimers();
+    try {
+      const dropRow = vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValueOnce(new Error("recording not found"))
+        .mockResolvedValueOnce();
+      const cleanup = retryDropUploadTargetRow("srv-1", dropRow);
+
+      expect(dropRow).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(cleanup).resolves.toBe(true);
+      expect(dropRow).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("maps a timed-out intake create to a typed start error", async () => {
@@ -293,7 +329,7 @@ describe("openUploadTarget", () => {
           "TimeoutError",
         );
       },
-      dropRow: vi.fn(),
+      dropRow: vi.fn(async () => {}),
     });
 
     await expect(result).rejects.toMatchObject({
@@ -372,7 +408,7 @@ describe("openUploadTarget", () => {
         throw new Error("storage status request failed");
       },
       create: vi.fn(),
-      dropRow: vi.fn(),
+      dropRow: vi.fn(async () => {}),
     });
 
     await expect(result).rejects.toMatchObject({
@@ -395,7 +431,7 @@ describe("openUploadTarget", () => {
         maxClipDurationMs: 10 * 60 * 1000,
       }),
       create,
-      dropRow: vi.fn(),
+      dropRow: vi.fn(async () => {}),
     });
     await expect(hosted).resolves.toMatchObject({
       id: "srv-1",
@@ -418,7 +454,7 @@ describe("openUploadTarget", () => {
         maxClipDurationMs: 10 * 60 * 1000,
       }),
       create,
-      dropRow: vi.fn(),
+      dropRow: vi.fn(async () => {}),
     });
     await expect(own).resolves.toEqual(target);
   });
@@ -438,7 +474,7 @@ describe("openUploadTarget", () => {
         maxClipDurationMs: 10 * 60 * 1000,
       }),
       create,
-      dropRow: vi.fn(),
+      dropRow: vi.fn(async () => {}),
     });
 
     await expect(result).rejects.toMatchObject({

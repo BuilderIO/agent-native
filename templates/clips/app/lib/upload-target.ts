@@ -54,6 +54,51 @@ export class UploadTargetError extends Error {
   }
 }
 
+const UPLOAD_TARGET_CLEANUP_RETRY_DELAYS_MS = [
+  500, 1_500, 5_000, 15_000, 30_000, 30_000, 30_000,
+] as const;
+
+export function dropUploadTargetRowBestEffort(
+  id: string,
+  dropRow: (id: string) => Promise<unknown>,
+): void {
+  void Promise.resolve()
+    .then(() => dropRow(id))
+    .catch((error: unknown) => {
+      console.warn("[recorder] could not drop the upload row:", error);
+    });
+}
+
+export async function retryDropUploadTargetRow(
+  id: string,
+  dropRow: (id: string) => Promise<unknown>,
+): Promise<boolean> {
+  let lastError: unknown;
+  for (
+    let attempt = 0;
+    attempt <= UPLOAD_TARGET_CLEANUP_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, UPLOAD_TARGET_CLEANUP_RETRY_DELAYS_MS[attempt - 1]),
+      );
+    }
+    try {
+      await dropRow(id);
+      return true;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  console.warn(
+    "[recorder] upload row cleanup retries exhausted:",
+    id,
+    lastError,
+  );
+  return false;
+}
+
 const STORAGE_SETUP_DENIAL_CODES = new Set([
   "storage_setup_required",
   "unverified",
@@ -111,7 +156,7 @@ export async function openUploadTarget(options: {
     id?: string;
     expectedOwnerEmail?: string;
   }) => Promise<Response>;
-  dropRow: (id: string) => void;
+  dropRow: (id: string) => Promise<unknown>;
   onCreateFailed?: (
     cause:
       | { kind: "network"; message: string }
@@ -160,7 +205,7 @@ export async function openUploadTarget(options: {
       message: err instanceof Error ? err.message : String(err),
     });
     // The server may have inserted the row before the response was lost.
-    if (serverId) options.dropRow(serverId);
+    if (serverId) void retryDropUploadTargetRow(serverId, options.dropRow);
     throw new UploadTargetError("upload_target_unavailable");
   }
   if (res.ok) {
@@ -170,18 +215,18 @@ export async function openUploadTarget(options: {
     try {
       created = (await res.json()) as typeof created;
     } catch {
-      if (serverId) options.dropRow(serverId);
+      if (serverId) dropUploadTargetRowBestEffort(serverId, options.dropRow);
       throw new UploadTargetError("upload_target_unavailable");
     }
     const info = created.result ?? (created as CreatedUploadTarget);
     if (!info?.id) {
       if (intake) throw new Error("create-recording did not return an id");
-      options.dropRow(serverId!);
+      dropUploadTargetRowBestEffort(serverId!, options.dropRow);
       throw new UploadTargetError("upload_target_unavailable");
     }
     // Cancelled while the row was being opened: drop it, keep nothing.
     if (!intake && options.isStale()) {
-      options.dropRow(info.id);
+      dropUploadTargetRowBestEffort(info.id, options.dropRow);
       return null;
     }
     const clientLimits = hostedUploadLimits(uploadStatus);
@@ -219,7 +264,7 @@ export async function openUploadTarget(options: {
     status: res.status,
     ...(storageSetupRequired ? { storageSetupRequired: true } : {}),
   });
-  options.dropRow(serverId!);
+  dropUploadTargetRowBestEffort(serverId!, options.dropRow);
   if (typedError) throw typedError;
   if (res.status === 401 || res.status === 403) {
     throw new UploadTargetError("session_expired");

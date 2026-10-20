@@ -1,4 +1,5 @@
 import { ActionContractError } from "@agent-native/core/action";
+import { AppConfigurationError } from "@agent-native/core/app-config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls = vi.hoisted(() => ({
@@ -326,9 +327,33 @@ describe("create-recording policy", () => {
         cleanupConfirmed: false,
       },
     });
-    expect(calls.updateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "failed" }),
+    expect(calls.updateSet).not.toHaveBeenCalled();
+  });
+
+  it("does not retry permanent video storage configuration errors", async () => {
+    calls.resolveStorage.mockRejectedValueOnce(
+      new AppConfigurationError("Hosted storage is missing required settings."),
     );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "storage_configuration_invalid",
+      statusCode: 503,
+      details: { retryable: false, cleanupConfirmed: true },
+    });
+    expect(calls.insert).not.toHaveBeenCalled();
   });
 
   it("preserves organization access denials as non-retryable 403s", async () => {
