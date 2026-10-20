@@ -1648,6 +1648,18 @@ export interface SyncGitHubSourceOptions {
 }
 
 /**
+ * Logs a failed hand-back of the sync's lease, such as a database error or a
+ * link disconnected mid-sync. A lease left behind runs out on its own after
+ * two minutes, and the next sync takes over.
+ */
+function warnLeaseNotReleased(error: unknown) {
+  console.warn(
+    "[github-source] couldn't release the sync's lease:",
+    error instanceof Error ? error.message : String(error),
+  );
+}
+
+/**
  * Brings a linked collection up to its branch's latest commit. Each call does
  * as many files as its time budget allows and records how far it got; rows
  * remember the blob each was built from, so the next call skips them.
@@ -1982,7 +1994,7 @@ export async function syncGitHubSource(
           freshness: "stale",
           lastRefreshedAt: now,
         }),
-      ).catch(() => {});
+      ).catch(warnLeaseNotReleased);
       return emptyResult("error", state.pendingCommitSha, {
         code: "unavailable",
         message:
@@ -1999,7 +2011,7 @@ export async function syncGitHubSource(
         lastRefreshedAt: now,
         lastError: problem?.message ?? "GitHub sync failed.",
       }),
-    ).catch(() => {});
+    ).catch(warnLeaseNotReleased);
     if (!problem) throw error;
     if (problem.code === "connection" && options.throwConnectionErrors) {
       throw error;
