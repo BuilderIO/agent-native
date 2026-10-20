@@ -3,10 +3,20 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-20
+
+### Fixed
+
+- Locally saved desktop recordings now appear in the recovery list with upload and storage setup actions.
+
 ## 2026-10-19
 
 ### Fixed
 
+- Agents see a clip's frames as soon as it finishes processing instead of a cached "still processing" answer.
+- Chapter list times now match the player's clock, and each chapter shows a focus ring when you tab to it.
+- Editing a comment puts the cursor after its text, and Reply on another notification moves the cursor to its reply box.
+- Video imports use clearer labels, YouTube links work without connected storage, and embedded players stay clear of timeline hover previews.
 - Screen Memory can transcribe desktop recordings without a separate FFmpeg install.
 
 ### Changed
@@ -57,6 +67,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Recordings uploaded by a connected agent can now use free Clips storage, like recordings made in the app.
 - An agent upload too large for free hosted storage is now refused before it starts, with the size limit that applies.
 - Agents connected to Clips over MCP can now import a transcript file, instead of getting an unknown-tool error.
 - Clips keeps meeting transcripts recoverable while a save or notes finalization is still in progress.
@@ -1615,29 +1626,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Fixed owner recognition so Clips created from desktop and web sessions remain editable by the same signed-in user.
 - Fixed the Mac menu bar popover so it opens reliably after launch at login.
 - Localized Clips Settings changelog and extension sidebar labels in every supported interface language.
-
-## 2026-06-24
-
-### Added
-
-- Added a language picker and localized app chrome for supported languages.
-- Clips now includes a language picker with Simplified Chinese support for core navigation, empty states, and settings.
-
-### Improved
-
-- Chrome extension setup now shows a clear all-done confirmation when permissions are ready.
-- Settings now link directly to Agent settings for model, API key, automation, and voice preferences.
-- Settings now puts What's new in a compact sidebar, prioritizes Builder.io setup, and lets you manage S3 storage and AI provider keys in place.
-- Shared clips now expose their full console log stream (all levels, redacted) to connected agents, not just warnings and errors
-- Shared clips now expose their full fetch/XHR network request stream (method, sanitized URL, status, duration) to connected agents, not just failed requests
-
-### Fixed
-
-- Archive and spaces navigation is more resilient when sidebar count loading fails.
-- Inline Slack playback controls no longer shift when adjusting volume, and compact clip times stay on one line.
-
-### Changed
-
-- The Chrome extension option now only appears on supported Clips hosts unless a custom deployment explicitly enables it.
 
 For the full list of updates, see the [changelog folder](./changelog/).
