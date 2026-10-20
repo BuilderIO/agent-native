@@ -257,13 +257,6 @@ function serializeInlineTextNode(
       }
     }
   }
-  // Code text is fenced in backticks, so only plain text can start with
-  // whitespace NFM would read as indentation or a blank line. A span can't
-  // hold a raw newline (it would cross lines and fail to parse back), so text
-  // containing one is left as it was.
-  const leadingWhitespace =
-    !out.includes("\n") && (out.startsWith("\t") || /^\s+$/.test(out));
-
   const wrap = (prefix: string, suffix: string) => {
     out = prefix + out + suffix;
     if (textOffsets)
@@ -290,7 +283,12 @@ function serializeInlineTextNode(
   const plainUnderline = !!markOf(node, "underline");
   // Neutral spans keep literal whitespace out of NFM's indentation/blank-line
   // grammar. Plain text needs one only where that grammar applies: at the
-  // start of a line.
+  // start of a line. It's checked after the markers are added, since code
+  // backticks or emphasis asterisks already keep a line from starting with
+  // whitespace. A span can't hold a raw newline (it would cross lines and fail
+  // to parse back), so text containing one is left as it was.
+  const leadingWhitespace =
+    !out.includes("\n") && (out.startsWith("\t") || /^\s+$/.test(out));
   const protectsWhitespace = (!!span || startsLine) && leadingWhitespace;
   if (span || plainUnderline || protectsWhitespace) {
     const a = span?.attrs || {};

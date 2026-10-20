@@ -955,6 +955,28 @@ describe("bug fixes — reliability sweep", () => {
       expect(serialized).not.toContain("<span>");
       expect(texts.join("")).not.toContain("span>");
     });
+
+    it.each([
+      ["bold", "\tfoo", "**\tfoo**"],
+      ["italic", "\tfoo", "*\tfoo*"],
+    ])("leaves %s text that starts a line unwrapped", (mark, text, nfm) => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text, marks: [{ type: mark }] }],
+          },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const marks = nfmToDoc(serialized).content?.[0]?.content?.flatMap(
+        (child) => (child.marks ?? []).map((m) => m.type),
+      );
+
+      expect(serialized).toBe(nfm);
+      expect(marks).not.toContain("notionSpan");
+    });
   });
 
   describe("dual inline colors", () => {
