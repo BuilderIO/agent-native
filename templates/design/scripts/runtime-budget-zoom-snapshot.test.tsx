@@ -216,6 +216,8 @@ describe("atomic runtime zoom snapshot", () => {
     expect(readSnapshot()).toBeNull();
     render({ activeId: "removed-screen" });
     expect(readSnapshot()).toBeNull();
+    render({ activeId: "styles.css" });
+    expect(readSnapshot()).toBeNull();
     render({ activeId: "b", zoom: 100 });
     expect(readSnapshot()!.basis.screenId).toBe("b");
     expect(readSnapshot()!.basis.scale).toBeCloseTo(0.6);

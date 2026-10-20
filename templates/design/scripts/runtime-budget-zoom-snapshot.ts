@@ -89,6 +89,7 @@ export function readRuntimeZoomSnapshot(
   // Before the active-file effect settles, the editor can use its default file
   // while activeId is still absent or stale. Those effective-file inputs are
   // not canvas props, so wait for a resolved ID rather than guessing its basis.
+  // The fixed benchmark session zooms only HTML screens or the board.
   if (
     props.screens.length > 0 &&
     (!props.activeId ||
