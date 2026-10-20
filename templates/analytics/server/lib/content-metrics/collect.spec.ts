@@ -58,6 +58,7 @@ import {
 } from "./collect.js";
 import { signupsConfigSchema, type SignupsConfig } from "./config.js";
 import { CONTENT_METRICS_MIGRATION_SQL } from "./migration.js";
+import { buildSignupsQuery } from "./steps/signups.js";
 import { readContentCollection, writeContentCollection } from "./store.js";
 
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
@@ -602,6 +603,29 @@ describe("content collection", () => {
       signupSource: "example-app",
       signupsSince: "2026-05-18",
     };
+
+    it("reads signups only from the window's first day, or signupsSince if later", () => {
+      const tables = {
+        signupEventsTable: "example-project.analytics.events",
+        firstPageviewsTable: "example-project.staging.first_pageviews",
+        signupSource: "example-app",
+      };
+      const now = new Date("2026-10-19T07:00:00Z");
+
+      const early = buildSignupsQuery(
+        { ...tables, signupsSince: "2026-05-18" },
+        now,
+      );
+      expect(early.startDate).toBe("2026-07-21");
+      expect(early.sql).toContain("createdDate >= TIMESTAMP('2026-07-21')");
+      expect(early.sql).not.toContain("2026-05-18");
+
+      const late = buildSignupsQuery(
+        { ...tables, signupsSince: "2026-09-01" },
+        now,
+      );
+      expect(late.sql).toContain("createdDate >= TIMESTAMP('2026-09-01')");
+    });
 
     it("stays not set up, and runs no dry run, until a cap is saved", async () => {
       await onlySteps({ builderBlog: true, signups: true }, [], WAREHOUSE);

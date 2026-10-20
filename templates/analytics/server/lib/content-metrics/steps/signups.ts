@@ -65,6 +65,10 @@ function signupsCap(config: SignupsConfig): number {
  * window's daily values add up to its total. A later signup still credits
  * the visit's day, so every run recomputes the whole backfill window.
  *
+ * Signups are read only from the window's first day (or `signupsSince`, if
+ * later): a signup before the first visit isn't first-touch credit, and a
+ * fixed lower bound would grow the scan by a day's events every run.
+ *
  * `data_through` is the newest first pageview in the window; days after it
  * aren't in the warehouse yet and get no row.
  */
@@ -77,12 +81,14 @@ export function buildSignupsQuery(
     new Date(end.getTime() - (BACKFILL_DAYS - 1) * DAY_MS),
   );
   const endDate = utcDate(end);
+  const signupsFrom =
+    config.signupsSince > startDate ? config.signupsSince : startDate;
   const blog = new URL(BUILDER_BLOG_ORIGIN);
   const blogPattern = `%${blog.hostname.replace(/^www\./, "")}${blog.pathname}%`;
   const sql = `WITH signups AS (
   SELECT JSON_VALUE(data, '$.visitorId') AS visitor_id, JSON_VALUE(data, '$.userId') AS user_id
   FROM \`${config.signupEventsTable}\`
-  WHERE createdDate >= TIMESTAMP('${config.signupsSince}') AND event = 'signup'
+  WHERE createdDate >= TIMESTAMP('${signupsFrom}') AND event = 'signup'
     AND JSON_VALUE(data, '$.signupSource') = '${config.signupSource}'
     AND COALESCE(JSON_VALUE(data, '$.visitorId'), '') != ''
   GROUP BY 1, 2
