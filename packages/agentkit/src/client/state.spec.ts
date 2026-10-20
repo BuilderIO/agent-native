@@ -551,6 +551,7 @@ describe("AgentKit lifecycle projections", () => {
       id: "run-2-completed",
       runId: "run-2",
     });
+    expect(thread.runs["run-2"]?.inheritedMessageId).toBeUndefined();
     expect(thread.messages[0]?.status).toBe("streaming");
 
     thread = reduceAgentEvent(thread, {
@@ -558,6 +559,7 @@ describe("AgentKit lifecycle projections", () => {
       id: "run-3-completed",
       runId: "run-3",
     });
+    expect(thread.runs["run-3"]?.inheritedMessageId).toBeUndefined();
     expect(thread.messages[0]?.status).toBe("complete");
   });
 

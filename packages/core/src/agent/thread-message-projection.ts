@@ -134,8 +134,14 @@ function eventRunIds(
     const run = record(value);
     remember(activeByMessageId, run?.activeMessageId, run?.id);
     remember(claimedByMessageId, run?.activeMessageId, run?.id);
-    remember(inheritedByMessageId, run?.inheritedMessageId, run?.id);
-    remember(claimedByMessageId, run?.inheritedMessageId, run?.id);
+    if (
+      run?.status !== "completed" &&
+      run?.status !== "failed" &&
+      run?.status !== "cancelled"
+    ) {
+      remember(inheritedByMessageId, run?.inheritedMessageId, run?.id);
+      remember(claimedByMessageId, run?.inheritedMessageId, run?.id);
+    }
   }
   return { activeByMessageId, inheritedByMessageId, claimedByMessageId };
 }
@@ -298,13 +304,24 @@ function snapshotAdditionalContentIsRepresented(
 function snapshotRepresentsRootContent(
   root: Record<string, unknown>,
   candidate: Record<string, unknown>,
+  toolMessageIds?: Set<string>,
 ): boolean {
   const rootCalls = rootToolCalls(root);
   const candidateCalls = rootToolCalls(candidate);
-  return rootCalls.every((rootCall) =>
-    candidateCalls.some((candidateCall) =>
-      sameToolCallIdentity(rootCall, candidateCall),
-    ),
+  if (
+    rootCalls.every((rootCall) =>
+      candidateCalls.some((candidateCall) =>
+        sameToolCallIdentity(rootCall, candidateCall),
+      ),
+    )
+  ) {
+    return true;
+  }
+  return (
+    rootCalls.length === 1 &&
+    typeof candidate.id === "string" &&
+    toolMessageIds?.has(candidate.id) === true &&
+    snapshotAdditionalContentIsRepresented(root, candidate)
   );
 }
 
@@ -343,6 +360,7 @@ function splitSnapshotGroupMatch(
     }),
   );
   const indexedToolMessagesMatch =
+    rootCalls.length === 1 &&
     toolMessageIds !== undefined &&
     toolMessageIds.size > 0 &&
     [...toolMessageIds].every(
@@ -431,11 +449,7 @@ function contentMatches(
   const candidateText = text(candidate);
   if (rootText === undefined || candidateText === undefined) return false;
   const sameText = Boolean(
-    rootText &&
-    candidateText &&
-    (isTerminalAssistant(root)
-      ? candidateText.startsWith(rootText)
-      : isPrefixCompatible(rootText, candidateText)),
+    rootText && candidateText && isPrefixCompatible(rootText, candidateText),
   );
   const reasoningMatches = Boolean(
     reasoning(root) && reasoning(root) === reasoning(candidate),
@@ -446,7 +460,7 @@ function contentMatches(
   // Matching text alone must not hide the root's durable tool-call parts.
   if (
     rootToolCalls(root).length > 0 &&
-    !snapshotRepresentsRootContent(root, candidate)
+    !snapshotRepresentsRootContent(root, candidate, toolMessageIds)
   ) {
     return false;
   }
@@ -457,13 +471,42 @@ function contentMatches(
   );
 }
 
-function foldedProjectionMatches(
+function snapshotGroupRepresentsRootToolCalls(
+  root: Record<string, unknown>,
+  candidates: Record<string, unknown>[],
+  toolMessageIds: Set<string> | undefined,
+): boolean {
+  const rootCalls = rootToolCalls(root);
+  if (
+    rootCalls.every((rootCall) =>
+      candidates.some((candidate) =>
+        rootToolCalls(candidate).some((candidateCall) =>
+          sameToolCallIdentity(rootCall, candidateCall),
+        ),
+      ),
+    )
+  ) {
+    return true;
+  }
+  return (
+    rootCalls.length === 1 &&
+    candidates.some(
+      (candidate) =>
+        typeof candidate.id === "string" &&
+        toolMessageIds?.has(candidate.id) === true &&
+        snapshotAdditionalContentIsRepresented(root, candidate),
+    )
+  );
+}
+
+function foldedProjectionMatch(
   root: Record<string, unknown>,
   snapshotMessagesByRunId: Map<string, Record<string, unknown>[]>,
   foldedIds: string[],
   messageIdsByRun: Map<string, Set<string>>,
-): boolean {
-  if (foldedIds.length < 2) return false;
+  toolMessageIds: Set<string> | undefined,
+): Record<string, unknown> | undefined {
+  if (foldedIds.length < 2) return undefined;
   const groups = foldedIds.map((runId) =>
     (snapshotMessagesByRunId.get(runId) ?? []).filter(
       (candidate) => candidate.id !== root.id,
@@ -472,10 +515,10 @@ function foldedProjectionMatches(
   const presentIndices = groups.flatMap((group, index) =>
     group.length > 0 ? [index] : [],
   );
-  if (presentIndices.length === 0) return false;
+  if (presentIndices.length === 0) return undefined;
   const first = presentIndices[0]!;
   const last = presentIndices.at(-1)!;
-  if (last - first + 1 !== presentIndices.length) return false;
+  if (last - first + 1 !== presentIndices.length) return undefined;
 
   const projectedText = groups
     .slice(first, last + 1)
@@ -492,15 +535,34 @@ function foldedProjectionMatches(
       }
       return group.map((candidate) => text(candidate, true));
     });
-  if (projectedText.some((value) => value === undefined)) return false;
+  if (projectedText.some((value) => value === undefined)) return undefined;
   const candidateText = projectedText.join("");
   const rootText = text(root);
-  if (!rootText || !candidateText) return false;
-  if (isTerminalAssistant(root)) return candidateText.startsWith(rootText);
+  if (!rootText || !candidateText) return undefined;
+  if (
+    !snapshotGroupRepresentsRootToolCalls(
+      root,
+      groups.slice(first, last + 1).flat(),
+      toolMessageIds,
+    )
+  ) {
+    return undefined;
+  }
+  const candidate =
+    [...(groups[last] ?? [])].reverse().find((entry) => text(entry, true)) ??
+    groups[last]?.at(-1);
+  if (!candidate) return undefined;
+  if (isTerminalAssistant(root)) {
+    return candidateText.startsWith(rootText) ||
+      rootText.startsWith(candidateText) ||
+      (last === foldedIds.length - 1 && rootText.endsWith(candidateText))
+      ? candidate
+      : undefined;
+  }
   const isPrefix = first === 0 && rootText.startsWith(candidateText);
   const isSuffix =
     last === foldedIds.length - 1 && rootText.endsWith(candidateText);
-  return isPrefix || isSuffix;
+  return isPrefix || isSuffix ? candidate : undefined;
 }
 
 function sharedFoldedRootMatch(
@@ -523,10 +585,11 @@ function sharedFoldedRootMatch(
     ) {
       continue;
     }
+    const toolMessageIds = representedToolCallMessageIds(root, toolCalls);
     const rootContentRepresented = contentMatches(
       root,
       snapshot,
-      representedToolCallMessageIds(root, toolCalls),
+      toolMessageIds,
     );
     const rootText = text(root);
     const snapshotText = text(snapshot);
@@ -538,11 +601,17 @@ function sharedFoldedRootMatch(
           rootText.startsWith(snapshotText))) &&
       snapshotAdditionalContentIsRepresented(root, snapshot),
     );
+    const canHydrateSnapshot =
+      duplicateTextOnly &&
+      snapshotRepresentsRootContent(root, snapshot, toolMessageIds);
     if (!rootContentRepresented && !duplicateTextOnly) {
       continue;
     }
     if (matched) return undefined;
-    matched = { rootId: root.id, rootContentRepresented };
+    matched = {
+      rootId: root.id,
+      rootContentRepresented: rootContentRepresented || canHydrateSnapshot,
+    };
   }
   return matched;
 }
@@ -723,7 +792,7 @@ export function projectRootAssistantMessages(input: {
     ) {
       const matchingCandidate = exactTextMatches.find(
         (candidate) =>
-          snapshotRepresentsRootContent(root, candidate) &&
+          snapshotRepresentsRootContent(root, candidate, toolMessageIds) &&
           snapshotAdditionalContentIsRepresented(root, candidate),
       );
       if (matchingCandidate && typeof matchingCandidate.id === "string") {
@@ -785,15 +854,14 @@ export function projectRootAssistantMessages(input: {
       }
       continue;
     }
-    if (
-      toolMessageIds !== undefined &&
-      foldedProjectionMatches(
-        root,
-        snapshotMessagesByRunId,
-        foldedRunIds(root),
-        messageIdsByRun,
-      )
-    ) {
+    const foldedMatch = foldedProjectionMatch(
+      root,
+      snapshotMessagesByRunId,
+      foldedRunIds(root),
+      messageIdsByRun,
+      toolMessageIds,
+    );
+    if (foldedMatch && typeof foldedMatch.id === "string") {
       represented.add(root.id);
     }
   }
@@ -813,8 +881,12 @@ export function projectRootAssistantMessages(input: {
     );
     if (!match) continue;
     matchedSharedRootIds.add(match.rootId);
-    if (match.rootContentRepresented) represented.add(match.rootId);
-    else supersededSnapshotMessageIds.add(snapshotId);
+    if (match.rootContentRepresented) {
+      represented.add(match.rootId);
+      directMatches.set(match.rootId, snapshotId);
+    } else {
+      supersededSnapshotMessageIds.add(snapshotId);
+    }
   }
   const directMatchCountBySnapshotId = new Map<string, number>();
   for (const snapshotId of directMatches.values()) {

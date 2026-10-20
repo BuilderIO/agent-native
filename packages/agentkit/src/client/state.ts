@@ -668,7 +668,14 @@ function settleRunItems(
         break;
     }
   }
+  const inheritedMessageId = thread.runs[runId]?.inheritedMessageId;
   let runs = thread.runs;
+  const settlingRun = runs[runId];
+  if (settlingRun?.inheritedMessageId) {
+    const nextRun = { ...settlingRun };
+    delete nextRun.inheritedMessageId;
+    runs = { ...runs, [runId]: nextRun };
+  }
   const settlingRunOrder = timestampOrder(thread.runs[runId]?.startedAt);
   for (const run of Object.values(thread.runs)) {
     if (run.id === runId) continue;
@@ -817,7 +824,6 @@ function settleRunItems(
     ),
   };
   const sharedMessageIds = new Set(messageIds);
-  const inheritedMessageId = settled.runs[runId]?.inheritedMessageId;
   if (inheritedMessageId) sharedMessageIds.add(inheritedMessageId);
   let reconciled = settled;
   for (const messageId of sharedMessageIds) {

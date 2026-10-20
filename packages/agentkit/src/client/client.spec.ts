@@ -4147,7 +4147,7 @@ describe("AgentKitClient", () => {
           threadId: "thread-1",
           status: "running" as const,
           lastSequence: 1,
-          ...(refresh ? {} : { inheritedMessageId: "assistant-shared" }),
+          inheritedMessageId: "assistant-shared",
         },
       ],
       activeRunIds: ["run-2"],
@@ -4156,7 +4156,7 @@ describe("AgentKitClient", () => {
       id: "run-2",
       threadId: "thread-1",
       status: "running",
-      lastSequence: 1,
+      lastSequence: refresh ? 0 : 1,
       ...(refresh ? { activeMessageId: "assistant-new" } : {}),
     });
     const client = new AgentKitClient({ transport });

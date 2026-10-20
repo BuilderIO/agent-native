@@ -59,6 +59,37 @@ describe("assistant root projection", () => {
     );
   });
 
+  it("maps a single-run terminal root to a snapshot that contains only its prefix", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "server-run-one",
+          role: "assistant",
+          status: "complete",
+          parts: [{ type: "text", text: "Answer complete" }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-answer",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Answer" }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("server-run-one")).toBe(true);
+    expect(result.snapshotMessageIdsByRootMessageId.get("server-run-one")).toBe(
+      "snapshot-answer",
+    );
+    expect(result.supersededSnapshotMessageIds.has("snapshot-answer")).toBe(
+      false,
+    );
+  });
+
   it("deduplicates repeated snapshots for structured error statuses", () => {
     const result = projectRootAssistantMessages({
       rootMessages: [
@@ -198,7 +229,7 @@ describe("assistant root projection", () => {
     );
   });
 
-  it("matches a folded root claimed only by an inherited snapshot message id", () => {
+  it("matches a folded root claimed only by an active inherited snapshot message id", () => {
     const result = projectRootAssistantMessages({
       rootMessages: [
         {
@@ -221,7 +252,7 @@ describe("assistant root projection", () => {
       runs: [
         {
           id: "run-continuation",
-          status: "completed",
+          status: "running",
           inheritedMessageId: "snapshot-answer",
         },
       ],
@@ -230,7 +261,7 @@ describe("assistant root projection", () => {
     expect(result.representedRootMessageIds.has("root-answer")).toBe(true);
   });
 
-  it("keeps a complete folded root when a shared snapshot is only its prefix", () => {
+  it("maps a shared folded root to a snapshot that contains only its prefix", () => {
     const result = projectRootAssistantMessages({
       rootMessages: [
         {
@@ -265,9 +296,12 @@ describe("assistant root projection", () => {
       ],
     });
 
-    expect(result.representedRootMessageIds.has("root-answer")).toBe(false);
+    expect(result.representedRootMessageIds.has("root-answer")).toBe(true);
+    expect(result.snapshotMessageIdsByRootMessageId.get("root-answer")).toBe(
+      "snapshot-answer",
+    );
     expect(result.supersededSnapshotMessageIds.has("snapshot-answer")).toBe(
-      true,
+      false,
     );
   });
 

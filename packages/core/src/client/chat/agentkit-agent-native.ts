@@ -166,6 +166,40 @@ function mergeStoredReasoningParts(
   ];
 }
 
+function mergeStoredAssistantTextParts(
+  messageParts: AgentMessagePart[],
+  storedParts: AgentMessagePart[],
+): AgentMessagePart[] {
+  const messageText = messageParts
+    .filter(
+      (part): part is Extract<AgentMessagePart, { type: "text" }> =>
+        part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("");
+  const storedText = storedParts
+    .filter(
+      (part): part is Extract<AgentMessagePart, { type: "text" }> =>
+        part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("");
+  if (
+    messageText &&
+    storedText.startsWith(messageText) &&
+    storedText.length > messageText.length
+  ) {
+    let replacedText = false;
+    messageParts = messageParts.map((part) => {
+      if (part.type !== "text") return part;
+      if (replacedText) return { ...part, text: "" };
+      replacedText = true;
+      return { ...part, text: storedText };
+    });
+  }
+  return mergeStoredReasoningParts(messageParts, storedParts);
+}
+
 function latestSnapshotRunRecord(
   runs: unknown,
 ): Record<string, unknown> | undefined {
@@ -1370,7 +1404,7 @@ function reconcileDurableMessages(
       ? durableById.get(representedRootId)
       : undefined;
     if (representedRoot?.role === "assistant") {
-      const parts = mergeStoredReasoningParts(
+      const parts = mergeStoredAssistantTextParts(
         message.parts,
         representedRoot.parts,
       );

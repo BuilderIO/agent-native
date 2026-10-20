@@ -2673,19 +2673,20 @@ export class AgentKitClient implements AgentKitController {
             responseIsBehindCursor && snapshotRun
               ? { ...snapshotRun, ...run, status: snapshotRun.status }
               : run;
-          const inheritedMessageId =
-            run.inheritedMessageId ??
-            [
-              localRun?.inheritedMessageId,
-              snapshotRun?.inheritedMessageId,
-            ].find(
-              (messageId) =>
-                messageId !== undefined &&
-                (refreshedRun.activeMessageId === undefined ||
-                  refreshedRun.activeMessageId === messageId),
-            );
+          const inheritedMessageId = [
+            run.inheritedMessageId,
+            localRun?.inheritedMessageId,
+            snapshotRun?.inheritedMessageId,
+          ].find(
+            (messageId) =>
+              messageId !== undefined &&
+              (refreshedRun.activeMessageId === undefined ||
+                refreshedRun.activeMessageId === messageId),
+          );
+          const refreshedRunWithoutInheritedMessage = { ...refreshedRun };
+          delete refreshedRunWithoutInheritedMessage.inheritedMessageId;
           const mergedRun = {
-            ...refreshedRun,
+            ...refreshedRunWithoutInheritedMessage,
             lastSequence: appliedSequence,
             ...(inheritedMessageId === undefined ? {} : { inheritedMessageId }),
           };
@@ -6256,6 +6257,24 @@ export class AgentKitClient implements AgentKitController {
     const loadedMessages = new Map(
       loaded.messages.map((message) => [message.id, message]),
     );
+    const completedRunMessageIds = new Set(
+      Object.values(thread.runs)
+        .filter((run) => this.isTerminalStatus(run.status))
+        .map((run) => run.activeMessageId)
+        .filter((messageId): messageId is string => messageId !== undefined),
+    );
+    if (
+      thread.messages.some((message) => {
+        const durable = loadedMessages.get(message.id);
+        return (
+          completedRunMessageIds.has(message.id) &&
+          message.status !== "streaming" &&
+          (!durable || durable.status === "streaming")
+        );
+      })
+    ) {
+      return true;
+    }
     return thread.events.some((event) => {
       if (event.type !== "message.completed") return false;
       const currentMessage = thread.messages.find(
@@ -6300,18 +6319,23 @@ export class AgentKitClient implements AgentKitController {
           : current;
     const lastSequence = Math.max(current.lastSequence, incoming.lastSequence);
     const fallback = preferred === current ? incoming : current;
+    const activeMessageId =
+      preferred.activeMessageId ?? fallback.activeMessageId;
+    const inheritedMessageId = [
+      preferred.inheritedMessageId,
+      fallback.inheritedMessageId,
+    ].find(
+      (messageId) =>
+        messageId !== undefined &&
+        (activeMessageId === undefined || activeMessageId === messageId),
+    );
     return {
       ...preferred,
       lastSequence,
       startedAt: preferred.startedAt ?? fallback.startedAt,
       completedAt: preferred.completedAt ?? fallback.completedAt,
-      activeMessageId: preferred.activeMessageId ?? fallback.activeMessageId,
-      inheritedMessageId:
-        preferred.inheritedMessageId ??
-        (preferred.activeMessageId === undefined ||
-        preferred.activeMessageId === fallback.inheritedMessageId
-          ? fallback.inheritedMessageId
-          : undefined),
+      activeMessageId,
+      inheritedMessageId,
     };
   }
 

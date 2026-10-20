@@ -8515,6 +8515,77 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("hydrates a single-run partial snapshot from the complete durable reply", async () => {
+    const threadId = "thread-partial-durable-reply";
+    const runId = "run-partial-durable-reply";
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: `server-${runId}`,
+                    role: "assistant",
+                    content: [{ type: "text", text: "Answer complete" }],
+                    status: { type: "complete" },
+                    metadata: { runId },
+                  },
+                },
+              ],
+              agentKit: {
+                messages: [
+                  {
+                    id: "snapshot-answer",
+                    role: "assistant",
+                    status: "streaming",
+                    parts: [{ type: "text", text: "Answer" }],
+                    metadata: { runId },
+                  },
+                ],
+                events: [
+                  {
+                    id: `${runId}:1`,
+                    threadId,
+                    runId,
+                    sequence: 1,
+                    occurredAt: "2026-10-01T00:00:00.000Z",
+                    type: "message.created",
+                    message: {
+                      id: "snapshot-answer",
+                      role: "assistant",
+                      parts: [{ type: "text", text: "Answer" }],
+                    },
+                  },
+                ],
+                _mergeRootMessages: true,
+              },
+            }),
+          });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "snapshot-answer",
+    ]);
+    expect(snapshot?.messages[0]?.parts).toEqual([
+      { type: "text", text: "Answer complete" },
+    ]);
+    expect(snapshot?.messages[0]?.status).toBe("complete");
+    await transport.dispose();
+  });
+
   it("keeps mirrored answers in turn order and restores their durable timestamps", async () => {
     const threadId = "thread-mirrored-turn-order";
     const turns = [
