@@ -1,11 +1,13 @@
 import { captureClientException } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import type { RecordingEmbedProvider } from "@shared/embed-provider";
 import {
   isLoomEmbedUrl,
   LOOM_START_MS_QUERY_PARAM,
   loomEmbedUrlWithTimestamp,
 } from "@shared/loom";
+import { nextTranscriptBoundaryMs } from "@shared/transcript-segments";
 import { IconBolt, IconPlayerPlay } from "@tabler/icons-react";
 import {
   forwardRef,
@@ -24,7 +26,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
@@ -45,7 +46,7 @@ import {
   editedToOriginal,
   effectiveDuration,
   getExcludedRanges,
-  isExcluded,
+  editedMarkerMs,
   originalToEdited,
   parseEdits,
   type TrimRange,
@@ -61,12 +62,10 @@ import {
   type PlaybackComment,
 } from "./playback-comment-overlay";
 import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
-import type {
-  ReactionHandler,
-  ReactionHandlerResult,
-  ReactionSummary,
-} from "./reactions-tray";
+import type { ReactionHandler } from "./reactions-tray";
 import { timelineMarkerMs } from "./scrubber-position";
+import { useOptimisticReactions } from "./use-optimistic-reactions";
+import { YouTubeEmbedPlayer } from "./youtube-embed-player";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -174,6 +173,14 @@ type WebkitFullscreenVideo = HTMLVideoElement & {
   webkitExitFullscreen?: () => void;
 };
 
+export interface PlayerPlaybackState {
+  paused: boolean;
+  currentMs: number;
+  durationMs: number;
+  volume: number;
+  speed: number;
+}
+
 export interface VideoPlayerHandle {
   video: HTMLVideoElement | null;
   container: HTMLDivElement | null;
@@ -181,6 +188,9 @@ export interface VideoPlayerHandle {
   pause: () => void;
   seek: (ms: number) => void;
   getCurrentOriginalMs: () => number;
+  /** Null while no playable media is mounted, such as a Loom embed. */
+  readPlayback: () => PlayerPlaybackState | null;
+  setVolume: (volume: number) => void;
   /** Steps one frame while paused; the first press during playback pauses. */
   stepFrame: (direction: 1 | -1, repeat?: boolean) => void;
   setSpeed: (rate: number) => void;
@@ -195,7 +205,7 @@ export interface VideoPlayerProps {
   videoUrl: string | null | undefined;
   mediaVersion?: string | number | null;
   videoFormat?: "webm" | "mp4" | null;
-  embedProvider?: "loom" | null;
+  embedProvider?: RecordingEmbedProvider | null;
   durationMs: number;
   thumbnailUrl?: string | null;
   defaultSpeed?: number;
@@ -218,6 +228,8 @@ export interface VideoPlayerProps {
   } | null;
   onCtaClick?: (ctaId: string) => void;
   onTimeUpdate?: (currentMs: number, totalMs: number) => void;
+  /** Reports the duration an embedded player measured, when Clips has none. */
+  onDurationChange?: (durationMs: number) => void;
   onPlay?: () => void;
   onPause?: () => void;
   onSeek?: (ms: number) => void;
@@ -244,6 +256,16 @@ export interface VideoPlayerProps {
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(props, ref) {
+    return props.embedProvider === "youtube" ? (
+      <YouTubeEmbedPlayer key={props.videoUrl} ref={ref} {...props} />
+    ) : (
+      <NativeVideoPlayer ref={ref} {...props} />
+    );
+  },
+);
+
+const NativeVideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
+  function NativeVideoPlayer(props, ref) {
     const t = useT();
     const {
       videoUrl,
@@ -335,10 +357,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
     currentMsRef.current = currentMs;
     isPlayingRef.current = isPlaying;
-    const [optimisticReactions, setOptimisticReactions] = useState<
-      ReactionSummary[]
-    >([]);
-    const optimisticReactionIdRef = useRef(0);
     const [loomStartMs, setLoomStartMs] = useState<number | null>(null);
     const [volume, setVolume] = useState(1);
     const [muted, setMuted] = useState(() => !!autoPlay);
@@ -424,19 +442,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [shouldRefreshAutoThumbnail, setShouldRefreshAutoThumbnail] =
       useState(false);
     const excludedRanges = useMemo(() => getExcludedRanges(edits), [edits]);
+    const getReactionMs = useCallback(() => currentMsRef.current, []);
+    const { optimisticReactions, handleReact } = useOptimisticReactions({
+      reactions,
+      onReact,
+      getCurrentMs: getReactionMs,
+    });
     const scrubberTimeline = useMemo(() => {
-      const mapMarker = (originalMs: number): number | null => {
-        if (!Number.isFinite(originalMs) || isExcluded(originalMs, edits)) {
-          return null;
-        }
-        return originalToEdited(originalMs, edits);
-      };
-
       return {
         durationMs: effectiveDuration(resolvedDurationMs, edits),
         currentMs: originalToEdited(currentMs, edits),
         comments: (comments ?? []).flatMap((comment) => {
-          const editedMs = mapMarker(comment.videoTimestampMs);
+          const editedMs = editedMarkerMs(comment.videoTimestampMs, edits);
           return editedMs === null
             ? []
             : [
@@ -450,14 +467,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               ];
         }),
         chapters: (chapters ?? []).flatMap((chapter) => {
-          const editedMs = mapMarker(chapter.startMs);
+          const editedMs = editedMarkerMs(chapter.startMs, edits);
           return editedMs === null
             ? []
             : [{ startMs: editedMs, title: chapter.title }];
         }),
         reactions: [
           ...(reactions ?? []).flatMap((reaction) => {
-            const editedMs = mapMarker(reaction.videoTimestampMs);
+            const editedMs = editedMarkerMs(reaction.videoTimestampMs, edits);
             return editedMs === null
               ? []
               : [
@@ -469,7 +486,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 ];
           }),
           ...optimisticReactions.flatMap((reaction) => {
-            const editedMs = mapMarker(reaction.videoTimestampMs);
+            const editedMs = editedMarkerMs(reaction.videoTimestampMs, edits);
             return editedMs === null
               ? []
               : [
@@ -492,64 +509,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       resolvedDurationMs,
     ]);
 
-    useEffect(() => {
-      if (!optimisticReactions.length || !reactions?.length) return;
-      setOptimisticReactions((current) => {
-        const next = current.filter(
-          (optimistic) =>
-            !reactions.some(
-              (persisted) =>
-                persisted.emoji === optimistic.emoji &&
-                Math.abs(
-                  persisted.videoTimestampMs - optimistic.videoTimestampMs,
-                ) < 1000,
-            ),
-        );
-        return next.length === current.length ? current : next;
-      });
-    }, [optimisticReactions.length, reactions]);
-
-    const handleReact = useCallback<ReactionHandler>(
-      (emoji) => {
-        const optimistic = {
-          id: `optimistic-reaction-${++optimisticReactionIdRef.current}`,
-          emoji,
-          videoTimestampMs: currentMsRef.current,
-        };
-        setOptimisticReactions((current) => [...current, optimistic]);
-
-        const removeOptimistic = () => {
-          setOptimisticReactions((current) =>
-            current.filter((reaction) => reaction.id !== optimistic.id),
-          );
-        };
-
-        let result: ReactionHandlerResult | undefined;
-        try {
-          result = onReact?.(emoji);
-        } catch {
-          removeOptimistic();
-          return false;
-        }
-
-        if (result && typeof result === "object" && "then" in result) {
-          return Promise.resolve(result).then(
-            (saved) => {
-              if (saved === false) removeOptimistic();
-              return saved !== false;
-            },
-            () => {
-              removeOptimistic();
-              return false;
-            },
-          );
-        }
-
-        if (result === false) removeOptimistic();
-        return result !== false;
-      },
-      [onReact],
-    );
     const activeVideoSourceIdentity = useMemo(
       () => videoSourceIdentity(activeVideoSrc),
       [activeVideoSrc],
@@ -1166,6 +1125,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               : currentMsRef.current;
           return liveOriginalMs;
         },
+        readPlayback: () => {
+          const v = videoRef.current;
+          if (!v) return null;
+          return {
+            paused: v.paused,
+            currentMs: v.currentTime * 1000,
+            durationMs: (v.duration || v.currentTime) * 1000,
+            volume: v.volume,
+            speed: v.playbackRate,
+          };
+        },
+        setVolume: (volume) => {
+          if (videoRef.current) videoRef.current.volume = volume;
+        },
         stepFrame,
         setSpeed: applySpeed,
         toggleMute: () => {
@@ -1611,6 +1584,95 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       (s) => currentMs >= s.startMs && currentMs <= s.endMs,
     );
 
+    function syncPlaybackTime(v: HTMLVideoElement) {
+      const raw = v.currentTime;
+      const ct = Number.isFinite(raw) && raw >= 0 && raw < 1e7 ? raw : 0;
+      const ms = Math.floor(ct * 1000);
+      if (
+        initialVisibleFrameSeekedRef.current &&
+        !hasPlaybackStarted &&
+        !playAttemptPendingRef.current &&
+        v.paused &&
+        (!startMs || startMs <= 0)
+      ) {
+        setCurrentMs(0);
+        onTimeUpdate?.(0, resolvedDurationMs);
+        return;
+      }
+      if (
+        lastKept > 0 && // i18n-ignore — a comparison, not copy
+        lastKept < resolvedDurationMs &&
+        ms >= lastKept
+      ) {
+        try {
+          v.pause();
+          v.currentTime = Math.max(0, lastKept / 1000 - 0.05);
+        } catch (err) {
+          console.warn("[player] could not stop at the last kept frame", {
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+        setCurrentMs(lastKept);
+        setIsPlaying(false);
+        setIsBuffering(false);
+        onTimeUpdate?.(lastKept, resolvedDurationMs);
+        onEnded?.();
+        return;
+      }
+      const visibleMs = clampSeek(
+        skipExcludedRange(ms, excludedRanges, resolvedDurationMs),
+        v,
+        resolvedDurationMs,
+      );
+      if (visibleMs > ms) {
+        v.currentTime = visibleMs / 1000;
+        setCurrentMs(visibleMs);
+        if (visibleMs > 0) {
+          setCanPlay(true);
+          setHasPlaybackStarted(true);
+          setIsPreparing(false);
+          setIsBuffering(false);
+        }
+        onTimeUpdate?.(visibleMs, resolvedDurationMs);
+        return;
+      }
+      setCurrentMs(ms);
+      if (ms > 0) {
+        setCanPlay(true);
+        setHasPlaybackStarted(true);
+        setIsPreparing(false);
+        setIsBuffering(false);
+      }
+      onTimeUpdate?.(ms, resolvedDurationMs);
+    }
+    const syncPlaybackTimeRef = useRef(syncPlaybackTime);
+    syncPlaybackTimeRef.current = syncPlaybackTime;
+    const nextCaptionBoundaryRef = useRef(Number.POSITIVE_INFINITY);
+    nextCaptionBoundaryRef.current = transcriptSegments?.length
+      ? nextTranscriptBoundaryMs(transcriptSegments, currentMs)
+      : Number.POSITIVE_INFINITY;
+    // Past the last cue there is nothing left to land on time; a seek back
+    // makes a boundary finite again and restarts the loop.
+    const hasCaptionBoundaryAhead = Number.isFinite(
+      nextCaptionBoundaryRef.current,
+    );
+
+    // `timeupdate` fires only about four times a second, which leaves
+    // captions and the transcript highlight up to a quarter second behind
+    // each cue. While playing, check every frame but sync only when playback
+    // crosses a caption boundary, so the player doesn't re-render per frame.
+    useEffect(() => {
+      const v = playbackVideoEl;
+      if (!v || !isPlaying || !hasCaptionBoundaryAhead) return;
+      let frame = requestAnimationFrame(function tick() {
+        if (v.currentTime * 1000 >= nextCaptionBoundaryRef.current) {
+          syncPlaybackTimeRef.current(v);
+        }
+        frame = requestAnimationFrame(tick);
+      });
+      return () => cancelAnimationFrame(frame);
+    }, [playbackVideoEl, isPlaying, hasCaptionBoundaryAhead]);
+
     const showEndCta =
       cta &&
       cta.placement === "end" &&
@@ -1788,72 +1850,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               setIsBuffering(false);
               captureThumbnail();
             }}
-            onTimeUpdate={(e) => {
-              const v = e.currentTarget;
-              const raw = v.currentTime;
-              const ct =
-                Number.isFinite(raw) && raw >= 0 && raw < 1e7 ? raw : 0;
-              const ms = Math.floor(ct * 1000);
-              if (
-                initialVisibleFrameSeekedRef.current &&
-                !hasPlaybackStarted &&
-                !playAttemptPendingRef.current &&
-                v.paused &&
-                (!startMs || startMs <= 0)
-              ) {
-                setCurrentMs(0);
-                onTimeUpdate?.(0, resolvedDurationMs);
-                return;
-              }
-              if (
-                lastKept > 0 && // i18n-ignore — a comparison, not copy
-                lastKept < resolvedDurationMs &&
-                ms >= lastKept
-              ) {
-                try {
-                  v.pause();
-                  v.currentTime = Math.max(0, lastKept / 1000 - 0.05);
-                } catch (err) {
-                  console.warn(
-                    "[player] could not stop at the last kept frame",
-                    {
-                      err: err instanceof Error ? err.message : String(err),
-                    },
-                  );
-                }
-                setCurrentMs(lastKept);
-                setIsPlaying(false);
-                setIsBuffering(false);
-                onTimeUpdate?.(lastKept, resolvedDurationMs);
-                onEnded?.();
-                return;
-              }
-              const visibleMs = clampSeek(
-                skipExcludedRange(ms, excludedRanges, resolvedDurationMs),
-                v,
-                resolvedDurationMs,
-              );
-              if (visibleMs > ms) {
-                v.currentTime = visibleMs / 1000;
-                setCurrentMs(visibleMs);
-                if (visibleMs > 0) {
-                  setCanPlay(true);
-                  setHasPlaybackStarted(true);
-                  setIsPreparing(false);
-                  setIsBuffering(false);
-                }
-                onTimeUpdate?.(visibleMs, resolvedDurationMs);
-                return;
-              }
-              setCurrentMs(ms);
-              if (ms > 0) {
-                setCanPlay(true);
-                setHasPlaybackStarted(true);
-                setIsPreparing(false);
-                setIsBuffering(false);
-              }
-              onTimeUpdate?.(ms, resolvedDurationMs);
-            }}
+            onTimeUpdate={(e) => syncPlaybackTime(e.currentTarget)}
             onEnded={() => {
               clearPlayAttemptWatchdog();
               playAttemptPendingRef.current = false;
@@ -2024,14 +2021,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             playbackRate={speed}
             durationMs={scrubberTimeline.durationMs}
             getTimelinePositionMs={(comment) =>
-              isExcluded(comment.videoTimestampMs, edits)
-                ? null
-                : originalToEdited(comment.videoTimestampMs, edits)
+              editedMarkerMs(comment.videoTimestampMs, edits)
             }
             getTimelineLane={(comment) => {
-              const editedMs = isExcluded(comment.videoTimestampMs, edits)
-                ? null
-                : originalToEdited(comment.videoTimestampMs, edits);
+              const editedMs = editedMarkerMs(comment.videoTimestampMs, edits);
               if (editedMs === null) return null;
               return markerLanes.get(timelineMarkerMs(editedMs)) ?? 0;
             }}
@@ -2240,7 +2233,6 @@ function CenterPlaybackOverlay({
                   container={menuPortalContainer}
                 >
                   <DropdownMenuLabel>Speed</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
                   {SPEED_OPTIONS.map((rate) => (
                     <DropdownMenuItem
                       key={rate}

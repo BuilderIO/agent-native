@@ -20,6 +20,7 @@ import {
   parseEmailAddress,
 } from "./google-auth.js";
 import { classifyAutomated } from "./inbox-classify.js";
+import { pushWatchState, steadyPollMaxAgeMs } from "./inbox-push-watch.js";
 import {
   claimSyncAccount,
   countInboxThreads,
@@ -110,20 +111,25 @@ async function patchProgress(
 function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
   const backfillPending =
     row.fullSyncPageToken != null || row.fullSyncPhase === "reconcile";
+  const pushWatch = pushWatchState(row, Date.now());
   if (row.status === "needs_reauth" || row.status === "error") {
     return {
       accountEmail: row.accountEmail,
       state: row.status,
       lastSyncedAt: row.lastSyncedAt,
       error: row.lastError ?? undefined,
+      pushWatch,
       ...(backfillPending ? { backfillPending: true } : {}),
     };
   }
   return {
     accountEmail: row.accountEmail,
     state:
-      row.historyId == null || row.status === "syncing" ? "initial" : "ready",
+      row.historyId == null || row.status === "syncing" || row.historyPending
+        ? "initial"
+        : "ready",
     lastSyncedAt: row.lastSyncedAt,
+    pushWatch,
     ...(backfillPending ? { backfillPending: true } : {}),
   };
 }
@@ -744,6 +750,9 @@ async function runIncrementalSyncStep(
         lastRecordId ??
         row.historyId)
       : (lastRecordId ?? row.historyId),
+    // Stays set until history is drained, so the account is never treated as
+    // steady mid catch-up.
+    historyPending: !caughtUp,
     lastError: null,
     lastSyncedAt: syncedAt,
   });
@@ -1106,6 +1115,29 @@ export async function syncInboxAccount(
   }
 }
 
+/**
+ * A steady account synced inside the freshness window needs no Gmail call.
+ * Initial sync, backfill, and a pending push must still advance one step per
+ * call, so they never count as fresh even when the last step was recent.
+ */
+function isFreshSteadyAccount(
+  row: SyncAccountRow,
+  pushGeneration: number,
+  now: number,
+  maxAgeMs: number,
+): boolean {
+  return (
+    row.historyId != null &&
+    row.status === "idle" &&
+    row.fullSyncPageToken == null &&
+    row.fullSyncPhase == null &&
+    !row.historyPending &&
+    row.lastPushGeneration >= pushGeneration &&
+    row.lastSyncedAt != null &&
+    now - row.lastSyncedAt < maxAgeMs
+  );
+}
+
 export async function ensureInboxFresh(
   ownerEmail: string,
   opts?: { accountEmails?: string[]; maxAgeMs?: number; budgetMs?: number },
@@ -1136,11 +1168,9 @@ export async function ensureInboxFresh(
         ownerEmail,
         accountEmail,
       );
-      const fresh =
-        row.lastPushGeneration >= pushGeneration &&
-        row.lastSyncedAt != null &&
-        now - row.lastSyncedAt < maxAgeMs;
-      if (fresh) return statusFromRow(row);
+      if (isFreshSteadyAccount(row, pushGeneration, now, maxAgeMs)) {
+        return statusFromRow(row);
+      }
       try {
         const result = await syncInboxAccount(ownerEmail, accountEmail, {
           budgetMs,
@@ -1171,7 +1201,7 @@ export async function ensureInboxFresh(
 
 export async function syncInbox(
   ownerEmail: string,
-  opts?: { accountEmails?: string[]; budgetMs?: number },
+  opts?: { accountEmails?: string[]; budgetMs?: number; force?: boolean },
 ): Promise<SyncInboxResult> {
   const { accounts, errors: lookupErrors } =
     await getConnectedAccountsWithErrors(ownerEmail);
@@ -1187,12 +1217,37 @@ export async function syncInbox(
       : lookupErrors;
 
   const progress = await Promise.all(
-    emails.map((accountEmail) =>
-      syncInboxAccount(ownerEmail, accountEmail, {
+    emails.map(async (accountEmail) => {
+      const row = await ensureSyncAccountRow(ownerEmail, accountEmail);
+      const pushGeneration = await readInboxPushGeneration(
+        ownerEmail,
+        accountEmail,
+      );
+      const now = Date.now();
+      // A manual refresh forces a sync; a pending push already fails the
+      // steady check, so it is never held back by the poll window.
+      if (
+        !opts?.force &&
+        isFreshSteadyAccount(
+          row,
+          pushGeneration,
+          now,
+          steadyPollMaxAgeMs(row, now),
+        )
+      ) {
+        return progressFromStatus(
+          statusFromRow(row),
+          pushGeneration,
+          row.lastPushGeneration,
+        );
+      }
+      const synced = await syncInboxAccount(ownerEmail, accountEmail, {
         budgetMs: opts?.budgetMs ?? 1_800,
         connectedAccountEmails: accounts,
-      }),
-    ),
+        force: opts?.force,
+      });
+      return { ...synced, pushWatch: pushWatchState(row, now) };
+    }),
   );
   const disconnected = requested
     ? [...requested]

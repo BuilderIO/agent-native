@@ -223,6 +223,37 @@ export function getVerifiedServiceIdentityFromEvent(
   return { userEmail: userEmail.trim(), orgId: orgId.trim() };
 }
 
+const VERIFIED_MCP_CREDENTIAL_EVENT_KEY = "__anVerifiedMcpCredential";
+
+/**
+ * The request authenticated with an MCP credential this app verified, so an
+ * action route records the call as MCP rather than as a person's HTTP call.
+ */
+export function markVerifiedMcpCredentialForEvent(
+  event: RequestContextEvent,
+  credential: { userEmail: string; oauthClientId?: string },
+): void {
+  const context = (event.context ??= {});
+  context[VERIFIED_MCP_CREDENTIAL_EVENT_KEY] = credential;
+}
+
+export function getVerifiedMcpCredentialFromEvent(
+  event: RequestContextEvent,
+): { userEmail: string; oauthClientId?: string } | undefined {
+  const credential = event.context?.[VERIFIED_MCP_CREDENTIAL_EVENT_KEY] as
+    | { userEmail?: unknown; oauthClientId?: unknown }
+    | undefined;
+  const userEmail = credential?.userEmail;
+  if (typeof userEmail !== "string" || !userEmail.trim()) return undefined;
+  const oauthClientId = credential?.oauthClientId;
+  return {
+    userEmail: userEmail.trim(),
+    ...(typeof oauthClientId === "string" && oauthClientId
+      ? { oauthClientId }
+      : {}),
+  };
+}
+
 export function markExplicitPersonalOrgScope(event: {
   context?: Record<string, unknown>;
 }): void {

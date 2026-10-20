@@ -42,7 +42,7 @@ async function withFriction(
 
 export default defineAction({
   description:
-    "List first-party Analytics session replay recordings accessible to the current user/org. `visitorType: anonymous` explicitly includes playable recordings with no signed-in user id and a non-empty client-supplied anonymous id; it does not verify the page origin or a person's identity. Returns summaries only, not raw replay chunks.",
+    "List first-party Analytics session replay recordings accessible to the current user/org. `visitorType: anonymous` explicitly includes playable recordings with no signed-in user id and a non-empty client-supplied anonymous id; it does not verify the page origin or a person's identity. Returns summaries only, not raw replay chunks. Postgres-only; never queries BigQuery.",
   schema: z.object({
     query: z
       .string()

@@ -38,10 +38,12 @@ describe("buildTranscriptPreview", () => {
         recordingId: "rec-2",
         language: "en",
         status: "ready",
+        source: "imported",
         fullText: "A short transcript.",
         segments: [],
       }),
     ).toMatchObject({
+      source: "imported",
       fullTextLength: 19,
       previewTruncated: false,
       omittedCharacterCount: 0,

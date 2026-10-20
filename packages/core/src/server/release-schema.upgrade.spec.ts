@@ -30,6 +30,13 @@ const FIXTURES = ["release-schema-main-2026-10-15.sql"];
  */
 const KNOWN_DRIFT: string[] = [];
 
+/**
+ * `runMigrations` bookkeeping for lists folded into stores. Older databases
+ * keep these tables (nothing is dropped); fresh ones never create them.
+ */
+const RETIRED_BOOKKEEPING =
+  /: _(?!an_store_)[a-z_]+_migrations(?:_named)?(?:[ .]|$)/;
+
 const previousUrl = process.env.DATABASE_URL;
 const dirs: string[] = [];
 
@@ -54,8 +61,63 @@ function drift(a: SchemaFingerprint, b: SchemaFingerprint): string[] {
     for (const item of right)
       if (!left.has(item)) out.push(`upgraded only: ${item}`);
   }
-  return out.filter((entry) => !KNOWN_DRIFT.includes(entry)).sort();
+  return out
+    .filter((entry) => !KNOWN_DRIFT.includes(entry))
+    .filter((entry) => !RETIRED_BOOKKEEPING.test(entry))
+    .sort();
 }
+
+describe("local boot against a database an older release created", () => {
+  it("imports the boot-time lists' history instead of re-running them", async () => {
+    await closeDbExec();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-upgrade-"));
+    dirs.push(dir);
+    const url = `pglite:${dir}`;
+    process.env.DATABASE_URL = url;
+    const client = await getPgliteClient(url);
+    await client.exec(
+      fs.readFileSync(
+        path.join(import.meta.dirname, "__fixtures__", FIXTURES[0]),
+        "utf8",
+      ),
+    );
+
+    const [
+      { orgStore },
+      { contextXrayStore },
+      { observationalMemoryStore },
+      { betterAuthStore, BETTER_AUTH_MIGRATIONS },
+    ] = await Promise.all([
+      import("../org/schema-store.js"),
+      import("../agent/context-xray/schema-store.js"),
+      import("../agent/observational-memory/store.js"),
+      import("./better-auth-migrations.js"),
+    ]);
+    // Better Auth first, as the auth plugin boots it; its v4 expires every
+    // signing key, so it must import here, never run.
+    await betterAuthStore.ready();
+    await orgStore.ready();
+    await contextXrayStore.ready();
+    await observationalMemoryStore.ready();
+
+    const { rows } = await getDbExec().execute(
+      `SELECT store_id, count(*) FILTER (WHERE source = 'legacy')::int AS legacy,
+              count(*) FILTER (WHERE source = 'step')::int AS step
+         FROM _an_store_migrations
+        WHERE store_id IN ('better_auth', 'org', 'context_xray')
+        GROUP BY store_id ORDER BY store_id`,
+    );
+    expect(rows).toEqual([
+      {
+        store_id: "better_auth",
+        legacy: BETTER_AUTH_MIGRATIONS.length,
+        step: 0,
+      },
+      { store_id: "context_xray", legacy: 3, step: 0 },
+      { store_id: "org", legacy: 34, step: 0 },
+    ]);
+  }, 300_000);
+});
 
 afterAll(async () => {
   await closeDbExec();
@@ -79,6 +141,12 @@ describe("release schema upgrade convergence", () => {
       });
 
       expect(drift(fresh, upgraded)).toEqual([]);
+      // Entries the old database applied through versioned lists are imported
+      // into the ledger, not run again.
+      const { rows } = await getDbExec().execute(
+        "SELECT count(*)::int AS n FROM _an_store_migrations WHERE source = 'legacy'",
+      );
+      expect(Number(rows[0]?.n)).toBeGreaterThanOrEqual(112);
     },
     300_000,
   );

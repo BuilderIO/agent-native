@@ -102,6 +102,134 @@ describe("slide image replacement", () => {
     expect(image.style.left).toBe("184px");
   });
 
+  it("restores an image frame's geometry without replacing unrelated slide nodes", () => {
+    const movedContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:90px;top:24px;width:320px;height:180px;"><img src="image.png"></div><div class="fmd-shape" data-slide-object-id="shape-1" style="position:absolute;left:400px;top:24px;width:100px;height:80px;">Text</div></div>';
+    const restoredContent = movedContent.replace("left:90px", "left:40px");
+    const root = document.createElement("div");
+    root.innerHTML = movedContent;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    const video = root.querySelector("video")!;
+    const otherObject = root.querySelector(".fmd-shape")!;
+
+    expect(swapImageSourcesInPlace(root, movedContent, restoredContent)).toBe(
+      true,
+    );
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(root.querySelector("video")).toBe(video);
+    expect(root.querySelector(".fmd-shape")).toBe(otherObject);
+    expect(frame.style.left).toBe("40px");
+  });
+
+  it("restores image frame geometry when the source changes in the same step", () => {
+    const previousContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:90px;top:24px;width:320px;height:180px;"><img src="blob:preview"></div><div class="fmd-shape" data-slide-object-id="shape-1" style="position:absolute;left:400px;top:24px;width:100px;height:80px;">Text</div></div>';
+    const nextContent = previousContent
+      .replace("left:90px", "left:40px")
+      .replace("blob:preview", "https://example.test/image.png");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    const image = root.querySelector("img")!;
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.getAttribute("src")).toBe("https://example.test/image.png");
+    expect(frame.style.left).toBe("40px");
+  });
+
+  it("preserves a live image frame move while replacing its source", () => {
+    const previousContent =
+      '<div class="fmd-slide"><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"><img src="blob:preview"></div></div>';
+    const nextContent = previousContent.replace(
+      "blob:preview",
+      "https://example.test/image.png",
+    );
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    frame.style.left = "90px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(frame.style.left).toBe("90px");
+  });
+
+  it("preserves a live frame move when reconciling an unchanged source", () => {
+    const previousContent =
+      '<div class="fmd-slide"><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"><img src="image.png"></div></div>';
+    const nextContent = previousContent.replace("left:40px", "left:90px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    frame.style.left = "120px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(frame.style.left).toBe("120px");
+  });
+
+  it("preserves a live bare image move when reconciling an unchanged source", () => {
+    const previousContent =
+      '<div class="fmd-slide"><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const nextContent = previousContent.replace("left:40px", "left:90px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector<HTMLImageElement>("img")!;
+    image.style.left = "120px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.style.left).toBe("120px");
+  });
+
+  it("applies snapshot geometry to a bare image source change when live geometry is unchanged", () => {
+    const previousContent =
+      '<div class="fmd-slide"><img src="old-image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const nextContent = previousContent
+      .replace("old-image.png", "new-image.png")
+      .replace("left:40px", "left:90px")
+      .replace("width:320px", "width:640px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector<HTMLImageElement>("img")!;
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.getAttribute("src")).toBe("new-image.png");
+    expect(image.style.left).toBe("90px");
+    expect(image.style.width).toBe("640px");
+  });
+
+  it("keeps live slide nodes when the saved image geometry already matches", () => {
+    const previousContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const nextContent = previousContent.replace("left:40px", "left:90px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector("img")!;
+    const video = root.querySelector("video")!;
+    image.style.left = "90px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(root.querySelector("video")).toBe(video);
+    expect(image.style.left).toBe("90px");
+  });
+
   it("updates image metadata and fit without overwriting live geometry", () => {
     const previousContent =
       '<div class="fmd-slide"><img src="blob:preview" alt="Preview" width="320" height="180" style="position:absolute;left:40px;width:320px;object-fit:contain;"></div>';

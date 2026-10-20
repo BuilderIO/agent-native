@@ -76,6 +76,59 @@ export function dashboardFilterParams(
   return filters;
 }
 
+export interface DashboardFilterPreference {
+  filters: Record<string, string>;
+  viewId?: string;
+}
+
+export type DashboardFilterPreferenceUpdate =
+  | { status: "unread" }
+  | { status: "saved" }
+  | { status: "changed"; update: DashboardFilterPreference };
+
+export function dashboardFilterPreferenceUpdate({
+  saved,
+  savedState,
+  viewsState,
+  searchParams,
+}: {
+  saved: { filters?: Record<string, string>; viewId?: string };
+  savedState: "loading" | "error" | "success";
+  viewsState: "loading" | "error" | "success";
+  searchParams: URLSearchParams;
+}): DashboardFilterPreferenceUpdate {
+  // An unread preference (still loading, or failed) is not an empty one: skip
+  // the write rather than compare against the `{}` the hook returns meanwhile.
+  if (savedState !== "success") return { status: "unread" };
+  const filters = dashboardFilterParams(searchParams);
+  // Until the views list is read (a refetch counts as unread), the page can't
+  // reopen the saved view, so its absence from the URL doesn't mean it was
+  // closed.
+  const viewId =
+    searchParams.get("view") ??
+    (viewsState === "success" ? undefined : saved.viewId);
+  if (sameDashboardFilterMap(saved.filters, filters) && saved.viewId === viewId)
+    return { status: "saved" };
+  return {
+    status: "changed",
+    update: viewId ? { filters, viewId } : { filters },
+  };
+}
+
+// A cached read can be out of date (a view deleted since, a preference another
+// tab has changed), so a refetch in flight counts as loading: restoring from it
+// would reopen the deleted view, or bring back the old filters for the autosave
+// to write over the newer preference.
+export function serverReadState(query: {
+  isSuccess: boolean;
+  isError: boolean;
+  isFetching: boolean;
+}): "loading" | "error" | "success" {
+  if (query.isFetching) return "loading";
+  if (query.isSuccess) return "success";
+  return query.isError ? "error" : "loading";
+}
+
 export function sameDashboardFilterMap(
   a: Record<string, string> | undefined,
   b: Record<string, string> | undefined,
@@ -117,6 +170,7 @@ export function resolveDashboardFilterRestoreStep({
   searchParams,
   defaultView,
   savedFilters,
+  savedViewId,
   viewsState,
   savedFiltersState,
   progress,
@@ -124,6 +178,9 @@ export function resolveDashboardFilterRestoreStep({
   searchParams: URLSearchParams;
   defaultView: { id: string; filters: Record<string, string> } | undefined;
   savedFilters: Record<string, string> | undefined;
+  // The view open when the filters were saved; the caller passes it only while
+  // that view still exists.
+  savedViewId?: string;
   viewsState: "loading" | "error" | "success";
   savedFiltersState: "loading" | "error" | "success";
   progress: DashboardFilterRestoreProgress;
@@ -191,6 +248,8 @@ export function resolveDashboardFilterRestoreStep({
   return {
     progress: { status: "complete" },
     restore:
-      Object.keys(filters).length > 0 ? { filters, source: "personal" } : null,
+      Object.keys(filters).length > 0 || savedViewId
+        ? { filters, viewId: savedViewId, source: "personal" }
+        : null,
   };
 }

@@ -11,6 +11,7 @@ export const INBOX_STATUSES = [
   "pr_observed",
   "auto_approved",
   "merged",
+  "resolved",
 ] as const;
 
 export const INBOX_RISKS = [

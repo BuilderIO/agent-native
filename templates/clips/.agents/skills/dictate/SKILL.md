@@ -19,9 +19,15 @@ Reach for this skill any time the user asks about a past dictation, the press-an
 
 For meetings (calendar-synced events with summaries + attendees), use the `meetings` skill instead.
 
-## Design reference
+## Desktop interaction contract
 
-The press-and-hold UX intentionally mirrors **Wispr Flow**. See `templates/clips/desktop/design-refs/wispr-ux.md` for the source-of-truth interaction notes (hold-to-record, instant paste-on-release, no UI chrome, low-latency overlay, transcript-then-cleanup pipeline). Read this file before changing the dictation UX — agents have repeatedly broken Wispr-style flow by inserting modals, confirmation steps, or extra clicks.
+The desktop flow is owned by Clips. Keep capture, finalization, insertion, and
+history persistence as explicit states. On release, insert the finalized text
+as soon as it is ready; show a compact recovery state with a copy action when
+insertion fails. Background history work must not block text delivery. Use the
+desktop recording UI's tokens and layout conventions for the flow bar. See
+`templates/clips/desktop/design-refs/dictation-ux.md` for the current behavior
+and visual contract.
 
 ## Data model touched
 
@@ -84,7 +90,7 @@ The app exposes `view` and `dictationId`:
 The press-and-hold flow is **owned by the desktop app** (`src-tauri/`). On Hold-Fn or Cmd+Shift+Space:
 
 1. Desktop tray captures mic audio while the key is held.
-2. macOS Speech transcribes locally; text is pasted instantly on release (Wispr-style).
+2. macOS Speech transcribes locally; finalized text is pasted on release.
 3. The dictation row is created via the framework HTTP layer — the agent does not start/stop dictations.
 4. AI cleanup is a background pass via `cleanup-dictation`, not in the hot path — never block paste-on-release on a network round-trip.
 

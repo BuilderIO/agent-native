@@ -911,7 +911,18 @@ async function clearPauseFields(
   meta: JobFrontmatter,
   body: string,
 ): Promise<void> {
-  await updateResource(resource, meta, body, RESUME_AUTOMATION_PATCH);
+  // Whoever flipped `enabled` left the old pause fields behind. A run may still
+  // be active behind them ("Run now" on a paused job), so the cleanup lifts the
+  // pause without clearing the run marker or the failure detail its outcome
+  // still needs.
+  await updateResource(
+    resource,
+    meta,
+    body,
+    meta.lastStatus === "running"
+      ? { pausedReason: undefined, pausedAt: undefined, lastStatus: "running" }
+      : RESUME_AUTOMATION_PATCH,
+  );
 }
 
 interface PausedRecheck {

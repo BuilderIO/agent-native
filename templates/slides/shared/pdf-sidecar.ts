@@ -1,3 +1,4 @@
+import type { AnimationTrigger } from "./api";
 import {
   normalizeSlideTransition,
   SLIDE_TRANSITION_INPUTS,
@@ -12,6 +13,7 @@ export interface SlidesPdfSidecarAnimation {
   id: string;
   elementIndex: number;
   elementPath?: number[];
+  trigger?: AnimationTrigger;
   type: "appear" | "fade" | "slide-up" | "zoom";
 }
 

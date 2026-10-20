@@ -1,12 +1,25 @@
-import { actionsToEngineTools } from "@agent-native/core/server";
-import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
 
-import {
-  buildAnalyticsPromptContext,
-  filterAnalyticsEvalActions,
-  resolveProductionEvalContext,
-} from "./production-context.js";
+import { actionsToEngineTools } from "@agent-native/core/server";
+import { generateActionRegistryForProject } from "@agent-native/core/vite";
+import { beforeAll, describe, expect, it } from "vitest";
+
 import { METADATA_ONLY_ACTION_ALLOWLIST } from "./production-source-cases.eval.js";
+
+let buildAnalyticsPromptContext: typeof import("./production-context.js").buildAnalyticsPromptContext;
+let filterAnalyticsEvalActions: typeof import("./production-context.js").filterAnalyticsEvalActions;
+let resolveProductionEvalContext: typeof import("./production-context.js").resolveProductionEvalContext;
+
+beforeAll(async () => {
+  generateActionRegistryForProject(
+    fileURLToPath(new URL("..", import.meta.url)),
+  );
+  ({
+    buildAnalyticsPromptContext,
+    filterAnalyticsEvalActions,
+    resolveProductionEvalContext,
+  } = await import("./production-context.js"));
+});
 
 describe("Analytics production eval context", () => {
   it("keeps search guidance when Analytics prefetch is degraded", () => {
@@ -55,12 +68,12 @@ describe("Analytics production eval context", () => {
       appId: "analytics",
       initialToolNames: expect.arrayContaining([
         "find-data",
-        "query-dbt-semantic-metric",
         "bigquery",
         "search-bigquery-schema",
         "tool-search",
       ]),
     });
+    expect(context.initialToolNames).not.toContain("query-dbt-semantic-metric");
     expect(context.finalResponseGuard).toBeTypeOf("function");
     expect(context.systemPrompt).toContain("REAL DATA");
     expect(context.actions["find-data"]?.readOnly).toBe(true);
@@ -115,6 +128,26 @@ describe("Analytics production eval context", () => {
     expect(result.results.map((tool) => tool.name)).not.toContain("bigquery");
     expect(result.results.map((tool) => tool.name)).not.toContain(
       "query-agent-native-analytics",
+    );
+  });
+
+  it("keeps exact dbt metrics available through tool-search without loading them initially", async () => {
+    const context = resolveProductionEvalContext({
+      ownerEmail: "eval-owner@example.com",
+      orgId: "org_example",
+    });
+
+    expect(context.initialToolNames).not.toContain("query-dbt-semantic-metric");
+    const result = (await context.actions["tool-search"]!.run(
+      { names: ["query-dbt-semantic-metric"] },
+      { caller: "tool" } as never,
+    )) as { results: Array<{ name: string; description?: string }> };
+
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        name: "query-dbt-semantic-metric",
+        description: expect.stringContaining("exact owner-defined dbt"),
+      }),
     );
   });
 

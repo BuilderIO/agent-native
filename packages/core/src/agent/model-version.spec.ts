@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { BUILDER_MODEL_CONFIG } from "./model-config.js";
+import {
+  AI_SDK_MODEL_CONFIG,
+  ANTHROPIC_MODEL_CONFIG,
+  BUILDER_MODEL_CONFIG,
+} from "./model-config.js";
 import {
   getModelOptionLabel,
   normalizeModelForEngine,
@@ -45,7 +49,7 @@ describe("upgradeBuilderModelAlias", () => {
 });
 
 describe("upgradeModelForProvider", () => {
-  it("applies Builder aliases only for Builder selections", () => {
+  it("applies outdated-id aliases for every provider that serves the replacement", () => {
     const supportedModels = ["claude-sonnet-5-5"];
 
     expect(
@@ -53,6 +57,19 @@ describe("upgradeModelForProvider", () => {
     ).toBe("claude-sonnet-5-5");
     expect(
       upgradeModelForProvider("claude-sonnet-5", supportedModels, "anthropic"),
+    ).toBe("claude-sonnet-5-5");
+    expect(
+      upgradeModelForProvider("claude-sonnet-5", ["gpt-6-luna"], "openai"),
+    ).toBeUndefined();
+  });
+
+  it("keeps an id a non-Builder provider still supports", () => {
+    expect(
+      upgradeModelForProvider(
+        "claude-opus-4-8",
+        ANTHROPIC_MODEL_CONFIG.supportedModels,
+        "anthropic",
+      ),
     ).toBeUndefined();
   });
 
@@ -69,7 +86,7 @@ describe("upgradeModelForProvider", () => {
     expect(
       upgradeModelForProvider(
         "x-ai/grok-code-fast-1",
-        supportedModels,
+        AI_SDK_MODEL_CONFIG.anthropic.supportedModels,
         "ai-sdk:anthropic",
       ),
     ).toBeUndefined();
@@ -90,6 +107,83 @@ describe("normalizeModelForEngine", () => {
     );
     expect(normalizeModelForEngine(engine, "custom/provider-model")).toBe(
       "custom/provider-model",
+    );
+  });
+
+  const anthropicEngine = {
+    name: "anthropic",
+    ...ANTHROPIC_MODEL_CONFIG,
+    acceptsCustomModels: true,
+  };
+
+  it("upgrades an outdated Claude id on the Anthropic engine", () => {
+    expect(normalizeModelForEngine(anthropicEngine, "claude-sonnet-5")).toBe(
+      "claude-sonnet-5-5",
+    );
+    expect(
+      normalizeModelForEngine(
+        { ...anthropicEngine, name: "ai-sdk:anthropic" },
+        "claude-sonnet-5",
+      ),
+    ).toBe("claude-sonnet-5-5");
+  });
+
+  it("keeps a Claude id the Anthropic engine still supports", () => {
+    expect(normalizeModelForEngine(anthropicEngine, "claude-opus-4-8")).toBe(
+      "claude-opus-4-8",
+    );
+  });
+
+  it("keeps unknown custom ids on engines that accept custom models", () => {
+    expect(
+      normalizeModelForEngine(anthropicEngine, "claude-next-preview"),
+    ).toBe("claude-next-preview");
+    expect(normalizeModelForEngine(anthropicEngine, "claude-sonnet-5-6")).toBe(
+      "claude-sonnet-5-6",
+    );
+  });
+
+  it("upgrades the outdated dotted GPT Luna id on OpenAI engines", () => {
+    const openAiEngine = {
+      name: "ai-sdk:openai",
+      ...AI_SDK_MODEL_CONFIG.openai,
+    };
+    const endpointEngine = { ...openAiEngine, preserveCustomModels: true };
+
+    expect(normalizeModelForEngine(openAiEngine, "gpt-5.6-luna")).toBe(
+      "gpt-6-luna",
+    );
+    expect(normalizeModelForEngine(endpointEngine, "gpt-5.6-luna")).toBe(
+      "gpt-6-luna",
+    );
+    expect(normalizeModelForEngine(endpointEngine, "gpt-5.6-sol")).toBe(
+      "gpt-6.1-sol",
+    );
+    expect(normalizeModelForEngine(endpointEngine, "gpt-5.6-terra")).toBe(
+      "gpt-5.6-terra",
+    );
+    expect(normalizeModelForEngine(endpointEngine, "deepseek-chat")).toBe(
+      "deepseek-chat",
+    );
+  });
+
+  it("keeps Builder upgrading retired ids it still routes", () => {
+    const builderEngine = { name: "builder", ...BUILDER_MODEL_CONFIG };
+
+    expect(normalizeModelForEngine(builderEngine, "claude-sonnet-5")).toBe(
+      "claude-sonnet-5-5",
+    );
+    expect(normalizeModelForEngine(builderEngine, "claude-opus-4-8")).toBe(
+      "claude-opus-5-5",
+    );
+    expect(normalizeModelForEngine(builderEngine, "gpt-5.6-luna")).toBe(
+      "gpt-6-luna",
+    );
+    expect(normalizeModelForEngine(builderEngine, "gpt-6.1-sol")).toBe(
+      "gpt-6-1-sol",
+    );
+    expect(normalizeModelForEngine(builderEngine, "totally-removed")).toBe(
+      BUILDER_MODEL_CONFIG.defaultModel,
     );
   });
 });

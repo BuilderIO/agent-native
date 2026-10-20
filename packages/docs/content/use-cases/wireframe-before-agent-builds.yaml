@@ -1,0 +1,78 @@
+slug: wireframe-before-agent-builds
+job_id: job-agent-wireframe
+app: plans
+audience: technical
+title: "Wireframe a screen before your coding agent builds it"
+subhead: "Ask your agent for a plan with wireframes of the screens, review them, and comment before any code changes."
+meta_description: "Get wireframes of the screens your coding agent plans to build, comment on them, and have the agent revise the plan first. Free, open-source Plans from Agent-Native."
+cta_label: "Plan visually"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://plan.agent-native.com"
+screenshot_alt: "A visual plan in Plans: a canvas of three mobile screens above a written plan with a goal and a comment indicator"
+old_way:
+  heading: "How most people do it today"
+  body: "You describe the layout in a prompt and find out what the agent pictured when the code shows up."
+new_way:
+  heading: "How it works in Plans"
+  steps:
+    - "Add the planning skills to your coding agent by running npx @agent-native/core@latest skills add visual-plan."
+    - "Ask your agent for a visual plan of the screen. The plan includes wireframes and annotated code."
+    - "Pin comments to the wireframes, then ask the agent to read them and revise the plan before it builds."
+todays_stack:
+  heading: "What a wireframe replaces"
+  items:
+    - text: "**Describing layout in a prompt** leaves your agent guessing at what you meant."
+    - text: "**A sketch on paper or a whiteboard** shows the layout, but your agent can't see it."
+    - text: "**A detailed mockup in a design tool** is more than you need before your agent builds a first version."
+  in_app: "Your coding agent still builds the screen. In Plans, the wireframes are part of its plan, so your comments go straight back to the agent that will build it."
+frequency: per-project
+how_often_label: "Every new screen"
+roles: [engineering, product]
+connects_to: ["Claude Code", "Codex"]
+next_jobs: [see-what-your-coding-agent-plans, design-brief-to-prototype]
+recipes:
+  - id: wireframe-screen
+    title: "Ask for wireframes of a new screen"
+    when: "Use this before your coding agent builds a new screen."
+    steps:
+      - "Ask your agent to run /visual-plan for the screen."
+    prompt: "Use /visual-plan for [describe the screen and who uses it]."
+    result: "You'll see wireframes of the screen next to the written plan."
+    how_often: "Every new screen"
+  - id: comment-wireframe
+    title: "Comment on the layout, not the code"
+    when: "Use this when the wireframe isn't what you pictured."
+    steps:
+      - "Pin feedback to the part of the wireframe that's wrong."
+      - "Ask your agent to revise the plan."
+    result: "You get a revised plan before any code changes."
+    how_often: "Every new screen"
+  - id: go-to-design
+    title: "Take it to Design when it needs polish"
+    when: "Use this when the screen needs to be on brand and reviewed by others."
+    steps:
+      - "Describe the screen in Design."
+      - "Link your design system and compare a few versions."
+    result: "You get an interactive, on-brand prototype you can share for feedback."
+    how_often: "When needed"
+story: null
+faqs:
+  - q: "Does Plans make wireframes?"
+    a: "Plans can include wireframes and interactive prototype options alongside the written plan."
+  - q: "Is Plans a design tool?"
+    a: "No. Plans is for reviewing what your coding agent will build. For a polished, on-brand prototype, use Design."
+  - q: "Where are plans saved, and can I share them?"
+    a: "Plans are stored in the hosted Plans app by default. A local-files mode keeps them off it, and you can export plans as HTML, Markdown, or JSON. People you share a plan with can open and edit it as guests, without signing up. You sign in to save or share your own plans."
+  - q: "Is Plans free?"
+    a: "Yes. Plans is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Wireframe your next screen first"
+cta_band_subhead: "See what your agent will build, and fix it before it writes code."
+updated: 2026-10-15
+internal:
+  job: "Wireframe a screen before the coding agent builds it"
+  recurs_when: "Every new screen"
+  first_session: "Install the skill, get one plan with wireframes"
+  return_signal: "Second plan within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "website wireframe examples (US 600/mo, KD 14); website wireframe template (400, KD 7); ai wireframe generator (350, KD 9); what is a wireframe for a website (250, KD 1). About 2,200/mo."
+  basis: "hypothesis"
+  verify: "The exact Plans command name and syntax. That wireframes appear in plans as described on the Plans page."

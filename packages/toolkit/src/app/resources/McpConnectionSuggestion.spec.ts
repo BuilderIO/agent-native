@@ -152,6 +152,24 @@ describe("findMcpConnectionSuggestionIntegration", () => {
     ).toBeNull();
   });
 
+  it("respects host exclusions for composer and response suggestions", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Connect Gong so I can query calls.",
+        requestedByUser: true,
+        excludedIntegrationIds: ["GONG"],
+      }),
+    ).toBeNull();
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Please connect your Gong account to continue.",
+        contextText: "Query last week's Gong calls.",
+        variant: "response",
+        excludedIntegrationIds: ["gong"],
+      }),
+    ).toBeNull();
+  });
+
   it("does not render a fallback initial underneath a loaded logo", () => {
     expect(
       shouldRenderMcpIntegrationFallback(

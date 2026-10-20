@@ -9,7 +9,7 @@ export function observeCommentLane(
 
   const update = () => {
     if (disposed || !lane.isConnected || !container.isConnected) return;
-    const nextColumn = container.querySelector<HTMLElement>(".notion-editor");
+    const nextColumn = container.querySelector<HTMLElement>(".content-editor");
     if (nextColumn !== readingColumn) {
       if (readingColumn) resizeObserver?.unobserve(readingColumn);
       readingColumn = nextColumn;

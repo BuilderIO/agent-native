@@ -490,6 +490,12 @@ describe("InfrastructureSettingsPage", () => {
       const connect = button(row(id), "Use Builder.io");
       expect(connect.classList.contains("border")).toBe(true);
     }
+    const webSearch = row("web-search");
+    expect(webSearch.querySelector("[data-builder-only]")).toBeNull();
+    expect(webSearch.textContent).toContain("Available with Builder.io · ");
+    expect(
+      button(webSearch, "Use Builder.io").classList.contains("border"),
+    ).toBe(true);
     act(() => button(row("browser-automation"), "Use Builder.io").click());
     expect(state.builder.start).not.toHaveBeenCalled();
     act(() => button(document.body, "Create and activate").click());
@@ -524,6 +530,9 @@ describe("InfrastructureSettingsPage", () => {
     );
     expect(row("background").textContent).toContain(
       "Builder.io · Makes code changes from production.",
+    );
+    expect(row("web-search").textContent).toContain(
+      "Available with Builder.io · Finds current public information and official documentation.",
     );
     expect(row("setup").querySelector("h2")?.textContent).toBe("Setup");
     expect(row("background").querySelector("[data-builder-only]")).toBeNull();

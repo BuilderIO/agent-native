@@ -6,7 +6,6 @@ import {
   type H3Event,
 } from "h3";
 
-import { runMigrations } from "../db/migrations.js";
 import { registerFeatureFlags } from "../feature-flags/registry.js";
 import {
   awaitBootstrap,
@@ -55,11 +54,11 @@ import {
   setWorkspaceAppDefaultVisibilityHandler,
   setOrgVisualIdentityHandler,
 } from "./handlers.js";
-import { ORG_MIGRATIONS } from "./migrations.js";
 import {
   readWorkspacePrivateIconHandler,
   uploadWorkspacePrivateIconHandler,
 } from "./private-icon-handlers.js";
+import { orgStore } from "./schema-store.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -122,13 +121,11 @@ async function workspaceIconUploadResponse(event: H3Event) {
  *   POST   /_agent-native/org/a2a-secret/receive          — accept a peer's secret push (JWT-auth, no session)
  */
 export function createOrgPlugin(): NitroPluginDef {
-  const migrate = runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" });
-
   return async (nitroApp: any) => {
     registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
     markDefaultPluginProvided(nitroApp, "org");
     await awaitBootstrap(nitroApp);
-    await migrate(nitroApp);
+    await orgStore.ready();
 
     const app = getH3App(nitroApp);
 

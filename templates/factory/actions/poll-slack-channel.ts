@@ -29,6 +29,7 @@ import { mergeTriageMetadata } from "../server/triage/metadata.js";
 import {
   hasTriageSourceChanged,
   statusAfterTriageSourceUpdate,
+  triageSourceUpsertGuard,
 } from "../server/triage/review-state.js";
 import { pollSlackChannel } from "../server/triage/slack-poller.js";
 
@@ -222,6 +223,7 @@ export default defineAction({
               updatedAt,
               factoryId,
             },
+            setWhere: triageSourceUpsertGuard(existing, status, now),
           });
       }
 

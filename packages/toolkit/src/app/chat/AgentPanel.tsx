@@ -20,7 +20,6 @@ import { normalizeTooltipText } from "@agent-native/toolkit/ui/tooltip";
 import {
   IconMessageCircle,
   IconMessageDots,
-  IconMessageReport,
   IconTerminal2,
   IconLayoutSidebarRightCollapse,
   IconLayoutGrid,
@@ -48,7 +47,6 @@ import { useLocation, useNavigate } from "react-router";
 
 import { resolveFeedbackUrl } from "../feedback/FeedbackButton.js";
 import { ErrorReportActions, FeedbackButton } from "../feedback/index.js";
-import { ReportProblemDialog } from "../feedback/ReportProblemDialog.js";
 import { RunsTrayMenuItem } from "../progress/index.js";
 import { ShareButton } from "../sharing/index.js";
 import {
@@ -1176,7 +1174,6 @@ function AgentPanelInner({
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [reportProblemOpen, setReportProblemOpen] = useState(false);
   const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
   const pendingHeaderOverlayRef = useRef<(() => void) | null>(null);
   const closeHeaderMenuForOverlay = useCallback(() => {
@@ -1320,10 +1317,6 @@ function AgentPanelInner({
             }
           />
         ) : null}
-        <ReportProblemDialog
-          open={reportProblemOpen}
-          onOpenChange={setReportProblemOpen}
-        />
         {mode === "chat" && (
           <IconTooltip
             content={
@@ -1560,19 +1553,6 @@ function AgentPanelInner({
                 {t("agentPanel.feedback")}
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem
-              onSelect={(event) =>
-                deferAgentPanelOverlayOpen(
-                  event,
-                  closeHeaderMenuForOverlay,
-                  () => setReportProblemOpen(true),
-                  pendingHeaderOverlayRef,
-                )
-              }
-            >
-              <IconMessageReport size={14} className="shrink-0" />
-              {t("agentChat.reportProblem.menuItem")}
-            </DropdownMenuItem>
             {((mode === "chat" && activeTabId) ||
               (mode === "cli" &&
                 (canUseCodeTools || renderCliTab) &&
@@ -1663,7 +1643,6 @@ function AgentPanelInner({
       feedbackOpen,
       feedbackEnabled,
       getChatThreadShareUrl,
-      reportProblemOpen,
       headerMenuOpen,
       isWideDrawer,
       mode,

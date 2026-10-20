@@ -285,7 +285,16 @@ it("does not authorize an unknown pre-bind request that resolves after B binds",
 it("persists an authorized result fetched after the matching B binding", async () => {
   sessionState.set(USER_B);
   const { records, reads, storage } = memoryStorage();
-  setActionQueryCacheStorage(storage);
+  const keysStarted = deferred<void>();
+  const finishKeys = deferred<void>();
+  setActionQueryCacheStorage({
+    ...storage,
+    keys: async () => {
+      keysStarted.resolve();
+      await finishKeys.promise;
+      return [];
+    },
+  });
   const fetchMock = vi.fn(async () => response("request-user-b"));
   vi.stubGlobal("fetch", fetchMock);
   const client = new QueryClient({
@@ -293,6 +302,10 @@ it("persists an authorized result fetched after the matching B binding", async (
   });
 
   await mount(client);
+  await keysStarted.promise;
+  const fetchCallsWhileBinding = fetchMock.mock.calls.length;
+  finishKeys.resolve();
+  expect(fetchCallsWhileBinding).toBe(0);
   await expect.poll(() => reads.includes(SCOPE_B)).toBe(true);
   await expect
     .poll(() => client.getQueryData<Payload>(QUERY_KEY)?.owner)
@@ -301,6 +314,31 @@ it("persists an authorized result fetched after the matching B binding", async (
     .poll(() => queryIn(records, SCOPE_B)?.state.data, { timeout: 2_000 })
     .toEqual({ owner: "request-user-b" });
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("keeps trusted first-read results when cache binding fails", async () => {
+  sessionState.set(USER_B);
+  const { storage } = memoryStorage();
+  setActionQueryCacheStorage({
+    ...storage,
+    keys: async () => {
+      throw new Error("storage unavailable");
+    },
+  });
+  const fetchMock = vi.fn(async () => response("refetched-user-b"));
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  client.setQueryData(QUERY_KEY, { owner: "trusted-first-read" });
+
+  await mount(client);
+  await settle();
+
+  expect(client.getQueryData<Payload>(QUERY_KEY)?.owner).toBe(
+    "trusted-first-read",
+  );
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 it("does not carry an in-flight A grant into B after a scope switch", async () => {

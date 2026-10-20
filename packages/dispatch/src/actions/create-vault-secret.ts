@@ -27,5 +27,9 @@ export default defineAction({
   // the value. Opt out of input capture so the trail can't become a second
   // durable credential store.
   audit: { recordInputs: false },
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => toVaultSecretMetadata(await createSecret(args)),
 });

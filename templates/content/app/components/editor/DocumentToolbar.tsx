@@ -2003,7 +2003,7 @@ export function DocumentToolbar({
                         suggestFocusTimeoutRef.current = undefined;
                         document
                           .querySelector<HTMLElement>(
-                            ".notion-editor[contenteditable='true'], .notion-editor [contenteditable='true']",
+                            ".content-editor[contenteditable='true'], .content-editor [contenteditable='true']",
                           )
                           ?.focus({ preventScroll: true });
                       }, 50);

@@ -35,7 +35,7 @@ export function LinkHoverPreview({
     const handleMouseMove = (e: MouseEvent) => {
       if (editing) return;
       const target = e.target as HTMLElement;
-      const link = target.closest("a.notion-link") as HTMLAnchorElement;
+      const link = target.closest("a.content-link") as HTMLAnchorElement;
 
       if (link && editor.view.dom.contains(link)) {
         clearTimeout(leaveTimer.current);

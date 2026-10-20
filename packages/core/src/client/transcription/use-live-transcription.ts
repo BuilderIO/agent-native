@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const NETWORK_RESTART_BASE_MS = 1_000;
 const NETWORK_RESTART_MAX_MS = 30_000;
+const MAX_CONSECUTIVE_NETWORK_ERRORS = 4;
 const RESTART_RETRY_BASE_MS = 400;
 const MAX_RESTART_ATTEMPTS = 8;
 
@@ -49,6 +50,7 @@ export function useLiveTranscription(
   const interimRef = useRef("");
   const stoppedManuallyRef = useRef(false);
   const stopWaiterRef = useRef<((text: string) => void) | null>(null);
+  const recognitionSessionRef = useRef(0);
   const restartTimerRef = useRef<number | null>(null);
   const networkErrorCountRef = useRef(0);
   const restartDelayRef = useRef(0);
@@ -79,13 +81,16 @@ export function useLiveTranscription(
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) return;
 
+    const session = ++recognitionSessionRef.current;
+    const previousRecognition = recognitionRef.current;
+    stopWaiterRef.current?.(currentTranscript());
     if (restartTimerRef.current !== null) {
       window.clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
-    if (recognitionRef.current) {
+    if (previousRecognition) {
       try {
-        recognitionRef.current.abort();
+        previousRecognition.abort();
       } catch {
         /* ignore */
       }
@@ -105,8 +110,12 @@ export function useLiveTranscription(
     incompleteReasonRef.current = null;
     setTranscript("");
     setInterimText("");
+    const isCurrentSession = () =>
+      recognitionSessionRef.current === session &&
+      recognitionRef.current === recognition;
 
     recognition.onresult = (event: any) => {
+      if (!isCurrentSession()) return;
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
@@ -128,6 +137,7 @@ export function useLiveTranscription(
     };
 
     recognition.onerror = (event: any) => {
+      if (!isCurrentSession()) return;
       if (event.error === "no-speech" || event.error === "aborted") return;
       if (
         event.error === "not-allowed" ||
@@ -143,6 +153,14 @@ export function useLiveTranscription(
       }
       if (event.error === "network") {
         const retryIndex = networkErrorCountRef.current++;
+        if (networkErrorCountRef.current >= MAX_CONSECUTIVE_NETWORK_ERRORS) {
+          stoppedManuallyRef.current = true;
+          markIncomplete(
+            "Browser speech recognition stopped mid-recording after repeated network errors.",
+          );
+          setIsActive(false);
+          return;
+        }
         restartDelayRef.current = Math.min(
           NETWORK_RESTART_BASE_MS * 2 ** retryIndex,
           NETWORK_RESTART_MAX_MS,
@@ -152,18 +170,12 @@ export function useLiveTranscription(
     };
 
     recognition.onend = () => {
-      if (
-        !stoppedManuallyRef.current &&
-        recognitionRef.current === recognition
-      ) {
+      if (!isCurrentSession()) return;
+      if (!stoppedManuallyRef.current) {
         const restart = () => {
+          if (!isCurrentSession()) return;
           restartTimerRef.current = null;
-          if (
-            stoppedManuallyRef.current ||
-            recognitionRef.current !== recognition
-          ) {
-            return;
-          }
+          if (stoppedManuallyRef.current) return;
           try {
             recognition.start();
             restartFailureCountRef.current = 0;
@@ -199,6 +211,7 @@ export function useLiveTranscription(
       recognition.start();
       setIsActive(true);
     } catch (err) {
+      if (!isCurrentSession()) return;
       markIncomplete(
         `Browser speech recognition could not start (${(err as Error)?.message || "unknown error"}).`,
       );
@@ -245,6 +258,7 @@ export function useLiveTranscription(
 
       return new Promise((resolve) => {
         let settled = false;
+        const session = recognitionSessionRef.current;
         const finish = (text: string) => {
           if (settled) return;
           settled = true;
@@ -252,11 +266,14 @@ export function useLiveTranscription(
           if (stopWaiterRef.current === finish) {
             stopWaiterRef.current = null;
           }
-          if (recognitionRef.current === recognition) {
+          const isCurrentSession =
+            recognitionSessionRef.current === session &&
+            recognitionRef.current === recognition;
+          if (isCurrentSession) {
             recognitionRef.current = null;
+            interimRef.current = "";
+            setIsActive(false);
           }
-          interimRef.current = "";
-          setIsActive(false);
           resolve(text);
         };
 

@@ -1,17 +1,19 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { isAutoTitleReplaceable } from "../shared/title-source.js";
+import { IMPORTED_TRANSCRIPT_SOURCE } from "../shared/transcript-import.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
-import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
+import { listEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
+import { notImportedTranscript } from "./lib/imported-transcript.js";
 
 function nativeSegmentsJson(
   fullText: string,
@@ -74,6 +76,24 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
+    const [recording] = await db
+      .select({
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+        title: schema.recordings.title,
+        titleSource: schema.recordings.titleSource,
+        description: schema.recordings.description,
+        status: schema.recordings.status,
+        durationMs: schema.recordings.durationMs,
+      })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .limit(1);
+    if (!recording) {
+      fail(`Recording not found: ${args.recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
     const fullText = args.fullText.trim();
     const failureReason = args.failureReason?.trim() || "";
     const segmentsJson =
@@ -87,6 +107,7 @@ export default defineAction({
         status: schema.recordingTranscripts.status,
         fullText: schema.recordingTranscripts.fullText,
         segmentsJson: schema.recordingTranscripts.segmentsJson,
+        source: schema.recordingTranscripts.source,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -99,9 +120,39 @@ export default defineAction({
     const hasReadyTranscript =
       current?.status === "ready" &&
       (Boolean(current.fullText?.trim()) || Boolean(hasReadySegments));
+    const dispatchMeetingFinalization = async (requireAccepted = true) => {
+      const endedMeetings = await listEndedMeetingsForRecording(
+        db,
+        args.recordingId,
+        { includePending: true },
+      );
+      if (endedMeetings.length) {
+        await dispatchPostFinalizeJob({
+          recordingId: args.recordingId,
+          kind: "meeting-finalize",
+          requireAccepted,
+        });
+      }
+    };
+    const dispatchPreservedTranscriptFinalization = async () => {
+      try {
+        await dispatchMeetingFinalization(false);
+      } catch (err) {
+        console.warn(
+          `[clips] meeting finalization re-dispatch failed for preserved transcript ${args.recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
+      }
+    };
+    const dispatchForExistingTranscript = async () => {
+      if (hasReadyTranscript && current?.fullText?.trim()) {
+        await dispatchPreservedTranscriptFinalization();
+      }
+    };
 
     if (!fullText) {
       if (!failureReason) {
+        await dispatchForExistingTranscript();
         return {
           recordingId: args.recordingId,
           status: "skipped" as const,
@@ -109,6 +160,7 @@ export default defineAction({
         };
       }
       if (hasReadyTranscript) {
+        await dispatchForExistingTranscript();
         return {
           recordingId: args.recordingId,
           status: "skipped" as const,
@@ -136,37 +188,93 @@ export default defineAction({
     const savedStatus = truncated ? ("failed" as const) : ("ready" as const);
     const savedFailureReason = truncated ? failureReason : null;
 
-    if (current) {
-      if (hasReadySegments && !args.overwriteReady) {
-        return {
-          recordingId: args.recordingId,
-          status: "skipped" as const,
-          reason: "Transcript already exists",
-        };
-      }
-
-      await db
-        .update(schema.recordingTranscripts)
-        .set({
-          ownerEmail,
-          fullText,
-          segmentsJson,
-          status: savedStatus,
-          failureReason: savedFailureReason,
-          updatedAt: now,
-        })
-        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-    } else {
-      await db.insert(schema.recordingTranscripts).values({
+    const importKept = {
+      recordingId: args.recordingId,
+      status: "skipped" as const,
+      reason: "Imported transcript is kept",
+    };
+    if (current?.source === IMPORTED_TRANSCRIPT_SOURCE) {
+      await dispatchForExistingTranscript();
+      return importKept;
+    }
+    if (hasReadySegments && !args.overwriteReady) {
+      await dispatchForExistingTranscript();
+      return {
         recordingId: args.recordingId,
-        ownerEmail,
-        language: "en",
-        segmentsJson,
-        fullText,
-        status: savedStatus,
-        failureReason: savedFailureReason,
-        createdAt: now,
-        updatedAt: now,
+        status: "skipped" as const,
+        reason: "Transcript already exists",
+      };
+    }
+
+    const t = schema.recordingTranscripts;
+    const set = {
+      ownerEmail,
+      fullText,
+      segmentsJson,
+      status: savedStatus,
+      failureReason: savedFailureReason,
+      updatedAt: now,
+    };
+    // An import can land after the read above; the guarded write then
+    // changes no row.
+    const written = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ id: schema.recordings.id })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            eq(schema.recordings.mediaUpdatedAt, recording.mediaUpdatedAt),
+          ),
+        )
+        .for("update");
+      if (!locked) {
+        fail(
+          "The Clip media changed while the transcript was being saved. Try again.",
+          {
+            errorCode: "recording_media_changed",
+            statusCode: 409,
+          },
+        );
+      }
+      return current
+        ? tx
+            .update(t)
+            .set(set)
+            .where(
+              and(eq(t.recordingId, args.recordingId), notImportedTranscript()),
+            )
+            .returning({ recordingId: t.recordingId })
+        : tx
+            .insert(t)
+            .values({
+              ...set,
+              recordingId: args.recordingId,
+              language: "en",
+              createdAt: now,
+            })
+            .onConflictDoUpdate({
+              target: t.recordingId,
+              set,
+              setWhere: notImportedTranscript(),
+            })
+            .returning({ recordingId: t.recordingId });
+    });
+    if (written.length === 0) {
+      const [row] = await db
+        .select({ source: t.source, status: t.status, fullText: t.fullText })
+        .from(t)
+        .where(eq(t.recordingId, args.recordingId))
+        .limit(1);
+      if (row?.source === IMPORTED_TRANSCRIPT_SOURCE) {
+        if (row.status === "ready" && row.fullText?.trim()) {
+          await dispatchPreservedTranscriptFinalization();
+        }
+        return importKept;
+      }
+      fail(`Transcript row for ${args.recordingId} was removed while saving`, {
+        errorCode: "transcript_removed",
+        statusCode: 409,
       });
     }
 
@@ -177,21 +285,9 @@ export default defineAction({
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    if (savedStatus === "ready") {
-      await finalizeEndedMeetingsForRecording(db, args.recordingId);
+    if (savedStatus === "ready" && fullText) {
+      await dispatchMeetingFinalization();
     }
-
-    const [rec] = await db
-      .select({
-        title: schema.recordings.title,
-        titleSource: schema.recordings.titleSource,
-        description: schema.recordings.description,
-        status: schema.recordings.status,
-        durationMs: schema.recordings.durationMs,
-      })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId))
-      .limit(1);
 
     if (!hasReadyTranscript && savedStatus === "ready") {
       track(
@@ -202,7 +298,7 @@ export default defineAction({
           recording_attempt_id: args.recordingId,
           output_id: args.recordingId,
           output_type: "clip",
-          duration_s: Math.round((rec?.durationMs ?? 0) / 1000),
+          duration_s: Math.round((recording.durationMs ?? 0) / 1000),
           has_transcript: true,
           transcription_source: args.source ?? "native",
         },
@@ -212,12 +308,13 @@ export default defineAction({
       );
     }
 
-    const titleQueued = !!(
-      rec && isAutoTitleReplaceable(rec.title, rec.titleSource)
+    const titleQueued = isAutoTitleReplaceable(
+      recording.title,
+      recording.titleSource,
     );
-    const summaryQueued = Boolean(rec && !rec.description?.trim());
+    const summaryQueued = !recording.description?.trim();
     if (
-      rec?.status === "ready" &&
+      recording.status === "ready" &&
       (truncated || titleQueued || summaryQueued)
     ) {
       await dispatchPostFinalizeJob({

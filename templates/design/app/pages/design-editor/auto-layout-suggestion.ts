@@ -159,32 +159,39 @@ export function inferAutoLayoutSuggestion(args: {
     direction === "row" ? args.container.y : args.container.x;
   const crossContainerSize =
     direction === "row" ? args.container.height : args.container.width;
-  const crossCenters = children.map(
-    (child) => crossStart(child) + crossSize(child) / 2,
-  );
-  const averageCrossCenter =
-    crossCenters.reduce((sum, value) => sum + value, 0) / crossCenters.length;
-  const normalizedCross =
-    crossContainerSize > 0
-      ? (averageCrossCenter - crossContainerStart) / crossContainerSize
-      : 0;
+  const crossPaddingLeading = direction === "row" ? padding.top : padding.left;
+  const crossPaddingTrailing =
+    direction === "row" ? padding.bottom : padding.right;
+  const crossInnerStart = crossContainerStart + crossPaddingLeading;
   const innerCrossSize = Math.max(
     0,
-    crossContainerSize -
-      (direction === "row"
-        ? padding.top + padding.bottom
-        : padding.left + padding.right),
+    crossContainerSize - crossPaddingLeading - crossPaddingTrailing,
   );
+  const crossInnerEnd = crossInnerStart + innerCrossSize;
   const stretches = children.every(
     (child) => Math.abs(crossSize(child) - innerCrossSize) <= 2,
   );
+  const startsAligned = children.every(
+    (child) => Math.abs(crossStart(child) - crossInnerStart) <= 2,
+  );
+  const endsAligned = children.every(
+    (child) =>
+      Math.abs(crossStart(child) + crossSize(child) - crossInnerEnd) <= 2,
+  );
+  const crossCenters = children.map(
+    (child) => crossStart(child) + crossSize(child) / 2,
+  );
+  const centersAligned =
+    Math.max(...crossCenters) - Math.min(...crossCenters) <= 2;
   const alignItems = stretches
     ? FLEX_ALIGN_STRETCH
-    : normalizedCross > 0.58 // i18n-ignore geometry threshold, no visible copy
-      ? FLEX_ALIGN_END
-      : normalizedCross < 0.42
-        ? FLEX_ALIGN_START
-        : FLEX_ALIGN_CENTER;
+    : startsAligned
+      ? FLEX_ALIGN_START
+      : endsAligned
+        ? FLEX_ALIGN_END
+        : centersAligned
+          ? FLEX_ALIGN_CENTER
+          : FLEX_ALIGN_START;
 
   const primaryLeading = direction === "row" ? padding.left : padding.top;
   const primaryTrailing = direction === "row" ? padding.right : padding.bottom;

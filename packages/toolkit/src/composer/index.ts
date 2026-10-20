@@ -20,6 +20,7 @@ export {
   type ComposerContextPickerSelection,
   type ComposerContextPickerFooterAction,
 } from "./ComposerContextMenu.js";
+export { ComposerContextPickerDialog } from "./ComposerContextPickerDialog.js";
 export {
   areComposerContextItemsReady,
   composerContextFits,

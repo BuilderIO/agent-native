@@ -29,6 +29,7 @@ mod screen_memory_transcript;
 mod sentry_report;
 mod shortcuts;
 mod silence_detector;
+mod speech_capture_ownership;
 mod state;
 mod system_audio;
 mod tray;
@@ -152,6 +153,10 @@ pub(crate) fn schedule_popover_dismissal(app_handle: &tauri::AppHandle) {
             // Control Center can close without sending another blur event to the popover.
             tokio::time::sleep(POPOVER_BLUR_SETTLE).await;
         }
+        if clips::bubble_is_focused(&delayed_app_handle) {
+            dlog!("[clips-tray] popover blur ignored — camera bubble focused");
+            return;
+        }
         clips::hide_popover(&delayed_app_handle);
     });
 }
@@ -242,20 +247,26 @@ pub fn run() {
             clips::show_signin,
             clips::close_signin,
             clips::show_flow_bar,
+            clips::set_flow_bar_expanded,
             clips::hide_flow_bar,
             clips::complete_voice_dictation,
+            clips::copy_voice_dictation,
             clips::paste_last_dictation,
             clips::set_recording_state,
             clips::release_recording_state,
             clips::set_meeting_active,
             clips::get_active_meeting_id,
             clips::quit_teardown_done,
+            clips::quit_teardown_cancel,
+            clips::quit_teardown_force,
             clips::reset_state,
             clips::save_bubble_position,
             clips::bubble_drag_start,
             clips::bubble_drag_move,
             clips::bubble_drag_end,
             clips::set_bubble_size,
+            clips::set_bubble_hit_mask,
+            clips::recheck_bubble_hit,
             clips::load_bubble_size,
             config::get_feature_config,
             config::set_feature_config,
@@ -558,28 +569,28 @@ pub fn run() {
                     .unwrap_or(false);
                 let teardown_state =
                     clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst);
-                if meeting_active && teardown_state == 0 {
-                    clips::QUIT_TEARDOWN_STATE.store(1, std::sync::atomic::Ordering::SeqCst);
+                if teardown_state == clips::QUIT_TEARDOWN_RECOVERY && clips::force_quit_teardown() {
+                    // A second explicit native quit request is the recovery
+                    // escape hatch if the WebView dialog cannot be shown.
+                } else if clips::quit_teardown_blocks_exit(teardown_state) {
                     api.prevent_exit();
-                    let _ = _app_handle.emit("meetings:quit-requested", ());
-                    let watchdog_handle = _app_handle.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_secs(3));
-                        if clips::QUIT_TEARDOWN_STATE
-                            .compare_exchange(
-                                1,
-                                2,
-                                std::sync::atomic::Ordering::SeqCst,
-                                std::sync::atomic::Ordering::SeqCst,
-                            )
-                            .is_ok()
-                        {
-                            eprintln!(
-                                "[clips-tray] quit-teardown watchdog fired — forcing exit after 3s"
-                            );
-                            watchdog_handle.exit(0);
-                        }
-                    });
+                } else if meeting_active && teardown_state == 0 {
+                    if let Some(quit_attempt) = clips::begin_quit_teardown() {
+                        api.prevent_exit();
+                        let _ = _app_handle.emit("meetings:quit-requested", ());
+                        let app_handle = _app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(Duration::from_secs(15)).await;
+                            if clips::show_quit_teardown_recovery(quit_attempt) {
+                                clips::force_show_popover(&app_handle);
+                                let _ = app_handle.emit("meetings:quit-recovery-required", ());
+                            }
+                        });
+                    } else if clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst)
+                        == clips::QUIT_TEARDOWN_PENDING
+                    {
+                        api.prevent_exit();
+                    }
                 }
             }
             if let tauri::RunEvent::Exit = _event {

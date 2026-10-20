@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   canPersistDashboardFilterPreference,
   dashboardFilterPreferenceSaveState,
+  dashboardFilterPreferenceUpdate,
   matchesDashboardFilterRestoreState,
   resolveDashboardFilterRestoreStep,
+  serverReadState,
   type DashboardFilterRestoreProgress,
 } from "./dashboard-filter-restore";
 
@@ -16,6 +18,7 @@ function resolveStep(
     search?: string;
     defaultView?: typeof defaultView | undefined;
     savedFilters?: Record<string, string> | undefined;
+    savedViewId?: string;
     viewsState?: "loading" | "error" | "success";
     savedFiltersState?: "loading" | "error" | "success";
     progress?: DashboardFilterRestoreProgress;
@@ -36,6 +39,7 @@ function resolveStep(
     searchParams: new URLSearchParams(search),
     defaultView: configuredDefault,
     savedFilters: configuredSavedFilters,
+    savedViewId: options.savedViewId,
     viewsState,
     savedFiltersState,
     progress,
@@ -249,9 +253,146 @@ describe("resolveDashboardFilterRestoreStep", () => {
     });
   });
 
+  it("reopens the saved view that was open with the personal filters", () => {
+    expect(resolveStep({ defaultView: undefined, savedViewId: "q3" })).toEqual({
+      progress: { status: "complete" },
+      restore: { filters: personalFilters, viewId: "q3", source: "personal" },
+    });
+    expect(
+      resolveStep({
+        defaultView: undefined,
+        savedFilters: {},
+        savedViewId: "q3",
+      }).restore,
+    ).toEqual({ filters: {}, viewId: "q3", source: "personal" });
+  });
+
+  it("waits for refetched views before reopening a cached saved view", () => {
+    const refetching = serverReadState({
+      isSuccess: true,
+      isError: false,
+      isFetching: true,
+    });
+    expect(refetching).toBe("loading");
+    expect(
+      resolveStep({
+        defaultView: undefined,
+        savedViewId: "q3",
+        viewsState: refetching,
+      }),
+    ).toEqual({ progress: { status: "pending" }, restore: null });
+
+    expect(
+      serverReadState({
+        isSuccess: true,
+        isError: false,
+        isFetching: false,
+      }),
+    ).toBe("success");
+    expect(
+      serverReadState({
+        isSuccess: false,
+        isError: true,
+        isFetching: false,
+      }),
+    ).toBe("error");
+  });
+
+  it("leaves the dashboard default ahead of a saved personal view", () => {
+    expect(resolveStep({ savedViewId: "q3" }).restore).toEqual({
+      filters: defaultView.filters,
+      viewId: defaultView.id,
+      source: "dashboard-default",
+    });
+  });
+
   it("completes with no restore when no saved filters or default exists", () => {
     expect(
       resolveStep({ defaultView: undefined, savedFilters: undefined }),
     ).toEqual({ progress: { status: "complete" }, restore: null });
+  });
+});
+
+describe("dashboardFilterPreferenceUpdate", () => {
+  function update(
+    saved: { filters?: Record<string, string>; viewId?: string },
+    search: string,
+    savedState: "loading" | "error" | "success" = "success",
+    viewsState: "loading" | "error" | "success" = "success",
+  ) {
+    return dashboardFilterPreferenceUpdate({
+      saved,
+      savedState,
+      viewsState,
+      searchParams: new URLSearchParams(search),
+    });
+  }
+
+  const saved = { status: "saved" };
+  const changed = (update: {
+    filters: Record<string, string>;
+    viewId?: string;
+  }) => ({
+    status: "changed",
+    update,
+  });
+
+  it("saves an open view when the URL has no filters", () => {
+    expect(update({}, "view=q3")).toEqual(
+      changed({ filters: {}, viewId: "q3" }),
+    );
+    expect(update({ filters: {}, viewId: "q3" }, "view=q3")).toEqual(saved);
+  });
+
+  it("saves nothing for an unfiltered dashboard with no view open", () => {
+    expect(update({}, "tab=activity")).toEqual(saved);
+  });
+
+  it("drops the view once it is closed", () => {
+    expect(
+      update(
+        { filters: personalFilters, viewId: "q3" },
+        "f_timeRange=7d&f_emailFilter=all",
+      ),
+    ).toEqual(changed({ filters: personalFilters }));
+  });
+
+  it.each(["error", "loading"] as const)(
+    "keeps the saved view while the views list is unread (%s)",
+    (viewsState) => {
+      expect(
+        update(
+          { filters: personalFilters, viewId: "q3" },
+          "f_timeRange=30d&f_emailFilter=all",
+          "success",
+          viewsState,
+        ),
+      ).toEqual(
+        changed({
+          filters: { f_timeRange: "30d", f_emailFilter: "all" },
+          viewId: "q3",
+        }),
+      );
+    },
+  );
+
+  it("writes nothing when only the views list is unread", () => {
+    expect(
+      update(
+        { filters: personalFilters, viewId: "q3" },
+        "f_timeRange=7d&f_emailFilter=all",
+        "success",
+        "error",
+      ),
+    ).toEqual(saved);
+  });
+
+  it("writes nothing until the preference has been read", () => {
+    expect(update({}, "view=q3&f_timeRange=7d", "loading")).toEqual({
+      status: "unread",
+    });
+    expect(update({}, "view=q3&f_timeRange=7d", "error")).toEqual({
+      status: "unread",
+    });
   });
 });

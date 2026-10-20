@@ -8,6 +8,7 @@ import {
   blockFieldSaveImplRef,
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
+  forgetBlockFieldSaveController,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
@@ -269,6 +270,29 @@ describe("blockFieldSaveRegistry", () => {
   it("uses persisted SQL when the requested field is not mounted", async () => {
     await expect(
       flushBlockFieldSaveController("closed-document", "closed-field"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("forgets a deleted field's dirty controller so the page can still flush", async () => {
+    const key = "doc:notes";
+    const saved: string[] = [];
+    blockFieldSaveImplRef(key).current = (value) => {
+      saved.push(value);
+      return Promise.reject(new Error("Property not found"));
+    };
+    const controller = acquireBlockFieldSaveController(key, factoryFor(key));
+    controller.change("typed before the delete");
+    releaseBlockFieldSaveController(key);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    await expect(
+      flushAllBlockFieldSaveControllersForDocument("doc"),
+    ).rejects.toThrow("could not be saved");
+
+    forgetBlockFieldSaveController(key);
+
+    expect(peekBlockFieldSaveController(key)).toBeUndefined();
+    await expect(
+      flushAllBlockFieldSaveControllersForDocument("doc"),
     ).resolves.toBeUndefined();
   });
 

@@ -9,12 +9,33 @@ const mocks = vi.hoisted(() => ({
   getDataProgram: vi.fn(),
   resolveAccess: vi.fn(async () => ({ role: "owner" })),
   setResourceVisibility: vi.fn(async () => ({ ok: true, visibility: "org" })),
-  getDashboard: vi.fn(),
-  upsertDashboard: vi.fn(async () => ({
-    id: "native-customer-roi-v2-abc",
-    visibility: "private",
-  })),
+  settings: new Map<string, Record<string, unknown>>(),
 }));
+
+vi.mock("@agent-native/core/settings", () => {
+  const mutate =
+    (scope: string) =>
+    async (
+      id: string,
+      key: string,
+      update: (current: Record<string, unknown> | null) => any,
+    ) => {
+      const next = await update(
+        mocks.settings.get(`${scope}:${id}:${key}`) ?? null,
+      );
+      mocks.settings.set(`${scope}:${id}:${key}`, next);
+      return next;
+    };
+  return {
+    getUserSetting: async (email: string, key: string) =>
+      mocks.settings.get(`u:${email}:${key}`) ?? null,
+    getOrgSetting: async (orgId: string, key: string) =>
+      mocks.settings.get(`o:${orgId}:${key}`) ?? null,
+    mutateUserSetting: mutate("u"),
+    mutateOrgSetting: mutate("o"),
+    putUserSetting: async () => undefined,
+  };
+});
 
 vi.mock("../server/lib/db-admin-connections", () => ({
   requireAnalyticsAdminContext: mocks.requireAnalyticsAdminContext,
@@ -33,8 +54,7 @@ vi.mock("@agent-native/core/sharing/actions/set-resource-visibility", () => ({
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
-  getDashboard: mocks.getDashboard,
-  upsertDashboard: mocks.upsertDashboard,
+  getDashboard: vi.fn(async () => null),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -57,6 +77,9 @@ vi.mock("@agent-native/core", async (importOriginal) => {
 
 const { default: ensureNativeV2Dashboards } =
   await import("./ensure-native-v2-dashboards");
+const { loadBuiltinDashboard } =
+  await import("../server/lib/builtin-dashboards");
+const ADMIN = { email: "admin@example.com", orgId: "org-builder" };
 
 const BINDINGS = {
   "roi.kpi": { programId: "dp-roi-kpi" },
@@ -87,15 +110,12 @@ describe("ensure-native-v2-dashboards", () => {
     mocks.getDataProgram.mockReset();
     mocks.resolveAccess.mockClear();
     mocks.setResourceVisibility.mockClear();
-    mocks.getDashboard.mockReset();
-    mocks.upsertDashboard.mockClear();
+    mocks.settings.clear();
     mocks.requireAnalyticsAdminContext.mockClear();
     mocks.getDataProgram.mockImplementation(async (id: string) => program(id));
   });
 
-  it("creates a deterministic org-scoped v2 copy from real program bindings", async () => {
-    mocks.getDashboard.mockResolvedValue(null);
-
+  it("installs the read-only built-in for the org from real program bindings", async () => {
     const result = await ensureNativeV2Dashboards.run({
       templateIds: ["customer-roi-v2"],
       bindings: BINDINGS,
@@ -107,11 +127,12 @@ describe("ensure-native-v2-dashboards", () => {
       templateId: "customer-roi-v2",
       status: "created",
     });
-    expect(result.dashboards[0].dashboardId).toMatch(
-      /^native-customer-roi-v2-[a-f0-9]{10}$/,
-    );
-    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
-    const config = mocks.upsertDashboard.mock.calls[0][2];
+    expect(result.dashboards[0].dashboardId).toBe("builtin-customer-roi-v2");
+    const builtin = await loadBuiltinDashboard("builtin-customer-roi-v2", {
+      email: "someone-else@example.com",
+      orgId: "org-builder",
+    });
+    const config = builtin!.config as any;
     expect(config.catalog.templateId).toBe("customer-roi-v2");
     expect(
       config.panels.find((panel: any) => panel.id === "roi-kpi"),
@@ -122,33 +143,34 @@ describe("ensure-native-v2-dashboards", () => {
     expect(JSON.parse(config.panels[1].sql)).toEqual({
       programId: "dp-roi-kpi",
     });
-    expect(mocks.setResourceVisibility).toHaveBeenCalledWith({
-      resourceType: "dashboard",
-      resourceId: result.dashboards[0].dashboardId,
-      visibility: "org",
-    });
+    expect(mocks.setResourceVisibility).not.toHaveBeenCalledWith(
+      expect.objectContaining({ resourceType: "dashboard" }),
+    );
   });
 
-  it("preserves existing v2 edits on a repeat install", async () => {
-    mocks.getDashboard.mockResolvedValue({
-      config: {
-        catalog: { templateId: "customer-roi-v2" },
-        panels: [{ id: "human-edit" }],
-      },
-    });
-
-    const result = await ensureNativeV2Dashboards.run({
+  it("keeps the installed bindings on a repeat install", async () => {
+    await ensureNativeV2Dashboards.run({
       templateIds: ["customer-roi-v2"],
       bindings: BINDINGS,
       overwrite: false,
     });
 
+    const result = await ensureNativeV2Dashboards.run({
+      templateIds: ["customer-roi-v2"],
+      bindings: { ...BINDINGS, "roi.kpi": { programId: "dp-other" } },
+      overwrite: false,
+    });
+
     expect(result.dashboards[0].status).toBe("preserved");
-    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    const builtin = await loadBuiltinDashboard(
+      "builtin-customer-roi-v2",
+      ADMIN,
+    );
+    expect(JSON.stringify(builtin!.config)).toContain("dp-roi-kpi");
+    expect(JSON.stringify(builtin!.config)).not.toContain("dp-other");
   });
 
   it("rejects a program that has not produced the declared output contract", async () => {
-    mocks.getDashboard.mockResolvedValue(null);
     mocks.getDataProgram.mockImplementation(async (id: string) => ({
       ...program(id),
       outputColumns: JSON.stringify([{ name: "value", type: "number" }]),
@@ -161,11 +183,10 @@ describe("ensure-native-v2-dashboards", () => {
         overwrite: false,
       }),
     ).rejects.toThrow(/missing required output columns/);
-    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    expect(mocks.settings.size).toBe(0);
   });
 
   it("shares private bindings when the explicit org provisioner receives them", async () => {
-    mocks.getDashboard.mockResolvedValue(null);
     mocks.getDataProgram.mockImplementation(async (id: string) => ({
       ...program(id),
       visibility: "private",
@@ -178,7 +199,7 @@ describe("ensure-native-v2-dashboards", () => {
       overwrite: false,
     });
 
-    expect(mocks.setResourceVisibility).toHaveBeenCalledTimes(4);
+    expect(mocks.setResourceVisibility).toHaveBeenCalledTimes(3);
     expect(mocks.setResourceVisibility).toHaveBeenCalledWith({
       resourceType: "data_program",
       resourceId: "dp-roi-kpi",

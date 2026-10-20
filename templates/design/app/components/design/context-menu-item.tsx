@@ -4,7 +4,8 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 
-import { MENU_ITEM_CLASS, MENU_SHORTCUT_CLASS } from "./context-menu-styles";
+export const MENU_CONTENT_CLASS =
+  "w-52 min-w-[200px] data-[state=open]:!animate-none data-[state=closed]:!animate-none";
 
 export function CanvasMenuItem({
   hidden,
@@ -30,8 +31,6 @@ export function CanvasMenuItem({
       disabled={disabled}
       onSelect={onSelect}
       className={cn(
-        MENU_ITEM_CLASS,
-        description && "h-auto py-1",
         destructive &&
           "text-destructive focus:bg-destructive/10 focus:text-destructive",
       )}
@@ -44,11 +43,7 @@ export function CanvasMenuItem({
       ) : (
         <span className="flex-1 truncate">{label}</span>
       )}
-      {shortcut ? (
-        <ContextMenuShortcut className={MENU_SHORTCUT_CLASS}>
-          {shortcut}
-        </ContextMenuShortcut>
-      ) : null}
+      {shortcut ? <ContextMenuShortcut>{shortcut}</ContextMenuShortcut> : null}
     </ContextMenuItem>
   );
 }

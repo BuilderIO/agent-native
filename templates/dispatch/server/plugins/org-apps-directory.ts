@@ -58,7 +58,8 @@ import {
   resolveOrgByDomain,
 } from "@agent-native/core/org";
 import {
-  getForwardedRequestURL,
+  getConfiguredAppBasePath,
+  getForwardedRequestOrigin,
   getH3App,
   runWithRequestContext,
 } from "@agent-native/core/server";
@@ -119,7 +120,8 @@ export const orgAppsHandler = defineEventHandler(
     const verified = await verifyA2ABearerToken({
       token,
       expectedAudience: canonicalA2AAudience(
-        getForwardedRequestURL(event).toString(),
+        getForwardedRequestOrigin(event),
+        getConfiguredAppBasePath(),
       ),
       resolveOrgSecretByDomain: (domain) => getA2ASecretByDomain(domain),
       resolveSoleOrgGlobalSecretByDomain: async (domain) => {

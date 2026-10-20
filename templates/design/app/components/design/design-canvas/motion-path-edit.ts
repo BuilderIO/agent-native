@@ -12,6 +12,7 @@ export interface MotionPathKeyframeEdit {
 
 export interface MotionPathEditMessage {
   targetNodeId: string;
+  trackId?: string;
   edits: MotionPathKeyframeEdit[];
 }
 
@@ -19,8 +20,10 @@ const KEYFRAME_TIME_EPSILON = 0.000001;
 const MAX_POSITION_PX = 1_000_000;
 
 interface MotionPathTrackLike {
+  id?: string;
   targetNodeId: string;
   property: string;
+  composition?: "replace" | "add";
   keyframes: Array<{
     t: number;
     value: string;
@@ -64,6 +67,7 @@ const isMotionPathSegment = (value: unknown): value is MotionPathSegmentV1 => {
 export function parseMotionPathEditMessage(
   value: unknown,
   selectedTargetNodeId: string | null,
+  selectedTrackId?: string | null,
 ): MotionPathEditMessage | null {
   if (
     selectedTargetNodeId === null ||
@@ -74,11 +78,15 @@ export function parseMotionPathEditMessage(
     return null;
   }
   const message = value as Record<string, unknown>;
-  const allowedKeys = new Set(["type", "targetNodeId", "edits"]);
+  const allowedKeys = new Set(["type", "targetNodeId", "trackId", "edits"]);
   if (Object.keys(message).some((key) => !allowedKeys.has(key))) return null;
   if (
     message.type !== "motion-path-edit" ||
     message.targetNodeId !== selectedTargetNodeId ||
+    (message.trackId !== undefined &&
+      (typeof message.trackId !== "string" ||
+        message.trackId !== selectedTrackId)) ||
+    (selectedTrackId != null && message.trackId !== selectedTrackId) ||
     !Array.isArray(message.edits) ||
     message.edits.length === 0 ||
     message.edits.length > 4
@@ -131,6 +139,9 @@ export function parseMotionPathEditMessage(
 
   return {
     targetNodeId: selectedTargetNodeId,
+    ...(typeof message.trackId === "string"
+      ? { trackId: message.trackId }
+      : {}),
     edits,
   };
 }
@@ -163,6 +174,7 @@ export function applyMotionPathEdit<Track extends MotionPathTrackLike>(
   if (
     track.property !== "translate" ||
     edit.targetNodeId !== track.targetNodeId ||
+    (edit.trackId !== undefined && edit.trackId !== track.id) ||
     edit.edits.length === 0
   ) {
     return null;
@@ -229,5 +241,12 @@ export function applyMotionPathEdit<Track extends MotionPathTrackLike>(
     }
   }
 
-  return { ...track, keyframes };
+  return {
+    ...track,
+    keyframes,
+    ...(track.composition === "add" &&
+    keyframes.some((keyframe) => keyframe.motionPath)
+      ? { composition: "replace" as const }
+      : {}),
+  };
 }

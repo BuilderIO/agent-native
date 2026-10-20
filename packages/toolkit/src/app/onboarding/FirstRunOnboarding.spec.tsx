@@ -50,6 +50,8 @@ const mocks = vi.hoisted(() => ({
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
+  setOnboardingExperiment: vi.fn(),
+  setupVariant: "control" as "control" | "credits" | null,
 }));
 
 vi.mock("react-router", async (importOriginal) => {
@@ -73,6 +75,7 @@ vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   createOnboardingCorrelationId: () => "test-onboarding-correlation-id",
   setCustomKeyOnboardingAttempt: mocks.setCustomKeyOnboardingAttempt,
+  setOnboardingExperiment: mocks.setOnboardingExperiment,
   trackOnboardingEvent: mocks.trackOnboardingEvent,
   useOnboarding: mocks.useOnboarding,
 }));
@@ -86,6 +89,11 @@ vi.mock("@agent-native/core/client/onboarding/use-preview-mode", () => ({
 
 vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
   useFeatureFlagState: () => ({ status: "ready", enabled: true }),
+}));
+
+vi.mock("./first-run-experiment.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./first-run-experiment.js")>()),
+  assignFirstRunSetupVariant: () => mocks.setupVariant,
 }));
 
 vi.mock("../settings/useBuilderStatus.js", () => ({
@@ -105,6 +113,8 @@ describe("FirstRunOnboarding", () => {
     mocks.completeFirstRun.mockResolvedValue(undefined);
     mocks.useBuilderConnectFlow.mockReset();
     mocks.trackOnboardingEvent.mockReset();
+    mocks.setOnboardingExperiment.mockReset();
+    mocks.setupVariant = "control";
     mocks.setCustomKeyOnboardingAttempt.mockReset();
     mocks.setCustomKeyOnboardingAttempt.mockResolvedValue("stored");
     mocks.useOnboarding.mockReset();
@@ -113,7 +123,7 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
     mocks.useOnboardingPreviewStep.mockReturnValue(null);
     mocks.useBuilderConnectFlow.mockReturnValue({
-      hasFetchedStatus: false,
+      hasFetchedStatus: true,
       statusResolved: true,
       configured: false,
       agentNativeProvisioningEnabled: true,
@@ -406,6 +416,68 @@ describe("FirstRunOnboarding", () => {
     ).not.toBeNull();
   });
 
+  const viewedOptional = () =>
+    Object.fromEntries(
+      mocks.trackOnboardingEvent.mock.calls
+        .filter(([event]) => event === "onboarding_step_viewed")
+        .map(([, properties]) => {
+          const step = properties as { step_id: string; optional: boolean };
+          return [step.step_id, step.optional];
+        }),
+    );
+
+  it("marks only the screens that offer a skip as optional", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      document.body.querySelector("[data-testid='first-run-setup-skip']"),
+    ).toBeNull();
+    expect(viewedOptional()).toEqual({ role: true, choice: false });
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_skipped",
+      expect.objectContaining({ step_id: "role", optional: true }),
+    );
+  });
+
+  it("marks setup optional in Clips, the one app that offers its skip", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: { appId: "clips", appName: "Clips", capabilities: [] },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      document.body.querySelector("[data-testid='first-run-setup-skip']"),
+    ).not.toBeNull();
+    expect(viewedOptional()).toEqual({ role: true, choice: true });
+  });
+
   it("records the current step when setup is abandoned on page exit", () => {
     act(() => {
       root.render(
@@ -425,6 +497,7 @@ describe("FirstRunOnboarding", () => {
         flow: "first_run",
         step_id: "role",
         step_index: 0,
+        optional: true,
         reason: "page_exit",
       },
     );
@@ -1007,9 +1080,7 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(document.body.textContent).toContain(
-      "Activating Builder.io free credits",
-    );
+    expect(document.body.textContent).toContain("Activating free credits");
     expect(document.body.textContent).toContain(
       "Creating your Builder.io account and activating free credits.",
     );
@@ -2686,6 +2757,378 @@ describe("FirstRunOnboarding", () => {
     expect(mocks.navigate).toHaveBeenCalledOnce();
     expect(mocks.navigate).toHaveBeenCalledWith("/record", {
       replace: true,
+    });
+  });
+
+  it("carries an extension's optional flag on its step events", () => {
+    registerFirstRunOnboardingExtension({
+      id: "test-extension",
+      optional: true,
+      component: ({ onSkip }) => (
+        <button type="button" onClick={onSkip}>
+          Extension Skip
+        </button>
+      ),
+    });
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-sign-in']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Extension Skip")
+        ?.click();
+    });
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_viewed",
+      expect.objectContaining({
+        step_id: "extension:test-extension:1",
+        extension_id: "test-extension",
+        optional: true,
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_skipped",
+      expect.objectContaining({
+        step_id: "extension:test-extension:1",
+        optional: true,
+      }),
+    );
+  });
+
+  describe("credits arm of the first_run_builder_credits experiment", () => {
+    const flow = (overrides: Record<string, unknown> = {}) => ({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+      ...overrides,
+    });
+    const q = (id: string) =>
+      document.body.querySelector(
+        `[data-testid='${id}']`,
+      ) as HTMLElement | null;
+    const click = (id: string) =>
+      act(() => {
+        q(id)?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    const openChoice = () => {
+      act(() => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+      });
+      click("first-run-role-skip");
+    };
+
+    beforeEach(() => {
+      mocks.setupVariant = "credits";
+    });
+
+    it("tags events and records one exposure once the credits page is shown", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+        id: "first_run_builder_credits",
+        variant: "credits",
+      });
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        { flow: "first_run", step_id: "choice" },
+      );
+    });
+
+    it("does not expose users who cannot be shown the credits page", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(
+        flow({ agentNativeProvisioningEnabled: false }),
+      );
+      openChoice();
+      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        expect.anything(),
+      );
+    });
+
+    it("holds the control setup actions until activation eligibility is known", () => {
+      mocks.setupVariant = "control";
+      mocks.useBuilderConnectFlow.mockReturnValue(
+        flow({ hasFetchedStatus: false }),
+      );
+      openChoice();
+
+      expect(q("first-run-builder-sign-in")).toBeNull();
+      expect(q("first-run-builder-create-account")).toBeNull();
+      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        expect.anything(),
+      );
+    });
+
+    it("keeps already-connected users out of the experiment and on the existing page", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow({ configured: true }));
+      openChoice();
+      expect(q("first-run-credits-offer")).toBeNull();
+      expect(q("first-run-builder-create-account")).not.toBeNull();
+      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+    });
+
+    it("exposes control users under the same eligibility rule", () => {
+      mocks.setupVariant = "control";
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      mocks.setOnboardingExperiment.mockImplementation(() => {
+        expect(q("first-run-builder-sign-in")).toBeNull();
+      });
+      openChoice();
+      expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+        id: "first_run_builder_credits",
+        variant: "control",
+      });
+      expect(q("first-run-builder-sign-in")).not.toBeNull();
+      expect(q("first-run-credits-offer")).toBeNull();
+    });
+
+    it("leaves users outside the experiment when no stable arm exists", () => {
+      mocks.setupVariant = null;
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      expect(q("first-run-credits-offer")).toBeNull();
+      expect(
+        document.body.querySelector("[data-onboarding-loading='true']"),
+      ).toBeNull();
+      expect(q("first-run-open-key-settings")).not.toBeNull();
+      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+    });
+
+    const openClipsChoice = (start = vi.fn()) => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow({ start }));
+      mocks.useOnboarding.mockReturnValue({
+        ...mocks.useOnboarding(),
+        profile: { ...mocks.useOnboarding().profile, appId: "clips" },
+      });
+      openChoice();
+      return start;
+    };
+
+    it("shows one activate action instead of the two setup cards", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      const offer = q("first-run-credits-offer")?.textContent;
+      expect(offer).toContain("Try it with 60 free Agent Credits a month");
+      expect(offer).not.toContain("Free and open source");
+      expect(offer).toContain("This will create a free Builder.io account.");
+      expect(q("first-run-credits-activate")?.textContent).toBe(
+        "Activate free credits",
+      );
+      expect(q("first-run-open-key-settings")).toBeNull();
+      expect(q("first-run-builder-create-account")).toBeNull();
+    });
+
+    it("uses the video storage headline in Clips and hides skip until More info", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openClipsChoice();
+      expect(q("first-run-credits-offer")?.textContent).toContain(
+        "Try it with free video storage and 60 Agent Credits a month",
+      );
+      expect(q("first-run-setup-skip")).toBeNull();
+    });
+
+    it("keeps skip out of More info and confirms it from the corner in Clips", () => {
+      openClipsChoice();
+      click("first-run-credits-more-info");
+      expect(q("first-run-open-key-settings")).not.toBeNull();
+      expect(q("first-run-setup-skip")).toBeNull();
+      expect(q("first-run-credits-details")?.textContent).not.toContain(
+        "If you skip, you'll need to connect your own keys to use AI and storage.",
+      );
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_step_skipped",
+        expect.objectContaining({ step_id: "choice" }),
+      );
+      click("first-run-credits-skip");
+      click("first-run-credits-skip-confirm");
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_step_skipped",
+        expect.objectContaining({ step_id: "choice" }),
+      );
+    });
+
+    it("has no skip for apps that do not offer one", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      click("first-run-credits-more-info");
+      expect(q("first-run-setup-skip")).toBeNull();
+    });
+
+    it("asks before skipping from the credits offer and skips on confirm", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      click("first-run-credits-skip");
+      expect(document.body.textContent).toContain("Are you sure?");
+      mocks.trackOnboardingEvent.mockClear();
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_step_skipped",
+        expect.anything(),
+      );
+      click("first-run-credits-skip-confirm");
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_step_skipped",
+        expect.objectContaining({ step_id: "choice" }),
+      );
+    });
+
+    it("activates credits by provisioning an account", () => {
+      const start = vi.fn();
+      mocks.useBuilderConnectFlow.mockReturnValue(flow({ start }));
+      openChoice();
+      click("first-run-credits-activate");
+      expect(start).toHaveBeenCalledWith(
+        expect.objectContaining({ provisionAccount: true }),
+      );
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_method_clicked",
+        expect.objectContaining({ method_id: "builder_create_account" }),
+      );
+    });
+
+    it("connects an existing account without provisioning", () => {
+      const start = vi.fn();
+      mocks.useBuilderConnectFlow.mockReturnValue(flow({ start }));
+      openChoice();
+      click("first-run-credits-connect-existing");
+      expect(start).toHaveBeenCalledWith(
+        expect.objectContaining({ provisionAccount: false }),
+      );
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_method_clicked",
+        expect.objectContaining({ method_id: "builder_sign_in" }),
+      );
+    });
+
+    it("expands the full setup in place from More info and collapses again", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      expect(
+        q("first-run-credits-more-info")?.getAttribute("aria-expanded"),
+      ).toBe("false");
+      click("first-run-credits-more-info");
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_more_info_opened",
+        { flow: "first_run", step_id: "choice" },
+      );
+      expect(q("first-run-credits-offer")).not.toBeNull();
+      expect(
+        q("first-run-credits-more-info")?.getAttribute("aria-expanded"),
+      ).toBe("true");
+      expect(q("first-run-builder-create-account")).not.toBeNull();
+      expect(q("first-run-open-key-settings")).not.toBeNull();
+      click("first-run-credits-more-info");
+      expect(q("first-run-open-key-settings")).toBeNull();
+    });
+
+    it("opens the same More info panel from the Learn more link beside the subtitle", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      expect(q("first-run-credits-offer")?.textContent).toContain(
+        "Get free credits for LLMs, Jev, storage, and more for this app in one click from Builder.io.",
+      );
+      click("first-run-credits-learn-more");
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_more_info_opened",
+        { flow: "first_run", step_id: "choice" },
+      );
+      expect(
+        q("first-run-credits-more-info")?.getAttribute("aria-expanded"),
+      ).toBe("true");
+      expect(q("first-run-builder-create-account")).not.toBeNull();
+    });
+
+    it("holds a skeleton until Builder status is known", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(
+        flow({ hasFetchedStatus: false }),
+      );
+      openChoice();
+      expect(
+        document.body.querySelector("[data-onboarding-loading='true']"),
+      ).not.toBeNull();
+      expect(q("first-run-credits-offer")).toBeNull();
+    });
+
+    it.each(["credits", "control"] as const)(
+      "stops holding the skeleton after a stalled status read and stays out of the experiment (%s)",
+      (variant) => {
+        vi.useFakeTimers();
+        try {
+          mocks.setupVariant = variant;
+          mocks.useBuilderConnectFlow.mockReturnValue(
+            flow({ hasFetchedStatus: false }),
+          );
+          openChoice();
+          expect(
+            document.body.querySelector("[data-onboarding-loading='true']"),
+          ).not.toBeNull();
+          expect(q("first-run-open-key-settings")).toBeNull();
+
+          act(() => {
+            vi.advanceTimersByTime(4000);
+          });
+
+          expect(
+            document.body.querySelector("[data-onboarding-loading='true']"),
+          ).toBeNull();
+          expect(q("first-run-open-key-settings")).not.toBeNull();
+          expect(q("first-run-credits-offer")).toBeNull();
+          expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+          expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+            "onboarding_experiment_exposed",
+            expect.anything(),
+          );
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("falls back to the full setup where activation is unavailable", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(
+        flow({ agentNativeProvisioningEnabled: false }),
+      );
+      openChoice();
+      expect(q("first-run-credits-offer")).toBeNull();
+      expect(q("first-run-open-key-settings")).not.toBeNull();
+      expect(q("first-run-credits-more-info")).toBeNull();
     });
   });
 });

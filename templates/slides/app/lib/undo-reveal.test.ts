@@ -37,6 +37,42 @@ describe("diffUndoRevealTargets", () => {
     ]);
   });
 
+  it("reveals only a first-moved image among siblings with and without ids", () => {
+    const image = (id: string | null, left: number) =>
+      `<img${id ? ` data-slide-object-id="${id}"` : ""} src="image.png" style="left: ${left}px">`;
+    const identifiedSiblings = slide(
+      image(null, 10),
+      box("sibling-a", "left: 100px", "A"),
+      box("sibling-b", "left: 200px", "B"),
+      box("sibling-c", "left: 300px", "C"),
+    );
+    const identifiedAfter = slide(
+      image("image-1", 40),
+      box("sibling-a", "left: 100px", "A"),
+      box("sibling-b", "left: 200px", "B"),
+      box("sibling-c", "left: 300px", "C"),
+    );
+    expect(
+      diffUndoRevealTargets(identifiedSiblings, identifiedAfter, "redo"),
+    ).toEqual([{ objectId: "image-1", path: [0] }]);
+
+    const unkeyedSiblings = slide(
+      image(null, 10),
+      box(null, "left: 100px", "A"),
+      box(null, "left: 200px", "B"),
+      box(null, "left: 300px", "C"),
+    );
+    const unkeyedAfter = slide(
+      image("image-1", 40),
+      box(null, "left: 100px", "A"),
+      box(null, "left: 200px", "B"),
+      box(null, "left: 300px", "C"),
+    );
+    expect(
+      diffUndoRevealTargets(unkeyedSiblings, unkeyedAfter, "redo"),
+    ).toEqual([{ objectId: "image-1", path: [0] }]);
+  });
+
   it("selects every object of a multi-object edit (U10) and nothing for a no-op", () => {
     const after = slide(
       box("a", "left: 40px", "A"),

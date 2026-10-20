@@ -169,6 +169,7 @@ export function useEditorGenerationAndAccess({
     explicitOverviewScreenSelectionRef,
     historyOrderRef,
     selectionUndoStackRef,
+    selectionPushedAtRef,
     clearRedoStacks,
     historySourceReaderRef,
     captureCurrentSelection,
@@ -731,6 +732,9 @@ export function useEditorGenerationAndAccess({
           queryFailed: query.state.status === "error",
         });
       },
+      notifyOnChangeProps: failedLocalhostConsentClear
+        ? ["data", "error", "status", "dataUpdatedAt"]
+        : ["data", "error", "status"],
     },
   );
   const clearLocalhostConsentRequestMutation = useActionMutation(
@@ -933,6 +937,7 @@ export function useEditorGenerationAndAccess({
           ...selectionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
           { before, after },
         ];
+        selectionPushedAtRef.current = Date.now();
         clearRedoStacks();
         historyOrderRef.current = [
           ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),

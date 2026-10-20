@@ -5,9 +5,8 @@
  * before the suspend keeps spending its tool budget until it ends. Containment
  * aborts those runs so "suspended" means stopped, not "stops eventually".
  *
- * A run's owner is its chat thread's `owner_email`. `abortRunDurably` logs and
- * swallows a failed SQL write, so the outcome is re-read from `agent_runs`:
- * only a confirmed `aborted` status counts as aborted.
+ * A run's owner is its chat thread's `owner_email`. A run counts as contained
+ * only after its durable status is confirmed as `aborted`.
  */
 import { ensureChatThreadTables } from "../chat-threads/store.js";
 import { getDbExec } from "../db/client.js";

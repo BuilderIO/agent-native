@@ -163,6 +163,9 @@ async function registerUser(
 }
 
 async function shareAsEditor(page: Page, planId: string, email: string) {
+  // Sharing outside the organization needs approval, which over HTTP only the
+  // signed-in app UI gives: a frontend call holding the UI capability.
+  await page.request.get("/_agent-native/ui-capability");
   const res = await page.request.post("/_agent-native/actions/share-resource", {
     data: {
       resourceType: "plan",
@@ -171,6 +174,7 @@ async function shareAsEditor(page: Page, planId: string, email: string) {
       principalId: email,
       role: "editor",
     },
+    headers: { "X-Agent-Native-Frontend": "1" },
   });
   expect(res.ok(), `share-resource: ${await res.text()}`).toBeTruthy();
 }
