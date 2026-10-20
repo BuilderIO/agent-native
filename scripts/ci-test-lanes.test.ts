@@ -202,21 +202,21 @@ test("keeps packages whole when they are unshardable or too small to split", () 
   );
 });
 
-test("starts Slides 2 fast tests in thirty-two fresh Vitest processes", () => {
+test("starts Slides 2 fast tests in sixty-four fresh Vitest processes", () => {
   const shards = splitLargePackages(
     [{ name: "slides-2", files: 455, shardable: true }],
     8,
     5_000,
   );
 
-  assert.equal(shards.length, 32);
+  assert.equal(shards.length, 64);
   assert.deepEqual(
     shards.map(({ shard }) => shard),
-    Array.from({ length: 32 }, (_, index) => `${index + 1}/32`),
+    Array.from({ length: 64 }, (_, index) => `${index + 1}/64`),
   );
   assert.deepEqual(
     shards.map(({ files }) => files),
-    Array.from({ length: 32 }, (_, index) => (index < 7 ? 15 : 14)),
+    Array.from({ length: 64 }, (_, index) => (index < 7 ? 8 : 7)),
   );
 });
 
