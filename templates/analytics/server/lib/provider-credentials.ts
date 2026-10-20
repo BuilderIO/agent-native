@@ -355,12 +355,11 @@ async function resolveWorkspaceOAuthProviderCredential(
   const connectionOrgId = resolvedConnection.connection.orgId?.trim();
   const connectionScope =
     resolvedConnection.connection.config.workspaceConnectionScope;
-  // Older connections encode organization scope in their unrestricted ACLs.
+  // Older connections encode user scope in user/group ACLs; app access is checked above.
   const legacyOrganizationScope =
     connectionScope === undefined &&
     (resolvedConnection.connection.allowedUsers?.length ?? 0) === 0 &&
-    (resolvedConnection.connection.allowedUserGroups?.length ?? 0) === 0 &&
-    (resolvedConnection.connection.allowedApps?.length ?? 0) === 0;
+    (resolvedConnection.connection.allowedUserGroups?.length ?? 0) === 0;
   if (
     options.ctx.credentialScope === "org" &&
     (!contextOrgId ||

@@ -4727,9 +4727,12 @@ function parseFormattedSlackThreadResponse(
       /\n\nNo thread mes{2,3}ages?(?:\s+in this thread)?[.!]?\s*$/i.exec(
         afterParent,
       );
-    parentSection = noReplies
-      ? afterParent.slice(0, noReplies.index)
-      : afterParent.replace(/\n+$/, "");
+    if (!noReplies) {
+      throw new Error(
+        `${path}: formatted Slack thread response does not explicitly report zero replies`,
+      );
+    }
+    parentSection = afterParent.slice(0, noReplies.index);
     replySections = [];
     replyCount = 0;
   }
@@ -7884,6 +7887,42 @@ if (args[0] === "--self-test" && args.length === 1) {
     throw new Error(
       "Feedback inventory checker self-test failed to parse a formatted zero-reply thread",
     );
+  }
+  try {
+    parseRawThreadResponse(
+      {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages:
+                "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.605000\nRoot report",
+              pagination_info: "There are no more messages in this thread.",
+            }),
+          },
+        ],
+      },
+      "self-test truncated parent-only Slack thread",
+      "8.605000",
+    );
+    throw new Error(
+      "Feedback inventory checker self-test failed to reject a truncated parent-only thread",
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Feedback inventory checker self-test failed")
+    ) {
+      throw error;
+    }
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("does not explicitly report zero replies")
+    ) {
+      throw new Error(
+        `Feedback inventory checker self-test expected truncated parent-only rejection; received "${error instanceof Error ? error.message : String(error)}"`,
+      );
+    }
   }
   const formattedNoRepliesTypo = parseRawThreadResponse(
     {
