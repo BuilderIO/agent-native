@@ -286,6 +286,97 @@ describe("processWebContent", () => {
       expect(formatWebContentResult(result)).toContain("... (truncated)");
     },
   );
+
+  it("labels searchSource raw when the searched bytes are the raw body", async () => {
+    const { processWebContent } = await import("./web-content.js");
+    // responseMode raw keeps the response bytes, including the script
+    // readability would drop. Extraction still succeeds, so a label based
+    // only on `extracted !== null` reports extracted while searching raw.
+    const result = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+      search: { query: "unsafe()" },
+    });
+
+    expect(result.matches?.some((match) => match.match === "unsafe()")).toBe(
+      true,
+    );
+    expect(result.searchSource).toBe("raw");
+  });
+
+  it("labels searchSource raw when extraction yields no text and the search falls back to raw markup", async () => {
+    const { processWebContent } = await import("./web-content.js");
+    const body =
+      "<!doctype html><html><body><div id='only-markup-token'></div></body></html>";
+
+    const result = await processWebContent({
+      url: "https://example.com/empty",
+      body,
+      contentType: "text/html",
+      responseMode: "matches",
+      search: { query: "only-markup-token", source: "extracted" },
+    });
+
+    expect(result.matches?.length).toBeGreaterThan(0);
+    expect(result.searchSource).toBe("raw");
+  });
+
+  it("keeps the truncation marker on a truncated raw fallback body", async () => {
+    vi.doMock("linkedom/worker", () => ({
+      parseHTML: () => {
+        throw new Error(
+          "Cannot destructure property 'firstElementChild' of 'documentElement' as it is null.",
+        );
+      },
+    }));
+    const { processWebContent, formatWebContentResult } =
+      await import("./web-content.js");
+    const body = `Access denied ${"x".repeat(80)}`;
+    const maxChars = 24;
+
+    const result = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "matches",
+      extract: "none",
+      search: { query: "Access" },
+      maxChars,
+    });
+
+    const marker = "\n... (truncated)";
+    expect(result.content).toBe(`${body.slice(0, maxChars)}${marker}`);
+    expect(result.truncated).toBe(true);
+    const formatted = formatWebContentResult(result);
+    expect(formatted).toContain(marker);
+    expect(formatted).toContain(
+      `Full raw response: ${body.length} characters.`,
+    );
+    expect(formatted).not.toContain("extracted content");
+  });
+
+  it("propagates errors that mention documentElement but are not a null-root parser rejection", async () => {
+    vi.doMock("linkedom/worker", () => ({
+      parseHTML: () => {
+        throw new Error(
+          "Failed to update documentElement while applying the theme.",
+        );
+      },
+    }));
+    const { processWebContent } = await import("./web-content.js");
+
+    await expect(
+      processWebContent({
+        url: "https://example.com/",
+        body: "<html><body>Access denied</body></html>",
+        contentType: "text/html",
+      }),
+    ).rejects.toThrow(
+      "Failed to update documentElement while applying the theme.",
+    );
+  });
 });
 
 describe("formatWebContentResult", () => {

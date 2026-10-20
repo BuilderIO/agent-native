@@ -605,7 +605,8 @@ export function createFetchToolEntry(
               isHtmlContentType &&
               normalizedResponseMode !== "raw" &&
               processed.truncated &&
-              processed.contentLength !== undefined
+              processed.contentLength !== undefined &&
+              !processed.rawBodyFallback
             ) {
               displayBody += `\n\nFull extracted content: ${processed.contentLength} characters. Retry with saveToFile (up to ${MAX_WEB_REQUEST_HTML_BYTES} bytes), then use workspace-files grep or read with offsets.`;
             }

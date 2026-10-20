@@ -77,9 +77,14 @@ export interface WebContentResult {
   omittedMatches?: number;
   searchSource?: WebSearchSource;
   truncated?: boolean;
+  /** `content` is the raw response body because extraction failed or produced
+   * no usable text. Truncation footers must not describe that body as
+   * extracted content. */
+  rawBodyFallback?: boolean;
   searchTruncated?: boolean;
 }
 
+const WEB_CONTENT_TRUNCATION_MARKER = "\n... (truncated)";
 const DEFAULT_MAX_CONTENT_CHARS = 32_000;
 const MAX_SEARCH_SOURCE_CHARS = 500_000;
 const DEFAULT_MAX_MATCHES = 50;
@@ -197,11 +202,18 @@ export async function processWebContent(
       )
     : null;
   const htmlExtractionFailed = Boolean(shouldExtract && extracted === null);
-  // When extraction fails the "extracted" content is really the raw markup, so
-  // searches run against raw bytes and must be labeled as such, not "extracted".
-  const fallbackSearchSource: WebSearchSource =
-    html && !htmlExtractionFailed ? "extracted" : "raw";
+  const realExtractedText = extracted?.markdown || extracted?.text || "";
+  const hasRealExtractedContent = realExtractedText.length > 0;
   const baseContent = contentForMode(mode, options.body, extracted);
+  // `baseContent` is the raw body for responseMode "raw", for a failed
+  // extraction, and when markdown/text came back empty. Those bytes must not
+  // be reported as extracted.
+  const hasExtractedContent =
+    hasRealExtractedContent && baseContent !== options.body;
+  const fallbackSearchSource: WebSearchSource = hasExtractedContent
+    ? "extracted"
+    : "raw";
+  const rawBodyFallback = mode !== "raw" && !hasExtractedContent;
   const fullContent = options.saveContentFormat
     ? options.saveContentFormat === "text"
       ? (extracted?.text ?? (extracted ? "" : options.body))
@@ -228,6 +240,7 @@ export async function processWebContent(
     ...(mode !== "links" && mode !== "metadata"
       ? { contentLength: baseContent.length }
       : {}),
+    ...(rawBodyFallback ? { rawBodyFallback: true } : {}),
   };
 
   if (
@@ -268,18 +281,16 @@ export async function processWebContent(
       extracted: baseContent,
       search,
       fallbackSearchSource,
-      hasExtractedContent: extracted !== null,
+      hasExtractedContent,
     });
     Object.assign(result, matchResult);
     if (options.includeLinks) result.links = extracted?.links ?? [];
     return result;
   }
 
-  const truncated = baseContent.length > maxChars;
-  result.content = truncated
-    ? `${baseContent.slice(0, maxChars)}\n... (truncated)`
-    : baseContent;
-  result.truncated = truncated;
+  const limited = limitWebContent(baseContent, maxChars);
+  result.content = limited.content;
+  result.truncated = limited.truncated;
   if (options.includeLinks) result.links = extracted?.links ?? [];
 
   if (hasWebContentSearch(search)) {
@@ -288,7 +299,7 @@ export async function processWebContent(
       extracted: baseContent,
       search,
       fallbackSearchSource,
-      hasExtractedContent: extracted !== null,
+      hasExtractedContent,
     });
     result.matches = matchResult.matches;
     result.totalMatches = matchResult.totalMatches;
@@ -342,8 +353,20 @@ export function formatWebContentResult(result: WebContentResult): string {
   if (result.matches?.length && result.mode !== "matches") {
     lines.push("", formatMatches(result));
   }
+  appendRawTruncationFooter(lines, result);
 
   return lines.join("\n").trim();
+}
+
+function limitWebContent(
+  body: string,
+  maxChars: number,
+): { content: string; truncated: boolean } {
+  if (body.length <= maxChars) return { content: body, truncated: false };
+  return {
+    content: `${body.slice(0, maxChars)}${WEB_CONTENT_TRUNCATION_MARKER}`,
+    truncated: true,
+  };
 }
 
 function applyFallbackBody(
@@ -351,12 +374,23 @@ function applyFallbackBody(
   body: string,
   maxChars: number,
 ) {
-  const truncated = body.length > maxChars;
-  result.content = truncated
-    ? `${body.slice(0, maxChars)}\n... (truncated)`
-    : body;
-  result.truncated = truncated;
+  const limited = limitWebContent(body, maxChars);
+  result.content = limited.content;
+  result.truncated = limited.truncated;
   result.contentLength = body.length;
+  result.rawBodyFallback = true;
+}
+
+function appendRawTruncationFooter(lines: string[], result: WebContentResult) {
+  if (!result.rawBodyFallback || !result.truncated) return;
+  if (
+    result.content &&
+    !result.content.includes(WEB_CONTENT_TRUNCATION_MARKER)
+  ) {
+    lines.push(WEB_CONTENT_TRUNCATION_MARKER.trim());
+  }
+  if (result.contentLength === undefined) return;
+  lines.push("", `Full raw response: ${result.contentLength} characters.`);
 }
 
 function resolveMode(
@@ -387,14 +421,16 @@ function isHtmlResponse(contentType: string | null, body: string): boolean {
 
 function isHtmlParserRejection(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  // linkedom surfaces a missing root as a null `documentElement`; Turndown
-  // collapses the same unparseable markup (e.g. a frameset served as
-  // text/html) to a null root and throws reading `firstChild`. Match only
-  // those null-root shapes so peer-not-installed and other failures still
-  // propagate.
+  // linkedom surfaces a missing root by destructuring a null
+  // `documentElement`. Turndown collapses the same unparseable markup (e.g. a
+  // frameset served as text/html) to a null root and throws reading
+  // `firstChild`. Match only those null-root shapes — a message that merely
+  // mentions documentElement is a different failure and must propagate.
+  const message = error.message;
   return (
-    /documentElement/i.test(error.message) ||
-    /null \(reading 'firstChild'\)/i.test(error.message)
+    /of ['"]documentElement['"] as it is null/i.test(message) ||
+    /null \(reading ['"]documentElement['"]\)/i.test(message) ||
+    /null \(reading ['"]firstChild['"]\)/i.test(message)
   );
 }
 
@@ -734,18 +770,15 @@ function findWebContentMatches(options: {
   | "searchTruncated"
 > {
   const search = options.search ?? {};
-  // When no extracted content is available — either because HTML extraction
-  // was attempted and failed, or because the response was not HTML and no
-  // extraction was attempted — the "extracted" source is actually the raw
-  // body. An explicit `source: "extracted"` would silently search that raw
-  // content while being labeled extracted; force raw so the reported source
-  // matches the bytes that were searched.
+  // No usable extracted text, or the selected corpus is the raw body
+  // (responseMode "raw", failed extraction, empty markdown/text). Force raw
+  // so the reported source matches the bytes that were searched.
   const requestedSource = search.source ?? options.fallbackSearchSource;
-  const sourceMode: WebSearchSource =
-    !options.hasExtractedContent && search.source === "extracted"
-      ? "raw"
-      : requestedSource;
+  let sourceMode: WebSearchSource = options.hasExtractedContent
+    ? requestedSource
+    : "raw";
   const source = sourceMode === "raw" ? options.raw : options.extracted;
+  if (source === options.raw) sourceMode = "raw";
   const searchTruncated = source.length > MAX_SEARCH_SOURCE_CHARS;
   const searchable = searchTruncated
     ? source.slice(0, MAX_SEARCH_SOURCE_CHARS)
