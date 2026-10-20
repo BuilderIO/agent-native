@@ -857,6 +857,71 @@ describe("recorded call effects", () => {
     ).toEqual(new Set());
   });
 
+  it("matches reused provider call ids to history occurrences one to one", () => {
+    const journal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        id: "reused-call",
+        tool: "send",
+        input: { message: "first" },
+      },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input: { message: "first" },
+        result: "first sent",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ message: "first" }),
+      },
+      {
+        type: "tool_start",
+        id: "reused-call",
+        tool: "send",
+        input: { message: "second" },
+      },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input: { message: "second" },
+        result: "second sent",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ message: "second" }),
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "reused-call",
+            name: "send",
+            input: { message: "first" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call",
+            toolName: "send",
+            toolInput: '{"message":"first"}',
+            content: "first sent",
+          },
+        ],
+      },
+    ];
+
+    expect(journal.completed).toHaveLength(2);
+    expect(journalEntriesRepresentedInHistory(journal, history)).toEqual(
+      new Set([journal.completed[0]!.key]),
+    );
+  });
+
   it("replays a call sharing its id with another only for its own identity", () => {
     // Each entry's result and identity come from one tool_done.
     const journal = classifyToolCallJournal([

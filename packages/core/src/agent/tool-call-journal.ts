@@ -48,27 +48,39 @@ export function journalEntriesRepresentedInHistory(
   journal: ToolCallJournal,
   history: readonly EngineMessage[],
 ): Set<string> {
-  const calls = new Set<string>();
-  const results = new Set<string>();
+  const calls = new Map<string, number>();
+  const results = new Map<string, number>();
+  const count = (entries: Map<string, number>, key: string) =>
+    entries.set(key, (entries.get(key) ?? 0) + 1);
   for (const message of history) {
     for (const part of message.content) {
       if (message.role === "assistant" && part.type === "tool-call") {
-        calls.add(JSON.stringify([part.name, part.id]));
+        count(calls, JSON.stringify([part.name, part.id]));
       } else if (message.role !== "assistant" && part.type === "tool-result") {
-        results.add(JSON.stringify([part.toolName, part.toolCallId]));
+        count(results, JSON.stringify([part.toolName, part.toolCallId]));
       }
     }
   }
-  return new Set(
-    journal.completed
-      .filter(
-        (entry) =>
-          entry.id !== undefined &&
-          calls.has(JSON.stringify([entry.tool, entry.id])) &&
-          results.has(JSON.stringify([entry.tool, entry.id])),
-      )
-      .map((entry) => entry.key),
-  );
+  const representedCounts = new Map<string, number>();
+  for (const [key, callCount] of calls) {
+    const resultCount = results.get(key) ?? 0;
+    if (resultCount > 0) {
+      representedCounts.set(key, Math.min(callCount, resultCount));
+    }
+  }
+
+  const represented = new Set<string>();
+  for (const entry of [...journal.completed].sort(
+    (a, b) => a.order - b.order,
+  )) {
+    if (entry.id === undefined) continue;
+    const key = JSON.stringify([entry.tool, entry.id]);
+    const remaining = representedCounts.get(key) ?? 0;
+    if (remaining === 0) continue;
+    represented.add(entry.key);
+    representedCounts.set(key, remaining - 1);
+  }
+  return represented;
 }
 
 const INPUT_SIGNATURE_MAX_CHARS = 120;
