@@ -2117,20 +2117,6 @@ export function createAgentKitProtocolAdapter(
     observability?: Record<string, unknown>,
   ): Promise<string> {
     const runId = turn.runId ?? turn.id ?? createId("run");
-    const existingRun = findRun(threadId, runId);
-    if (existingRun) {
-      // A duplicate queued submission is answered with the run that already
-      // took it, replayed from its first event. This adapter reads that run
-      // already, so the replay is drained rather than indexed a second time.
-      void (async () => {
-        for await (const _event of turn.events) {
-          // Discarded: the existing run delivers these events.
-        }
-      })().catch(() => undefined);
-      touchRun(existingRun);
-      ensurePump(existingRun);
-      return runId;
-    }
     const runMetadata = mergeTrustedProtocolMetadata(
       options.metadata,
       turnMetadata,
@@ -2182,6 +2168,20 @@ export function createAgentKitProtocolAdapter(
       throw new Error(
         "The AgentKit adapter was disposed during turn creation.",
       );
+    }
+    const existingRun = findRun(threadId, runId);
+    if (existingRun) {
+      // A duplicate queued submission is answered with the run that already
+      // took it, replayed from its first event. This adapter reads that run
+      // already, so the replay is drained rather than indexed a second time.
+      void (async () => {
+        for await (const _event of turn.events) {
+          // Discarded: the existing run delivers these events.
+        }
+      })().catch(() => undefined);
+      touchRun(existingRun);
+      ensurePump(existingRun);
+      return runId;
     }
     pruneRetainedRuns(run.lastAccessedAtMs);
     indexRun(run, turn.runId);
