@@ -215,18 +215,18 @@ export async function openUploadTarget(options: {
     try {
       created = (await res.json()) as typeof created;
     } catch {
-      if (serverId) dropUploadTargetRowBestEffort(serverId, options.dropRow);
+      if (serverId) void retryDropUploadTargetRow(serverId, options.dropRow);
       throw new UploadTargetError("upload_target_unavailable");
     }
     const info = created.result ?? (created as CreatedUploadTarget);
     if (!info?.id) {
       if (intake) throw new Error("create-recording did not return an id");
-      dropUploadTargetRowBestEffort(serverId!, options.dropRow);
+      void retryDropUploadTargetRow(serverId!, options.dropRow);
       throw new UploadTargetError("upload_target_unavailable");
     }
     // Cancelled while the row was being opened: drop it, keep nothing.
     if (!intake && options.isStale()) {
-      dropUploadTargetRowBestEffort(info.id, options.dropRow);
+      void retryDropUploadTargetRow(info.id, options.dropRow);
       return null;
     }
     const clientLimits = hostedUploadLimits(uploadStatus);
@@ -252,7 +252,11 @@ export async function openUploadTarget(options: {
   // coercion-ok: non-JSON failures have no denial code and use the status fallback.
   const body = (await res.json().catch(() => null)) as {
     errorCode?: string;
-    details?: { denyReason?: string };
+    details?: {
+      denyReason?: string;
+      recordingId?: string;
+      cleanupConfirmed?: boolean;
+    };
   } | null;
   const denialCode = body?.details?.denyReason ?? body?.errorCode;
   const typedError = typedUploadTargetError(denialCode);
@@ -264,7 +268,12 @@ export async function openUploadTarget(options: {
     status: res.status,
     ...(storageSetupRequired ? { storageSetupRequired: true } : {}),
   });
-  dropUploadTargetRowBestEffort(serverId!, options.dropRow);
+  if (
+    body?.details?.cleanupConfirmed === true &&
+    body.details.recordingId === serverId
+  ) {
+    void retryDropUploadTargetRow(serverId!, options.dropRow);
+  }
   if (typedError) throw typedError;
   if (res.status === 401 || res.status === 403) {
     throw new UploadTargetError("session_expired");

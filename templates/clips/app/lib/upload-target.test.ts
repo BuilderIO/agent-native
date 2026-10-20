@@ -103,7 +103,7 @@ describe("openUploadTarget", () => {
     await expect(result).rejects.toMatchObject({
       code: "upload_target_unavailable",
     });
-    expect(dropRow).toHaveBeenCalledWith("srv-1");
+    expect(dropRow).not.toHaveBeenCalled();
   });
 
   it("stops when storage rejects upload creation", async () => {
@@ -133,7 +133,7 @@ describe("openUploadTarget", () => {
     await expect(result).rejects.toMatchObject({
       code: "upload_target_unavailable",
     });
-    expect(dropRow).toHaveBeenCalledWith("srv-1");
+    expect(dropRow).not.toHaveBeenCalled();
     expect(onCreateFailed).toHaveBeenCalledWith({
       kind: "http",
       status: 503,
@@ -169,7 +169,7 @@ describe("openUploadTarget", () => {
       await expect(result).rejects.toMatchObject({
         code: "storage_setup_required",
       });
-      expect(dropRow).toHaveBeenCalledWith("srv-1");
+      expect(dropRow).not.toHaveBeenCalled();
       expect(onCreateFailed).toHaveBeenCalledWith({
         kind: "http",
         status,
@@ -207,7 +207,7 @@ describe("openUploadTarget", () => {
     await expect(result).rejects.toMatchObject({
       code: "recording_owner_mismatch",
     });
-    expect(dropRow).toHaveBeenCalledWith("srv-1");
+    expect(dropRow).not.toHaveBeenCalled();
     expect(onCreateFailed).toHaveBeenCalledWith({
       kind: "http",
       status: 409,
@@ -222,7 +222,7 @@ describe("openUploadTarget", () => {
           {
             error: "Clips hosted storage is temporarily unavailable.",
             errorCode: "hosted_storage_unavailable",
-            details: { retryable: true },
+            details: { retryable: true, cleanupConfirmed: false },
           },
           { status: 503 },
         ),
@@ -233,7 +233,7 @@ describe("openUploadTarget", () => {
     await expect(result).rejects.toMatchObject({
       code: "hosted_storage_unavailable",
     });
-    expect(dropRow).toHaveBeenCalledWith("srv-1");
+    expect(dropRow).not.toHaveBeenCalled();
     expect(onCreateFailed).toHaveBeenCalledWith({
       kind: "http",
       status: 503,
@@ -254,7 +254,69 @@ describe("openUploadTarget", () => {
     await expect(result).rejects.toMatchObject({
       code: "streaming_upload_unavailable",
     });
-    expect(dropRow).toHaveBeenCalledWith("srv-1");
+    expect(dropRow).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { cleanupConfirmed: undefined, recordingId: undefined },
+    { cleanupConfirmed: false, recordingId: "srv-1" },
+    { cleanupConfirmed: true, recordingId: undefined },
+    { cleanupConfirmed: true, recordingId: "other-recording" },
+  ])(
+    "preserves a failed upload row without matching confirmed cleanup ($cleanupConfirmed, $recordingId)",
+    async ({ cleanupConfirmed, recordingId }) => {
+      const { result, dropRow } = open(async () =>
+        Response.json(
+          {
+            errorCode: "hosted_storage_unavailable",
+            details: { cleanupConfirmed, recordingId },
+          },
+          { status: 503 },
+        ),
+      );
+
+      await expect(result).rejects.toMatchObject({
+        code: "hosted_storage_unavailable",
+      });
+      expect(dropRow).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retries row cleanup when a failed create confirms cleanup is safe", async () => {
+    vi.useFakeTimers();
+    try {
+      const dropRow = vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValueOnce(new Error("temporary trash failure"))
+        .mockResolvedValueOnce();
+      const { result } = open(
+        async () =>
+          Response.json(
+            {
+              errorCode: "hosted_storage_unavailable",
+              details: {
+                recordingId: "srv-1",
+                retryable: true,
+                cleanupConfirmed: true,
+              },
+            },
+            { status: 503 },
+          ),
+        "me@example.com",
+        undefined,
+        dropRow,
+      );
+
+      await expect(result).rejects.toMatchObject({
+        code: "hosted_storage_unavailable",
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(dropRow).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(dropRow).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not prepare capture when upload-target creation rejects", async () => {

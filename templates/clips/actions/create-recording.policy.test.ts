@@ -301,6 +301,35 @@ describe("create-recording policy", () => {
     expect(calls.writeState).not.toHaveBeenCalled();
   });
 
+  it("keeps cleanup unconfirmed when storage resolution may have reserved hosted storage", async () => {
+    calls.authUserId = "user-1";
+    calls.resolveStorage.mockRejectedValueOnce(
+      new Error("storage resolution acknowledgement lost"),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "storage_status_unavailable",
+      statusCode: 503,
+      details: { retryable: false, cleanupConfirmed: false },
+    });
+
+    expect(calls.releaseReservation).not.toHaveBeenCalled();
+    expect(calls.insert).not.toHaveBeenCalled();
+  });
+
   it("does not retry an insert failure when a row may have committed", async () => {
     calls.insert.mockRejectedValueOnce(
       new Error("insert acknowledgement lost"),

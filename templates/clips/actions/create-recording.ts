@@ -242,7 +242,7 @@ export default defineAction({
       fail("Video storage could not be checked. Refresh and try again.", {
         errorCode: "storage_status_unavailable",
         statusCode: 503,
-        details: { retryable: true, cleanupConfirmed: true },
+        details: { retryable: false, cleanupConfirmed: false },
       });
     });
     if (storage.mode === "none") {

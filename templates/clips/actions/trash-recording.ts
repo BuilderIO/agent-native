@@ -51,7 +51,7 @@ export default defineAction({
       .where(eq(schema.recordings.id, args.id));
 
     const trashedAt = after?.trashedAt ?? null;
-    const skipped = Boolean(args.skipIfReady) && !trashedAt;
+    const skipped = Boolean(args.skipIfReady) && after?.status === "ready";
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     console.log(
