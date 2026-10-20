@@ -1435,6 +1435,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /^const HOME_RECOVERY_DETECTION_BUDGET_MS = 30_000;$/m,
     "the initial composer probe must leave a bounded Vite recovery window",
   );
+  assert.match(
+    designGlobalSetup,
+    /^const HOME_WARMUP_BUDGET_MS = 6 \* 60_000;$/m,
+    "Home warmup must reserve the composer probe after a slow cold navigation",
+  );
   assert.deepEqual(
     [
       ...designGlobalSetup.matchAll(
@@ -1458,6 +1463,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
     ],
     "home navigation must retain the full cold-compile budget before the recovery probe",
+  );
+  assert.match(
+    designGlobalSetup,
+    /await warmupPage\.goto\(homeURL,[\s\S]*?\);\s*const homeRecoveryDetectionDeadline = Math\.min\(\s*homeDeadline,\s*Date\.now\(\) \+ HOME_RECOVERY_DETECTION_BUDGET_MS,\s*\);\s*await homeComposer\.waitFor\(/,
+    "the composer probe window must start after navigation so a slow cold route does not consume it",
   );
   assert.match(
     changedSpecRegressions,

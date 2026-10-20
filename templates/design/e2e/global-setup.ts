@@ -30,7 +30,7 @@ const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const LOOPBACK_INSTANCE_HEADER = "x-agent-native-loopback-instance";
 const GLOBAL_SETUP_BUDGET_MS = 11 * 60_000;
 const SEED_BUDGET_MS = 2 * 60_000;
-const HOME_WARMUP_BUDGET_MS = 5 * 60_000;
+const HOME_WARMUP_BUDGET_MS = 6 * 60_000;
 const HOME_RECOVERY_DETECTION_BUDGET_MS = 30_000;
 const EDITOR_WARMUP_BUDGET_MS = 3 * 60_000;
 
@@ -467,11 +467,6 @@ export default async function globalSetup(config: FullConfig) {
       Date.now() + HOME_WARMUP_BUDGET_MS,
       globalSetupDeadline - EDITOR_WARMUP_BUDGET_MS,
     );
-    const homeRecoveryDetectionDeadline = Math.min(
-      homeDeadline,
-      Date.now() + HOME_RECOVERY_DETECTION_BUDGET_MS,
-    );
-
     const warmupPage = await context.newPage();
     try {
       const homeURL = `${baseURL}/home`;
@@ -482,6 +477,10 @@ export default async function globalSetup(config: FullConfig) {
           waitUntil: "domcontentloaded",
           timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
         });
+        const homeRecoveryDetectionDeadline = Math.min(
+          homeDeadline,
+          Date.now() + HOME_RECOVERY_DETECTION_BUDGET_MS,
+        );
         await homeComposer.waitFor({
           state: "visible",
           timeout: timeoutBefore(
