@@ -1,14 +1,6 @@
 const RETRYABLE_INTAKE_CREATE_STATUSES = new Set([
   408, 409, 425, 429, 500, 502, 503, 504,
 ]);
-const PERMANENT_INTAKE_CREATE_ERROR_CODES = new Set([
-  "intake_context_unavailable",
-  "intake_unavailable",
-  "recording_owner_mismatch",
-  "storage_setup_required",
-  "streaming_upload_unavailable",
-]);
-
 export const INTAKE_CREATE_RETRY_DELAYS_MS = [250, 500, 1_000, 2_000] as const;
 
 export async function shouldRetryIntakeCreateResponse(
@@ -16,25 +8,24 @@ export async function shouldRetryIntakeCreateResponse(
 ): Promise<boolean> {
   if (!RETRYABLE_INTAKE_CREATE_STATUSES.has(response.status)) return false;
 
-  // Typed permanent failures must be surfaced instead of repeating intake
-  // creation, which can insert a failed recording on each attempt.
-  let body: {
-    errorCode?: string;
-    details?: { retryable?: boolean };
-  } | null;
-  try {
-    body = (await response.clone().json()) as typeof body;
-  } catch {
-    // coercion-ok: unreadable failure metadata stops retry without consuming the original response.
-    return false;
-  }
+  const contentType = response.headers.get("content-type")?.toLowerCase();
   if (
-    !body ||
-    body?.details?.retryable === false ||
-    PERMANENT_INTAKE_CREATE_ERROR_CODES.has(body.errorCode ?? "")
+    !contentType ||
+    (!contentType.includes("application/json") &&
+      !contentType.includes("+json"))
   ) {
-    return false;
+    return true;
   }
 
-  return true;
+  // Intake action errors may follow a failed recording insert, so replaying
+  // any structured action failure can leave another failed row behind.
+  let body: unknown;
+  try {
+    body = await response.clone().json();
+  } catch {
+    // coercion-ok: malformed JSON is ambiguous, so surface it without replaying the intake POST.
+    return false;
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  return !("error" in body || "errorCode" in body || "details" in body);
 }
