@@ -89,6 +89,24 @@ export function contentDatabaseFilterOperatorNeedsValue(
   return !VALUELESS_FILTER_OPERATORS.has(operator);
 }
 
+// A "between" value is a JSON [start, end] pair. Read it by position: a
+// one-day range repeats its date, so deduplicating would lose the end.
+export function contentDatabaseFilterDateRangeValues(
+  value: string,
+): [string, string] {
+  const trimmed = value.trim();
+  if (!trimmed) return ["", ""];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) return [trimmed, ""];
+    const start = typeof parsed[0] === "string" ? parsed[0].trim() : "";
+    const end = typeof parsed[1] === "string" ? parsed[1].trim() : "";
+    return [start, end];
+  } catch {
+    return [trimmed, ""];
+  }
+}
+
 export function applyContentDatabaseTableQuery(
   items: ContentDatabaseItem[],
   properties: DocumentProperty[],
@@ -274,9 +292,9 @@ function selectedFilterValues(value: string) {
 }
 
 function filterDateRange(value: string): [number, number] | null {
-  const values = selectedFilterValues(value);
-  const start = new Date(values[0] ?? "").getTime();
-  const end = new Date(values[1] ?? "").getTime();
+  const [startValue, endValue] = contentDatabaseFilterDateRangeValues(value);
+  const start = new Date(startValue).getTime();
+  const end = new Date(endValue).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
   return start <= end ? [start, end] : [end, start];
 }

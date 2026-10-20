@@ -81,6 +81,31 @@ describe("content database table query", () => {
     expect(result.map((row) => row.document.id)).toEqual(["two"]);
   });
 
+  it("matches a one-day between range whose start and end are the same", () => {
+    const result = applyContentDatabaseTableQuery(
+      [
+        item("one", "Launch", "2026-02-01"),
+        item("two", "Follow-up", "2026-02-02"),
+      ],
+      [dateProperty],
+      {
+        search: "",
+        filters: [
+          {
+            key: "date",
+            label: "Date",
+            operator: "between",
+            value: JSON.stringify(["2026-02-01", "2026-02-01"]),
+          },
+        ],
+        sorts: [],
+        filterMode: "and",
+      },
+    );
+
+    expect(result.map((row) => row.document.id)).toEqual(["one"]);
+  });
+
   it("requires complete client data only when a query can read federated properties", () => {
     const base = {
       search: "",

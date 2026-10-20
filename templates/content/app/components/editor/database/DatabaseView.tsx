@@ -48,6 +48,7 @@ import { contentRecentHref } from "@shared/content-personal-navigation";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
 import {
   applyContentDatabaseTableQuery,
+  contentDatabaseFilterDateRangeValues,
   contentDatabaseFilterOperatorNeedsValue,
   contentDatabaseFilterOperatorsForType,
 } from "@shared/database-query";
@@ -18057,7 +18058,7 @@ function DatabaseBetweenDateFilterValueControl({
   filter: DatabaseFilter;
   onValueChange: (value: string) => void;
 }) {
-  const [start, end] = databaseFilterDateRangeValues(filter.value);
+  const [start, end] = contentDatabaseFilterDateRangeValues(filter.value);
   const updateRange = (nextStart: string, nextEnd: string) => {
     onValueChange(databaseFilterEncodeDateRangeValues(nextStart, nextEnd));
   };
@@ -18174,7 +18175,7 @@ function databaseFilterValueLabel(
   properties: DocumentProperty[],
 ) {
   if (filter.operator === "between") {
-    const [start, end] = databaseFilterDateRangeValues(filter.value);
+    const [start, end] = contentDatabaseFilterDateRangeValues(filter.value);
     if (start && end) return `${start} to ${end}`;
     return start || end || "Choose dates";
   }
@@ -18210,20 +18211,6 @@ function databaseFilterSelectedValues(value: string) {
     ];
   } catch {
     return [trimmed];
-  }
-}
-
-function databaseFilterDateRangeValues(value: string): [string, string] {
-  const trimmed = value.trim();
-  if (!trimmed) return ["", ""];
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!Array.isArray(parsed)) return [trimmed, ""];
-    const start = typeof parsed[0] === "string" ? parsed[0].trim() : "";
-    const end = typeof parsed[1] === "string" ? parsed[1].trim() : "";
-    return [start, end];
-  } catch {
-    return [trimmed, ""];
   }
 }
 
