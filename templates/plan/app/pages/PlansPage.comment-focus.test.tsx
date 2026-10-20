@@ -204,6 +204,60 @@ describe("thread popover reply", () => {
     await act(async () => finishSending());
   });
 
+  it("keeps what you type while a reply sends", async () => {
+    let finishSending = () => {};
+    const onReply = () =>
+      new Promise<void>((resolve) => {
+        finishSending = resolve;
+      });
+    renderPopover(annotation("a"), onReply);
+    await settle();
+    typeReply("Reply for A");
+    await sendReply();
+    typeReply("Next thought");
+    await act(async () => finishSending());
+
+    expect(editor().textContent).toBe("Next thought");
+  });
+
+  it("brings back a reply that fails after you leave its thread", async () => {
+    let failSending = () => {};
+    const onReply = () =>
+      new Promise<void>((_resolve, reject) => {
+        failSending = () => reject(new Error("offline"));
+      });
+    renderPopover(annotation("a"), onReply);
+    await settle();
+    typeReply("Reply for A");
+    await sendReply();
+    renderPopover(annotation("b"), onReply);
+    await settle();
+    typeReply("Reply for B");
+    await act(async () => failSending());
+
+    expect(editor().textContent).toBe("Reply for B");
+    renderPopover(annotation("a"), onReply);
+    await settle();
+    expect(editor().textContent).toBe("Reply for A");
+    expect(container.textContent).toContain("plansPage.comments.sendFailed");
+  });
+
+  it("puts a failed reply ahead of a newer draft", async () => {
+    let failSending = () => {};
+    const onReply = () =>
+      new Promise<void>((_resolve, reject) => {
+        failSending = () => reject(new Error("offline"));
+      });
+    renderPopover(annotation("a"), onReply);
+    await settle();
+    typeReply("Reply for A");
+    await sendReply();
+    typeReply("and more");
+    await act(async () => failSending());
+
+    expect(editor().textContent).toBe("Reply for A and more");
+  });
+
   it("brings a reply back to its thread when sending fails", async () => {
     const onReply = () => Promise.reject(new Error("offline"));
     renderPopover(annotation("a"), onReply);

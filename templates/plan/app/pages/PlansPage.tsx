@@ -9426,16 +9426,15 @@ function ReplyComposer({
   isPending,
   placeholder,
   autoFocus,
-  initialMessage,
-  onDraftChange,
+  threadId = "",
   onSubmit,
 }: {
   author: CommentAuthorPresentation;
   isPending: boolean;
   placeholder?: string;
   autoFocus?: boolean;
-  initialMessage?: string;
-  onDraftChange?: (message: string) => void;
+  /** One box can reply to several threads in turn; each keeps its own draft. */
+  threadId?: string;
   onSubmit: (message: string) => Promise<void>;
 }) {
   const t = useT();
@@ -9445,34 +9444,59 @@ function ReplyComposer({
     message: "",
     mentions: [],
   });
-  const [restoredMessage, setRestoredMessage] = useState(initialMessage);
-  const latestMessageRef = useRef("");
-  const submittingRef = useRef(false);
-  const [submitError, setSubmitError] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [resetKey, setResetKey] = useState(0);
+  // Unsent replies by thread, including the one on screen. The editor
+  // reloads its text from `editorContent` whenever that changes.
+  const [drafts] = useState(() => new Map<string, string>());
+  const [editorContent, setEditorContent] = useState({
+    threadId,
+    message: "",
+    version: 0,
+  });
+  const [sendingThreadIds, setSendingThreadIds] = useState<string[]>([]);
+  const [failedThreadId, setFailedThreadId] = useState<string | null>(null);
 
+  if (editorContent.threadId !== threadId) {
+    // Opening another thread brings back that thread's own reply.
+    setEditorContent({
+      threadId,
+      message: drafts.get(threadId) ?? "",
+      version: editorContent.version + 1,
+    });
+  }
+
+  const isSubmitting = sendingThreadIds.includes(editorContent.threadId);
   const canSubmit =
     commentBodyText(draft.message).length > 0 && !isSubmitting && !isPending;
   const submit = async () => {
     if (!canSubmit) return;
-    setSubmitError(false);
-    setIsSubmitting(true);
-    // A reply that is being sent is no longer a draft, so reopening the
-    // thread mid-send doesn't offer it again. It comes back if sending fails.
-    submittingRef.current = true;
-    onDraftChange?.("");
+    const sentThreadId = editorContent.threadId;
+    const message = draft.message;
+    setFailedThreadId((id) => (id === sentThreadId ? null : id));
+    setSendingThreadIds((ids) => [...ids, sentThreadId]);
+    // Empty the box right away. The reply shows in the thread while it
+    // sends, and anything typed meanwhile is a new draft.
+    drafts.set(sentThreadId, "");
+    setEditorContent((content) => ({
+      ...content,
+      message: "",
+      version: content.version + 1,
+    }));
     try {
-      await onSubmit(draft.message.trim());
-      setDraft({ message: "", mentions: [] });
-      setRestoredMessage(undefined);
-      setResetKey((key) => key + 1);
+      await onSubmit(message.trim());
     } catch {
-      setSubmitError(true);
-      onDraftChange?.(latestMessageRef.current);
+      // Put the reply back in its thread's box, ahead of anything typed
+      // since, wherever that box is now.
+      const typedSince = drafts.get(sentThreadId)?.trim();
+      const restored = typedSince ? `${message} ${typedSince}` : message;
+      drafts.set(sentThreadId, restored);
+      setFailedThreadId(sentThreadId);
+      setEditorContent((content) =>
+        content.threadId === sentThreadId
+          ? { ...content, message: restored, version: content.version + 1 }
+          : content,
+      );
     } finally {
-      submittingRef.current = false;
-      setIsSubmitting(false);
+      setSendingThreadIds((ids) => ids.filter((id) => id !== sentThreadId));
     }
   };
 
@@ -9485,14 +9509,13 @@ function ReplyComposer({
             placeholder={
               placeholder ?? t("plansPage.comments.replyPlaceholder")
             }
-            initialMessage={restoredMessage}
-            resetKey={`reply-${resetKey}`}
+            initialMessage={editorContent.message}
+            resetKey={`reply-${editorContent.version}`}
             autoFocus={autoFocus}
             className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
             onChange={(next) => {
               setDraft(next);
-              latestMessageRef.current = next.message;
-              if (!submittingRef.current) onDraftChange?.(next.message);
+              drafts.set(editorContent.threadId, next.message);
             }}
             onSubmitShortcut={() => void submit()}
           />
@@ -9512,7 +9535,7 @@ function ReplyComposer({
           </Button>
         </div>
       </div>
-      {submitError && (
+      {failedThreadId === editorContent.threadId && (
         <p className="ml-11 text-xs text-destructive">
           {t("plansPage.comments.sendFailed")}
         </p>
@@ -9557,9 +9580,6 @@ function AnnotationPopover({
   const t = useT();
   const popoverRef = useRef<HTMLDivElement>(null);
   const editChosenFromMenuRef = useRef(false);
-  // Opening another thread reuses this popover. Keep each thread's unsent
-  // reply with it, so it doesn't follow you into the next thread.
-  const [replyDrafts] = useState(() => new Map<string, string>());
   const [editing, setEditing] = useState(false);
   const [messageDraft, setMessageDraft] = useState<
     Pick<CommentDraft, "message" | "mentions">
@@ -9826,12 +9846,11 @@ function AnnotationPopover({
       {canComment && (
         <div className="shrink-0 border-t border-border/70 p-3">
           <ReplyComposer
-            key={annotation.id}
             author={pendingAuthor}
             isPending={isPending}
             autoFocus
-            initialMessage={replyDrafts.get(annotation.id)}
-            onDraftChange={(message) => replyDrafts.set(annotation.id, message)}
+            // Opening another thread reuses this popover and its reply box.
+            threadId={annotation.id}
             onSubmit={(reply) => onReply(annotation.id, reply)}
           />
         </div>
