@@ -3047,17 +3047,18 @@ function abortRunInMemory(runId: string, reason: string): boolean {
 export function abortRun(runId: string, reason: string = "user"): boolean {
   const run = activeRuns.get(runId);
   const abortedInMemory = abortRunInMemory(runId, reason);
+  const markAborted = () => markRunAborted(runId, reason);
   void flushRunEventsBeforeAbort(run)
-    .then(() => markRunAborted(runId, reason))
+    .then(markAborted, markAborted)
     .catch((error) => {
       captureError(error, {
         route: "/_agent-native/agent-chat/runs/:id/abort",
         aiTraceId: runId,
-        tags: { source: "agent-run-manager", phase: "abort-run" },
+        tags: { source: "agent-run-manager", phase: "abort-run-status" },
         extra: { runId, threadId: run?.threadId, reason },
       });
       console.error(
-        "[run-manager] durable abort persistence failed:",
+        "[run-manager] durable abort status write failed:",
         error instanceof Error ? error.message : error,
       );
     });

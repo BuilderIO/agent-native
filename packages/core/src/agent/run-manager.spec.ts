@@ -1992,6 +1992,44 @@ describe("run manager soft timeout", () => {
     await run.finalized;
   });
 
+  it("attempts a best-effort abort status write after a failed event flush", async () => {
+    const persistenceError = new Error("event flush unavailable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-abort-event-flush-best-effort",
+      "thread-abort-event-flush-best-effort",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(persistenceError);
+
+    try {
+      expect(abortRun("run-abort-event-flush-best-effort", "user")).toBe(true);
+      await vi.waitFor(() =>
+        expect(markRunAborted).toHaveBeenCalledWith(
+          "run-abort-event-flush-best-effort",
+          "user",
+        ),
+      );
+      expect(consoleError).toHaveBeenCalledWith(
+        "[run-manager] failed to flush run events before abort:",
+        "event flush unavailable",
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    expect(run.status).toBe("aborted");
+    await run.finalized;
+  });
+
   it("distinguishes a missing run from an unreadable turn reference", async () => {
     const readError = new Error("run store unavailable");
     vi.mocked(getRunTurnRef).mockResolvedValueOnce(null);
@@ -5730,6 +5768,89 @@ describe("run manager soft timeout", () => {
       [1, 2, 3],
       [5, 6],
     ]);
+  });
+
+  it("keeps events emitted during an in-flight batch in a later durable write", async () => {
+    let markFirstWriteStarted!: () => void;
+    let markSecondEventQueued!: () => void;
+    let markSecondWriteStarted!: () => void;
+    let releaseFirstWrite!: () => void;
+    let releaseSecondWrite!: () => void;
+    const firstWriteStarted = new Promise<void>((resolve) => {
+      markFirstWriteStarted = resolve;
+    });
+    const secondEventQueued = new Promise<void>((resolve) => {
+      markSecondEventQueued = resolve;
+    });
+    const secondWriteStarted = new Promise<void>((resolve) => {
+      markSecondWriteStarted = resolve;
+    });
+    const firstWriteGate = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    const secondWriteGate = new Promise<void>((resolve) => {
+      releaseSecondWrite = resolve;
+    });
+    const writeBatches: number[][] = [];
+    const durableOrder: number[] = [];
+    const publishedOrder: number[] = [];
+    vi.mocked(insertRunEvents).mockClear();
+    vi.mocked(insertRunEvents).mockImplementationOnce(
+      async (_runId, events) => {
+        const batch = events.map(({ seq }) => seq);
+        writeBatches.push(batch);
+        markFirstWriteStarted();
+        await firstWriteGate;
+        durableOrder.push(...batch);
+      },
+    );
+    vi.mocked(insertRunEvents).mockImplementationOnce(
+      async (_runId, events) => {
+        const batch = events.map(({ seq }) => seq);
+        writeBatches.push(batch);
+        markSecondWriteStarted();
+        await secondWriteGate;
+        durableOrder.push(...batch);
+      },
+    );
+
+    const run = startRun(
+      "run-batch-write-snapshot",
+      "thread-batch-write-snapshot",
+      async (send) => {
+        const firstEvent = send({ type: "text", text: "first" });
+        await firstWriteStarted;
+        const secondEvent = send({ type: "text", text: "second" });
+        markSecondEventQueued();
+        await Promise.all([firstEvent, secondEvent]);
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => publishedOrder.push(event.seq));
+
+    try {
+      await firstWriteStarted;
+      await secondEventQueued;
+      expect(writeBatches).toEqual([[0]]);
+      expect(publishedOrder).toEqual([]);
+
+      releaseFirstWrite();
+      await secondWriteStarted;
+      expect(durableOrder).toEqual([0]);
+      expect(publishedOrder).toEqual([0]);
+      expect(writeBatches).toEqual([[0], [1]]);
+
+      releaseSecondWrite();
+      await run.finalized;
+    } finally {
+      releaseFirstWrite();
+      releaseSecondWrite();
+    }
+
+    expect(durableOrder).toEqual([0, 1]);
+    expect(publishedOrder.slice(0, 2)).toEqual([0, 1]);
+    expect(writeBatches).toEqual([[0], [1]]);
   });
 
   it("retries a failed sequence before persisting later events", async () => {

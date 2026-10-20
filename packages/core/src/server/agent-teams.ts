@@ -2520,18 +2520,58 @@ export async function processAgentTeamRun(
         opts.taskId,
         claimedAttempts,
         async () => {
-          task.currentStep =
-            mode === "continue"
-              ? "Continuing sub-agent"
-              : "Working on response";
-          task.startedAt = task.startedAt ?? Date.now();
-          await saveTask(task);
-          if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            const currentTask = await loadTask(opts.taskId);
+            if (!currentTask || currentTask.status !== "running") {
+              return { saved: false, task: currentTask };
+            }
+            if (currentTask.stopRequestedAt !== undefined) {
+              return { saved: false, task: currentTask };
+            }
+
+            const expectedTask = structuredClone(currentTask);
+            const transcriptRunIds = [
+              ...new Set([
+                ...(currentTask.transcriptRunIds ?? []),
+                ...(task.transcriptRunIds ?? []),
+              ]),
+            ];
+            if (transcriptRunIds.length > 0) {
+              currentTask.transcriptRunIds = transcriptRunIds;
+            }
+            currentTask.currentStep =
+              mode === "continue"
+                ? "Continuing sub-agent"
+                : "Working on response";
+            currentTask.startedAt = currentTask.startedAt ?? Date.now();
+            if (await saveTaskIfCurrent(currentTask, expectedTask)) {
+              Object.assign(task, currentTask);
+              if (ownerEmail) {
+                await updateTaskProgressRun(currentTask, ownerEmail);
+              }
+              return { saved: true, task: currentTask };
+            }
+          }
+
+          const currentTask = await loadTask(opts.taskId);
+          return { saved: false, task: currentTask };
         },
       );
       if (!started.current) {
         markLeaseLost();
         return { ok: true, skipped: "superseded" };
+      }
+      if (!started.value?.saved) {
+        const currentTask = started.value?.task;
+        if (currentTask?.stopRequestedAt !== undefined) {
+          return { ok: true, skipped: "stop-requested" };
+        }
+        if (currentTask?.status !== "running") {
+          return { ok: true, skipped: "task-terminal" };
+        }
+        throw new Error(
+          "The agent task changed repeatedly before the worker could start.",
+        );
       }
 
       let accumulatedText = "";
@@ -2547,11 +2587,9 @@ export async function processAgentTeamRun(
       let progressWriteChain = Promise.resolve();
       let continuationDispatch: { noProgressCount: number } | undefined;
       const scheduleProgressWrite = () => {
-        const snapshot: AgentTask = {
-          ...task,
-          ...(task.transcriptRunIds
-            ? { transcriptRunIds: [...task.transcriptRunIds] }
-            : {}),
+        const progress = {
+          preview: task.preview,
+          currentStep: task.currentStep,
         };
         progressWriteChain = progressWriteChain
           .then(async () => {
@@ -2560,10 +2598,19 @@ export async function processAgentTeamRun(
               opts.taskId,
               claimedAttempts,
               async () => {
-                await saveTask(snapshot);
-                if (ownerEmail) {
-                  await updateTaskProgressRun(snapshot, ownerEmail);
+                const currentTask = await loadTask(opts.taskId);
+                if (!currentTask || currentTask.status !== "running") {
+                  return false;
                 }
+                const expectedTask = structuredClone(currentTask);
+                currentTask.preview = progress.preview;
+                currentTask.currentStep = progress.currentStep;
+                if (!(await saveTaskIfCurrent(currentTask, expectedTask))) {
+                  return false;
+                }
+                if (ownerEmail)
+                  await updateTaskProgressRun(currentTask, ownerEmail);
+                return true;
               },
             );
             if (!result.current) markLeaseLost();
