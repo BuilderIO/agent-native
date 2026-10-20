@@ -3298,7 +3298,7 @@ export async function abortRunAndTurnDurably(
     terminalFlushFailure = error;
   }
 
-  if (!options?.safeBoundary || abortedInMemory || terminalFlushFailure) {
+  if (!options?.safeBoundary || abortedInMemory) {
     try {
       await abortTurnDurably(runId, reason);
     } catch (error) {

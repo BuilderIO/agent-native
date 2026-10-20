@@ -1838,6 +1838,47 @@ describe("run manager soft timeout", () => {
     await run.finalized;
   });
 
+  it("does not widen a refused safe-boundary stop to a turn abort", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-safe-boundary-terminal-flush",
+      0,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-safe-boundary-terminal-flush",
+      "thread-safe-boundary-terminal-flush",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi.fn().mockRejectedValueOnce(terminalEventError);
+    vi.mocked(markRunAbortedAtSafeBoundary).mockResolvedValueOnce(false);
+
+    try {
+      await expect(
+        abortRunAndTurnDurably(run.runId, "user", { safeBoundary: true }),
+      ).rejects.toBe(terminalEventError);
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    expect(markRunAbortedAtSafeBoundary).toHaveBeenCalledWith(
+      run.runId,
+      "user",
+    );
+    expect(markTurnAborted).not.toHaveBeenCalled();
+    expect(run.abort.signal.aborted).toBe(false);
+    run.abort.abort();
+    await run.finalized;
+  });
+
   it("writes the turn abort marker when the terminal event insert fails", async () => {
     const terminalEventError = new AgentRunEventNotPersistedError(
       "run-stop-terminal-insert",

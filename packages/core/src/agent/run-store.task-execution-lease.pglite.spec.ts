@@ -73,6 +73,7 @@ const {
   insertRunEvent,
   insertRunEvents,
   markAgentExecutionStepDispatched,
+  markTurnAborted,
   markRunAbortedAtSafeBoundary,
   recordLateAgentExecutionStepOutcome,
   ensureRunTables,
@@ -118,6 +119,14 @@ describe("task execution leases", () => {
     ).toThrowError(
       expect.objectContaining({ code: "missing_execution_fence" }),
     );
+  });
+
+  it("rejects turn cancellation when a requested execution fence is missing", async () => {
+    await expect(
+      withExecutionLeaseRequested(() =>
+        markTurnAborted("thread-missing-turn-abort-fence", "turn-missing"),
+      ),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
   });
 
   it("claims and renews without an agent_runs row, then fences stale generations", async () => {
@@ -223,6 +232,58 @@ describe("task execution leases", () => {
         insertRun("run-fenced-successor-current-child", threadId, turnId),
       ),
     ).resolves.toBeUndefined();
+  });
+
+  it("rejects turn aborts from a replaced execution generation", async () => {
+    const threadId = "thread-fenced-turn-abort";
+    const turnId = "turn-fenced-turn-abort";
+    const staleRunId = "run-fenced-turn-abort-stale";
+    const currentRunId = "run-fenced-turn-abort-current";
+    await insertRun(staleRunId, threadId, turnId);
+    const staleFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      staleRunId,
+    );
+
+    await insertRun(currentRunId, threadId, turnId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    const currentFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      currentRunId,
+    );
+
+    await expect(
+      withExecutionFence(staleFence, () => markTurnAborted(threadId, turnId)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    const stillRunning = await pglite.query(
+      "SELECT status FROM agent_runs WHERE id IN (?, ?) ORDER BY id",
+      [staleRunId, currentRunId],
+    );
+    expect(stillRunning.rows.map((row) => row.status)).toEqual([
+      "running",
+      "running",
+    ]);
+    await expect(
+      withExecutionFence(currentFence, () => markTurnAborted(threadId, turnId)),
+    ).resolves.toBe("aborted");
+
+    const staleRun = await pglite.query(
+      "SELECT status FROM agent_runs WHERE id = ?",
+      [staleRunId],
+    );
+    const currentRun = await pglite.query(
+      "SELECT status FROM agent_runs WHERE id = ?",
+      [currentRunId],
+    );
+    expect(staleRun.rows[0]?.status).toBe("aborted");
+    expect(currentRun.rows[0]?.status).toBe("aborted");
   });
 
   it("keeps a parent task fence active inside a nested agent-run fence", async () => {

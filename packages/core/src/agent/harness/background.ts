@@ -115,7 +115,7 @@ export async function stopAgentHarnessBackgroundRun(
     return missingHarnessRunResult(runId);
   }
   if (session.runId) {
-    await abortRunDurably(session.runId, "user");
+    await abortRunDurably(session.runId, "user", { allowNotStarted: true });
   }
   await stopLiveAgentHarnessSession({
     sessionId: session.id,
