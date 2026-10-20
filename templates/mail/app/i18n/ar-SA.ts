@@ -309,6 +309,7 @@ const messages = {
       gongDescription: "اسأل الوكيل عن مكالمات Gong والصفقات",
       gongAccessCheckFailed: "تعذّر التحقق مما إذا كان بإمكانك ربط Gong.",
       gongKeyPlaceholder: "مفتاح API لـ Gong",
+      gongKeyFormatHint: "أدخل مفتاح الوصول والسر بالتنسيق access_key:secret.",
       pylonDescription: "مشكلات الدعم وبيانات الحساب",
       gongCalls: "مكالمات Gong",
       deals: "الصفقات",

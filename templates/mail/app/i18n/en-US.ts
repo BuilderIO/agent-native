@@ -308,6 +308,8 @@ const messages = {
       gongDescription: "Ask the agent about Gong calls and deals",
       gongAccessCheckFailed: "Couldn't check whether you can connect to Gong.",
       gongKeyPlaceholder: "Gong API key",
+      gongKeyFormatHint:
+        "Enter the access key and secret as access_key:secret.",
       pylonDescription: "Support issues & account data",
       gongCalls: "Gong Calls",
       deals: "Deals",

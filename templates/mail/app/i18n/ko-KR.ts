@@ -305,6 +305,8 @@ const messages = {
       gongDescription: "Gong 통화 및 거래에 대해 에이전트에게 질문",
       gongAccessCheckFailed: "Gong 연결 권한을 확인할 수 없습니다.",
       gongKeyPlaceholder: "Gong API 키",
+      gongKeyFormatHint:
+        "액세스 키와 시크릿을 access_key:secret 형식으로 입력하세요.",
       pylonDescription: "지원 이슈 및 계정 데이터",
       gongCalls: "Gong 통화",
       deals: "거래",

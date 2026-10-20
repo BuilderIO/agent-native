@@ -298,6 +298,7 @@ const messages = {
       gongDescription: "向代理詢問 Gong 通話與交易",
       gongAccessCheckFailed: "無法確認你是否有權限連線到 Gong。",
       gongKeyPlaceholder: "Gong API 金鑰",
+      gongKeyFormatHint: "請以 access_key:secret 格式輸入存取金鑰和密鑰。",
       pylonDescription: "支援問題和帳戶資料",
       gongCalls: "Gong 通話",
       deals: "交易",

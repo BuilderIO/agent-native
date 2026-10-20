@@ -322,6 +322,8 @@ const messages = {
       gongAccessCheckFailed:
         "Es konnte nicht geprüft werden, ob du Gong verbinden darfst.",
       gongKeyPlaceholder: "Gong-API-Schlüssel",
+      gongKeyFormatHint:
+        "Gib Zugriffsschlüssel und Geheimnis im Format access_key:secret ein.",
       pylonDescription: "Supportfälle und Kontodaten",
       gongCalls: "Gong-Anrufe",
       deals: "Deals",

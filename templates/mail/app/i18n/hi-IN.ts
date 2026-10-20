@@ -305,6 +305,8 @@ const messages = {
       gongDescription: "Gong कॉल और डील के बारे में एजेंट से पूछें",
       gongAccessCheckFailed: "Gong से कनेक्ट करने की अनुमति की जाँच नहीं हो सकी।",
       gongKeyPlaceholder: "Gong API कुंजी",
+      gongKeyFormatHint:
+        "एक्सेस कुंजी और सीक्रेट को access_key:secret प्रारूप में दर्ज करें।",
       pylonDescription: "सपोर्ट समस्याएं और अकाउंट डेटा",
       gongCalls: "Gong कॉल",
       deals: "डील",

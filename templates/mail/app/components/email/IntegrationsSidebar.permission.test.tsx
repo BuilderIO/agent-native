@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
     "mail.integrations.gongAccessCheckFailed":
       "Couldn't check whether you can connect to Gong.",
     "mail.integrations.connect": "Connect",
+    "mail.integrations.gongKeyFormatHint":
+      "Enter the access key and secret as access_key:secret.",
     "mail.integrations.updateKey": "Update key",
     "mail.integrations.disconnect": "Disconnect",
     "mail.toolbar.settings": "Settings",
@@ -172,5 +174,10 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     expect(screen.getByRole("menuitem", { name: "Update key" })).not.toBeNull();
     expect(screen.getByRole("menuitem", { name: "Disconnect" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Connect" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Update key" }));
+    expect(
+      screen.getByText("Enter the access key and secret as access_key:secret."),
+    ).not.toBeNull();
   });
 });

@@ -321,6 +321,8 @@ const messages = {
       gongAccessCheckFailed:
         "Impossible de vérifier si vous pouvez connecter Gong.",
       gongKeyPlaceholder: "Clé API Gong",
+      gongKeyFormatHint:
+        "Saisissez la clé d’accès et le secret au format access_key:secret.",
       pylonDescription: "Tickets de support et données de compte",
       gongCalls: "Appels Gong",
       deals: "Affaires",

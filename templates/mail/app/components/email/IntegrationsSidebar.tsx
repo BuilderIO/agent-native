@@ -73,6 +73,7 @@ interface IntegrationDef {
   keyPlaceholderKey?: string;
   helpUrl?: string;
   helpSteps?: string[];
+  helpStepKeys?: string[];
   logo: React.ReactNode;
 }
 
@@ -145,6 +146,7 @@ const INTEGRATIONS: IntegrationDef[] = [
     descriptionKey: "mail.integrations.gongDescription",
     keyPlaceholderKey: "mail.integrations.gongKeyPlaceholder",
     helpUrl: "https://app.gong.io/company/api",
+    helpStepKeys: ["mail.integrations.gongKeyFormatHint"],
     logo: (
       <svg
         viewBox="0 0 42 42"
@@ -719,6 +721,9 @@ function IntegrationKeyEntry({
         <ol className="text-[11px] text-muted-foreground/50 space-y-0.5 list-decimal ps-3 mb-1.5">
           {def.helpSteps?.map((step, i) => (
             <li key={i}>{step}</li>
+          ))}
+          {def.helpStepKeys?.map((key) => (
+            <li key={key}>{t(key)}</li>
           ))}
         </ol>
         <a

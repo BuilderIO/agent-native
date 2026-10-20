@@ -309,6 +309,8 @@ const messages = {
       gongDescription: "Gongの通話や商談についてエージェントに質問",
       gongAccessCheckFailed: "Gongに接続する権限を確認できませんでした。",
       gongKeyPlaceholder: "Gong API キー",
+      gongKeyFormatHint:
+        "アクセスキーとシークレットを access_key:secret の形式で入力してください。",
       pylonDescription: "サポート課題とアカウントデータ",
       gongCalls: "Gong 通話",
       deals: "商談",
