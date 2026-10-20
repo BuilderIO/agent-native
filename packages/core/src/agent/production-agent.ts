@@ -6300,25 +6300,32 @@ function normalizeToolCallInputForHistory(
 function mergeStreamedAssistantToolCalls(
   content: import("./engine/types.js").EngineContentPart[],
   streamedCalls: import("./engine/types.js").EngineToolCallPart[],
+  representedStreamedCalls: Set<import("./engine/types.js").EngineToolCallPart>,
 ): import("./engine/types.js").EngineContentPart[] {
-  const occurrenceCounts = new Map<string, number>();
   const identity = (call: import("./engine/types.js").EngineToolCallPart) =>
     JSON.stringify([call.id, call.name, toolCallInputFingerprint(call.input)]);
+  const contentCallsByIdentity = new Map<
+    string,
+    import("./engine/types.js").EngineToolCallPart[]
+  >();
   for (const part of content) {
     if (part.type !== "tool-call") continue;
     const key = identity(part);
-    occurrenceCounts.set(key, (occurrenceCounts.get(key) ?? 0) + 1);
+    const calls = contentCallsByIdentity.get(key) ?? [];
+    calls.push(part);
+    contentCallsByIdentity.set(key, calls);
   }
 
   const merged = [...content];
   for (const call of streamedCalls) {
     const key = identity(call);
-    const representedCount = occurrenceCounts.get(key) ?? 0;
-    if (representedCount > 0) {
-      occurrenceCounts.set(key, representedCount - 1);
+    const representedCall = contentCallsByIdentity.get(key)?.shift();
+    if (representedCall) {
+      representedStreamedCalls.add(representedCall);
       continue;
     }
     merged.push(call);
+    representedStreamedCalls.add(call);
   }
   return merged;
 }
@@ -8112,6 +8119,9 @@ export async function runAgentLoop(opts: {
       assistantContent = [];
     }
 
+    const representedStreamedCalls = new Set<
+      import("./engine/types.js").EngineToolCallPart
+    >();
     if (
       (!assistantContent || assistantContent.length === 0) &&
       (streamedAssistantText.trim() || streamedAssistantToolCalls.length > 0)
@@ -8122,10 +8132,14 @@ export async function runAgentLoop(opts: {
           : []),
         ...streamedAssistantToolCalls,
       ];
+      for (const call of streamedAssistantToolCalls) {
+        representedStreamedCalls.add(call);
+      }
     } else if (assistantContent && streamedAssistantToolCalls.length > 0) {
       assistantContent = mergeStreamedAssistantToolCalls(
         assistantContent,
         streamedAssistantToolCalls,
+        representedStreamedCalls,
       );
     }
     if (!assistantContent) {
@@ -8140,26 +8154,55 @@ export async function runAgentLoop(opts: {
       assistantContent = [];
     }
 
-    for (const toolCallError of toolCallErrors) {
-      const matchingCall = assistantContent.find(
-        (part): part is import("./engine/types.js").EngineToolCallPart =>
-          part.type === "tool-call" &&
-          !toolCallSchemaErrorsByCall.has(part) &&
-          part.id === toolCallError.id &&
-          part.name === toolCallError.name &&
-          toolCallInputSignature(part.input) ===
-            toolCallInputSignature(toolCallError.input),
-      );
-      const errorCall = matchingCall ?? {
-        type: "tool-call" as const,
-        id: toolCallError.id,
-        name: toolCallError.name,
-        input: toolCallError.input,
-      };
-      if (!matchingCall) {
-        assistantContent.push(errorCall);
+    const toolCallIdentity = (call: {
+      id: string;
+      name: string;
+      input: unknown;
+    }) =>
+      JSON.stringify([call.id, call.name, toolCallInputSignature(call.input)]);
+    const assistantCallsByIdentity = new Map<
+      string,
+      import("./engine/types.js").EngineToolCallPart[]
+    >();
+    for (const part of assistantContent) {
+      if (part.type !== "tool-call" || representedStreamedCalls.has(part)) {
+        continue;
       }
-      toolCallSchemaErrorsByCall.set(errorCall, toolCallError);
+      const key = toolCallIdentity(part);
+      const calls = assistantCallsByIdentity.get(key) ?? [];
+      calls.push(part);
+      assistantCallsByIdentity.set(key, calls);
+    }
+    const toolCallErrorsByIdentity = new Map<
+      string,
+      Extract<EngineEvent, { type: "tool-call-error" }>[]
+    >();
+    for (const error of toolCallErrors) {
+      const key = toolCallIdentity(error);
+      const errors = toolCallErrorsByIdentity.get(key) ?? [];
+      errors.push(error);
+      toolCallErrorsByIdentity.set(key, errors);
+    }
+
+    for (const [key, errors] of toolCallErrorsByIdentity) {
+      const calls = assistantCallsByIdentity.get(key) ?? [];
+      if (calls.length === errors.length) {
+        for (const [index, call] of calls.entries()) {
+          toolCallSchemaErrorsByCall.set(call, errors[index]);
+        }
+        continue;
+      }
+
+      for (const error of errors) {
+        const errorCall = {
+          type: "tool-call" as const,
+          id: error.id,
+          name: error.name,
+          input: error.input,
+        };
+        assistantContent.push(errorCall);
+        toolCallSchemaErrorsByCall.set(errorCall, error);
+      }
     }
 
     const assistantContentForHistory = assistantContent.map((part) =>

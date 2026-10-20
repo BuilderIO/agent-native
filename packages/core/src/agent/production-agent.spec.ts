@@ -16615,6 +16615,89 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("does not assign a schema error to a successful reused-ID sibling", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "reused-call-id",
+            name: "write-record",
+            input: { value: "same input" },
+            error: "input/value is invalid for one call",
+          };
+          yield {
+            type: "tool-call",
+            id: "reused-call-id",
+            name: "write-record",
+            input: { value: "same input" },
+          };
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "reused-call-id",
+                name: "write-record",
+                input: { value: "same input" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "saved");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "Write." }] }],
+      actions: {
+        "write-record": {
+          tool: {
+            description: "Write a record",
+            parameters: {
+              type: "object",
+              properties: { value: { type: "string" } },
+              required: ["value"],
+            },
+          },
+          run,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith(
+      { value: "same input" },
+      expect.any(Object),
+    );
+  });
+
   it("names the output-token cap when a tool call is cut off mid-arguments, and raises the ceiling for the retry", async () => {
     let streamCalls = 0;
     const seenMaxOutputTokens: (number | undefined)[] = [];
