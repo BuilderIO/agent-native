@@ -466,6 +466,16 @@ describe("create-recording policy", () => {
 
   it("preserves typed upload failures when failed-row persistence fails", async () => {
     calls.bufferedFallbackAvailable = false;
+    calls.authUserId = "user-1";
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider: null,
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: true,
+    });
     calls.update.mockRejectedValueOnce(
       new Error("recording update unavailable"),
     );
@@ -491,7 +501,10 @@ describe("create-recording policy", () => {
         cleanupConfirmed: true,
       },
     });
-    expect(calls.releaseReservation).not.toHaveBeenCalled();
+    expect(calls.releaseReservation).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      userId: "user-1",
+    });
   });
 
   it("preserves typed upload failures when failed app state cannot be written", async () => {
