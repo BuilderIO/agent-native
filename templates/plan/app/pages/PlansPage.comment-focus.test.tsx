@@ -256,6 +256,32 @@ describe("thread popover reply", () => {
     await act(async () => failSending());
 
     expect(editor().textContent).toBe("Reply for A and more");
+    expect(document.activeElement).toBe(editor());
+  });
+
+  it("leaves focus alone when a send fails after you moved on", async () => {
+    let failSending = () => {};
+    const onReply = () =>
+      new Promise<void>((_resolve, reject) => {
+        failSending = () => reject(new Error("offline"));
+      });
+    const elsewhere = document.createElement("input");
+    document.body.appendChild(elsewhere);
+    try {
+      renderPopover(annotation("a"), onReply);
+      await settle();
+      typeReply("Reply for A");
+      await sendReply();
+      await settle();
+      elsewhere.focus();
+      await act(async () => failSending());
+      await settle();
+
+      expect(editor().textContent).toBe("Reply for A");
+      expect(document.activeElement).toBe(elsewhere);
+    } finally {
+      elsewhere.remove();
+    }
   });
 
   it("brings a reply back to its thread when sending fails", async () => {

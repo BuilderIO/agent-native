@@ -8994,8 +8994,11 @@ function CommentMentionEditor({
   useEffect(() => {
     const root = editorRef.current;
     if (!root) return;
+    const hadFocus = root.contains(document.activeElement);
     appendMessageToEditor(root, initialMessage ?? "");
     emitChange();
+    // Reloading the text keeps the caret in an editor that had it.
+    if (hadFocus) focusCommentEditorAtEnd(root);
     if (!autoFocus) return;
     // An Edit menu item mounts this editor while its menu still traps focus,
     // so keep trying for a few frames until focus lands.
@@ -9451,6 +9454,9 @@ function ReplyComposer({
     threadId,
     message: "",
     version: 0,
+    // Only something the person just did (opening the thread, pressing
+    // Send) brings focus to the box.
+    takeFocus: true,
   });
   const [sendingThreadIds, setSendingThreadIds] = useState<string[]>([]);
   const [failedThreadId, setFailedThreadId] = useState<string | null>(null);
@@ -9461,6 +9467,7 @@ function ReplyComposer({
       threadId,
       message: drafts.get(threadId) ?? "",
       version: editorContent.version + 1,
+      takeFocus: true,
     });
   }
 
@@ -9480,6 +9487,7 @@ function ReplyComposer({
       ...content,
       message: "",
       version: content.version + 1,
+      takeFocus: true,
     }));
     try {
       await onSubmit(message.trim());
@@ -9492,7 +9500,12 @@ function ReplyComposer({
       setFailedThreadId(sentThreadId);
       setEditorContent((content) =>
         content.threadId === sentThreadId
-          ? { ...content, message: restored, version: content.version + 1 }
+          ? {
+              ...content,
+              message: restored,
+              version: content.version + 1,
+              takeFocus: false,
+            }
           : content,
       );
     } finally {
@@ -9511,7 +9524,7 @@ function ReplyComposer({
             }
             initialMessage={editorContent.message}
             resetKey={`reply-${editorContent.version}`}
-            autoFocus={autoFocus}
+            autoFocus={autoFocus && editorContent.takeFocus}
             className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
             onChange={(next) => {
               setDraft(next);
