@@ -70,9 +70,32 @@ class FakeDocumentFragment {
 class FakeWebAnimation {
   currentTime: number | null = 0;
   paused = false;
+  readonly finished: Promise<void>;
+  private resolveFinished: () => void = () => {};
+  private rejectFinished: (reason: unknown) => void = () => {};
+
+  constructor() {
+    this.finished = new Promise((resolve, reject) => {
+      this.resolveFinished = resolve;
+      this.rejectFinished = reject;
+    });
+    // Nothing awaits a fake that is never finished or cancelled, so its pending promise must not raise.
+    this.finished.catch(() => {});
+  }
 
   pause(): void {
     this.paused = true;
+  }
+
+  finish(): void {
+    this.resolveFinished();
+  }
+
+  // Like a browser, cancelling rejects the finished promise.
+  cancel(): void {
+    this.rejectFinished(
+      new DOMException("The animation was cancelled.", "AbortError"),
+    );
   }
 }
 
@@ -167,20 +190,27 @@ class FakeElement {
 }
 
 const mutationCallbacks: Array<() => void> = [];
+const mutationObservers: FakeMutationObserver[] = [];
 
 class FakeMutationObserver {
+  disconnected = false;
+
   constructor(
     private readonly callback: (
       records: unknown[],
       observer: FakeMutationObserver,
     ) => void,
-  ) {}
+  ) {
+    mutationObservers.push(this);
+  }
 
   observe(): void {
     mutationCallbacks.push(() => this.callback([], this));
   }
 
-  disconnect(): void {}
+  disconnect(): void {
+    this.disconnected = true;
+  }
 }
 
 function sourceForRuntime(markup: string): string {
@@ -1595,6 +1625,139 @@ describe("Motion Text source and runtime", () => {
         compileMotionTextRuntime({ version: 2, animations: [rotating] }),
         target,
       );
+      expect(target.style.clipPath).toBe("");
+    });
+
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const handlesOf = (target: FakeElement) =>
+      unitsOf(target).flatMap((unit) =>
+        unit.animations.map((animation) => animation.handle),
+      );
+
+    it("disconnects the observer of a crop that a rerun replaces", () => {
+      mutationObservers.length = 0;
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      const animations = compileMotionTextRuntime(
+        { version: 2, animations: [{ ...rotating, clipContent: true }] },
+        "once",
+      );
+      executeRuntime(animations, target);
+      const [replaced] = mutationObservers;
+      executeRuntime(animations, target);
+
+      expect(replaced?.disconnected).toBe(true);
+      expect(mutationObservers[1]?.disconnected).toBe(false);
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("disconnects the observer of a crop that a rerun no longer asks for", () => {
+      mutationObservers.length = 0;
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "once",
+        ),
+        target,
+      );
+      const [cropObserver] = mutationObservers;
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [rotating] },
+          "once",
+        ),
+        target,
+      );
+
+      expect(cropObserver?.disconnected).toBe(true);
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("lifts the crop once a move that plays once has finished", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "once",
+        ),
+        target,
+      );
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      handlesOf(target).forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("keeps the crop of a looping move, which never finishes", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "loop",
+        ),
+        target,
+      );
+
+      await settle();
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("keeps the crop of a looping move after its animations are cancelled", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "loop",
+        ),
+        target,
+      );
+
+      handlesOf(target).forEach((handle) => handle.cancel());
+      await settle();
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("lifts the crop once every move has settled, even if one was cancelled", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "once",
+        ),
+        target,
+      );
+      const [cancelled, ...others] = handlesOf(target);
+      cancelled!.cancel();
+      others.forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("does not let an earlier run's finished move lift the newer run's crop", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      const animations = compileMotionTextRuntime(
+        { version: 2, animations: [{ ...rotating, clipContent: true }] },
+        "once",
+      );
+      executeRuntime(animations, target);
+      const earlier = handlesOf(target);
+      target.replaceChildren(new FakeTextNode("AB"));
+      executeRuntime(animations, target);
+
+      earlier.forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      handlesOf(target).forEach((handle) => handle.finish());
+      await settle();
       expect(target.style.clipPath).toBe("");
     });
 
