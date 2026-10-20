@@ -3134,6 +3134,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.email": "링크를 이메일로 보내기",
   "unsupportedDevice.share": "링크 공유",
   "unsupportedDevice.copy": "링크 복사",
+  "unsupportedDevice.copyFailed": "링크를 복사하지 못했어요",
   "unsupportedDevice.copied": "링크를 복사했어요",
   "unsupportedDevice.emailSubject": "컴퓨터에서 {{app}} 열기",
 };

@@ -3190,6 +3190,7 @@ const messages = {
   "unsupportedDevice.email": "Email me the link",
   "unsupportedDevice.share": "Share link",
   "unsupportedDevice.copy": "Copy link",
+  "unsupportedDevice.copyFailed": "Couldn't copy the link",
   "unsupportedDevice.copied": "Link copied",
   "unsupportedDevice.emailSubject": "Open {{app}} on your computer",
 } as const;

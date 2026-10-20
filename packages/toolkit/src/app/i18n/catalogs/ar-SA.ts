@@ -3327,6 +3327,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.email": "أرسل الرابط إلى بريدي",
   "unsupportedDevice.share": "مشاركة الرابط",
   "unsupportedDevice.copy": "نسخ الرابط",
+  "unsupportedDevice.copyFailed": "تعذّر نسخ الرابط",
   "unsupportedDevice.copied": "تم نسخ الرابط",
   "unsupportedDevice.emailSubject": "افتح {{app}} على حاسوبك",
 };

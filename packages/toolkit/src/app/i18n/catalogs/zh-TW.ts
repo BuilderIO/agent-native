@@ -2910,6 +2910,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.email": "將連結寄給我",
   "unsupportedDevice.share": "分享連結",
   "unsupportedDevice.copy": "複製連結",
+  "unsupportedDevice.copyFailed": "無法複製連結",
   "unsupportedDevice.copied": "已複製連結",
   "unsupportedDevice.emailSubject": "在電腦上開啟{{app}}",
 };

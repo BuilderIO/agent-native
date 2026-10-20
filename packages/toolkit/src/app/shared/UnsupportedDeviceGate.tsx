@@ -63,7 +63,13 @@ function UnsupportedDeviceNotice({
 }: Pick<UnsupportedDeviceGateProps, "appName" | "subject">) {
   const t = useT();
   const { session } = useSession();
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+  const copyLink = async () =>
+    setCopyState(
+      (await writeClipboardText(window.location.href)) ? "copied" : "failed",
+    );
   const url = window.location.href;
   const email = session?.email;
   const canShare = typeof navigator.share === "function";
@@ -75,9 +81,16 @@ function UnsupportedDeviceNotice({
       // Dismissing the share sheet rejects with AbortError; anything else
       // means sharing is unavailable here, so fall back to copying.
       if (error instanceof DOMException && error.name === "AbortError") return;
-      setCopied(await writeClipboardText(url));
+      await copyLink();
     }
   };
+
+  const copyLabel =
+    copyState === "copied"
+      ? t("agentChat.unsupportedDevice.copied")
+      : copyState === "failed"
+        ? t("agentChat.unsupportedDevice.copyFailed")
+        : null;
 
   // The gate runs before sign-in, so an unknown address gets no email action
   // rather than a blank To field.
@@ -85,9 +98,7 @@ function UnsupportedDeviceNotice({
     canShare
       ? {
           id: "share",
-          label: copied
-            ? t("agentChat.unsupportedDevice.copied")
-            : t("agentChat.unsupportedDevice.share"),
+          label: copyLabel ?? t("agentChat.unsupportedDevice.share"),
           run: shareLink,
         }
       : null,
@@ -105,10 +116,8 @@ function UnsupportedDeviceNotice({
     !canShare
       ? {
           id: "copy",
-          label: copied
-            ? t("agentChat.unsupportedDevice.copied")
-            : t("agentChat.unsupportedDevice.copy"),
-          run: async () => setCopied(await writeClipboardText(url)),
+          label: copyLabel ?? t("agentChat.unsupportedDevice.copy"),
+          run: copyLink,
         }
       : null,
   ].filter((action) => action !== null);

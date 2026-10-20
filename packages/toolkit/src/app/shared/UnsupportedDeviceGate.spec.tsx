@@ -123,4 +123,18 @@ describe("UnsupportedDeviceGate", () => {
       "agentChat.unsupportedDevice.email",
     ]);
   });
+
+  it("says so when copying fails", async () => {
+    mockMatchMedia(true);
+    session.current = null;
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+      configurable: true,
+    });
+    render();
+    await act(async () => {
+      container.querySelector("button")!.click();
+    });
+    expect(buttonLabels()).toEqual(["agentChat.unsupportedDevice.copyFailed"]);
+  });
 });

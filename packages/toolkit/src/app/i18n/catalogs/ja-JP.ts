@@ -3188,6 +3188,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.email": "リンクをメールで送る",
   "unsupportedDevice.share": "リンクを共有",
   "unsupportedDevice.copy": "リンクをコピー",
+  "unsupportedDevice.copyFailed": "リンクをコピーできませんでした",
   "unsupportedDevice.copied": "リンクをコピーしました",
   "unsupportedDevice.emailSubject": "パソコンで{{app}}を開く",
 };

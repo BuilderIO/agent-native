@@ -3120,6 +3120,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.email": "मुझे लिंक ईमेल करें",
   "unsupportedDevice.share": "लिंक शेयर करें",
   "unsupportedDevice.copy": "लिंक कॉपी करें",
+  "unsupportedDevice.copyFailed": "लिंक कॉपी नहीं हो सका",
   "unsupportedDevice.copied": "लिंक कॉपी हो गया",
   "unsupportedDevice.emailSubject": "अपने कंप्यूटर पर {{app}} खोलें",
 };

@@ -3345,6 +3345,7 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.email": "Link per E-Mail senden",
   "unsupportedDevice.share": "Link teilen",
   "unsupportedDevice.copy": "Link kopieren",
+  "unsupportedDevice.copyFailed": "Link konnte nicht kopiert werden",
   "unsupportedDevice.copied": "Link kopiert",
   "unsupportedDevice.emailSubject": "{{app}} auf deinem Computer öffnen",
 };
