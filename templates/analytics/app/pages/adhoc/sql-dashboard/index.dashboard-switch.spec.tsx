@@ -205,6 +205,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({ formatNumber: (value: number) => String(value) }),
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({

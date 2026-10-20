@@ -1,3 +1,4 @@
+import { captureRouteError } from "@agent-native/core/server";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -268,6 +269,260 @@ describe("/api/thumbnail/:recordingId route", () => {
       thumbnailUrl,
       expect.objectContaining({ redirect: "manual" }),
     );
+  });
+
+  it("reads an own-bucket thumbnail on a private address with the owner's bucket credentials", async () => {
+    const thumbnailUrl = "http://127.0.0.1:4634/bucket/clips/rec-1/thumb.jpg";
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          thumbnailUrl,
+          storageMode: "own",
+          ownerEmail: "owner@example.com",
+          organizationId: "org-1",
+        }),
+      ),
+    );
+    const contexts: unknown[] = [];
+    mockRunWithRequestContext.mockImplementation(async (context, callback) => {
+      contexts.push(context);
+      try {
+        return await callback();
+      } finally {
+        contexts.pop();
+      }
+    });
+    let readerContext: unknown;
+    mockFetchS3ObjectByUrl.mockImplementation(async () => {
+      readerContext = contexts[contexts.length - 1];
+      return new Response("bucket thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    });
+
+    const result = await handler(makeEvent() as any);
+
+    expect(await (result as Response).text()).toBe("bucket thumbnail");
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      thumbnailUrl,
+      expect.objectContaining({ recordingId: "rec-1", storageMode: "own" }),
+    );
+    expect(readerContext).toEqual({
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a private address the own bucket does not serve", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          thumbnailUrl: "http://169.254.169.254/latest/meta-data",
+          storageMode: "own",
+        }),
+      ),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expectDefaultSocialRedirect(result);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the public fetch when the own bucket refuses the thumbnail", async () => {
+    const thumbnailUrl = "https://bucket.example.com/clips/rec-1/thumb.jpg";
+    mockGetDb.mockReturnValue(
+      createDbWithRow(makeRow({ thumbnailUrl, storageMode: "own" })),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("denied", { status: 403 }),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(await (result as Response).text()).toBe("public thumbnail");
+    expect(mockIsBlockedExtensionUrlWithDns).toHaveBeenCalledWith(thumbnailUrl);
+    expect(captureRouteError).not.toHaveBeenCalled();
+  });
+
+  it("reports a bucket 5xx that the public fallback would hide", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+          storageMode: "own",
+        }),
+      ),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("unavailable", { status: 503 }),
+    );
+    vi.mocked(fetch).mockResolvedValue(new Response("denied", { status: 403 }));
+
+    const result = await handler(makeEvent() as any);
+
+    expectDefaultSocialRedirect(result);
+    expect(captureRouteError).toHaveBeenCalledWith(
+      new Error("Storage provider returned 503 for thumbnail"),
+      expect.objectContaining({ tags: { upstreamStatus: "503" } }),
+    );
+  });
+
+  it("refuses the public fallback when its DNS check outlasts the budget", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 25_000);
+        throw new Error("bucket timed out");
+      });
+      mockIsBlockedExtensionUrlWithDns.mockReturnValue(new Promise(() => {}));
+      let settled = false;
+      const pending = handler(makeEvent() as any).finally(() => {
+        settled = true;
+      });
+      await vi.waitFor(() =>
+        expect(mockIsBlockedExtensionUrlWithDns).toHaveBeenCalled(),
+      );
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(settled).toBe(true);
+      expectDefaultSocialRedirect(await pending);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(captureRouteError).toHaveBeenCalledWith(
+        new Error("Thumbnail fetch ran out of time before the host check"),
+        expect.anything(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats a host check that finishes after the deadline as too late", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockRejectedValue(new Error("bucket timed out"));
+      // The clock passes the deadline without the race's timer getting a turn.
+      mockIsBlockedExtensionUrlWithDns.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 31_000);
+        return false;
+      });
+
+      const result = await handler(makeEvent() as any);
+
+      expectDefaultSocialRedirect(result);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips the public fallback when the bucket read spent the whole budget", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 30_000);
+        throw new Error("bucket timed out");
+      });
+
+      const result = await handler(makeEvent() as any);
+
+      expectDefaultSocialRedirect(result);
+      expect(mockIsBlockedExtensionUrlWithDns).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives the public fallback only what the bucket read left of the budget", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 25_000);
+        throw new Error("bucket timed out");
+      });
+      vi.mocked(fetch).mockImplementation(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            );
+          }),
+      );
+      let settled = false;
+      const pending = handler(makeEvent() as any).finally(() => {
+        settled = true;
+      });
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(settled).toBe(true);
+      expectDefaultSocialRedirect(await pending);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to the public fetch when the own bucket read throws", async () => {
+    const thumbnailUrl = "https://bucket.example.com/clips/rec-1/thumb.jpg";
+    mockGetDb.mockReturnValue(
+      createDbWithRow(makeRow({ thumbnailUrl, storageMode: "own" })),
+    );
+    mockFetchS3ObjectByUrl.mockRejectedValue(new Error("bucket timed out"));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(await (result as Response).text()).toBe("public thumbnail");
   });
 
   it("redirects to the branded image while a thumbnail is unavailable", async () => {
@@ -579,6 +834,36 @@ describe("/api/thumbnail/:recordingId route", () => {
         passwordRequired: true,
       });
       expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("is read from the footage's storage, with the clip owner's credentials", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence(
+          [{ recordingId: "clip-1" }],
+          [{ ...footageRow, storageMode: "own" }],
+        ),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: makeRow({
+          id: "clip-1",
+          storageMode: "hosted",
+          ownerEmail: "owner@example.com",
+        }),
+      });
+      mockFetchS3ObjectByUrl.mockResolvedValue(imageResponse());
+
+      const result = await handler(makeEvent() as any);
+
+      expect(await (result as Response).text()).toBe("thumbnail");
+      expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/footage-thumb.jpg",
+        expect.objectContaining({ recordingId: "rec-1", storageMode: "own" }),
+      );
+      expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+        expect.objectContaining({ userEmail: "owner@example.com" }),
+        expect.any(Function),
+      );
     });
   });
 });
