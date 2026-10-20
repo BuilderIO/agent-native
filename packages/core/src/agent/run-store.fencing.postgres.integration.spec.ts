@@ -448,7 +448,8 @@ describe.skipIf(!databaseUrl)(
           await sql.unsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$
             BEGIN
               IF NEW.run_id = '${runId}'
-                AND (NEW.event_data::jsonb ->> 'errorCode') = 'aborted_user' THEN
+                AND (NEW.event_data::jsonb ->> 'type') = 'done'
+                AND (NEW.event_data::jsonb ->> 'reason') = 'user' THEN
                 IF nextval('${sequence}') <= 2 THEN
                   RAISE EXCEPTION 'injected terminal event failure';
                 END IF;
@@ -485,7 +486,8 @@ describe.skipIf(!databaseUrl)(
           const missingTerminal = await sql`
             SELECT seq FROM agent_run_events
             WHERE run_id = ${runId}
-              AND (event_data::jsonb ->> 'errorCode') = 'aborted_user'
+              AND (event_data::jsonb ->> 'type') = 'done'
+              AND (event_data::jsonb ->> 'reason') = 'user'
           `;
           expect(missingTerminal).toHaveLength(0);
 
@@ -511,12 +513,13 @@ describe.skipIf(!databaseUrl)(
           const terminalEvents = await sql`
             SELECT seq, event_data::text AS event_data FROM agent_run_events
             WHERE run_id = ${runId}
-              AND (event_data::jsonb ->> 'errorCode') = 'aborted_user'
+              AND (event_data::jsonb ->> 'type') = 'done'
+              AND (event_data::jsonb ->> 'reason') = 'user'
           `;
           expect(terminalEvents).toHaveLength(1);
           expect(JSON.parse(terminalEvents[0]!.event_data)).toMatchObject({
-            type: "error",
-            errorCode: "aborted_user",
+            type: "done",
+            reason: "user",
           });
         } finally {
           await sql.unsafe(
