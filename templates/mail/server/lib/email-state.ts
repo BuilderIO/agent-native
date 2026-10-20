@@ -26,6 +26,7 @@ import {
   findAccountForMessage,
   findAccountForThread,
   findAccountsForTargets,
+  readAccountRowCounts,
   findThreadIdsByMessageIds,
 } from "./inbox-store.js";
 import {
@@ -137,6 +138,45 @@ const MESSAGE_PROBE_UNITS = 20;
 
 type ProbeTarget = { key: string; threadId?: string; messageId?: string };
 
+// (account, target) pairs Gmail already said 404 for. A retry within the
+// window skips them instead of spending the budget again; entries are
+// instance-local and expire, so a thread that later appears is found again.
+const PROBE_MISS_TTL_MS = 2 * 60_000;
+const PROBE_MISS_MAX = 2_000;
+const probeMisses = new Map<string, number>();
+
+export function clearProbeMissCache(): void {
+  probeMisses.clear();
+}
+
+function probeMissKey(owner: string, account: string, t: ProbeTarget): string {
+  return `${owner.toLowerCase()}\0${account.toLowerCase()}\0${
+    t.threadId ? `t:${t.threadId}` : `m:${t.messageId}`
+  }`;
+}
+
+function isKnownMiss(owner: string, account: string, t: ProbeTarget): boolean {
+  const key = probeMissKey(owner, account, t);
+  const expiresAt = probeMisses.get(key);
+  if (expiresAt === undefined) return false;
+  if (expiresAt <= Date.now()) {
+    probeMisses.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function rememberMiss(owner: string, account: string, t: ProbeTarget): void {
+  if (probeMisses.size >= PROBE_MISS_MAX) {
+    const oldest = probeMisses.keys().next().value;
+    if (oldest !== undefined) probeMisses.delete(oldest);
+  }
+  probeMisses.set(
+    probeMissKey(owner, account, t),
+    Date.now() + PROBE_MISS_TTL_MS,
+  );
+}
+
 // The synced store only keeps inbox rows, so a thread archived long enough ago
 // has none. Cache misses are resolved together: every connected Gmail account
 // (OAuth and managed) is asked once, with the still-unresolved ids as a batch
@@ -157,8 +197,23 @@ async function probeAccountsForTargets(
   const missing = new Map<string, Set<string>>();
   const targetName = (t: ProbeTarget) => t.threadId ?? t.messageId ?? t.key;
 
-  for (const accountId of accountIds) {
+  for (const [index, accountId] of accountIds.entries()) {
     if (open.length === 0) break;
+    // Known 404s for this account cost nothing and count as answered.
+    const toProbe: ProbeTarget[] = [];
+    for (const t of open) {
+      if (isKnownMiss(ownerEmail, accountId, t)) {
+        const accounts = missing.get(t.key) ?? new Set<string>();
+        accounts.add(accountId);
+        missing.set(t.key, accounts);
+      } else {
+        toProbe.push(t);
+      }
+    }
+    if (toProbe.length === 0) continue;
+    // Each account gets an equal share of what is left, so an owner late in
+    // the list is still reached; shares an account does not use roll forward.
+    let allowance = Math.floor(budget / (accountIds.length - index));
     let token: string | null = null;
     try {
       token = await getToken(accountId, ownerEmail);
@@ -166,20 +221,21 @@ async function probeAccountsForTargets(
       token = null;
     }
     if (!token) {
-      for (const t of open)
+      for (const t of toProbe)
         unreadable.set(t.key, (unreadable.get(t.key) ?? 0) + 1);
       continue;
     }
 
     // Take as many open targets as the remaining budget pays for.
     const probing: ProbeTarget[] = [];
-    for (const t of open) {
+    for (const t of toProbe) {
       const cost = t.threadId ? THREAD_PROBE_UNITS : MESSAGE_PROBE_UNITS;
-      if (budget < cost) break;
+      if (allowance < cost) break;
+      allowance -= cost;
       budget -= cost;
       probing.push(t);
     }
-    if (probing.length === 0) break;
+    if (probing.length === 0) continue;
 
     const found = new Set<string>();
     const failed = new Set<string>();
@@ -205,6 +261,7 @@ async function probeAccountsForTargets(
             const accounts = missing.get(t.key) ?? new Set<string>();
             accounts.add(accountId);
             missing.set(t.key, accounts);
+            rememberMiss(ownerEmail, accountId, t);
           } else {
             failed.add(t.key);
           }
@@ -276,7 +333,16 @@ async function resolveCacheMisses(
     for (const t of misses) outcome.set(t.key, accounts[0]);
     return outcome;
   }
-  const probed = await probeAccountsForTargets(ownerEmail, accounts, misses);
+  // Try the account holding the most cached rows first: it is the likeliest
+  // owner of a thread the store has lost. A failed count only loses the order.
+  const counts = await readAccountRowCounts(ownerEmail).catch(
+    () => new Map<string, number>(),
+  );
+  const ordered = [...accounts].sort(
+    (a, b) =>
+      (counts.get(b.toLowerCase()) ?? 0) - (counts.get(a.toLowerCase()) ?? 0),
+  );
+  const probed = await probeAccountsForTargets(ownerEmail, ordered, misses);
   for (const t of misses) {
     const result = probed.get(t.key);
     // A managed lookup that errored means the account list may be missing the
@@ -313,6 +379,29 @@ export async function resolveMutationAccount(
   throw result ?? new MutationAccountNotFoundError("unknown");
 }
 
+/** A target no account could be found for, with the typed failure kept. */
+export type UnresolvedMutationTarget = {
+  id: string;
+  error: string;
+  /** Machine-readable reason, e.g. account_not_found. */
+  code?: string;
+  /** Error class: MutationAccountNotFoundError, MutationAccountLookupError... */
+  kind?: string;
+};
+type UnresolvedFields = Omit<UnresolvedMutationTarget, "id">;
+
+function errorFields(err: unknown): UnresolvedFields {
+  const e = err as { message?: unknown; code?: unknown; name?: unknown } | null;
+  return {
+    error:
+      typeof e?.message === "string" && e.message
+        ? e.message
+        : "Could not resolve connected account",
+    ...(typeof e?.code === "string" ? { code: e.code } : {}),
+    ...(err instanceof Error ? { kind: err.name } : {}),
+  };
+}
+
 export async function resolveMutationAccounts<
   T extends { id: string; threadId?: string; accountEmail?: string },
 >(
@@ -320,7 +409,7 @@ export async function resolveMutationAccounts<
   targets: readonly T[],
 ): Promise<{
   resolved: Array<T & { accountEmail: string }>;
-  unresolved: Array<{ id: string; error: string }>;
+  unresolved: UnresolvedMutationTarget[];
 }> {
   // One slot per target keeps the caller's order across cache hits and probes.
   const slots: Array<{ accountEmail: string } | { error: string } | undefined> =
@@ -328,7 +417,7 @@ export async function resolveMutationAccounts<
   const misses: ProbeTarget[] = [];
   const unmapped = targets.filter((target) => !target.accountEmail);
   let cached: Awaited<ReturnType<typeof findAccountsForTargets>> | null = null;
-  let cacheError = "";
+  let cacheError: UnresolvedFields = { error: "" };
   if (unmapped.length > 0) {
     // One query covers every target's thread and message id.
     try {
@@ -339,7 +428,7 @@ export async function resolveMutationAccounts<
         messageIds: unmapped.map((target) => target.id),
       });
     } catch (err: any) {
-      cacheError = err?.message ?? "Could not resolve connected account";
+      cacheError = errorFields(err);
     }
   }
   for (const [index, target] of targets.entries()) {
@@ -348,7 +437,7 @@ export async function resolveMutationAccounts<
       continue;
     }
     if (!cached) {
-      slots[index] = { error: cacheError };
+      slots[index] = cacheError;
       continue;
     }
     const found =
@@ -365,22 +454,20 @@ export async function resolveMutationAccounts<
   }
   if (misses.length > 0) {
     let outcome: Map<string, string | Error> | null = null;
-    let failure = "";
+    let failure: UnresolvedFields | null = null;
     try {
       outcome = await resolveCacheMisses(ownerEmail, misses);
     } catch (err: any) {
-      failure = err?.message ?? "Could not resolve connected account";
+      failure = errorFields(err);
     }
     for (const miss of misses) {
       const result = outcome?.get(miss.key);
       slots[Number(miss.key)] =
         typeof result === "string"
           ? { accountEmail: result }
-          : {
-              error:
-                result?.message ??
-                (failure || "Could not resolve connected account"),
-            };
+          : result
+            ? errorFields(result)
+            : (failure ?? { error: "Could not resolve connected account" });
     }
   }
   const resolved: Array<T & { accountEmail: string }> = [];
@@ -392,7 +479,7 @@ export async function resolveMutationAccounts<
     } else {
       unresolved.push({
         id: target.id,
-        error: slot?.error ?? "Could not resolve connected account",
+        ...(slot ?? { error: "Could not resolve connected account" }),
       });
     }
   }

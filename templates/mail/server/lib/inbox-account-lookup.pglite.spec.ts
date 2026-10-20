@@ -111,4 +111,21 @@ describe("findAccountsForTargets (PGlite)", () => {
     expect(found.byThread.size).toBe(50);
     expect(found.byThread.get("t3")).toBe("b@example.com");
   });
+
+  it("counts cached rows per account for one owner", async () => {
+    const owner = "owner@example.com";
+    await stores.upsertInboxThreadRows([
+      thread(owner, "a@example.com", "t1", ["m1"]),
+      thread(owner, "a@example.com", "t2", ["m2"]),
+      thread(owner, "b@example.com", "t3", ["m3"]),
+      thread("other@example.com", "c@example.com", "t4", ["m4"]),
+    ]);
+
+    const counts = await stores.readAccountRowCounts(owner);
+
+    expect(Object.fromEntries(counts)).toEqual({
+      "a@example.com": 2,
+      "b@example.com": 1,
+    });
+  });
 });

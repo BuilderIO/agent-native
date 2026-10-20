@@ -622,6 +622,24 @@ export async function findAccountsForTargets(
   return { byThread, byMessage };
 }
 
+/**
+ * How many cached rows each of the owner's accounts has, so a lookup can try
+ * the account most likely to own an unknown thread first.
+ */
+export async function readAccountRowCounts(
+  ownerEmail: string,
+): Promise<Map<string, number>> {
+  const rows = await getDb()
+    .select({
+      accountEmail: schema.mailInboxThreads.accountEmail,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(schema.mailInboxThreads)
+    .where(eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()))
+    .groupBy(schema.mailInboxThreads.accountEmail);
+  return new Map(rows.map((row) => [row.accountEmail, Number(row.count)]));
+}
+
 export async function findAccountForMessage(
   ownerEmail: string,
   messageId: string,

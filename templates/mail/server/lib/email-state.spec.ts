@@ -16,6 +16,7 @@ const inboxStoreMocks = vi.hoisted(() => ({
   findAccountForThread: vi.fn(),
   findAccountForMessage: vi.fn(),
   findAccountsForTargets: vi.fn(),
+  readAccountRowCounts: vi.fn(),
 }));
 
 import {
@@ -30,6 +31,7 @@ import {
   resolveMutationAccounts,
   resolveMutationAccount,
   MutationAccountNotFoundError,
+  clearProbeMissCache,
   MutationAccountLookupError,
   resolveAccountEmail,
   getAccountToken,
@@ -86,6 +88,7 @@ vi.mock("./inbox-store.js", () => ({
   findAccountForThread: inboxStoreMocks.findAccountForThread,
   findAccountForMessage: inboxStoreMocks.findAccountForMessage,
   findAccountsForTargets: inboxStoreMocks.findAccountsForTargets,
+  readAccountRowCounts: inboxStoreMocks.readAccountRowCounts,
 }));
 
 import {
@@ -255,6 +258,8 @@ beforeEach(() => {
   inboxStoreMocks.findThreadIdsByMessageIds.mockResolvedValue(new Map());
   inboxStoreMocks.findAccountForThread.mockResolvedValue(null);
   inboxStoreMocks.findAccountForMessage.mockResolvedValue(null);
+  inboxStoreMocks.readAccountRowCounts.mockResolvedValue(new Map());
+  clearProbeMissCache();
   // The bulk lookup is one store query; tests script it through the per-id mocks.
   inboxStoreMocks.findAccountsForTargets.mockImplementation(
     async (
@@ -1261,12 +1266,16 @@ describe("resolveMutationAccounts", () => {
     ]);
 
     expect(resolved).toEqual([]);
+    // The typed failure travels with the result, not just its message.
     expect(unresolved).toEqual([
       {
         id: "m1",
         error: expect.stringContaining(
           "Cannot determine which connected account",
         ),
+        // No Gmail read is scripted, so the accounts could not be checked.
+        code: "account_lookup_failed",
+        kind: "MutationAccountLookupError",
       },
     ]);
   });
@@ -1391,7 +1400,7 @@ describe("resolveMutationAccounts", () => {
       expect(error).toBeInstanceOf(MutationAccountNotFoundError);
     });
 
-    it("resolves a 50-target batch with one batch read per account and leaves nothing unbounded", async () => {
+    it("splits the probe budget fairly across accounts and resolves a batch over retries", async () => {
       tokensPerAccount();
       const ids = Array.from({ length: 50 }, (_, index) => `t${index}`);
       // The first account owns the even threads, the second the odd ones.
@@ -1404,20 +1413,101 @@ describe("resolveMutationAccounts", () => {
           const owns = token === `token-${ACCT}` ? even : !even;
           return owns ? { id, data: { id } } : notFound(id);
         })) as any);
+      const owner = (id: string) =>
+        Number(id.slice(1)) % 2 === 0 ? ACCT : ACCT2;
 
-      const { resolved, unresolved } = await resolveMutationAccounts(
-        OWNER,
-        ids.map((id) => ({ id: `m-${id}`, threadId: id })),
-      );
+      let open = ids;
+      const resolvedBy = new Map<string, string>();
+      let calls = 0;
+      while (open.length > 0 && calls < 3) {
+        calls++;
+        const before = vi.mocked(gmailBatchGetThreads).mock.calls.length;
+        const { resolved, unresolved } = await resolveMutationAccounts(
+          OWNER,
+          open.map((id) => ({ id: `m-${id}`, threadId: id })),
+        );
+        for (const target of resolved) {
+          resolvedBy.set(target.threadId!, target.accountEmail);
+        }
+        open = unresolved.map((entry) => entry.id.slice(2));
+        const reads = vi
+          .mocked(gmailBatchGetThreads)
+          .mock.calls.slice(before)
+          .reduce((sum, call) => sum + call[1].length, 0);
+        // Never above the 3,000-unit probe budget (75 thread reads) in one call.
+        expect(reads).toBeLessThanOrEqual(75);
+      }
 
-      expect(unresolved).toEqual([]);
-      expect(resolved.map((target) => target.accountEmail)).toEqual(
-        ids.map((_, index) => (index % 2 === 0 ? ACCT : ACCT2)),
+      expect(open).toEqual([]);
+      for (const id of ids) expect(resolvedBy.get(id)).toBe(owner(id));
+    });
+
+    it("resolves many misses owned by the last of three accounts, remembering earlier 404s", async () => {
+      const ACCT3 = "connected3@example.com";
+      mockTwoAccounts();
+      vi.mocked(listOAuthAccountsByOwner).mockResolvedValue(
+        [ACCT, ACCT2, ACCT3].map((accountId) => ({
+          accountId,
+          owner: OWNER,
+          tokens: { access_token: "x", expiry_date: Date.now() + 3600_000 },
+        })) as any,
       );
-      // 50 ids fit one batch per account: 2 calls, never 100 serial probes.
-      expect(vi.mocked(gmailBatchGetThreads)).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(gmailBatchGetThreads).mock.calls[0][1]).toHaveLength(50);
-      expect(vi.mocked(gmailBatchGetThreads).mock.calls[1][1]).toHaveLength(25);
+      vi.mocked(getOAuthTokens).mockImplementation((async (
+        _provider: string,
+        accountId: string,
+      ) => ({
+        access_token: `token-${accountId}`,
+        expiry_date: Date.now() + 3600_000,
+      })) as any);
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        token: string,
+        requested: string[],
+      ) =>
+        requested.map((id) =>
+          token === `token-${ACCT3}` ? { id, data: { id } } : notFound(id),
+        )) as any);
+      const ids = Array.from({ length: 60 }, (_, index) => `t${index}`);
+
+      let open = ids;
+      let calls = 0;
+      while (open.length > 0 && calls < 4) {
+        calls++;
+        const { unresolved, resolved } = await resolveMutationAccounts(
+          OWNER,
+          open.map((id) => ({ id: `m-${id}`, threadId: id })),
+        );
+        expect(resolved.every((t) => t.accountEmail === ACCT3)).toBe(true);
+        open = unresolved.map((entry) => entry.id.slice(2));
+      }
+
+      expect(open).toEqual([]);
+      // A thread already answered 404 by an account is never asked of it again.
+      const asked = vi
+        .mocked(gmailBatchGetThreads)
+        .mock.calls.filter(([token]) => token === `token-${ACCT}`)
+        .flatMap((call) => call[1]);
+      expect(new Set(asked).size).toBe(asked.length);
+    });
+
+    it("tries the account with the most cached rows first", async () => {
+      tokensPerAccount();
+      inboxStoreMocks.readAccountRowCounts.mockResolvedValue(
+        new Map([
+          [ACCT, 3],
+          [ACCT2, 40],
+        ]),
+      );
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        _token: string,
+        requested: string[],
+      ) => requested.map((id) => ({ id, data: { id } }))) as any);
+
+      const { resolved } = await resolveMutationAccounts(OWNER, [
+        { id: "m1", threadId: THREAD_ID },
+      ]);
+
+      expect(resolved[0].accountEmail).toBe(ACCT2);
+      expect(vi.mocked(gmailBatchGetThreads)).toHaveBeenCalledTimes(1);
     });
 
     it("stops probing at the unit budget and returns typed limit errors for the rest", async () => {
@@ -1440,14 +1530,13 @@ describe("resolveMutationAccounts", () => {
       expect(read).toBeLessThanOrEqual(75);
       expect(unresolved).toHaveLength(120);
       expect(
-        unresolved.filter((entry) => /too many lookups/.test(entry.error))
+        unresolved.filter((entry) => entry.code === "account_lookup_limited")
           .length,
       ).toBeGreaterThanOrEqual(120 - 75);
     });
 
-    it("reports a probe limit, not not-found, when the budget ran out before every account was asked", async () => {
+    it("reports a probe limit, not not-found, for targets not every account answered", async () => {
       tokensPerAccount();
-      // 75 reads fit the budget; the 76th..80th target only gets the first account.
       const ids = Array.from({ length: 80 }, (_, index) => `t${index}`);
       vi.mocked(gmailBatchGetThreads).mockImplementation((async (
         _token: string,
@@ -1459,14 +1548,12 @@ describe("resolveMutationAccounts", () => {
         ids.map((id) => ({ id: `m-${id}`, threadId: id })),
       );
 
-      const byId = new Map(unresolved.map((entry) => [entry.id, entry.error]));
-      // Asked on the first account (404) but never on the second: not "not found".
-      for (const id of ids.slice(0, 75)) {
-        expect(byId.get(`m-${id}`)).toMatch(/too many lookups/);
-      }
-      expect(
-        unresolved.filter((entry) => /too many lookups/.test(entry.error)),
-      ).toHaveLength(80);
+      const byId = new Map(unresolved.map((entry) => [entry.id, entry]));
+      const codes = ids.map((id) => byId.get(`m-${id}`)?.code);
+      // Both accounts said 404 for the first thread: genuinely not found.
+      expect(codes[0]).toBe("account_not_found");
+      // The last were never asked at all: a limit, not a guess.
+      expect(codes[79]).toBe("account_lookup_limited");
     });
 
     it("reports not-found only after every account answered 404", async () => {
@@ -1557,7 +1644,14 @@ describe("resolveMutationAccounts", () => {
       { id: "m1", threadId: "known-thread", accountEmail: ACCT2 },
       { id: "m3", accountEmail: ACCT },
     ]);
-    expect(unresolved).toEqual([{ id: "m2", error: expect.any(String) }]);
+    expect(unresolved).toEqual([
+      {
+        id: "m2",
+        error: expect.any(String),
+        code: expect.any(String),
+        kind: expect.any(String),
+      },
+    ]);
   });
 });
 
