@@ -18407,7 +18407,7 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
-  it("collapses duplicate assistant tool-call ids before execution and replay", async () => {
+  it("deduplicates streamed tool-call delivery against final assistant content", async () => {
     let streamCalls = 0;
     let replayedMessages: EngineMessage[] | undefined;
     const events: AgentChatEvent[] = [];
@@ -18428,14 +18428,14 @@ describe("runAgentLoop", () => {
         streamCalls += 1;
         if (streamCalls === 1) {
           yield {
+            type: "tool-call",
+            id: "call_duplicate",
+            name: "list-session-recordings",
+            input: { userId: "tim@builder.io", limit: 1 },
+          };
+          yield {
             type: "assistant-content",
             parts: [
-              {
-                type: "tool-call" as const,
-                id: "call_duplicate",
-                name: "list-session-recordings",
-                input: { userId: "tim@builder.io", limit: 1 },
-              },
               {
                 type: "tool-call" as const,
                 id: "call_duplicate",

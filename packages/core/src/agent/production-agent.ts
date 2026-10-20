@@ -6185,25 +6185,30 @@ function normalizeToolCallInputForHistory(
   return { rawInput: input };
 }
 
-function dedupeAssistantToolCallsById(
+function mergeStreamedAssistantToolCalls(
   content: import("./engine/types.js").EngineContentPart[],
+  streamedCalls: import("./engine/types.js").EngineToolCallPart[],
 ): import("./engine/types.js").EngineContentPart[] {
-  const seenCallsById = new Map<string, Set<string>>();
-  const deduped: import("./engine/types.js").EngineContentPart[] = [];
+  const occurrenceCounts = new Map<string, number>();
+  const identity = (call: import("./engine/types.js").EngineToolCallPart) =>
+    JSON.stringify([call.id, call.name, toolCallInputFingerprint(call.input)]);
   for (const part of content) {
-    if (part.type === "tool-call") {
-      const identity = JSON.stringify([
-        part.name,
-        toolCallInputFingerprint(part.input),
-      ]);
-      const seen = seenCallsById.get(part.id);
-      if (seen?.has(identity)) continue;
-      if (seen) seen.add(identity);
-      else seenCallsById.set(part.id, new Set([identity]));
-    }
-    deduped.push(part);
+    if (part.type !== "tool-call") continue;
+    const key = identity(part);
+    occurrenceCounts.set(key, (occurrenceCounts.get(key) ?? 0) + 1);
   }
-  return deduped;
+
+  const merged = [...content];
+  for (const call of streamedCalls) {
+    const key = identity(call);
+    const representedCount = occurrenceCounts.get(key) ?? 0;
+    if (representedCount > 0) {
+      occurrenceCounts.set(key, representedCount - 1);
+      continue;
+    }
+    merged.push(call);
+  }
+  return merged;
 }
 
 function schemaErrorPropertyNames(error: string): string[] {
@@ -7999,19 +8004,10 @@ export async function runAgentLoop(opts: {
         ...streamedAssistantToolCalls,
       ];
     } else if (assistantContent && streamedAssistantToolCalls.length > 0) {
-      const existingToolCallIds = new Set(
-        assistantContent
-          .filter(
-            (part): part is import("./engine/types.js").EngineToolCallPart =>
-              part.type === "tool-call",
-          )
-          .map((part) => part.id),
+      assistantContent = mergeStreamedAssistantToolCalls(
+        assistantContent,
+        streamedAssistantToolCalls,
       );
-      for (const toolCall of streamedAssistantToolCalls) {
-        if (!existingToolCallIds.has(toolCall.id)) {
-          assistantContent.push(toolCall);
-        }
-      }
     }
     if (!assistantContent) {
       if (!terminalStopReason) {
@@ -8045,8 +8041,6 @@ export async function runAgentLoop(opts: {
         }
       }
     }
-
-    assistantContent = dedupeAssistantToolCallsById(assistantContent);
 
     const assistantContentForHistory = assistantContent.map((part) =>
       part.type === "tool-call"

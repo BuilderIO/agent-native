@@ -140,85 +140,103 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
-  it("preserves separate durable identities when one response reuses a provider call id", async () => {
-    const actionRun = vi.fn(
-      async (input: { id: string }) => `Deck ${input.id}`,
-    );
-    const action = {
-      tool: {
-        description: "Create a deck",
-        parameters: {
-          type: "object" as const,
-          properties: { id: { type: "string" } },
-          required: ["id"],
-        },
-      },
-      readOnly: false,
-      run: actionRun,
-    };
-    const seenMessages: string[] = [];
-    const events: AgentChatEvent[] = [];
-
-    await withExecutionFence(fence, () =>
-      runAgentLoop({
-        engine: engineFor(
-          [
-            [
-              toolCall("reused-provider-id", { id: "first" }),
-              toolCall("reused-provider-id", { id: "second" }),
-            ],
-            [text("Both decks are ready.")],
-          ],
-          seenMessages,
-        ),
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "Create both decks." }],
+  it.each([
+    {
+      label: "different inputs",
+      firstInput: { id: "first" },
+      secondInput: { id: "second" },
+    },
+    {
+      label: "identical inputs",
+      firstInput: { id: "same" },
+      secondInput: { id: "same" },
+    },
+  ])(
+    "preserves separate durable identities for $label",
+    async ({ firstInput, secondInput }) => {
+      const actionRun = vi.fn(
+        async (input: { id: string }) => `Deck ${input.id}`,
+      );
+      const action = {
+        tool: {
+          description: "Create a deck",
+          parameters: {
+            type: "object" as const,
+            properties: { id: { type: "string" } },
+            required: ["id"],
           },
-        ],
-        actions: { "create-deck": action },
-        threadId: fence.threadId,
-        turnId: fence.turnId,
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      }),
-    );
+        },
+        readOnly: false,
+        run: actionRun,
+      };
+      const seenMessages: string[] = [];
+      const events: AgentChatEvent[] = [];
 
-    expect(actionRun).toHaveBeenCalledTimes(2);
-    expect(durableStep.completedSteps).toHaveLength(2);
-    expect(durableStep.completedSteps[0]?.stepId).not.toBe(
-      durableStep.completedSteps[1]?.stepId,
-    );
-    expect(
-      events
-        .filter((event) => event.type === "tool_done")
-        .map((event) => event.executionStepId),
-    ).toEqual([
-      durableStep.completedSteps[0]?.stepId,
-      durableStep.completedSteps[1]?.stepId,
-    ]);
-    const history = JSON.parse(seenMessages[1]!) as Array<{
-      role: string;
-      content: Array<{ type: string; executionStepId?: string }>;
-    }>;
-    const calls = history.flatMap((message) =>
-      message.role === "assistant"
-        ? message.content.filter((part) => part.type === "tool-call")
-        : [],
-    );
-    const results = history.flatMap((message) =>
-      message.role === "user"
-        ? message.content.filter((part) => part.type === "tool-result")
-        : [],
-    );
-    expect(calls.map((part) => part.executionStepId)).toEqual(
-      results.map((part) => part.executionStepId),
-    );
-  });
+      await withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: engineFor(
+            [
+              [
+                toolCall("reused-provider-id", firstInput),
+                toolCall("reused-provider-id", secondInput),
+              ],
+              [text("Both decks are ready.")],
+            ],
+            seenMessages,
+          ),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Create both decks." }],
+            },
+          ],
+          actions: { "create-deck": action },
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      );
+
+      expect(actionRun).toHaveBeenCalledTimes(2);
+      expect(actionRun.mock.calls.map(([input]) => input)).toEqual([
+        firstInput,
+        secondInput,
+      ]);
+      expect(durableStep.completedSteps).toHaveLength(2);
+      expect(durableStep.completedSteps[0]?.stepId).not.toBe(
+        durableStep.completedSteps[1]?.stepId,
+      );
+      expect(
+        events
+          .filter((event) => event.type === "tool_done")
+          .map((event) => event.executionStepId),
+      ).toEqual([
+        durableStep.completedSteps[0]?.stepId,
+        durableStep.completedSteps[1]?.stepId,
+      ]);
+      const history = JSON.parse(seenMessages[1]!) as Array<{
+        role: string;
+        content: Array<{ type: string; executionStepId?: string }>;
+      }>;
+      const calls = history.flatMap((message) =>
+        message.role === "assistant"
+          ? message.content.filter((part) => part.type === "tool-call")
+          : [],
+      );
+      const results = history.flatMap((message) =>
+        message.role === "user"
+          ? message.content.filter((part) => part.type === "tool-result")
+          : [],
+      );
+      expect(calls.map((part) => part.executionStepId)).toEqual(
+        results.map((part) => part.executionStepId),
+      );
+    },
+  );
 
   it("retries an interrupted safe call with its persisted identity after continuation context changes", async () => {
     const input = { id: "doc-1" };
