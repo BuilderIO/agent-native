@@ -698,6 +698,7 @@ export default {
       properties: "资源",
       siteLabel: "资源",
       pathLabel: "路径前缀",
+      pathInvalid: "路径前缀必须以 / 开头。",
       addProperty: "添加资源",
       removeProperty: "移除资源",
       save: "保存",

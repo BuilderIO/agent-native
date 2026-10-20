@@ -71,13 +71,13 @@ export default defineAction({
         sites: searchConsoleSites ?? saved.searchConsole.sites,
       },
     });
-    await writeContentCollection(scope, { enabled, config });
     if (enabled) {
       await installBuiltinDashboardOnce(
         { email: admin.userEmail, orgId: admin.orgId },
         CONTENT_VIEW_DASHBOARD_ID,
       );
     }
+    await writeContentCollection(scope, { enabled, config });
     return {
       ...(await readContentCollectionStatus(admin.orgId, admin.userEmail)),
       contentDashboardId: enabled ? CONTENT_VIEW_DASHBOARD_ID : null,

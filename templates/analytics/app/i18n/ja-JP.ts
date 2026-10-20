@@ -749,6 +749,7 @@ export default {
       properties: "プロパティ",
       siteLabel: "プロパティ",
       pathLabel: "パスのプレフィックス",
+      pathInvalid: "パスのプレフィックスは / で始めてください。",
       addProperty: "プロパティを追加",
       removeProperty: "プロパティを削除",
       save: "保存",

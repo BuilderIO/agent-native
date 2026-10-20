@@ -729,6 +729,7 @@ export default {
       properties: "المواقع",
       siteLabel: "الموقع",
       pathLabel: "بادئة المسار",
+      pathInvalid: "ابدأ بادئة المسار بـ /.",
       addProperty: "إضافة موقع",
       removeProperty: "إزالة الموقع",
       save: "حفظ",

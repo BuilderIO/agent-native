@@ -11,6 +11,15 @@ export type SearchConsolePropertyProblem =
   | { kind: "missing_trailing_slash"; suggestion: string }
   | { kind: "unrecognized" };
 
+export function normalizeSearchConsoleProperty(value: string): string {
+  const trimmed = value.trim();
+  return /^sc-domain:/i.test(trimmed) ? trimmed.toLowerCase() : trimmed;
+}
+
+export function searchConsolePathPrefixProblem(value?: string): boolean {
+  return Boolean(value?.trim() && !value.trim().startsWith("/"));
+}
+
 const HOSTNAME =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 

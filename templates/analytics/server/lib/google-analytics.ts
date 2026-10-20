@@ -97,7 +97,14 @@ async function getAccessToken(scope: string): Promise<string> {
   } catch {
     throw unreadableServiceAccountKey();
   }
-  if (typeof creds.private_key !== "string") {
+  if (
+    !creds ||
+    typeof creds !== "object" ||
+    typeof creds.private_key !== "string" ||
+    !creds.private_key.trim() ||
+    typeof creds.client_email !== "string" ||
+    !creds.client_email.trim()
+  ) {
     throw unreadableServiceAccountKey();
   }
   const now = Math.floor(Date.now() / 1000);

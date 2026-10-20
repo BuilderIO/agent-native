@@ -25,7 +25,7 @@ describe("searchConsoleSiteSchema", () => {
   it("saves Domain properties as Search Console names them", () => {
     expect(
       searchConsoleSiteSchema.parse({
-        siteUrl: " sc-domain:builder.io ",
+        siteUrl: " SC-DOMAIN:Builder.io ",
         pathPrefix: "/blog/",
       }),
     ).toEqual({ siteUrl: "sc-domain:builder.io", pathPrefix: "/blog/" });

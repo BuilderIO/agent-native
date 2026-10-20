@@ -33,7 +33,7 @@ function escapeRegex(value: string): string {
 
 /** Whether a page URL belongs to a Domain or URL-prefix property. */
 export function siteCoversUrl(siteUrl: string, url: string): boolean {
-  if (siteUrl.startsWith("sc-domain:")) {
+  if (siteUrl.toLowerCase().startsWith("sc-domain:")) {
     const domain = siteUrl.slice("sc-domain:".length).toLowerCase();
     if (!URL.canParse(url)) return false;
     const host = new URL(url).hostname.toLowerCase();

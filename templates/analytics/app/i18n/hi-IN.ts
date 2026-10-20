@@ -723,6 +723,7 @@ export default {
       properties: "प्रॉपर्टी",
       siteLabel: "प्रॉपर्टी",
       pathLabel: "पाथ प्रीफ़िक्स",
+      pathInvalid: "पथ उपसर्ग / से शुरू करें।",
       addProperty: "प्रॉपर्टी जोड़ें",
       removeProperty: "प्रॉपर्टी हटाएं",
       save: "सहेजें",

@@ -766,6 +766,7 @@ export default {
       properties: "Propriétés",
       siteLabel: "Propriété",
       pathLabel: "Préfixe de chemin",
+      pathInvalid: "Le préfixe du chemin doit commencer par /.",
       addProperty: "Ajouter une propriété",
       removeProperty: "Retirer la propriété",
       save: "Enregistrer",

@@ -6,6 +6,7 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
   searchConsolePropertyProblem,
+  searchConsolePathPrefixProblem,
   type SearchConsolePropertyProblem,
 } from "@shared/search-console-property";
 import { IconCheck, IconCopy, IconPlus, IconTrash } from "@tabler/icons-react";
@@ -262,7 +263,10 @@ export function SearchConsoleDetail() {
   const problems = sites.map((site) =>
     site.siteUrl.trim() ? searchConsolePropertyProblem(site.siteUrl) : null,
   );
-  const hasProblem = problems.some(Boolean);
+  const pathProblems = sites.map((site) =>
+    searchConsolePathPrefixProblem(site.pathPrefix),
+  );
+  const hasProblem = problems.some(Boolean) || pathProblems.some(Boolean);
   const checked = configure.isPending
     ? Boolean(
         (configure.variables as { searchConsole?: boolean } | undefined)
@@ -319,6 +323,10 @@ export function SearchConsoleDetail() {
                 onChange={(event) =>
                   updateSite(index, { pathPrefix: event.target.value })
                 }
+                onBlur={() =>
+                  setTouched((current) => new Set(current).add(index))
+                }
+                aria-invalid={touched.has(index) && pathProblems[index]}
                 placeholder="/blog/"
                 aria-label={t("dataSources.searchConsole.pathLabel")}
                 disabled={!canManageOrg}
@@ -348,6 +356,11 @@ export function SearchConsoleDetail() {
                 </Button>
               )}
             </div>
+            {touched.has(index) && pathProblems[index] && (
+              <p className="text-xs text-destructive">
+                {t("dataSources.searchConsole.pathInvalid")}
+              </p>
+            )}
             {touched.has(index) && problems[index] && (
               <PropertyProblem problem={problems[index]} />
             )}

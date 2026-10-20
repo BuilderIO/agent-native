@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   read: vi.fn(),
   write: vi.fn(),
   status: vi.fn(),
+  install: vi.fn(),
 }));
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
@@ -26,6 +27,10 @@ vi.mock("../server/lib/content-metrics/status.js", () => ({
   readContentCollectionStatus: mocks.status,
 }));
 
+vi.mock("../server/lib/builtin-dashboards.js", () => ({
+  installBuiltinDashboardOnce: mocks.install,
+}));
+
 import { contentCollectionConfigSchema } from "../server/lib/content-metrics/config";
 import configure from "./configure-content-collection";
 
@@ -40,6 +45,7 @@ describe("configure-content-collection", () => {
         },
       }),
     });
+    mocks.install.mockReset().mockResolvedValue(undefined);
     mocks.status.mockResolvedValue({ configured: true });
   });
 
@@ -61,6 +67,14 @@ describe("configure-content-collection", () => {
         }),
       }),
     );
+  });
+
+  it("does not enable collection when dashboard installation fails", async () => {
+    mocks.install.mockRejectedValueOnce(new Error("install failed"));
+    await expect(
+      configure.run(configure.schema!.parse({ enabled: true }), {} as any),
+    ).rejects.toThrow("install failed");
+    expect(mocks.write).not.toHaveBeenCalled();
   });
 
   it("rejects invalid new drafts before changing saved configuration", () => {
