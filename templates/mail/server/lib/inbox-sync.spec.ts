@@ -2011,6 +2011,71 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(done.backfillPending).toBeUndefined();
   });
 
+  it("keeps an archive candidate that is also being hydrated until its hydration succeeds", async () => {
+    currentRow = baseRow({ historyId: "1000", archiveHistoryId: "1000" });
+    fakeRows = [{ threadId: "x" }];
+    const inbox = [
+      {
+        id: "1001",
+        messagesAdded: [{ message: { id: "x-m2", threadId: "x" } }],
+      },
+    ];
+    const archive = [
+      {
+        id: "1002",
+        labelsRemoved: [
+          { labelIds: ["INBOX"], message: { id: "x-m1", threadId: "x" } },
+        ],
+      },
+    ];
+    mocks.gmailListHistory.mockImplementation(
+      async (
+        _token: string,
+        params: { labelId?: string; startHistoryId: string },
+      ) => ({
+        history: (params.labelId === "INBOX" ? inbox : archive).filter(
+          (record) => BigInt(record.id) > BigInt(params.startHistoryId),
+        ),
+        historyId: "1002",
+      }),
+    );
+    let hydrateFails = true;
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[], format: string) =>
+        requested.map((id) => {
+          if (format === "minimal") return minimalThread(id, [["TRASH"]]);
+          return hydrateFails
+            ? { id, data: null, error: "HTTP 500 backend" }
+            : {
+                id,
+                data: thread(id, { from: "a@ex.com", labelIds: ["TRASH"] }),
+              };
+        }),
+    );
+
+    const first = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    // Both cursors moved, hydration failed, and the archive event is still held.
+    expect(currentRow.historyId).toBe("1002");
+    expect(currentRow.archiveHistoryId).toBe("1002");
+    expect(currentRow.degraded.hydrate).toEqual(["x"]);
+    expect(currentRow.archivePendingIds).toEqual(["x"]);
+    expect(first.backfillPending).toBeUndefined();
+    expect(first.degraded?.count).toBe(1);
+    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
+
+    hydrateFails = false;
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    // Hydration now settles the thread from its payload; nothing is left over.
+    expect(currentRow.archivePendingIds).toEqual([]);
+    expect(currentRow.degraded.hydrate).toEqual([]);
+    const minimalReads = mocks.gmailBatchGetThreads.mock.calls.filter(
+      (call) => call[2] === "minimal",
+    );
+    expect(minimalReads).toEqual([]);
+  });
+
   it("clears the degraded record once the failing thread reads again", async () => {
     currentRow = baseRow({
       historyId: "1000",

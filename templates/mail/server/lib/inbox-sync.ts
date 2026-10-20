@@ -890,7 +890,7 @@ async function runIncrementalSyncStep(
       ...archivedThreadIds,
       ...row.degraded.verify,
     ]),
-  ].filter((threadId) => !hydrateQueue.includes(threadId));
+  ];
   const cachedCandidates = new Set<string>();
   for (let i = 0; i < archiveCandidates.length; i += CACHE_LOOKUP_CHUNK) {
     for (const threadId of await readInboxThreadIds(
@@ -901,8 +901,18 @@ async function runIncrementalSyncStep(
       cachedCandidates.add(threadId);
     }
   }
-  const verifyQueue = archiveCandidates.filter((threadId) =>
-    cachedCandidates.has(threadId),
+  // A candidate that is also being hydrated is settled by the hydrated payload
+  // (an archived thread is written out of the inbox), so it is not read twice.
+  // It stays an archive candidate until that hydration succeeds, so a failed
+  // hydration cannot lose the archive event.
+  const hydrateQueueSet = new Set(hydrateQueue);
+  const archiveOverlap = archiveCandidates.filter(
+    (threadId) =>
+      hydrateQueueSet.has(threadId) && cachedCandidates.has(threadId),
+  );
+  const verifyQueue = archiveCandidates.filter(
+    (threadId) =>
+      !hydrateQueueSet.has(threadId) && cachedCandidates.has(threadId),
   );
 
   // Every thread read costs 40 units of the 3,000-unit incremental lane and the
@@ -949,7 +959,10 @@ async function runIncrementalSyncStep(
     archiveHistoryId,
     archiveHistoryPending: !archiveCaughtUp,
     hydratePendingIds: hydrateQueue.filter((id) => !priorFailedHydrate.has(id)),
-    archivePendingIds: verifyQueue.filter((id) => !priorFailedVerify.has(id)),
+    archivePendingIds: [
+      ...verifyQueue.filter((id) => !priorFailedVerify.has(id)),
+      ...archiveOverlap,
+    ],
   });
 
   const archivedOnly: string[] = [];
@@ -1075,9 +1088,13 @@ async function runIncrementalSyncStep(
       ...stillInbox,
     ]),
   ];
-  const archivePendingIds = verifyUntried.filter(
-    (id) => !priorFailedVerify.has(id),
-  );
+  // Overlap ids leave the archive list only once their hydration succeeded.
+  const hydrateSucceeded = (id: string) =>
+    hydrateNowSet.has(id) && !hydrateError && !hydrateFailed.has(id);
+  const archivePendingIds = [
+    ...verifyUntried.filter((id) => !priorFailedVerify.has(id)),
+    ...archiveOverlap.filter((id) => !hydrateSucceeded(id)),
+  ];
   const failureKinds = [...hydrateFailed.values(), ...verifyFailed.values()];
   const degraded: SyncDegraded = {
     hydrate: [
@@ -1119,7 +1136,7 @@ async function runIncrementalSyncStep(
       // Full-sync flags come from the step that runs them; the caller adds them
       // when this step is the only one that ran.
       ...(hydratePendingIds.length > 0 ||
-      archivePendingIds.length > 0 ||
+      archivePendingIds.some((id) => !degraded.hydrate.includes(id)) ||
       !archiveCaughtUp
         ? { backfillPending: true }
         : {}),

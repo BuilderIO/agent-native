@@ -9,7 +9,9 @@ export function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
     row.fullSyncPageToken != null ||
     row.fullSyncPhase === "reconcile" ||
     row.hydratePendingIds.length > 0 ||
-    row.archivePendingIds.length > 0 ||
+    // Archive candidates whose hydration is itself failing are degraded, not
+    // work the next step will complete.
+    row.archivePendingIds.some((id) => !row.degraded.hydrate.includes(id)) ||
     row.archiveHistoryPending;
   const degradedCount =
     row.degraded.hydrate.length + row.degraded.verify.length;
