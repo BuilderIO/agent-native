@@ -4564,12 +4564,7 @@ export default function RecordRoute() {
                   markStorageConfigured(status);
                   setError(null);
                   setUiState("idle");
-                  const opts = pendingStartOptsRef.current;
-                  if (opts) {
-                    window.setTimeout(() => {
-                      void startFlow(opts);
-                    }, 0);
-                  }
+                  // Capture APIs need a fresh user gesture after the setup flow.
                 }}
                 title={
                   hostedAllowanceExhausted
@@ -4583,7 +4578,7 @@ export default function RecordRoute() {
                 }
                 showBuilderStorageOffer={!hostedAllowanceExhausted}
                 connectedDescription={t(
-                  "recordRoute.storageConnectedReopeningRecorder",
+                  "recordRoute.storageConnectedRecorderReady",
                 )}
                 connectSource="clips_record_error_storage_setup_card"
                 connectFlow="record"

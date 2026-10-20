@@ -1918,8 +1918,7 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (已本地化)",
     retryUpload: "重试上传",
     tryAgain: "重试",
-    storageConnectedReopeningRecorder:
-      "存储空间已连接。正在重新打开录制工具...",
+    storageConnectedRecorderReady: "存储空间已连接。准备好后即可开始新的录制。",
     connectStorageToFinish:
       "在下一屏使用 Builder.io 存储（免费套餐存储和 AI），或配置 S3 兼容存储。Clips 会完成保存。",
     connectStorageToRetryLoom:

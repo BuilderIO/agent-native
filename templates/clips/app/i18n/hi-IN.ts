@@ -1979,8 +1979,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (स्थानीयकृत)",
     retryUpload: "अपलोड फिर से आज़माएँ",
     tryAgain: "फिर से कोशिश करें",
-    storageConnectedReopeningRecorder:
-      "स्टोरेज कनेक्ट हो गया। रिकॉर्डर फिर से खोला जा रहा है...",
+    storageConnectedRecorderReady:
+      "स्टोरेज कनेक्ट हो गया। तैयार होने पर नई रिकॉर्डिंग शुरू करें।",
     connectStorageToFinish:
       "अगली स्क्रीन पर Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) इस्तेमाल करें या S3-संगत स्टोरेज कॉन्फ़िगर करें। Clips सेव पूरा करेगा।",
     connectStorageToRetryLoom:

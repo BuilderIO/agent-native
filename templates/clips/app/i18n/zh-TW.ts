@@ -1909,8 +1909,7 @@ const messages = {
     openRecorderInTab: "在分頁中開啟錄製工具",
     retryUpload: "重試上傳",
     tryAgain: "再試一次",
-    storageConnectedReopeningRecorder:
-      "儲存空間已連線。正在重新開啟錄製工具...",
+    storageConnectedRecorderReady: "儲存空間已連線。準備好後即可開始新的錄製。",
     connectStorageToFinish:
       "在下一個畫面使用 Builder.io 儲存空間（免費方案儲存空間和 AI），或設定 S3 相容儲存空間。Clips 會完成儲存。",
     connectStorageToRetryLoom:

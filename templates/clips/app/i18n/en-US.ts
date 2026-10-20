@@ -1992,8 +1992,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab",
     retryUpload: "Retry upload",
     tryAgain: "Try again",
-    storageConnectedReopeningRecorder:
-      "Storage connected. Reopening recorder...",
+    storageConnectedRecorderReady:
+      "Storage connected. Start a new recording when you're ready.",
     connectStorageToFinish:
       "On the next screen, use Builder.io storage (free tier storage + AI) or configure S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:

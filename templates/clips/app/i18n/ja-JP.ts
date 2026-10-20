@@ -2031,8 +2031,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (ローカライズ済み)",
     retryUpload: "アップロードを再試行",
     tryAgain: "もう一度試す",
-    storageConnectedReopeningRecorder:
-      "ストレージに接続しました。レコーダーを再度開いています...",
+    storageConnectedRecorderReady:
+      "ストレージに接続しました。準備ができたら、新しい録画を開始してください。",
     connectStorageToFinish:
       "次の画面で Builder.io ストレージ（無料プランのストレージと AI）を使用するか、S3 互換ストレージを設定してください。Clips が保存を完了します。",
     connectStorageToRetryLoom:

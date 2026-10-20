@@ -2003,8 +2003,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (현지화됨)",
     retryUpload: "업로드 다시 시도",
     tryAgain: "다시 시도",
-    storageConnectedReopeningRecorder:
-      "저장소가 연결되었습니다. 녹화 도구를 다시 여는 중...",
+    storageConnectedRecorderReady:
+      "저장소가 연결되었습니다. 준비되면 새 녹화를 시작하세요.",
     connectStorageToFinish:
       "다음 화면에서 Builder.io 스토리지(무료 티어 스토리지 및 AI)를 사용하거나 S3 호환 스토리지를 구성하세요. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:

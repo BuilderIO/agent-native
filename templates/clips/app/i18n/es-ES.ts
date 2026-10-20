@@ -2050,8 +2050,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab",
     retryUpload: "Reintentar subida",
     tryAgain: "Intentar de nuevo",
-    storageConnectedReopeningRecorder:
-      "Almacenamiento conectado. Volviendo a abrir la grabadora...",
+    storageConnectedRecorderReady:
+      "Almacenamiento conectado. Inicia una nueva grabación cuando quieras.",
     connectStorageToFinish:
       "En la siguiente pantalla, usa el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o configura almacenamiento compatible con S3. Clips terminará de guardarlo.",
     connectStorageToRetryLoom:

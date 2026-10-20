@@ -2002,8 +2002,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (مترجم)",
     retryUpload: "إعادة محاولة الرفع",
     tryAgain: "حاول مرة أخرى",
-    storageConnectedReopeningRecorder:
-      "تم توصيل مساحة التخزين. جارٍ إعادة فتح المسجّل...",
+    storageConnectedRecorderReady:
+      "تم ربط التخزين. ابدأ تسجيلاً جديداً عندما تكون مستعداً.",
     connectStorageToFinish:
       "في الشاشة التالية، استخدم تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو كوّن تخزينًا متوافقًا مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
