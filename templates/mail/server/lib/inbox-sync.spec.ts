@@ -2195,7 +2195,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(minimalReads).toEqual([]);
   });
 
-  it("reports corrupt stored state as degraded and saves the raw value before overwriting it", async () => {
+  it("reports corrupt stored state as degraded from the step status", async () => {
     currentRow = baseRow({
       historyId: "1000",
       archiveHistoryId: "1000",
@@ -2208,10 +2208,9 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
 
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
+    // The evidence itself is written by the store boundary (see the PGlite
+    // spec); here only the reported status is asserted.
     expect(result.degraded).toEqual({ count: 1, kind: "corrupt_state" });
-    expect(currentRow.corrupt).toEqual({
-      archive_pending_ids_json: "{not json",
-    });
   });
 
   it("clears the degraded record once the failing thread reads again", async () => {

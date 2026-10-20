@@ -188,6 +188,8 @@ export const mailSyncAccounts = table(
     // Raw values of sync-state columns that failed to parse, kept for
     // inspection until a resync; {column: first 2KB of the raw value}.
     syncCorruptJson: text("sync_corrupt_json"),
+    // 1 when the cached inbox stops at the cap with more mail in Gmail.
+    inboxCapped: integer("inbox_capped"),
     status: text("status", {
       enum: ["idle", "syncing", "error", "needs_reauth"],
     })

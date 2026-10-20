@@ -157,6 +157,13 @@ async function trimPair(
       INBOX_THREAD_CAP,
       tx,
     );
+    // Rows dropped at the cap mean Gmail holds more than the cache does.
+    if (capped > 0) {
+      await tx
+        .update(schema.mailSyncAccounts)
+        .set({ inboxCapped: 1 })
+        .where(eq(schema.mailSyncAccounts.id, pair.syncId));
+    }
     return { archived, capped };
   });
 }
@@ -190,6 +197,7 @@ export async function clearPair(
         syncDegradedJson: null,
         archiveHistoryPending: null,
         syncCorruptJson: null,
+        inboxCapped: null,
         status: "idle",
         lastError: null,
         syncClaimId: null,

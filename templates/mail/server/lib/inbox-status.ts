@@ -40,6 +40,7 @@ export function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
       error: row.lastError ?? undefined,
       pushWatch,
       ...(backfillPending ? { backfillPending: true } : {}),
+      ...(row.inboxCapped ? { reachedCap: true } : {}),
       ...degraded,
     };
   }
@@ -56,6 +57,7 @@ export function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
     lastSyncedAt: row.lastSyncedAt,
     pushWatch,
     ...(backfillPending ? { backfillPending: true } : {}),
+    ...(row.inboxCapped ? { reachedCap: true } : {}),
     ...degraded,
   };
 }
@@ -103,6 +105,24 @@ export function mergeSyncStatuses(
     ...(first.backfillPending || second.backfillPending
       ? { backfillPending: true }
       : {}),
+    ...(first.reachedCap || second.reachedCap ? { reachedCap: true } : {}),
     ...(degraded ? { degraded } : {}),
+  };
+}
+
+// Stored state that could not be read outranks every other degraded reading,
+// whichever step produced the status.
+export function withCorruptState(
+  status: InboxSyncAccountStatus,
+  corrupt: SyncAccountRow["corrupt"],
+): InboxSyncAccountStatus {
+  const count = Object.keys(corrupt).length;
+  if (count === 0) return status;
+  return {
+    ...status,
+    degraded: {
+      count: Math.max(count, status.degraded?.count ?? 0),
+      kind: "corrupt_state",
+    },
   };
 }

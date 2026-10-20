@@ -85,6 +85,11 @@ export type InboxSyncAccountStatus = {
    * stale. The sync retries them every step; `kind` is an error class only.
    */
   degraded?: { count: number; kind: string };
+  /**
+   * The cached inbox stops at the cap while Gmail has more, so counts are lower
+   * bounds and the list is not complete.
+   */
+  reachedCap?: boolean;
   pushWatch?: InboxPushWatch;
   lastSyncedAt: number | null;
   error?: string;

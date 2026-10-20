@@ -81,7 +81,8 @@ function readStateJson<T>(
   read: (parsed: unknown) => T | null,
   empty: T,
 ): T {
-  if (!raw) return empty;
+  // Only SQL NULL means absent; '' or whitespace is a damaged value.
+  if (raw === null || raw === undefined) return empty;
   const record = () => {
     corrupt[column] = raw.slice(0, CORRUPT_RAW_MAX);
     return empty;
@@ -115,7 +116,7 @@ const HISTORY_ID = /^\d+$/;
 
 // The stored corrupt record itself may be unreadable; that is recorded too.
 function readCorruptRecord(raw: string | null): SyncCorrupt {
-  if (!raw) return {};
+  if (raw === null || raw === undefined) return {};
   const unreadable = { sync_corrupt_json: raw.slice(0, CORRUPT_RAW_MAX) };
   let parsed: unknown;
   try {
@@ -146,6 +147,7 @@ export type SyncAccountRow = {
   hydratePendingIds: string[];
   degraded: SyncDegraded;
   corrupt: SyncCorrupt;
+  inboxCapped: boolean;
   archiveHistoryPending: boolean;
   status: "idle" | "syncing" | "error" | "needs_reauth";
   lastError: string | null;
@@ -273,6 +275,7 @@ function toSyncAccountRow(
     hydratePendingIds,
     degraded,
     corrupt,
+    inboxCapped: row.inboxCapped === 1,
     archiveHistoryPending: row.archiveHistoryPending === 1,
     status: row.status as SyncAccountRow["status"],
     lastError: row.lastError,
@@ -1226,35 +1229,22 @@ export async function appendHydratePendingIds(
   await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
     const id = rowId(ownerEmail, accountEmail);
     const [current] = await tx
-      .select({
-        json: schema.mailSyncAccounts.hydratePendingIdsJson,
-        corruptJson: schema.mailSyncAccounts.syncCorruptJson,
-      })
+      .select({ json: schema.mailSyncAccounts.hydratePendingIdsJson })
       .from(schema.mailSyncAccounts)
       .where(eq(schema.mailSyncAccounts.id, id))
       .limit(1);
-    // An unreadable stored list is never overwritten as if it were empty: its
-    // raw value goes into the corrupt record and the account reports
-    // corrupt_state until a resync.
-    const corrupt = readCorruptRecord(current?.corruptJson ?? null);
+    // A damaged stored list starts the new one empty; applySyncPatch records
+    // its raw value before replacing it.
     const stored = readStateJson<string[]>(
-      corrupt,
+      {},
       "hydrate_pending_ids_json",
       current?.json ?? null,
       readIdList,
       [],
     );
-    const merged = [...new Set([...stored, ...threadIds])];
-    await tx
-      .update(schema.mailSyncAccounts)
-      .set({
-        hydratePendingIdsJson: JSON.stringify(merged),
-        ...(Object.keys(corrupt).length > 0
-          ? { syncCorruptJson: JSON.stringify(corrupt) }
-          : {}),
-        updatedAt: Date.now(),
-      })
-      .where(eq(schema.mailSyncAccounts.id, id));
+    await applySyncPatch(tx, [eq(schema.mailSyncAccounts.id, id)], {
+      hydratePendingIds: [...new Set([...stored, ...threadIds])],
+    });
   });
 }
 
@@ -1748,6 +1738,7 @@ export type SyncAccountPatch = Partial<{
   hydratePendingIds: string[] | null;
   degraded: SyncDegraded | null;
   corrupt: SyncCorrupt | null;
+  inboxCapped: boolean | null;
   archiveHistoryPending: boolean | null;
   status: SyncAccountRow["status"];
   lastError: string | null;
@@ -1801,17 +1792,86 @@ export async function readInboxPushGeneration(
   return rows.reduce((total, row) => total + row.generation, 0);
 }
 
-export async function patchSyncAccount(
-  ownerEmail: string,
-  accountEmail: string,
-  patch: SyncAccountPatch,
-  opts?: { claimId?: string },
-): Promise<boolean> {
+// Sync-state columns a patch can overwrite, with how to tell a readable stored
+// value from a damaged one. Every write to them goes through applySyncPatch,
+// which records a damaged value in sync_corrupt_json before replacing it, so no
+// writer (full sync, reconcile, incremental, retention, append) can erase the
+// evidence.
+const GUARDED_STATE: ReadonlyArray<{
+  key: keyof SyncAccountPatch;
+  column: string;
+  field:
+    | "historyId"
+    | "archiveHistoryId"
+    | "labelsJson"
+    | "fullSyncReconcilePendingIdsJson"
+    | "archivePendingIdsJson"
+    | "hydratePendingIdsJson"
+    | "syncDegradedJson";
+  readable: (raw: string) => boolean;
+}> = [
+  {
+    key: "historyId",
+    column: "history_id",
+    field: "historyId",
+    readable: (raw) => HISTORY_ID.test(raw),
+  },
+  {
+    key: "archiveHistoryId",
+    column: "archive_history_id",
+    field: "archiveHistoryId",
+    readable: (raw) => HISTORY_ID.test(raw),
+  },
+  {
+    key: "labels",
+    column: "labels_json",
+    field: "labelsJson",
+    readable: (raw) => isReadableJson(raw, (v) => Array.isArray(v)),
+  },
+  {
+    key: "fullSyncReconcilePendingIds",
+    column: "full_sync_reconcile_pending_ids_json",
+    field: "fullSyncReconcilePendingIdsJson",
+    readable: (raw) => isReadableJson(raw, (v) => readIdList(v) !== null),
+  },
+  {
+    key: "archivePendingIds",
+    column: "archive_pending_ids_json",
+    field: "archivePendingIdsJson",
+    readable: (raw) => isReadableJson(raw, (v) => readIdList(v) !== null),
+  },
+  {
+    key: "hydratePendingIds",
+    column: "hydrate_pending_ids_json",
+    field: "hydratePendingIdsJson",
+    readable: (raw) => isReadableJson(raw, (v) => readIdList(v) !== null),
+  },
+  {
+    key: "degraded",
+    column: "sync_degraded_json",
+    field: "syncDegradedJson",
+    readable: (raw) => isReadableJson(raw, (v) => readDegraded(v) !== null),
+  },
+];
+
+function isReadableJson(raw: string, ok: (parsed: unknown) => boolean) {
+  try {
+    return ok(JSON.parse(raw));
+  } catch {
+    // coercion-ok: false marks the value damaged; applySyncPatch records it as corrupt evidence
+    return false;
+  }
+}
+
+function buildSyncSet(patch: SyncAccountPatch): Record<string, unknown> {
   const { labels, ...rest } = patch;
   const set: Record<string, unknown> = { ...rest, updatedAt: Date.now() };
   if (labels !== undefined) set.labelsJson = JSON.stringify(labels);
   if (patch.historyPending !== undefined) {
     set.historyPending = patch.historyPending ? 1 : 0;
+  }
+  if (patch.inboxCapped !== undefined) {
+    set.inboxCapped = patch.inboxCapped ? 1 : null;
   }
   if (patch.fullSyncReconcilePendingIds !== undefined) {
     set.fullSyncReconcilePendingIdsJson = patch.fullSyncReconcilePendingIds
@@ -1827,6 +1887,8 @@ export async function patchSyncAccount(
     delete set.archivePendingIds;
   }
   if (patch.corrupt !== undefined) {
+    // Only a resync passes this (null): it is the one thing allowed to drop
+    // the evidence.
     set.syncCorruptJson =
       patch.corrupt && Object.keys(patch.corrupt).length > 0
         ? JSON.stringify(patch.corrupt)
@@ -1851,18 +1913,72 @@ export async function patchSyncAccount(
         : null;
     delete set.hydratePendingIds;
   }
+  return set;
+}
+
+// The one write path for mail_sync_accounts sync state. Inside the caller's
+// transaction it reads the columns the patch is about to overwrite and folds
+// any damaged value into sync_corrupt_json first.
+async function applySyncPatch(
+  db: any,
+  conditions: any[],
+  patch: SyncAccountPatch,
+): Promise<boolean> {
+  const set = buildSyncSet(patch);
+  const touched =
+    patch.corrupt === undefined
+      ? GUARDED_STATE.filter(({ key }) => patch[key] !== undefined)
+      : [];
+  if (touched.length > 0) {
+    const [current] = await db
+      .select({
+        syncCorruptJson: schema.mailSyncAccounts.syncCorruptJson,
+        ...Object.fromEntries(
+          touched.map(({ field }) => [field, schema.mailSyncAccounts[field]]),
+        ),
+      })
+      .from(schema.mailSyncAccounts)
+      .where(and(...conditions))
+      .for("update")
+      .limit(1);
+    if (!current) return false;
+    const corrupt = readCorruptRecord(current.syncCorruptJson ?? null);
+    for (const { field, column, readable } of touched) {
+      const raw = current[field];
+      if (raw !== null && raw !== undefined && !readable(raw)) {
+        corrupt[column] = raw.slice(0, CORRUPT_RAW_MAX);
+      }
+    }
+    if (Object.keys(corrupt).length > 0) {
+      set.syncCorruptJson = JSON.stringify(corrupt);
+    }
+  }
+  const rows = await db
+    .update(schema.mailSyncAccounts)
+    .set(set)
+    .where(and(...conditions))
+    .returning({ id: schema.mailSyncAccounts.id });
+  return rows.length > 0;
+}
+
+export async function patchSyncAccount(
+  ownerEmail: string,
+  accountEmail: string,
+  patch: SyncAccountPatch,
+  opts?: { claimId?: string },
+): Promise<boolean> {
   const conditions = [
     eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)),
   ];
   if (opts?.claimId) {
     conditions.push(eq(schema.mailSyncAccounts.syncClaimId, opts.claimId));
   }
-  const rows = await getDb()
-    .update(schema.mailSyncAccounts)
-    .set(set)
-    .where(and(...conditions))
-    .returning({ id: schema.mailSyncAccounts.id });
-  return rows.length > 0;
+  const guarded =
+    patch.corrupt === undefined &&
+    GUARDED_STATE.some(({ key }) => patch[key] !== undefined);
+  return guarded
+    ? getDb().transaction((tx: any) => applySyncPatch(tx, conditions, patch))
+    : applySyncPatch(getDb(), conditions, patch);
 }
 
 export async function resetSyncAccountProgress(
@@ -1889,6 +2005,7 @@ export async function resetSyncAccountProgress(
       hydratePendingIds: null,
       degraded: null,
       corrupt: null,
+      inboxCapped: null,
       archiveHistoryPending: null,
       status: "idle",
       lastError: null,

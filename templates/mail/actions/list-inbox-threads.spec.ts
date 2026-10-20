@@ -467,6 +467,40 @@ describe("list-inbox-threads action", () => {
     });
   });
 
+  it("reports a capped inbox as a lower bound that is not complete", async () => {
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: OWNER,
+        status: "idle",
+        historyId: "100",
+        fullSyncPageToken: null,
+        fullSyncPhase: null,
+        inboxCapped: true,
+        lastPushGeneration: 0,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        labels: null,
+      },
+    ]);
+    mocks.readInboxThreads.mockResolvedValue([row({})]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.accounts[0]).toMatchObject({
+      state: "ready",
+      reachedCap: true,
+    });
+    expect(result.syncing).toBe(false);
+    expect(result.reachedCap).toBe(true);
+    expect(result.complete).toBe(false);
+    expect(result.tabs.find((tab) => tab.id === "__inbox_all__")).toMatchObject(
+      { totalIsLowerBound: true },
+    );
+  });
+
   it("exposes a pending SQL push generation so the client can request incremental sync", async () => {
     mocks.readSyncAccounts.mockResolvedValue([
       {

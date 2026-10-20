@@ -522,6 +522,7 @@ describe("runInboxRetention (PGlite)", () => {
 
     expect(summary).toMatchObject({ capRowsRemoved: 30, capOwners: 1 });
     expect(await countRows(owner, account, 1)).toBe(2_000);
+    expect((await stores.readSyncAccounts(owner))[0].inboxCapped).toBe(true);
   });
   it("invalidates a stale claim while trimming so the delayed worker cannot write after", async () => {
     const owner = "delayed@example.com";

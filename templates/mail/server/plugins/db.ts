@@ -518,6 +518,12 @@ CREATE INDEX IF NOT EXISTS mail_gmail_token_accounts_expires_idx
       sql: `ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS sync_corrupt_json TEXT;`,
     },
+    {
+      version: 47,
+      name: "mail-inbox-capped",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS inbox_capped INTEGER;`,
+    },
   ],
   { table: "mail_migrations" },
 );

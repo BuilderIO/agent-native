@@ -25,6 +25,7 @@ import {
   hasOutstandingSyncWork,
   mergeSyncStatuses,
   statusFromRow,
+  withCorruptState,
 } from "./inbox-status.js";
 import {
   appendHydratePendingIds,
@@ -500,6 +501,9 @@ async function runFullSyncStep(
   // A capped walk is only the newest slice of the inbox, so there is no full
   // Gmail total to reconcile against: skip the label snapshot and reconcile.
   const snapshot = truncated ? null : await readFreshInboxTotal(accessToken);
+  // The cached inbox is a lower bound when the walk stopped at the cap or the
+  // trim had to drop rows: Gmail has more than the cache holds.
+  let capped = truncated;
   if (fullSyncStartedAt != null) {
     await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
       await markThreadsOutOfInboxBeforeSync(
@@ -508,7 +512,13 @@ async function runFullSyncStep(
         fullSyncStartedAt!,
         tx,
       );
-      await trimInboxThreadRows(ownerEmail, accountEmail, INBOX_THREAD_CAP, tx);
+      const trimmed = await trimInboxThreadRows(
+        ownerEmail,
+        accountEmail,
+        INBOX_THREAD_CAP,
+        tx,
+      );
+      if (trimmed > 0) capped = true;
     });
     onChanged?.();
   }
@@ -526,6 +536,7 @@ async function runFullSyncStep(
     fullSyncReconcilePendingIds: reconciled ? null : [],
     fullSyncReconcilePasses: reconciled ? 0 : 1,
     fullSyncListedCount: 0,
+    inboxCapped: capped,
     ...(snapshot
       ? { labels: snapshot.labels, labelsUpdatedAt: snapshot.updatedAt }
       : {}),
@@ -534,7 +545,12 @@ async function runFullSyncStep(
   });
   return {
     status: reconciled
-      ? { accountEmail, state: "ready", lastSyncedAt: syncedAt }
+      ? {
+          accountEmail,
+          state: "ready",
+          lastSyncedAt: syncedAt,
+          ...(capped ? { reachedCap: true } : {}),
+        }
       : reconciliationStatus(accountEmail, syncedAt),
     changed: true,
   };
@@ -562,13 +578,19 @@ async function finishReconciliationPass(
       fullSyncHistoryId: null,
       fullSyncStartedAt: null,
       fullSyncListedCount: 0,
+      inboxCapped: true,
       labels: snapshot.labels,
       labelsUpdatedAt: snapshot.updatedAt,
       lastError: null,
       lastSyncedAt: syncedAt,
     });
     return {
-      status: { accountEmail, state: "ready", lastSyncedAt: syncedAt },
+      status: {
+        accountEmail,
+        state: "ready",
+        lastSyncedAt: syncedAt,
+        reachedCap: true,
+      },
       changed: true,
     };
   }
@@ -577,6 +599,7 @@ async function finishReconciliationPass(
   const matches = localInboxTotal === snapshot.total;
   if (matches) {
     await patchProgress(ownerEmail, accountEmail, claimId, {
+      inboxCapped: false,
       fullSyncListedCount: 0,
       fullSyncPhase: null,
       fullSyncReconcilePageToken: null,
@@ -984,9 +1007,6 @@ async function runIncrementalSyncStep(
     // Stays set until the inbox stream is drained, so the account is never
     // treated as steady mid catch-up.
     historyPending: !inboxCaughtUp,
-    // The pending lists below overwrite any unreadable column, so its raw value
-    // is saved first and the account stays degraded until a resync.
-    ...(Object.keys(row.corrupt).length > 0 ? { corrupt: row.corrupt } : {}),
     hydratePendingIds: hydrateQueue.filter((id) => !priorFailedHydrate.has(id)),
     archivePendingIds: [
       ...verifyQueue.filter((id) => !priorFailedVerify.has(id)),
@@ -1082,6 +1102,7 @@ async function runIncrementalSyncStep(
   // Only new in-inbox rows can push the account past the cap, so the trim runs
   // when the inbox stream changed.
   const archiveSkipped: string[] = [];
+  let trimmedByCap = 0;
   await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
     for (const threadId of archivedOnly) {
       const removed = await tryDeleteInboxThreadRow(
@@ -1100,7 +1121,12 @@ async function runIncrementalSyncStep(
       tx,
     );
     if (hydrateNow.length > 0) {
-      await trimInboxThreadRows(ownerEmail, accountEmail, INBOX_THREAD_CAP, tx);
+      trimmedByCap = await trimInboxThreadRows(
+        ownerEmail,
+        accountEmail,
+        INBOX_THREAD_CAP,
+        tx,
+      );
     }
   });
   if (archivedOnly.length > 0) onChanged?.();
@@ -1158,6 +1184,7 @@ async function runIncrementalSyncStep(
       hydratePendingIds,
       archivePendingIds,
       degraded,
+      ...(trimmedByCap > 0 ? { inboxCapped: true } : {}),
     });
     throw hydrateError;
   }
@@ -1165,6 +1192,7 @@ async function runIncrementalSyncStep(
     hydratePendingIds,
     archivePendingIds,
     degraded,
+    ...(trimmedByCap > 0 ? { inboxCapped: true } : {}),
     lastError: null,
     lastSyncedAt: syncedAt,
   });
@@ -1173,6 +1201,7 @@ async function runIncrementalSyncStep(
       accountEmail,
       state: inboxCaughtUp && archiveCaughtUp ? "ready" : "initial",
       lastSyncedAt: syncedAt,
+      ...(row.inboxCapped || trimmedByCap > 0 ? { reachedCap: true } : {}),
       // Full-sync flags come from the step that runs them; the caller adds them
       // when this step is the only one that ran.
       ...(hydratePendingIds.length > 0 ||
@@ -1443,11 +1472,13 @@ export async function syncInboxAccount(
       }
     }
 
-    const accountStatus: InboxSyncAccountStatus =
+    const accountStatus: InboxSyncAccountStatus = withCorruptState(
       incrementalAlone &&
-      (row.fullSyncPageToken != null || row.fullSyncPhase === "reconcile")
+        (row.fullSyncPageToken != null || row.fullSyncPhase === "reconcile")
         ? { ...syncResult.status, backfillPending: true }
-        : syncResult.status;
+        : syncResult.status,
+      row.corrupt,
+    );
     changed ||= syncResult.changed;
     const dbStatus: SyncAccountRow["status"] =
       accountStatus.state === "error" || accountStatus.state === "needs_reauth"
