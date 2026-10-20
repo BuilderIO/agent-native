@@ -418,6 +418,40 @@ describe("slide inline image storage boundary", () => {
     );
   });
 
+  it("rejects dynamic image data in non-URL object properties", () => {
+    expect(() =>
+      assertSlideInlineImagesPersistable(
+        {},
+        {
+          sourceTsx: [
+            "const media = { fallback: `data:image/png;base64,${payload}` };",
+            "const source = media.fallback;",
+            "export default function Slide() { return <img src={source} />; }",
+          ].join("\n"),
+        },
+        "slide-dynamic-object-image",
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "invalid_inline_image_data_url",
+      }),
+    );
+
+    expect(() =>
+      assertSlideInlineImagesPersistable(
+        {},
+        {
+          sourceTsx: [
+            'const media = { fallback: `data:image/png;base64,${""}` };',
+            "const source = media.fallback;",
+            "export default function Slide() { return <img src={source} />; }",
+          ].join("\n"),
+        },
+        "slide-empty-object-image",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects data URLs constructed with TSX string concatenation", () => {
     expect(() =>
       assertSlideInlineImagesPersistable(
