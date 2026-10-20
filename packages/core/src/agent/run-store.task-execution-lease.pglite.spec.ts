@@ -10,14 +10,31 @@ import {
 } from "./execution-fence.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+let failNextTerminalEventInsert = false;
 
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
   getDbExec: () => getExecutor(),
 }));
 
-function getExecutor(): DbExec {
+function wrapTerminalEventFailure(executor: DbExec): DbExec {
   return {
+    async execute(input) {
+      if (
+        failNextTerminalEventInsert &&
+        typeof input !== "string" &&
+        input.sql.includes("INSERT INTO agent_run_events")
+      ) {
+        failNextTerminalEventInsert = false;
+        throw new Error("injected terminal event insert failure");
+      }
+      return executor.execute(input);
+    },
+  };
+}
+
+function getExecutor(): DbExec {
+  const direct: DbExec = {
     async execute(input) {
       if (typeof input === "string") {
         await pglite.exec(input);
@@ -29,7 +46,11 @@ function getExecutor(): DbExec {
         rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
       };
     },
-    transaction: pglite.transaction,
+  };
+  return {
+    ...wrapTerminalEventFailure(direct),
+    transaction: (fn) =>
+      pglite.transaction((tx) => fn(wrapTerminalEventFailure(tx))),
   };
 }
 
@@ -57,8 +78,10 @@ const {
   ensureRunTables,
   insertRun,
   readBackgroundRunClaim,
+  reapUnclaimedBackgroundRun,
   reapIfStale,
   renewTaskExecutionLease,
+  UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   updateRunTerminalStateIfRunning,
   writeLedgerEntry,
 } = await import("./run-store.js");
@@ -530,6 +553,52 @@ describe("task execution leases", () => {
     });
     await expect(getLastTerminalRunEvent(runId)).resolves.toMatchObject({
       event: { type: "error", errorCode: "stale_run" },
+    });
+  });
+
+  it("rolls back an unclaimed background reap when its terminal event cannot persist", async () => {
+    const threadId = "thread-unclaimed-reap-event-failure";
+    const turnId = "turn-unclaimed-reap-event-failure";
+    const runId = "run-unclaimed-reap-event-failure";
+    await insertRun(runId, threadId, turnId, { dispatchMode: "background" });
+    const staleAt = Date.now() - UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 1;
+    await pglite.query(
+      `UPDATE agent_runs
+          SET started_at = ?, heartbeat_at = ?, last_progress_at = ?
+          WHERE id = ?`,
+      [staleAt, staleAt, staleAt, runId],
+    );
+
+    failNextTerminalEventInsert = true;
+    await expect(reapUnclaimedBackgroundRun(runId)).rejects.toThrow(
+      "injected terminal event insert failure",
+    );
+
+    const runAfterFailure = await pglite.query<{ status: string }>(
+      "SELECT status FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(runAfterFailure.rows[0]?.status).toBe("running");
+    const eventsAfterFailure = await pglite.query(
+      "SELECT seq FROM agent_run_events WHERE run_id = ?",
+      [runId],
+    );
+    expect(eventsAfterFailure.rows).toHaveLength(0);
+
+    await expect(reapUnclaimedBackgroundRun(runId)).resolves.toBe(true);
+    const completed = await pglite.query<{ status: string }>(
+      "SELECT status FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(completed.rows[0]?.status).toBe("errored");
+    const terminalEvent = await pglite.query<{ event_data: string }>(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ?",
+      [runId],
+    );
+    expect(terminalEvent.rows).toHaveLength(1);
+    expect(JSON.parse(terminalEvent.rows[0]!.event_data)).toMatchObject({
+      type: "error",
+      errorCode: "background_worker_never_started",
     });
   });
 

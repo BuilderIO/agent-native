@@ -2963,40 +2963,60 @@ export async function reapUnclaimedBackgroundRun(
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error(
+      "Atomic unclaimed-background reaping requires transaction support",
+    );
+  }
   const completedAt = Date.now();
   const cutoff = completedAt - UNCLAIMED_BACKGROUND_RUN_GRACE_MS;
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs
-          SET status = 'errored',
-              completed_at = ?,
-              error_code = ?,
-              error_detail = ?,
-              terminal_reason = ?
-          WHERE id = ?
-            AND status = 'running'
-            AND dispatch_mode = 'background'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [
-      completedAt,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.details,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
-      runId,
-      cutoff,
-    ],
+  const reaped = await client.transaction(async (tx) => {
+    const { rowsAffected } = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET status = 'errored',
+                completed_at = ?,
+                error_code = ?,
+                error_detail = ?,
+                terminal_reason = ?
+            WHERE id = ?
+              AND status = 'running'
+              AND dispatch_mode = 'background'
+              AND COALESCE(heartbeat_at, started_at) < ?`,
+      args: [
+        completedAt,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.details,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+        runId,
+        cutoff,
+      ],
+    });
+    const updated = (rowsAffected ?? 0) > 0;
+    if (updated) {
+      await appendTerminalRunEventInTransaction(
+        tx,
+        runId,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
+      );
+    }
+    return updated;
   });
-  const reaped = (rowsAffected ?? 0) > 0;
   if (reaped) {
-    await recordRunDiagnostic(
-      runId,
-      RUN_DIAG_STAGE.workerThrew,
-      "unclaimed background dispatch reaped (worker never claimed the run)",
-    );
-    await safeAppendTerminalRunEvent(
-      runId,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
-      "reap-unclaimed-background",
-    );
+    try {
+      await recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.workerThrew,
+        "unclaimed background dispatch reaped (worker never claimed the run)",
+      );
+    } catch (error) {
+      captureError(error, {
+        tags: {
+          component: "agent-run-store",
+          operation: "record-unclaimed-background-reap-diagnostic",
+        },
+        extra: { runId },
+      });
+    }
   }
   return reaped;
 }
