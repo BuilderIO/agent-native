@@ -49,12 +49,13 @@ export function serializeDocumentSource(
 /**
  * Pages that follow a GitHub file are written by sync only: their title,
  * body and description are edited in GitHub, and they leave Trash or enter
- * it as their files come and go. Comments, Content-only columns and the page
- * icon stay editable.
+ * it as their files come and go. They stay where their collection puts them,
+ * since a page moved under another one goes to Trash with it. Comments,
+ * Content-only columns and the page icon stay editable.
  */
 export function assertSourceAllowsPageEdit(
   document: DocumentSourceColumns,
-  change: "edit" | "trash" = "edit",
+  change: "edit" | "trash" | "move" = "edit",
 ) {
   if (document.sourceMode !== "github") return;
   const folder = parseGitHubSourceTable(document.sourceRootPath);
@@ -65,7 +66,9 @@ export function assertSourceAllowsPageEdit(
   throw new ActionContractError(
     change === "trash"
       ? `This page follows a file in GitHub. Delete the file${file}, and Content moves the page to Trash after the push.`
-      : `This page follows a file in GitHub and is view only here. Edit the file${file}; Content updates after each push.`,
+      : change === "move"
+        ? `This page follows a file in GitHub${file}, so it stays in its collection.`
+        : `This page follows a file in GitHub and is view only here. Edit the file${file}; Content updates after each push.`,
     { errorCode: "SOURCE_READ_ONLY", statusCode: 409 },
   );
 }
@@ -132,6 +135,7 @@ export async function releaseRestoredPagesFromGitHubCollections(
         documentId: schema.contentDatabaseItems.documentId,
         databaseId: schema.contentDatabaseItems.databaseId,
         databaseDocumentId: schema.contentDatabases.documentId,
+        sourceId: schema.contentDatabaseSources.id,
       })
       .from(schema.contentDatabaseItems)
       .innerJoin(
@@ -155,6 +159,19 @@ export async function releaseRestoredPagesFromGitHubCollections(
       await db
         .delete(schema.contentDatabaseItems)
         .where(eq(schema.contentDatabaseItems.id, membership.itemId));
+      // The sync finds pages by this record, so the page would follow its
+      // file again; it goes with the row.
+      await db
+        .delete(schema.contentDatabaseSourceRows)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceRows.sourceId, membership.sourceId),
+            eq(
+              schema.contentDatabaseSourceRows.documentId,
+              membership.documentId,
+            ),
+          ),
+        );
       await db
         .update(schema.documents)
         .set({
