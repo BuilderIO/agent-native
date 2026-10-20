@@ -1199,6 +1199,47 @@ describe("Builder source review execution gates", () => {
     });
   });
 
+  it("preserves a succeeded Builder execution and its response evidence", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const args = {
+      documentId: seeded.databaseDocumentId,
+      sourceId: seeded.sourceId,
+      changeSetId: seeded.changeSetId,
+      pushModeConfirmation: "autosave" as const,
+    };
+    await asOwner(() => prepareExecution.run(args));
+    const [execution] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.sourceId, seeded.sourceId),
+      );
+    await getDb()
+      .update(schema.contentDatabaseSourceExecutions)
+      .set({ state: "succeeded" })
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+
+    await expect(
+      asOwner(() => validateExecution.run(args)),
+    ).rejects.toMatchObject({
+      errorCode: "builder_execution_already_succeeded",
+      statusCode: 409,
+    });
+
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+    expect(after).toMatchObject({
+      state: "succeeded",
+      payloadJson: execution.payloadJson,
+      attemptToken: execution.attemptToken,
+    });
+  });
+
   it("revalidates a terminal Builder execution with a retained attempt token", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,

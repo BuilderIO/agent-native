@@ -115,6 +115,12 @@ export default defineAction({
       );
     }
     const now = new Date().toISOString();
+    if (execution.state === "succeeded") {
+      fail("Builder execution already succeeded and cannot be revalidated.", {
+        errorCode: "builder_execution_already_succeeded",
+        statusCode: 409,
+      });
+    }
     if (
       execution.state === "response_received" ||
       execution.state === "reconciliation_required"

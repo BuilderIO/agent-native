@@ -92,7 +92,7 @@ function assertProvablyPreDispatch(execution: {
       `Cannot cancel a Builder execution in state ${execution.state}. Its outcome must be preserved.`,
     );
   }
-  if (execution.attemptToken) {
+  if (execution.attemptToken && !definitiveRejectedWrite) {
     throw new Error(
       "Cannot cancel this Builder update because a dispatch attempt was recorded.",
     );
@@ -314,6 +314,7 @@ export default defineAction({
           .set({
             state: "blocked",
             summary: CANCELLED_BUILDER_EXECUTION_SUMMARY,
+            attemptToken: null,
             lastError: null,
             updatedAt: now,
           })
@@ -325,7 +326,12 @@ export default defineAction({
                 schema.contentDatabaseSourceExecutions.payloadJson,
                 execution.storedPayloadJson,
               ),
-              isNull(schema.contentDatabaseSourceExecutions.attemptToken),
+              execution.attemptToken
+                ? eq(
+                    schema.contentDatabaseSourceExecutions.attemptToken,
+                    execution.attemptToken,
+                  )
+                : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
             ),
           )
           .returning({ id: schema.contentDatabaseSourceExecutions.id });

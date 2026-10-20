@@ -612,6 +612,38 @@ describe("execute Builder source execution", () => {
     expect(deps.releaseExecutionClaim).not.toHaveBeenCalled();
   });
 
+  it("releases the execution claim when preflight lease renewal throws", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({ source: builderSource, execution });
+    const renewalError = new Error("execution lease store unavailable");
+    vi.mocked(deps.renewExecutionClaim).mockRejectedValue(renewalError);
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+      ),
+    ).rejects.toBe(renewalError);
+
+    expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionId: execution.id,
+        summary: expect.stringContaining("Execution stopped before write."),
+        lastError: "execution lease store unavailable",
+      }),
+    );
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
   it("blocks stale live entries before writing and hands the claim back as blocked", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
     const builderSource = source({

@@ -975,17 +975,31 @@ function stringOptionsFromUnknown(value: unknown): string[] | undefined {
 function builderMcpModelsFromToolResponse(
   response: unknown,
 ): BuilderCmsModelSummary[] {
-  if (!response || typeof response !== "object") return [];
-  const record = response as Record<string, unknown>;
-  const models = Array.isArray(record.models) ? record.models : [];
-  return models
-    .map((model) => normalizeBuilderCmsModel(model))
-    .filter((model): model is BuilderCmsModelSummary => Boolean(model))
-    .sort((a, b) => {
-      if (a.name === "agent-native-blog-article-test") return -1;
-      if (b.name === "agent-native-blog-article-test") return 1;
-      return a.displayName.localeCompare(b.displayName);
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    fail("Builder model discovery returned a malformed response.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
     });
+  }
+  const record = response as Record<string, unknown>;
+  if (!Array.isArray(record.models)) {
+    fail("Builder model discovery did not return a models array.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
+  }
+  const models = record.models.map((model) => normalizeBuilderCmsModel(model));
+  if (models.some((model) => !model)) {
+    fail("Builder model discovery returned a malformed model.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
+  }
+  return (models as BuilderCmsModelSummary[]).sort((a, b) => {
+    if (a.name === "agent-native-blog-article-test") return -1;
+    if (b.name === "agent-native-blog-article-test") return 1;
+    return a.displayName.localeCompare(b.displayName);
+  });
 }
 
 async function initializeBuilderMcp(args: {
@@ -1434,7 +1448,6 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
   let offset = startOffset;
   let cursor = startAfterId;
   let pagesRead = 0;
-  let expectedRemainingCount: number | null = null;
   let observedCollectionCount: number | null = null;
   let hasMore = false;
 
@@ -1445,11 +1458,7 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
     url.searchParams.set("apiKey", publicKey);
     url.searchParams.set("query.modelId", modelId);
     url.searchParams.set("sort.id", "1");
-    if (cursor) {
-      url.searchParams.set("query.id.$gt", cursor);
-    } else {
-      url.searchParams.set("offset", "0");
-    }
+    url.searchParams.set("offset", String(offset));
     url.searchParams.set("limit", String(pageLimit));
     url.searchParams.set("fetchTotalCount", "true");
     url.searchParams.set("noCache", "true");
@@ -1481,7 +1490,7 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
     const json = (await response.json()) as unknown;
     const { results: rawPageEntries, totalCount } =
       parseBuilderGeneralQueryDataResponse(json);
-    const pageCollectionCount = totalCount + startOffset;
+    const pageCollectionCount = totalCount;
     if (observedCollectionCount === null) {
       observedCollectionCount = pageCollectionCount;
       if (startOffset > 0 && args.expectedCollectionCount === undefined) {
@@ -1504,8 +1513,8 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
       }
     }
     if (
-      expectedRemainingCount !== null &&
-      totalCount !== expectedRemainingCount
+      observedCollectionCount !== null &&
+      pageCollectionCount !== observedCollectionCount
     ) {
       fail(
         "Builder query-data collection changed during cursor pagination; refresh the source to restart the observed collection read.",
@@ -1535,17 +1544,16 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
         { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
-    pagesRead += 1;
-    offset += pageEntries.length;
-    if (pageEntries.length > totalCount) {
+    if (offset + pageEntries.length > totalCount) {
       fail(
         "Builder query-data returned more entries than its reported totalCount.",
         { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
+    pagesRead += 1;
+    offset += pageEntries.length;
     cursor = pageEntries[pageEntries.length - 1]?.id ?? cursor;
-    expectedRemainingCount = totalCount - pageEntries.length;
-    hasMore = expectedRemainingCount > 0;
+    hasMore = offset < totalCount;
     if (hasMore && (pageEntries.length === 0 || appended === 0)) {
       fail(
         "Builder query-data pagination returned no new entries before the observed collection was complete.",

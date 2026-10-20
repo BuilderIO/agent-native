@@ -338,6 +338,7 @@ describe("cancel-prepared-builder-source-update", () => {
       executions: [
         {
           state: "blocked",
+          attemptToken: "finished-attempt",
           payload: {
             request: { method: "PATCH" },
             response: { ok: false, status: 409, error: "Source changed" },

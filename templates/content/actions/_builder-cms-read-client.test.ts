@@ -302,6 +302,54 @@ describe("Builder CMS read client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it.each([null, { data: [] }, { models: "not-an-array" }, { models: [{}] }])(
+    "rejects malformed general API model responses: %j",
+    async (payload) => {
+      resolveBuilderCredentialMock.mockResolvedValue(null);
+      resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+        token: "general-oauth-token",
+        authorization: "Bearer general-oauth-token",
+        source: "oauth",
+        oauthResource: "general",
+        oauthSelectedPublicKey: "selected-space-key",
+      });
+      const fetchImpl = vi.fn(
+        async () => new Response(JSON.stringify(payload), { status: 200 }),
+      );
+
+      await expect(
+        listBuilderCmsModels({
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).resolves.toMatchObject({
+        state: "error",
+        models: [],
+        message: expect.stringMatching(/malformed|models array/),
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("preserves a valid empty general API model catalog", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ models: [] }), { status: 200 }),
+    );
+
+    await expect(
+      listBuilderCmsModels({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ state: "live", models: [] });
+  });
+
   it("enumerates raw draft-inclusive entries through query-data", async () => {
     resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
@@ -338,9 +386,7 @@ describe("Builder CMS read client", () => {
         apiKey: "selected-space-key",
         "query.modelId": "model-uuid",
         "sort.id": "1",
-        ...(fetchImpl.mock.calls.length === 2
-          ? { offset: "0" }
-          : { "query.id.$gt": "published-1" }),
+        offset: fetchImpl.mock.calls.length === 2 ? "0" : "2",
         limit: fetchImpl.mock.calls.length === 2 ? "3" : "1",
         fetchTotalCount: "true",
       });
@@ -380,7 +426,7 @@ describe("Builder CMS read client", () => {
                     data: { title: "Second draft" },
                   },
                 ],
-                totalCount: 1,
+                totalCount: 3,
               },
         ),
         { status: 200 },
@@ -411,7 +457,7 @@ describe("Builder CMS read client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
-  it("rejects a refresh continuation when the observed collection count changed", async () => {
+  it("rejects a refresh continuation when an entry is inserted before its saved cursor", async () => {
     resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
@@ -429,11 +475,14 @@ describe("Builder CMS read client", () => {
           { status: 200 },
         );
       }
-      const continuation = input.searchParams.has("query.id.$gt");
+      const continuation = input.searchParams.get("offset") === "2";
       return new Response(
         JSON.stringify(
           continuation
-            ? { results: [], totalCount: 0 }
+            ? {
+                results: [{ id: "entry-2", modelId: "model-uuid", data: {} }],
+                totalCount: 4,
+              }
             : {
                 results: [
                   { id: "entry-1", modelId: "model-uuid", data: {} },
@@ -477,6 +526,9 @@ describe("Builder CMS read client", () => {
         "collection changed between refresh pages",
       ),
     });
+    const continuationRequest = fetchImpl.mock.calls[3]?.[0] as URL;
+    expect(continuationRequest.searchParams.get("offset")).toBe("2");
+    expect(continuationRequest.searchParams.has("query.id.$gt")).toBe(false);
   });
 
   it("requires a saved source binding before an unbound OAuth refresh", async () => {
@@ -559,7 +611,7 @@ describe("Builder CMS read client", () => {
               data: { title: "Duplicate" },
             },
           ],
-          totalCount: fetchImpl.mock.calls.length === 2 ? 2 : 1,
+          totalCount: 2,
         }),
         { status: 200 },
       );

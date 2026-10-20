@@ -1833,11 +1833,22 @@ export async function executeBuilderSourceExecutionWithDeps(
         });
         throw error;
       }
-      const claimRenewed = await deps.renewExecutionClaim({
-        executionId: execution.id,
-        attemptToken,
-        now: deps.now(),
-      });
+      let claimRenewed: boolean;
+      try {
+        claimRenewed = await deps.renewExecutionClaim({
+          executionId: execution.id,
+          attemptToken,
+          now: deps.now(),
+        });
+      } catch (error) {
+        await releaseClaim({
+          state: execution.state,
+          summary: `${plan.summary} Execution stopped before write.`,
+          payload: validatedPayload,
+          lastError: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
       if (!claimRenewed) {
         throw builderExecutionConflict(
           "Builder execution lease was reclaimed during live preflight.",
