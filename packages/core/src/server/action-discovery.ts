@@ -452,6 +452,8 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
+  // Connection setup UI needs the workspace prerequisite even in minimal apps.
+  "get-managed-mcp-oauth-readiness",
   "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
