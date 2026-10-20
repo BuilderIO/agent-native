@@ -3812,8 +3812,13 @@ export async function insertRunEvent(
   );
   const eventAt = options?.eventAt ?? Date.now();
   // The reaper must wait for the marker's commit before exposing a successor.
-  const { rowsAffected, terminalRun, persistedIdentically } =
-    await withFencedExecutionWrite(
+  let result: {
+    rowsAffected: number | undefined;
+    terminalRun: boolean;
+    persistedIdentically: boolean;
+  };
+  try {
+    result = await withFencedExecutionWrite(
       async (tx) => {
         const { rowsAffected } = await tx.execute({
           sql: options?.requireInserted
@@ -3871,7 +3876,29 @@ export async function insertRunEvent(
       },
       { runId },
     );
-  if (options?.requireInserted && rowsAffected !== 1 && !persistedIdentically)
+  } catch (error) {
+    if (error instanceof StaleExecutionFenceError) {
+      let status: string | null;
+      try {
+        status = await getRunStatus(runId);
+      } catch (statusError) {
+        throw new AggregateError(
+          [error, statusError],
+          `Could not confirm run status after a stale execution fence: ${runId}`,
+        );
+      }
+      if (status !== null && status !== "running") {
+        throw new AgentRunEventNotPersistedError(runId, seq, true, error);
+      }
+    }
+    throw error;
+  }
+  const { rowsAffected, terminalRun, persistedIdentically } = result;
+  if (
+    options?.requireInserted &&
+    rowsAffected !== 1 &&
+    (!persistedIdentically || terminalRun)
+  )
     throw new AgentRunEventNotPersistedError(runId, seq, terminalRun);
 }
 

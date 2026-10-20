@@ -772,6 +772,51 @@ describe("task execution leases", () => {
 });
 
 describe("run event batches", () => {
+  it("classifies a stale start marker as terminal only after the run ends", async () => {
+    const threadId = "thread-required-event-stale-fence";
+    const turnId = "turn-required-event-stale-fence";
+    const runId = "run-required-event-stale-fence";
+    await insertRun(runId, threadId, turnId);
+    const staleFence = await claimTurnExecutionLease(threadId, turnId, runId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    await claimTaskExecutionLease(threadId, turnId, "a2a:replacement-worker");
+
+    await expect(
+      withExecutionFence(staleFence, () =>
+        insertRunEvent(runId, 0, '{"type":"tool_start"}', {
+          requireInserted: true,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'completed' WHERE id = ?",
+      [runId],
+    );
+    await expect(
+      withExecutionFence(staleFence, () =>
+        insertRunEvent(runId, 0, '{"type":"tool_start"}', {
+          requireInserted: true,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+      cause: { code: "stale_execution_fence" },
+    });
+
+    const events = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ?",
+      [runId],
+    );
+    expect(events.rows).toHaveLength(0);
+  });
+
   it("marks a required event insert miss terminal only after the run ends", async () => {
     const runId = "required-run-event-persistence";
     const eventData = '{"type":"text","text":"event"}';
@@ -801,6 +846,15 @@ describe("run event batches", () => {
       "UPDATE agent_runs SET status = 'completed' WHERE id = ?",
       [runId],
     );
+    await expect(
+      insertRunEvent(runId, 0, eventData, {
+        requireInserted: true,
+        eventAt: 1_000,
+      }),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
     await expect(
       insertRunEvent(runId, 1, eventData, { requireInserted: true }),
     ).rejects.toMatchObject({
