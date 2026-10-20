@@ -25,7 +25,7 @@ export default defineAction({
           ),
       })
       .strict()
-      .optional()
+      .nullish()
       .describe(
         "Panel config.drilldown declaration for BigQuery or first-party SQL; omit to use catalog lookup or aggregate fallback.",
       ),

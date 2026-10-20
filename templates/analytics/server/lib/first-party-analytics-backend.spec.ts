@@ -51,6 +51,28 @@ import {
 } from "./first-party-analytics-backend.js";
 
 describe("first-party BigQuery execution metadata", () => {
+  it.each([true, false])(
+    "preserves the provider partial flag %s without requiring truncation",
+    async (partial) => {
+      const result = {
+        rows: [{ record: "first", total_matching: 1 }],
+        schema: [{ name: "record", type: "STRING" }],
+        bytesProcessed: 4096,
+        partial,
+        truncated: false,
+      };
+      runQuery.mockResolvedValue(result);
+      await expect(
+        queryFirstPartyAnalyticsInBigQuery("SELECT 1", [], {
+          projectId: "example-project",
+          datasetId: "analytics",
+          tableId: "example_events",
+          fullyQualified: "example-project.analytics.example_events",
+        }),
+      ).resolves.toEqual(result);
+    },
+  );
+
   it.each([false, true])(
     "forwards the byte cap and preserves runQuery metadata on app cache hit %s",
     async (cached) => {

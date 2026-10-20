@@ -2046,6 +2046,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
       : {}),
     ...(result.fetchedAt !== undefined ? { fetchedAt: result.fetchedAt } : {}),
     ...(result.truncated !== undefined ? { truncated: result.truncated } : {}),
+    ...(result.partial !== undefined ? { partial: result.partial } : {}),
   };
 }
 

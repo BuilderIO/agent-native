@@ -196,6 +196,7 @@ function responseMetadata(data: DashboardPanelQueryResponse): {
   cached?: boolean;
   providerCacheHit?: boolean;
   truncated?: boolean;
+  partial?: boolean;
   fetchedAt?: string;
 } {
   const metadata: ReturnType<typeof responseMetadata> = {};
@@ -204,6 +205,12 @@ function responseMetadata(data: DashboardPanelQueryResponse): {
     metadata.providerCacheHit = data.providerCacheHit;
   }
   if (typeof data.truncated === "boolean") metadata.truncated = data.truncated;
+  // Provider warnings can cut results short without setting the row-limit flag.
+  // Use the same incomplete signal so snapshots cannot restore them as complete.
+  if (data.partial === true) {
+    metadata.partial = true;
+    metadata.truncated = true;
+  }
   if (data.fetchedAt !== undefined) {
     if (
       typeof data.fetchedAt === "string" &&

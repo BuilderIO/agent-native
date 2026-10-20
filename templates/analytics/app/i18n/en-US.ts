@@ -995,7 +995,7 @@ export default {
     drilldownShowingLoaded:
       "Showing {{shown}} of {{loaded}} loaded records; total unknown.",
     drilldownCsvTruncatedUnknownTotal:
-      "Incomplete export: more records matched than were loaded; this file includes {{exported}} of {{loaded}} loaded records after filtering.",
+      "Export completeness is unknown; this file includes {{exported}} of {{loaded}} loaded records after filtering.",
     drilldownCsvTruncated:
       "Incomplete export: the query matched {{total}} records, but only the first {{loaded}} were loaded; this file includes {{exported}} after filtering.",
     drilldownCountMismatch:

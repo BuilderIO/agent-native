@@ -1437,7 +1437,7 @@ export default {
     drilldownShowingLoaded:
       "Mostrando {{shown}} de {{loaded}} registros cargados; total desconocido.",
     drilldownCsvTruncatedUnknownTotal:
-      "Exportación incompleta: hay más registros coincidentes de los que se cargaron; este archivo incluye {{exported}} de {{loaded}} registros cargados tras filtrar.",
+      "Se desconoce si la exportación está completa; este archivo incluye {{exported}} de {{loaded}} registros cargados después del filtrado.",
     drilldownCsvTruncated:
       "Exportación incompleta: la consulta encontró {{total}} registros, pero solo se cargaron los primeros {{loaded}}; este archivo incluye {{exported}} después de filtrar.",
     drilldownCountMismatch:

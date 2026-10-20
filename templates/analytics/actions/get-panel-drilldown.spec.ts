@@ -43,8 +43,20 @@ describe("get-panel-drilldown", () => {
     );
   });
 
+  it("treats a null declaration as absent for catalog lookup and aggregate fallback", async () => {
+    mocks.getFirstPartyDrilldown.mockReturnValue(null);
+    const args = getPanelDrilldown.schema.parse({ ...panel, drilldown: null });
+    await expect(getPanelDrilldown.run(args)).resolves.toEqual({
+      drilldown: null,
+    });
+    expect(mocks.getFirstPartyDrilldown).toHaveBeenCalledWith(
+      panel.panelId,
+      panel.panelSource,
+      panel.panelSql,
+    );
+  });
+
   it.each([
-    null,
     {},
     { sql: " " },
     { sql: "x".repeat(50_001) },

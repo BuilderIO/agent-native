@@ -1443,7 +1443,7 @@ export default {
     drilldownShowingLoaded:
       "Affichage de {{shown}} sur {{loaded}} enregistrements chargés ; total inconnu.",
     drilldownCsvTruncatedUnknownTotal:
-      "Export incomplet : le nombre de résultats dépasse celui des enregistrements chargés ; ce fichier contient {{exported}} des {{loaded}} enregistrements chargés après filtrage.",
+      "L’exhaustivité de l’export est inconnue ; ce fichier contient {{exported}} des {{loaded}} enregistrements chargés après filtrage.",
     drilldownCsvTruncated:
       "Export incomplet : la requête correspond à {{total}} enregistrements, mais seuls les {{loaded}} premiers ont été chargés ; ce fichier en contient {{exported}} après filtrage.",
     drilldownCountMismatch:

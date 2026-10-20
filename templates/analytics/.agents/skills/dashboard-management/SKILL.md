@@ -463,10 +463,15 @@ receives the dashboard filters plus `{{drillX}}` (raw x-axis value) and
 `{{drillSeries}}` (raw series key, or empty when absent), escaped for the source.
 Its SQL can return `COUNT(*) OVER () AS total_matching` alongside a bounded
 record list such as `LIMIT 500`; the dialog hides that count column and reports
-truncation. The declared SQL runs only when a point is opened and reuses a
+truncation. Without a valid count, the total and export completeness remain
+unknown. Provider partial results also have unknown totals, even if a count is
+present. The declared SQL runs only when a point is opened and reuses a
 completed result for the same account, source, SQL and dashboard scope.
-Record drill-downs have a fixed 50 GiB server byte cap; measure their scan
-before enabling them, since a row limit does not reduce scanned bytes.
+The dialog requests the `panel-drilldown` operation with a fixed 50 GiB server
+byte cap; measure its scan before enabling it, since a row limit does not reduce
+scanned bytes. This is an interaction budget, not a restriction on the SQL an
+authenticated user can submit to the normal query operation under its source
+budget.
 Without a declaration, supported first-party catalog panels retain their
 record templates and other charts open their aggregate rows. Normal panel SQL
 is unchanged by this declaration.

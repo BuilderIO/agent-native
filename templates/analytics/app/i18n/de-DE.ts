@@ -1447,7 +1447,7 @@ export default {
     drilldownShowingLoaded:
       "{{shown}} von {{loaded}} geladenen Datensätzen; Gesamtzahl unbekannt.",
     drilldownCsvTruncatedUnknownTotal:
-      "Unvollständiger Export: Es gibt mehr passende als geladene Datensätze; diese Datei enthält nach dem Filtern {{exported}} von {{loaded}} geladenen Datensätzen.",
+      "Die Vollständigkeit des Exports ist unbekannt; diese Datei enthält nach dem Filtern {{exported}} von {{loaded}} geladenen Datensätzen.",
     drilldownCsvTruncated:
       "Unvollständiger Export: Die Abfrage ergab {{total}} Datensätze, aber nur die ersten {{loaded}} wurden geladen; diese Datei enthält nach dem Filtern {{exported}}.",
     drilldownCountMismatch:

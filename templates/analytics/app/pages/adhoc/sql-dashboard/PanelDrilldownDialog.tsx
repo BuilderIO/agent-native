@@ -107,7 +107,7 @@ export function PanelDrilldownDialog({
           panelId: panel.id,
           panelSource: panel.source,
           panelSql: panel.sql,
-          ...(panel.config?.drilldown !== undefined
+          ...(panel.config?.drilldown != null
             ? { drilldown: panel.config.drilldown }
             : {}),
         },
@@ -189,11 +189,14 @@ export function PanelDrilldownDialog({
       : null;
   const totalMatching =
     count !== null &&
+    !activeQuery.data?.partial &&
     Number.isSafeInteger(count) &&
     count >= allRows.length &&
     (!activeQuery.data?.truncated || count > allRows.length)
       ? count
-      : activeQuery.data?.truncated
+      : hasRecordQuery ||
+          activeQuery.data?.truncated ||
+          activeQuery.data?.partial
         ? null
         : allRows.length;
 

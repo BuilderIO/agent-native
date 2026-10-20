@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   sqlError: null as unknown,
   sqlTruncated: false,
+  sqlPartial: false,
   sqlCache: null as Map<string, Record<string, unknown>[]> | null,
   sqlRows: [{ record: "aggregate fallback" }] as Record<string, unknown>[],
 }));
@@ -62,7 +63,7 @@ vi.mock("@/lib/sql-query", () => ({
     const rows = mocks.sqlCache?.get(cacheKey) ?? mocks.sqlRows;
     if (options.enabled) mocks.sqlCache?.set(cacheKey, rows);
     return {
-      data: { rows, truncated: mocks.sqlTruncated },
+      data: { rows, truncated: mocks.sqlTruncated, partial: mocks.sqlPartial },
       isLoading: false,
       isFetching: false,
       error: mocks.sqlError,
@@ -163,6 +164,7 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     mocks.drilldownQueryOptions.length = 0;
     mocks.sqlError = null;
     mocks.sqlTruncated = false;
+    mocks.sqlPartial = false;
     mocks.sqlCache = null;
     mocks.callAction.mockReset();
     mocks.sqlRows = [{ record: "aggregate fallback" }];
@@ -262,46 +264,58 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     expect(mocks.sqlCache.size).toBe(2);
   });
 
-  it("labels transport-truncated records and CSV as incomplete when their total is unknown", async () => {
-    mocks.actionQuery = {
-      data: { drilldown: { sql: "SELECT record FROM events LIMIT 500" } },
-      isSuccess: true,
-    };
-    mocks.sqlRows = [{ record: "first" }, { record: "second" }];
-    mocks.sqlTruncated = true;
-    const createObjectURL = vi
-      .spyOn(URL, "createObjectURL")
-      .mockReturnValue("blob:drilldown-csv");
-    const click = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => {});
-    await render();
-    expect(container.textContent).toContain(
-      'sqlDashboard.drilldownShowingLoaded {"shown":"localized:2","loaded":"localized:2"}',
-    );
-    expect(container.textContent).toContain(
-      'sqlDashboard.drilldownCsvTruncatedUnknownTotal {"loaded":"localized:2","exported":"localized:2"}',
-    );
-    expect(container.textContent).not.toContain(
-      "sqlDashboard.drilldownCountMismatch",
-    );
-    expect(container.textContent).not.toContain(
-      "sqlDashboard.drilldownShowing {",
-    );
-    const downloadButton = Array.from(
-      container.querySelectorAll("button"),
-    ).find((button) =>
-      button.textContent?.includes("sqlDashboard.drilldownDownloadCsv"),
-    );
-    await act(async () => downloadButton!.click());
-    const csv = await (createObjectURL.mock.calls[0]?.[0] as Blob).text();
-    expect(csv.split("\n").slice(-1)[0]).toContain(
-      "sqlDashboard.drilldownCsvTruncatedUnknownTotal",
-    );
-    expect(csv).not.toContain("total");
-    createObjectURL.mockRestore();
-    click.mockRestore();
-  });
+  it.each([
+    { truncated: true, partial: false, total: undefined },
+    { truncated: false, partial: true, total: 99 },
+    { truncated: false, partial: false, total: undefined },
+    { truncated: false, partial: false, total: "unreadable" },
+  ])(
+    "keeps incomplete or uncounted record totals unknown: %j",
+    async ({ truncated, partial, total }) => {
+      mocks.actionQuery = {
+        data: { drilldown: { sql: "SELECT record FROM events LIMIT 500" } },
+        isSuccess: true,
+      };
+      mocks.sqlRows = [
+        { record: "first", total_matching: total },
+        { record: "second", total_matching: total },
+      ];
+      mocks.sqlTruncated = truncated;
+      mocks.sqlPartial = partial;
+      const createObjectURL = vi
+        .spyOn(URL, "createObjectURL")
+        .mockReturnValue("blob:drilldown-csv");
+      const click = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => {});
+      await render();
+      expect(container.textContent).toContain(
+        'sqlDashboard.drilldownShowingLoaded {"shown":"localized:2","loaded":"localized:2"}',
+      );
+      expect(container.textContent).toContain(
+        'sqlDashboard.drilldownCsvTruncatedUnknownTotal {"loaded":"localized:2","exported":"localized:2"}',
+      );
+      expect(container.textContent).not.toContain(
+        "sqlDashboard.drilldownCountMismatch",
+      );
+      expect(container.textContent).not.toContain(
+        "sqlDashboard.drilldownShowing {",
+      );
+      const downloadButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) =>
+        button.textContent?.includes("sqlDashboard.drilldownDownloadCsv"),
+      );
+      await act(async () => downloadButton!.click());
+      const csv = await (createObjectURL.mock.calls[0]?.[0] as Blob).text();
+      expect(csv.split("\n").slice(-1)[0]).toContain(
+        "sqlDashboard.drilldownCsvTruncatedUnknownTotal",
+      );
+      expect(csv).not.toContain("total");
+      createObjectURL.mockRestore();
+      click.mockRestore();
+    },
+  );
 
   it("shows lookup failure without enabling the aggregate fallback", async () => {
     mocks.actionQuery = {
@@ -339,6 +353,20 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     expect(container.textContent).toContain(
       "sqlDashboard.drilldownAggregateOnly",
     );
+  });
+
+  it("omits null saved declarations from the lookup request and enables aggregate fallback", async () => {
+    mocks.actionQuery = { data: { drilldown: null }, isSuccess: true };
+    await render({ ...PANEL, config: { drilldown: null } });
+    const queryFn = mocks.drilldownQueryOptions[0].queryFn as (context: {
+      signal: AbortSignal;
+    }) => Promise<unknown>;
+    await queryFn({ signal: new AbortController().signal });
+    expect(mocks.callAction.mock.calls[0][1]).not.toHaveProperty("drilldown");
+    expect(mocks.sqlQueries.map((query) => query.enabled)).toEqual([
+      false,
+      true,
+    ]);
   });
 
   it("keeps total_matching visible in aggregate fallback results", async () => {

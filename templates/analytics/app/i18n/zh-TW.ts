@@ -1419,7 +1419,7 @@ export default {
     drilldownShowingLoaded:
       "顯示已載入的 {{loaded}} 筆記錄中的 {{shown}} 筆；總數未知。",
     drilldownCsvTruncatedUnknownTotal:
-      "匯出不完整：符合的記錄多於已載入的記錄；此檔案包含已載入的 {{loaded}} 筆記錄中篩選後的 {{exported}} 筆。",
+      "無法確定匯出是否完整；此檔案包含已載入的 {{loaded}} 筆記錄中經過篩選的 {{exported}} 筆。",
     drilldownCsvTruncated:
       "匯出不完整：查詢符合 {{total}} 筆記錄，但僅載入前 {{loaded}} 筆；篩選後此檔案包含 {{exported}} 筆。",
     drilldownCountMismatch: "圖表顯示 {{chart}}，但符合的記錄有 {{total}} 筆",

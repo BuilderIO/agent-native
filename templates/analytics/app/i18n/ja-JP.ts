@@ -1415,7 +1415,7 @@ export default {
     drilldownShowingLoaded:
       "読み込み済み {{loaded}} 件中 {{shown}} 件を表示。総件数は不明です。",
     drilldownCsvTruncatedUnknownTotal:
-      "不完全なエクスポート：一致したレコードの一部のみ読み込まれています。このファイルには読み込み済み {{loaded}} 件のうちフィルター後の {{exported}} 件が含まれます。",
+      "エクスポートが完全かどうかは不明です。このファイルには、読み込まれた {{loaded}} 件のレコードのうち、フィルター後の {{exported}} 件が含まれます。",
     drilldownCsvTruncated:
       "不完全なエクスポート: クエリに一致した {{total}} 件のうち、最初の {{loaded}} 件のみ読み込まれました。フィルター適用後、このファイルには {{exported}} 件が含まれます。",
     drilldownCountMismatch:

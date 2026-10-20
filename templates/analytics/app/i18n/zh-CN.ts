@@ -1335,7 +1335,7 @@ export default {
     drilldownShowingLoaded:
       "显示已加载的 {{loaded}} 条记录中的 {{shown}} 条；总数未知。",
     drilldownCsvTruncatedUnknownTotal:
-      "导出不完整：匹配的记录多于已加载的记录；此文件包含已加载的 {{loaded}} 条记录中筛选后的 {{exported}} 条。",
+      "无法确定导出是否完整；此文件包含已加载的 {{loaded}} 条记录中经过筛选的 {{exported}} 条。",
     drilldownCsvTruncated:
       "导出不完整：查询匹配 {{total}} 条记录，但仅加载了前 {{loaded}} 条；筛选后此文件包含 {{exported}} 条。",
     drilldownCountMismatch: "图表显示 {{chart}}，但匹配到 {{total}} 条记录",

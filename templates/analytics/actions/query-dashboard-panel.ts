@@ -20,8 +20,8 @@ export default defineAction({
     source: z.enum(DASHBOARD_PANEL_SOURCES),
     query: z.unknown(),
     forceRefresh: z.boolean().optional(),
-    // The cap is fixed here, not sent by the browser, so a client can't
-    // raise what one interactive breakdown or record drill-down may bill.
+    // Interaction budgets are fixed here. The normal SQL operation retains its
+    // source budget; purpose is not an authorization boundary for arbitrary SQL.
     purpose: z.enum(["row-breakdown", "panel-drilldown"]).optional(),
   }),
   http: { method: "POST" },
