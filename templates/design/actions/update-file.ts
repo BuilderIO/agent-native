@@ -506,7 +506,10 @@ export default defineAction({
               sourceContentHash(liveContent) !== expectedVersionHash
             ) {
               if (syncCollab === false && collabExists) {
-                if (persistedContentHash !== expectedVersionHash) {
+                if (
+                  hasVersionedContentOperation ||
+                  persistedContentHash !== expectedVersionHash
+                ) {
                   skipContentWrite = true;
                   skippedStaleMirror = true;
                 }

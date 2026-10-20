@@ -753,7 +753,38 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     );
   });
 
-  it("12. delete-race after the access lookup: inner missing-file guard returns 404 (not a bare 500) so the outbox drops it", async () => {
+  it("12. versioned mirror-tip write does not overwrite a divergent live document", async () => {
+    await applyText(
+      FILE_ID,
+      buildDoc(" other-editors-live-only-edit-"),
+      "content",
+      "agent",
+    );
+    const mirrorState = buildDoc(" mirror-state-");
+    designFilesStore.rows.get(FILE_ID)!.content = mirrorState;
+
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" upload-based-on-mirror-state-"),
+      syncCollab: false,
+      expectedVersionHash: sourceContentHash(mirrorState),
+      operationSource: "screen-image-upload",
+      operationRevision: 1,
+    } as never);
+
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+      skippedStaleMirror: true,
+    });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(mirrorState);
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
+      buildDoc(" other-editors-live-only-edit-"),
+    );
+  });
+
+  it("13. delete-race after the access lookup: inner missing-file guard returns 404 (not a bare 500) so the outbox drops it", async () => {
     vi.mocked(assertAccess).mockImplementationOnce(async () => {
       designFilesStore.rows.clear();
       return { role: "editor", resource: {} } as never;
