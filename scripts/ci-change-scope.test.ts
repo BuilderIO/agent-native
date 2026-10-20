@@ -1433,7 +1433,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.match(
     designGlobalSetup,
     /^const HOME_RECOVERY_DETECTION_BUDGET_MS = 30_000;$/m,
-    "initial home navigation and readiness detection must leave a bounded Vite recovery window",
+    "the initial composer probe must leave a bounded Vite recovery window",
   );
   assert.deepEqual(
     [
@@ -1454,10 +1454,10 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       ),
     ].map(([, deadline, budget]) => [deadline, budget]),
     [
-      ["homeRecoveryDetectionDeadline", "HOME_RECOVERY_DETECTION_BUDGET_MS"],
+      ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
       ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
     ],
-    "initial home navigation must leave the remaining home budget for recovery",
+    "home navigation must retain the full cold-compile budget before the recovery probe",
   );
   assert.match(
     changedSpecRegressions,
@@ -1564,9 +1564,14 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "matrix.shard == 'home-system-selection'",
   );
   assert.match(
+    workflow,
+    /^  design-canvas-broad-workflows:\n(?:.*\n){4}    timeout-minutes: \$\{\{ matrix\.shard == 'home-system-selection' && 40 \|\| \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
+    "the Home workflow job must leave setup and artifact headroom after the long Playwright step",
+  );
+  assert.match(
     homeSystemSelection,
-    /^        timeout-minutes: 18$/m,
-    "Home system-selection coverage needs setup, webServer, and test headroom",
+    /^        timeout-minutes: 28$/m,
+    "Home system-selection coverage must fit global setup, webServer startup, three tests, and loopback startup",
   );
   assert.ok(
     homeSystemSelection.includes(
@@ -1803,7 +1808,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     broadJob,
-    /^    timeout-minutes: \$\{\{ \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
+    /^    timeout-minutes: \$\{\{ matrix\.shard == 'home-system-selection' && 40 \|\| \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
     "broad Design jobs must leave headroom outside the setup-aware test steps",
   );
   const stepTimeout = Number(

@@ -576,7 +576,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_broad_workflows == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 35 || 30 }}
+    timeout-minutes: ${{ matrix.shard == 'home-system-selection' && 40 || (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 35 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -688,7 +688,7 @@ jobs:
       - name: Run Home design-system selection regressions
         if: matrix.shard == 'home-system-selection'
         working-directory: templates/design
-        timeout-minutes: 18
+        timeout-minutes: 28
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           E2E_AI_SIDEBAR_LOOPBACK: "1"

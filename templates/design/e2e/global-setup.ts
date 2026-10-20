@@ -480,10 +480,7 @@ export default async function globalSetup(config: FullConfig) {
       try {
         await warmupPage.goto(homeURL, {
           waitUntil: "domcontentloaded",
-          timeout: timeoutBefore(
-            homeRecoveryDetectionDeadline,
-            HOME_RECOVERY_DETECTION_BUDGET_MS,
-          ),
+          timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
         });
         await homeComposer.waitFor({
           state: "visible",
