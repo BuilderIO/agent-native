@@ -959,6 +959,30 @@ describe("syncInboxAccount — full sync", () => {
 });
 
 describe("syncInboxAccount — incremental sync", () => {
+  it("leaves the history cursors alone when a backfill step follows the incremental step", async () => {
+    currentRow = baseRow({
+      historyId: "1000",
+      archiveHistoryId: "1000",
+      fullSyncPageToken: "page-1",
+      fullSyncHistoryId: "9000",
+      fullSyncStartedAt: 123,
+      fullSyncListedCount: 5,
+    });
+    routeHistory({ history: [], historyId: "1010" });
+    mocks.gmailListHistory.mockImplementation(async () => ({
+      history: [],
+      historyId: "1010",
+    }));
+    // The last backfill page: no next token, so the step completes the walk.
+    mocks.gmailListThreads.mockResolvedValueOnce({ threads: [] });
+
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(currentRow.fullSyncPageToken).toBeNull();
+    expect(currentRow.historyId).toBe("1010");
+    expect(currentRow.archiveHistoryId).toBe("1010");
+  });
+
   it("advances one backfill page when every incremental step has new mail", async () => {
     currentRow = baseRow({
       historyId: "1000",
@@ -1590,17 +1614,120 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     );
   });
 
-  it("fails loudly and keeps the row when the verification read errors", async () => {
+  it("keeps a failing candidate pending at the back and still hydrates new mail", async () => {
     currentRow = baseRow({ historyId: "1000" });
-    fakeRows = [{ threadId: "t9" }];
-    archiveStream(["t9"]);
-    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
-      { id: "t9", data: null, error: "HTTP 500 backend" },
-    ]);
+    fakeRows = [{ threadId: "bad" }, { threadId: "good" }];
+    mocks.gmailListHistory.mockImplementation(
+      async (_token: string, params: { labelId?: string }) =>
+        params.labelId === "INBOX"
+          ? {
+              history: [
+                {
+                  id: "1001",
+                  messagesAdded: [{ message: { id: "n-m1", threadId: "new" } }],
+                },
+              ],
+              historyId: "1002",
+            }
+          : {
+              history: [
+                {
+                  id: "1002",
+                  labelsRemoved: ["bad", "good"].map((threadId) => ({
+                    labelIds: ["INBOX"],
+                    message: { id: `${threadId}-m1`, threadId },
+                  })),
+                },
+              ],
+              historyId: "1002",
+            },
+    );
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[], format: string) =>
+        requested.map((id) => {
+          if (format === "minimal") {
+            return id === "bad"
+              ? { id, data: null, error: "HTTP 500 backend" }
+              : minimalThread(id, [["CATEGORY_UPDATES"]]);
+          }
+          return {
+            id,
+            data: thread(id, { from: "a@ex.com", labelIds: ["INBOX"] }),
+          };
+        }),
+    );
 
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-    expect(result.state).toBe("error");
+    expect(result.state).toBe("ready");
+    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      "good",
+      expect.any(Number),
+      {},
+    );
+    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      "bad",
+      expect.anything(),
+      expect.anything(),
+    );
+    const hydrated = mocks.gmailBatchGetThreads.mock.calls
+      .filter((call) => call[2] === "metadata")
+      .flatMap((call) => call[1]);
+    expect(hydrated).toEqual(["new"]);
+    expect(currentRow.archivePendingIds).toEqual(["bad"]);
+    // Only a failed candidate is left, so the client is not kept in a sync loop.
+    expect(result.backfillPending).toBeUndefined();
+  });
+
+  it("runs hydration after a quota cooldown ends verification, leaving candidates in place", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    fakeRows = [{ threadId: "t1" }, { threadId: "t2" }];
+    mocks.gmailListHistory.mockImplementation(
+      async (_token: string, params: { labelId?: string }) =>
+        params.labelId === "INBOX"
+          ? {
+              history: [
+                {
+                  id: "1001",
+                  messagesAdded: [{ message: { id: "n-m1", threadId: "new" } }],
+                },
+              ],
+              historyId: "1002",
+            }
+          : {
+              history: [
+                {
+                  id: "1002",
+                  labelsRemoved: ["t1", "t2"].map((threadId) => ({
+                    labelIds: ["INBOX"],
+                    message: { id: `${threadId}-m1`, threadId },
+                  })),
+                },
+              ],
+              historyId: "1002",
+            },
+    );
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[], format: string) => {
+        if (format === "minimal") throw new mocks.GmailQuotaCooldownError(5);
+        return requested.map((id) => ({
+          id,
+          data: thread(id, { from: "a@ex.com", labelIds: ["INBOX"] }),
+        }));
+      },
+    );
+
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    const hydrated = mocks.gmailBatchGetThreads.mock.calls
+      .filter((call) => call[2] === "metadata")
+      .flatMap((call) => call[1]);
+    expect(hydrated).toEqual(["new"]);
+    expect(currentRow.archivePendingIds).toEqual(["t1", "t2"]);
     expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
   });
 

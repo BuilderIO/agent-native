@@ -451,11 +451,15 @@ async function runFullSyncStep(
     };
   }
 
-  const historyId = initialSync ? fullSyncHistoryId : row.historyId;
+  // Only the first full sync sets the cursors. A backfill step runs after the
+  // incremental step in the same call and holds the pre-incremental row, so
+  // writing its cursor back would rewind history.
+  const cursors = initialSync
+    ? { historyId: fullSyncHistoryId, archiveHistoryId: null }
+    : {};
   if (nextPageToken) {
     await patchProgress(ownerEmail, accountEmail, claimId, {
-      historyId,
-      ...(initialSync ? { archiveHistoryId: null } : {}),
+      ...cursors,
       fullSyncPageToken: nextPageToken,
       fullSyncHistoryId,
       fullSyncStartedAt,
@@ -494,8 +498,7 @@ async function runFullSyncStep(
     : 0;
   const reconciled = !snapshot || localInboxTotal === snapshot.total;
   await patchProgress(ownerEmail, accountEmail, claimId, {
-    historyId,
-    ...(initialSync ? { archiveHistoryId: null } : {}),
+    ...cursors,
     fullSyncPageToken: null,
     fullSyncHistoryId: null,
     fullSyncStartedAt: null,
@@ -914,21 +917,43 @@ async function runIncrementalSyncStep(
 
   const archivedOnly: string[] = [];
   const stillInbox: string[] = [];
+  // A candidate whose read fails is isolated: it goes to the back of the queue
+  // and the step carries on, so one bad thread cannot block verification of
+  // the rest or hydration of new mail. A quota cooldown ends verification for
+  // this step and leaves the candidates where they were.
+  const verifyFailed: string[] = [];
+  let verifyCooledDown = false;
   if (verifyNow.length > 0) {
-    const verification = await gmailBatchGetThreads(
-      accessToken,
-      verifyNow,
-      "minimal",
-      undefined,
-      "incremental",
-    );
+    let verification: Awaited<ReturnType<typeof gmailBatchGetThreads>> = [];
+    try {
+      verification = await gmailBatchGetThreads(
+        accessToken,
+        verifyNow,
+        "minimal",
+        undefined,
+        "incremental",
+      );
+    } catch (error) {
+      if (error instanceof GmailQuotaCooldownError) {
+        verifyCooledDown = true;
+      } else {
+        console.warn("[inbox-sync] archive verification batch failed", {
+          kind: error instanceof Error ? error.name : "unknown",
+        });
+        verifyFailed.push(...verifyNow);
+      }
+    }
     for (const part of verification) {
       if (part.error) {
         if (/HTTP 404/.test(part.error)) {
           archivedOnly.push(part.id);
-          continue;
+        } else {
+          console.warn("[inbox-sync] archive verification read failed", {
+            error: boundedErrorMessage(part.error),
+          });
+          verifyFailed.push(part.id);
         }
-        throw new Error(`Gmail thread ${part.id} fetch failed: ${part.error}`);
+        continue;
       }
       const keeps = (part.data?.messages ?? []).some((message: any) =>
         (message?.labelIds ?? []).includes("INBOX"),
@@ -988,7 +1013,11 @@ async function runIncrementalSyncStep(
     ...hydrateQueue.slice(hydrateNow.length),
     ...stillInbox,
   ];
-  const archivePendingIds = verifyQueue.slice(verifyNow.length);
+  const archivePendingIds = [
+    ...(verifyCooledDown ? verifyNow : []),
+    ...verifyQueue.slice(verifyNow.length),
+    ...verifyFailed,
+  ];
   const syncedAt = Date.now();
   await patchProgress(ownerEmail, accountEmail, claimId, {
     hydratePendingIds,
@@ -1004,7 +1033,9 @@ async function runIncrementalSyncStep(
       ...(row.fullSyncPageToken ||
       row.fullSyncPhase === "reconcile" ||
       hydratePendingIds.length > 0 ||
-      archivePendingIds.length > 0
+      // Candidates that only failed this step wait for the next trigger instead
+      // of keeping the client in a tight sync loop.
+      archivePendingIds.some((id) => !verifyFailed.includes(id))
         ? { backfillPending: true }
         : {}),
     },

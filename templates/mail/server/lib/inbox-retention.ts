@@ -53,6 +53,10 @@ export type InboxRetentionSummary = {
   // Owners whose connection lookup threw; their pairs count as unverified and
   // keep their rows.
   resolverErrors: number;
+  // Pairs whose trim or clear threw. Their rows are kept and the pass moves
+  // on; the next full cycle retries them. Kinds are error codes or names only.
+  pairsFailed: number;
+  failureKinds: Record<string, number>;
   // The pass stopped at its deadline before the last account. Resume with
   // `after: resumeAfter` so the next pass continues instead of restarting.
   partial: boolean;
@@ -219,6 +223,8 @@ export async function runInboxRetention(opts: {
     pairsSkippedActive: 0,
     pairsSkippedUnverified: 0,
     resolverErrors: 0,
+    pairsFailed: 0,
+    failureKinds: {},
     partial: false,
     resumeAfter: null,
   };
@@ -274,7 +280,17 @@ export async function runInboxRetention(opts: {
       summary.resumeAfter = lastDone ?? opts.after ?? null;
       break;
     }
-    await processPair(pair);
+    try {
+      await processPair(pair);
+    } catch (error) {
+      const kind = String(
+        (error as { code?: unknown } | null)?.code ??
+          (error instanceof Error ? error.name : "unknown"),
+      );
+      summary.pairsFailed++;
+      summary.failureKinds[kind] = (summary.failureKinds[kind] ?? 0) + 1;
+      console.warn("[inbox-retention] pair failed", { kind });
+    }
     lastDone = pair.syncId;
   }
   summary.capOwners = cappedOwners.size;

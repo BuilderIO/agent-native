@@ -562,4 +562,45 @@ describe("runInboxRetention (PGlite)", () => {
     expect(second).toMatchObject({ partial: false, pairs: 2, pairsReset: 2 });
     expect(await countRows("c-gone@example.com", "c-acct@example.com")).toBe(0);
   });
+  it("keeps a failing pair's rows, counts the failure by kind, and carries on with the rest", async () => {
+    await seedAccount("a-ok@example.com", "a-acct@example.com", {
+      lastSyncedAt: NOW - 40 * DAY,
+    });
+    await seedAccount("b-bad@example.com", "b-acct@example.com", {
+      lastSyncedAt: NOW - 40 * DAY,
+    });
+    await seedAccount("c-ok@example.com", "c-acct@example.com", {
+      lastSyncedAt: NOW - 40 * DAY,
+    });
+    const real = stores.purgeArchivedInboxThreadRows;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const purge = vi
+      .spyOn(stores, "purgeArchivedInboxThreadRows")
+      .mockImplementation(async (owner, account, at, db) => {
+        if (owner === "b-bad@example.com") {
+          throw Object.assign(new Error("deadlock for b-bad@example.com"), {
+            code: "40P01",
+          });
+        }
+        return real(owner, account, at, db);
+      });
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+    purge.mockRestore();
+
+    expect(summary).toMatchObject({
+      pairsFailed: 1,
+      failureKinds: { "40P01": 1 },
+      pairsReset: 2,
+      partial: false,
+    });
+    expect(JSON.stringify(summary)).not.toContain("b-bad@example.com");
+    expect(await countRows("a-ok@example.com", "a-acct@example.com")).toBe(0);
+    expect(await countRows("b-bad@example.com", "b-acct@example.com")).toBe(3);
+    expect(await countRows("c-ok@example.com", "c-acct@example.com")).toBe(0);
+    warn.mockRestore();
+  });
 });
