@@ -1,7 +1,9 @@
+import { H3Event } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { bindActionBatch, runActionBatch } from "./action-batch.js";
 import batchAction from "./get-actions-batch.js";
+import { isLoopbackRequest } from "./loopback.js";
 import { runWithRequestContext } from "./request-context.js";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -68,6 +70,35 @@ describe("get-actions-batch dispatch", () => {
     expect(seen[0].headers.get("x-agent-native-frontend")).toBe("1");
     expect(seen[0].headers.get("host")).toBeNull();
     expect(seen[0].headers.get("content-length")).toBeNull();
+  });
+
+  it("gives items the batch request's loopback peer and nothing more", async () => {
+    const seen: Request[] = [];
+    bindActionBatch({
+      fetch: async (request) => {
+        seen.push(request);
+        return jsonResponse({ ok: true });
+      },
+      actions,
+    });
+    const run = (isLoopback: boolean) =>
+      runWithRequestContext(
+        {
+          requestOrigin: "http://localhost:3107",
+          isLoopbackRequest: isLoopback,
+        },
+        () =>
+          runActionBatch(
+            { requests: [{ action: "list-designs", query: "" }] },
+            { caller: "http", requestHeaders: callerHeaders() } as any,
+          ),
+      );
+
+    await run(true);
+    await run(false);
+
+    expect(isLoopbackRequest(new H3Event(seen[0]))).toBe(true);
+    expect(isLoopbackRequest(new H3Event(seen[1]))).toBe(false);
   });
 
   it("keeps one item's 403 from failing the other items", async () => {
