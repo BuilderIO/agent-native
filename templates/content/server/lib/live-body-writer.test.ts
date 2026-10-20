@@ -126,6 +126,31 @@ afterAll(() => {
 });
 
 describe("live-body writer gate", () => {
+  it("rejects a transaction without its matching row database", async () => {
+    await insertPage("switched");
+    await getDb().transaction(async (tx) => {
+      await tx
+        .update(schema.documents)
+        .set({ bodyRevision: 4 })
+        .where(eq(schema.documents.id, "switched"));
+      for (const read of [gate.liveBodyWriterGate, gate.isLiveBodyWriterPage]) {
+        await expect(
+          // @ts-expect-error JavaScript callers must receive the same contract refusal.
+          read("switched", { transaction: getDbExec() }),
+        ).rejects.toMatchObject({
+          name: "LiveBodyWriterTransactionError",
+          code: "LIVE_BODY_TRANSACTION_DB_REQUIRED",
+        });
+      }
+      await expect(
+        gate.liveBodyWriterGate("switched", {
+          db: tx,
+          transaction: getDbExec(),
+        }),
+      ).resolves.toEqual({ writePath: "legacy", reason: "live_copy_behind" });
+    });
+  });
+
   it("takes the live copy only for a switched, current page with both flags on for its owner", async () => {
     await setFlags({
       shadow: { emails: [OWNER] },
