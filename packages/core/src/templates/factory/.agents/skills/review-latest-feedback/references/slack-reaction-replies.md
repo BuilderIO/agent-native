@@ -7,7 +7,10 @@ has this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. 
 root is held when a direct reaction read shows another actor owns any workflow
 mark or this actor owns `:mag:`. For held roots, record the root and safe-skip
 reason, then stop: do not open the thread, inspect reply reactions, write any
-reaction, or post a status. Capture
+reaction, or post a status. When this actor owns both `:mag:` and a workflow
+mark, use `mag_opt_out` and preserve the exact direct root reaction-owner
+record as history; the root remains held without a thread read or status reply.
+Capture
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
 owned by this task only when its reaction owner ID matches that actor ID. Each
 unheld owned root needs a current disposition and a matching status reply by

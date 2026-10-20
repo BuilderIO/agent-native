@@ -536,6 +536,7 @@ describe("analytics provider credentials", () => {
         ownerEmail: "owner@example.test",
         orgId: "org-1",
         label: "Organization GitHub",
+        allowedApps: ["analytics"],
         config: {
           credentialMode: "oauth",
           workspaceConnectionScope: "organization",
@@ -565,18 +566,7 @@ describe("analytics provider credentials", () => {
     });
   });
 
-  it.each([
-    {
-      label: "all apps",
-      allowedApps: [],
-      appAccessMode: "all-apps",
-    },
-    {
-      label: "Analytics-only access",
-      allowedApps: ["analytics"],
-      appAccessMode: "explicit-grant",
-    },
-  ])("allows legacy org OAuth with $label access", async (scope) => {
+  it("allows legacy org OAuth with unrestricted app access", async () => {
     mocks.workspaceConnectionResult = {
       available: true,
       connection: {
@@ -584,12 +574,12 @@ describe("analytics provider credentials", () => {
         ownerEmail: "owner@example.test",
         orgId: "org-1",
         label: "Organization GitHub",
-        allowedApps: scope.allowedApps,
+        allowedApps: [],
         allowedUsers: [],
         allowedUserGroups: [],
         config: { credentialMode: "oauth" },
       },
-      appAccess: { available: true, mode: scope.appAccessMode },
+      appAccess: { available: true, mode: "all-apps" },
       reason: "Available.",
     };
     mocks.oauthResult = { accessToken: "org-oauth-token" };
@@ -625,6 +615,12 @@ describe("analytics provider credentials", () => {
       allowedApps: [],
       allowedUsers: [],
       allowedUserGroups: ["analytics-team"],
+    },
+    {
+      label: "app allowlist",
+      allowedApps: ["analytics"],
+      allowedUsers: [],
+      allowedUserGroups: [],
     },
   ])("does not infer legacy organization scope from $label", async (acl) => {
     mocks.workspaceConnectionResult = {

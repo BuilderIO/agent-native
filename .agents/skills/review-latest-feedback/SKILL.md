@@ -97,8 +97,10 @@ current status reply.
 `👀`, `✅`, or `🎫` means the thread belongs to that workflow; this actor's
 `:mag:` means this actor opted out. Record the exact root, reaction owners, and
 one reason (`foreign_workflow_mark` or `mag_opt_out`) in `ownershipSkip`, with
-`Skipped` disposition. Do not open/read that thread, inspect reply reactions,
-add or remove reactions, or post a reply. Apply the same skip to channel reply
+`Skipped` disposition. When this actor owns both `:mag:` and a workflow mark,
+use `mag_opt_out` and preserve the exact root reaction-owner record as history.
+Do not open/read that thread, inspect reply reactions, add or remove reactions,
+or post a reply. Apply the same skip to channel reply
 rows linked to that root. A linked pre-window root without source text remains
 `unclassified`; do not infer its original report from the reply. This explicit
 exception keeps ownership boundaries intact while allowing the rest of the

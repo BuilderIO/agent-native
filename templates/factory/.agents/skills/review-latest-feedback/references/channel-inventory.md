@@ -244,7 +244,10 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   workflow mark (`👀`, `✅`, or `🎫`), or this actor owns `:mag:`, do not open or
   read the thread, inspect reply reactions, react, or reply. Record an
   `ownershipSkip` with the root timestamp and `foreign_workflow_mark` or
-  `mag_opt_out`; use `Skipped` and leave thread-derived fields empty. Mark every
+  `mag_opt_out`; use `Skipped` and leave thread-derived fields empty. If this
+  actor also owns a workflow mark, use `mag_opt_out` and preserve the exact
+  direct root reaction-owner record as history. The checker treats it as held
+  and requires no thread snapshot or status. Mark every
   channel reply linked to that root with the same skip reference. The checker
   requires direct root reaction evidence and the matching skip reason, but no
   full-thread snapshot. For a linked pre-window root without source text, use
