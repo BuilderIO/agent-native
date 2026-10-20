@@ -1,3 +1,16 @@
+import { inHiddenBlockFieldPanel } from "./blockFieldTabs";
+
+// Blocks field tabs keep every editor mounted and hide the closed ones, so the
+// reading column is the first editor that isn't in a hidden panel.
+function visibleReadingColumn(container: HTMLElement): HTMLElement | null {
+  for (const column of container.querySelectorAll<HTMLElement>(
+    ".content-editor",
+  )) {
+    if (!inHiddenBlockFieldPanel(column)) return column;
+  }
+  return null;
+}
+
 export function observeCommentLane(
   container: HTMLElement,
   lane: HTMLElement,
@@ -9,7 +22,7 @@ export function observeCommentLane(
 
   const update = () => {
     if (disposed || !lane.isConnected || !container.isConnected) return;
-    const nextColumn = container.querySelector<HTMLElement>(".content-editor");
+    const nextColumn = visibleReadingColumn(container);
     if (nextColumn !== readingColumn) {
       if (readingColumn) resizeObserver?.unobserve(readingColumn);
       readingColumn = nextColumn;
@@ -30,7 +43,11 @@ export function observeCommentLane(
   resizeObserver?.observe(container);
   resizeObserver?.observe(lane);
   const mountObserver = new MutationObserver(schedule);
-  mountObserver.observe(container, { childList: true, subtree: true });
+  mountObserver.observe(container, {
+    attributeFilter: ["hidden"],
+    childList: true,
+    subtree: true,
+  });
   window.addEventListener("resize", schedule);
   update();
 

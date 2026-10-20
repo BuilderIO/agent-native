@@ -244,7 +244,10 @@ describe("view-screen monitoring status-pages branch", () => {
   it("describes the code-backed builtin and caller annotations", async () => {
     setScreen(
       { view: "adhoc", dashboardId: "builtin-risk-meeting" },
-      { pathname: "/dashboards/builtin-risk-meeting" },
+      {
+        pathname: "/dashboards/builtin-risk-meeting",
+        searchParams: { f_timeRange: "90d" },
+      },
     );
     getBuiltinDashboard.mockResolvedValueOnce({
       id: "builtin-risk-meeting",
@@ -262,6 +265,7 @@ describe("view-screen monitoring status-pages branch", () => {
       { scope: { email: "user@example.test", orgId: "org-1" }, editable: true },
       "builtin-risk-meeting",
       { name: "Risk Meeting", panels: [] },
+      { f_timeRange: "90d" },
     );
   });
 
@@ -1171,9 +1175,12 @@ describe("view-screen dashboard summary", () => {
     showDashboard([
       { id: "trend", title: "Trend", chartType: "line", width: 1, sql },
     ]);
+    const searchParams = { f_timeRange: "90d" };
+    urlState.current = { pathname: "/dashboards/dash-1", searchParams };
 
     const out = await runScreen();
 
+    // The page's URL filters set the time range its charts list notes from.
     expect(loadDashboardAnnotationSummary).toHaveBeenCalledWith(
       {
         scope: { email: "owner@example.test", orgId: "org-1" },
@@ -1181,6 +1188,7 @@ describe("view-screen dashboard summary", () => {
       },
       "dash-1",
       expect.objectContaining({ name: "Weekly" }),
+      searchParams,
     );
     expect(out.dashboard).toMatchObject(summary);
   });
