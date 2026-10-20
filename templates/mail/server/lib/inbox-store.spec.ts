@@ -93,9 +93,14 @@ vi.mock("../db/index.js", () => {
       },
     }),
     delete: (table: any) => ({
-      where: async (cond: any) => {
+      where: (cond: any) => {
         dbState.deletes.push(cond);
         dbState.deleteTables.push(table.__name);
+        const rows = [{ id: "row" }];
+        return {
+          returning: async () => rows,
+          then: (resolve: any) => resolve(undefined),
+        };
       },
     }),
     transaction: async (fn: (tx: any) => Promise<unknown>) => {
