@@ -16,6 +16,7 @@ import {
   FeatureNotConfiguredError,
   createBuilderProject,
   getBuilderBranchProjectId,
+  getConfiguredAppBasePath,
   getRequestContext,
   inferWorkspaceAppRootHomePath,
   isIntegrationCallerRequest,
@@ -1718,7 +1719,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         {
           expiresIn: "1m",
           preferGlobalSecret: true,
-          audience: canonicalA2AAudience(baseUrl.toString()),
+          audience: canonicalA2AAudience(
+            baseUrl.toString(),
+            getConfiguredAppBasePath(),
+          ),
         },
       );
       authHeaders.Authorization = `Bearer ${token}`;

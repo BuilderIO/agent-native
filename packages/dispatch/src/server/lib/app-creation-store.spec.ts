@@ -472,6 +472,41 @@ describe("listWorkspaceApps", () => {
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
   });
 
+  it("binds hosted registry tokens to the mounted Dispatch path", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify([
+          {
+            id: "atlas",
+            name: "Atlas",
+            path: "/atlas",
+          },
+        ]),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("APP_BASE_PATH", "/dispatch");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    await runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+      listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    const authorization = fetchMock.mock.calls[0]?.[1]?.headers
+      ?.Authorization as string;
+    const tokenPayload = JSON.parse(
+      Buffer.from(
+        authorization.slice("Bearer ".length).split(".")[1]!,
+        "base64url",
+      ).toString(),
+    ) as { aud?: string };
+    expect(tokenPayload.aud).toBe(
+      "https://agent-workspace.builder.io/dispatch",
+    );
+  });
+
   it.each([401, 403])(
     "does not expose manifest apps without ACL rows when the hosted registry denies the read (%i)",
     async (status) => {
