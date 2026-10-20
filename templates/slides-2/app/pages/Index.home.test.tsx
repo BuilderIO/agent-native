@@ -1314,15 +1314,19 @@ describe("Slides prompt-led home", () => {
     renderHome({ decks: [draftDeck], ensureDeckPersisted, deleteDeck });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
 
-    promptProps.mock.lastCall![0].onSubmit(prompt, [], {
-      commit: vi.fn(),
-      discard: vi.fn(),
-      attachments: [],
+    act(() => {
+      void promptProps.mock.lastCall![0].onSubmit(prompt, [], {
+        commit: vi.fn(),
+        discard: vi.fn(),
+        attachments: [],
+      });
     });
 
     await waitFor(() => expect(deleteDeck).toHaveBeenCalledOnce());
-    expect(screen.getByTestId("history-path").textContent).toContain(
-      "/deck/new-deck",
+    await waitFor(() =>
+      expect(screen.getByTestId("history-path").textContent).toContain(
+        "/deck/new-deck",
+      ),
     );
 
     await act(async () => {

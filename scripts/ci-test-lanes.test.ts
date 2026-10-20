@@ -202,7 +202,7 @@ test("keeps packages whole when they are unshardable or too small to split", () 
   );
 });
 
-test("starts Slides 2 fast tests in two fresh Vitest processes", () => {
+test("starts Slides 2 fast tests in four fresh Vitest processes", () => {
   assert.deepEqual(
     splitLargePackages(
       [{ name: "slides-2", files: 455, shardable: true }],
@@ -210,8 +210,10 @@ test("starts Slides 2 fast tests in two fresh Vitest processes", () => {
       5_000,
     ),
     [
-      { name: "slides-2", files: 228, shard: "1/2" },
-      { name: "slides-2", files: 227, shard: "2/2" },
+      { name: "slides-2", files: 114, shard: "1/4" },
+      { name: "slides-2", files: 114, shard: "2/4" },
+      { name: "slides-2", files: 114, shard: "3/4" },
+      { name: "slides-2", files: 113, shard: "4/4" },
     ],
   );
 });
