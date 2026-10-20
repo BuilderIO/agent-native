@@ -43,23 +43,43 @@ async function estimatePanel(dashboardId: string, panelId: string) {
  * After a save that changed a panel's query, shows what one refresh of that
  * panel scans and costs in BigQuery, from the same free dry run as
  * estimate-query-cost. Panels outside BigQuery, and estimates that fail, show
- * nothing. Over the per-run or per-month threshold the notice stays up until
- * dismissed.
+ * nothing, and so does an estimate a newer save of the panel has replaced. Over
+ * the per-run or per-month threshold the notice stays up until dismissed or
+ * until you leave the dashboard.
  */
 export function usePanelCostNotice(dashboardId: string | undefined) {
   const t = useT();
   const formatters = useFormatters();
-  // An estimate that lands after leaving the dashboard must not show there.
+  // An estimate that lands after leaving the dashboard must not show there,
+  // and its warnings close when you leave.
   const openDashboardRef = useRef(dashboardId);
+  const warningsRef = useRef(new Set<string>());
   useEffect(() => {
     openDashboardRef.current = dashboardId;
+    const warnings = warningsRef.current;
+    return () => {
+      for (const id of warnings) toast.dismiss(id);
+      warnings.clear();
+    };
   }, [dashboardId]);
+  // Nor may one that lands after a newer save of the same panel.
+  const latestRequestRef = useRef(new Map<string, number>());
+  const requestCountRef = useRef(0);
 
   return useCallback(
     async (panelId: string, title: string) => {
       if (!dashboardId) return;
+      const key = `${dashboardId}:${panelId}`;
+      const request = ++requestCountRef.current;
+      latestRequestRef.current.set(key, request);
       const result = await estimatePanel(dashboardId, panelId);
-      if (!result || openDashboardRef.current !== dashboardId) return;
+      if (
+        !result ||
+        openDashboardRef.current !== dashboardId ||
+        latestRequestRef.current.get(key) !== request
+      ) {
+        return;
+      }
       const estimate = "panels" in result ? result.panels[0] : undefined;
       if (estimate?.status !== "estimated") return;
       const over =
@@ -89,6 +109,7 @@ export function usePanelCostNotice(dashboardId: string | undefined) {
         closeButton: over,
       };
       if (over) {
+        warningsRef.current.add(options.id);
         toast.warning(t("sqlDashboard.panelCostOverTitle", { title }), options);
       } else {
         toast.message(t("sqlDashboard.panelCostTitle", { title }), options);

@@ -1507,7 +1507,7 @@ describe("cost of a write", () => {
     );
   });
 
-  it("saves as before when the estimate itself fails", async () => {
+  it("saves as before but says the panel went unpriced when the estimate itself fails", async () => {
     mocks.resolve.mockResolvedValue(rows(WIDE));
     mocks.countReports.mockRejectedValue(new Error("db down"));
 
@@ -1518,14 +1518,26 @@ describe("cost of a write", () => {
     });
 
     expect(verdict.verified).toBe(true);
-    expect(verdict.cost).toBeUndefined();
-    expect(annotateSummary("Saved.", verdict)).not.toContain("Cost");
+    expect(verdict.cost?.total.partial).toBe(true);
+    expect(verdict.cost?.panels).toEqual([
+      expect.objectContaining({
+        panelId: "p1",
+        status: "failed",
+        failure: "no_estimate",
+      }),
+    ]);
+    expect(annotateSummary("Saved.", verdict)).toContain(
+      "Cost: 1 changed panel(s) could not be priced",
+    );
   });
 
   it("prices nothing without a dashboard id or a changed query", async () => {
     mocks.resolve.mockResolvedValue(rows(WIDE));
     const renamed = JSON.parse(JSON.stringify(base));
     renamed.panels[0].title = "Renamed";
+    const restyled = JSON.parse(JSON.stringify(base));
+    restyled.panels[0].chartType = "bar";
+    restyled.panels[0].config = { xKey: "week", yKeys: ["signups"] };
 
     const unsaved = await verifyPanelWrite({ base, next: editedSql() });
     const untouched = await verifyPanelWrite({
@@ -1533,10 +1545,50 @@ describe("cost of a write", () => {
       next: renamed,
       dashboardId: "d1",
     });
+    const sameQuery = await verifyPanelWrite({
+      base,
+      next: restyled,
+      dashboardId: "d1",
+    });
 
     expect(unsaved.cost).toBeUndefined();
     expect(untouched.cost).toBeUndefined();
+    expect(sameQuery.cost).toBeUndefined();
     expect(mocks.countReports).not.toHaveBeenCalled();
+  });
+
+  it("stops waiting for a slow estimate once the save is verified", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.resolve.mockResolvedValue(rows(WIDE));
+      let estimateSignal: AbortSignal | undefined;
+      mocks.dryRun.mockImplementation(
+        (_sql: string, options: { signal?: AbortSignal }) => {
+          if (!isEstimate(options)) return Promise.resolve({ error: null });
+          estimateSignal = options.signal;
+          return new Promise(() => {});
+        },
+      );
+
+      const pending = verifyPanelWrite({
+        base,
+        next: editedSql(),
+        dashboardId: "d1",
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+      const verdict = await pending;
+
+      expect(verdict.verified).toBe(true);
+      expect(estimateSignal?.aborted).toBe(true);
+      expect(verdict.cost?.panels).toEqual([
+        expect.objectContaining({ panelId: "p1", failure: "timeout" }),
+      ]);
+      expect(annotateSummary("Saved.", verdict)).toContain(
+        "Cost: 1 changed panel(s) could not be priced",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stops the estimate when verification refuses the write", async () => {
@@ -1549,7 +1601,7 @@ describe("cost of a write", () => {
         return new Promise(() => {});
       },
     );
-    const next = JSON.parse(JSON.stringify(base));
+    const next = editedSql();
     next.panels[0].config = {
       pivot: { xKey: "week", seriesKey: "app", valueKey: "n" },
     };

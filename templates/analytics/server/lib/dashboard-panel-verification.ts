@@ -48,6 +48,7 @@ import {
   totalCost,
   usdForBytes,
   type PanelCostEstimate,
+  type QueryCostFailure,
 } from "./query-cost-estimate";
 
 export type PanelVerificationStatus =
@@ -285,6 +286,43 @@ export function touchedPanelIds(
     direct: Array.from(direct),
     affected: Array.from(affected).filter((id) => !direct.has(id)),
   };
+}
+
+/**
+ * The touched panels whose query changed: new panels, and panels whose source
+ * or resolved SQL differs. A chart-type or config edit reads the same bytes.
+ * Compares the first copy of each id, the one the edit API addresses.
+ */
+function queryChangedPanelIds(
+  rawBase: Record<string, unknown> | null,
+  rawNext: Record<string, unknown>,
+  ids: readonly string[],
+): string[] {
+  const base = rawBase && normalizeDashboardConfig(rawBase);
+  const next = normalizeDashboardConfig(rawNext);
+  const firstCopies = (config: Record<string, unknown> | null) => {
+    const panels = new Map<string, Record<string, unknown>>();
+    for (const panel of config ? panelsOf(config) : []) {
+      if (typeof panel.id === "string" && !panels.has(panel.id)) {
+        panels.set(panel.id, panel);
+      }
+    }
+    return panels;
+  };
+  const before = firstCopies(base);
+  const after = firstCopies(next);
+  const baseVars = base ? resolveVerificationVars(base) : {};
+  const nextVars = resolveVerificationVars(next);
+  return ids.filter((id) => {
+    const was = before.get(id);
+    const now = after.get(id);
+    if (!now) return false;
+    return (
+      !was ||
+      was.source !== now.source ||
+      resolvedSqlOf(was, baseVars) !== resolvedSqlOf(now, nextVars)
+    );
+  });
 }
 
 export interface VisualPanelChange {
@@ -988,28 +1026,80 @@ export interface PanelWriteCost {
 }
 
 const MAX_COST_PANELS = 60;
+/** Once verification is done, how much longer a write waits for its price. */
+const COST_GRACE_MS = 3_000;
+/** Sources whose panels can bill BigQuery, whether or not they can be priced. */
+const BILLABLE_SOURCES = new Set(["bigquery", "first-party", "program"]);
+
+type WriteCostPanel = ReturnType<typeof resolveDashboardPanelQueries>[number];
+
+/** The first copy of each panel to price, the one the edit API addresses. */
+function writeCostPanels(
+  config: Record<string, unknown>,
+  panelIds: readonly string[],
+): WriteCostPanel[] {
+  if (panelIds.length === 0) return [];
+  const wanted = new Set(panelIds);
+  const seen = new Set<string>();
+  return resolveDashboardPanelQueries(config).filter((panel) => {
+    if (!wanted.has(panel.panelId) || seen.has(panel.panelId)) return false;
+    seen.add(panel.panelId);
+    return true;
+  });
+}
+
+function writeCostOf(
+  estimates: PanelCostEstimate[],
+  runsPerMonth: number | null,
+  runsPerMonthBasis: string,
+): PanelWriteCost {
+  return {
+    panels: estimates,
+    total: {
+      ...totalCost(estimates),
+      partial: estimates.some(
+        (panel) =>
+          panel.status === "failed" || panel.status === "not_estimated",
+      ),
+    },
+    runsPerMonth,
+    runsPerMonthBasis,
+  };
+}
+
+/** Every panel that can bill, marked unpriced; null when none can bill. */
+function unpricedWriteCost(
+  panels: readonly WriteCostPanel[],
+  failure: QueryCostFailure,
+  error: string,
+): PanelWriteCost | null {
+  const billable = panels.filter((panel) => BILLABLE_SOURCES.has(panel.source));
+  if (billable.length === 0) return null;
+  return writeCostOf(
+    billable.map((panel) => ({
+      panelId: panel.panelId,
+      title: panel.title,
+      source: panel.source,
+      status: "failed",
+      failure,
+      error,
+    })),
+    null,
+    "none",
+  );
+}
 
 /**
  * Prices the panels a write changed with the same free dry runs as
  * estimate-query-cost, at the default filters a fresh tab shows.
  */
 async function estimateWriteCost(
-  config: Record<string, unknown>,
-  panelIds: readonly string[],
+  panels: readonly WriteCostPanel[],
   dashboardId: string | undefined,
   signal: AbortSignal,
 ): Promise<PanelWriteCost | null> {
   const scope = getCredentialContext();
-  if (!scope || !dashboardId || panelIds.length === 0) return null;
-  const wanted = new Set(panelIds);
-  const seen = new Set<string>();
-  // The first panel with an id is the one the edit API addresses.
-  const panels = resolveDashboardPanelQueries(config).filter((panel) => {
-    if (!wanted.has(panel.panelId) || seen.has(panel.panelId)) return false;
-    seen.add(panel.panelId);
-    return true;
-  });
-  if (panels.length === 0) return null;
+  if (!scope || !dashboardId || panels.length === 0) return null;
   try {
     const { reportSchedules, runsPerMonth } = await scheduledDashboardRuns(
       dashboardId,
@@ -1022,26 +1112,53 @@ async function estimateWriteCost(
       Date.now() + PANEL_VERIFICATION_BUDGET_MS,
       signal,
     );
-    return {
-      panels: estimates,
-      total: {
-        ...totalCost(estimates),
-        partial:
-          panels.length > MAX_COST_PANELS ||
-          estimates.some(
-            (panel) =>
-              panel.status === "failed" || panel.status === "not_estimated",
-          ),
-      },
+    const skipped: PanelCostEstimate[] = panels
+      .slice(MAX_COST_PANELS)
+      .filter((panel) => BILLABLE_SOURCES.has(panel.source))
+      .map((panel) => ({
+        panelId: panel.panelId,
+        title: panel.title,
+        source: panel.source,
+        status: "not_estimated",
+        reason: `One write prices at most ${MAX_COST_PANELS} panels; estimate-query-cost can price this one.`,
+      }));
+    return writeCostOf(
+      [...estimates, ...skipped],
       runsPerMonth,
-      runsPerMonthBasis:
-        reportSchedules > 0
-          ? describeReportSchedules(reportSchedules, scope.orgId)
-          : "none",
-    };
-  } catch {
-    // coercion-ok: an estimate that cannot run leaves the save and its verdict as they were.
-    return null;
+      reportSchedules > 0
+        ? describeReportSchedules(reportSchedules, scope.orgId)
+        : "none",
+    );
+  } catch (error) {
+    // coercion-ok: a failed estimate leaves the save and its verdict as they were; the summary says the panels went unpriced.
+    return unpricedWriteCost(panels, "no_estimate", describeError(error));
+  }
+}
+
+/**
+ * Pricing is informational, so once verification is done an estimate still
+ * running gets COST_GRACE_MS more, then stops and its panels go unpriced.
+ */
+async function settleWriteCost(
+  pending: Promise<PanelWriteCost | null>,
+  panels: readonly WriteCostPanel[],
+  stop: AbortController,
+): Promise<PanelWriteCost | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<"late">((resolve) => {
+    timer = setTimeout(() => resolve("late"), COST_GRACE_MS);
+  });
+  try {
+    const cost = await Promise.race([pending, late]);
+    if (cost !== "late") return cost;
+    stop.abort();
+    return unpricedWriteCost(
+      panels,
+      "timeout",
+      "Stopped: pricing took longer than the save. Estimate this panel with estimate-query-cost.",
+    );
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -1118,9 +1235,14 @@ export async function verifyPanelWrite(
     .map((change) => change.panelId);
   // The estimate runs beside verification and stops if the write is refused.
   const stopEstimate = new AbortController();
+  const costPanels = options.dashboardId
+    ? writeCostPanels(
+        next,
+        queryChangedPanelIds(base, next, [...direct, ...affected]),
+      )
+    : [];
   const pendingCost = estimateWriteCost(
-    next,
-    [...direct, ...affected],
+    costPanels,
     options.dashboardId,
     options.signal
       ? AbortSignal.any([options.signal, stopEstimate.signal])
@@ -1170,7 +1292,7 @@ export async function verifyPanelWrite(
       .slice(0, 5)
       .map((panel) => panel.panelId)
       .join(", ")}${panels.length > 5 ? ` (+${panels.length - 5} more)` : ""}`;
-  const cost = await pendingCost;
+  const cost = await settleWriteCost(pendingCost, costPanels, stopEstimate);
   return {
     verified,
     ...(visual.length > 0 ? { visualOnly: visual } : {}),

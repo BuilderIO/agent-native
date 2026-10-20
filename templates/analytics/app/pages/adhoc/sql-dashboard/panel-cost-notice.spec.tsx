@@ -10,7 +10,7 @@ import { usePanelCostNotice } from "./panel-cost-notice";
 
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
-  toast: { message: vi.fn(), warning: vi.fn() },
+  toast: { message: vi.fn(), warning: vi.fn(), dismiss: vi.fn() },
 }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -161,5 +161,40 @@ describe("usePanelCostNotice", () => {
     });
 
     expect(mocks.toast.message).not.toHaveBeenCalled();
+  });
+
+  it("drops an older save's estimate that lands after a newer one", async () => {
+    let resolveOlder!: (value: unknown) => void;
+    mocks.callAction
+      .mockReturnValueOnce(
+        new Promise((res) => {
+          resolveOlder = res;
+        }),
+      )
+      .mockResolvedValueOnce(estimated(2 * GIB, 0.0122));
+    render("d1");
+    const older = notify("p1", "Signups");
+    await act(() => notify("p1", "Signups"));
+
+    await act(async () => {
+      resolveOlder(estimated(200 * GIB, 1.2207, { overPerRunThreshold: true }));
+      await older;
+    });
+
+    expect(mocks.toast.message).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.warning).not.toHaveBeenCalled();
+  });
+
+  it("closes its warnings when you leave the dashboard", async () => {
+    mocks.callAction.mockResolvedValueOnce(
+      estimated(200 * GIB, 1.2207, { overPerRunThreshold: true }),
+    );
+    render("d1");
+    await act(() => notify("p1", "Signups"));
+    expect(mocks.toast.dismiss).not.toHaveBeenCalled();
+
+    render("d2");
+
+    expect(mocks.toast.dismiss).toHaveBeenCalledWith("panel-cost:d1:p1");
   });
 });
