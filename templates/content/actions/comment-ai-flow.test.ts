@@ -235,6 +235,7 @@ beforeEach(() => {
     fieldId: "body",
     intent: "reply",
     status: "running",
+    attemptCount: 1,
     threadDigest: "thread-digest",
     payloadJson: null,
     result: null,
@@ -541,7 +542,8 @@ describe("comment AI dedicated action boundaries", () => {
     state.request.intent = "suggest";
     state.source.document.content = "Open source and Open source again.";
     state.earlierRequests = [];
-    state.request.result = { suggestionId: "first-attempt" };
+    // The first attempt created its edit but failed before recording it.
+    state.request.attemptCount = 2;
     const fromThisRequest = (id: string, proposalId: string | null) => ({
       id,
       proposalId,

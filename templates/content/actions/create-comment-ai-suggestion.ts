@@ -83,14 +83,10 @@ async function supersededSuggestionIds(
       ),
     );
   const earlierIds = new Set(earlier.map((row) => row.id));
-  // Only an earlier request, or an attempt of this one that already created
-  // edits, can have left edits to replace.
-  if (
-    !earlierIds.size &&
-    !serializeCommentAiRequest(request).result?.suggestionId
-  ) {
-    return [];
-  }
+  // Only an earlier request, or an earlier attempt of this one, can have left
+  // edits to replace. Attempts are counted rather than results, because an
+  // attempt can create edits and then fail before recording them.
+  if (!earlierIds.size && request.attemptCount <= 1) return [];
   const { suggestions } = await listSuggestions.run(
     { resourceType: "document", resourceId: request.documentId },
     ctx,
