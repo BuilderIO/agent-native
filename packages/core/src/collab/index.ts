@@ -1,15 +1,50 @@
 export {
   loadYDocState,
-  saveYDocState,
+  loadYDocVersion,
   hasCollabState,
   deleteCollabState,
   uint8ArrayToBase64,
   base64ToUint8Array,
+  strictBase64ToUint8Array,
+  CollabStateMalformedError,
+  type CollabStateMalformedReason,
 } from "./storage.js";
+
+export {
+  createBoundedTaskRunner,
+  measureBoundedPayload,
+  BoundedTaskError,
+  BOUNDED_TASK_GLOBAL,
+  type BoundedTaskErrorCode,
+  type BoundedTaskRunner,
+  type BoundedTaskRunnerOptions,
+  type BoundedTaskRunnerStats,
+  type BoundedTaskSource,
+} from "./bounded-tasks.js";
+
+export {
+  bundleBoundedTaskSource,
+  type BundleBoundedTaskSourceOptions,
+  type BundledBoundedTaskSource,
+} from "./bounded-task-bundle.js";
+
+export {
+  defineLiveCopy,
+  releaseLiveCopy,
+  LiveCopyError,
+  LIVE_COPY_DEFAULT_FIELD,
+  type LiveCopyBinding,
+  type LiveCopyCommit,
+  type LiveCopyErrorCode,
+  type LiveCopyOptions,
+  type LiveCopyOutcome,
+  type LiveCopyPersistOutcome,
+} from "./live-copy.js";
 
 export {
   CollabBaseVersionConflictError,
   getDoc,
+  saveYDocState,
   withPreparedYDocMutation,
   applyUpdate,
   seedXmlFragmentIfEmpty,
@@ -24,7 +59,16 @@ export {
   applyPatchOps,
   getJson,
   seedFromJson,
+  readLiveCopy,
+  mutateLiveCopy,
+  seedLiveCopy,
   type PreparedYDocMutationLease,
+  type LiveCopyRead,
+  type MutateLiveCopyOptions,
+  type LiveCopyCallChange,
+  type LiveCopyMutationResult,
+  type SeedLiveCopyOptions,
+  type LiveCopySeedResult,
 } from "./ydoc-manager.js";
 
 export { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
