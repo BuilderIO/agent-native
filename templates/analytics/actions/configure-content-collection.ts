@@ -10,6 +10,7 @@ import {
   contentCollectionConfigSchema,
   searchConsoleSiteSchema,
   signupsSettingsUpdateSchema,
+  storedSearchConsoleSiteSchema,
 } from "../server/lib/content-metrics/config.js";
 import { readContentCollectionStatus } from "../server/lib/content-metrics/status.js";
 import {
@@ -43,7 +44,7 @@ export default defineAction({
         "Collect daily Search Console clicks and impressions. Turn on only after a property owner has given the service account access.",
       ),
     searchConsoleSites: z
-      .array(searchConsoleSiteSchema)
+      .array(storedSearchConsoleSiteSchema)
       .max(20)
       .optional()
       .describe(
@@ -78,6 +79,11 @@ export default defineAction({
       },
       signups: { ...saved.signups, ...signups },
     });
+    if (enabled && config.searchConsole.enabled) {
+      z.array(searchConsoleSiteSchema)
+        .max(20)
+        .parse(config.searchConsole.sites);
+    }
     if (enabled) {
       await installBuiltinDashboardOnce(
         { email: admin.userEmail, orgId: admin.orgId },

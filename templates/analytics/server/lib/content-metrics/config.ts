@@ -25,7 +25,7 @@ const stepToggleSchema = z.object({ enabled: z.boolean() });
  * property such as `https://www.example.com/`. `pathPrefix` keeps a large
  * site to the pages the Content view tracks.
  */
-const storedSearchConsoleSiteSchema = z.object({
+export const storedSearchConsoleSiteSchema = z.object({
   siteUrl: z.string().trim().min(1).transform(normalizeSearchConsoleProperty),
   pathPrefix: z.string().trim().startsWith("/").optional(),
 });
