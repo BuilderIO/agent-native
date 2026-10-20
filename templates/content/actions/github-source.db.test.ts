@@ -38,6 +38,8 @@ const github = vi.hoisted(() => {
     duringBlobRead: null as null | (() => Promise<void>),
     /** Blob reads after this many wait until the sync's time runs out. */
     hangAfterBlobReads: null as number | null,
+    /** Reads of this file's content wait until the sync's time runs out. */
+    slowContent: null as string | null,
     /** Branch reads wait until the sync's time runs out. */
     hangHead: false,
   };
@@ -55,6 +57,7 @@ const github = vi.hoisted(() => {
       state.noStorage = false;
       state.duringBlobRead = null;
       state.hangAfterBlobReads = null;
+      state.slowContent = null;
       state.hangHead = false;
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
@@ -139,6 +142,9 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       github.state.duringBlobRead = null;
       await during?.();
       const content = findBlob(target.sha);
+      if (content !== null && content === github.state.slowContent) {
+        await hang(target.signal);
+      }
       if (content === null)
         throw new GitHubSourceError("unavailable", "No blob.");
       // A stand-in for a file whose bytes aren't UTF-8.
@@ -1662,6 +1668,49 @@ describe("GitHub folder freshness", () => {
     await as(() => getDatabase.run({ databaseId: database.id }));
     expect(Date.now() - started).toBeLessThan(1_500);
     await background;
+    expect(await titles()).toEqual([
+      "One, edited",
+      "Two, edited",
+      "Three, edited",
+    ]);
+  });
+
+  it("takes a file the time ran out on after the rest, so it can't hold back the files after it", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    const id = await sourceId(database.id);
+    const titles = async () =>
+      (await liveRows(database.id)).map((row) => row.title);
+    // GitHub doesn't answer in time for the folder's first file.
+    github.state.slowContent = "# One, edited\n";
+
+    const first = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
+    );
+    expect(first).toMatchObject({ updated: 0, remaining: 3 });
+    const second = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
+    );
+    expect(second).toMatchObject({ updated: 2, remaining: 1 });
+    expect(await titles()).toEqual(["One", "Two, edited", "Three, edited"]);
+
+    github.state.slowContent = null;
+    const third = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 20_000 }),
+    );
+    expect(third).toMatchObject({ updated: 1, remaining: 0 });
     expect(await titles()).toEqual([
       "One, edited",
       "Two, edited",
