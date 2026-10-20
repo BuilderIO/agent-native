@@ -370,12 +370,26 @@ describe("runInboxRetention (PGlite)", () => {
       claimedAt: NOW - 10 * 60_000,
     });
 
+    await stores.patchSyncAccount(
+      "stale@example.com",
+      "stale-acct@example.com",
+      {
+        archivePendingIds: ["t1", "t2"],
+      },
+    );
+    expect(
+      (await stores.readSyncAccounts("stale@example.com"))[0].archivePendingIds,
+    ).toEqual(["t1", "t2"]);
+
     const summary = await retention.runInboxRetention({
       now: NOW,
       resolveConnectedAccounts: noConnections,
     });
 
     expect(summary.pairsReset).toBe(1);
+    expect(
+      (await stores.readSyncAccounts("stale@example.com"))[0].archivePendingIds,
+    ).toEqual([]);
     await expect(
       stores.withSyncClaim(
         "stale@example.com",

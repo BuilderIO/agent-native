@@ -64,7 +64,13 @@ const INBOX_HISTORY_TYPES = [
   "labelAdded",
   "labelRemoved",
 ];
-const ARCHIVE_HISTORY_TYPES = ["labelRemoved"];
+const ARCHIVE_HISTORY_TYPES = ["labelRemoved", "messageDeleted"];
+// Each archive verification is a 40-unit threads.get on a lane capped at 3,000
+// units a minute, and the same step may also hydrate up to 50 inbox threads at
+// 40 units each. 25 verifications keep the step at 3,000 units; the rest wait
+// in archive_pending_ids_json for the next step.
+const ARCHIVE_VERIFY_LIMIT = 25;
+const CACHE_LOOKUP_CHUNK = 500;
 const HYDRATE_CHUNK = 50;
 
 const METADATA_HEADERS = [
@@ -120,7 +126,9 @@ async function patchProgress(
 
 function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
   const backfillPending =
-    row.fullSyncPageToken != null || row.fullSyncPhase === "reconcile";
+    row.fullSyncPageToken != null ||
+    row.fullSyncPhase === "reconcile" ||
+    row.archivePendingIds.length > 0;
   if (row.status === "needs_reauth" || row.status === "error") {
     return {
       accountEmail: row.accountEmail,
@@ -421,7 +429,7 @@ async function runFullSyncStep(
   // Gmail lists newest first, so stopping at the cap keeps the newest threads.
   // The token is dropped on the same step, so a capped walk never resumes.
   listed += ids.length;
-  const truncated = listed >= INBOX_THREAD_CAP;
+  const truncated = listed >= INBOX_THREAD_CAP && Boolean(page.nextPageToken);
   const nextPageToken = truncated ? null : (page.nextPageToken ?? null);
   const syncedAt = Date.now();
   if (initialSync && !completingEagerSlice && nextPageToken) {
@@ -513,11 +521,13 @@ async function finishReconciliationPass(
   accessToken: string,
   row: SyncAccountRow,
   claimId: string,
-  truncated: boolean,
+  listedAtCap: boolean,
 ): Promise<SyncStepResult> {
-  if (truncated) {
-    // The listing stopped at the cap, so Gmail's inbox total no longer matches
-    // the local slice; finish without the count comparison.
+  const snapshot = await readFreshInboxTotal(accessToken);
+  if (listedAtCap && snapshot.total > INBOX_THREAD_CAP) {
+    // The listing stopped at the cap with more inbox behind it, so Gmail's
+    // total no longer matches the local slice; finish without the comparison.
+    // An inbox of exactly the cap is a complete listing and compares below.
     const syncedAt = Date.now();
     await patchProgress(ownerEmail, accountEmail, claimId, {
       fullSyncPhase: null,
@@ -527,6 +537,8 @@ async function finishReconciliationPass(
       fullSyncHistoryId: null,
       fullSyncStartedAt: null,
       fullSyncListedCount: 0,
+      labels: snapshot.labels,
+      labelsUpdatedAt: snapshot.updatedAt,
       lastError: null,
       lastSyncedAt: syncedAt,
     });
@@ -535,7 +547,6 @@ async function finishReconciliationPass(
       changed: true,
     };
   }
-  const snapshot = await readFreshInboxTotal(accessToken);
   const localInboxTotal = await countInboxThreads(ownerEmail, accountEmail);
   const syncedAt = Date.now();
   const matches = localInboxTotal === snapshot.total;
@@ -787,6 +798,7 @@ async function runIncrementalSyncStep(
         fullSyncReconcilePendingIds: null,
         fullSyncReconcilePasses: 0,
         fullSyncListedCount: 0,
+        archivePendingIds: [],
       };
       const restarted = await runFullSyncStep(
         ownerEmail,
@@ -829,23 +841,41 @@ async function runIncrementalSyncStep(
         archivedThreadIds.add(threadId);
       }
     }
+    for (const entry of record.messagesDeleted ?? []) {
+      if (entry?.message?.threadId)
+        archivedThreadIds.add(entry.message.threadId);
+    }
   }
-  // One message losing INBOX does not archive a thread: the row is deleted only
-  // when a minimal read shows no message in it still carries INBOX. A thread
-  // the inbox stream returned is hydrated anyway. Threads with no cached
-  // in-inbox row have nothing to delete.
-  const archiveCandidates = [...archivedThreadIds].filter(
-    (threadId) => !threadIds.has(threadId),
+  // One message losing INBOX, or being deleted, does not remove a thread: the
+  // row is deleted only when a minimal read shows no message in it still
+  // carries INBOX (a 404 means the thread is gone). A thread the inbox stream
+  // returned is hydrated anyway, and a thread with no cached in-inbox row has
+  // nothing to delete. Reads per step are bounded by the quota lane; the rest
+  // carry over in archivePendingIds, so a large burst finishes over several
+  // steps instead of failing the same oversized read on every retry.
+  const archiveCandidates = [
+    ...new Set([...row.archivePendingIds, ...archivedThreadIds]),
+  ].filter((threadId) => !threadIds.has(threadId));
+  const cachedCandidates = new Set<string>();
+  for (let i = 0; i < archiveCandidates.length; i += CACHE_LOOKUP_CHUNK) {
+    for (const threadId of await readInboxThreadIds(
+      ownerEmail,
+      accountEmail,
+      archiveCandidates.slice(i, i + CACHE_LOOKUP_CHUNK),
+    )) {
+      cachedCandidates.add(threadId);
+    }
+  }
+  const unverified = archiveCandidates.filter((threadId) =>
+    cachedCandidates.has(threadId),
   );
-  const cachedArchiveCandidates =
-    archiveCandidates.length > 0
-      ? await readInboxThreadIds(ownerEmail, accountEmail, archiveCandidates)
-      : new Set<string>();
+  const verifyNow = unverified.slice(0, ARCHIVE_VERIFY_LIMIT);
+  const archivePendingIds = unverified.slice(ARCHIVE_VERIFY_LIMIT);
   const archivedOnly: string[] = [];
-  if (cachedArchiveCandidates.size > 0) {
+  if (verifyNow.length > 0) {
     const verification = await gmailBatchGetThreads(
       accessToken,
-      [...cachedArchiveCandidates],
+      verifyNow,
       "minimal",
       undefined,
       "incremental",
@@ -937,6 +967,7 @@ async function runIncrementalSyncStep(
       : row.historyId!;
   await patchProgress(ownerEmail, accountEmail, claimId, {
     historyId,
+    archivePendingIds,
     lastError: null,
     lastSyncedAt: syncedAt,
   });
@@ -945,7 +976,9 @@ async function runIncrementalSyncStep(
       accountEmail,
       state: inboxCaughtUp && archiveCaughtUp ? "ready" : "initial",
       lastSyncedAt: syncedAt,
-      ...(row.fullSyncPageToken || row.fullSyncPhase === "reconcile"
+      ...(row.fullSyncPageToken ||
+      row.fullSyncPhase === "reconcile" ||
+      archivePendingIds.length > 0
         ? { backfillPending: true }
         : {}),
     },

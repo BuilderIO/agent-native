@@ -173,6 +173,8 @@ export const mailSyncAccounts = table(
       .notNull()
       .default(0),
     fullSyncListedCount: integer("full_sync_listed_count").notNull().default(0),
+    // Threads an archive or delete event touched that still await a Gmail read.
+    archivePendingIdsJson: text("archive_pending_ids_json"),
     status: text("status", {
       enum: ["idle", "syncing", "error", "needs_reauth"],
     })

@@ -67,6 +67,7 @@ export type SyncAccountRow = {
   fullSyncReconcilePendingIds: string[] | null;
   fullSyncReconcilePasses: number;
   fullSyncListedCount: number;
+  archivePendingIds: string[];
   status: "idle" | "syncing" | "error" | "needs_reauth";
   lastError: string | null;
   lastSyncedAt: number | null;
@@ -150,6 +151,7 @@ function toSyncAccountRow(
       : null,
     fullSyncReconcilePasses: row.fullSyncReconcilePasses,
     fullSyncListedCount: row.fullSyncListedCount,
+    archivePendingIds: parseJsonArray<string>(row.archivePendingIdsJson, []),
     status: row.status as SyncAccountRow["status"],
     lastError: row.lastError,
     lastSyncedAt: row.lastSyncedAt,
@@ -1254,6 +1256,7 @@ export type SyncAccountPatch = Partial<{
   fullSyncReconcilePendingIds: string[] | null;
   fullSyncReconcilePasses: number;
   fullSyncListedCount: number;
+  archivePendingIds: string[] | null;
   status: SyncAccountRow["status"];
   lastError: string | null;
   lastSyncedAt: number | null;
@@ -1321,6 +1324,13 @@ export async function patchSyncAccount(
       : null;
     delete set.fullSyncReconcilePendingIds;
   }
+  if (patch.archivePendingIds !== undefined) {
+    set.archivePendingIdsJson =
+      patch.archivePendingIds && patch.archivePendingIds.length > 0
+        ? JSON.stringify(patch.archivePendingIds)
+        : null;
+    delete set.archivePendingIds;
+  }
   const conditions = [
     eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)),
   ];
@@ -1353,6 +1363,7 @@ export async function resetSyncAccountProgress(
       fullSyncReconcilePendingIds: null,
       fullSyncReconcilePasses: 0,
       fullSyncListedCount: 0,
+      archivePendingIds: null,
       status: "idle",
       lastError: null,
       syncClaimId: null,
