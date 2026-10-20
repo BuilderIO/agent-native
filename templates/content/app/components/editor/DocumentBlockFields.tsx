@@ -911,7 +911,9 @@ function MultiBlockFields({
     setDeletingId(null);
     // Leave the deleted tab, and leave no `?field=` behind when only one
     // field (shown without tabs) will be left.
-    if (id === selectedId || blockFields.length <= 2) writeSelection(null);
+    const previousRequestedId = requestedIdRef.current;
+    const leavesTab = id === selectedId || blockFields.length <= 2;
+    if (leavesTab) writeSelection(null);
     const next = fieldIds.find((fieldId) => fieldId !== id);
     focusTabAfterDialogRef.current =
       id === selectedId && next ? next : (selectedId ?? id);
@@ -921,6 +923,12 @@ function MultiBlockFields({
       // its failed save block leaving the page or suggesting.
       forgetBlockFieldSaveController(`${documentId}:${id}`);
     } catch (error) {
+      // The field is still there, so go back to it unless another tab was
+      // opened while the delete was in flight.
+      const current = requestedIdRef.current;
+      if (leavesTab && (current === null || current === previousRequestedId)) {
+        writeSelection(previousRequestedId);
+      }
       toast.error(t("editor.deleteBlockFieldFailed"), {
         description: error instanceof Error ? error.message : undefined,
       });
