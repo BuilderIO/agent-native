@@ -1024,6 +1024,7 @@ export function startPageOpenCompanionReads(
 export interface PreviewDocumentDraftRecord {
   documentId: string;
   title: string;
+  baseTitle: string | null;
   content: string;
   baseDocumentUpdatedAt: string | null;
   baseContentHash?: string | null;
@@ -1138,6 +1139,7 @@ export function useUpdatePreviewDocumentDraft() {
         expectedVersion: number | null;
         draft: {
           title: string;
+          baseTitle: string | null;
           content: string;
           baseDocumentUpdatedAt: string | null;
           baseContentHash: string | null;
@@ -1153,6 +1155,7 @@ export function useUpdatePreviewDocumentDraft() {
         expectedVersion: number;
         expectedTitle: string;
         expectedContent: string;
+        expectedBaseTitle?: string | null;
         expectedEditorSessionId?: string;
         expectedEditGeneration?: number;
       }
@@ -1171,7 +1174,9 @@ export function useUpdatePreviewDocumentDraft() {
 export function useResolvePreviewDocumentDraft() {
   return useContentActionMutation<
     {
-      status: "resolved" | "document_conflict";
+      status: "resolved" | "document_conflict" | "recovery_required";
+      reason?: "prior_choice" | "draft_changed";
+      recoveryVersionId?: string;
       choice?: "keep_mine" | "use_saved" | "save_separately";
       document?: Document;
       createdDocumentId?: string;
@@ -1179,9 +1184,12 @@ export function useResolvePreviewDocumentDraft() {
     },
     {
       choice: "keep_mine" | "use_saved" | "save_separately";
+      trigger: "automatic" | "reviewed";
       documentId: string;
       expectedDraftVersion: number;
       expectedDraftTitle: string;
+      expectedDraftBaseTitle?: string | null;
+      expectedDocumentTitle?: string;
       expectedDraftContent: string;
       expectedDocumentUpdatedAt?: string;
     }

@@ -1,8 +1,65 @@
+import { ActionContractError } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { and, eq, lte, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
 
 type ContentDb = any;
+
+const automaticRecoveryContexts = new WeakSet<ActionRunContext>();
+
+export function withAutomaticPreviewDraftRecoveryContext(
+  ctx: ActionRunContext,
+) {
+  automaticRecoveryContexts.add(ctx);
+  return ctx;
+}
+
+export function isAutomaticPreviewDraftRecovery(ctx?: ActionRunContext) {
+  return ctx !== undefined && automaticRecoveryContexts.has(ctx);
+}
+
+export async function assertAutomaticPreviewDraftGeneration(input: {
+  db: ContentDb;
+  ownerEmail: string;
+  orgId: string;
+  documentId: string;
+  editorSessionId: string | null;
+  editGeneration: number | null;
+  now: string;
+}) {
+  if (input.editorSessionId === null || input.editGeneration === null) {
+    throw new ActionContractError(
+      "Automatic recovery requires the original editor generation.",
+      {
+        errorCode: "PREVIEW_DRAFT_AUTOMATIC_RECOVERY_REFUSED",
+        statusCode: 409,
+        details: { reason: "unknown_source" },
+      },
+    );
+  }
+  const source = { ...input, editorSessionId: input.editorSessionId };
+  const settled = await lockPreviewDocumentDraftSettlement(source);
+  const discarded = await readDiscardedPreviewDraftGeneration(source);
+  if (
+    (settled !== null && input.editGeneration <= settled) ||
+    (discarded !== null && input.editGeneration <= discarded)
+  ) {
+    throw new ActionContractError(
+      "This editor generation requires a reviewed recovery choice.",
+      {
+        errorCode: "PREVIEW_DRAFT_AUTOMATIC_RECOVERY_REFUSED",
+        statusCode: 409,
+        details: {
+          reason:
+            discarded !== null && input.editGeneration <= discarded
+              ? "discarded"
+              : "settled",
+        },
+      },
+    );
+  }
+}
 
 export type PreviewDraftEditIdentity = {
   editorSessionId: string;

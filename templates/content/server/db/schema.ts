@@ -139,6 +139,9 @@ export const documentVersions = table(
     updatedAt: text("updated_at"),
   },
   (version) => [
+    index("document_versions_owner_recovery_group_idx")
+      .on(version.ownerEmail, version.groupId, version.createdAt, version.id)
+      .where(sql`${version.checkpointKind} = 'recovery'`),
     index("document_versions_owner_document_created_idx").on(
       version.ownerEmail,
       version.documentId,
@@ -197,6 +200,7 @@ export const documentPreviewDrafts = table(
     content: text("content").notNull(),
     baseDocumentUpdatedAt: text("base_document_updated_at"),
     baseContentHash: text("base_content_hash"),
+    baseTitle: text("base_title"),
     loadedContentWasEmpty: integer("loaded_content_was_empty")
       .notNull()
       .default(0),

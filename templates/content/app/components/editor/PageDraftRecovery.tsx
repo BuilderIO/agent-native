@@ -4,6 +4,7 @@ import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { Document } from "@shared/api";
+import { previewDraftTitleIntent } from "@shared/preview-draft-title-intent";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
@@ -13,9 +14,6 @@ import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   documentQueryFilter,
   ensurePreviewDocumentDraftRead,
-  isDocumentUpdateConflict,
-  isDocumentUpdatePreservationRequired,
-  isDocumentUpdateSuperseded,
   usePreviewDocumentDraft,
   useResolvePreviewDocumentDraft,
   useUpdateDocument,
@@ -43,7 +41,7 @@ import {
 } from "./page-draft-journal";
 import { RecoveryComparison } from "./RecoveryComparison";
 
-type DraftRecoveryFailure = "conflict" | "error";
+type DraftRecoveryFailure = "conflict" | "error" | "unknown";
 
 // A tab whose save fails keeps a draft of its text, and another tab holding
 // the same text through collaboration can still save it. Once the page holds
@@ -67,11 +65,7 @@ function draftWrittenOnPage(
   },
   page: { updatedAt: string; contentHash?: string },
 ): boolean {
-  return (
-    draft.baseDocumentUpdatedAt === page.updatedAt &&
-    !!draft.baseContentHash &&
-    draft.baseContentHash === page.contentHash
-  );
+  return !!draft.baseContentHash && draft.baseContentHash === page.contentHash;
 }
 
 export function PageDraftRecovery({
@@ -147,6 +141,19 @@ export function PageDraftRecovery({
   const scopeVerified = scopeKey !== null && verifiedScopeKey === scopeKey;
   const editorReleased =
     scopeVerified && releasedScopeKey === scopeKey && !draft;
+
+  useEffect(() => {
+    setFailure(null);
+    setConflictDocument(null);
+  }, [
+    scopeKey,
+    draft?.version,
+    draft?.title,
+    draft?.content,
+    draft?.baseTitle,
+    draft?.editorSessionId,
+    draft?.editGeneration,
+  ]);
 
   useEffect(() => {
     setVerifiedScopeKey(null);
@@ -230,6 +237,7 @@ export function PageDraftRecovery({
     let journalSnapshot =
       matchingSqlDraft &&
       journalTitleIsClean &&
+      draft.baseTitle === draft.title &&
       draft.title !== entry.snapshot.title
         ? {
             ...entry.snapshot,
@@ -249,7 +257,9 @@ export function PageDraftRecovery({
       draft.content === journalSnapshot.content;
     if (
       sameAsCanonical ||
-      (sameAsSqlDraft && draft?.baseDocumentUpdatedAt === document.updatedAt)
+      (sameAsSqlDraft &&
+        draft?.baseDocumentUpdatedAt === document.updatedAt &&
+        draft.baseTitle === journalSnapshot.baseTitle)
     ) {
       try {
         clearPageDraftJournal(entry.scope, journalStorageSnapshot);
@@ -273,6 +283,7 @@ export function PageDraftRecovery({
         sameAsSqlDraft &&
         draft &&
         draft.title === journalSnapshot.title &&
+        draft.baseTitle === journalSnapshot.baseTitle &&
         draft.content === journalSnapshot.content
           ? draft
           : (
@@ -282,7 +293,10 @@ export function PageDraftRecovery({
                 expectedVersion: draft?.version ?? null,
                 draft: {
                   title: journalSnapshot.title,
+                  baseTitle: journalSnapshot.baseTitle,
                   content: journalSnapshot.content,
+                  editorSessionId: entry.scope.writerId,
+                  editGeneration: journalSnapshot.editGeneration,
                   baseDocumentUpdatedAt:
                     journalSnapshot.baseUpdatedAt ??
                     (journalSnapshot.baseTitle === document.title &&
@@ -299,17 +313,29 @@ export function PageDraftRecovery({
             ).draft;
       if (
         retainedDraft?.title !== journalSnapshot.title ||
+        retainedDraft.baseTitle !== journalSnapshot.baseTitle ||
         retainedDraft.content !== journalSnapshot.content
-      )
-        throw new Error("The journal was not retained for recovery.");
+      ) {
+        setJournalState("waiting_sql");
+        setFailure(retainedDraft?.baseTitle == null ? "unknown" : "conflict");
+        return;
+      }
       const preserved = await resolveDraft.mutateAsync({
         choice: "use_saved",
+        trigger: "automatic",
         documentId: document.id,
         expectedDraftVersion: retainedDraft.version,
         expectedDraftTitle: retainedDraft.title,
         expectedDraftContent: retainedDraft.content,
+        expectedDraftBaseTitle: retainedDraft.baseTitle,
+        expectedDocumentTitle: document.title,
         expectedDocumentUpdatedAt: document.updatedAt,
       });
+      if (preserved.status === "recovery_required") {
+        setJournalState("waiting_sql");
+        setFailure("conflict");
+        return;
+      }
       if (preserved.status !== "resolved")
         throw new Error("The journal could not be preserved in history.");
       if (!clearPageDraftJournal(entry.scope, journalStorageSnapshot))
@@ -506,90 +532,6 @@ export function PageDraftRecovery({
       setReleasedScopeKey(scopeKey);
   }, [drafts.data, journalState, scopeKey, scopeVerified]);
 
-  async function settleDraft(restore: boolean) {
-    if (!draft || busy) return;
-    setBusy(true);
-    setFailure(null);
-    try {
-      const identifiedDraft = Boolean(
-        draft.editorSessionId && typeof draft.editGeneration === "number",
-      );
-      const draftDiffers =
-        draft.title !== document.title || draft.content !== document.content;
-      if (restore && (identifiedDraft || draftDiffers)) {
-        if (draftDiffers && !draft.baseDocumentUpdatedAt) {
-          throw new Error("The draft has no original document version.");
-        }
-        if (draft.content !== document.content && !document.revision) {
-          throw new Error("The current body revision is unavailable.");
-        }
-        const saved = await update.mutateAsync({
-          id: document.id,
-          title: draft.title,
-          content: draft.content,
-          ...(draft.content !== document.content
-            ? {
-                baseRevision: document.revision,
-                baseTitle: document.title,
-                authoredBaseRevision: document.revision,
-                authoredBaseContent: document.content,
-                authoredCandidateContent: draft.content,
-                browserSaveAttemptId: crypto.randomUUID(),
-              }
-            : {}),
-          ...(draft.baseDocumentUpdatedAt
-            ? {
-                baseUpdatedAt: draft.baseDocumentUpdatedAt,
-                loadedUpdatedAt: draft.baseDocumentUpdatedAt,
-              }
-            : {}),
-          loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
-          ...(identifiedDraft || draft.content !== document.content
-            ? {
-                editorSessionId: identifiedDraft
-                  ? draft.editorSessionId!
-                  : `preview-recovery:${document.id}:${draft.version}`,
-                editorEditGeneration: identifiedDraft
-                  ? draft.editGeneration! + 1
-                  : 0,
-                editorSnapshotTitle: draft.title,
-                editorSnapshotContent: draft.content,
-              }
-            : {}),
-        });
-        if (isDocumentUpdateSuperseded(saved)) {
-          await queryClient.refetchQueries(documentQueryFilter(document.id));
-          await drafts.refetch();
-          return;
-        }
-        if (isDocumentUpdateConflict(saved)) {
-          setFailure("conflict");
-          setConflictDocument(saved.document);
-          return;
-        }
-        if (isDocumentUpdatePreservationRequired(saved)) {
-          setFailure("error");
-          setConflictDocument(saved.document);
-          return;
-        }
-        if (saved.content !== draft.content || saved.title !== draft.title) {
-          throw new Error("Draft restoration was not confirmed.");
-        }
-        if (identifiedDraft) {
-          await queryClient.refetchQueries(documentQueryFilter(document.id));
-          await drafts.refetch();
-          return;
-        }
-      }
-      await discardDraft(draft);
-    } catch {
-      setFailure("error");
-      await drafts.refetch();
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function discardDraft(
     settled: NonNullable<typeof draft>,
     ifPageHoldsDraft = false,
@@ -600,6 +542,7 @@ export function PageDraftRecovery({
       expectedVersion: settled.version,
       expectedTitle: settled.title,
       expectedContent: settled.content,
+      expectedBaseTitle: settled.baseTitle ?? null,
       ...(settled.editorSessionId
         ? { expectedEditorSessionId: settled.editorSessionId }
         : {}),
@@ -616,24 +559,9 @@ export function PageDraftRecovery({
     await drafts.refetch();
   }
 
-  // This tab's copy of the page can trail the server, and a rename shows
-  // before it saves, so the server checks the stored page before deleting.
-  async function discardHeldDraft(held: NonNullable<typeof draft>) {
-    if (busy) return;
-    setBusy(true);
-    setFailure(null);
-    try {
-      await discardDraft(held, true);
-    } catch {
-      setFailure("error");
-      await drafts.refetch();
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function resolveConflict(
     choice: "keep_mine" | "use_saved" | "save_separately",
+    trigger: "automatic" | "reviewed" = "reviewed",
   ) {
     if (!draft || busy) return;
     setBusy(true);
@@ -641,15 +569,27 @@ export function PageDraftRecovery({
     try {
       const result = await resolveDraft.mutateAsync({
         choice,
+        trigger,
         documentId: document.id,
         expectedDraftVersion: draft.version,
         expectedDraftTitle: draft.title,
         expectedDraftContent: draft.content,
+        expectedDraftBaseTitle: draft.baseTitle ?? null,
+        expectedDocumentTitle: conflictDocument?.title ?? document.title,
         expectedDocumentUpdatedAt:
           conflictDocument?.updatedAt ?? document.updatedAt,
       });
+      if (result.status === "recovery_required") {
+        setFailure("conflict");
+        setConflictDocument(result.document ?? null);
+        return;
+      }
       if (result.status === "document_conflict") {
-        if (result.document && pageHoldsDraft(draft, result.document)) {
+        if (
+          trigger === "reviewed" &&
+          result.document &&
+          pageHoldsDraft(draft, result.document)
+        ) {
           await discardDraft(draft, true);
           return;
         }
@@ -672,8 +612,16 @@ export function PageDraftRecovery({
         });
       await queryClient.refetchQueries(documentQueryFilter(document.id));
       await drafts.refetch();
-    } catch {
-      setFailure("error");
+    } catch (error) {
+      const errorCode = (error as { errorCode?: unknown } | null)?.errorCode;
+      setFailure(
+        errorCode === "PREVIEW_DRAFT_TITLE_INTENT_UNKNOWN"
+          ? "unknown"
+          : errorCode === "PREVIEW_DRAFT_AUTOMATIC_RECOVERY_REFUSED" ||
+              errorCode === "PREVIEW_DRAFT_RECOVERY_CONFLICT"
+            ? "conflict"
+            : "error",
+      );
       await drafts.refetch();
     } finally {
       setBusy(false);
@@ -697,7 +645,21 @@ export function PageDraftRecovery({
     const attempt = `${draft.version}:${document.updatedAt}`;
     if (automaticLegacyRecoveryRef.current === attempt) return;
     automaticLegacyRecoveryRef.current = attempt;
-    void resolveConflict("use_saved");
+    const intent = previewDraftTitleIntent(draft, document.title);
+    if (intent.status === "unknown") {
+      setFailure("unknown");
+      return;
+    }
+    if (
+      draftWrittenOnPage(draft, document) &&
+      (!intent.changesTitle ||
+        document.title === draft.baseTitle ||
+        document.title === draft.title)
+    ) {
+      void resolveConflict("keep_mine", "automatic");
+      return;
+    }
+    void resolveConflict("use_saved", "automatic");
   }, [
     busy,
     document.updatedAt,
@@ -721,14 +683,28 @@ export function PageDraftRecovery({
       return;
     const attempt = `${draft.editorSessionId}:${draft.editGeneration}:${draft.version}:${document.updatedAt}`;
     if (automaticRecoveryRef.current === attempt) return;
-    if (pageHoldsDraft(draft, document)) {
-      automaticRecoveryRef.current = attempt;
-      void discardHeldDraft(draft);
+    const intent = previewDraftTitleIntent(draft, document.title);
+    if (intent.status === "unknown") {
+      setFailure("unknown");
       return;
     }
-    if (draftWrittenOnPage(draft, document)) {
+    if (journalState === "waiting_sql") {
+      setFailure("conflict");
+      return;
+    }
+    if (pageHoldsDraft(draft, document)) {
       automaticRecoveryRef.current = attempt;
-      void settleDraft(true);
+      void resolveConflict("keep_mine", "automatic");
+      return;
+    }
+    if (
+      draftWrittenOnPage(draft, document) &&
+      (!intent.changesTitle ||
+        document.title === draft.baseTitle ||
+        document.title === draft.title)
+    ) {
+      automaticRecoveryRef.current = attempt;
+      void resolveConflict("keep_mine", "automatic");
       return;
     }
     if (session?.email) {
@@ -749,7 +725,7 @@ export function PageDraftRecovery({
       }
     }
     automaticRecoveryRef.current = attempt;
-    void resolveConflict("use_saved");
+    void resolveConflict("use_saved", "automatic");
   }, [
     busy,
     document,
@@ -833,17 +809,26 @@ export function PageDraftRecovery({
       mine={{ title: draft.title, content: draft.content }}
       saved={{ title: savedVersion.title, content: savedVersion.content }}
       busy={busy}
-      keepMineDisabled={documentBodyHydrationIsPending(document)}
+      keepMineDisabled={
+        documentBodyHydrationIsPending(document) ||
+        draft.baseTitle == null ||
+        failure === "unknown"
+      }
       failure={
-        failure === "conflict"
-          ? t("editor.previewDraftConflict")
-          : t("empty.genericError")
+        failure === "unknown"
+          ? t("editor.previewDraftTitleUnknown")
+          : failure === "conflict"
+            ? t("editor.previewDraftConflict")
+            : t("empty.genericError")
       }
       onKeepMine={() => {
-        if (documentBodyHydrationIsPending(document)) return;
-        if (failure === "conflict" || !draftWrittenOnPage(draft, document))
-          void resolveConflict("keep_mine");
-        else void settleDraft(true);
+        if (
+          documentBodyHydrationIsPending(document) ||
+          draft.baseTitle == null ||
+          failure === "unknown"
+        )
+          return;
+        void resolveConflict("keep_mine");
       }}
       onUseSaved={() => void resolveConflict("use_saved")}
       onSaveSeparately={() => void resolveConflict("save_separately")}

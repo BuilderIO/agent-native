@@ -5,13 +5,19 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { previewDraftTitleIntent } from "../shared/preview-draft-title-intent.js";
 import { withContentRecoverySaveContext } from "./_content-save-outcomes.js";
-import { documentRevisionToken } from "./_document-edit-mutation.js";
 import {
+  documentContentHash,
+  documentRevisionToken,
+} from "./_document-edit-mutation.js";
+import {
+  assertAutomaticPreviewDraftGeneration,
+  withAutomaticPreviewDraftRecoveryContext,
   fencePreviewDocumentDraftGeneration,
   lockPreviewDocumentDraftSettlement,
   settlePreviewDocumentDraft,
@@ -20,19 +26,25 @@ import createDocument from "./create-document.js";
 import updateDocument from "./update-document.js";
 
 const exactDraft = {
+  trigger: z.enum(["automatic", "reviewed"]).optional(),
   documentId: z.string().min(1),
   expectedDraftVersion: z.number().int().positive(),
   expectedDraftTitle: z.string().max(10_000),
   expectedDraftContent: z.string().max(500_000),
+  expectedDraftBaseTitle: z.string().max(10_000).nullable().optional(),
+  expectedDocumentTitle: z.string().max(10_000).optional(),
 };
 
 const durableClaimPayload = z.object({
   choice: z.enum(["keep_mine", "use_saved", "save_separately"]),
+  trigger: z.enum(["automatic", "reviewed"]).optional(),
   status: z.enum(["claimed", "processing", "resolved"]),
   expectedDocumentUpdatedAt: z.string().optional(),
   processingToken: z.string().optional(),
   processingStartedAt: z.string().optional(),
   draftId: z.string().min(1),
+  baseTitle: z.string().nullable().optional(),
+  reviewedDocumentTitle: z.string().optional(),
   baseDocumentUpdatedAt: z.string().nullable(),
   baseContentHash: z.string().nullable().optional(),
   loadedContentWasEmpty: z.number().int(),
@@ -106,6 +118,8 @@ export default defineAction({
     }),
   ]),
   run: async (args, ctx) => {
+    const trigger = args.trigger === "reviewed" ? "reviewed" : "automatic";
+    const automatic = trigger === "automatic";
     const userEmail = getRequestUserEmail();
     const orgId = getRequestOrgId() ?? "";
     if (!userEmail) {
@@ -201,6 +215,39 @@ export default defineAction({
       }
     }
     const processingToken = crypto.randomUUID();
+    let reviewedDocumentTitle: string | undefined;
+    const titleIntent = (
+      draft: { title: string; baseTitle?: string | null },
+      reviewedTitle: string | undefined,
+    ) => {
+      const intent =
+        reviewedTitle === undefined
+          ? { status: "unknown" as const }
+          : previewDraftTitleIntent(draft, reviewedTitle);
+      if (intent.status === "unknown") {
+        throw new ActionContractError(
+          "The draft's original title is unknown. Keep the saved page or save the draft separately.",
+          {
+            errorCode: "PREVIEW_DRAFT_TITLE_INTENT_UNKNOWN",
+            statusCode: 409,
+            details: { documentId: args.documentId },
+          },
+        );
+      }
+      return intent;
+    };
+    const claimMatchesDocument = (
+      claim: { title: string; content: string },
+      payload: z.infer<typeof durableClaimPayload>,
+      current: { title: string; content: string },
+    ) =>
+      args.choice === "keep_mine" &&
+      current.title ===
+        titleIntent(
+          { title: claim.title, baseTitle: payload.baseTitle },
+          payload.reviewedDocumentTitle,
+        ).title &&
+      current.content === claim.content;
     const draftFilter = and(
       eq(schema.documentPreviewDrafts.ownerEmail, userEmail),
       eq(schema.documentPreviewDrafts.orgId, orgId),
@@ -208,8 +255,18 @@ export default defineAction({
       eq(schema.documentPreviewDrafts.version, args.expectedDraftVersion),
       eq(schema.documentPreviewDrafts.title, args.expectedDraftTitle),
       eq(schema.documentPreviewDrafts.content, args.expectedDraftContent),
+      ...(args.expectedDraftBaseTitle === undefined
+        ? []
+        : [
+            args.expectedDraftBaseTitle === null
+              ? isNull(schema.documentPreviewDrafts.baseTitle)
+              : eq(
+                  schema.documentPreviewDrafts.baseTitle,
+                  args.expectedDraftBaseTitle,
+                ),
+          ]),
     );
-    const destinationId = recoveryId;
+    let destinationId = recoveryId;
     const findExistingRecovery = async (
       executor: Pick<ClaimTransaction, "select"> = db,
     ) => {
@@ -283,6 +340,53 @@ export default defineAction({
           .where(eq(schema.documents.id, args.documentId))
           .for("update")
           .limit(1);
+        const [sourceDraft] = await tx
+          .select()
+          .from(schema.documentPreviewDrafts)
+          .where(draftFilter)
+          .limit(1);
+        const [previousChoice] = sourceDraft
+          ? await tx
+              .select({ id: schema.documentVersions.id })
+              .from(schema.documentVersions)
+              .where(
+                and(
+                  eq(schema.documentVersions.ownerEmail, userEmail),
+                  eq(
+                    schema.documentVersions.groupId,
+                    `draft-recovery:${sourceDraft.id}`,
+                  ),
+                  eq(schema.documentVersions.checkpointKind, "recovery"),
+                  inArray(schema.documentVersions.operation, [
+                    "claim-preview-draft-keep_mine",
+                    "claim-preview-draft-save_separately",
+                    "use-saved-preview-draft",
+                  ]),
+                  or(
+                    eq(schema.documentVersions.documentId, args.documentId),
+                    eq(
+                      schema.documentVersions.documentId,
+                      schema.documentVersions.id,
+                    ),
+                  ),
+                  sql`(${schema.documentVersions.chatContext}::jsonb ->> 'editorSessionId') IS NOT DISTINCT FROM ${sourceDraft.editorSessionId}`,
+                  sql`(${schema.documentVersions.chatContext}::jsonb ->> 'editGeneration') IS NOT DISTINCT FROM ${sourceDraft.editGeneration === null ? null : String(sourceDraft.editGeneration)}`,
+                ),
+              )
+              .orderBy(
+                desc(schema.documentVersions.createdAt),
+                desc(schema.documentVersions.id),
+              )
+              .limit(1)
+          : [];
+        // A page timestamp identifies a reviewed version, not a new recovery decision.
+        if (previousChoice && (automatic || args.choice !== "keep_mine")) {
+          claimId = previousChoice.id;
+          claimDocumentId =
+            ownerEmail === userEmail ? args.documentId : claimId;
+          recoveryId = `recovery-${claimId.slice("draft-claim-".length)}`;
+          destinationId = recoveryId;
+        }
         const [claim] = await tx
           .select()
           .from(schema.documentVersions)
@@ -304,8 +408,50 @@ export default defineAction({
           )
             conflict("The saved draft changed during recovery.");
           payload = durableClaimPayload.parse(JSON.parse(claim.chatContext));
+          if (automatic) {
+            return {
+              status: "recovery_required" as const,
+              reason: "prior_choice" as const,
+              choice: payload.choice,
+              recoveryVersionId: claim.id,
+              document: currentDocument ?? null,
+            };
+          }
+          if (
+            previousChoice?.id === claim.id &&
+            args.choice !== "keep_mine" &&
+            payload.choice === args.choice &&
+            sourceDraft &&
+            currentDocument &&
+            currentDocument.updatedAt === args.expectedDocumentUpdatedAt &&
+            (args.expectedDocumentTitle === undefined ||
+              currentDocument.title === args.expectedDocumentTitle)
+          ) {
+            payload = {
+              ...payload,
+              expectedDocumentUpdatedAt: args.expectedDocumentUpdatedAt,
+              reviewedDocumentTitle: currentDocument.title,
+            };
+          }
           if (payload.choice !== args.choice)
             conflict("This draft was already resolved with another choice.");
+          reviewedDocumentTitle = payload.reviewedDocumentTitle;
+          if (
+            args.expectedDraftBaseTitle !== undefined &&
+            args.expectedDraftBaseTitle !== (payload.baseTitle ?? null)
+          )
+            conflict("The saved draft changed during recovery.");
+          if (
+            args.expectedDocumentTitle !== undefined &&
+            payload.reviewedDocumentTitle !== undefined &&
+            args.expectedDocumentTitle !== payload.reviewedDocumentTitle
+          )
+            conflict("The reviewed page title changed during recovery.");
+          if (args.choice === "keep_mine")
+            titleIntent(
+              { title: claim.title, baseTitle: payload.baseTitle },
+              reviewedDocumentTitle,
+            );
           if (payload.status === "resolved") {
             // Historical resolved claims may have no fence. Repair it before
             // releasing the page lock or acquiring any draft row lock.
@@ -344,12 +490,14 @@ export default defineAction({
             return { status: "resolved" as const };
           }
         }
-        const [draft] = await tx
-          .select()
-          .from(schema.documentPreviewDrafts)
-          .where(draftFilter)
-          .limit(1);
+        const draft = sourceDraft;
         if (!draft) {
+          if (automatic)
+            return {
+              status: "recovery_required" as const,
+              reason: "draft_changed" as const,
+              document: currentDocument ?? null,
+            };
           if (!claim || !payload) {
             conflict("The saved draft changed during recovery.");
           }
@@ -359,11 +507,7 @@ export default defineAction({
             args.expectedDocumentUpdatedAt !== expectedUpdatedAt ||
             !currentDocument ||
             (currentDocument.updatedAt !== expectedUpdatedAt &&
-              !(
-                args.choice === "keep_mine" &&
-                currentDocument.title === claim.title &&
-                currentDocument.content === claim.content
-              ))
+              !claimMatchesDocument(claim, payload, currentDocument))
           ) {
             return {
               status: "document_conflict" as const,
@@ -380,6 +524,7 @@ export default defineAction({
               documentId: args.documentId,
               title: claim.title,
               content: claim.content,
+              baseTitle: payload.baseTitle ?? null,
               baseDocumentUpdatedAt: payload.baseDocumentUpdatedAt,
               baseContentHash: payload.baseContentHash ?? null,
               loadedContentWasEmpty: payload.loadedContentWasEmpty,
@@ -395,22 +540,30 @@ export default defineAction({
         }
         if (
           !currentDocument ||
-          currentDocument.updatedAt !== args.expectedDocumentUpdatedAt
+          currentDocument.updatedAt !== args.expectedDocumentUpdatedAt ||
+          (args.expectedDocumentTitle !== undefined &&
+            currentDocument.title !== args.expectedDocumentTitle)
         ) {
           return {
             status: "document_conflict" as const,
             document: currentDocument ?? null,
           };
         }
+        if (!claim) reviewedDocumentTitle = currentDocument.title;
+        if (args.choice === "keep_mine")
+          titleIntent(draft, reviewedDocumentTitle);
         const now = new Date().toISOString();
         if (!claim) {
           payload = {
             choice: args.choice,
+            trigger,
             status: "processing",
             expectedDocumentUpdatedAt: args.expectedDocumentUpdatedAt,
             processingToken,
             processingStartedAt: now,
             draftId: draft.id,
+            baseTitle: draft.baseTitle,
+            reviewedDocumentTitle: currentDocument.title,
             baseDocumentUpdatedAt: draft.baseDocumentUpdatedAt,
             baseContentHash: draft.baseContentHash,
             loadedContentWasEmpty: draft.loadedContentWasEmpty,
@@ -448,7 +601,14 @@ export default defineAction({
           if (inserted.length !== 1) conflict("The recovery claim was lost.");
         } else {
           if (!payload) conflict("The recovery claim was lost.");
-          if (payload.draftId !== draft.id)
+          if (
+            payload.draftId !== draft.id ||
+            (payload.baseTitle ?? null) !== draft.baseTitle ||
+            payload.baseDocumentUpdatedAt !== draft.baseDocumentUpdatedAt ||
+            (payload.baseContentHash ?? null) !== draft.baseContentHash ||
+            (payload.editorSessionId ?? null) !== draft.editorSessionId ||
+            (payload.editGeneration ?? null) !== draft.editGeneration
+          )
             conflict("The saved draft changed during recovery.");
           if (
             payload.status === "processing" &&
@@ -462,6 +622,7 @@ export default defineAction({
             .set({
               chatContext: JSON.stringify({
                 ...payload,
+                trigger,
                 status: "processing",
                 processingToken,
                 processingStartedAt: now,
@@ -471,6 +632,34 @@ export default defineAction({
             .where(eq(schema.documentVersions.id, claimId));
         }
         if (!payload) conflict("The recovery claim was lost.");
+        if (automatic) {
+          if (
+            (draft.editorSessionId !== null && draft.editGeneration !== null) ||
+            args.choice === "keep_mine"
+          ) {
+            await assertAutomaticPreviewDraftGeneration({
+              db: tx,
+              ownerEmail: userEmail,
+              orgId,
+              documentId: args.documentId,
+              editorSessionId: draft.editorSessionId,
+              editGeneration: draft.editGeneration,
+              now,
+            });
+          }
+          if (args.choice === "keep_mine") {
+            const intent = titleIntent(draft, currentDocument.title);
+            if (
+              (draft.content !== currentDocument.content &&
+                draft.baseContentHash !==
+                  documentContentHash(currentDocument.content)) ||
+              (intent.changesTitle &&
+                currentDocument.title !== draft.baseTitle &&
+                currentDocument.title !== draft.title)
+            )
+              conflict("The page requires a reviewed recovery choice.");
+          }
+        }
         await fenceClaimGeneration(tx, payload, now);
         // The lineage read above takes no D lock: draft writers acquire S
         // first. Revalidate the whole snapshot once that order is established.
@@ -556,20 +745,14 @@ export default defineAction({
         if (
           !currentDocument ||
           (currentDocument.updatedAt !== args.expectedDocumentUpdatedAt &&
-            !(
-              args.choice === "keep_mine" &&
-              currentDocument.title === claim.title &&
-              currentDocument.content === claim.content
-            ))
+            !claimMatchesDocument(claim, payload, currentDocument))
         ) {
           conflict("The page changed after this recovery choice was reviewed.");
         }
         if (payload.status === "processing") {
           const alreadyApplied =
             args.choice === "use_saved" ||
-            (args.choice === "keep_mine" &&
-              currentDocument.title === claim.title &&
-              currentDocument.content === claim.content) ||
+            claimMatchesDocument(claim, payload, currentDocument) ||
             (args.choice === "save_separately" &&
               (await findExistingRecovery(tx)) !== null);
           if (!alreadyApplied) {
@@ -592,6 +775,7 @@ export default defineAction({
           .set({
             chatContext: JSON.stringify({
               ...payload,
+              trigger,
               status: "processing",
               processingToken,
               processingStartedAt: now,
@@ -672,6 +856,7 @@ export default defineAction({
           if (
             settledGeneration !== null &&
             draft.editGeneration <= settledGeneration &&
+            !automatic &&
             (payload.choice !== "save_separately" ||
               (await findExistingRecovery(tx)) !== null)
           ) {
@@ -712,7 +897,11 @@ export default defineAction({
     };
     if (args.choice === "keep_mine") {
       const claimed = await claimExactDraft();
-      if (claimed.status === "document_conflict") return claimed;
+      if (
+        claimed.status === "document_conflict" ||
+        claimed.status === "recovery_required"
+      )
+        return claimed;
       if (claimed.status === "resolved") {
         const [current] = await db
           .select()
@@ -738,6 +927,7 @@ export default defineAction({
         };
       }
       const { draft } = claimed;
+      const intent = titleIntent(draft, reviewedDocumentTitle);
       try {
         const [current] = await db
           .select()
@@ -745,7 +935,7 @@ export default defineAction({
           .where(eq(schema.documents.id, args.documentId))
           .limit(1);
         if (
-          current?.title === draft.title &&
+          current?.title === intent.title &&
           current.content === draft.content
         ) {
           await markClaimResolved();
@@ -770,12 +960,13 @@ export default defineAction({
         const saved = await updateDocument.run(
           {
             id: args.documentId,
-            title: draft.title,
+            ...(intent.changesTitle
+              ? { title: intent.title, baseTitle: reviewedDocumentTitle }
+              : {}),
             content: draft.content,
             baseUpdatedAt: args.expectedDocumentUpdatedAt,
             recoveryExpectedUpdatedAt: args.expectedDocumentUpdatedAt,
             baseRevision,
-            baseTitle: current.title,
             authoredBaseRevision: baseRevision,
             authoredBaseContent: current.content,
             authoredCandidateContent: draft.content,
@@ -783,14 +974,18 @@ export default defineAction({
             loadedUpdatedAt: draft.baseDocumentUpdatedAt ?? undefined,
             loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
             historySessionId: `draft-recovery:${draft.id}`,
-            editorSessionId: claimId,
-            editorEditGeneration: 0,
-            editorSnapshotTitle: draft.title,
+            editorSessionId: automatic ? draft.editorSessionId! : claimId,
+            editorEditGeneration: automatic ? draft.editGeneration! : 0,
+            editorSnapshotTitle: intent.title,
             editorSnapshotContent: draft.content,
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
-          withContentRecoverySaveContext({ ...ctx, caller: "frontend" }),
+          automatic
+            ? withAutomaticPreviewDraftRecoveryContext(
+                withContentRecoverySaveContext({ ...ctx, caller: "frontend" }),
+              )
+            : withContentRecoverySaveContext({ ...ctx, caller: "frontend" }),
         );
         if ("conflict" in saved && saved.conflict === true) {
           const [winner] = await db
@@ -799,7 +994,7 @@ export default defineAction({
             .where(eq(schema.documents.id, args.documentId))
             .limit(1);
           if (
-            winner?.title === draft.title &&
+            winner?.title === intent.title &&
             winner.content === draft.content
           ) {
             await markClaimResolved();
@@ -819,7 +1014,7 @@ export default defineAction({
         if (
           "preservationRequired" in saved ||
           "superseded" in saved ||
-          resultDocument.title !== draft.title ||
+          resultDocument.title !== intent.title ||
           !("content" in resultDocument) ||
           resultDocument.content !== draft.content
         ) {
@@ -843,7 +1038,11 @@ export default defineAction({
 
     if (args.choice === "use_saved") {
       const claimed = await claimExactDraft();
-      if (claimed.status === "document_conflict") return claimed;
+      if (
+        claimed.status === "document_conflict" ||
+        claimed.status === "recovery_required"
+      )
+        return claimed;
       if (claimed.status === "resolved")
         return { status: "resolved" as const, choice: args.choice };
       if (!claimed.acquired && !(await acquireClaim()))
@@ -853,7 +1052,11 @@ export default defineAction({
     }
 
     const claimed = await claimExactDraft();
-    if (claimed.status === "document_conflict") return claimed;
+    if (
+      claimed.status === "document_conflict" ||
+      claimed.status === "recovery_required"
+    )
+      return claimed;
     if (claimed.status === "resolved") {
       const existing = await findExistingRecovery();
       if (!existing) conflict("The recovered copy could not be found.");

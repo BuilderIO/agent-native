@@ -101,6 +101,8 @@ import {
 } from "./_document-mutation-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
+  assertAutomaticPreviewDraftGeneration,
+  isAutomaticPreviewDraftRecovery,
   lockPreviewDocumentDraftSettlement,
   readDiscardedPreviewDraftGeneration,
   settlePreviewDocumentDraft,
@@ -1159,6 +1161,17 @@ const updateDocumentAction = defineAction({
             }
           }
           if (settlesPreviewDraft) {
+            if (isAutomaticPreviewDraftRecovery(ctx)) {
+              await assertAutomaticPreviewDraftGeneration({
+                db: tx,
+                ownerEmail: requestUserEmail as string,
+                orgId: requestOrgId,
+                documentId: id,
+                editorSessionId: args.editorSessionId as string,
+                editGeneration: args.editorEditGeneration as number,
+                now: new Date().toISOString(),
+              });
+            }
             await lockPreviewDocumentDraftSettlement({
               db: tx,
               ownerEmail: requestUserEmail as string,

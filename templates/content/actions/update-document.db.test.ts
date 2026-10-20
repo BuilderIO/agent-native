@@ -1,7 +1,3 @@
-import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { parseIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
@@ -22,11 +18,6 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
 
-const TEST_DB_PATH = join(
-  tmpdir(),
-  `update-document-cas-${process.pid}-${Date.now()}.pglite`,
-);
-
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
@@ -41,7 +32,12 @@ const EDITOR = "editor@example.com";
 const VIEWER = "viewer@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = "pglite:memory";
+  console.info("Update test database target", {
+    host: "embedded PGlite",
+    database: "memory",
+    env: { DATABASE_URL: "pglite:memory" },
+  });
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -58,8 +54,8 @@ beforeAll(async () => {
   await plugin(undefined as any);
 }, 60000);
 
-afterAll(() => {
-  rmSync(TEST_DB_PATH, { force: true, recursive: true });
+afterAll(async () => {
+  await (await import("@agent-native/core/db")).closeDbExec();
 });
 
 let counter = 0;
@@ -3543,6 +3539,7 @@ describe("update-document save outcome counts", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       outcomeCounter.mockClear();
       const request = {
+        trigger: "reviewed" as const,
         choice: "save_separately" as const,
         documentId: id,
         expectedDraftVersion: 1,
@@ -3744,12 +3741,14 @@ describe("update-document save outcome counts", () => {
         orgId: "",
         documentId: id,
         title: "Page",
+        baseTitle: "Page",
         content: "Recovered body",
         baseDocumentUpdatedAt: before.updatedAt,
       });
     await new Promise((resolve) => setTimeout(resolve, 0));
     outcomeCounter.mockClear();
     const request = {
+      trigger: "reviewed" as const,
       choice: "keep_mine" as const,
       documentId: id,
       expectedDraftVersion: 1,

@@ -171,10 +171,10 @@ describe("Page browser journal recovery", () => {
     state.refetch.mockResolvedValue(undefined);
     state.verify.mockResolvedValue(undefined);
     state.rebase.mockResolvedValue({ status: "saved", document: page });
-    state.upsert.mockResolvedValue({
+    state.upsert.mockImplementation(async ({ draft }) => ({
       status: "saved",
-      draft: { title: "Saved", content: "Local", version: 1 },
-    });
+      draft: { ...draft, version: 1 },
+    }));
     state.resolve.mockResolvedValue({ status: "resolved" });
     container = document.createElement("div");
     document.body.append(container);
@@ -214,6 +214,39 @@ describe("Page browser journal recovery", () => {
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 
+  it("carries the journal's originating title base and preserves unknown SQL lineage on refusal", async () => {
+    const journal: (typeof state.entries)[number] = entry("first", "Local");
+    journal.snapshot.baseUpdatedAt = null;
+    journal.snapshot.baseContent = "Earlier body";
+    state.entries = [journal];
+    state.draft = {
+      documentId: "page",
+      title: "Saved",
+      content: "Local",
+      baseTitle: null,
+      baseDocumentUpdatedAt: null,
+      loadedContentWasEmpty: 0,
+      editorSessionId: null,
+      editGeneration: null,
+      version: 1,
+    };
+    state.upsert.mockResolvedValue({ status: "conflict", draft: state.draft });
+    await act(async () => render());
+    expect(state.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draft: expect.objectContaining({
+          baseTitle: "Saved",
+          editorSessionId: "first",
+          editGeneration: journal.snapshot.editGeneration,
+        }),
+      }),
+    );
+    expect(state.entries).toEqual([journal]);
+    expect(state.cleared).not.toHaveBeenCalled();
+    expect(state.resolve).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("editor.previewDraftTitleUnknown");
+  });
+
   it("adopts a newer SQL title for the exact matching journal generation", async () => {
     const staleJournal = entry("first", "Local");
     staleJournal.snapshot = {
@@ -225,6 +258,7 @@ describe("Page browser journal recovery", () => {
     state.draft = {
       documentId: "page",
       title: "Newer SQL title",
+      baseTitle: "Newer SQL title",
       content: "Local",
       baseDocumentUpdatedAt: "v2",
       baseContentHash: "sha256:saved-body",
@@ -245,22 +279,20 @@ describe("Page browser journal recovery", () => {
     await act(async () => render({ ...page, revision: "body:v2" } as Document));
 
     expect(state.cleared).toHaveBeenCalledWith("first");
-    expect(state.update).toHaveBeenCalledWith(
+    expect(state.resolve).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Newer SQL title",
-        content: "Local",
-        editorSessionId: "first",
-        editorEditGeneration: 2,
+        choice: "keep_mine",
+        expectedDraftTitle: "Newer SQL title",
+        expectedDraftBaseTitle: "Newer SQL title",
+        expectedDocumentTitle: "Saved",
       }),
     );
-    expect(state.update).not.toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Earlier title" }),
-    );
+    expect(state.update).not.toHaveBeenCalled();
     expect(state.rebase).not.toHaveBeenCalled();
     expect(state.upsert).not.toHaveBeenCalled();
-    expect(state.resolve).not.toHaveBeenCalled();
     expect(state.draft).toMatchObject({
       title: "Newer SQL title",
+      baseTitle: "Newer SQL title",
       content: "Local",
       editorSessionId: "first",
       editGeneration: 1,
@@ -279,6 +311,7 @@ describe("Page browser journal recovery", () => {
     state.draft = {
       documentId: "page",
       title: "Newer SQL title",
+      baseTitle: "Newer SQL title",
       content: "Local",
       baseDocumentUpdatedAt: "stale-version",
       loadedContentWasEmpty: 0,
@@ -315,6 +348,7 @@ describe("Page browser journal recovery", () => {
     state.draft = {
       documentId: "page",
       title: "Peer rename",
+      baseTitle: "Peer rename",
       content: "Local",
       baseDocumentUpdatedAt: "v2",
       baseContentHash: "sha256:saved-body",
@@ -327,7 +361,12 @@ describe("Page browser journal recovery", () => {
     };
     state.upsert.mockResolvedValue({
       status: "saved",
-      draft: { title: localRename, content: "Local", version: 3 },
+      draft: {
+        title: localRename,
+        baseTitle: "Saved",
+        content: "Local",
+        version: 3,
+      },
     });
 
     await act(async () =>
@@ -374,6 +413,7 @@ describe("Page browser journal recovery", () => {
       state.draft = {
         documentId: "page",
         title: "Newer SQL title",
+        baseTitle: "Newer SQL title",
         content: "Local",
         baseDocumentUpdatedAt: "v2",
         baseContentHash: "sha256:saved-body",
@@ -766,6 +806,7 @@ describe("Page browser journal recovery", () => {
     state.draft = {
       version: 1,
       title: "Saved",
+      baseTitle: "Saved",
       content: "Other tab body",
       baseDocumentUpdatedAt: "v1",
       editorSessionId: "other-session",

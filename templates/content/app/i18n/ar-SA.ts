@@ -857,6 +857,8 @@ const rawLiterals = {
     previewDraftMoreOptions: "خيارات إضافية",
     previewDraftViewFullVersions: "عرض النسختين كاملتين",
     previewDraftShowChanges: "عرض التغييرات",
+    previewDraftTitleUnknown:
+      "عنوان هذه المسودة الأصلي غير معروف. استخدم الصفحة المحفوظة أو احفظ المسودة بشكل منفصل.",
     previewDraftConflict:
       "تتعارض هذه المسودة مع إصدار أحدث من الصفحة، لذلك لم تتم استعادتها.",
     restorePreviewDraft: "استعادة المسودة",

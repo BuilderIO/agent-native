@@ -4,7 +4,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, exists, lte, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -14,6 +14,7 @@ import { readPreviewDocumentDraft } from "./_preview-document-draft.js";
 const draftPayload = z
   .object({
     title: z.string().max(10_000),
+    baseTitle: z.string().max(10_000).nullable().optional(),
     content: z.string().max(500_000),
     baseDocumentUpdatedAt: z.string().max(100).nullable(),
     baseContentHash: z
@@ -60,6 +61,7 @@ export default defineAction({
         expectedVersion: z.number().int().positive(),
         expectedTitle: z.string().max(10_000),
         expectedContent: z.string().max(500_000),
+        expectedBaseTitle: z.string().max(10_000).nullable().optional(),
         expectedEditorSessionId: z.string().min(1).max(200).optional(),
         expectedEditGeneration: z.number().int().nonnegative().optional(),
         ifPageHoldsDraft: z
@@ -106,6 +108,16 @@ export default defineAction({
             eq(schema.documentPreviewDrafts.version, args.expectedVersion),
             eq(schema.documentPreviewDrafts.title, args.expectedTitle),
             eq(schema.documentPreviewDrafts.content, args.expectedContent),
+            ...(args.expectedBaseTitle === undefined
+              ? []
+              : [
+                  args.expectedBaseTitle === null
+                    ? isNull(schema.documentPreviewDrafts.baseTitle)
+                    : eq(
+                        schema.documentPreviewDrafts.baseTitle,
+                        args.expectedBaseTitle,
+                      ),
+                ]),
             ...(args.expectedEditorSessionId
               ? [
                   eq(
@@ -192,6 +204,7 @@ export default defineAction({
             orgId,
             documentId: args.documentId,
             title: args.draft.title,
+            baseTitle: args.draft.baseTitle ?? null,
             content: args.draft.content,
             baseDocumentUpdatedAt: args.draft.baseDocumentUpdatedAt,
             baseContentHash: args.draft.baseContentHash ?? null,
@@ -227,6 +240,7 @@ export default defineAction({
           .update(schema.documentPreviewDrafts)
           .set({
             title: args.draft.title,
+            baseTitle: args.draft.baseTitle ?? null,
             content: args.draft.content,
             baseDocumentUpdatedAt: args.draft.baseDocumentUpdatedAt,
             baseContentHash: args.draft.baseContentHash ?? null,

@@ -1473,6 +1473,18 @@ export const runContentMigrations = runMigrations(
       name: "content-preview-draft-base-content-hash",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_content_hash TEXT`,
     },
+    {
+      version: 124,
+      name: "preview-draft-originating-title-base",
+      sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_title TEXT`,
+    },
+    {
+      version: 125,
+      name: "preview-draft-recovery-choice-lookup",
+      sql: `CREATE INDEX IF NOT EXISTS document_versions_owner_recovery_group_idx
+        ON document_versions (owner_email, group_id, created_at, id)
+        WHERE checkpoint_kind = 'recovery'`,
+    },
   ],
   { table: "content_migrations" },
 );

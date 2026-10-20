@@ -39,6 +39,7 @@ export interface PageSaveResult {
     | "pending_collaboration_flush";
   recoveryDraft?: {
     title: string;
+    baseTitle?: string | null;
     content: string;
     baseContent?: string;
     baseUpdatedAt?: string | null;

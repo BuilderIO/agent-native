@@ -1,7 +1,4 @@
 import { createHash } from "node:crypto";
-import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import { ActionContractError } from "@agent-native/core";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -21,10 +18,6 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => {
   return { ...original, writeAppState: vi.fn(original.writeAppState) };
 });
 
-const TEST_DB_PATH = join(
-  tmpdir(),
-  `preview-drafts-${process.pid}-${Date.now()}.pglite`,
-);
 const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
 
@@ -38,11 +31,28 @@ let createRecoveryDocument: typeof import("./create-document.js").default;
 let settlement: typeof import("./_preview-document-draft-settlement.js");
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  const postgresUrl = process.env.CONTENT_MIGRATION_POSTGRES_URL;
+  const target = postgresUrl ? new URL(postgresUrl) : null;
+  if (
+    target &&
+    (!["127.0.0.1", "localhost"].includes(target.hostname) ||
+      !target.pathname.startsWith("/test_7781_title_"))
+  )
+    throw new Error(
+      "Draft native tests require an isolated local test_7781_title_ database.",
+    );
+  process.env.DATABASE_URL = postgresUrl ?? "pglite:memory";
   console.info("Draft test database target", {
-    host: "embedded PGlite",
-    database: TEST_DB_PATH,
-    env: { DATABASE_URL: "pglite:<isolated test database>" },
+    host: target?.host ?? "embedded PGlite",
+    database: target?.pathname.slice(1) ?? "memory",
+    env: {
+      DATABASE_URL: target
+        ? "postgresql:<isolated local test database>"
+        : "pglite:<isolated test database>",
+      CONTENT_MIGRATION_POSTGRES_URL: target
+        ? "local isolated test target"
+        : "unset",
+    },
   });
   const { registerLabs } = await import("@agent-native/core/labs/registry");
   const { CREATIVE_CONTEXT_LIBRARY_LAB } =
@@ -60,8 +70,8 @@ beforeAll(async () => {
   await (await import("../server/plugins/db.js")).default(undefined as any);
 }, 60_000);
 
-afterAll(() => {
-  rmSync(TEST_DB_PATH, { force: true, recursive: true });
+afterAll(async () => {
+  await (await import("@agent-native/core/db")).closeDbExec();
 });
 
 let counter = 0;
@@ -150,6 +160,7 @@ async function legacyClaimId(args: {
 
 const payload = (content: string) => ({
   title: "Builder row",
+  baseTitle: "Builder row",
   content,
   baseDocumentUpdatedAt: "server-v1",
   loadedContentWasEmpty: false,
@@ -243,7 +254,1046 @@ function expectRecoveryLockOrder(queries: string[]) {
   if (draft !== -1) expect(draft).toBeGreaterThan(settlement);
 }
 
+async function chosenAwayDraft(
+  choice: "use_saved" | "save_separately",
+  identified: boolean,
+  baseTitle: string | null = "Builder row",
+) {
+  const documentId = await createDocument();
+  const before = await documentRowForDraftTest(documentId);
+  const draft = {
+    ...payload("Chosen away body"),
+    baseTitle,
+    baseDocumentUpdatedAt: before.updatedAt,
+    baseContentHash: `sha256:${createHash("sha256").update(before.content).digest("hex")}`,
+    ...(identified
+      ? { editorSessionId: `prior-choice-${documentId}`, editGeneration: 5 }
+      : {}),
+  };
+  await asUser(OWNER, () =>
+    updateDraft.run({
+      operation: "upsert",
+      documentId,
+      expectedVersion: null,
+      draft,
+    }),
+  );
+  const [original] = await getDb()
+    .select()
+    .from(schema.documentPreviewDrafts)
+    .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+  const request = {
+    trigger: "reviewed" as const,
+    choice,
+    documentId,
+    expectedDraftVersion: 1,
+    expectedDraftTitle: draft.title,
+    expectedDraftContent: draft.content,
+    expectedDraftBaseTitle: baseTitle,
+    expectedDocumentTitle: before.title,
+    expectedDocumentUpdatedAt: before.updatedAt,
+  };
+  if (choice === "save_separately") {
+    const stop = vi
+      .spyOn(createRecoveryDocument, "run")
+      .mockRejectedValueOnce(new Error("copy unavailable"));
+    try {
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).rejects.toThrow("copy unavailable");
+    } finally {
+      stop.mockRestore();
+    }
+  } else {
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).resolves.toMatchObject({ status: "resolved" });
+    // Historical resolved claims can coexist with the original retained row.
+    await getDb().insert(schema.documentPreviewDrafts).values(original);
+  }
+  const [claim] = await getDb()
+    .select()
+    .from(schema.documentVersions)
+    .where(
+      and(
+        eq(schema.documentVersions.ownerEmail, OWNER),
+        eq(schema.documentVersions.groupId, `draft-recovery:${original.id}`),
+      ),
+    );
+  await asUser(OWNER, () =>
+    updateDocument.run({ id: documentId, title: "Peer rename" }),
+  );
+  const reviewed = await documentRowForDraftTest(documentId);
+  const retained = (await asUser(OWNER, () => getDraft.run({ documentId })))
+    .draft;
+  return {
+    documentId,
+    draft,
+    claim,
+    retained,
+    reviewed,
+    request: {
+      ...request,
+      expectedDocumentTitle: reviewed.title,
+      expectedDocumentUpdatedAt: reviewed.updatedAt,
+    },
+  };
+}
+
+async function unreviewedDraft(
+  identified = true,
+  baseTitle: string | null = "Builder row",
+) {
+  const documentId = await createDocument();
+  const page = await documentRowForDraftTest(documentId);
+  const draft = {
+    ...payload("Unreviewed generation five body"),
+    baseTitle,
+    baseDocumentUpdatedAt: page.updatedAt,
+    baseContentHash: `sha256:${createHash("sha256").update(page.content).digest("hex")}`,
+    ...(identified
+      ? { editorSessionId: `unreviewed-${documentId}`, editGeneration: 5 }
+      : {}),
+  };
+  await asUser(OWNER, () =>
+    updateDraft.run({
+      operation: "upsert",
+      documentId,
+      expectedVersion: null,
+      draft,
+    }),
+  );
+  const saved = (await asUser(OWNER, () => getDraft.run({ documentId }))).draft;
+  const unreviewedRequest = {
+    choice: "keep_mine" as const,
+    documentId,
+    expectedDraftVersion: 1,
+    expectedDraftTitle: draft.title,
+    expectedDraftContent: draft.content,
+    expectedDraftBaseTitle: baseTitle,
+    expectedDocumentTitle: page.title,
+    expectedDocumentUpdatedAt: page.updatedAt,
+  };
+  return { documentId, page, draft, saved, unreviewedRequest };
+}
+
+async function unchangedGenerationSix(
+  state: Awaited<ReturnType<typeof unreviewedDraft>>,
+) {
+  await asUser(OWNER, () =>
+    updateDocument.run(
+      {
+        id: state.documentId,
+        title: state.page.title,
+        content: state.page.content,
+        editorSessionId: state.draft.editorSessionId!,
+        editorEditGeneration: 6,
+        editorSnapshotTitle: state.page.title,
+        editorSnapshotContent: state.page.content,
+        reuseLabels: [],
+      },
+      { caller: "frontend" } as any,
+    ),
+  );
+  expect(await documentRowForDraftTest(state.documentId)).toEqual(state.page);
+  expect(
+    (await asUser(OWNER, () => getDraft.run({ documentId: state.documentId })))
+      .draft,
+  ).toBeNull();
+}
+
 describe("private preview document drafts", () => {
+  it.each(
+    (["use_saved", "save_separately"] as const).flatMap((priorChoice) =>
+      (["keep_mine", "use_saved"] as const).flatMap((requestedChoice) =>
+        [true, false].map((identified) => ({
+          priorChoice,
+          requestedChoice,
+          identified,
+        })),
+      ),
+    ),
+  )(
+    "missing review marker preserves prior $priorChoice across rename for $requestedChoice (identified=$identified)",
+    async ({ priorChoice, requestedChoice, identified }) => {
+      const state = await chosenAwayDraft(priorChoice, identified);
+      const { trigger, ...unmarked } = state.request;
+      expect(trigger).toBe("reviewed");
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({ ...unmarked, choice: requestedChoice }),
+        ),
+      ).resolves.toMatchObject({
+        status: "recovery_required",
+        reason: "prior_choice",
+        choice: priorChoice,
+        recoveryVersionId: state.claim.id,
+      });
+      expect(await documentRowForDraftTest(state.documentId)).toEqual(
+        state.reviewed,
+      );
+      expect(
+        (
+          await asUser(OWNER, () =>
+            getDraft.run({ documentId: state.documentId }),
+          )
+        ).draft,
+      ).toEqual(state.retained);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.groupId, state.claim.groupId)),
+      ).toEqual([state.claim]);
+    },
+  );
+
+  it.each(["automatic", "reviewed", undefined] as const)(
+    "missing review marker preserves a no-draft %s claim after unchanged generation six until explicit review",
+    async (durableTrigger) => {
+      const state = await unreviewedDraft();
+      const stop = vi
+        .spyOn(updateDocument, "run")
+        .mockRejectedValueOnce(new Error("automatic body transport failed"));
+      try {
+        await expect(
+          asUser(OWNER, () =>
+            resolveDraft.run({
+              ...state.unreviewedRequest,
+              trigger: "automatic",
+            }),
+          ),
+        ).rejects.toThrow("automatic body transport failed");
+      } finally {
+        stop.mockRestore();
+      }
+      const [automaticClaim] = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, state.documentId));
+      const payload = JSON.parse(automaticClaim.chatContext);
+      expect(payload).toMatchObject({
+        trigger: "automatic",
+        status: "claimed",
+        editGeneration: 5,
+      });
+      if (durableTrigger !== "automatic") {
+        // Historical claims may predate the marker or record an older review.
+        const historical = { ...payload, trigger: durableTrigger };
+        await getDb()
+          .update(schema.documentVersions)
+          .set({ chatContext: JSON.stringify(historical) })
+          .where(eq(schema.documentVersions.id, automaticClaim.id));
+      }
+      const [claimBefore] = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.id, automaticClaim.id));
+      await unchangedGenerationSix(state);
+      for (const request of [
+        { ...state.unreviewedRequest, trigger: "automatic" as const },
+        state.unreviewedRequest,
+      ]) {
+        await expect(
+          asUser(OWNER, () => resolveDraft.run(request)),
+        ).resolves.toMatchObject({
+          status: "recovery_required",
+          reason: "prior_choice",
+          recoveryVersionId: automaticClaim.id,
+        });
+        expect(await documentRowForDraftTest(state.documentId)).toEqual(
+          state.page,
+        );
+        expect(
+          await getDb()
+            .select()
+            .from(schema.documentVersions)
+            .where(eq(schema.documentVersions.id, automaticClaim.id)),
+        ).toEqual([claimBefore]);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.documentPreviewDraftSettlements)
+            .where(
+              eq(
+                schema.documentPreviewDraftSettlements.documentId,
+                state.documentId,
+              ),
+            ),
+        ).toEqual([
+          expect.objectContaining({
+            editorSessionId: state.draft.editorSessionId,
+            settledGeneration: 6,
+            discardedGeneration: null,
+          }),
+        ]);
+      }
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({ ...state.unreviewedRequest, trigger: "reviewed" }),
+        ),
+      ).resolves.toMatchObject({ status: "resolved" });
+      expect(await documentRowForDraftTest(state.documentId)).toMatchObject({
+        title: state.page.title,
+        content: state.draft.content,
+      });
+      const [reviewedClaim] = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.id, automaticClaim.id));
+      expect(JSON.parse(reviewedClaim.chatContext)).toMatchObject({
+        trigger: "reviewed",
+        status: "resolved",
+      });
+      expect(
+        await editorSettlement(state.documentId, state.draft.editorSessionId!),
+      ).toMatchObject({ settledGeneration: 6 });
+    },
+  );
+
+  it("missing review marker uses original automatic lineage for a fresh safe recovery", async () => {
+    const state = await unreviewedDraft();
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(state.unreviewedRequest)),
+    ).resolves.toMatchObject({ status: "resolved" });
+    const [claim] = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, state.documentId),
+          eq(
+            schema.documentVersions.operation,
+            "claim-preview-draft-keep_mine",
+          ),
+        ),
+      );
+    expect(JSON.parse(claim.chatContext)).toMatchObject({
+      trigger: "automatic",
+      status: "resolved",
+      editGeneration: 5,
+    });
+    expect(await documentRowForDraftTest(state.documentId)).toMatchObject({
+      title: state.page.title,
+      content: state.draft.content,
+    });
+    expect(
+      (
+        await asUser(OWNER, () =>
+          getDraft.run({ documentId: state.documentId }),
+        )
+      ).draft,
+    ).toBeNull();
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentPreviewDraftSettlements)
+        .where(
+          eq(
+            schema.documentPreviewDraftSettlements.documentId,
+            state.documentId,
+          ),
+        ),
+    ).toEqual([
+      expect.objectContaining({
+        editorSessionId: state.draft.editorSessionId,
+        settledGeneration: 5,
+      }),
+    ]);
+  });
+
+  it.each(["Builder row", null])(
+    "missing review marker refuses an identityless legacy draft with base %s",
+    async (baseTitle) => {
+      const state = await unreviewedDraft(false, baseTitle);
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(state.unreviewedRequest)),
+      ).rejects.toMatchObject({
+        errorCode:
+          baseTitle === null
+            ? "PREVIEW_DRAFT_TITLE_INTENT_UNKNOWN"
+            : "PREVIEW_DRAFT_AUTOMATIC_RECOVERY_REFUSED",
+      });
+      expect(await documentRowForDraftTest(state.documentId)).toEqual(
+        state.page,
+      );
+      expect(
+        (
+          await asUser(OWNER, () =>
+            getDraft.run({ documentId: state.documentId }),
+          )
+        ).draft,
+      ).toEqual(state.saved);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, state.documentId)),
+      ).toEqual([]);
+    },
+  );
+
+  it("missing review marker cannot reconstruct a draft after a newer generation removed it", async () => {
+    const state = await unreviewedDraft();
+    await unchangedGenerationSix(state);
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(state.unreviewedRequest)),
+    ).resolves.toMatchObject({
+      status: "recovery_required",
+      reason: "draft_changed",
+    });
+    expect(await documentRowForDraftTest(state.documentId)).toEqual(state.page);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, state.documentId)),
+    ).toEqual([]);
+  });
+  it.each([false, true])(
+    "automatically applies a fresh known draft using its original generation (authoredTitle=%s)",
+    async (authoredTitle) => {
+      const documentId = await createDocument();
+      const before = await documentRowForDraftTest(documentId);
+      const editorSessionId = `fresh-auto-${documentId}`;
+      const draft = {
+        ...payload("Automatically recovered body"),
+        title: authoredTitle ? "Authored title" : before.title,
+        editorSessionId,
+        editGeneration: 5,
+        baseDocumentUpdatedAt: before.updatedAt,
+        baseContentHash: `sha256:${createHash("sha256").update(before.content).digest("hex")}`,
+      };
+      await asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft,
+        }),
+      );
+      if (!authoredTitle)
+        await asUser(OWNER, () =>
+          updateDocument.run({ id: documentId, title: "Peer title" }),
+        );
+      const reviewed = await documentRowForDraftTest(documentId);
+      const result = await asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "keep_mine",
+          trigger: "automatic",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: draft.title,
+          expectedDraftContent: draft.content,
+          expectedDraftBaseTitle: draft.baseTitle,
+          expectedDocumentTitle: reviewed.title,
+          expectedDocumentUpdatedAt: reviewed.updatedAt,
+        }),
+      );
+      expect(result).toMatchObject({ status: "resolved", choice: "keep_mine" });
+      expect(await documentRowForDraftTest(documentId)).toMatchObject({
+        title: authoredTitle ? "Authored title" : "Peer title",
+        content: draft.content,
+      });
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentPreviewDraftSettlements)
+          .where(
+            eq(schema.documentPreviewDraftSettlements.documentId, documentId),
+          ),
+      ).toEqual([
+        expect.objectContaining({
+          editorSessionId,
+          settledGeneration: 5,
+          discardedGeneration: null,
+        }),
+      ]);
+      expect(
+        (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+      ).toBeNull();
+    },
+  );
+
+  it("requires review for an authored title conflict without consuming the automatic draft", async () => {
+    const documentId = await createDocument();
+    const before = await documentRowForDraftTest(documentId);
+    const draft = {
+      ...payload("Local body"),
+      title: "Authored title",
+      editorSessionId: `title-conflict-${documentId}`,
+      editGeneration: 5,
+      baseDocumentUpdatedAt: before.updatedAt,
+      baseContentHash: `sha256:${createHash("sha256").update(before.content).digest("hex")}`,
+    };
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft,
+      }),
+    );
+    await asUser(OWNER, () =>
+      updateDocument.run({ id: documentId, title: "Peer title" }),
+    );
+    const reviewed = await documentRowForDraftTest(documentId);
+    const retained = (await asUser(OWNER, () => getDraft.run({ documentId })))
+      .draft;
+    const request = {
+      trigger: "reviewed" as const,
+      choice: "keep_mine" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: draft.title,
+      expectedDraftContent: draft.content,
+      expectedDraftBaseTitle: draft.baseTitle,
+      expectedDocumentTitle: reviewed.title,
+      expectedDocumentUpdatedAt: reviewed.updatedAt,
+    };
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({ ...request, trigger: "automatic" }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PREVIEW_DRAFT_RECOVERY_CONFLICT" });
+    expect(await documentRowForDraftTest(documentId)).toEqual(reviewed);
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toEqual(retained);
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({ ...request, trigger: "reviewed" }),
+      ),
+    ).resolves.toMatchObject({ status: "resolved" });
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      title: "Authored title",
+      content: "Local body",
+    });
+  });
+
+  it.each(
+    (["use_saved", "save_separately"] as const).flatMap((priorChoice) =>
+      (["keep_mine", "use_saved"] as const).flatMap((automaticChoice) =>
+        [true, false].map((identified) => ({
+          priorChoice,
+          automaticChoice,
+          identified,
+        })),
+      ),
+    ),
+  )(
+    "keeps prior $priorChoice when automatic $automaticChoice follows a rename (identified=$identified)",
+    async ({ priorChoice, automaticChoice, identified }) => {
+      const state = await chosenAwayDraft(priorChoice, identified);
+      const result = await asUser(OWNER, () =>
+        resolveDraft.run({
+          ...state.request,
+          choice: automaticChoice,
+          trigger: "automatic",
+        }),
+      );
+      expect(result).toMatchObject({
+        status: "recovery_required",
+        reason: "prior_choice",
+        choice: priorChoice,
+        recoveryVersionId: state.claim.id,
+      });
+      expect(await documentRowForDraftTest(state.documentId)).toEqual(
+        state.reviewed,
+      );
+      expect(
+        (
+          await asUser(OWNER, () =>
+            getDraft.run({ documentId: state.documentId }),
+          )
+        ).draft,
+      ).toEqual(state.retained);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(
+            eq(
+              schema.documentVersions.groupId,
+              `draft-recovery:${JSON.parse(state.claim.chatContext).draftId}`,
+            ),
+          ),
+      ).toEqual([state.claim]);
+    },
+  );
+
+  it.each(["use_saved", "save_separately"] as const)(
+    "preserves identity-less unknown title lineage after %s",
+    async (choice) => {
+      const state = await chosenAwayDraft(choice, false, null);
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({
+            ...state.request,
+            choice: "keep_mine",
+            trigger: "automatic",
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "recovery_required", choice });
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({
+            ...state.request,
+            choice: "keep_mine",
+            trigger: "reviewed",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "PREVIEW_DRAFT_TITLE_INTENT_UNKNOWN",
+      });
+      expect(await documentRowForDraftTest(state.documentId)).toEqual(
+        state.reviewed,
+      );
+      expect(
+        (
+          await asUser(OWNER, () =>
+            getDraft.run({ documentId: state.documentId }),
+          )
+        ).draft,
+      ).toEqual(state.retained);
+    },
+  );
+
+  it.each([true, false])(
+    "retries the original separate choice after rename and another copy failure (identified=%s)",
+    async (identified) => {
+      const state = await chosenAwayDraft(
+        "save_separately",
+        identified,
+        identified ? "Builder row" : null,
+      );
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({
+            ...state.request,
+            choice: "use_saved",
+            trigger: "automatic",
+          }),
+        ),
+      ).resolves.toMatchObject({
+        status: "recovery_required",
+        choice: "save_separately",
+      });
+      const stop = vi
+        .spyOn(createRecoveryDocument, "run")
+        .mockRejectedValueOnce(new Error("copy still unavailable"));
+      try {
+        await expect(
+          asUser(OWNER, () =>
+            resolveDraft.run({ ...state.request, trigger: "reviewed" }),
+          ),
+        ).rejects.toThrow("copy still unavailable");
+      } finally {
+        stop.mockRestore();
+      }
+      expect(
+        (
+          await asUser(OWNER, () =>
+            getDraft.run({ documentId: state.documentId }),
+          )
+        ).draft,
+      ).toEqual(state.retained);
+      const retried = await asUser(OWNER, () =>
+        resolveDraft.run({ ...state.request, trigger: "reviewed" }),
+      );
+      expect(retried).toMatchObject({
+        status: "resolved",
+        choice: "save_separately",
+        createdDocumentId: state.claim.id.replace("draft-claim-", "recovery-"),
+      });
+      expect(await documentRowForDraftTest(state.documentId)).toEqual(
+        state.reviewed,
+      );
+      expect(
+        await documentRowForDraftTest(retried.createdDocumentId!),
+      ).toMatchObject({
+        title: state.draft.title,
+        content: state.draft.content,
+      });
+      const claims = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.groupId, state.claim.groupId));
+      expect(claims).toHaveLength(1);
+      expect(claims[0].id).toBe(state.claim.id);
+      expect(JSON.parse(claims[0].chatContext)).toMatchObject({
+        choice: "save_separately",
+        status: "resolved",
+        expectedDocumentUpdatedAt: state.reviewed.updatedAt,
+        reviewedDocumentTitle: "Peer rename",
+        baseTitle: state.draft.baseTitle,
+      });
+    },
+  );
+
+  it.each(["use_saved", "save_separately"] as const)(
+    "allows an intentional reviewed Keep mine override after %s without weakening the original fence",
+    async (choice) => {
+      const state = await chosenAwayDraft(choice, true);
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({
+            ...state.request,
+            choice: "keep_mine",
+            trigger: "automatic",
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "recovery_required" });
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({
+            ...state.request,
+            choice: "keep_mine",
+            trigger: "reviewed",
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
+      expect(await documentRowForDraftTest(state.documentId)).toMatchObject({
+        title: "Peer rename",
+        content: state.draft.content,
+      });
+      expect(
+        await editorSettlement(state.documentId, state.draft.editorSessionId!),
+      ).toMatchObject({ discardedGeneration: 5 });
+      const oldSave = await authoredSaveBase(
+        state.documentId,
+        "Delayed discarded generation",
+      );
+      await expect(
+        asUser(OWNER, () =>
+          updateDocument.run(
+            {
+              id: state.documentId,
+              content: "Delayed discarded generation",
+              ...oldSave,
+              editorSessionId: state.draft.editorSessionId!,
+              editorEditGeneration: 5,
+              editorSnapshotTitle: "Peer rename",
+              editorSnapshotContent: "Delayed discarded generation",
+              browserSaveAttemptId: `delayed-old-${state.documentId}`,
+            },
+            { caller: "frontend" } as any,
+          ),
+        ),
+      ).resolves.toMatchObject({ superseded: true, discardedGeneration: 5 });
+      expect((await documentRowForDraftTest(state.documentId)).content).toBe(
+        state.draft.content,
+      );
+    },
+  );
+
+  it("rechecks the original source generation inside the automatic body mutation", async () => {
+    const documentId = await createDocument();
+    const before = await documentRowForDraftTest(documentId);
+    const editorSessionId = `automatic-owner-${documentId}`;
+    const draft = {
+      ...payload("Old generation body"),
+      editorSessionId,
+      editGeneration: 5,
+      baseDocumentUpdatedAt: before.updatedAt,
+      baseContentHash: `sha256:${createHash("sha256").update(before.content).digest("hex")}`,
+    };
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft,
+      }),
+    );
+    const original = updateDocument.run;
+    const spy = vi
+      .spyOn(updateDocument, "run")
+      .mockImplementationOnce(async (...args) => {
+        expect(args[0]).toMatchObject({
+          editorSessionId,
+          editorEditGeneration: 5,
+        });
+        await original(
+          {
+            id: documentId,
+            title: before.title,
+            content: before.content,
+            editorSessionId,
+            editorEditGeneration: 6,
+            editorSnapshotTitle: before.title,
+            editorSnapshotContent: before.content,
+            reuseLabels: [],
+          },
+          { caller: "frontend" } as any,
+        );
+        expect((await documentRowForDraftTest(documentId)).updatedAt).toBe(
+          before.updatedAt,
+        );
+        return original(...args);
+      });
+    try {
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({
+            choice: "keep_mine",
+            trigger: "automatic",
+            documentId,
+            expectedDraftVersion: 1,
+            expectedDraftTitle: draft.title,
+            expectedDraftBaseTitle: draft.baseTitle,
+            expectedDraftContent: draft.content,
+            expectedDocumentTitle: before.title,
+            expectedDocumentUpdatedAt: before.updatedAt,
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "PREVIEW_DRAFT_AUTOMATIC_RECOVERY_REFUSED",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await documentRowForDraftTest(documentId)).content).toBe(
+      before.content,
+    );
+    expect(await editorSettlement(documentId, editorSessionId)).toMatchObject({
+      settledGeneration: 6,
+    });
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toMatchObject({
+      content: draft.content,
+      editGeneration: 5,
+      baseTitle: draft.baseTitle,
+    });
+  });
+
+  it("preserves a pending separate choice across a peer rename during automatic recovery", async () => {
+    const documentId = await createDocument();
+    const before = await documentRowForDraftTest(documentId);
+    const original = {
+      ...payload("Chosen separate body"),
+      baseDocumentUpdatedAt: before.updatedAt,
+      baseContentHash: `sha256:${createHash("sha256").update(before.content).digest("hex")}`,
+      editorSessionId: `consent-${documentId}`,
+      editGeneration: 5,
+    };
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: original,
+      }),
+    );
+    const request = {
+      trigger: "reviewed" as const,
+      choice: "save_separately" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: original.title,
+      expectedDraftContent: original.content,
+      expectedDraftBaseTitle: original.baseTitle,
+      expectedDocumentTitle: before.title,
+      expectedDocumentUpdatedAt: before.updatedAt,
+    };
+    const stopped = vi
+      .spyOn(createRecoveryDocument, "run")
+      .mockRejectedValueOnce(new Error("copy transport unavailable"));
+    try {
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).rejects.toThrow("copy transport unavailable");
+    } finally {
+      stopped.mockRestore();
+    }
+    await asUser(OWNER, () =>
+      updateDocument.run({ id: documentId, title: "Peer rename" }),
+    );
+    const renamed = await documentRowForDraftTest(documentId);
+    const retained = (await asUser(OWNER, () => getDraft.run({ documentId })))
+      .draft!;
+    expect(retained).toMatchObject({ ...original, loadedContentWasEmpty: 0 });
+    expect(retained.baseContentHash).toBe(
+      `sha256:${createHash("sha256").update(renamed.content).digest("hex")}`,
+    );
+    expect(retained.baseTitle).toBe(retained.title);
+    const auto = await asUser(OWNER, () =>
+      resolveDraft.run({
+        ...request,
+        choice: "keep_mine",
+        trigger: "automatic",
+        expectedDraftVersion: retained.version,
+        expectedDocumentTitle: renamed.title,
+        expectedDocumentUpdatedAt: renamed.updatedAt,
+      }),
+    );
+    const after = await documentRowForDraftTest(documentId);
+    const claims = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    console.info(
+      "REVIEW_R1_CONSENT_OUTCOME",
+      JSON.stringify({
+        result: auto.status,
+        before: { title: renamed.title, content: renamed.content },
+        after: { title: after.title, content: after.content },
+        claims: claims
+          .filter((x: any) => x.chatContext?.includes("draftId"))
+          .map((x: any) => ({
+            operation: x.operation,
+            payload: JSON.parse(x.chatContext),
+          })),
+      }),
+    );
+    expect(after).toEqual(renamed);
+    expect(auto).toMatchObject({
+      status: "recovery_required",
+      choice: "save_separately",
+    });
+    const recoveryClaims = claims.filter(
+      (claim: any) =>
+        claim.operation === "claim-preview-draft-save_separately" ||
+        claim.operation === "claim-preview-draft-keep_mine" ||
+        claim.operation === "use-saved-preview-draft",
+    );
+    expect(recoveryClaims).toHaveLength(1);
+    expect(JSON.parse(recoveryClaims[0].chatContext)).toMatchObject({
+      choice: "save_separately",
+      status: "claimed",
+      editGeneration: 5,
+    });
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toEqual(retained);
+  });
+
+  it("refuses automatic replay of generation five after generation six settles during copy failure", async () => {
+    const documentId = await createDocument();
+    const before = await documentRowForDraftTest(documentId);
+    const original = {
+      ...payload("Chosen separate body"),
+      baseDocumentUpdatedAt: before.updatedAt,
+      baseContentHash: `sha256:${createHash("sha256").update(before.content).digest("hex")}`,
+      editorSessionId: `consent-${documentId}`,
+      editGeneration: 5,
+    };
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: original,
+      }),
+    );
+    const request = {
+      trigger: "reviewed" as const,
+      choice: "save_separately" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: original.title,
+      expectedDraftContent: original.content,
+      expectedDraftBaseTitle: original.baseTitle,
+      expectedDocumentTitle: before.title,
+      expectedDocumentUpdatedAt: before.updatedAt,
+    };
+    const stopped = vi
+      .spyOn(createRecoveryDocument, "run")
+      .mockImplementationOnce(async () => {
+        const authored = await authoredSaveBase(documentId, before.content);
+        await updateDocument.run(
+          {
+            id: documentId,
+            title: "Newer generation title",
+            content: before.content,
+            ...authored,
+            baseTitle: before.title,
+            editorSessionId: original.editorSessionId,
+            editorEditGeneration: 6,
+            editorSnapshotTitle: "Newer generation title",
+            editorSnapshotContent: before.content,
+            browserSaveAttemptId: `newer-generation-${documentId}`,
+          },
+          { caller: "frontend" } as any,
+        );
+        throw new Error("copy transport unavailable");
+      });
+    try {
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).rejects.toThrow("copy transport unavailable");
+    } finally {
+      stopped.mockRestore();
+    }
+    const [settled] = await getDb()
+      .select()
+      .from(schema.documentPreviewDraftSettlements)
+      .where(eq(schema.documentPreviewDraftSettlements.documentId, documentId));
+    expect(settled).toMatchObject({
+      settledGeneration: 6,
+      discardedGeneration: 5,
+    });
+    console.info("REVIEW_R1_NEWER_SETTLEMENT", JSON.stringify(settled));
+    const renamed = await documentRowForDraftTest(documentId);
+    const retained = (await asUser(OWNER, () => getDraft.run({ documentId })))
+      .draft!;
+    expect(retained).toMatchObject({ ...original, loadedContentWasEmpty: 0 });
+    expect(retained.baseContentHash).toBe(
+      `sha256:${createHash("sha256").update(renamed.content).digest("hex")}`,
+    );
+    expect(retained.baseTitle).toBe(retained.title);
+    const auto = await asUser(OWNER, () =>
+      resolveDraft.run({
+        ...request,
+        choice: "keep_mine",
+        trigger: "automatic",
+        expectedDraftVersion: retained.version,
+        expectedDocumentTitle: renamed.title,
+        expectedDocumentUpdatedAt: renamed.updatedAt,
+      }),
+    );
+    const after = await documentRowForDraftTest(documentId);
+    const claims = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    console.info(
+      "REVIEW_R1_CONSENT_OUTCOME",
+      JSON.stringify({
+        result: auto.status,
+        before: { title: renamed.title, content: renamed.content },
+        after: { title: after.title, content: after.content },
+        claims: claims
+          .filter((x: any) => x.chatContext?.includes("draftId"))
+          .map((x: any) => ({
+            operation: x.operation,
+            payload: JSON.parse(x.chatContext),
+          })),
+      }),
+    );
+    expect(after).toEqual(renamed);
+    expect(auto).toMatchObject({
+      status: "recovery_required",
+      choice: "save_separately",
+    });
+    const recoveryClaims = claims.filter(
+      (claim: any) =>
+        claim.operation === "claim-preview-draft-save_separately" ||
+        claim.operation === "claim-preview-draft-keep_mine" ||
+        claim.operation === "use-saved-preview-draft",
+    );
+    expect(recoveryClaims).toHaveLength(1);
+    expect(JSON.parse(recoveryClaims[0].chatContext)).toMatchObject({
+      choice: "save_separately",
+      status: "claimed",
+      editGeneration: 5,
+    });
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toEqual(retained);
+  });
+
   it.each(
     (["use_saved", "save_separately", "keep_mine"] as const).flatMap((choice) =>
       (["claim", "settled"] as const).map((phase) => ({ choice, phase })),
@@ -268,6 +1318,7 @@ describe("private preview document drafts", () => {
         }),
       );
       const request = {
+        trigger: "reviewed" as const,
         choice,
         documentId,
         expectedDraftVersion: 1,
@@ -427,7 +1478,7 @@ describe("private preview document drafts", () => {
 
   it.each(
     (["use_saved", "save_separately"] as const).flatMap((choice) =>
-      (["failure", "replacement"] as const).map((interrupt) => ({
+      (["failure", "replacement", "title_base"] as const).map((interrupt) => ({
         choice,
         interrupt,
       })),
@@ -466,16 +1517,21 @@ describe("private preview document drafts", () => {
           // A delete/reinsert can preserve the displayed snapshot but change lineage.
           await input.db
             .update(schema.documentPreviewDrafts)
-            .set({
-              id: `${original.id}-replacement`,
-              editorSessionId: "replacement-tab",
-            })
+            .set(
+              interrupt === "title_base"
+                ? { baseTitle: "Other title base" }
+                : {
+                    id: `${original.id}-replacement`,
+                    editorSessionId: "replacement-tab",
+                  },
+            )
             .where(eq(schema.documentPreviewDrafts.id, original.id));
         });
       try {
         await expect(
           asUser(OWNER, () =>
             resolveDraft.run({
+              trigger: "reviewed",
               choice,
               documentId,
               expectedDraftVersion: 1,
@@ -537,6 +1593,7 @@ describe("private preview document drafts", () => {
         .from(schema.documentPreviewDrafts)
         .where(eq(schema.documentPreviewDrafts.documentId, documentId));
       const request = {
+        trigger: "reviewed" as const,
         choice: "save_separately" as const,
         documentId,
         expectedDraftVersion: 1,
@@ -658,6 +1715,7 @@ describe("private preview document drafts", () => {
         .from(schema.documentPreviewDrafts)
         .where(eq(schema.documentPreviewDrafts.documentId, documentId));
       const request = {
+        trigger: "reviewed" as const,
         choice,
         documentId,
         expectedDraftVersion: 1,
@@ -786,6 +1844,7 @@ describe("private preview document drafts", () => {
       }),
     );
     const request = {
+      trigger: "reviewed" as const,
       choice: "save_separately" as const,
       documentId,
       expectedDraftVersion: 1,
@@ -872,6 +1931,566 @@ describe("private preview document drafts", () => {
     expect(await documentRowForDraftTest(documentId)).toEqual(current);
   });
 
+  it("keeps a peer rename when recovering a body-only draft", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    await asUser(OWNER, () =>
+      updateDocument.run({ id: documentId, title: "Peer rename" }),
+    );
+    const reviewed = await documentRowForDraftTest(documentId);
+    const request = {
+      trigger: "reviewed" as const,
+      choice: "keep_mine" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Local recovery",
+      expectedDraftBaseTitle: "Builder row",
+      expectedDocumentTitle: "Peer rename",
+      expectedDocumentUpdatedAt: reviewed.updatedAt,
+    };
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).resolves.toMatchObject({ status: "resolved" });
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      title: "Peer rename",
+      content: "Local recovery",
+    });
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).resolves.toMatchObject({ status: "resolved" });
+  });
+
+  it("recovers a known authored title after reviewing a peer title", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Authored body"), title: "Authored title" },
+      }),
+    );
+    await asUser(OWNER, () =>
+      updateDocument.run({ id: documentId, title: "Peer title" }),
+    );
+    const reviewed = await documentRowForDraftTest(documentId);
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          trigger: "reviewed",
+          choice: "keep_mine",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Authored title",
+          expectedDraftContent: "Authored body",
+          expectedDraftBaseTitle: "Builder row",
+          expectedDocumentTitle: reviewed.title,
+          expectedDocumentUpdatedAt: reviewed.updatedAt,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: "resolved" });
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      title: "Authored title",
+      content: "Authored body",
+    });
+  });
+
+  it.each([null, undefined])(
+    "refuses unknown title intent (%s) without consuming the draft",
+    async (baseTitle) => {
+      const documentId = await createDocument();
+      await asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft: { ...payload("Legacy body"), baseTitle },
+        }),
+      );
+      const before = await documentRowForDraftTest(documentId);
+      const draftBefore = (
+        await asUser(OWNER, () => getDraft.run({ documentId }))
+      ).draft;
+      expect(draftBefore?.baseTitle).toBeNull();
+      const request = {
+        trigger: "reviewed" as const,
+        choice: "keep_mine" as const,
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Legacy body",
+        expectedDraftBaseTitle: null,
+        expectedDocumentTitle: before.title,
+        expectedDocumentUpdatedAt: before.updatedAt,
+      };
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).rejects.toMatchObject({
+        errorCode: "PREVIEW_DRAFT_TITLE_INTENT_UNKNOWN",
+      });
+      expect(await documentRowForDraftTest(documentId)).toEqual(before);
+      expect(
+        (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+      ).toEqual(draftBefore);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, documentId)),
+      ).toEqual([]);
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({ ...request, choice: "use_saved" }),
+        ),
+      ).resolves.toMatchObject({ status: "resolved" });
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, documentId)),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ content: "Legacy body" }),
+        ]),
+      );
+    },
+  );
+
+  it.each(["reviewed title", "title base"])(
+    "rejects a stale %s without consuming lineage",
+    async (stale) => {
+      const documentId = await createDocument();
+      await asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft: payload("Local recovery"),
+        }),
+      );
+      const before = await documentRowForDraftTest(documentId);
+      const request = {
+        trigger: "reviewed" as const,
+        choice: "keep_mine" as const,
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Local recovery",
+        expectedDraftBaseTitle:
+          stale === "title base" ? "Other base" : "Builder row",
+        expectedDocumentTitle:
+          stale === "reviewed title" ? "Other review" : before.title,
+        expectedDocumentUpdatedAt: before.updatedAt,
+      };
+      if (stale === "title base")
+        await expect(
+          asUser(OWNER, () => resolveDraft.run(request)),
+        ).rejects.toMatchObject({
+          errorCode: "PREVIEW_DRAFT_RECOVERY_CONFLICT",
+        });
+      else
+        await expect(
+          asUser(OWNER, () => resolveDraft.run(request)),
+        ).resolves.toMatchObject({ status: "document_conflict" });
+      expect(await documentRowForDraftTest(documentId)).toEqual(before);
+      expect(
+        (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+      ).toMatchObject({ baseTitle: "Builder row", content: "Local recovery" });
+    },
+  );
+
+  it.each([false, true])(
+    "restores and retries the original title lineage without an exact draft (%s identityless)",
+    async (identityless) => {
+      const documentId = await createDocument();
+      await asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft: {
+            ...payload("Retry body"),
+            ...(identityless
+              ? {}
+              : {
+                  editorSessionId: `lineage-${documentId}`,
+                  editGeneration: 4,
+                }),
+          },
+        }),
+      );
+      await asUser(OWNER, () =>
+        updateDocument.run({ id: documentId, title: "Peer title" }),
+      );
+      const reviewed = await documentRowForDraftTest(documentId);
+      const request = {
+        trigger: "reviewed" as const,
+        choice: "keep_mine" as const,
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Retry body",
+        expectedDraftBaseTitle: "Builder row",
+        expectedDocumentTitle: reviewed.title,
+        expectedDocumentUpdatedAt: reviewed.updatedAt,
+      };
+      const stopped = vi
+        .spyOn(updateDocument, "run")
+        .mockRejectedValueOnce(new Error("lineage retry stopped"));
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).rejects.toThrow("lineage retry stopped");
+      stopped.mockRestore();
+      expect(
+        (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+      ).toMatchObject({
+        baseTitle: "Builder row",
+        title: "Builder row",
+        content: "Retry body",
+      });
+      const [claim] = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.documentId, documentId),
+            eq(
+              schema.documentVersions.operation,
+              "claim-preview-draft-keep_mine",
+            ),
+          ),
+        );
+      expect(JSON.parse(claim.chatContext)).toMatchObject({
+        baseTitle: "Builder row",
+        reviewedDocumentTitle: "Peer title",
+        status: "claimed",
+      });
+      await getDb()
+        .delete(schema.documentPreviewDrafts)
+        .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).resolves.toMatchObject({ status: "resolved" });
+      expect(await documentRowForDraftTest(documentId)).toMatchObject({
+        title: "Peer title",
+        content: "Retry body",
+      });
+    },
+  );
+
+  it.each(["no_op", "already_applied", "winner"] as const)(
+    "uses the reviewed body-only title for the %s check",
+    async (boundary) => {
+      const documentId = await createDocument();
+      const content = boundary === "no_op" ? "Server body" : "Local recovery";
+      await asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft: payload(content),
+        }),
+      );
+      await asUser(OWNER, () =>
+        updateDocument.run({ id: documentId, title: "Peer title" }),
+      );
+      const reviewed = await documentRowForDraftTest(documentId);
+      const request = {
+        trigger: "reviewed" as const,
+        choice: "keep_mine" as const,
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: content,
+        expectedDraftBaseTitle: "Builder row",
+        expectedDocumentTitle: reviewed.title,
+        expectedDocumentUpdatedAt: reviewed.updatedAt,
+      };
+      let restore = () => {};
+      if (boundary === "winner") {
+        const original = updateDocument.run;
+        const spy = vi
+          .spyOn(updateDocument, "run")
+          .mockImplementationOnce(async (...args) => {
+            await original(...args);
+            return {
+              conflict: true,
+              document: await documentRowForDraftTest(documentId),
+            } as any;
+          });
+        restore = () => spy.mockRestore();
+      } else if (boundary === "already_applied") {
+        const spy = vi
+          .spyOn(settlement, "settlePreviewDocumentDraft")
+          .mockRejectedValueOnce(new Error("mark stopped"));
+        await expect(
+          asUser(OWNER, () => resolveDraft.run(request)),
+        ).rejects.toThrow("mark stopped");
+        spy.mockRestore();
+        await getDb()
+          .delete(schema.documentPreviewDrafts)
+          .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+      }
+      try {
+        await expect(
+          asUser(OWNER, () => resolveDraft.run(request)),
+        ).resolves.toMatchObject({ status: "resolved" });
+      } finally {
+        restore();
+      }
+      expect(await documentRowForDraftTest(documentId)).toMatchObject({
+        title: "Peer title",
+        content,
+        bodyRevision: boundary === "no_op" ? 0 : 1,
+      });
+    },
+  );
+
+  it("refuses an interrupted legacy claim whose title lineage is absent", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: payload("Legacy claim body"),
+      }),
+    );
+    const request = {
+      trigger: "reviewed" as const,
+      choice: "keep_mine" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Legacy claim body",
+      expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+    };
+    const stop = vi
+      .spyOn(updateDocument, "run")
+      .mockRejectedValueOnce(new Error("legacy stopped"));
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).rejects.toThrow("legacy stopped");
+    stop.mockRestore();
+    const [claim] = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    const legacy = JSON.parse(claim.chatContext);
+    delete legacy.baseTitle;
+    delete legacy.reviewedDocumentTitle;
+    await getDb()
+      .update(schema.documentVersions)
+      .set({ chatContext: JSON.stringify(legacy) })
+      .where(eq(schema.documentVersions.id, claim.id));
+    const before = (await asUser(OWNER, () => getDraft.run({ documentId })))
+      .draft;
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).rejects.toMatchObject({
+      errorCode: "PREVIEW_DRAFT_TITLE_INTENT_UNKNOWN",
+    });
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toEqual(before);
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      title: "Builder row",
+      content: "Server body",
+    });
+    expect(
+      (
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.id, claim.id))
+      )[0].chatContext,
+    ).toBe(JSON.stringify(legacy));
+  });
+
+  it("preserves a newer generation while retrying the claimed body-only draft", async () => {
+    const documentId = await createDocument();
+    const editorSessionId = `title-newer-${documentId}`;
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Old recovery"),
+          editorSessionId,
+          editGeneration: 4,
+        },
+      }),
+    );
+    await asUser(OWNER, () =>
+      updateDocument.run({ id: documentId, title: "Peer title" }),
+    );
+    const reviewed = await documentRowForDraftTest(documentId);
+    const request = {
+      trigger: "reviewed" as const,
+      choice: "keep_mine" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftBaseTitle: "Builder row",
+      expectedDraftContent: "Old recovery",
+      expectedDocumentTitle: reviewed.title,
+      expectedDocumentUpdatedAt: reviewed.updatedAt,
+    };
+    const stop = vi
+      .spyOn(updateDocument, "run")
+      .mockImplementationOnce(async () => {
+        await asUser(OWNER, () =>
+          updateDraft.run({
+            operation: "upsert",
+            documentId,
+            expectedVersion: null,
+            draft: {
+              ...payload("New recovery"),
+              editorSessionId,
+              editGeneration: 5,
+            },
+          }),
+        );
+        throw new Error("newer retained");
+      });
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).rejects.toThrow("newer draft replaced");
+    stop.mockRestore();
+    const newer = (await asUser(OWNER, () => getDraft.run({ documentId })))
+      .draft;
+    const [claim] = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, documentId),
+          eq(
+            schema.documentVersions.operation,
+            "claim-preview-draft-keep_mine",
+          ),
+        ),
+      );
+    await getDb()
+      .update(schema.documentVersions)
+      .set({
+        chatContext: JSON.stringify({
+          ...JSON.parse(claim.chatContext),
+          processingStartedAt: "2000-01-01T00:00:00.000Z",
+        }),
+      })
+      .where(eq(schema.documentVersions.id, claim.id));
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).resolves.toMatchObject({ status: "resolved" });
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toEqual(newer);
+    expect(newer).toMatchObject({
+      content: "New recovery",
+      baseTitle: "Builder row",
+      editGeneration: 5,
+    });
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      title: "Peer title",
+      content: "Old recovery",
+    });
+  });
+
+  it("includes the title base when comparing an exact draft deletion", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: payload("Delete candidate"),
+      }),
+    );
+    const deletion = {
+      operation: "delete" as const,
+      documentId,
+      expectedVersion: 1,
+      expectedTitle: "Builder row",
+      expectedContent: "Delete candidate",
+    };
+    await expect(
+      asUser(OWNER, () =>
+        updateDraft.run({ ...deletion, expectedBaseTitle: null }),
+      ),
+    ).resolves.toMatchObject({
+      status: "conflict",
+      draft: { baseTitle: "Builder row" },
+    });
+    await expect(
+      asUser(OWNER, () =>
+        updateDraft.run({ ...deletion, expectedBaseTitle: "Builder row" }),
+      ),
+    ).resolves.toMatchObject({ status: "deleted", draft: null });
+  });
+
+  it("restores the originating lineage when a peer renames after the recovery claim", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: payload("Local recovery"),
+      }),
+    );
+    await asUser(OWNER, () =>
+      updateDocument.run({ id: documentId, title: "Reviewed peer title" }),
+    );
+    const reviewed = await documentRowForDraftTest(documentId);
+    const original = updateDocument.run;
+    const spy = vi
+      .spyOn(updateDocument, "run")
+      .mockImplementationOnce(async (...args) => {
+        await original({ id: documentId, title: "Newer peer title" });
+        return original(...args);
+      });
+    try {
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({
+            trigger: "reviewed",
+            choice: "keep_mine",
+            documentId,
+            expectedDraftVersion: 1,
+            expectedDraftTitle: "Builder row",
+            expectedDraftBaseTitle: "Builder row",
+            expectedDraftContent: "Local recovery",
+            expectedDocumentTitle: reviewed.title,
+            expectedDocumentUpdatedAt: reviewed.updatedAt,
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "document_conflict" });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      title: "Newer peer title",
+      content: "Server body",
+    });
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toMatchObject({
+      title: "Builder row",
+      baseTitle: "Builder row",
+      content: "Local recovery",
+    });
+  });
+
   it("applies Keep mine with a recorded authored body intent", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>
@@ -886,6 +2505,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "keep_mine",
           documentId,
           expectedDraftVersion: 1,
@@ -934,6 +2554,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "keep_mine",
           documentId,
           expectedDraftVersion: 1,
@@ -979,6 +2600,7 @@ describe("private preview document drafts", () => {
         return originalRun(...callArgs);
       });
     const request = {
+      trigger: "reviewed" as const,
       choice: "keep_mine" as const,
       documentId,
       expectedDraftVersion: 1,
@@ -1017,6 +2639,7 @@ describe("private preview document drafts", () => {
       .spyOn(updateDocument, "run")
       .mockRejectedValueOnce(new Error("worker stopped"));
     const request = {
+      trigger: "reviewed" as const,
       choice: "keep_mine" as const,
       documentId,
       expectedDraftVersion: 1,
@@ -1083,6 +2706,7 @@ describe("private preview document drafts", () => {
       .mockRejectedValueOnce(new Error("worker stopped"))
       .mockRejectedValueOnce(new Error("retry stopped"));
     const request = {
+      trigger: "reviewed" as const,
       choice: "keep_mine" as const,
       documentId,
       expectedDraftVersion: 1,
@@ -1150,6 +2774,7 @@ describe("private preview document drafts", () => {
       }),
     );
     const request = {
+      trigger: "reviewed" as const,
       choice: "use_saved" as const,
       documentId,
       expectedDraftVersion: 1,
@@ -1227,6 +2852,7 @@ describe("private preview document drafts", () => {
         }),
       );
       const request = {
+        trigger: "reviewed" as const,
         choice,
         documentId,
         expectedDraftVersion: 1,
@@ -1304,6 +2930,7 @@ describe("private preview document drafts", () => {
         }),
       );
       const request = {
+        trigger: "reviewed" as const,
         choice,
         documentId,
         expectedDraftVersion: 1,
@@ -1434,6 +3061,7 @@ describe("private preview document drafts", () => {
         editGeneration: null,
       });
       const request = {
+        trigger: "reviewed" as const,
         choice,
         documentId,
         expectedDraftVersion: originalDraft.version,
@@ -1510,6 +3138,7 @@ describe("private preview document drafts", () => {
         .from(schema.documentPreviewDrafts)
         .where(eq(schema.documentPreviewDrafts.documentId, documentId));
       const request = {
+        trigger: "reviewed" as const,
         choice,
         documentId,
         expectedDraftVersion: 1,
@@ -1760,6 +3389,7 @@ describe("private preview document drafts", () => {
         return originalRun(...callArgs);
       });
     const request = {
+      trigger: "reviewed" as const,
       choice: "keep_mine" as const,
       documentId,
       expectedDraftVersion: 1,
@@ -1825,6 +3455,7 @@ describe("private preview document drafts", () => {
       }),
     );
     const request = {
+      trigger: "reviewed" as const,
       choice: "keep_mine" as const,
       documentId,
       expectedDraftVersion: 1,
@@ -1896,6 +3527,7 @@ describe("private preview document drafts", () => {
       .from(schema.documentPreviewDrafts)
       .where(eq(schema.documentPreviewDrafts.documentId, documentId));
     const request = {
+      trigger: "reviewed" as const,
       choice: "keep_mine" as const,
       documentId,
       expectedDraftVersion: 1,
@@ -2007,6 +3639,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "keep_mine",
           documentId,
           expectedDraftVersion: 1,
@@ -2052,6 +3685,7 @@ describe("private preview document drafts", () => {
 
     const result = await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "keep_mine",
         documentId,
         expectedDraftVersion: 1,
@@ -2073,6 +3707,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "keep_mine",
           documentId,
           expectedDraftVersion: 1,
@@ -2107,6 +3742,7 @@ describe("private preview document drafts", () => {
     );
     await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "keep_mine",
         documentId,
         expectedDraftVersion: 1,
@@ -2143,6 +3779,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "keep_mine",
           documentId,
           expectedDraftVersion: 1,
@@ -2172,6 +3809,7 @@ describe("private preview document drafts", () => {
 
     await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "keep_mine",
         documentId,
         expectedDraftVersion: 1,
@@ -2211,6 +3849,7 @@ describe("private preview document drafts", () => {
 
     const result = await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "keep_mine",
         documentId,
         expectedDraftVersion: 1,
@@ -2246,6 +3885,7 @@ describe("private preview document drafts", () => {
     try {
       const result = await asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "keep_mine",
           documentId,
           expectedDraftVersion: 1,
@@ -2296,6 +3936,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "keep_mine",
           documentId,
           expectedDraftVersion: 1,
@@ -2337,6 +3978,7 @@ describe("private preview document drafts", () => {
     );
     await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "use_saved",
         documentId,
         expectedDraftVersion: 1,
@@ -2348,6 +3990,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "use_saved",
           documentId,
           expectedDraftVersion: 1,
@@ -2403,6 +4046,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "use_saved",
           documentId,
           expectedDraftVersion: 1,
@@ -2485,6 +4129,7 @@ describe("private preview document drafts", () => {
     );
     await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "use_saved",
         documentId,
         expectedDraftVersion: 1,
@@ -2549,6 +4194,7 @@ describe("private preview document drafts", () => {
 
     const result = await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "use_saved",
         documentId,
         expectedDraftVersion: 1,
@@ -2577,6 +4223,7 @@ describe("private preview document drafts", () => {
 
     const result = await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "save_separately",
         documentId,
         expectedDraftVersion: 1,
@@ -2611,6 +4258,7 @@ describe("private preview document drafts", () => {
 
     const retry = await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "save_separately",
         documentId,
         expectedDraftVersion: 1,
@@ -2636,6 +4284,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "save_separately",
           documentId,
           expectedDraftVersion: 1,
@@ -2676,6 +4325,7 @@ describe("private preview document drafts", () => {
         }
       });
     const request = {
+      trigger: "reviewed" as const,
       choice: "save_separately" as const,
       documentId,
       expectedDraftVersion: 1,
@@ -2747,6 +4397,7 @@ describe("private preview document drafts", () => {
     try {
       const resolved = await asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "save_separately",
           documentId,
           expectedDraftVersion: 1,
@@ -2794,6 +4445,7 @@ describe("private preview document drafts", () => {
 
     const result = await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "save_separately",
         documentId,
         expectedDraftVersion: 1,
@@ -2826,6 +4478,7 @@ describe("private preview document drafts", () => {
 
     const result = await asUser(COLLABORATOR, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "save_separately",
         documentId,
         expectedDraftVersion: 1,
@@ -2867,6 +4520,7 @@ describe("private preview document drafts", () => {
     );
     await asUser(OWNER, () =>
       resolveDraft.run({
+        trigger: "reviewed",
         choice: "use_saved",
         documentId,
         expectedDraftVersion: 1,
@@ -2879,6 +4533,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "save_separately",
           documentId,
           expectedDraftVersion: 1,
@@ -3282,6 +4937,7 @@ describe("private preview document drafts", () => {
     await expect(
       asUser(OWNER, () =>
         resolveDraft.run({
+          trigger: "reviewed",
           choice: "keep_mine",
           documentId,
           expectedDraftVersion: 1,

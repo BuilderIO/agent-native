@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
     title: string;
     content: string;
     version: number;
+    baseTitle?: string | null;
     baseDocumentUpdatedAt: string | null;
     baseContentHash?: string | null;
     loadedContentWasEmpty: number;
@@ -69,17 +70,21 @@ vi.mock("./RecoveryComparison", () => ({
   RecoveryComparison: ({
     failure,
     onKeepMine,
+    keepMineDisabled,
     onUseSaved,
     onSaveSeparately,
   }: {
     failure: string;
     onKeepMine: () => void;
+    keepMineDisabled?: boolean;
     onUseSaved: () => void;
     onSaveSeparately: () => void;
   }) => (
     <div data-testid="recovery-comparison">
       <span>{failure}</span>
-      <button onClick={onKeepMine}>Keep mine</button>
+      <button disabled={keepMineDisabled} onClick={onKeepMine}>
+        Keep mine
+      </button>
       <button onClick={onUseSaved}>Use saved</button>
       <button onClick={onSaveSeparately}>Save separately</button>
     </div>
@@ -117,6 +122,7 @@ describe("Page draft recovery", () => {
     state.update.mockResolvedValue({
       ...page,
       title: "Draft",
+      baseTitle: "Saved",
       content: "Draft body",
     });
     state.remove.mockResolvedValue({ status: "deleted" });
@@ -130,6 +136,173 @@ describe("Page draft recovery", () => {
     container.remove();
   });
 
+  it.each([true, false])(
+    "distinguishes automatic recovery from an explicit reviewed override (identified=%s)",
+    async (identified) => {
+      state.draft = {
+        title: "Builder row",
+        baseTitle: "Builder row",
+        content: "Chosen separate body",
+        version: 1,
+        baseDocumentUpdatedAt: "v1",
+        baseContentHash: page.contentHash,
+        loadedContentWasEmpty: 0,
+        editorSessionId: identified ? "consent:page" : null,
+        editGeneration: identified ? 5 : null,
+      };
+      state.resolve.mockResolvedValue({
+        status: "recovery_required",
+        reason: "prior_choice",
+        choice: "save_separately",
+      });
+      await act(async () => render());
+      expect(state.resolve).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ choice: "keep_mine", trigger: "automatic" }),
+      );
+      expect(state.update).not.toHaveBeenCalled();
+      expect(state.remove).not.toHaveBeenCalled();
+      expect(
+        container.querySelector('[data-testid="recovery-comparison"]'),
+      ).not.toBeNull();
+      state.resolve.mockResolvedValue({
+        status: "resolved",
+        choice: "keep_mine",
+      });
+      await act(async () =>
+        container.querySelector<HTMLButtonElement>("button")?.click(),
+      );
+      expect(state.resolve).toHaveBeenLastCalledWith(
+        expect.objectContaining({ choice: "keep_mine", trigger: "reviewed" }),
+      );
+    },
+  );
+
+  it("automatically restores body-only edits while retaining the peer title", async () => {
+    state.draft = {
+      title: "Before rename",
+      baseTitle: "Before rename",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v1",
+      baseContentHash: page.contentHash,
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    state.update.mockResolvedValue({ ...page, content: "Draft body" });
+    await act(async () => render());
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        choice: "keep_mine",
+        expectedDocumentTitle: "Saved",
+        expectedDraftBaseTitle: "Before rename",
+        expectedDocumentUpdatedAt: "v2",
+        expectedDraftContent: "Draft body",
+      }),
+    );
+    expect(state.update).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('[data-testid="recovery-comparison"]'),
+    ).toBeNull();
+  });
+
+  it.each([null, undefined])(
+    "keeps unknown legacy title lineage visible (%s)",
+    async (baseTitle) => {
+      state.draft = {
+        title: "Legacy title",
+        baseTitle,
+        content: "Legacy body",
+        version: 1,
+        baseDocumentUpdatedAt: "v2",
+        baseContentHash: page.contentHash,
+        loadedContentWasEmpty: 0,
+        editorSessionId: null,
+        editGeneration: null,
+      };
+      await act(async () => render());
+      expect(state.resolve).not.toHaveBeenCalled();
+      expect(state.update).not.toHaveBeenCalled();
+      expect(state.remove).not.toHaveBeenCalled();
+      expect(container.textContent).toContain(
+        "editor.previewDraftTitleUnknown",
+      );
+      await act(async () => {
+        Array.from(container.querySelectorAll("button"))
+          .find((button) => button.textContent === "Save separately")
+          ?.click();
+      });
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({
+          choice: "save_separately",
+          expectedDraftBaseTitle: null,
+        }),
+      );
+    },
+  );
+
+  it("resumes automatic recovery when a known newer generation replaces an unknown draft", async () => {
+    state.draft = {
+      title: "Legacy",
+      baseTitle: null,
+      content: "Legacy body",
+      version: 1,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    await act(async () => render());
+    expect(container.querySelector<HTMLButtonElement>("button")?.disabled).toBe(
+      true,
+    );
+    expect(container.textContent).toContain("editor.previewDraftTitleUnknown");
+    state.draft = {
+      ...state.draft,
+      title: "Before rename",
+      baseTitle: "Before rename",
+      content: "New body",
+      version: 2,
+      editGeneration: 5,
+      baseContentHash: page.contentHash,
+    };
+    await act(async () => render());
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        choice: "keep_mine",
+        expectedDraftVersion: 2,
+        expectedDraftBaseTitle: "Before rename",
+      }),
+    );
+    expect(container.textContent).not.toContain(
+      "editor.previewDraftTitleUnknown",
+    );
+  });
+
+  it("shows a typed unknown claim refusal without offering a guessed overwrite", async () => {
+    state.draft = {
+      title: "Draft",
+      baseTitle: "Saved",
+      content: "Draft body",
+      version: 1,
+      baseDocumentUpdatedAt: "v2",
+      baseContentHash: page.contentHash,
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    state.resolve.mockRejectedValue({
+      errorCode: "PREVIEW_DRAFT_TITLE_INTENT_UNKNOWN",
+    });
+    await act(async () => render());
+    expect(container.textContent).toContain("editor.previewDraftTitleUnknown");
+    expect(container.querySelector<HTMLButtonElement>("button")?.disabled).toBe(
+      true,
+    );
+    expect(state.remove).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
   it("mounts the editor when no draft remains", async () => {
     await act(async () => render());
     expect(container.querySelector("textarea")).not.toBeNull();
@@ -140,6 +313,7 @@ describe("Page draft recovery", () => {
     expect(container.querySelector("textarea")).not.toBeNull();
     state.draft = {
       title: "Draft",
+      baseTitle: "Saved",
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v1",
@@ -157,6 +331,7 @@ describe("Page draft recovery", () => {
   it("restores an identified draft against its matching canonical base", async () => {
     state.draft = {
       title: "Draft",
+      baseTitle: "Saved",
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v2",
@@ -166,24 +341,23 @@ describe("Page draft recovery", () => {
       editGeneration: 4,
     };
     await act(async () => render());
-    expect(state.update).toHaveBeenCalledWith(
+    expect(state.resolve).toHaveBeenCalledWith(
       expect.objectContaining({
-        baseUpdatedAt: "v2",
-        editorSessionId: "tab:page",
-        editorEditGeneration: 5,
-        baseRevision: "saved-body-revision",
-        authoredBaseRevision: "saved-body-revision",
-        authoredBaseContent: "Saved body",
-        authoredCandidateContent: "Draft body",
-        browserSaveAttemptId: expect.any(String),
+        choice: "keep_mine",
+        expectedDraftVersion: 3,
+        expectedDraftBaseTitle: "Saved",
+        expectedDocumentTitle: "Saved",
+        expectedDocumentUpdatedAt: "v2",
+        expectedDraftContent: "Draft body",
       }),
     );
-    expect(state.resolve).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
   });
 
   it("keeps an identified draft pending when its write requires preservation", async () => {
     state.draft = {
       title: "Draft",
+      baseTitle: "Saved",
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v2",
@@ -192,11 +366,9 @@ describe("Page draft recovery", () => {
       editorSessionId: "tab:page",
       editGeneration: 4,
     };
-    state.update.mockResolvedValue({
-      preservationRequired: true,
+    state.resolve.mockResolvedValue({
+      status: "document_conflict",
       document: page,
-      reason: "structure",
-      checkpointId: "checkpoint",
     });
 
     await act(async () => render());
@@ -211,6 +383,7 @@ describe("Page draft recovery", () => {
   it("does not reopen recovery when Use saved already superseded the draft generation", async () => {
     state.draft = {
       title: "Draft",
+      baseTitle: "Saved",
       content: "Discarded draft body",
       version: 3,
       baseDocumentUpdatedAt: "v2",
@@ -230,8 +403,10 @@ describe("Page draft recovery", () => {
 
     await act(async () => render());
 
-    expect(state.update).toHaveBeenCalledTimes(1);
-    expect(state.resolve).not.toHaveBeenCalled();
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "keep_mine" }),
+    );
+    expect(state.update).not.toHaveBeenCalled();
     expect(state.refetch).toHaveBeenCalled();
     expect(
       container.querySelector('[data-testid="recovery-comparison"]'),
@@ -241,6 +416,7 @@ describe("Page draft recovery", () => {
   it("preserves an unrebased newer-base draft in History without showing a conflict", async () => {
     state.draft = {
       title: "Draft",
+      baseTitle: "Saved",
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v1",
@@ -252,10 +428,13 @@ describe("Page draft recovery", () => {
     expect(state.update).not.toHaveBeenCalled();
     expect(state.resolve).toHaveBeenCalledWith({
       choice: "use_saved",
+      trigger: "automatic",
       documentId: "page",
       expectedDraftVersion: 3,
       expectedDraftTitle: "Draft",
       expectedDraftContent: "Draft body",
+      expectedDraftBaseTitle: "Saved",
+      expectedDocumentTitle: "Saved",
       expectedDocumentUpdatedAt: "v2",
     });
     expect(
@@ -274,6 +453,7 @@ describe("Page draft recovery", () => {
     async (_case, baseContentHash) => {
       state.draft = {
         title: "Draft",
+        baseTitle: "Saved",
         content: "Draft body",
         version: 3,
         baseDocumentUpdatedAt: "v2",
@@ -294,9 +474,10 @@ describe("Page draft recovery", () => {
     },
   );
 
-  it("discards a newer-base draft the saved page already holds", async () => {
+  it("resolves a held draft through the automatic server permission boundary", async () => {
     state.draft = {
       title: "Saved",
+      baseTitle: "Saved",
       content: "Saved body",
       version: 3,
       baseDocumentUpdatedAt: "v1",
@@ -305,24 +486,24 @@ describe("Page draft recovery", () => {
       editGeneration: 4,
     };
     await act(async () => render());
-    expect(state.resolve).not.toHaveBeenCalled();
-    expect(state.update).not.toHaveBeenCalled();
-    expect(state.remove).toHaveBeenCalledWith(
+    expect(state.resolve).toHaveBeenCalledWith(
       expect.objectContaining({
-        operation: "delete",
-        expectedVersion: 3,
-        expectedContent: "Saved body",
-        ifPageHoldsDraft: true,
+        choice: "keep_mine",
+        trigger: "automatic",
+        expectedDraftVersion: 3,
       }),
     );
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.remove).not.toHaveBeenCalled();
     expect(
       container.querySelector('[data-testid="recovery-comparison"]'),
     ).toBeNull();
   });
 
-  it("keeps a draft the page held when the stored page moves before the delete", async () => {
+  it("keeps a held draft visible when the server requires a recovery choice", async () => {
     state.draft = {
       title: "Saved",
+      baseTitle: "Saved",
       content: "Saved body",
       version: 3,
       baseDocumentUpdatedAt: "v1",
@@ -330,20 +511,26 @@ describe("Page draft recovery", () => {
       editorSessionId: "tab:page",
       editGeneration: 4,
     };
-    state.remove.mockResolvedValue({ status: "conflict", draft: state.draft });
+    state.resolve.mockResolvedValue({
+      status: "recovery_required",
+      reason: "prior_choice",
+      choice: "save_separately",
+      document: page,
+    });
     await act(async () => render());
-    expect(state.remove).toHaveBeenCalledWith(
-      expect.objectContaining({ ifPageHoldsDraft: true }),
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "keep_mine", trigger: "automatic" }),
     );
-    expect(state.refetch).toHaveBeenCalled();
+    expect(state.remove).not.toHaveBeenCalled();
     expect(
       container.querySelector('[data-testid="recovery-comparison"]'),
-    ).toBeNull();
+    ).not.toBeNull();
   });
 
-  it("discards a draft instead of offering it beside a newer page that holds it", async () => {
+  it("preserves a draft when automatic archival sees an unreviewed version that holds its text", async () => {
     state.draft = {
       title: "Saved",
+      baseTitle: "Saved",
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v1",
@@ -357,23 +544,34 @@ describe("Page draft recovery", () => {
     });
     await act(async () => render());
     expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "use_saved" }),
+      expect.objectContaining({ choice: "use_saved", trigger: "automatic" }),
     );
-    expect(state.remove).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operation: "delete",
-        expectedVersion: 3,
-        ifPageHoldsDraft: true,
-      }),
-    );
+    expect(state.remove).not.toHaveBeenCalled();
     expect(
       container.querySelector('[data-testid="recovery-comparison"]'),
-    ).toBeNull();
+    ).not.toBeNull();
+    state.resolve.mockResolvedValue({
+      status: "resolved",
+      choice: "use_saved",
+    });
+    await act(async () =>
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "Use saved")
+        ?.click(),
+    );
+    expect(state.resolve).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        choice: "use_saved",
+        trigger: "reviewed",
+        expectedDocumentUpdatedAt: "v3",
+      }),
+    );
   });
 
   it("moves a legacy draft to History without blocking the editor", async () => {
     state.draft = {
       title: "Legacy draft",
+      baseTitle: "Saved",
       content: "Legacy body",
       version: 7,
       baseDocumentUpdatedAt: "v1",
@@ -384,10 +582,13 @@ describe("Page draft recovery", () => {
     await act(async () => render());
     expect(state.resolve).toHaveBeenCalledWith({
       choice: "use_saved",
+      trigger: "automatic",
       documentId: "page",
       expectedDraftVersion: 7,
       expectedDraftTitle: "Legacy draft",
       expectedDraftContent: "Legacy body",
+      expectedDraftBaseTitle: "Saved",
+      expectedDocumentTitle: "Saved",
       expectedDocumentUpdatedAt: "v2",
     });
     expect(container.querySelector("textarea")).not.toBeNull();
@@ -397,6 +598,7 @@ describe("Page draft recovery", () => {
   it("keeps a failed legacy draft pending", async () => {
     state.draft = {
       title: "Legacy draft",
+      baseTitle: "Saved",
       content: "Legacy body",
       version: 7,
       baseDocumentUpdatedAt: null,

@@ -897,6 +897,8 @@ const rawLiterals = {
     previewDraftMoreOptions: "Weitere Optionen",
     previewDraftViewFullVersions: "Vollständige Versionen anzeigen",
     previewDraftShowChanges: "Änderungen anzeigen",
+    previewDraftTitleUnknown:
+      "Der ursprüngliche Titel dieses Entwurfs ist unbekannt. Verwende die gespeicherte Seite oder speichere den Entwurf separat.",
     previewDraftConflict:
       "Dieser Entwurf steht im Konflikt mit einer neueren Seitenversion. Er wurde nicht wiederhergestellt.",
     restorePreviewDraft: "Entwurf wiederherstellen",

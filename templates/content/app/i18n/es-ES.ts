@@ -1013,6 +1013,8 @@ const rawLiterals = {
     previewDraftMoreOptions: "Más opciones",
     previewDraftViewFullVersions: "Ver versiones completas",
     previewDraftShowChanges: "Mostrar cambios",
+    previewDraftTitleUnknown:
+      "Se desconoce el título original de este borrador. Usa la página guardada o guarda el borrador por separado.",
     previewDraftConflict:
       "Este borrador entra en conflicto con una versión más reciente de la página. No se restauró.",
     restorePreviewDraft: "Restaurar borrador",
