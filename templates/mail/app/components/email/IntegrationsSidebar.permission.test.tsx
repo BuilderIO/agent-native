@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
     "mail.integrations.gongDescription": "Gong calls and deals",
     "mail.integrations.gongAccessCheckFailed":
       "Couldn't check whether you can connect to Gong.",
+    "mail.integrations.connect": "Connect",
+    "mail.integrations.updateKey": "Update key",
+    "mail.integrations.disconnect": "Disconnect",
+    "mail.toolbar.settings": "Settings",
     "mail.error.tryAgain": "Try again",
     "mail.error.retrying": "Retrying...",
   } as Record<string, string>,
@@ -55,6 +59,27 @@ vi.mock("@/components/ui/popover", () => ({
   PopoverContent: () => null,
 }));
 
+vi.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuContent: ({ children }: { children: ReactNode }) => (
+    <div role="menu">{children}</div>
+  ),
+  DropdownMenuItem: ({
+    children,
+    onClick,
+  }: {
+    children: ReactNode;
+    onClick?: () => void;
+  }) => (
+    <button role="menuitem" onClick={onClick}>
+      {children}
+    </button>
+  ),
+}));
+
 vi.mock("@/hooks/use-integrations", () => ({
   useAllIntegrations: () => mocks.statuses,
   useIntegration: () => ({
@@ -62,7 +87,7 @@ vi.mock("@/hooks/use-integrations", () => ({
     disconnect: { mutate: vi.fn() },
   }),
   useHubSpotContact: vi.fn(),
-  useGongCalls: vi.fn(),
+  useGongCalls: () => ({ data: [], isLoading: false, error: null }),
   usePylonContact: vi.fn(),
   isAuthError: () => false,
 }));
@@ -87,6 +112,7 @@ function renderSidebar() {
 
 afterEach(() => {
   cleanup();
+  mocks.statuses.gong = false;
   vi.clearAllMocks();
 });
 
@@ -127,5 +153,24 @@ describe("Gong permission lookup in the integrations sidebar", () => {
 
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText("Gong calls and deals")).toBeNull();
+  });
+
+  it("keeps legacy key controls for a member without org setup permission", () => {
+    mocks.mcpServersQuery = {
+      data: { user: [], org: [], orgId: "org-1", role: "member" },
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    };
+    mocks.statuses.gong = true;
+
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: /Integrations/ }));
+
+    expect(screen.getByText("Gong calls and deals")).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Update key" })).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Disconnect" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Connect" })).toBeNull();
   });
 });

@@ -309,6 +309,7 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
       onRetry={() => void mcpServersQuery.refetch()}
     />
   ) : null;
+  const showGong = canManageGong || statuses.gong;
 
   if (configuring) {
     const def = INTEGRATIONS.find((i) => i.id === configuring)!;
@@ -321,11 +322,10 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
     const connectedCount = [
       statuses.apollo,
       statuses.hubspot,
-      canManageGong && (statuses.gong || gongConnected),
+      statuses.gong || (canManageGong && gongConnected),
       statuses.pylon,
     ].filter(Boolean).length;
-    const visibleIntegrationCount =
-      INTEGRATIONS.length - Number(!canManageGong);
+    const visibleIntegrationCount = INTEGRATIONS.length - Number(!showGong);
     return (
       <div className="px-4 py-2">
         {gongPermissionError}
@@ -356,7 +356,7 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
         </button>
       </div>
       <div className="space-y-1.5">
-        {INTEGRATIONS.filter((def) => def.id !== "gong" || canManageGong).map(
+        {INTEGRATIONS.filter((def) => def.id !== "gong" || showGong).map(
           (def) => {
             const connected =
               def.id === "gong"
@@ -369,6 +369,7 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
                 connected={connected}
                 mcpConnected={def.id === "gong" && gongConnected}
                 legacyConnected={def.id === "gong" && statuses.gong}
+                canManageMcpSetup={def.id !== "gong" || canManageGong}
                 onConfigure={() => {
                   if (def.id === "gong") setGongDialogOpen(true);
                   else setConfiguring(def.id);
@@ -539,6 +540,7 @@ function IntegrationRow({
   connected,
   mcpConnected = false,
   legacyConnected = false,
+  canManageMcpSetup = true,
   onConfigure,
   onLegacyConfigure,
 }: {
@@ -546,6 +548,7 @@ function IntegrationRow({
   connected: boolean;
   mcpConnected?: boolean;
   legacyConnected?: boolean;
+  canManageMcpSetup?: boolean;
   onConfigure: () => void;
   onLegacyConfigure?: () => void;
 }) {
@@ -585,14 +588,16 @@ function IntegrationRow({
             <DropdownMenuContent align="end" className="w-36">
               {def.id === "gong" ? (
                 <>
-                  <DropdownMenuItem
-                    onClick={onConfigure}
-                    className="text-[12px] text-foreground/70"
-                  >
-                    {mcpConnected
-                      ? t("mail.toolbar.settings")
-                      : t("mail.integrations.connect")}
-                  </DropdownMenuItem>
+                  {canManageMcpSetup && (
+                    <DropdownMenuItem
+                      onClick={onConfigure}
+                      className="text-[12px] text-foreground/70"
+                    >
+                      {mcpConnected
+                        ? t("mail.toolbar.settings")
+                        : t("mail.integrations.connect")}
+                    </DropdownMenuItem>
+                  )}
                   {legacyConnected && (
                     <>
                       <DropdownMenuItem
